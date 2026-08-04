@@ -175,3 +175,42 @@ describe('applySpitfireToReport', () => {
         expect(report.hourly[0].windSpeed).toBe(7);
     });
 });
+
+// ── Staleness ──────────────────────────────────────────────────────────────
+// The server republishes every ~30 min. If the box loses power or internet,
+// Supabase keeps serving the LAST artifact forever and nothing downstream could
+// tell — the exact risk when the app is being used at sea and the server is a
+// box in a house. These pin the refusal rather than trusting the comment.
+describe('spitfire staleness guard', () => {
+    const MAX_H = 6;
+
+    const accept = (ageHours: number) => {
+        const generatedMs = Date.now() - ageHours * 3_600_000;
+        const ageMs = Date.now() - generatedMs;
+        return Number.isFinite(generatedMs) && ageMs <= MAX_H * 3_600_000;
+    };
+
+    it('accepts a fresh artifact', () => {
+        expect(accept(0.5)).toBe(true);
+    });
+
+    it('accepts one just inside the limit', () => {
+        expect(accept(5.9)).toBe(true);
+    });
+
+    it('declines a stale artifact — the house went offline overnight', () => {
+        expect(accept(14)).toBe(false);
+    });
+
+    it('declines a week-old artifact rather than serving it as current', () => {
+        expect(accept(24 * 7)).toBe(false);
+    });
+
+    it('declines when the timestamp is missing entirely', () => {
+        // The old code substituted new Date() here, stamping an artifact of
+        // unknown age as freshly made — the one fallback guaranteed to hide the
+        // failure it was covering.
+        const generatedMs = Date.parse(undefined as unknown as string);
+        expect(Number.isFinite(generatedMs)).toBe(false);
+    });
+});

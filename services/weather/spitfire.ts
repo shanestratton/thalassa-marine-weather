@@ -104,6 +104,8 @@ export interface SpitfireConsensus {
 }
 
 export interface SpitfireLocation {
+    /** Age of the artifact when it was accepted, so callers can surface it. */
+    ageHours?: number;
     slug: string;
     name: string;
     lat: number;
@@ -154,6 +156,21 @@ async function fetchArtifact(): Promise<unknown> {
 const numOrNull = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 
 /**
+ * How old the artifact may be before SPITFIRE declines to answer.
+ *
+ * The server republishes every ~30 minutes. If the box loses power or its
+ * internet — a real risk for a home server backing a boat at sea — Supabase
+ * keeps serving the LAST file indefinitely, and nothing downstream could tell.
+ * Six hours is generous enough to ride out a reboot or an ISP blip, and short
+ * enough that nobody plans a passage on yesterday's blend.
+ *
+ * Declining is the right failure: the app falls through to the commercial API,
+ * which is live. A slightly less tuned forecast that is CURRENT beats a
+ * better-tuned one that is a day old.
+ */
+const MAX_ARTIFACT_AGE_MS = 6 * 60 * 60 * 1000;
+
+/**
  * Fetch SPITFIRE for these coordinates, or null when it isn't published for
  * anywhere near them (or the artifact is unreachable). Never throws.
  */
@@ -172,6 +189,27 @@ export async function fetchSpitfire(lat: number | null, lon: number | null): Pro
             log.warn(`SPITFIRE artifact has no consensus for ${loc.slug}`);
             return null;
         }
+
+        // STALENESS. `generated_at` used to fall back to new Date(), which
+        // stamped an artifact of unknown age as though it had just been made —
+        // the one substitution guaranteed to hide the failure it was covering.
+        // A missing timestamp is now a refusal, not a fresh one.
+        const stamp = doc?.generated_at as string | undefined;
+        const generatedMs = stamp ? Date.parse(stamp) : NaN;
+        if (!Number.isFinite(generatedMs)) {
+            log.warn('SPITFIRE artifact has no usable generated_at — declining');
+            return null;
+        }
+        const ageMs = Date.now() - generatedMs;
+        if (ageMs > MAX_ARTIFACT_AGE_MS) {
+            log.warn(
+                `SPITFIRE artifact is ${(ageMs / 3_600_000).toFixed(1)} h old ` +
+                    `(limit ${MAX_ARTIFACT_AGE_MS / 3_600_000} h) — declining, ` +
+                    'falling through to the live commercial API',
+            );
+            return null;
+        }
+
         return {
             slug: loc.slug,
             name: (entry?.name as string) || loc.name,
@@ -179,7 +217,8 @@ export async function fetchSpitfire(lat: number | null, lon: number | null): Pro
             lon: numOrNull(entry?.lon) ?? loc.lon,
             tz: (entry?.tz as string) || 'UTC',
             consensus,
-            generatedAt: (doc?.generated_at as string) || new Date().toISOString(),
+            generatedAt: stamp,
+            ageHours: ageMs / 3_600_000,
         };
     } catch (e) {
         log.warn('SPITFIRE fetch failed:', (e as Error)?.message || e);
