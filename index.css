@@ -3203,3 +3203,24 @@ body.app-backgrounded *::after {
     animation: none !important;
     transition: none !important;
 }
+
+/* ── Animation diet (2026-08-04 renderer kills) ──────────────────────
+   Toggled by utils/animationBudget.ts when the LIVE compositor-animation
+   count crosses its budget. Every accelerated animation sends an
+   AcceleratedAnimationDidStart message on creation, and WebKit kills the
+   WebContent process at 129 queued. Decorative motion is shed here so the
+   page stays under the ceiling; genuine loading spinners are deliberately
+   spared, because a frozen spinner reads as a hung app. Self-releasing —
+   the class is removed once the count falls well below budget. */
+body.animation-diet .animate-pulse,
+body.animation-diet .animate-ping,
+body.animation-diet .animate-bounce,
+body.animation-diet .stagger-in > *,
+body.animation-diet .shimmer,
+body.animation-diet [class*='animate-in'],
+body.animation-diet [class*='fade-in'],
+body.animation-diet [class*='slide-in'] {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+}
