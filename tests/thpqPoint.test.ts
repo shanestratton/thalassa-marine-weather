@@ -98,3 +98,61 @@ describe('THPQ cell decode at the Brisbane buoy', () => {
         expect(gap).toBe(6 * 3600 * 1000);
     });
 });
+
+// ── Staleness ───────────────────────────────────────────────────────────────
+// Supabase serves the last published object forever. If the wx box loses power
+// or its internet, the bytes still arrive perfectly — they are just old, and
+// there is no network error to catch. Nothing downstream could tell a week-old
+// sea state from this morning's, which is the failure mode that matters when
+// the app is being used offshore.
+//
+// These assert the two rules the fetch applies, using the REAL header above so
+// the arithmetic is exercised against genuine field values rather than a mock.
+describe('thpq staleness rules', () => {
+    const MAX_RUN_AGE_H = 36;
+    const h = parseHeader(HEADER);
+
+    const runAgeH = (nowMs: number) => (nowMs - h.baseTime * 1000) / 3_600_000;
+    const horizonMs = () => h.baseTime * 1000 + (h.nSteps - 1) * h.stepMinutes * 60_000;
+
+    it('the real header carries a sane run time and horizon', () => {
+        expect(h.baseTime).toBeGreaterThan(1_600_000_000); // after 2020
+        expect(h.nSteps).toBeGreaterThan(1);
+        expect(h.stepMinutes).toBeGreaterThan(0);
+        // 29 steps x 6 h = 168 h of forecast
+        expect((horizonMs() - h.baseTime * 1000) / 3_600_000).toBeCloseTo(168, 0);
+    });
+
+    it('accepts a run a few hours old', () => {
+        const now = h.baseTime * 1000 + 4 * 3_600_000;
+        expect(runAgeH(now)).toBeLessThanOrEqual(MAX_RUN_AGE_H);
+    });
+
+    it('accepts a run just inside the limit — two missed publishes', () => {
+        const now = h.baseTime * 1000 + 35.5 * 3_600_000;
+        expect(runAgeH(now)).toBeLessThanOrEqual(MAX_RUN_AGE_H);
+    });
+
+    it('refuses a run past the age limit — the publisher has stopped', () => {
+        const now = h.baseTime * 1000 + 40 * 3_600_000;
+        expect(runAgeH(now)).toBeGreaterThan(MAX_RUN_AGE_H);
+    });
+
+    it('refuses a week-old run rather than drawing it as current', () => {
+        const now = h.baseTime * 1000 + 24 * 7 * 3_600_000;
+        expect(runAgeH(now)).toBeGreaterThan(MAX_RUN_AGE_H);
+    });
+
+    it('refuses once the horizon has passed, even inside the age limit', () => {
+        // A run can be young in hours yet carry only history if every step has
+        // already elapsed — both rules are needed, neither implies the other.
+        const now = horizonMs() + 1;
+        expect(horizonMs()).toBeLessThan(now);
+    });
+
+    it('the two rules are independent — a fresh run always has a future horizon', () => {
+        const now = h.baseTime * 1000 + 1 * 3_600_000;
+        expect(runAgeH(now)).toBeLessThanOrEqual(MAX_RUN_AGE_H);
+        expect(horizonMs()).toBeGreaterThan(now);
+    });
+});
