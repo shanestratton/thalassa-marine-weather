@@ -456,7 +456,13 @@ export const LegPickerDropdown: React.FC<LegPickerDropdownProps> = ({
         // VoyageLegService is localStorage-backed and silent — poll
         // every 5s so a Depart-Next-Leg / Arrive-at-Port action in
         // CastOffPanel reflects without a route planner remount.
-        const t = setInterval(refresh, 5_000);
+        // Skipped while hidden: a backgrounded poll's setState re-renders
+        // restart animations into an IPC queue nothing is draining (the
+        // 2026-08-04 renderer kill).
+        const t = setInterval(() => {
+            if (document.hidden) return;
+            refresh();
+        }, 5_000);
         return () => {
             window.removeEventListener('thalassa:active-voyage-changed', activeChanged);
             window.removeEventListener('thalassa:passage-plan-saved', planSaved);

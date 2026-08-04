@@ -239,6 +239,42 @@ export function useAppBootstrap() {
         };
     }, [identityScope, setPage]);
 
+    // ── Freeze all animation while backgrounded ────────────────────
+    // Shane's 2026-08-04 crash logs: 28 minutes of "markAllLayersVolatile:
+    // Failed" while the app sat backgrounded at anchor with the tracker
+    // running, then the renderer killed with 129 queued
+    // DrawingArea_AcceleratedAnimationDidStart messages — and the fresh
+    // renderer flooded again within seconds. A backgrounded WKWebView cannot
+    // drain its IPC queue, so every pulse/spinner/shimmer/entrance animation
+    // that (re)starts while hidden accumulates until iOS shoots the process.
+    // Pausing ALL CSS animation while hidden is invisible to the user and
+    // lets WebKit actually quiesce the page. CSS rule lives in index.css
+    // under `body.app-backgrounded`.
+    useEffect(() => {
+        const apply = (hidden: boolean) => {
+            document.body.classList.toggle('app-backgrounded', hidden);
+        };
+        const onVisibility = () => apply(document.hidden);
+        document.addEventListener('visibilitychange', onVisibility);
+        apply(document.hidden);
+        let active = true;
+        let listener: { remove: () => void } | null = null;
+        import('@capacitor/app')
+            .then(({ App }) =>
+                App.addListener('appStateChange', ({ isActive }) => apply(!isActive)).then((l) => {
+                    if (active) listener = l;
+                    else l.remove();
+                }),
+            )
+            .catch(() => {});
+        return () => {
+            active = false;
+            document.removeEventListener('visibilitychange', onVisibility);
+            listener?.remove();
+            document.body.classList.remove('app-backgrounded');
+        };
+    }, []);
+
     // ── Clear badge on foreground ──────────────────────────────────
     useEffect(() => {
         let active = true;
