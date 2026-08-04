@@ -30,6 +30,12 @@ interface ImportMetaEnv {
      *  gated pages (Galley / Marketplace / Diary etc.) render normally
      *  without needing to juggle subscription tier in dev tools. */
     readonly VITE_GRANT_ALL_FEATURES: string;
+    /** Explicit development/test/demo-only opt-in for the bundled Savannah
+     * ENC preview. Production code rejects the flag even when set. */
+    readonly VITE_ENABLE_ENC_DEMO_SAMPLES?: string;
+    /** Compile-time release gate for native Sign in with Apple. Keep unset or
+     *  false until the complete server-side token lifecycle is live. */
+    readonly VITE_APPLE_SIGN_IN_ENABLED?: string;
     /** Cloudflare Worker URL for the Deepgram WebSocket proxy.
      *  e.g. https://thalassa-deepgram-proxy.thalassacalypso.workers.dev */
     readonly VITE_DEEPGRAM_PROXY_URL: string;
