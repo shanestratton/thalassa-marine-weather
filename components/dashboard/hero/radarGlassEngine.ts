@@ -25,6 +25,7 @@ import { getAuthenticatedFunctionHeaders } from '../../../services/supabaseAuth'
 import { buildRainViewerTileUrl } from '../../../services/weather/api/rainviewerTiles';
 import { fetchRainviewerIndex } from '../../../services/weather/api/rainviewerIndex';
 import { createLogger } from '../../../utils/createLogger';
+import { registerDetachedCanvasAccountant } from '../../../utils/animationBudget';
 
 const log = createLogger('RadarGlass');
 
@@ -37,7 +38,11 @@ const WORLD_TILE = 256;
 const PAST_WINDOW_SEC = 90 * 60;
 /** Rainbow forecast steps: 10-min out to +2 h, then 30-min out to +4 h. */
 const FORECAST_SECS: number[] = [...Array.from({ length: 12 }, (_, i) => (i + 1) * 600), 9000, 10800, 12600, 14400];
-const MAX_FRAME_CANVASES = 36;
+// 20, down from 36 (2026-08-04): frame canvases are detached, UNPURGEABLE
+// backing store (~600KB each at card size) in an app that already lives near
+// the WKWebView memory ceiling. 20 covers the visible timeline comfortably;
+// deeper scrubs refetch from the (cheap, cached) tile layer.
+const MAX_FRAME_CANVASES = 20;
 const SNAPSHOT_TTL_MS = 4 * 60 * 1000;
 
 // ── View geometry ─────────────────────────────────────────────
@@ -356,6 +361,14 @@ async function fetchTileDrawable(
 /** Composited frames, LRU-capped. Keyed by frame id + grid signature. */
 const frameCanvasCache = new Map<string, HTMLCanvasElement>();
 const framesInflight = new Map<string, Promise<boolean>>();
+
+// These canvases live OUTSIDE the DOM, invisible to the page-health guard's
+// document query — report them so the device log carries the true total.
+registerDetachedCanvasAccountant('radar-frames', () => {
+    let bytes = 0;
+    for (const canvas of frameCanvasCache.values()) bytes += canvas.width * canvas.height * 4;
+    return { count: frameCanvasCache.size, bytes };
+});
 
 function frameCacheKey(frame: RadarFrame, view: RadarView): string {
     return `${frame.id}|${view.key}`;
