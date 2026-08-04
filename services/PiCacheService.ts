@@ -16,8 +16,21 @@ import { LocationStore } from '../stores/LocationStore';
 import { resolveHostnameIpv4 } from '../utils/resolveHostnameIpv4';
 import { withDeadline } from '../utils/deadline';
 import { createLogger } from '../utils/createLogger';
+import {
+    getPairing,
+    fetchPairInfo,
+    verifyPairedPi,
+    markHostPairable,
+    isLegacyPlainConnectionAllowed,
+    type PairInfo,
+} from './PiPairingService';
 
 const log = createLogger('PiCacheService');
+
+/** Events the pairing UI subscribes to — see onPairingEvent(). */
+export type PiPairingEvent =
+    | { type: 'pairable-found'; host: string; baseUrl: string; info: PairInfo }
+    | { type: 'identity-failed'; host: string };
 
 // ── Types ──
 
@@ -98,6 +111,11 @@ class PiCacheServiceImpl {
     private healthCheckInterval: ReturnType<typeof setInterval> | null = null;
     private retryBurstTimer: ReturnType<typeof setTimeout> | null = null;
     private discoveryListeners: Array<(status: PiCacheStatus) => void> = [];
+    private pairingListeners: Array<(event: PiPairingEvent) => void> = [];
+    /** Throttle for the pairable-found event so the tab isn't re-prompted every health tick. */
+    private lastPairableEmitAt = 0;
+    /** Timer for the polite background discovery that replaced the manual toggle. */
+    private autoDiscoverTimer: ReturnType<typeof setTimeout> | null = null;
     private locationUnsub: (() => void) | null = null;
     private foregroundListenersInstalled = false;
 
@@ -260,8 +278,25 @@ class PiCacheServiceImpl {
             /* exotic environment — persisted config stands */
         }
 
+        // Paired boats need no toggle: the pairing record IS the enable. It
+        // also outranks stale persisted hosts — identity follows the key,
+        // and checkHealth re-verifies it against whatever answers.
+        const pairing = getPairing();
+        if (pairing) {
+            enabled = true;
+            if (!host) host = pairing.host;
+        }
+
         if (enabled) {
             this.configure({ enabled: true, host, port });
+        } else {
+            // Nothing configured and nothing paired — the zero-config path.
+            // A single polite hostname-list sweep (never the subnet scan),
+            // delayed clear of the boot window and throttled hard, because
+            // for most users there is no Pi and this is pure background
+            // noise. A hit doesn't connect — the identity gate turns it
+            // into a pairing card instead.
+            this.scheduleAutoDiscovery();
         }
 
         // App-foreground / network-online listeners are installed once at boot
@@ -271,6 +306,38 @@ class PiCacheServiceImpl {
         // expects the pi-cache pill to be live immediately rather than waiting
         // up to 30s for the next health-check tick.
         this.installForegroundListeners();
+    }
+
+    /** Minimum gap between unattended discovery sweeps when no Pi is known. */
+    private static readonly AUTO_DISCOVER_MIN_INTERVAL_MS = 6 * 3600 * 1000;
+    private static readonly AUTO_DISCOVER_LAST_KEY = 'thalassa_pi_autodiscover_last';
+
+    private scheduleAutoDiscovery(): void {
+        if (this.autoDiscoverTimer) return;
+        this.autoDiscoverTimer = setTimeout(() => {
+            this.autoDiscoverTimer = null;
+            void this.politeAutoDiscover();
+        }, 15_000); // clear of the boot window — same reasoning as autoSyncFromPi's deferral
+    }
+
+    private async politeAutoDiscover(): Promise<void> {
+        if (this.config.enabled) return; // something configured meanwhile
+        if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
+        try {
+            const last = Number(localStorage.getItem(PiCacheServiceImpl.AUTO_DISCOVER_LAST_KEY) ?? 0);
+            if (Date.now() - last < PiCacheServiceImpl.AUTO_DISCOVER_MIN_INTERVAL_MS) return;
+            localStorage.setItem(PiCacheServiceImpl.AUTO_DISCOVER_LAST_KEY, String(Date.now()));
+        } catch {
+            /* private mode — run anyway; the per-boot timer still bounds it */
+        }
+        log.info('no Pi paired or configured — running one background discovery sweep');
+        // discover() probes the fixed hostname list only. A found-but-unpaired
+        // Pi comes back through the identity gate as a pairable-found event.
+        this.config.enabled = true; // discovery needs the machinery on…
+        const status = await this.discover();
+        if (!status.reachable && !getPairing()) {
+            this.config.enabled = false; // …but a miss returns us to dormant
+        }
     }
 
     private installForegroundListeners(): void {
@@ -315,6 +382,16 @@ class PiCacheServiceImpl {
             this.resolveReady();
             this._firstCheckDone = null;
         }
+    }
+
+    /**
+     * Called by the pairing UI right after a successful pairWithPi() — brings
+     * the newly paired Pi online immediately instead of waiting for the next
+     * discovery cycle.
+     */
+    adoptPairing(host: string): void {
+        this.configure({ enabled: true, host });
+        void this.ping();
     }
 
     /** Get the current Pi Cache status. */
@@ -470,8 +547,11 @@ class PiCacheServiceImpl {
                         log.info(`Resolved ${host} → ${ipv4} for pi-cache connections`);
                     }
                     this.config.host = effectiveHost;
+                    // NOT reachable yet — checkHealth() below re-probes and
+                    // runs the identity gate; nothing may treat a host as
+                    // "the Pi" on a bare /health hit.
                     this.status = {
-                        reachable: true,
+                        reachable: false,
                         lastCheck: Date.now(),
                         latencyMs: Date.now() - start,
                         discoveredVia: effectiveHost,
@@ -504,6 +584,69 @@ class PiCacheServiceImpl {
         this.status = { reachable: false, lastCheck: Date.now(), latencyMs: 0 };
         this.resolveReady();
         return this.status;
+    }
+
+    /**
+     * The identity gate every reachable-looking responder must pass.
+     *
+     *  paired          → challenge with a fresh nonce; the pinned key must
+     *                    sign it. Runs on every health tick, so a mid-session
+     *                    host takeover is caught within ~30 s.
+     *  unpaired, offers pairing
+     *                  → never auto-connect; surface the pairing card and
+     *                    remember the host so plain mode can't come back.
+     *  unpaired, no pairing support
+     *                  → legacy grace, only while nothing was ever pairable
+     *                    (isLegacyPlainConnectionAllowed) — an attacker can't
+     *                    reopen it by hiding the endpoints.
+     */
+    private async passesIdentityGate(): Promise<boolean> {
+        const host = this.config.host;
+        const pairing = getPairing();
+        if (pairing) {
+            const ok = await verifyPairedPi(this.baseUrl, pairing);
+            if (!ok) {
+                log.warn(
+                    `identity check FAILED for ${host} — refusing: responder does not hold the key paired for "${pairing.boatName}"`,
+                );
+                this.emitPairing({ type: 'identity-failed', host });
+            }
+            return ok;
+        }
+
+        const info = await fetchPairInfo(this.baseUrl);
+        if (info) {
+            markHostPairable(host);
+            const now = Date.now();
+            if (now - this.lastPairableEmitAt > 5 * 60 * 1000) {
+                this.lastPairableEmitAt = now;
+                this.emitPairing({ type: 'pairable-found', host, baseUrl: this.baseUrl, info });
+            }
+            log.info(`pairable Pi "${info.boatName}" at ${host} — blocked until the skipper pairs`);
+            return false;
+        }
+
+        if (isLegacyPlainConnectionAllowed(host)) return true;
+        log.warn(`refusing plain connection to ${host} — pairing exists or this host once offered pairing`);
+        return false;
+    }
+
+    /** Subscribe to pairing lifecycle events (pairing card, identity warnings). */
+    onPairingEvent(listener: (event: PiPairingEvent) => void): () => void {
+        this.pairingListeners.push(listener);
+        return () => {
+            this.pairingListeners = this.pairingListeners.filter((l) => l !== listener);
+        };
+    }
+
+    private emitPairing(event: PiPairingEvent): void {
+        for (const listener of this.pairingListeners) {
+            try {
+                listener(event);
+            } catch {
+                /* listener errors must not break health checks */
+            }
+        }
     }
 
     /**
@@ -562,10 +705,18 @@ class PiCacheServiceImpl {
                 data = await res.json();
             }
 
+            // A healthy /status is necessary but no longer sufficient: the
+            // responder must also pass the identity gate (pinned-key
+            // challenge when paired; pairing offer or legacy grace when not)
+            // before anything in the app treats it as "the Pi". See
+            // PiPairingService for the threat model.
+            const rawOk = data?.status === 'ok';
+            const identityOk = rawOk ? await this.passesIdentityGate() : false;
+
             const wasReachable = this.status.reachable;
             this.status = {
                 ...this.status,
-                reachable: data?.status === 'ok',
+                reachable: rawOk && identityOk,
                 lastCheck: Date.now(),
                 latencyMs: Date.now() - start,
                 cacheStats: data?.cache as PiCacheStatus['cacheStats'],

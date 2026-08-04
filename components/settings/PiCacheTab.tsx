@@ -22,7 +22,14 @@ import {
     SparklesIcon,
     XIcon,
 } from '../Icons';
-import { piCache, type PiCacheStatus } from '../../services/PiCacheService';
+import { piCache, type PiCacheStatus, type PiPairingEvent } from '../../services/PiCacheService';
+import {
+    getPairing,
+    pairWithPi,
+    forgetPairing,
+    type PiPairingRecord,
+    type PairInfo,
+} from '../../services/PiPairingService';
 import { canAccess } from '../../services/SubscriptionService';
 import { LocationStore } from '../../stores/LocationStore';
 import {
@@ -64,6 +71,10 @@ const PHASE_DISPLAY: Record<ProvisionPhase, { Icon: React.FC<{ className?: strin
 export const PiCacheTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
     const [status, setStatus] = useState<PiCacheStatus | null>(null);
     const [discovering, setDiscovering] = useState(false);
+    const [pairing, setPairing] = useState<PiPairingRecord | null>(() => getPairing());
+    const [pairable, setPairable] = useState<{ host: string; baseUrl: string; info: PairInfo } | null>(null);
+    const [pairingBusy, setPairingBusy] = useState(false);
+    const [identityAlert, setIdentityAlert] = useState<string | null>(null);
     const [purging, setPurging] = useState(false);
     const [purgeResult, setPurgeResult] = useState<string | null>(null);
     const [showAdvanced, setShowAdvanced] = useState(false);
@@ -144,6 +155,48 @@ export const PiCacheTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => 
         return unsubscribe;
     }, [isEnabled]);
 
+    // Pairing lifecycle: a discovered-but-unpaired Pi raises the pairing card;
+    // a paired Pi that fails its identity challenge raises a warning banner.
+    useEffect(() => {
+        return piCache.onPairingEvent((event: PiPairingEvent) => {
+            if (event.type === 'pairable-found') {
+                setPairable({ host: event.host, baseUrl: event.baseUrl, info: event.info });
+            } else if (event.type === 'identity-failed') {
+                setIdentityAlert(event.host);
+            }
+        });
+    }, []);
+
+    const handlePair = useCallback(async () => {
+        if (!pairable) return;
+        triggerHaptic('light');
+        setPairingBusy(true);
+        try {
+            const record = await pairWithPi(pairable.baseUrl, pairable.host);
+            if (record) {
+                setPairing(record);
+                setPairable(null);
+                setIdentityAlert(null);
+                onSave({ piCacheEnabled: true, piCacheHost: pairable.host });
+                piCache.adoptPairing(pairable.host);
+            } else {
+                setIdentityAlert(pairable.host);
+            }
+        } finally {
+            setPairingBusy(false);
+        }
+    }, [pairable, onSave]);
+
+    const handleForget = useCallback(() => {
+        triggerHaptic('light');
+        forgetPairing();
+        setPairing(null);
+        setPairable(null);
+        setIdentityAlert(null);
+        onSave({ piCacheEnabled: false });
+        piCache.configure({ enabled: false });
+    }, [onSave]);
+
     /** Unified discovery: find Pi, probe all services, configure everything */
     const runUnifiedDiscovery = useCallback(
         async (preferredHost?: string) => {
@@ -191,17 +244,9 @@ export const PiCacheTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => 
         [authUserId, onSave, operationIsCurrent],
     );
 
-    // Auto-discover when toggle is enabled
-    const handleEnable = useCallback(
-        async (enabled: boolean) => {
-            onSave({ piCacheEnabled: enabled });
-            if (enabled) {
-                await runUnifiedDiscovery();
-            }
-        },
-        [onSave, runUnifiedDiscovery],
-    );
-
+    // Manual re-scan from the empty state. Discovery is otherwise automatic
+    // (PiCacheService.politeAutoDiscover); this is the "I'm on the boat WiFi
+    // now, look again" affordance.
     const handleScanAgain = useCallback(async () => {
         await runUnifiedDiscovery();
     }, [runUnifiedDiscovery]);
@@ -358,19 +403,118 @@ export const PiCacheTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => 
             </div>
 
             {/* Main toggle */}
-            <Section title="Connection">
-                <Row>
-                    <div className="flex-1">
-                        <label className="text-sm text-white font-medium block">Use Pi Cache</label>
-                        <p className="text-xs text-gray-400 mt-0.5">
-                            {visibleDiscovering ? 'Scanning your network...' : 'Route data through your Raspberry Pi'}
-                        </p>
+            <Section title="Boat Network">
+                {/* Identity warning — a paired Pi's key failed to verify. This
+                is the mDNS-spoof alarm: something is answering as your Pi but
+                can't prove it. */}
+                {identityAlert && (
+                    <div className="p-4">
+                        <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/30">
+                            <p className="text-xs font-bold text-red-300 mb-1">⚠ Couldn't verify your Pi</p>
+                            <p className="text-[11px] text-red-300/80 leading-relaxed">
+                                A device at <span className="font-mono">{identityAlert}</span> is answering as your Pi
+                                but couldn't prove it holds the paired key. It has been ignored. If you changed or
+                                reinstalled your Pi, forget it and pair again.
+                            </p>
+                        </div>
                     </div>
-                    <Toggle checked={isEnabled} onChange={handleEnable} label="Enable Pi Cache" />
-                </Row>
+                )}
 
-                {/* Discovery / status result */}
-                {isEnabled && (
+                {/* Pairing card — a Pi was found on the network but isn't paired
+                yet. One tap after checking the name and fingerprint. */}
+                {!pairing && pairable && (
+                    <div className="p-4">
+                        <div className="p-4 rounded-xl bg-sky-500/10 border border-sky-500/30 space-y-3">
+                            <div>
+                                <p className="text-sm font-bold text-sky-200">Found a Pi on your network</p>
+                                <p className="text-lg font-bold text-white mt-1">{pairable.info.boatName}</p>
+                                <p className="text-[11px] text-gray-400 font-mono mt-0.5">{pairable.host}</p>
+                            </div>
+                            <div className="p-2 rounded-lg bg-black/20 border border-white/5">
+                                <p className="text-[9px] text-gray-500 uppercase font-bold tracking-wider">
+                                    Security fingerprint
+                                </p>
+                                <p className="text-[11px] text-gray-300 font-mono mt-0.5 break-all">
+                                    {pairable.info.fingerprint}
+                                </p>
+                            </div>
+                            <p className="text-[11px] text-gray-400 leading-relaxed">
+                                Pair once to connect automatically from now on. Only pair if this is your boat's Pi.
+                            </p>
+                            <button
+                                onClick={handlePair}
+                                disabled={pairingBusy}
+                                className="w-full py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider bg-sky-500/20 border border-sky-500/40 text-sky-200 hover:bg-sky-500/30 active:scale-95 disabled:opacity-40 transition-all"
+                            >
+                                {pairingBusy ? 'Pairing…' : `Pair with ${pairable.info.boatName}`}
+                            </button>
+                        </div>
+                    </div>
+                )}
+
+                {/* No Pi, none paired — the honest empty state. */}
+                {!pairing && !pairable && (
+                    <Row>
+                        <div className="flex-1">
+                            <label className="text-sm text-white font-medium block">Boat Pi</label>
+                            <p className="text-xs text-gray-400 mt-0.5">
+                                {visibleDiscovering
+                                    ? 'Looking for your Pi…'
+                                    : "No Pi paired. On the boat's WiFi, it'll appear here automatically."}
+                            </p>
+                        </div>
+                        <button
+                            onClick={handleScanAgain}
+                            disabled={visibleDiscovering}
+                            className="px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider bg-white/5 border border-white/10 text-white/70 hover:bg-white/10 disabled:opacity-40 transition-all"
+                        >
+                            {visibleDiscovering ? 'Scanning…' : 'Scan'}
+                        </button>
+                    </Row>
+                )}
+
+                {/* Provisioning entry from the empty state (was reachable only
+                via the old toggle). SSH-only platforms show the one-tap
+                installer; otherwise the How-It-Works block below covers it. */}
+                {!pairing && !pairable && canSsh && (
+                    <div className="px-4 pb-2">
+                        <button
+                            onClick={() => {
+                                triggerHaptic('light');
+                                setShowInstall((v) => !v);
+                            }}
+                            className="w-full py-1.5 text-[10px] font-semibold uppercase tracking-wider text-white/40 hover:text-white/70 transition-colors"
+                        >
+                            {showInstall ? 'Hide setup' : "Don't have a Pi set up yet? Install on a new Pi"}
+                        </button>
+                    </div>
+                )}
+
+                {/* Paired: identity summary + Forget. */}
+                {pairing && (
+                    <div className="p-4 pb-0">
+                        <div className="flex items-center justify-between gap-2 p-3 rounded-xl bg-white/[0.03] border border-white/5">
+                            <div className="min-w-0">
+                                <div className="flex items-center gap-2">
+                                    <span className="text-emerald-400 text-xs">🔒</span>
+                                    <span className="text-sm font-bold text-white truncate">{pairing.boatName}</span>
+                                </div>
+                                <p className="text-[10px] text-gray-500 font-mono mt-0.5 break-all">
+                                    {pairing.fingerprint}
+                                </p>
+                            </div>
+                            <button
+                                onClick={handleForget}
+                                className="shrink-0 px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider bg-white/5 border border-white/10 text-white/60 hover:bg-red-500/10 hover:text-red-300 hover:border-red-500/30 transition-all"
+                            >
+                                Forget
+                            </button>
+                        </div>
+                    </div>
+                )}
+
+                {/* Live connection status — shown once paired. */}
+                {pairing && (
                     <div className="p-4 border-t border-white/5">
                         {visibleDiscovering ? (
                             <div className="flex items-center gap-3 text-sky-300 text-xs">
@@ -513,7 +657,7 @@ export const PiCacheTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => 
             </Section>
 
             {/* ── One-Tap Install (SSH Provisioning) ── */}
-            {isEnabled && privateStateBelongsToIdentity && showInstall && !status?.reachable && (
+            {privateStateBelongsToIdentity && showInstall && !status?.reachable && (
                 <Section title="Install on Pi">
                     {!provisionDone ? (
                         <div className="p-4 space-y-3">
