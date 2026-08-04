@@ -66,6 +66,18 @@ export const EssentialMapSlide: React.FC<EssentialMapSlideProps> = ({
 
     const [size, setSize] = useState<{ w: number; h: number } | null>(null);
     const [inView, setInView] = useState(false);
+    /**
+     * Live on-screen state — NOT latched, unlike `inView`.
+     *
+     * The Glass hero is a carousel of ~226 slides (every day × every hour),
+     * and in essential mode EVERY slide mounts this card. A CSS animation
+     * runs whether or not its element is on screen, so the pulsing location
+     * halo registered ~226 accelerated animations with the compositor at
+     * once — WebKit kills the WebContent process past 129 queued
+     * AcceleratedAnimationDidStart messages, which is the crash that threw
+     * Shane out to the Glass (measured 2026-08-04: "ping×226").
+     */
+    const [onScreen, setOnScreen] = useState(false);
     const [mapLoaded, setMapLoaded] = useState(false);
     const [timeline, setTimeline] = useState<RadarTimeline | null>(null);
     const [loadedIds, setLoadedIds] = useState<ReadonlySet<string>>(new Set());
@@ -101,7 +113,12 @@ export const EssentialMapSlide: React.FC<EssentialMapSlideProps> = ({
         ro.observe(el);
         const io = new IntersectionObserver(
             (entries) => {
-                if (entries.some((e) => e.isIntersecting)) setInView(true);
+                const intersecting = entries.some((e) => e.isIntersecting);
+                // `inView` LATCHES (once loaded, keep the frames warm so
+                // scrolling back is instant); `onScreen` tracks live
+                // visibility and gates anything that costs while offscreen.
+                if (intersecting) setInView(true);
+                setOnScreen(intersecting);
             },
             { threshold: 0.2 },
         );
@@ -538,10 +555,16 @@ export const EssentialMapSlide: React.FC<EssentialMapSlideProps> = ({
                             className="w-2 h-2 rounded-full bg-sky-400"
                             style={{ boxShadow: '0 0 8px rgba(56,189,248,0.5)' }}
                         />
-                        <div
-                            className="absolute -inset-2 rounded-full border border-sky-400/25 animate-ping"
-                            style={{ animationDuration: '3s' }}
-                        />
+                        {/* Halo ONLY while this slide is actually on screen —
+                            see the `onScreen` note above. Offscreen slides
+                            kept ~226 of these animating at once and killed
+                            the renderer. */}
+                        {onScreen && (
+                            <div
+                                className="absolute -inset-2 rounded-full border border-sky-400/25 animate-ping"
+                                style={{ animationDuration: '3s' }}
+                            />
+                        )}
                     </div>
                 </div>
 
@@ -655,7 +678,9 @@ export const EssentialMapSlide: React.FC<EssentialMapSlideProps> = ({
                 <div className="absolute top-2.5 left-2.5 flex items-center gap-1.5">
                     {isLive && (
                         <div className="flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-emerald-500/20 border border-emerald-400/20">
-                            <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                            <div
+                                className={`w-1.5 h-1.5 rounded-full bg-emerald-400 ${onScreen ? 'animate-pulse' : ''}`}
+                            />
                             <span className="text-[11px] text-emerald-300/80 font-bold tracking-wider">LIVE</span>
                         </div>
                     )}
