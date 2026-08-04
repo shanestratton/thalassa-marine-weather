@@ -49,6 +49,7 @@ import type { ShallowRunInfo } from './engine/types';
 import { shadowingCells, featureIsShadowed, stampScaleRank } from './enc/scaleShadow';
 import { shadowCompare, shadowSummary } from './seaway/seawayRouter';
 import { piCache } from './PiCacheService';
+import { fetchVerifiedFromPi, routeRequestBinding } from './PiPairingService';
 import { getOsmRouteOverlay, type OsmRouteOverlay } from './OsmRouteOverlayService';
 import { curatedFairwayCanalFeatures } from './curatedFairways';
 import { fetchMapboxWater } from './mapboxWater';
@@ -1402,10 +1403,16 @@ async function tryInshoreRouteInner(
     if (CLOUD_ROUTER_ENABLED && piAvailable) {
         try {
             const cloudT0 = Date.now();
-            const res = await CapacitorHttp.post({
+            // Signature-verified with a request binding: this polyline is the
+            // course the boat follows, and every route request shares one
+            // path — without binding the from/to/draft tuple a genuine signed
+            // route from another voyage could be replayed onto this one.
+            const routeBody = { ...routeOpts, layers: merged };
+            const binding = await routeRequestBinding(routeBody as unknown as Record<string, unknown>);
+            const res = await fetchVerifiedFromPi<Record<string, unknown>>({
                 url: `${piCache.baseUrl}/api/enc/route-prepped`,
-                headers: { 'Content-Type': 'application/json' },
-                data: { ...routeOpts, layers: merged },
+                method: 'POST',
+                data: routeBody,
                 connectTimeout: 5000,
                 // 90 s read timeout. The Pi 5's V8 is comparable to (not
                 // dramatically faster than) the iPhone JS engine for
@@ -1425,10 +1432,11 @@ async function tryInshoreRouteInner(
                 // fallback (which now hits the grid cache for repeated
                 // routes) will be faster anyway.
                 readTimeout: 8000,
+                requestBinding: binding,
             });
             const cloudMs = Date.now() - cloudT0;
-            if (res.status >= 200 && res.status < 300 && res.data && typeof res.data === 'object') {
-                const data = res.data as Record<string, unknown>;
+            if (res && typeof res === 'object') {
+                const data = res as Record<string, unknown>;
                 if ('error' in data) {
                     log.warn(
                         `cloud router returned 200 with error payload — falling back to local: ${String(data.error)}`,
@@ -1441,14 +1449,8 @@ async function tryInshoreRouteInner(
                     routedOnCloud = true;
                     if (ROUTE_DEBUG) log.warn(`STAGE: cloud A* returned in ${cloudMs} ms (Pi-cache)`);
                 }
-            } else if (res.status === 422 && res.data && typeof res.data === 'object') {
-                // Pi-cache rejected the route (e.g. origin-on-land). Use
-                // the same shape as local so the caller surfaces it.
-                result = res.data as ReturnType<typeof routeInshore>;
-                routedOnCloud = true;
-                log.warn(`cloud router rejected route (HTTP 422) — surfacing as failure`);
             } else {
-                log.warn(`cloud router HTTP ${res.status} — falling back to local`);
+                log.warn('cloud router returned an unrecognised payload — falling back to local');
             }
         } catch (err) {
             // CapacitorHttp surfaces both "connect timeout" and "read

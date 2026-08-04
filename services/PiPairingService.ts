@@ -34,6 +34,7 @@
 
 import { CapacitorHttp } from '@capacitor/core';
 import { createLogger } from '../utils/createLogger';
+import { PI_INTEGRATION_ENABLED, PI_PUBLIC_BETA_UNAVAILABLE_MESSAGE } from './piPublicBetaBoundary';
 
 const log = createLogger('PiPairing');
 
@@ -67,6 +68,7 @@ export interface PairInfo {
 // ── Pairing store ──────────────────────────────────────────────────
 
 export function getPairing(): PiPairingRecord | null {
+    if (!PI_INTEGRATION_ENABLED) return null;
     try {
         const raw = localStorage.getItem(PAIRING_KEY);
         if (!raw) return null;
@@ -78,6 +80,7 @@ export function getPairing(): PiPairingRecord | null {
 }
 
 export function savePairing(record: PiPairingRecord): void {
+    if (!PI_INTEGRATION_ENABLED) return;
     localStorage.setItem(PAIRING_KEY, JSON.stringify(record));
     markHostPairable(record.host);
 }
@@ -115,6 +118,7 @@ export function markHostPairable(host: string): void {
  * force it back open by hiding the pairing endpoints.
  */
 export function isLegacyPlainConnectionAllowed(host: string): boolean {
+    if (!PI_INTEGRATION_ENABLED) return false;
     return getPairing() === null && !seenPairableHosts().has(host);
 }
 
@@ -169,6 +173,7 @@ async function sha256Hex(text: string): Promise<string> {
 
 /** Fetch the pairing card contents from a candidate Pi. Null if it has no pairing support. */
 export async function fetchPairInfo(baseUrl: string): Promise<PairInfo | null> {
+    if (!PI_INTEGRATION_ENABLED) return null;
     try {
         const res = await CapacitorHttp.get({
             url: `${baseUrl}/api/pair/info`,
@@ -190,6 +195,7 @@ export async function fetchPairInfo(baseUrl: string): Promise<PairInfo | null> {
  * gate in front of every auto-connect to a paired Pi.
  */
 export async function verifyPairedPi(baseUrl: string, pairing: PiPairingRecord): Promise<boolean> {
+    if (!PI_INTEGRATION_ENABLED) return false;
     const nonce = randomNonceHex();
     try {
         const res = await CapacitorHttp.post({
@@ -219,6 +225,7 @@ export async function verifyPairedPi(baseUrl: string, pairing: PiPairingRecord):
  * the responder actually holds RIGHT NOW (not just one it displayed).
  */
 export async function pairWithPi(baseUrl: string, host: string): Promise<PiPairingRecord | null> {
+    if (!PI_INTEGRATION_ENABLED) return null;
     const info = await fetchPairInfo(baseUrl);
     if (!info) return null;
 
@@ -243,6 +250,79 @@ export async function pairWithPi(baseUrl: string, host: string): Promise<PiPairi
 export interface SignedResponseCheck {
     ok: boolean;
     reason?: string;
+}
+
+/**
+ * Digest of a routing question — mirror of the Pi's `routeRequestBinding`.
+ *
+ * POST endpoints all share one path, so the path alone can't distinguish
+ * "route from A to B" from "route from C to D": without this an attacker
+ * could replay a genuine signed route from an earlier, different voyage.
+ * Hash the from/to/draft tuple and bind it into the signed string.
+ */
+export async function routeRequestBinding(body: Record<string, unknown>): Promise<string> {
+    const fields = ['fromLat', 'fromLon', 'toLat', 'toLon', 'draftM'].map((k) =>
+        typeof body[k] === 'number' ? String(body[k]) : '',
+    );
+    return (await sha256Hex(fields.join(','))).slice(0, 32);
+}
+
+/**
+ * THE way to read anything from the Pi that the app will navigate by.
+ *
+ * Every safety-critical response goes through here so verification cannot be
+ * forgotten at a call site — the review that prompted this found four
+ * endpoints (`/route`, `/route-prepped`, `/result/:id`, `/jobs/:id`) plus the
+ * on-demand cell pull consuming Pi data with no signature check at all, which
+ * let an on-path attacker who merely RELAYS the identity challenge to the real
+ * Pi then serve tampered charts and routes.
+ *
+ * Fetches as text and verifies before parsing, so the bytes hashed are exactly
+ * the bytes signed. When unpaired (legacy grace window) it parses unverified,
+ * matching pre-pairing behaviour.
+ */
+export async function fetchVerifiedFromPi<T>(options: {
+    url: string;
+    method?: 'GET' | 'POST';
+    data?: unknown;
+    connectTimeout?: number;
+    readTimeout?: number;
+    /** Extra binding for POSTs — see routeRequestBinding. */
+    requestBinding?: string;
+}): Promise<T> {
+    if (!PI_INTEGRATION_ENABLED) throw new Error(PI_PUBLIC_BETA_UNAVAILABLE_MESSAGE);
+    const { url, method = 'GET', data, connectTimeout = 5000, readTimeout = 30000, requestBinding } = options;
+
+    const res =
+        method === 'POST'
+            ? await CapacitorHttp.post({
+                  url,
+                  headers: { 'Content-Type': 'application/json' },
+                  data,
+                  connectTimeout,
+                  readTimeout,
+                  responseType: 'text',
+              })
+            : await CapacitorHttp.get({ url, connectTimeout, readTimeout, responseType: 'text' });
+
+    if (res.status < 200 || res.status >= 300) throw new Error(`HTTP ${res.status}`);
+    const body = typeof res.data === 'string' ? res.data : JSON.stringify(res.data);
+
+    const pairing = getPairing();
+    if (pairing) {
+        const rawPath = new URL(url).pathname;
+        const path = requestBinding ? `${rawPath}#${requestBinding}` : rawPath;
+        const check = await verifySignedResponse(
+            pairing,
+            body,
+            path,
+            (res.headers ?? {}) as Record<string, string | undefined>,
+        );
+        if (!check.ok) {
+            throw new Error(`Pi response for ${rawPath} failed signature check (${check.reason}) — refusing the data`);
+        }
+    }
+    return JSON.parse(body) as T;
 }
 
 /**
