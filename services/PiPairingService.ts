@@ -1,0 +1,279 @@
+/**
+ * Trust-on-first-use pairing with the boat's Pi.
+ *
+ * Threat model (APP_AUDIT_2026-08-03, boat-LAN data integrity): everything
+ * between app and Pi is plain HTTP to an mDNS name on whatever Wi-Fi the
+ * phone happens to be on. Anyone on a shared marina network can answer
+ * `calypso.local` and speak the pi-cache API — including feeding this app
+ * wrong depth data. Auto-connecting makes that worse, so auto-connect is
+ * gated on the two checks in this file:
+ *
+ *  1. IDENTITY, at connect time. Pairing pins the Pi's P-256 public key
+ *     (SSH-style TOFU: the one human decision is "is this my boat's Pi?"
+ *     shown with its name and key fingerprint). Every later connection sends
+ *     a fresh random nonce and requires a signature over it. No private key,
+ *     no connection — a spoofed hostname alone gets an attacker nothing.
+ *
+ *  2. INTEGRITY, per payload, for navigation data. The ENC endpoints return
+ *     an X-Pi-Signature header: a signature over (body hash | path | time)
+ *     with the same pinned key. That closes the on-path tampering gap the
+ *     challenge can't (attacker letting the real Pi authenticate, then
+ *     modifying responses): a tampered body no longer matches its hash, a
+ *     replayed response for a different cell no longer matches its path.
+ *
+ * What this deliberately does NOT defend: a user who pairs with an attacker's
+ * box the very first time (TOFU's inherent limit — the fingerprint on the
+ * pairing card is the mitigation, same as SSH), and non-ENC traffic such as
+ * weather tiles, which stays unsigned until the Pi signs everything.
+ *
+ * No-downgrade rule: once a host has EVER offered pairing, or the app has
+ * paired with anyone, unpaired plain connections to that host are refused —
+ * otherwise an attacker just serves 404 on /api/pair/info and slides back
+ * into the pre-pairing world.
+ */
+
+import { CapacitorHttp } from '@capacitor/core';
+import { createLogger } from '../utils/createLogger';
+
+const log = createLogger('PiPairing');
+
+const PAIRING_KEY = 'thalassa_pi_pairing_v1';
+const SEEN_PAIRABLE_KEY = 'thalassa_pi_seen_pairable_v1';
+
+/** Raw byte length of the challenge nonce (hex-encoded on the wire). */
+const NONCE_BYTES = 32;
+
+export interface PiPairingRecord {
+    deviceId: string;
+    boatName: string;
+    /** SPKI DER base64 — the pinned key. */
+    publicKeySpki: string;
+    /** Human-checkable key digest, as shown at pairing time. */
+    fingerprint: string;
+    /** Host the pairing was made against (informational — identity is the key, not the host). */
+    host: string;
+    pairedAt: string;
+}
+
+export interface PairInfo {
+    deviceId: string;
+    boatName: string;
+    hostname: string;
+    publicKeySpki: string;
+    fingerprint: string;
+    pairingVersion: number;
+}
+
+// ── Pairing store ──────────────────────────────────────────────────
+
+export function getPairing(): PiPairingRecord | null {
+    try {
+        const raw = localStorage.getItem(PAIRING_KEY);
+        if (!raw) return null;
+        const parsed = JSON.parse(raw) as PiPairingRecord;
+        return parsed.deviceId && parsed.publicKeySpki ? parsed : null;
+    } catch {
+        return null;
+    }
+}
+
+export function savePairing(record: PiPairingRecord): void {
+    localStorage.setItem(PAIRING_KEY, JSON.stringify(record));
+    markHostPairable(record.host);
+}
+
+export function forgetPairing(): void {
+    localStorage.removeItem(PAIRING_KEY);
+}
+
+/** Hosts that have ever advertised pairing support — the no-downgrade list. */
+function seenPairableHosts(): Set<string> {
+    try {
+        const raw = localStorage.getItem(SEEN_PAIRABLE_KEY);
+        return new Set(raw ? (JSON.parse(raw) as string[]) : []);
+    } catch {
+        return new Set();
+    }
+}
+
+export function markHostPairable(host: string): void {
+    try {
+        const hosts = seenPairableHosts();
+        if (hosts.has(host)) return;
+        hosts.add(host);
+        localStorage.setItem(SEEN_PAIRABLE_KEY, JSON.stringify([...hosts]));
+    } catch {
+        /* private mode — the paired record itself still enforces the rule */
+    }
+}
+
+/**
+ * May the app talk plain (unpaired, unverified) to this host? Only in the
+ * legacy window: nothing paired yet AND this host has never offered pairing.
+ * Exists so an existing user's un-updated Pi keeps working until its next
+ * redeploy — and closes as soon as pairing is available, so a spoofer can't
+ * force it back open by hiding the pairing endpoints.
+ */
+export function isLegacyPlainConnectionAllowed(host: string): boolean {
+    return getPairing() === null && !seenPairableHosts().has(host);
+}
+
+// ── Crypto ─────────────────────────────────────────────────────────
+
+function b64ToBytes(b64: string): Uint8Array {
+    const bin = atob(b64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i += 1) bytes[i] = bin.charCodeAt(i);
+    return bytes;
+}
+
+function randomNonceHex(): string {
+    const bytes = new Uint8Array(NONCE_BYTES);
+    crypto.getRandomValues(bytes);
+    return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function importPinnedKey(publicKeySpki: string): Promise<CryptoKey> {
+    return crypto.subtle.importKey(
+        'spki',
+        b64ToBytes(publicKeySpki).buffer as ArrayBuffer,
+        { name: 'ECDSA', namedCurve: 'P-256' },
+        false,
+        ['verify'],
+    );
+}
+
+/** Mirror of the Pi's field concatenation — identity.ts signFields. */
+async function verifyFields(publicKeySpki: string, fields: string[], signatureB64: string): Promise<boolean> {
+    try {
+        const key = await importPinnedKey(publicKeySpki);
+        const data = new TextEncoder().encode(fields.join('|'));
+        return await crypto.subtle.verify(
+            { name: 'ECDSA', hash: 'SHA-256' },
+            key,
+            b64ToBytes(signatureB64).buffer as ArrayBuffer,
+            data,
+        );
+    } catch (err) {
+        log.warn(`signature verification errored: ${err instanceof Error ? err.message : String(err)}`);
+        return false;
+    }
+}
+
+async function sha256Hex(text: string): Promise<string> {
+    const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+    return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+// ── Flows ──────────────────────────────────────────────────────────
+
+/** Fetch the pairing card contents from a candidate Pi. Null if it has no pairing support. */
+export async function fetchPairInfo(baseUrl: string): Promise<PairInfo | null> {
+    try {
+        const res = await CapacitorHttp.get({
+            url: `${baseUrl}/api/pair/info`,
+            connectTimeout: 4000,
+            readTimeout: 4000,
+            responseType: 'json',
+        });
+        if (res.status < 200 || res.status >= 300) return null;
+        const data = res.data as Partial<PairInfo> & { service?: string };
+        if (data?.service !== 'thalassa-pi-cache' || !data.deviceId || !data.publicKeySpki) return null;
+        return data as PairInfo;
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * Challenge a host to prove it holds the pinned private key. This is the
+ * gate in front of every auto-connect to a paired Pi.
+ */
+export async function verifyPairedPi(baseUrl: string, pairing: PiPairingRecord): Promise<boolean> {
+    const nonce = randomNonceHex();
+    try {
+        const res = await CapacitorHttp.post({
+            url: `${baseUrl}/api/pair/challenge`,
+            headers: { 'Content-Type': 'application/json' },
+            data: { nonce },
+            connectTimeout: 4000,
+            readTimeout: 4000,
+            responseType: 'json',
+        });
+        if (res.status < 200 || res.status >= 300) return false;
+        const data = res.data as { deviceId?: string; timestamp?: number; signature?: string };
+        if (!data?.signature || data.deviceId !== pairing.deviceId) return false;
+        return await verifyFields(
+            pairing.publicKeySpki,
+            ['challenge', nonce, String(data.timestamp), pairing.deviceId],
+            data.signature,
+        );
+    } catch {
+        return false;
+    }
+}
+
+/**
+ * Pair with a Pi whose pair-info the user has just approved. Re-fetches the
+ * info and immediately challenges it, so the pinned key is provably the one
+ * the responder actually holds RIGHT NOW (not just one it displayed).
+ */
+export async function pairWithPi(baseUrl: string, host: string): Promise<PiPairingRecord | null> {
+    const info = await fetchPairInfo(baseUrl);
+    if (!info) return null;
+
+    const candidate: PiPairingRecord = {
+        deviceId: info.deviceId,
+        boatName: info.boatName,
+        publicKeySpki: info.publicKeySpki,
+        fingerprint: info.fingerprint,
+        host,
+        pairedAt: new Date().toISOString(),
+    };
+    const proven = await verifyPairedPi(baseUrl, candidate);
+    if (!proven) {
+        log.warn(`pairing aborted — ${host} presented a key it could not sign with`);
+        return null;
+    }
+    savePairing(candidate);
+    log.warn(`paired with ${candidate.boatName} (${candidate.deviceId}) at ${host} — fp ${candidate.fingerprint}`);
+    return candidate;
+}
+
+export interface SignedResponseCheck {
+    ok: boolean;
+    reason?: string;
+}
+
+/**
+ * Verify a signed response from a paired Pi against the pinned key.
+ *
+ * `body` must be the exact text received; `path` the pathname the app
+ * requested (query excluded). The timestamp rides inside the signature but
+ * freshness is only logged — boat Pi clocks drift, and the hash+path binding
+ * is what carries the integrity guarantee.
+ */
+export async function verifySignedResponse(
+    pairing: PiPairingRecord,
+    body: string,
+    path: string,
+    headers: Record<string, string | undefined>,
+): Promise<SignedResponseCheck> {
+    // Header lookup case-insensitively — Capacitor lowercases on some platforms.
+    const header = (name: string): string | undefined =>
+        headers[name] ?? headers[name.toLowerCase()] ?? headers[name.toUpperCase()];
+
+    const signature = header('X-Pi-Signature');
+    const time = header('X-Pi-Signature-Time');
+    if (!signature || !time) return { ok: false, reason: 'response is not signed' };
+
+    const bodyHash = await sha256Hex(body);
+    const valid = await verifyFields(pairing.publicKeySpki, ['payload', bodyHash, path, time], signature);
+    if (!valid) return { ok: false, reason: 'signature does not verify against the paired key' };
+
+    const skewMs = Math.abs(Date.now() - Number(time));
+    if (Number.isFinite(skewMs) && skewMs > 7 * 24 * 3600 * 1000) {
+        log.warn(`signed response for ${path} has ${Math.round(skewMs / 3600000)}h clock skew — check the Pi's clock`);
+    }
+    return { ok: true };
+}

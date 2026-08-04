@@ -33,6 +33,7 @@ import { CapacitorHttp } from '@capacitor/core';
 
 import { createLogger } from '../utils/createLogger';
 import { piCache } from './PiCacheService';
+import { getPairing, verifySignedResponse } from './PiPairingService';
 import * as EncHazardService from './enc/EncHazardService';
 import type { EncCell, EncConversionBatch, EncConversionResult } from './enc/types';
 
@@ -154,7 +155,7 @@ export function isLikelyEncFile(file: File): boolean {
  */
 export async function checkPiHasGdal(): Promise<string | null> {
     if (!piCache.isAvailable()) {
-        return 'Pi cache not reachable. Connect to your boat WiFi and toggle Pi Cache on in Boat Network settings.';
+        return "Pi not reachable. Connect to your boat's WiFi — your paired Pi reconnects automatically.";
     }
     try {
         const res = await CapacitorHttp.get({
@@ -399,6 +400,39 @@ export interface SyncEncFromPiOptions {
     cellIds?: string[];
 }
 
+/**
+ * GET a Pi endpoint that ships navigation data and return the PARSED JSON,
+ * having first verified its detached signature against the paired key.
+ *
+ * This is the integrity half of the pairing defence: the identity challenge
+ * (PiCacheService.passesIdentityGate) stops an impostor at connect, but an
+ * on-path attacker can let the real Pi authenticate and still rewrite the
+ * bytes in flight. Here the body hash and requested path are bound into a
+ * signature, so tampered depth data or a cell blob replayed under another
+ * cell's URL fails verification and is thrown out.
+ *
+ * We fetch as TEXT, not JSON, so the bytes we hash are exactly the bytes the
+ * Pi signed — re-serialising a parsed object risks a key-order or whitespace
+ * mismatch. When unpaired (legacy grace) the response is parsed unverified,
+ * exactly as before pairing existed.
+ */
+async function getVerifiedJson<T>(url: string, connectTimeout: number, readTimeout: number): Promise<T> {
+    const res = await CapacitorHttp.get({ url, connectTimeout, readTimeout, responseType: 'text' });
+    if (res.status < 200 || res.status >= 300) throw new Error(`HTTP ${res.status}`);
+    const body = typeof res.data === 'string' ? res.data : JSON.stringify(res.data);
+
+    const pairing = getPairing();
+    if (pairing) {
+        const path = new URL(url).pathname;
+        const headers = (res.headers ?? {}) as Record<string, string | undefined>;
+        const check = await verifySignedResponse(pairing, body, path, headers);
+        if (!check.ok) {
+            throw new Error(`Pi response for ${path} failed signature check (${check.reason}) — refusing the data`);
+        }
+    }
+    return JSON.parse(body) as T;
+}
+
 export async function syncEncFromPi(
     onProgress?: (p: EncImportProgress) => void,
     options: SyncEncFromPiOptions = {},
@@ -422,14 +456,8 @@ export async function syncEncFromPi(
 
     let installed: PiInstalledCell[];
     try {
-        const res = await CapacitorHttp.get({
-            url: `${piBase}/api/enc/installed`,
-            connectTimeout: 5000,
-            readTimeout: 10000,
-            responseType: 'json',
-        });
-        if (res.status < 200 || res.status >= 300) throw new Error(`HTTP ${res.status}`);
-        installed = ((res.data as { cells?: PiInstalledCell[] })?.cells ?? []) as PiInstalledCell[];
+        const data = await getVerifiedJson<{ cells?: PiInstalledCell[] }>(`${piBase}/api/enc/installed`, 5000, 10000);
+        installed = (data?.cells ?? []) as PiInstalledCell[];
     } catch (err) {
         const error = `Failed to list Pi charts: ${err instanceof Error ? err.message : String(err)}`;
         emit({ phase: 'error', progress: 0, error });
@@ -526,16 +554,11 @@ export async function syncEncFromPi(
             bbox: remote.bbox,
         });
         try {
-            const res = await CapacitorHttp.get({
-                url: `${piBase}/api/enc/installed/${encodeURIComponent(remote.cellId)}/data`,
-                connectTimeout: 10000,
-                readTimeout: 120000,
-                responseType: 'json',
-            });
-            if (res.status < 200 || res.status >= 300) {
-                throw new Error(`HTTP ${res.status} fetching cell data`);
-            }
-            const blob = res.data as EncConversionBatch;
+            const blob = await getVerifiedJson<EncConversionBatch>(
+                `${piBase}/api/enc/installed/${encodeURIComponent(remote.cellId)}/data`,
+                10000,
+                120000,
+            );
             if (!blob || !Array.isArray(blob.cells) || blob.cells.length === 0) {
                 throw new Error('Pi returned malformed cell data');
             }
