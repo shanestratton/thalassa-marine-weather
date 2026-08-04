@@ -18,9 +18,15 @@ const mocks = vi.hoisted(() => ({
     deleteVoyageLogOnly: vi.fn(),
 }));
 
-vi.mock('../services/routeTracer', () => ({
-    loadSavedTraces: mocks.loadSavedTraces,
-}));
+vi.mock('../services/routeTracer', async (importOriginal) => {
+    // The library statically uses the pure label/rollup helpers — keep the
+    // real implementations, mock only the storage read.
+    const actual = await importOriginal<typeof import('../services/routeTracer')>();
+    return {
+        ...actual,
+        loadSavedTraces: mocks.loadSavedTraces,
+    };
+});
 
 vi.mock('../services/shiplog/RoutesAndTracks', () => ({
     fetchRoutesAndTracks: mocks.fetchRoutesAndTracks,

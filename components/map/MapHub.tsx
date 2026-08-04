@@ -131,6 +131,7 @@ import {
     nextLegSeed,
     ordinalLegLabel,
     withLegBadge,
+    buildTripPassageRollups,
     destNameFromRouteName,
     retroBadgeFirstLeg,
     healTripChain,
@@ -716,6 +717,30 @@ export const MapHub: React.FC<MapHubProps> = ({
                         }, 1_200);
                         tracerHandoffTimersRef.current.add(timer);
                     }
+                }
+            } else if (action?.kind === 'load-trip-passage') {
+                // Derived "(Passage)" rollup: rebuilt fresh from the legs at
+                // open time — never a stored row, so it can't be stale. Saving
+                // from here creates an independent standalone route, which is
+                // a deliberate act, not a sync hazard.
+                const rollup = buildTripPassageRollups(loadSavedTraces()).find((r) => r.tripId === action.tripId);
+                if (rollup && rollup.points.length >= 2) {
+                    setLegAnchor(null);
+                    rebaseHistoryRef.current = true;
+                    setCapturedCoords(rollup.points);
+                    setTraceName(rollup.name);
+                    setSavedTraces(loadSavedTraces());
+                    const fly = () => mapRef.current && fitTraceBounds(mapRef.current, rollup.points);
+                    if (mapRef.current) {
+                        if (isAuthIdentityScopeCurrent(requestScope)) fly();
+                    } else {
+                        const timer = window.setTimeout(() => {
+                            tracerHandoffTimersRef.current.delete(timer);
+                            if (isAuthIdentityScopeCurrent(requestScope)) fly();
+                        }, 1_200);
+                        tracerHandoffTimersRef.current.add(timer);
+                    }
+                    flashTraceFeedback(`Passage opened — ${rollup.legCount} legs stitched`);
                 }
             } else if (action?.kind === 'new-leg') {
                 // Plot the NEXT leg of a trip (Shane 2026-07-17): the first
