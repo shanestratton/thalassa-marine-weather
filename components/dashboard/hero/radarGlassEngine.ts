@@ -337,16 +337,40 @@ async function fetchTileDrawable(
                     const bin = atob(res.data);
                     const bytes = new Uint8Array(bin.length);
                     for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-                    // proxy-rainbow serves PNG or WebP — label by signature so
-                    // the native decoder isn't handed WebP bytes marked PNG.
+                    if (signal.aborted) return null;
+                    // Decode ONLY bytes that prove they are a complete image.
+                    // This lane used to force-label unrecognised bytes as
+                    // image/png and decode anyway, and its WebP sniff accepted
+                    // truncated bodies — a captive-portal/error body then went
+                    // straight into ImageIO ("'WEBP' initImage failed err=-50"
+                    // in the 2026-08-04 device log; on beta WebKit a decoder
+                    // fault is a renderer kill, not a blank tile).
+                    const isPng =
+                        bytes.length > 8 &&
+                        bytes[0] === 0x89 &&
+                        bytes[1] === 0x50 &&
+                        bytes[2] === 0x4e &&
+                        bytes[3] === 0x47 &&
+                        bytes[4] === 0x0d &&
+                        bytes[5] === 0x0a &&
+                        bytes[6] === 0x1a &&
+                        bytes[7] === 0x0a;
+                    const riffDeclaredSize =
+                        bytes.length > 11
+                            ? (bytes[4] | (bytes[5] << 8) | (bytes[6] << 16) | (bytes[7] << 24)) >>> 0
+                            : 0;
                     const isWebp =
                         bytes.length > 11 &&
                         bytes[0] === 0x52 &&
                         bytes[1] === 0x49 &&
+                        bytes[2] === 0x46 &&
+                        bytes[3] === 0x46 &&
                         bytes[8] === 0x57 &&
                         bytes[9] === 0x45 &&
                         bytes[10] === 0x42 &&
-                        bytes[11] === 0x50;
+                        bytes[11] === 0x50 &&
+                        riffDeclaredSize + 8 <= bytes.length;
+                    if (!isPng && !isWebp) return null;
                     return await blobToDrawable(new Blob([bytes], { type: isWebp ? 'image/webp' : 'image/png' }));
                 }
             } catch {

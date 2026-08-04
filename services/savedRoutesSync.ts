@@ -33,6 +33,18 @@ const log = createLogger('savedRoutesSync');
 const TRACES_KEY = 'thalassa_traced_routes_v1';
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+/**
+ * Graph-cleanup retries already settled this app session, keyed scope:id.
+ * MODULE scope on purpose (a ref would die with a component instance): the
+ * tombstone graph retry costs auth.getUser + several Supabase selects per
+ * tombstone, and graph-linked tombstones are retained indefinitely — running
+ * it on EVERY sync turned each planning-page reload into a probe storm (and,
+ * before deleteSavedRoutePassageGraph gated its change events on real work,
+ * a self-sustaining reload loop). Once per session is the retry ledger's
+ * actual contract: cross-session persistence is what the tombstone is for.
+ */
+const settledGraphRetries = new Set<string>();
+
 function validPassageVoyageId(value: unknown): value is string {
     return typeof value === 'string' && UUID_RE.test(value.trim());
 }
@@ -197,10 +209,17 @@ export async function syncSavedRoutes(): Promise<SavedTrace[]> {
             if (!deletedIds.has(id)) void pushSavedRouteDelete(id, scope, tombstone.deletedAt);
             // An offline delete may have been able to tombstone the canonical
             // trace before its Log/Passage mirrors were reachable. Retry the
-            // exact graph cleanup whenever sync regains an authenticated
-            // connection, even after the canonical tombstone is acknowledged.
+            // exact graph cleanup when sync regains an authenticated
+            // connection — but at most ONCE per app session per tombstone:
+            // graph-linked tombstones are retained forever, and re-probing
+            // them on every sync was a per-reload Supabase storm.
+            const retryKey = `${scope.userId ?? 'anon'}:${id}`;
+            if (settledGraphRetries.has(retryKey)) continue;
             void import('./savedRouteGraph')
                 .then(({ deleteSavedRoutePassageGraph }) => deleteSavedRoutePassageGraph(id, tombstone, scope))
+                .then(() => {
+                    settledGraphRetries.add(retryKey);
+                })
                 .catch(() => {});
         }
         const localWins = new Set(localNewer.map((t) => t.id));

@@ -321,7 +321,15 @@ export async function deleteSavedRoutePassageGraph(
         }
     }
 
-    if (isAuthIdentityScopeCurrent(expectedScope)) {
+    // ONLY announce when this cleanup actually deleted something. This pair
+    // used to fire unconditionally — and syncSavedRoutes re-runs this retry
+    // for every retained tombstone on every planning-page reload, while
+    // CrewManagement reloads on BOTH of these events. Graph-linked tombstones
+    // are excluded from compaction by design, so one retained tombstone closed
+    // a self-sustaining ~1.5s reload loop (each cycle nulling the routes cache
+    // and refetching 10k log entries): the 51%-CPU resource kill and the 2.0GB
+    // per-process jetsam of 2026-08-04. A no-op retry must stay silent.
+    if (touched && isAuthIdentityScopeCurrent(expectedScope)) {
         invalidateRoutesAndTracks(expectedScope);
         notifyPassageRouteGraphChanged(expectedScope);
     }
