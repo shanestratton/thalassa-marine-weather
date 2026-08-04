@@ -385,6 +385,18 @@ export interface SyncEncFromPiOptions {
      * a new region). Use 0 / undefined for "pull everything reachable".
      */
     maxCells?: number;
+    /**
+     * Pull exactly these cell ids and nothing else, ignoring `priorityCenter`
+     * and `maxCells`.
+     *
+     * Auto-sync is proximity-driven: nearest 20 to the current GPS fix. That
+     * is right for charts where you are and wrong for charts where you are
+     * GOING — a New Caledonia cell sits ~1400 km from Moreton Bay and sorts
+     * 150th of 342, so it would never be pulled while the boat is in
+     * Queensland, and the alternative today is an uncapped sync of every
+     * missing cell. This gives the passage-planning case a targeted path.
+     */
+    cellIds?: string[];
 }
 
 export async function syncEncFromPi(
@@ -439,6 +451,17 @@ export async function syncEncFromPi(
     const localKeys = new Set(localCells.map((c) => localKey(c.id, c.edition, c.sizeBytes)));
     let toFetch = installed.filter((c) => !localKeys.has(localKey(c.cellId, c.edition, c.sizeBytes)));
 
+    // Explicit selection wins over both proximity ordering and the cap — the
+    // caller asked for specific cells, so give them exactly those.
+    if (options.cellIds && options.cellIds.length > 0) {
+        const wanted = new Set(options.cellIds.map((id) => id.toUpperCase()));
+        const before = toFetch.length;
+        toFetch = toFetch.filter((c) => wanted.has(c.cellId.toUpperCase()));
+        log.warn(
+            `explicit cell selection: ${toFetch.length} of ${before} pending cells matched ${[...wanted].join(', ')}`,
+        );
+    }
+
     if (toFetch.length === 0) {
         emit({
             phase: 'done',
@@ -459,7 +482,7 @@ export async function syncEncFromPi(
     //
     // Without a priority centre we keep the Pi's listing order (alphabetic),
     // which is fine for "give me everything" manual syncs.
-    if (options.priorityCenter) {
+    if (options.priorityCenter && !options.cellIds?.length) {
         const { lat: pLat, lon: pLon } = options.priorityCenter;
         const distance = (c: PiInstalledCell): number => {
             const [wLon, sLat, eLon, nLat] = c.bbox;
@@ -481,7 +504,7 @@ export async function syncEncFromPi(
 
     // Soft cap — caller can ask "give me the nearest N and we'll get the rest
     // next launch." Auto-sync sets this; manual sync leaves it unlimited.
-    if (options.maxCells && options.maxCells > 0 && toFetch.length > options.maxCells) {
+    if (options.maxCells && options.maxCells > 0 && !options.cellIds?.length && toFetch.length > options.maxCells) {
         log.warn(
             `capping sync at ${options.maxCells} nearest cells (${toFetch.length - options.maxCells} deferred to next run)`,
         );
