@@ -61,12 +61,23 @@ vi.mock('../hooks/useReadinessSync', () => ({
     useScopedReadinessStorageState: () => ['', vi.fn()],
 }));
 
-vi.mock('../services/authIdentityScope', () => ({
+vi.mock('../services/authIdentityScope', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('../services/authIdentityScope')>()),
     isAuthIdentityScopeCurrent: () => true,
 }));
 
 vi.mock('../utils/system', () => ({
     triggerHaptic: vi.fn(),
+    getSystemUnits: () => ({
+        speed: 'kts',
+        length: 'm',
+        waveHeight: 'm',
+        tideHeight: 'm',
+        temp: 'C',
+        distance: 'nm',
+        visibility: 'nm',
+        volume: 'l',
+    }),
 }));
 
 vi.mock('../services/routeReportWeather', () => ({
