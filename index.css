@@ -3038,6 +3038,16 @@ body,
 .stagger-in > *:nth-child(n + 11) {
     animation-delay: 400ms;
 }
+/* Entrance burst cap (2026-08-04 renderer kills): every animated child
+   registers an accelerated animation with the compositor at mount; a long
+   saved-routes list could queue dozens of AnimationDidStart messages in one
+   paint. Rows past 15 appear instantly — nobody perceives stagger that deep
+   into a list, and the compositor burst stays bounded. */
+.stagger-in > *:nth-child(n + 16) {
+    animation: none;
+    opacity: 1;
+    transform: none;
+}
 
 /* ── Slide Up — page-level entrance ── */
 @keyframes slide-up-enter {
@@ -3183,6 +3193,13 @@ body,
 body.app-backgrounded *,
 body.app-backgrounded *::before,
 body.app-backgrounded *::after {
-    animation-play-state: paused !important;
+    /* `animation: none` — not merely paused. A PAUSED animation is still
+       CREATED and registered with the compositor on every mount, and it is
+       the creation that sends DrawingArea_AcceleratedAnimationDidStart; with
+       GPS events re-rendering lists while hidden, paused animations kept
+       flooding the queue (second crash log, PID 8232). Removing them means
+       nothing is registered at all; on foreground return they simply
+       restart, which the drained foreground queue absorbs trivially. */
+    animation: none !important;
     transition: none !important;
 }
