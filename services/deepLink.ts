@@ -65,6 +65,9 @@ export type TracerOpenAction =
      *  voyage id is resolved to exact geometry only after MapHub consumes this
      *  identity-owned request. */
     | { kind: 'load-logbook-route'; voyageId: string }
+    /** Open a derived "(Passage)" rollup — the trip's legs stitched at read
+     *  time (never a stored row; see buildTripPassageRollups). */
+    | { kind: 'load-trip-passage'; tripId: string }
     | { kind: 'load-voyage'; choice: import('./shiplog/RoutesAndTracks').SeaVoyageChoice }
     /** Plot the NEXT leg of a trip: pin 1 pre-dropped + LOCKED at the
      *  previous leg's exact final coordinates (Shane 2026-07-17). */

@@ -253,11 +253,18 @@ export const RoutePlanner: React.FC<{
                                 sub:
                                     route.source === 'saved-trace'
                                         ? `${route.points.length} pins · saved ${savedLabel}`
-                                        : `${route.sublabel} · recovered from Log${route.isLocal ? ' · local' : ''}`,
+                                        : route.source === 'trip-passage'
+                                          ? `${route.legCount} legs stitched · ${route.points.length} pins`
+                                          : `${route.sublabel} · recovered from Log${route.isLocal ? ' · local' : ''}`,
                                 go: () => {
                                     if (!isAuthIdentityScopeCurrent(pickerScope)) return;
                                     if (route.source === 'saved-trace') {
                                         requestTracerOpen({ kind: 'load-saved', id: route.routeId }, pickerScope);
+                                    } else if (route.source === 'trip-passage') {
+                                        requestTracerOpen(
+                                            { kind: 'load-trip-passage', tripId: route.tripId },
+                                            pickerScope,
+                                        );
                                     } else {
                                         requestTracerOpen(
                                             { kind: 'load-logbook-route', voyageId: route.voyageId },
@@ -273,7 +280,9 @@ export const RoutePlanner: React.FC<{
                                 // get the same deliberate two-tap confirm in
                                 // the UI below; canonical traces also use a
                                 // scoped tombstone so a delete follows the
-                                // skipper across devices.
+                                // skipper across devices. The derived
+                                // "(Passage)" rollup has no remove — delete
+                                // its legs and it evaporates.
                                 remove:
                                     route.source === 'saved-trace'
                                         ? async () => {
@@ -281,7 +290,9 @@ export const RoutePlanner: React.FC<{
                                               if (!isAuthIdentityScopeCurrent(pickerScope)) return false;
                                               return deleteTrace(route.routeId, pickerScope);
                                           }
-                                        : () => deleteLogbookRouteFromLibrary(route.voyageId, pickerScope),
+                                        : route.source === 'logbook-route'
+                                          ? () => deleteLogbookRouteFromLibrary(route.voyageId, pickerScope)
+                                          : undefined,
                             };
                         });
                     const library = await loadSavedRouteLibrary(pickerScope, (canonical) => {

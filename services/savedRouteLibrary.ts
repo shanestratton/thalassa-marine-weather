@@ -14,7 +14,7 @@
 
 import type { AuthIdentityScope } from './authIdentityScope';
 import { isAuthIdentityScopeCurrent } from './authIdentityScope';
-import type { SavedTrace, TracePoint } from './routeTracer';
+import { buildTripPassageRollups, displayRouteLabel, type SavedTrace, type TracePoint } from './routeTracer';
 import type { RouteOrTrack } from './shiplog/RoutesAndTracks';
 import { withTimeout } from '../utils/deadline';
 
@@ -31,6 +31,20 @@ export type SavedRouteLibraryItem =
           label: string;
           points: TracePoint[];
           timestamp: number;
+          /** Trip membership, for family grouping in the list. */
+          tripId?: string;
+          legOrdinal?: number;
+      }
+    | {
+          /** Derived "(Passage)" rollup — all legs of a trip stitched. Not a
+           *  stored row: read-only, not deletable, evaporates with its legs. */
+          source: 'trip-passage';
+          key: string;
+          tripId: string;
+          label: string;
+          points: TracePoint[];
+          timestamp: number;
+          legCount: number;
       }
     | {
           source: 'logbook-route';
@@ -110,9 +124,30 @@ export function mergeSavedRouteLibrary(
             source: 'saved-trace',
             key: `saved:${trace.id}`,
             routeId: trace.id,
-            label: trace.name,
+            // "(Leg N)" rendered from structure — the stored badge is paint.
+            label: displayRouteLabel(trace),
             points,
             timestamp: timestampOf(trace),
+            ...(trace.tripId ? { tripId: trace.tripId, legOrdinal: trace.legOrdinal } : {}),
+        });
+    }
+
+    // Derived "(Passage)" rollups — one per multi-leg trip, stitched from its
+    // legs at read time so re-tracing a leg can never leave a stale copy.
+    for (const rollup of buildTripPassageRollups(canonical)) {
+        const points = validPoints(rollup.points);
+        if (!points) continue;
+        const memberStamps = canonical
+            .filter((trace) => (trace.tripId ?? trace.id) === rollup.tripId)
+            .map((trace) => timestampOf(trace));
+        items.push({
+            source: 'trip-passage',
+            key: `passage:${rollup.tripId}`,
+            tripId: rollup.tripId,
+            label: rollup.name,
+            points,
+            timestamp: memberStamps.length > 0 ? Math.max(...memberStamps) : 0,
+            legCount: rollup.legCount,
         });
     }
 
@@ -142,7 +177,37 @@ export function mergeSavedRouteLibrary(
         });
     }
 
-    return items.sort((left, right) => right.timestamp - left.timestamp);
+    // Family-grouped ordering (Shane-approved design 2026-08-04): a trip
+    // reads as one unit — its "(Passage)" rollup on top, legs beneath in
+    // order — rather than four strays interleaved with unrelated routes.
+    // Families (and standalone rows) still order newest-first among
+    // themselves.
+    const familyKeyOf = (item: SavedRouteLibraryItem): string =>
+        item.source === 'trip-passage'
+            ? item.tripId
+            : item.source === 'saved-trace' && item.tripId
+              ? item.tripId
+              : item.key;
+    const familyStamp = new Map<string, number>();
+    for (const item of items) {
+        const family = familyKeyOf(item);
+        familyStamp.set(family, Math.max(familyStamp.get(family) ?? 0, item.timestamp));
+    }
+    const withinFamilyRank = (item: SavedRouteLibraryItem): number =>
+        item.source === 'trip-passage' ? 0 : item.source === 'saved-trace' ? (item.legOrdinal ?? 1) : 1;
+
+    return items.sort((left, right) => {
+        const leftFamily = familyKeyOf(left);
+        const rightFamily = familyKeyOf(right);
+        if (leftFamily !== rightFamily) {
+            const stampDiff = (familyStamp.get(rightFamily) ?? 0) - (familyStamp.get(leftFamily) ?? 0);
+            if (stampDiff !== 0) return stampDiff;
+            return leftFamily < rightFamily ? -1 : 1;
+        }
+        const rankDiff = withinFamilyRank(left) - withinFamilyRank(right);
+        if (rankDiff !== 0) return rankDiff;
+        return right.timestamp - left.timestamp;
+    });
 }
 
 /**

@@ -1882,6 +1882,100 @@ export function groupTracesByTrip(traces: readonly SavedTrace[]): TripGroup[] {
     });
 }
 
+/** First half of the "from - to" naming convention, badge stripped. */
+export function originNameFromRouteName(name: string): string | null {
+    const parts = stripLegBadge(name).split(' - ');
+    if (parts.length < 2) return null;
+    const origin = parts[0].trim();
+    return origin.length > 0 ? origin : null;
+}
+
+/** Standardised list label (Shane 2026-08-04): trip legs render as
+ *  "<name> (Leg N)" derived from the STRUCTURAL ordinal — the stored
+ *  "(2nd Leg)" badge stays in the name for cross-device compat, but it is
+ *  paint; this is what every list shows. Standalone routes pass through. */
+export function displayRouteLabel(t: Pick<SavedTrace, 'name' | 'tripId' | 'legOrdinal'>): string {
+    const ordinal = t.tripId ? (t.legOrdinal ?? legBadgeOrdinal(t.name)) : null;
+    if (!ordinal) return stripLegBadge(t.name);
+    return `${stripLegBadge(t.name)} (Leg ${ordinal})`;
+}
+
+export const TRIP_PASSAGE_ID_PREFIX = 'trip-passage:';
+
+/** One derived "(Passage)" rollup per multi-leg trip. */
+export interface TripPassageRollup {
+    /** `trip-passage:<tripId>` — the prefix marks it derived/read-only. */
+    id: string;
+    tripId: string;
+    /** "<origin> - <final destination> (Passage)" */
+    name: string;
+    /** First leg's departure place name. */
+    originName: string;
+    /** Last leg's destination place name. */
+    destName: string;
+    /** All legs stitched, duplicated joint pins dropped. */
+    points: TracePoint[];
+    legCount: number;
+    legIds: string[];
+}
+
+/**
+ * Build the derived "(Passage)" rollup rows (Shane-approved design
+ * 2026-08-04). DERIVED ON PURPOSE: a stored fourth copy would go stale the
+ * day a leg is re-traced around weather — this is computed from the legs at
+ * read time, never persisted, never synced, and not individually deletable
+ * (delete the legs and it evaporates).
+ */
+export function buildTripPassageRollups(traces: readonly SavedTrace[]): TripPassageRollup[] {
+    return groupTracesByTrip(traces)
+        .filter((group) => group.legs.length >= 2)
+        .map((group) => {
+            const points: TracePoint[] = [];
+            for (const leg of group.legs) {
+                for (const p of leg.points) {
+                    const prev = points[points.length - 1];
+                    // Legs chain by position (healTripChain) — drop the
+                    // duplicated joint pin where leg N+1 starts on leg N's end.
+                    if (prev && Math.abs(prev.lat - p.lat) < 1e-7 && Math.abs(prev.lon - p.lon) < 1e-7) continue;
+                    points.push({ lat: p.lat, lon: p.lon });
+                }
+            }
+            const first = group.legs[0];
+            const last = group.legs[group.legs.length - 1];
+            const origin = originNameFromRouteName(first.name) ?? stripLegBadge(first.name);
+            const dest = last.destName ?? destNameFromRouteName(last.name) ?? stripLegBadge(last.name);
+            return {
+                id: `${TRIP_PASSAGE_ID_PREFIX}${group.key}`,
+                tripId: group.key,
+                name: `${origin} - ${dest} (Passage)`,
+                originName: origin,
+                destName: dest,
+                points,
+                legCount: group.legs.length,
+                legIds: group.legs.map((leg) => leg.id),
+            };
+        });
+}
+
+/**
+ * Planned destination for leg N of the trip this voyage's saved route
+ * belongs to. Pre-seeds Cast Off's "Arrive at Port" box and the next leg's
+ * destination instead of leaving a blank field (Shane-approved design
+ * 2026-08-04). Null when the route isn't a trip member or the leg is
+ * beyond the plan.
+ */
+export function tripLegPlannedDestination(savedRouteId: string | null | undefined, legNumber: number): string | null {
+    if (!savedRouteId || !Number.isFinite(legNumber) || legNumber < 1) return null;
+    const traces = loadSavedTraces();
+    const anchor = traces.find((t) => t.id === savedRouteId);
+    if (!anchor) return null;
+    const tripId = anchor.tripId ?? anchor.id;
+    const legs = sortTripLegs(traces.filter((t) => (t.tripId ?? t.id) === tripId));
+    const leg = legs.find((l, i) => (l.legOrdinal ?? legBadgeOrdinal(l.name) ?? i + 1) === legNumber);
+    if (!leg) return null;
+    return leg.destName ?? destNameFromRouteName(leg.name) ?? null;
+}
+
 /** Retro-badge (Shane's call, 2026-07-17): leg 1 earns its "(1st Leg)" badge
  *  the moment leg 2 is born — day-sail routes never carry trip baggage.
  *  Finds the trip's first leg (its id IS the tripId), stamps the structural
@@ -2220,9 +2314,18 @@ export function traceAsVoyagePlan(
     // used to collide (the second silently lost its logbook entry).
     const stamp = new Date().toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit', hour12: false });
     const label = name.trim() || `Traced route ${stamp} (${points.length} pins)`;
+    // ROOT of the doubled-port bug (Shane 2026-08-04: "newport 2nd leg -
+    // newport 2nd leg??????"): both endpoints used to be synthesised from the
+    // whole route name as "<name> — start/— end", which then flowed into the
+    // voyage's departure_port AND destination_port. Tracer names follow the
+    // "from - to" convention, so use the real halves when they exist; only
+    // unconventional names (loops, custom titles) keep the generated markers,
+    // which downstream collapse helpers already know how to fold.
+    const originHalf = originNameFromRouteName(label);
+    const destHalf = destNameFromRouteName(label);
     return {
-        origin: `${label} — start`,
-        destination: `${label} — end`,
+        origin: originHalf ?? `${label} — start`,
+        destination: destHalf ?? `${label} — end`,
         departureDate: new Date().toISOString(),
         originCoordinates: { lat: points[0].lat, lon: points[0].lon },
         destinationCoordinates: { lat: points[points.length - 1].lat, lon: points[points.length - 1].lon },
