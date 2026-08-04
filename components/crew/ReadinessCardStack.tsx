@@ -71,6 +71,7 @@ interface ReadinessCardStackProps {
     onComfortProfileChange?: (v: boolean) => void;
     onWeatherWindowChange?: (v: boolean) => void;
     onCurrentsChange?: (v: boolean) => void;
+    onProvisionedChange?: (v: boolean) => void;
     /** Persist the full ISO departure and its route-derived ETA. */
     onDepartureTimeChange?: (voyageId: string, departureTime: string, eta: string | null) => void;
 }
@@ -270,6 +271,7 @@ export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
     onVesselProfileChange,
     onWeatherWindowChange,
     onCurrentsChange,
+    onProvisionedChange,
     onDepartureTimeChange,
 }) => {
     const activeVoyage = draftVoyages.find((v) => v.id === selectedPassageId);
@@ -290,8 +292,11 @@ export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
     const provisioningReady =
         canCountReadiness && provisioningStatus?.voyageId === selectedPassageId && provisioningStatus.ready;
     const handleProvisionedChange = useCallback(
-        (ready: boolean) => setProvisioningStatus({ voyageId: selectedPassageId, ready }),
-        [selectedPassageId],
+        (ready: boolean) => {
+            setProvisioningStatus({ voyageId: selectedPassageId, ready });
+            onProvisionedChange?.(ready);
+        },
+        [onProvisionedChange, selectedPassageId],
     );
     const handleActiveDepartureTimeChange = useCallback(
         (departureTime: string, eta: string | null = null) => {
