@@ -220,11 +220,13 @@ export function useWeatherLayers(
      * Distinct from `activeLayers` below, which is what is actually PAINTED.
      */
     const [userLayers, setUserLayers] = useState<Set<WeatherLayer>>(() => {
-        try {
-            return restoreActiveLayers(localStorage.getItem(STORAGE_KEY));
-        } catch {
-            return new Set(DEFAULT_LAYERS);
-        }
+        // Wind-only at EVERY chart startup (Shane 2026-08-04: "ensure that
+        // the wind is the only layer that starts up every time you select
+        // obs"). The stored selection is deliberately no longer restored —
+        // restoreActiveLayers() survives for its tested parsing semantics,
+        // but a fresh chart always opens with just the wind field. In-session
+        // toggles still persist below in case restore-on-boot ever returns.
+        return new Set(DEFAULT_LAYERS);
     });
 
     /**
@@ -1422,8 +1424,11 @@ export function useWeatherLayers(
             // pressure's 2.0 — isobars are a synoptic read and the user must
             // be able to pinch out for the whole-ocean picture — while wind's
             // full tile depth stays available.
-            const windFloor = Math.min(ausNzMin, LAYER_FRAME_ZOOM.wind ?? 3);
-            map.setMinZoom(hasPressureLayer ? Math.min(windFloor, LAYER_FRAME_ZOOM.pressure ?? 2) : windFloor);
+            // Wind never zooms out past z3 (Shane 2026-08-04: "no more than
+            // the default zoom level") — including when the isobar overlay
+            // rides along. Solo pressure (branch above) keeps its deliberate
+            // z2 synoptic frame.
+            map.setMinZoom(Math.max(LAYER_FRAME_ZOOM.wind ?? 3, 3));
             map.setMaxZoom(18);
             map.setMaxBounds(undefined!);
         } else {
