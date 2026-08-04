@@ -660,6 +660,48 @@ async function convertOneCell(
  * even for single-cell uploads — keeps the device-side import flow
  * uniform.
  */
+/** Chart directory the o-charts decrypt watcher polls (encWatcher's ENC_WATCH_DIR). */
+const OESU_CHART_DIR = process.env.ENC_WATCH_DIR || path.join(os.homedir(), 'Charts');
+
+/** How many `.oesu` files are in the tree — i.e. is this an o-charts set? */
+async function countOesuFiles(root: string): Promise<number> {
+    const entries = await fs.readdir(root, { withFileTypes: true, recursive: true });
+    return entries.filter((e) => e.isFile() && e.name.toLowerCase().endsWith('.oesu')).length;
+}
+
+/**
+ * Move an unpacked o-charts set into the watched chart directory.
+ *
+ * The set keeps its own folder so several chart sets can coexist, and the
+ * folder is named after the archive (o-charts names these `oeuSENC-AU-…`,
+ * which is exactly the shape decryptBatch expects). The keyFile XML that
+ * pairs with the cells is carried across too — decryptBatch finds it by glob
+ * and cannot decrypt without it.
+ *
+ * Deliberately a copy of the DIRECTORY CONTAINING the cells, not the whole
+ * unzip tree: o-charts archives nest the set one level down, and decryptBatch
+ * expects the .oesu files and the keyFile to be siblings.
+ */
+async function installOesuChartSet(unzipDir: string, archiveName: string): Promise<string> {
+    const entries = await fs.readdir(unzipDir, { withFileTypes: true, recursive: true });
+    const firstCell = entries.find((e) => e.isFile() && e.name.toLowerCase().endsWith('.oesu'));
+    if (!firstCell) throw new Error('no .oesu files after unzip');
+    const sourceDir = firstCell.parentPath ?? unzipDir;
+
+    // Prefer the set's own directory name (o-charts already names it
+    // meaningfully); fall back to the archive name without its extension.
+    const inferred = path.basename(sourceDir);
+    const setName = /^oeuSENC/i.test(inferred) ? inferred : path.basename(archiveName, path.extname(archiveName));
+    const dest = path.join(OESU_CHART_DIR, sanitiseFilename(setName));
+
+    await fs.mkdir(dest, { recursive: true });
+    for (const entry of await fs.readdir(sourceDir, { withFileTypes: true })) {
+        if (!entry.isFile()) continue;
+        await fs.copyFile(path.join(sourceDir, entry.name), path.join(dest, entry.name));
+    }
+    return dest;
+}
+
 async function runConversion(job: EncJob): Promise<void> {
     if (!job.workDir) throw new Error('workDir not set');
     const inputPath = path.join(job.workDir, job.filename);
@@ -687,9 +729,28 @@ async function runConversion(job: EncJob): Promise<void> {
             throw new Error(`Failed to unzip: ${(err as Error).message}`);
         }
 
+        // o-charts chart sets arrive as .oesu, not raw S-57. They can't go
+        // through ogr2ogr at all — they're encrypted and only oexserverd can
+        // read them. Hand the set to the chart directory the decrypt watcher
+        // already watches and let that pipeline do the work.
+        const oesuCount = await countOesuFiles(unzipDir);
+        if (oesuCount > 0) {
+            job.step = `installing o-charts set (${oesuCount} cells)`;
+            const setDir = await installOesuChartSet(unzipDir, job.filename);
+            job.cellCount = oesuCount;
+            job.cellsDone = oesuCount;
+            job.status = 'done';
+            job.progress = 1;
+            job.step =
+                `o-charts set staged at ${setDir} — the decrypt watcher will publish ` +
+                `${oesuCount} cell(s) shortly`;
+            job.completedAt = Date.now();
+            return;
+        }
+
         const cellPaths = await findEncCells(unzipDir);
         if (cellPaths.length === 0) {
-            throw new Error('No .000 cell files found in ZIP');
+            throw new Error('No .000 or .oesu cell files found in ZIP');
         }
         job.cellCount = cellPaths.length;
         job.cellsDone = 0;
