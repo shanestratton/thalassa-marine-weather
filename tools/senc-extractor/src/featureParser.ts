@@ -63,6 +63,21 @@ export interface LineGeometry {
     extent: { sLat: number; nLat: number; wLon: number; eLon: number };
 }
 
+/**
+ * Multi-part LINE geometry: a feature whose edge chain is deliberately
+ * discontinuous (S-57 allows a line feature to map disjoint edges, e.g. a
+ * coastline interrupted by a masked span). Each part renders independently;
+ * concatenating them would draw connecting chords the chart never asserted.
+ * Currently produced only by the s63 dialect parser — the binary-format walk
+ * in this file concatenates (see resolveLineGeometry), which predates this
+ * type.
+ */
+export interface MultiLineGeometry {
+    type: 'MultiLine';
+    parts: [number, number][][];
+    extent: { sLat: number; nLat: number; wLon: number; eLon: number };
+}
+
 /** Intermediate form retained between record-walk and table-resolve passes. */
 export interface LineGeometryRaw {
     type: 'LineRaw';
@@ -73,7 +88,13 @@ export interface LineGeometryRaw {
     stride: 3 | 4;
 }
 
-export type FeatureGeometry = PointGeometry | MultiPointGeometry | AreaGeometry | LineGeometry | LineGeometryRaw;
+export type FeatureGeometry =
+    | PointGeometry
+    | MultiPointGeometry
+    | AreaGeometry
+    | LineGeometry
+    | MultiLineGeometry
+    | LineGeometryRaw;
 
 interface EdgeEntry {
     /** Intermediate vertices in [lon, lat] (excludes the connected-node endpoints). */
