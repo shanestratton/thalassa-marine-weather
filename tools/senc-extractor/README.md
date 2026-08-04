@@ -47,6 +47,36 @@ npx tsx src/extractS63.ts --pi-cache-store /opt/thalassa-pi-cache/enc-charts
 Permits are read from where the plugin already put them — `Userpermit` and
 `Installpermit` in `opencpn.conf`, per-cell permits from the `cellpermit:`
 line of each `.os63` — so there is nothing to pass on the command line.
+
+### Importing a new cell without the OpenCPN GUI
+
+The plugin's "Import Cell Permits / Import Charts" dialogs only produce two
+artefacts, and both can be made headlessly — useful on a Pi with no screen,
+and the reason the watcher below has something to watch:
+
+1. **The `.os63` descriptor**, plain text under `s63charts/<dataserver>/`:
+
+   ```
+   cellpermit:<the cell's line from PERMIT.TXT>
+   cellbase:<abs path>/<CELL>.000;VERSION=1.0,EDTN=<n>,UPDN=0,UADT=<date>,ISDT=<date>;
+   cellupdate:<abs path>/<CELL>.001;VERSION=1.0,EDTN=<n>,UPDN=1,ISDT=<date>;   ← one per update
+   ```
+
+2. **The eSENC**, built by OCPNsenc's `-c` (create secure SENC) mode:
+
+   ```bash
+   OCPNsenc -c -i <ENC_ROOT>/<CC>/<CELL>/<ed>/0/<CELL>.000 \
+            -o ~/.opencpn/s63/s63SENC/<CELL>.es57 \
+            -p "<cell permit>" -u <UserPermit> -e <InstallPermit> \
+            -r /usr/share/opencpn/s57data -g <path to .os63> \
+            -z ~/.local/lib/opencpn/libs63_pi.so
+   ```
+
+   It prints `eSENC built OK` on success. Writing that `.es57` is what trips
+   the watcher, so extraction and publication follow on their own.
+
+Reference: bdbcat/s63_pi `s63chart.cpp` — `BuildSENCFile` builds the command
+line; the `.os63` format is parsed in the `cellpermit:` / `cellbase:` reader.
 `--pi-cache-store` writes the same wrapped-cell + index.json format
 `decryptBatch.ts` writes for `.oesu` charts (shared shapes in
 `piCacheStore.ts`), so the cell shows up in `/api/enc/installed` and the
