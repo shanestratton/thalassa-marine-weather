@@ -135,6 +135,17 @@ const VOYAGE_STALE_THRESHOLD_MS = 6 * 60 * 60 * 1000; // 6 hours — start new v
  * still starving — which is precisely when we want it.
  */
 const FAST_LOCK_MS = 65 * 1000;
+/**
+ * Re-arm ceiling for the gate-closed fast-lock loop (~10 min total). Staying
+ * in fast-lock while the first-fix gate is closed is deliberate (2026-08-02:
+ * "acquiring GPS fix… for hours"), but an unopenable gate — persistent >100 m
+ * accuracy, a wedged corroboration stream — must not latch distanceFilter:0
+ * (emit on EVERY chip update) for the whole session: that is a maximum-rate
+ * Capacitor-bridge flood. The accuracy ceiling relaxes at 60 s, so ten
+ * minutes is ample; past the cap the 1 m filter still lets the gate open,
+ * just more slowly.
+ */
+const FAST_LOCK_MAX_REARMS = 8;
 const CAPTURE_HANDOFF_KEY = 'ship_log_capture_handoff';
 const CAPTURE_HANDOFF_VERSION = 1;
 
@@ -170,6 +181,7 @@ class ShipLogServiceClass {
     // background-throttled timer, reload race) is always a clean no-op.
     private fastLockTimeoutId?: NodeJS.Timeout;
     private fastLockArmedForVoyageId?: string;
+    private fastLockRearmCount = 0;
     /** False until the GPS subscription has admitted a first vetted track fix. */
     private trackGpsGateOpen = false;
     // (envCheckIntervalId moved into EnvironmentPoller — see this.envPoller below)
@@ -1204,6 +1216,7 @@ class ShipLogServiceClass {
     private armFastLock(voyageId: string, scope: AuthIdentityScope, state: TrackingState): void {
         this.clearFastLock();
         this.fastLockArmedForVoyageId = voyageId;
+        this.fastLockRearmCount = 0;
         BgGeoManager.setSamplingMode('fastlock').catch((e) => {
             log.warn('failed to enter fast-lock sampling on track start:', e);
         });
@@ -1230,10 +1243,16 @@ class ShipLogServiceClass {
             //
             // settleFastLock (called from onTrackOpened) is the correct exit
             // and already gate-aware. Until the gate opens, staying in
-            // fast-lock is the entire point of fast-lock: keep sampling.
+            // fast-lock is the entire point of fast-lock: keep sampling —
+            // but bounded by FAST_LOCK_MAX_REARMS so an unopenable gate
+            // cannot latch the max-rate bridge flood for a whole session.
             if (!this.trackGpsGateOpen) {
-                this.fastLockTimeoutId = setTimeout(revert, FAST_LOCK_MS);
-                return;
+                if (this.fastLockRearmCount < FAST_LOCK_MAX_REARMS) {
+                    this.fastLockRearmCount += 1;
+                    this.fastLockTimeoutId = setTimeout(revert, FAST_LOCK_MS);
+                    return;
+                }
+                log.warn('fast-lock cap reached with first-fix gate still closed — reverting to default sampling');
             }
 
             BgGeoManager.setSamplingMode('default').catch((e) => {

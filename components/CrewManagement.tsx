@@ -413,6 +413,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
     const [comfortProfileReady, setComfortProfileReady] = useState(false);
     const [weatherWindowReady, setWeatherWindowReady] = useState(false);
     const [currentsBriefed, setCurrentsBriefed] = useState(false);
+    const [provisioningReady, setProvisioningReady] = useState(false);
 
     const resetReadinessState = useCallback(() => {
         setCustomsCleared(false);
@@ -427,6 +428,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
         setComfortProfileReady(false);
         setWeatherWindowReady(false);
         setCurrentsBriefed(false);
+        setProvisioningReady(false);
         setDelegationMenuOpen(null);
         setShowCastOff(false);
     }, []);
@@ -1859,6 +1861,8 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
     const allCardsReady =
         (selectedPassageIsDomestic || customsCleared) &&
         weatherWindowReady &&
+        currentsBriefed &&
+        (!verifiedPassageStatus.canViewMeals || provisioningReady) &&
         vesselProfileReady &&
         reservesReady &&
         navAcknowledged &&
@@ -2177,7 +2181,14 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                             if (!scopeStillOwnsPage(renderScope) || selectedPassageRef.current !== selectedPassageId) {
                                 return;
                             }
-                            setCustomsProgress({ total, checked });
+                            // Bail out on unchanged values. A fresh object here
+                            // re-rendered the whole planning tree, which rebuilt
+                            // CustomsClearanceCard's props, which re-fired its
+                            // notify effect — an unbounded render loop on any
+                            // international passage.
+                            setCustomsProgress((prev) =>
+                                prev.total === total && prev.checked === checked ? prev : { total, checked },
+                            );
                             setCustomsCleared(total > 0 && checked >= total);
                         }}
                         onNavChange={(value) => {
@@ -2213,6 +2224,11 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                         onCurrentsChange={(value) => {
                             if (scopeStillOwnsPage(renderScope) && selectedPassageRef.current === selectedPassageId) {
                                 setCurrentsBriefed(value);
+                            }
+                        }}
+                        onProvisionedChange={(value) => {
+                            if (scopeStillOwnsPage(renderScope) && selectedPassageRef.current === selectedPassageId) {
+                                setProvisioningReady(value);
                             }
                         }}
                         onDepartureTimeChange={handlePassageDepartureTimeChange}

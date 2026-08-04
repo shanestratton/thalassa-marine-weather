@@ -58,13 +58,16 @@ export const CustomsClearanceCard: React.FC<CustomsClearanceCardProps> = ({
         [setCheckedDocs, syncCheck],
     );
 
-    // Notify parent of checked state changes
+    // Notify parent of checked state changes. Deps are the PRIMITIVE customs
+    // fields, not the customs object: the parent rebuilds voyagePlan inline
+    // every render, and an object dep re-fired this effect per parent render.
+    const customsRequired = customs?.required ?? false;
+    const customsDepartCountry = customs?.departingCountry ?? '';
+    const customsArriveCountry = customs?.destinationCountry ?? '';
     useEffect(() => {
-        if (!onCheckedChange || !customs?.required) return;
-        const departCountry = customs.departingCountry;
-        const arriveCountry = customs.destinationCountry;
-        const departData = findCountryData(departCountry);
-        const arriveData = findCountryData(arriveCountry);
+        if (!onCheckedChange || !customsRequired) return;
+        const departData = findCountryData(customsDepartCountry);
+        const arriveData = findCountryData(customsArriveCountry);
         const allDocs = [
             ...(departData?.requiredDocuments || []).map((d) => `depart:${d.name}`),
             ...(arriveData?.requiredDocuments || []).map((d) => `arrive:${d.name}`),
@@ -72,7 +75,7 @@ export const CustomsClearanceCard: React.FC<CustomsClearanceCardProps> = ({
         const total = allDocs.length;
         const checked = allDocs.filter((k) => checkedDocs[k]).length;
         onCheckedChange(total, checked);
-    }, [checkedDocs, customs, onCheckedChange]);
+    }, [checkedDocs, customsRequired, customsDepartCountry, customsArriveCountry, onCheckedChange]);
 
     if (!customs?.required) return null;
 

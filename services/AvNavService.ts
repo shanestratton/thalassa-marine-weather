@@ -865,29 +865,15 @@ class AvNavServiceClass {
                         }
                     }
 
-                    // Fallback: basic HTTP check on well-known ports
-                    if (!reachable) {
-                        for (const port of [3000, 3001, 80]) {
-                            try {
-                                const res = await CapacitorHttp.get({
-                                    url: `http://${tryHost}:${port}/`,
-                                    connectTimeout: 3000,
-                                    readTimeout: 3000,
-                                });
-                                if (res.status >= 200 && res.status < 500) {
-                                    reachable = true;
-                                    nativeLog(`Host reachable via port ${port} (fallback)`);
-                                    break;
-                                }
-                            } catch {
-                                /* continue */
-                            }
-                            if (gen !== this._connGen) {
-                                nativeLog('connect(): superseded (fallback probe)');
-                                return;
-                            }
-                        }
-                    }
+                    // NO basic-HTTP fallback on ports 3000/3001/80. That check
+                    // declared a DEAD AvNav "connected" because pi-cache on
+                    // :3001 answers anything (even its 404s counted), which
+                    // reset reconnectAttempts every cycle — the give-up guard
+                    // was unreachable and the app rescanned ~50 endpoints per
+                    // minute forever (2026-08-04 device log: the :8080 404
+                    // storm). Only a real AvNav/chart probe proves liveness;
+                    // an unreachable host must count as a failed attempt so
+                    // the reconnect backoff can actually give up.
 
                     if (reachable) {
                         if (gen !== this._connGen) {

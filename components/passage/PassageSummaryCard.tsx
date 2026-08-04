@@ -562,7 +562,7 @@ export const PassageSummaryCard: React.FC<PassageSummaryCardProps> = ({
     // the last route seen on Chart and cannot prove which planning record it
     // belongs to. Endpoint validation prevents a late/stale parent render
     // from briefly drawing another passage's curve.
-    const savedVoyageRouteCoords = useMemo<[number, number][]>(() => {
+    const savedVoyageRouteCoordsRaw = useMemo<[number, number][]>(() => {
         if (!routeCoordinates || routeCoordinates.length < 2) return EMPTY_ROUTE_COORDINATES;
         const coordinates = routeCoordinates
             .filter((point) => isValidLatLon(point.lat, point.lon))
@@ -587,6 +587,25 @@ export const PassageSummaryCard: React.FC<PassageSummaryCardProps> = ({
         }
         return coordinates;
     }, [routeCoordinates, effectiveDepartLat, effectiveDepartLon, effectiveArriveLat, effectiveArriveLon]);
+
+    // Content-stable identity. The planning page rebuilds its voyage rows —
+    // including a freshly-mapped routeCoordinates array — on every reload, so
+    // identity-keyed memos downstream (schedule, map, and especially the
+    // max-conditions effect with its two uncancellable Open-Meteo requests)
+    // re-fired on every reload despite identical values. Same values must
+    // yield the same array reference.
+    const savedVoyageRouteCoordsKey = useMemo(
+        () => savedVoyageRouteCoordsRaw.map(([lon, lat]) => `${lon.toFixed(6)},${lat.toFixed(6)}`).join(';'),
+        [savedVoyageRouteCoordsRaw],
+    );
+    const stableCoordsRef = useRef<{ key: string; value: [number, number][] }>({
+        key: '',
+        value: EMPTY_ROUTE_COORDINATES,
+    });
+    if (stableCoordsRef.current.key !== savedVoyageRouteCoordsKey) {
+        stableCoordsRef.current = { key: savedVoyageRouteCoordsKey, value: savedVoyageRouteCoordsRaw };
+    }
+    const savedVoyageRouteCoords = stableCoordsRef.current.value;
 
     // Memo key uses primitive coord values so the array is only rebuilt when
     // actual numbers change. There is deliberately no manufactured
