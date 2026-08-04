@@ -371,10 +371,13 @@ export const EssentialMapSlide: React.FC<EssentialMapSlideProps> = ({
         };
     }, [view, inView, refreshNonce]);
 
-    // Repaint whenever a frame lands or the timeline/view changes.
+    // Repaint whenever a frame lands, the timeline/view changes, or the
+    // canvas remounts on scroll-back (`onScreen` — it only exists while the
+    // slide is visible; frames come straight from the module cache).
     useEffect(() => {
+        if (!onScreen) return;
         paint();
-    }, [paint, loadedIds]);
+    }, [paint, loadedIds, onScreen]);
 
     // Periodic refresh — picks up new Rainbow snapshots / radar history.
     useEffect(() => {
@@ -506,8 +509,15 @@ export const EssentialMapSlide: React.FC<EssentialMapSlideProps> = ({
                     />
                 )}
 
-                {/* Layer 2: radar crossfade canvas */}
-                <canvas ref={canvasRef} className="absolute inset-0 w-full h-full pointer-events-none" />
+                {/* Layer 2: radar crossfade canvas — exists ONLY while this
+                    slide is actually on screen. A canvas allocates ~600KB of
+                    UNPURGEABLE backing store the moment the painter sizes it,
+                    and the hero carousel mounts ~226 of these cards; sizing
+                    them all in one mount burst was ~130MB of renderer memory
+                    — a jetsam kill wearing the animation flood's clothing.
+                    Composited frames live in the module cache, so remounting
+                    the canvas on return repaints instantly with no refetch. */}
+                {onScreen && <canvas ref={canvasRef} className="absolute inset-0 w-full h-full pointer-events-none" />}
 
                 {/* Layer 3: range rings — spacing adapts to pinch zoom */}
                 {rings && rings.radii.length > 0 && (
