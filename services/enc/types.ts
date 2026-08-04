@@ -561,6 +561,12 @@ export interface EncCell {
     /** Total hazard count across all loaded layers (UI stat). */
     hazardCount: number;
     /**
+     * Whether this cell may participate in live navigation decisions.
+     * Missing values are legacy navigation imports except for the explicitly
+     * migrated bundled-demo ids handled by EncCellMetadata.
+     */
+    usage?: 'navigation' | 'demo';
+    /**
      * CATZOC range present in the cell's M_QUAL coverage.
      * `[best, worst]` (smaller numbers = higher confidence).
      * Null when M_QUAL data was not present in the source cell.
