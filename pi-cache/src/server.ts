@@ -33,11 +33,19 @@ import { cachedJsonFetch, cachedTileFetch } from './proxy.js';
 import { startScheduler, stopScheduler } from './scheduler.js';
 import { startEncWatcher, stopEncWatcher } from './encWatcher.js';
 import { DiaryRelayOutbox, type DiaryRelayConfigInput, DiaryRelayValidationError } from './diaryRelayOutbox.js';
+import { loadOrCreateIdentity } from './identity.js';
+import { createPairRoutes } from './routes/pair.js';
 
 // ── Config (mutable — app can update via /api/configure) ──
 
 const PORT = parseInt(process.env.PORT || '3001', 10);
 const CACHE_DIR = process.env.CACHE_DIR || './cache';
+
+// Pairing identity — survives redeploys (rsync excludes identity/). See
+// identity.ts for what this defends against. PI_BOAT_NAME overrides the
+// hostname shown on the app's pairing card.
+const identity = loadOrCreateIdentity(process.env.IDENTITY_DIR || './identity');
+console.log(`[identity] ${identity.boatName} (${identity.deviceId}) fingerprint ${identity.fingerprint}`);
 let SUPABASE_URL = process.env.SUPABASE_URL || '';
 let SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || '';
 const proxyConfig = {
@@ -315,8 +323,9 @@ app.use('/api/grib', createGribRoutes(cache, proxyConfig));
 app.use('/api/tides', createTideRoutes(cache, proxyConfig));
 app.use('/api/misc', createMiscRoutes(cache, proxyConfig));
 app.use('/api/charts', createChartRoutes());
-app.use('/api/enc', createEncRoutes());
+app.use('/api/enc', createEncRoutes(identity));
 app.use('/api/osm', createOsmRoutes());
+app.use('/api/pair', createPairRoutes(identity));
 app.use('/api/diary', createDiaryRelayRoutes(diaryRelayOutbox));
 
 // ── Boat-LAN app hosting (Shane 2026-07-09: "if the Pi serves charts

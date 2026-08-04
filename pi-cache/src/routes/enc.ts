@@ -55,6 +55,8 @@ import os from 'node:os';
 import path from 'node:path';
 import AdmZip from 'adm-zip';
 import { routeInshore, type InshoreLayers, type RouteRequest } from '../services/inshoreRouter.js';
+import { sendSignedJson } from './pair.js';
+import type { PiIdentity } from '../identity.js';
 
 // ── Job state ─────────────────────────────────────────────────────
 
@@ -765,7 +767,12 @@ async function runConversion(job: EncJob): Promise<void> {
 
 // ── Routes ────────────────────────────────────────────────────────
 
-export function createEncRoutes(): Router {
+/**
+ * `identity` enables signed responses on the endpoints that ship navigation
+ * data (installed list + per-cell blobs). Optional so a bare dev instance
+ * without an identity file still serves everything, just unsigned.
+ */
+export function createEncRoutes(identity?: PiIdentity): Router {
     const router = Router();
 
     // Capture raw body up to MAX_UPLOAD_BYTES for the convert endpoint.
@@ -1037,10 +1044,15 @@ export function createEncRoutes(): Router {
      * converted and stored. Phones use this to show the chart
      * locker without having to know which boat has which charts.
      */
-    router.get('/installed', async (_req: Request, res: Response) => {
+    router.get('/installed', async (req: Request, res: Response) => {
         try {
             const index = await loadInstalledIndex();
-            return res.json({ cells: index.cells, totalSizeBytes: index.cells.reduce((s, c) => s + c.sizeBytes, 0) });
+            const payload = { cells: index.cells, totalSizeBytes: index.cells.reduce((s, c) => s + c.sizeBytes, 0) };
+            // Signed when the server has an identity: the app verifies this
+            // list against the pinned key so an on-path attacker can't hide
+            // or inject cells. Unsigned on identity-less dev instances.
+            if (identity) return sendSignedJson(identity, req, res, payload);
+            return res.json(payload);
         } catch (err) {
             return res.status(500).json({ error: `Failed to read chart store: ${(err as Error).message}` });
         }
@@ -1060,6 +1072,8 @@ export function createEncRoutes(): Router {
         const filePath = cellStorePath(cellId);
         try {
             const text = await fs.readFile(filePath, 'utf8');
+            // Signed: this is navigation data — see /installed above.
+            if (identity) return sendSignedJson(identity, req, res, text);
             res.setHeader('Content-Type', 'application/json');
             return res.send(text);
         } catch (err) {
