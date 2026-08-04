@@ -3171,3 +3171,18 @@ body,
         animation: none;
     }
 }
+
+/* ── Backgrounded freeze (2026-08-04 renderer kill) ──────────────────
+   While the app is hidden, WKWebView cannot drain its IPC queue; any CSS
+   animation that starts or restarts accumulates DrawingArea messages until
+   iOS kills the WebContent process ("129 AcceleratedAnimationDidStart",
+   28 min of failed markAllLayersVolatile in Shane's logs). The
+   app-backgrounded class is toggled by useAppBootstrap on appStateChange +
+   visibilitychange; pausing everything here is invisible to the user and
+   lets WebKit actually quiesce the page. */
+body.app-backgrounded *,
+body.app-backgrounded *::before,
+body.app-backgrounded *::after {
+    animation-play-state: paused !important;
+    transition: none !important;
+}
