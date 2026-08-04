@@ -742,8 +742,7 @@ async function runConversion(job: EncJob): Promise<void> {
             job.status = 'done';
             job.progress = 1;
             job.step =
-                `o-charts set staged at ${setDir} — the decrypt watcher will publish ` +
-                `${oesuCount} cell(s) shortly`;
+                `o-charts set staged at ${setDir} — the decrypt watcher will publish ` + `${oesuCount} cell(s) shortly`;
             job.completedAt = Date.now();
             return;
         }
@@ -1057,6 +1056,16 @@ export function createEncRoutes(identity?: PiIdentity): Router {
                     clearTimeout(timer);
                 }
                 if (!response.ok) {
+                    // o-charts (and most vendors) hand out time-limited share
+                    // links, so a dead link is the ordinary failure here, not
+                    // an exotic one. Say so plainly — the fix is to request a
+                    // fresh download from the shop, not to retry this URL.
+                    if (response.status === 404 || response.status === 410) {
+                        throw new Error(
+                            `Download link is no longer valid (HTTP ${response.status}). Chart download links expire — ` +
+                                `request a new one from your chart shop and paste the fresh link.`,
+                        );
+                    }
                     throw new Error(`Upstream HTTP ${response.status}`);
                 }
                 const total = Number(response.headers.get('content-length') ?? 0);
