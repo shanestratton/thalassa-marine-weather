@@ -104,6 +104,34 @@ export interface ThpqPointForecast {
 
 let headerCache: { url: string; header: ThpqHeader } | null = null;
 
+/**
+ * How stale a wave run may be before this refuses to serve it.
+ *
+ * The server publishes a new AIFS run roughly every 12 h. Supabase keeps
+ * serving the LAST object forever, so if the box loses power or its internet —
+ * a home server backing a boat at sea — nothing downstream would notice. There
+ * is no network error to catch: the bytes arrive perfectly, they are just old.
+ *
+ * 36 h tolerates a couple of missed runs (ECMWF outages, our own 503 sweeps)
+ * while refusing anything that has drifted into being a different weather
+ * situation. Beyond that the forecast is not "slightly stale", it is about a
+ * sea state that has already happened.
+ */
+const MAX_RUN_AGE_MS = 36 * 60 * 60 * 1000;
+
+export class ThpqStaleError extends Error {
+    constructor(
+        readonly ageHours: number,
+        readonly baseTime: number,
+    ) {
+        super(
+            `THPQ run is ${ageHours.toFixed(1)} h old (limit ${MAX_RUN_AGE_MS / 3_600_000} h) — ` +
+                'refusing; the publisher has probably stopped',
+        );
+        this.name = 'ThpqStaleError';
+    }
+}
+
 function url(file: string): string {
     return `${API_BASE}/points/${file}`;
 }
@@ -230,10 +258,38 @@ export async function fetchThpqHeader(file = 'aifs-wave.thpq'): Promise<ThpqHead
     const u = url(file);
     if (headerCache?.url === u) return headerCache.header;
     const header = parseHeader(await rangeGet(u, 0, HEADER_PROBE - 1));
+
+    // AGE GATE. Checked against the run's own baseTime, which is what the
+    // forecast is ABOUT — not when the file happened to be uploaded. A run
+    // re-published unchanged is still the same old forecast.
+    //
+    // Deliberately thrown rather than returned as a flag: a caller that ignores
+    // a flag renders old wave heights as current, and there is no way to tell
+    // by looking. Callers already handle a rejected header by falling through
+    // to a live source, which is the correct outcome.
+    const ageMs = Date.now() - header.baseTime * 1000;
+    const ageHours = ageMs / 3_600_000;
+    if (ageMs > MAX_RUN_AGE_MS) {
+        log.warn(
+            `THPQ ${file}: run ${new Date(header.baseTime * 1000).toISOString()} is ` +
+                `${ageHours.toFixed(1)} h old — refusing`,
+        );
+        throw new ThpqStaleError(ageHours, header.baseTime);
+    }
+
+    // A run whose LAST step has already passed carries no forecast at all, even
+    // if the run itself is inside the age limit — every value is history.
+    const horizonMs = header.baseTime * 1000 + (header.nSteps - 1) * header.stepMinutes * 60_000;
+    if (horizonMs < Date.now()) {
+        log.warn(`THPQ ${file}: horizon ${new Date(horizonMs).toISOString()} is in the past — refusing`);
+        throw new ThpqStaleError(ageHours, header.baseTime);
+    }
+
     headerCache = { url: u, header };
     log.info(
         `THPQ v${header.version}: ${header.width}x${header.height}, ` +
-            `${header.nParams} params x ${header.nSteps} steps, ${header.cellStride} B/cell`,
+            `${header.nParams} params x ${header.nSteps} steps, ${header.cellStride} B/cell, ` +
+            `run ${ageHours.toFixed(1)} h old, horizon +${((horizonMs - Date.now()) / 3_600_000).toFixed(0)} h`,
     );
     return header;
 }
