@@ -50,14 +50,24 @@
 import { spawn } from 'node:child_process';
 import { existsSync, type Stats } from 'node:fs';
 import { homedir } from 'node:os';
-import { join, basename, dirname, extname } from 'node:path';
+import { join, basename, dirname, extname, resolve } from 'node:path';
 import chokidar, { type FSWatcher } from 'chokidar';
 
 const HOME = homedir();
 
 const WATCH_DIR = process.env.ENC_WATCH_DIR || join(HOME, 'Charts');
 const EXTRACTOR_DIR = process.env.ENC_EXTRACTOR_DIR || join(HOME, 'thalassa-marine-weather', 'tools', 'senc-extractor');
-const CHART_STORE_DIR = process.env.ENC_CHART_DIR || './enc-charts';
+/**
+ * Absolute path to the chart store.
+ *
+ * `ENC_CHART_DIR` defaults to the relative './enc-charts', which is correct
+ * for the server itself (cwd is /opt/thalassa-pi-cache) but NOT for the
+ * extractors we spawn: those run with cwd set to the senc-extractor directory,
+ * so a relative path resolved there and quietly created a second, orphaned
+ * store that pi-cache never serves. Resolve once, against the server's cwd,
+ * and hand children the absolute path.
+ */
+const CHART_STORE_DIR = resolve(process.env.ENC_CHART_DIR || './enc-charts');
 const DEBOUNCE_MS = parseInt(process.env.ENC_WATCHER_DEBOUNCE_MS || '30000', 10);
 const ENABLED = process.env.ENC_WATCHER_ENABLED !== 'false';
 const DEFAULT_SOURCE_HO = process.env.ENC_DEFAULT_SOURCE_HO || 'AU';
@@ -98,7 +108,9 @@ export function startEncWatcher(): void {
         );
     }
 
-    console.log(`[encWatcher] watching ${WATCH_DIR} for new .oesu files (debounce=${DEBOUNCE_MS}ms)`);
+    console.log(
+        `[encWatcher] watching ${WATCH_DIR} for new .oesu files (debounce=${DEBOUNCE_MS}ms, store=${CHART_STORE_DIR})`,
+    );
 
     watcher = chokidar.watch(WATCH_DIR, {
         // Match the .oesu chart files; ignore everything else.
@@ -372,6 +384,7 @@ export function getWatcherStatus(): {
     enabled: boolean;
     watching: boolean;
     watchDir: string;
+    chartStoreDir: string;
     extractorDir: string;
     pendingSets: string[];
     currentDecrypt: string | null;
@@ -387,6 +400,7 @@ export function getWatcherStatus(): {
         enabled: ENABLED,
         watching: watcher !== null,
         watchDir: WATCH_DIR,
+        chartStoreDir: CHART_STORE_DIR,
         extractorDir: EXTRACTOR_DIR,
         pendingSets: [...pendingChartSets],
         currentDecrypt: currentDecryptRun?.chartSet ?? null,
