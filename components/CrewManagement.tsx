@@ -48,7 +48,13 @@ import {
 } from '../services/VoyageService';
 import { fetchRoutesAndTracks } from '../services/shiplog/RoutesAndTracks';
 import { formatPlannedRouteLabel, formatStoredPlannedRouteName } from '../services/shiplog/plannedRouteNaming';
-import { linkTraceToPassage, loadSavedTraces, saveTrace, stripLegBadge } from '../services/routeTracer';
+import {
+    buildTripPassageRollups,
+    linkTraceToPassage,
+    loadSavedTraces,
+    saveTrace,
+    stripLegBadge,
+} from '../services/routeTracer';
 import { savedRouteGeometryFingerprint } from '../services/savedRouteLibrary';
 import { isSameCountry } from '../data/customsDb';
 import {
@@ -1101,6 +1107,45 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
             ...visibleDrafts.filter((draft) => !matchedDraftIds.has(draft.id)).map(attachCanonicalTraceGeometry),
         );
 
+        // ── Derived "(Passage)" rows (Shane-approved design 2026-08-04) ──
+        // One per multi-leg trip: the legs stitched, selectable exactly like
+        // any other planning row. The `logbook:` id prefix reuses the same
+        // materialise-on-select path below; saved_route_id is the trip's
+        // FIRST leg (its id IS the tripId — a real trace), so the float plan
+        // waypoints and the Cast Off destination seed both resolve. Skipped
+        // once a materialised passage voyage exists for the trip.
+        for (const rollup of buildTripPassageRollups(canonicalTraces)) {
+            if (ownRows.some((row) => row.saved_route_id === rollup.tripId)) continue;
+            const routeCoordinates = rollup.points.map((point) => ({ lat: point.lat, lon: point.lon }));
+            const distanceNm = routeDistanceNm(routeCoordinates) ?? undefined;
+            const speedKt = settings.vessel?.cruisingSpeed || 5.5;
+            const durationHours = distanceNm ? distanceNm / speedKt : undefined;
+            const nowIso = new Date().toISOString();
+            const eta = durationHours ? new Date(Date.now() + durationHours * 3_600_000).toISOString() : null;
+            ownRows.push({
+                id: `logbook:${rollup.id}`,
+                user_id: '',
+                vessel_id: null,
+                voyage_name: rollup.name,
+                departure_port: rollup.originName,
+                destination_port: rollup.destName,
+                departure_time: nowIso,
+                eta,
+                crew_count: Math.max(settings.vessel?.crewCount ?? 1, 1),
+                status: 'planning',
+                weather_master_id: null,
+                notes: null,
+                created_at: nowIso,
+                updated_at: nowIso,
+                saved_route_id: rollup.tripId,
+                departureCoords: routeCoordinates[0],
+                arrivalCoords: routeCoordinates[routeCoordinates.length - 1],
+                routeCoordinates,
+                distanceNm,
+                durationHours,
+            } as VoyageRow);
+        }
+
         const activeId = getActivePassageId();
 
         // Keep an explicitly selected, still-valid own draft even when it has
@@ -1713,6 +1758,9 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                     crew_count: Math.max(settings.vessel?.crewCount ?? row.crew_count ?? 1, 1),
                     departure_time: row.departure_time,
                     eta: row.eta,
+                    // Passage rollup rows carry the trip's first-leg trace id;
+                    // leg/standalone stubs have none (linked elsewhere).
+                    saved_route_id: row.saved_route_id ?? undefined,
                 });
                 if (requestVersion !== passageSelectionVersion.current || !scopeStillOwnsPage(scope)) return;
                 if (!voyage) {
