@@ -660,6 +660,9 @@ async function convertOneCell(
  * even for single-cell uploads — keeps the device-side import flow
  * uniform.
  */
+/** SG Intec's USB vendor id — the SG-Lock dongle o-charts sells. */
+const SGLOCK_USB_VENDOR_ID = '1547';
+
 /** Chart directory the o-charts decrypt watcher polls (encWatcher's ENC_WATCH_DIR). */
 const OESU_CHART_DIR = process.env.ENC_WATCH_DIR || path.join(os.homedir(), 'Charts');
 
@@ -1122,6 +1125,72 @@ export function createEncRoutes(identity?: PiIdentity): Router {
      * converted and stored. Phones use this to show the chart
      * locker without having to know which boat has which charts.
      */
+    /**
+     * GET /api/enc/ocharts/setup
+     *
+     * What the Pi can truthfully say about this boat's o-charts setup, so the
+     * app can show the ONE next step that applies instead of a generic wall of
+     * instructions.
+     *
+     * o-charts ties a chart set to a "system": either an SG-Lock dongle (their
+     * recommendation for boats, because the charts follow the dongle rather
+     * than the machine) or a per-machine fingerprint file. Registering that
+     * system is a one-time job on their shop, and genuinely can't be automated
+     * from here — it needs the skipper's shop account. Everything after it can
+     * be, which is what /install-from-url is for.
+     */
+    router.get('/ocharts/setup', async (_req: Request, res: Response) => {
+        // Dongle presence straight off the USB bus — SG Intec's vendor id.
+        // Cheap, needs no root, and doesn't disturb oexserverd (which is a
+        // daemon, not a CLI, and hangs if you poke it with flags).
+        let dongle: { present: boolean; product?: string } = { present: false };
+        try {
+            const devices = await fs.readdir('/sys/bus/usb/devices');
+            for (const dev of devices) {
+                const base = path.join('/sys/bus/usb/devices', dev);
+                const vendor = await fs.readFile(path.join(base, 'idVendor'), 'utf8').catch(() => '');
+                if (vendor.trim() !== SGLOCK_USB_VENDOR_ID) continue;
+                const product = await fs.readFile(path.join(base, 'product'), 'utf8').catch(() => '');
+                dongle = { present: true, product: product.trim() || 'SG-Lock USB Key' };
+                break;
+            }
+        } catch {
+            /* not Linux, or no USB sysfs — report "unknown" as absent */
+        }
+
+        // The dongle's own serial isn't exposed over USB, but o-charts names
+        // every keyFile `<set>-sgl<SERIAL>.XML`, so an installed set reveals
+        // the system id the skipper must assign new charts to.
+        let systemId: string | null = null;
+        const chartSets: { name: string; cells: number }[] = [];
+        try {
+            const entries = await fs.readdir(OESU_CHART_DIR, { withFileTypes: true });
+            for (const entry of entries) {
+                if (!entry.isDirectory()) continue;
+                const setDir = path.join(OESU_CHART_DIR, entry.name);
+                const files = await fs.readdir(setDir).catch(() => [] as string[]);
+                const cells = files.filter((f) => f.toLowerCase().endsWith('.oesu')).length;
+                if (cells === 0) continue;
+                chartSets.push({ name: entry.name, cells });
+                const key = files.find((f) => /-sgl([0-9A-F]+)\.xml$/i.test(f));
+                const match = key ? /-sgl([0-9A-F]+)\.xml$/i.exec(key) : null;
+                if (match) systemId = match[1].toUpperCase();
+            }
+        } catch {
+            /* no chart directory yet — a fresh boat */
+        }
+
+        return res.json({
+            dongle,
+            systemId,
+            chartSets,
+            // Where the skipper does the one-time registration, and where the
+            // recurring "request a download" button lives.
+            shopUrl: 'https://o-charts.org/shop/en/module/occharts/occhartsOesu',
+            manualUrl: 'https://o-charts.org/manuals/offline.php',
+        });
+    });
+
     router.get('/installed', async (req: Request, res: Response) => {
         try {
             const index = await loadInstalledIndex();
