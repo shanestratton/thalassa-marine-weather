@@ -282,18 +282,16 @@ describe('public-beta release gate contract', () => {
             const end = workflow.indexOf('\n            - name:', start + 1);
             const offlineStep = workflow.slice(start, end);
             expect(offlineStep).toContain("NO_PROXY: '127.0.0.1,localhost,::1'");
-            expect(offlineStep).toContain("no_proxy: '127.0.0.1,localhost,::1'");
-            for (const variable of [
-                'HTTPS_PROXY',
-                'HTTP_PROXY',
-                'https_proxy',
-                'http_proxy',
-                'ALL_PROXY',
-                'all_proxy',
-            ]) {
+            for (const variable of ['HTTPS_PROXY', 'HTTP_PROXY', 'ALL_PROXY']) {
                 expect(offlineStep).toContain(`${variable}: 'http://127.0.0.1:9'`);
             }
+            expect(offlineStep).toContain('export no_proxy="$NO_PROXY"');
+            expect(offlineStep).toContain('export https_proxy="$HTTPS_PROXY"');
+            expect(offlineStep).toContain('export http_proxy="$HTTP_PROXY"');
+            expect(offlineStep).toContain('export all_proxy="$ALL_PROXY"');
+            expect(offlineStep).not.toMatch(/^\s+(?:no_proxy|https_proxy|http_proxy|all_proxy):/gm);
             expect(workflow).not.toMatch(/^\s*no_proxy:\s*['"]?\*/gim);
+            expect(offlineStep).not.toMatch(/export\s+no_proxy=['"]?\*/i);
             expect(offlineStep).not.toContain('${{ secrets.');
         }
 
@@ -308,7 +306,9 @@ describe('public-beta release gate contract', () => {
         expect(gate).toContain('marinePublisherTestCount === 53');
         expect(gate).toContain('12-hourly waves use one exact three-hour source-age margin without weakening currents');
         expect(gate).toContain('offline marine publisher fixtures have a localhost-only dead-proxy network fence');
+        expect(gate).toContain('!/^\\s+(?:no_proxy|https_proxy|http_proxy|all_proxy):/gm.test(offlineStep)');
         expect(gate).toContain('!/^\\s*no_proxy:\\s*[\'"]?\\*/gim.test(workflow)');
+        expect(gate).toContain('!/export\\s+no_proxy=[\'"]?\\*/i.test(offlineStep)');
         expect(gate).toContain(
             'marine release proxy streams verified weekly-shard assets and preserves dotted Vercel API routes',
         );
