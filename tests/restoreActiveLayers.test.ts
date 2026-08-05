@@ -55,7 +55,7 @@ describe('restoreActiveLayers', () => {
     });
 
     it('allows only one decoded CMEMS marine product to be owned at a time', () => {
-        expect([...restoreActiveLayers('["wind","currents","sst","chl"]')].sort()).toEqual(['chl', 'wind']);
+        expect([...restoreActiveLayers('["wind","currents","sst","chl"]', () => true)].sort()).toEqual(['chl', 'wind']);
         expect(
             [
                 ...enforceCmemsMarineExclusivity(new Set<WeatherLayer>(['wind', 'currents', 'sst', 'chl']), 'currents'),

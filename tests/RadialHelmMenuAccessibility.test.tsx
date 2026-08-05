@@ -3,6 +3,14 @@ import { describe, expect, it, vi } from 'vitest';
 import { RadialHelmMenu } from '../components/map/RadialHelmMenu';
 import type { WeatherLayer } from '../components/map/mapConstants';
 
+// Keep this accessibility suite focused on the two-tier keyboard contract.
+// Production feature ownership is covered separately by the committed public-
+// beta profile tests; a clean CI checkout intentionally has no local `.env`.
+vi.mock('../components/map/cmemsFeatureAvailability', () => ({
+    isCmemsProductLayer: (layer: WeatherLayer) => ['currents', 'waves', 'sst', 'chl', 'seaice', 'mld'].includes(layer),
+    isCmemsLayerAvailable: (layer: WeatherLayer) => ['currents', 'sst', 'chl'].includes(layer),
+}));
+
 describe('RadialHelmMenu accessibility', () => {
     it('keeps a one-tap MOB emergency entry visible without opening the layer menu', () => {
         const onOpenMob = vi.fn();
