@@ -1,10 +1,11 @@
 /**
  * VoyageLogService — the punter's side of the public Voyage Log.
  *
- * Owns the `voyage_log_configs` row: the per-vessel handle, publishable
- * API key, and master on/off switch that the public `voyage-log` edge
- * function reads. Diary entries themselves carry their own `is_public`
- * flag (see DiaryService) — this service only manages the config.
+ * Owns the `voyage_log_configs` row: the per-vessel public handle and master
+ * on/off switch that the public `voyage-log` edge function reads. The legacy
+ * `api_key` column remains in the deployed row shape but is not an access
+ * control and is never shown to users. Diary entries themselves carry their
+ * own `is_public` flag (see DiaryService) — this service manages the page.
  */
 
 import { createLogger } from '../utils/createLogger';
@@ -409,14 +410,22 @@ class VoyageLogServiceClass {
         }
     }
 
+    /** Reserve a public handle without publishing anything. */
+    async ensureConfigured(): Promise<VoyageLogConfig | null> {
+        return this.ensureConfig(false);
+    }
+
     /**
-     * Make sure the user has a combined-scope config row and that it's
-     * enabled. Creates the boat row if needed (fresh users), then the
-     * config (handle + key filled server-side by voyage_log_set_handle
-     * trigger). Returns the live config, or null if offline /
-     * unauthenticated.
+     * Make sure the user has a combined-scope config row and explicitly enable
+     * it. Publishing a diary entry calls this path after the skipper confirms
+     * publication; the Settings setup button uses `ensureConfigured()` so a
+     * page is private by default.
      */
     async ensureEnabled(): Promise<VoyageLogConfig | null> {
+        return this.ensureConfig(true);
+    }
+
+    private async ensureConfig(enablePublicPage: boolean): Promise<VoyageLogConfig | null> {
         const scope = getAuthIdentityScope();
         this.setError(scope, null);
         try {
@@ -436,13 +445,18 @@ class VoyageLogServiceClass {
             const existing = await this.getConfigForOperation(operation, boatId);
             if (!isAuthIdentityScopeCurrent(scope)) return null;
             if (existing) {
-                if (existing.enabled) return existing;
+                if (!enablePublicPage || existing.enabled) return existing;
                 return await this.setEnabledForOperation(operation, boatId, true);
             }
 
             const { data, error } = await client
                 .from('voyage_log_configs')
-                .insert({ owner_id: operation.userId, boat_id: boatId, scope: 'combined', enabled: true })
+                .insert({
+                    owner_id: operation.userId,
+                    boat_id: boatId,
+                    scope: 'combined',
+                    enabled: enablePublicPage,
+                })
                 .select()
                 .single();
             if (!isAuthIdentityScopeCurrent(scope)) return null;

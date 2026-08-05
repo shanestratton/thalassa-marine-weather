@@ -14,6 +14,7 @@
 import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
 
 import { createLogger } from '../../utils/createLogger';
+import { LOCAL_QUARANTINE_MAX_BYTES, LOCAL_QUARANTINE_TTL_MS } from '../../utils/localPrivacyRetention';
 
 const log = createLogger('LocalDatabase');
 
@@ -98,6 +99,12 @@ const LEGACY_SYNC_META_FILE = 'vessel_sync_meta.json';
 const LEGACY_CLAIM_FILE = 'vessel_legacy_scope_claim.json';
 const ANONYMOUS_CLAIM_FILE = 'vessel_anonymous_scope_claim.json';
 const LOCAL_TRANSACTION_FILE = 'vessel_local_transaction.json';
+const LEGACY_SCOPE_FILES = [
+    ...Object.values(TABLE_FILES),
+    LEGACY_SYNC_QUEUE_FILE,
+    LEGACY_SYNC_META_FILE,
+    LOCAL_TRANSACTION_FILE,
+] as const;
 
 interface LegacyScopeClaim {
     state: 'claimed' | 'quarantined';
@@ -302,6 +309,47 @@ async function deleteJsonFile(filename: string): Promise<void> {
     }
 }
 
+async function legacyQuarantineBytes(): Promise<number> {
+    const files = await listDocumentFiles();
+    let bytes = 0;
+    for (const filename of LEGACY_SCOPE_FILES) {
+        for (const candidate of [filename, `${filename}.tmp`, `${filename}.bak`]) {
+            if (!files.has(candidate)) continue;
+            try {
+                const contents = await Filesystem.readFile({
+                    path: candidate,
+                    directory: Directory.Documents,
+                    encoding: Encoding.UTF8,
+                });
+                bytes += new TextEncoder().encode(String(contents.data)).byteLength;
+            } catch {
+                // Unreadable raw bytes cannot be safely bounded or exported.
+                return Number.POSITIVE_INFINITY;
+            }
+            if (bytes > LOCAL_QUARANTINE_MAX_BYTES) return bytes;
+        }
+    }
+    return bytes;
+}
+
+async function retireLegacyQuarantineIfRequired(marker: LegacyScopeClaim): Promise<boolean> {
+    if (marker.state !== 'quarantined') return false;
+    const quarantinedAt = Date.parse(marker.claimedAt);
+    const expired =
+        !Number.isFinite(quarantinedAt) ||
+        quarantinedAt > Date.now() + 5 * 60 * 1000 ||
+        Date.now() - quarantinedAt > LOCAL_QUARANTINE_TTL_MS;
+    const oversized = !expired && (await legacyQuarantineBytes()) > LOCAL_QUARANTINE_MAX_BYTES;
+    if (!expired && !oversized) return false;
+
+    for (const filename of LEGACY_SCOPE_FILES) await deleteJsonFile(filename);
+    await deleteJsonFile(LEGACY_CLAIM_FILE);
+    log.warn(
+        `[LocalDB] Retired ${expired ? 'expired' : 'oversized'} non-replayable legacy quarantine from this device`,
+    );
+    return true;
+}
+
 /**
  * Filesystem JSON writes are read/modify/write operations. Keep every cache,
  * table, queue, and metadata mutation on one chain so overlapping callers
@@ -482,6 +530,83 @@ function clearInMemoryState(): void {
     syncMetaCache = null;
 }
 
+const LOCAL_MEDIA_REFERENCE_PATTERN = /\bidb(?:-audio)?:[A-Za-z0-9._-]+/g;
+
+function collectLocalMediaReferences(value: string, references: Set<string>): void {
+    for (const match of value.matchAll(LOCAL_MEDIA_REFERENCE_PATTERN)) {
+        references.add(match[0]);
+    }
+}
+
+async function collectReferencesFromFiles(filenames: readonly string[], references: Set<string>): Promise<void> {
+    const files = await listDocumentFiles();
+    for (const filename of filenames) {
+        for (const candidate of [filename, `${filename}.tmp`, `${filename}.bak`]) {
+            if (!files.has(candidate)) continue;
+            try {
+                const contents = await Filesystem.readFile({
+                    path: candidate,
+                    directory: Directory.Documents,
+                    encoding: Encoding.UTF8,
+                });
+                collectLocalMediaReferences(String(contents.data), references);
+            } catch (error) {
+                // Account deletion must still remove the unreadable file. A
+                // missing blob reference can only leave an unreachable local
+                // IndexedDB object; it cannot restore the deleted account.
+                log.warn(`[LocalDB] Could not inspect ${candidate} before account deletion:`, error);
+            }
+        }
+    }
+}
+
+/**
+ * Permanently remove the filesystem mirror owned by one deleted account.
+ *
+ * The active database is fenced onto anonymous browse mode before deleting
+ * any files, so a late render or sync callback cannot recreate data in the
+ * old identity scope. Returned IndexedDB references let the account-deletion
+ * coordinator remove offline diary media that is stored outside this JSON
+ * database.
+ */
+export async function purgeLocalDatabaseForUser(userId: string): Promise<string[]> {
+    const identity = normalizeIdentity(userId);
+    if (!identity) throw new Error('[LocalDB] A user id is required to purge account data');
+
+    // Fence the scope only when it is still the active account. If the user
+    // signed into a different account while remote deletion was in flight,
+    // that newer database must remain active while the old files are purged
+    // by their explicit filenames.
+    if (activeIdentity === identity || activeIdentity === undefined) {
+        await initLocalDatabase(null);
+    }
+
+    return serializeMutation(async () => {
+        const references = new Set<string>();
+        const scopedFiles = [
+            ...Object.keys(TABLE_FILES).map((table) => tableFilename(table, identity)),
+            queueFilename(identity),
+            metaFilename(identity),
+            transactionFilename(identity),
+        ];
+        await collectReferencesFromFiles(scopedFiles, references);
+        for (const filename of scopedFiles) await deleteJsonFile(filename);
+
+        // A safely claimed pre-identity database belongs to this same user.
+        // Remove both the legacy data and its claim so deletion cannot leave
+        // an inaccessible but recoverable copy on the device.
+        const legacyClaim = await readJsonFile<LegacyScopeClaim | null>(LEGACY_CLAIM_FILE, null);
+        if (legacyClaim?.state === 'claimed' && legacyClaim.ownerUserId === identity) {
+            const legacyFiles = [...LEGACY_SCOPE_FILES];
+            await collectReferencesFromFiles(legacyFiles, references);
+            for (const filename of legacyFiles) await deleteJsonFile(filename);
+            await deleteJsonFile(LEGACY_CLAIM_FILE);
+        }
+
+        return [...references];
+    });
+}
+
 export function getLocalDatabaseIdentity(): string | null {
     ensureInit();
     return activeIdentity ?? null;
@@ -597,16 +722,20 @@ async function migrateAnonymousScope(identity: string | null): Promise<void> {
 /**
  * Older releases stored one global mirror. Import it only when the persisted
  * rows contain a single, explicit owner matching the active account. Ambiguous
- * legacy data is quarantined permanently instead of guessing and exposing it
- * to whichever account happens to sign in first.
+ * legacy data is non-replayable and retained only within the shared local
+ * quarantine age/size ceiling instead of being exposed to the next account.
  */
 async function migrateLegacyScopeIfSafe(identity: string | null): Promise<void> {
+    const marker = await readJsonFile<LegacyScopeClaim | null>(LEGACY_CLAIM_FILE, null);
+
+    if (marker?.state === 'quarantined') {
+        await retireLegacyQuarantineIfRequired(marker);
+        return;
+    }
     if (!identity) return;
 
     const files = await listDocumentFiles();
-    const marker = await readJsonFile<LegacyScopeClaim | null>(LEGACY_CLAIM_FILE, null);
-
-    if (marker?.state === 'quarantined' || (marker?.state === 'claimed' && marker.ownerUserId !== identity)) {
+    if (marker?.state === 'claimed' && marker.ownerUserId !== identity) {
         return;
     }
     if (marker?.state === 'claimed' && marker.completed) return;
@@ -624,13 +753,19 @@ async function migrateLegacyScopeIfSafe(identity: string | null): Promise<void> 
     if (!marker) {
         const owners = collectLegacyOwners(legacyTables, legacyQueue, legacyMeta);
         if (owners.size !== 1 || !owners.has(identity)) {
-            await writeJsonFile(LEGACY_CLAIM_FILE, {
+            const quarantineClaim = {
                 state: 'quarantined',
                 ownerUserId: null,
                 claimedAt: new Date().toISOString(),
                 reason: owners.size === 0 ? 'missing-owner-evidence' : 'ambiguous-owner-evidence',
-            } satisfies LegacyScopeClaim);
-            log.warn('[LocalDB] Quarantined ambiguous legacy offline data instead of assigning it to an account');
+            } satisfies LegacyScopeClaim;
+            await writeJsonFile(LEGACY_CLAIM_FILE, quarantineClaim);
+            const retired = await retireLegacyQuarantineIfRequired(quarantineClaim);
+            log.warn(
+                retired
+                    ? '[LocalDB] Retired oversized ambiguous legacy offline data instead of assigning it to an account'
+                    : '[LocalDB] Quarantined ambiguous legacy offline data instead of assigning it to an account',
+            );
             return;
         }
 

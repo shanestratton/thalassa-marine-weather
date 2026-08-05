@@ -6,3 +6,8 @@ tests/fixtures/*-baseline.json
 
 # Build output
 dist/
+
+# Supabase Edge Functions run on Deno and use `deno fmt` as their canonical
+# formatter. Keeping this tree out of Prettier prevents the two formatters from
+# rewriting the same TypeScript back and forth.
+supabase/functions/

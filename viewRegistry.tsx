@@ -16,6 +16,7 @@ import React from 'react';
 import { lazyRetry } from './utils/lazyRetry';
 import type { Feature } from './services/SubscriptionService';
 import { authScopedStorageKey } from './services/authIdentityScope';
+import { FEATURE_VISIBILITY } from './utils/featureVisibility';
 
 // ── Lazy-loaded components ───────────────────────────────────────────────────
 const GalleyPage = lazyRetry(
@@ -71,9 +72,23 @@ const BosunConsolePage = lazyRetry(
     () => import('./components/voice/BosunConsole').then((m) => ({ default: m.BosunConsole })),
     'BosunConsole',
 );
-const MusicPageView = lazyRetry(
-    () => import('./components/music/MusicPage').then((m) => ({ default: m.MusicPage })),
-    'MusicPage',
+const MusicPageView: React.FC<{ onBack: () => void }> = ({ onBack }) => (
+    <div className="mx-auto max-w-2xl p-5 sm:p-8" role="status">
+        <div className="rounded-2xl border border-amber-400/25 bg-amber-500/10 p-6 text-center">
+            <h2 className="text-lg font-bold text-white">Apple Music unavailable in public beta</h2>
+            <p className="mx-auto mt-2 max-w-lg text-sm leading-relaxed text-amber-100/80">
+                Music controls remain held until the production MusicKit capability and signed-device playback are
+                verified. Calypso voice and the rest of Thalassa continue normally.
+            </p>
+            <button
+                type="button"
+                onClick={onBack}
+                className="mt-5 min-h-[44px] rounded-xl border border-white/10 bg-white/[0.06] px-5 text-sm font-bold text-white"
+            >
+                Back
+            </button>
+        </div>
+    </div>
 );
 const LogPage = lazyRetry(() => import('./pages/LogPage').then((m) => ({ default: m.LogPage })), 'LogPage');
 const DiaryPage = lazyRetry(
@@ -97,10 +112,29 @@ const SkipperReferencePage = lazyRetry(
     'SkipperReference',
 );
 
-const GuardianPage = lazyRetry(
+const LiveGuardianPage = lazyRetry(
     () => import('./components/GuardianPage').then((m) => ({ default: m.GuardianPage })),
     'GuardianPage',
 );
+const GuardianBetaHoldPage: React.FC<{ onBack: () => void }> = ({ onBack }) => (
+    <div className="mx-auto max-w-2xl p-5 sm:p-8" role="status">
+        <div className="rounded-2xl border border-amber-400/25 bg-amber-500/10 p-6 text-center">
+            <h2 className="text-lg font-bold text-white">Guardian is held for public beta</h2>
+            <p className="mx-auto mt-2 max-w-lg text-sm leading-relaxed text-amber-100/80">
+                Nearby-vessel discovery and broadcasts remain off while Thalassa completes the server-side location
+                privacy redesign. Anchor Watch, MOB and Radio remain available.
+            </p>
+            <button
+                type="button"
+                onClick={onBack}
+                className="mt-5 min-h-[44px] rounded-xl border border-white/10 bg-white/[0.06] px-5 text-sm font-bold text-white"
+            >
+                Back to vessel
+            </button>
+        </div>
+    </div>
+);
+const GuardianPage = FEATURE_VISIBILITY.guardian ? LiveGuardianPage : GuardianBetaHoldPage;
 const RadioConsolePage = lazyRetry(
     () => import('./components/vessel/RadioConsolePage').then((m) => ({ default: m.RadioConsolePage })),
     'RadioConsolePage',
@@ -109,6 +143,10 @@ const MobPage = lazyRetry(() => import('./components/vessel/MobPage').then((m) =
 const AvNavPage = lazyRetry(
     () => import('./components/vessel/AvNavPage').then((m) => ({ default: m.AvNavPage })),
     'AvNavPage',
+);
+const EncLibraryPage = lazyRetry(
+    () => import('./components/vessel/EncLibraryPage').then((m) => ({ default: m.EncLibraryPage })),
+    'EncLibraryPage',
 );
 const NoticesPage = lazyRetry(
     () => import('./components/vessel/NoticesPage').then((m) => ({ default: m.NoticesPage })),
@@ -128,6 +166,9 @@ const TheGlassPage = lazyRetry(
 /** Context passed to each view's getProps function. */
 export interface ViewContext {
     setPage: (view: string) => void;
+    /** View immediately below the current routed page, used by global
+     * surfaces such as Calypso and Music to return where they were opened. */
+    previousView: string;
     setIsUpgradeOpen: (open: boolean) => void;
     settings: Record<string, unknown>;
     updateSettings: (updates: Record<string, unknown>) => void;
@@ -138,9 +179,9 @@ export interface ViewContext {
 
 /** Configuration for a single registered view. */
 export interface ViewConfig {
-    /** The lazy-loaded React component for this view. */
+    /** The renderable React component for this view (normally lazy-loaded). */
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    component: React.LazyExoticComponent<React.ComponentType<any>>;
+    component: React.ComponentType<any> | React.LazyExoticComponent<React.ComponentType<any>>;
     /** Name for the ErrorBoundary wrapping this view. */
     boundaryName: string;
     /**
@@ -206,29 +247,23 @@ export const VIEW_REGISTRY: Record<string, ViewConfig> = {
     chat: {
         component: ChatPage,
         boundaryName: 'Chat',
-        group: 'standalone',
-        getProps: (ctx) => ({ onBack: () => ctx.setPage('dashboard') }),
+        group: 'vessel',
+        getProps: (ctx) => ({ onBack: () => ctx.setPage('vessel') }),
     },
     voice: {
         component: BosunConsolePage,
         boundaryName: 'BosunConsole',
         group: 'standalone',
-        getProps: (ctx) => ({ onBack: () => ctx.setPage('dashboard') }),
+        getProps: (ctx) => ({ onBack: () => ctx.setPage(ctx.previousView || 'dashboard') }),
     },
     music: {
         component: MusicPageView,
         boundaryName: 'MusicPage',
         group: 'standalone',
-        // Skipper-tier gate kept consistent with Apple Music being a
-        // premium feature; non-Skipper users see the upgrade card.
-        gatedFeature: 'calypsoMusic',
-        // Default back-target is Nav Station (Vessel Hub) since the
-        // Wardroom card there is now the most-trafficked entry point.
-        // Calypso users opening from the BosunConsole header have
-        // their own dismiss flow and the BosunConsole portal sits on
-        // top of whatever page was active — they're not relying on
-        // Music's back button to return there.
-        getProps: (ctx) => ({ onBack: () => ctx.setPage('vessel') }),
+        gatedFeature: FEATURE_VISIBILITY.appleMusic ? 'calypsoMusic' : undefined,
+        // Music is a global surface (Calypso and the now-playing pod can open
+        // it from any tab), so Back returns to the actual caller.
+        getProps: (ctx) => ({ onBack: () => ctx.setPage(ctx.previousView || 'dashboard') }),
     },
 
     // ── Vessel hub ───────────────────────────────────────────────────────
@@ -248,15 +283,13 @@ export const VIEW_REGISTRY: Record<string, ViewConfig> = {
     // 5-tab nav restructure (Week 2) promoted Log to a top-level bottom
     // tab — same level as Glass / Charts / Plan / Vessel. Keeping it
     // grouped as `vessel` would highlight the Vessel tab when on Log
-    // and clash with the dedicated Log tab. Back-target remains
-    // 'vessel' since users coming from a Vessel sub-page (e.g. compass
-    // → details was a common path) still expect "Back" to land them
-    // in Nav Station.
+    // and clash with the dedicated Log tab. As a top-level tab it does not
+    // render a synthetic Back button.
     details: {
         component: LogPage,
         boundaryName: 'LogPage',
         group: 'standalone',
-        getProps: (ctx) => ({ onBack: () => ctx.setPage('vessel') }),
+        getProps: () => ({}),
     },
     compass: {
         component: AnchorWatchPage,
@@ -316,7 +349,19 @@ export const VIEW_REGISTRY: Record<string, ViewConfig> = {
         component: AvNavPage,
         boundaryName: 'AvNavCharts',
         group: 'vessel',
-        getProps: (ctx) => ({ onBack: () => ctx.setPage('vessel') }),
+        getProps: (ctx) => ({
+            onBack: () => ctx.setPage('vessel'),
+            onOpenEncLibrary: () => ctx.setPage('encLibrary'),
+        }),
+    },
+    encLibrary: {
+        component: EncLibraryPage,
+        boundaryName: 'EncLibrary',
+        group: 'vessel',
+        getProps: (ctx) => ({
+            onBack: () => ctx.setPage('vessel'),
+            onOpenMap: () => ctx.setPage('map'),
+        }),
     },
     notices: {
         component: NoticesPage,

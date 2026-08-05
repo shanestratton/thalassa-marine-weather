@@ -1,9 +1,11 @@
 import React from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const overlayMocks = vi.hoisted(() => ({
     browseCommunityRecipes: vi.fn(),
+    rateRecipe: vi.fn(),
+    toggleFavourite: vi.fn(),
     saveVoyagePlan: vi.fn(),
     setPage: vi.fn(),
 }));
@@ -28,11 +30,11 @@ vi.mock('../utils/system', () => ({ triggerHaptic: vi.fn() }));
 
 vi.mock('../services/GalleyRecipeService', () => ({
     browseCommunityRecipes: overlayMocks.browseCommunityRecipes,
-    rateRecipe: vi.fn().mockResolvedValue(true),
+    rateRecipe: overlayMocks.rateRecipe,
     getUserRating: vi.fn().mockResolvedValue(null),
     reportRecipeImage: vi.fn().mockResolvedValue(true),
     bilgeDiveSearch: vi.fn().mockReturnValue([]),
-    toggleFavourite: vi.fn().mockReturnValue(false),
+    toggleFavourite: overlayMocks.toggleFavourite,
     getFavouriteIds: vi.fn().mockReturnValue(new Set()),
     NAUTICAL_TAG_DEFS: [],
     encodeCommunityRecipeShare: vi.fn().mockReturnValue('recipe-token'),
@@ -98,6 +100,8 @@ describe('chat overlay accessibility', () => {
         vi.clearAllMocks();
         vi.stubEnv('VITE_MAPBOX_ACCESS_TOKEN', '');
         overlayMocks.browseCommunityRecipes.mockResolvedValue([recipe]);
+        overlayMocks.rateRecipe.mockResolvedValue(true);
+        overlayMocks.toggleFavourite.mockReturnValue(true);
     });
 
     afterEach(() => {
@@ -245,6 +249,29 @@ describe('chat overlay accessibility', () => {
         fireEvent.keyDown(back, { key: 'Escape' });
         expect(screen.queryByRole('dialog', { name: 'Storm Stew' })).not.toBeInTheDocument();
         expect(recipeCard).toHaveFocus();
+    });
+
+    it('keeps card-open, favourite, and rating actions as valid independent controls', async () => {
+        render(<CaptainsTable fullPage />);
+        const recipeTitle = await screen.findByText('Storm Stew');
+        const recipeCard = recipeTitle.closest<HTMLElement>('[data-recipe-card="recipe-1"]');
+        const openRecipe = screen.getByRole('button', { name: 'Open recipe: Storm Stew' });
+        const favourite = screen.getByRole('button', { name: 'Add to favourites' });
+
+        expect(recipeCard).not.toBeNull();
+        expect(recipeCard).toContainElement(openRecipe);
+        expect(recipeCard).toContainElement(favourite);
+        expect(openRecipe).not.toContainElement(favourite);
+        expect(openRecipe.querySelector('button')).toBeNull();
+        expect(within(openRecipe).getByRole('img', { name: 'Rating 4.0 out of 5 wheels' })).toBeInTheDocument();
+
+        fireEvent.click(favourite);
+        expect(overlayMocks.toggleFavourite).toHaveBeenCalledWith('recipe-1');
+        expect(screen.queryByRole('dialog', { name: 'Storm Stew' })).not.toBeInTheDocument();
+
+        fireEvent.click(openRecipe);
+        fireEvent.click(screen.getByRole('button', { name: 'Rate 5 wheels' }));
+        await waitFor(() => expect(overlayMocks.rateRecipe).toHaveBeenCalledWith('recipe-1', 5));
     });
 
     it('does not let the secondary recipe close button replace the safe initial target', async () => {

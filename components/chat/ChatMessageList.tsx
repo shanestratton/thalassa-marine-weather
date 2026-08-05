@@ -27,6 +27,7 @@ import {
     type AuthIdentityScope,
 } from '../../services/authIdentityScope';
 import { SafeImage } from '../ui/SafeImage';
+import { FEATURE_VISIBILITY } from '../../utils/featureVisibility';
 
 /** Messages shown per page — keeps the DOM lean while preserving scroll feel */
 const PAGE_SIZE = 50;
@@ -514,6 +515,23 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = React.memo(
                                                             );
                                                         }
                                                         if (track) {
+                                                            if (!FEATURE_VISIBILITY.communityTrackSharing) {
+                                                                return (
+                                                                    <div
+                                                                        role="note"
+                                                                        aria-label="Legacy voyage track unavailable"
+                                                                        className="mt-1.5 max-w-[280px] rounded-2xl border border-amber-500/[0.15] bg-amber-500/[0.05] px-3 py-2.5"
+                                                                    >
+                                                                        <p className="text-lg text-white/70 font-semibold truncate">
+                                                                            {track.title}
+                                                                        </p>
+                                                                        <p className="text-xs text-amber-300/70 mt-0.5">
+                                                                            Track import is unavailable in the public
+                                                                            beta
+                                                                        </p>
+                                                                    </div>
+                                                                );
+                                                            }
                                                             const isImporting = importingTrackId === track.trackId;
                                                             return (
                                                                 <button

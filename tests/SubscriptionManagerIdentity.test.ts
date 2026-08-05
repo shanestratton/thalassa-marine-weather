@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { setAuthIdentityScope } from '../services/authIdentityScope';
 
 const mocks = vi.hoisted(() => ({
@@ -14,11 +14,22 @@ vi.mock('../services/supabase', () => ({
     getCurrentUserId: mocks.getCurrentUserId,
 }));
 
-import { clearCache, getCachedSubscriptionStatus, getSubscriptionStatus } from '../managers/SubscriptionManager';
+import {
+    clearCache,
+    getCachedSubscriptionStatus,
+    getPrice,
+    getSubscriptionStatus,
+    getTrialRemainingDays,
+    isPremiumUser,
+    onPaywallTriggered,
+    triggerPaywall,
+} from '../managers/SubscriptionManager';
 import { isFeatureLockedSync } from '../managers/FeatureGate';
+import { PUBLIC_BETA_ACCESS } from '../services/SubscriptionService';
 
 describe('subscription identity boundary', () => {
     beforeEach(() => {
+        PUBLIC_BETA_ACCESS.enabled = false;
         vi.clearAllMocks();
         clearCache();
         localStorage.clear();
@@ -34,6 +45,10 @@ describe('subscription identity boundary', () => {
             },
             error: null,
         });
+    });
+
+    afterEach(() => {
+        PUBLIC_BETA_ACCESS.enabled = true;
     });
 
     it('discards account A entitlement data that resolves after B becomes active', async () => {
@@ -92,5 +107,33 @@ describe('subscription identity boundary', () => {
         setAuthIdentityScope('account-b');
         expect(getCachedSubscriptionStatus()).toBeNull();
         expect(isFeatureLockedSync('vessel_intel')).toBe(true);
+    });
+});
+
+describe('public beta subscription policy', () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+        clearCache();
+        PUBLIC_BETA_ACCESS.enabled = true;
+    });
+
+    it('opens premium access without starting a trial, quoting a price, or firing a paywall', async () => {
+        const paywallListener = vi.fn();
+        const unsubscribe = onPaywallTriggered(paywallListener);
+
+        await expect(isPremiumUser()).resolves.toBe(true);
+        await expect(getSubscriptionStatus()).resolves.toEqual({
+            status: 'free',
+            trialStartDate: null,
+            subscriptionExpiry: null,
+            trialRemainingDays: 0,
+        });
+        await expect(getTrialRemainingDays()).resolves.toBe(0);
+        expect(getPrice()).toBe(0);
+        triggerPaywall();
+
+        expect(mocks.rpc).not.toHaveBeenCalled();
+        expect(paywallListener).not.toHaveBeenCalled();
+        unsubscribe();
     });
 });

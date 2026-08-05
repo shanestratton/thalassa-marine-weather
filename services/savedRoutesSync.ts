@@ -27,6 +27,7 @@ import {
     isAuthIdentityScopeCurrent,
     type AuthIdentityScope,
 } from './authIdentityScope';
+import { normaliseTraceVerification } from './traceVerification';
 
 const log = createLogger('savedRoutesSync');
 
@@ -166,30 +167,41 @@ export async function syncSavedRoutes(): Promise<SavedTrace[]> {
         if (!isAuthIdentityScopeCurrent(scope)) return loadSavedTraces();
         if (error) throw new Error(error.message);
         const rows = data ?? [];
+        const localById = new Map(local.map((trace) => [trace.id, trace]));
         const deletedIds = new Set(rows.filter((r) => r.deleted).map((r) => r.id as string));
         const allDeletedIds = new Set([...deletedIds, ...Object.keys(localTombstones)]);
         const remote: SavedTrace[] = rows
             .filter((r) => !r.deleted && !allDeletedIds.has(r.id as string) && Array.isArray(r.points))
-            .map((r) => ({
-                id: r.id as string,
-                name: r.name as string,
-                createdAt: (r.created_at as string) ?? new Date().toISOString(),
-                ...(r.updated_at ? { updatedAt: r.updated_at as string } : {}),
-                ...(typeof r.trip_id === 'string' && r.trip_id ? { tripId: r.trip_id } : {}),
-                ...(typeof r.leg_ordinal === 'number' && Number.isInteger(r.leg_ordinal) && r.leg_ordinal > 0
-                    ? { legOrdinal: r.leg_ordinal }
-                    : {}),
-                ...(typeof r.dest_name === 'string' && r.dest_name ? { destName: r.dest_name } : {}),
-                ...(typeof r.planned_route_id === 'string' && r.planned_route_id
-                    ? { plannedRouteId: r.planned_route_id }
-                    : {}),
-                ...(typeof r.passage_voyage_id === 'string' && r.passage_voyage_id
-                    ? { passageVoyageId: r.passage_voyage_id }
-                    : {}),
-                points: (r.points as [number, number][])
+            .map((r) => {
+                const points = (r.points as [number, number][])
                     .filter((p) => Array.isArray(p) && Number.isFinite(p[0]) && Number.isFinite(p[1]))
-                    .map(([lat, lon]) => ({ lat, lon }) as TracePoint),
-            }))
+                    .map(([lat, lon]) => ({ lat, lon }) as TracePoint);
+                // saved_routes predates verification metadata. Keep a local
+                // envelope across its own cloud round-trip only when it still
+                // proves the returned coordinates. A different device safely
+                // receives no envelope and re-checks before direct use; its
+                // Passage Planning mirror carries the durable Cast Off proof.
+                const verification = normaliseTraceVerification(localById.get(r.id as string)?.verification, points);
+                return {
+                    id: r.id as string,
+                    name: r.name as string,
+                    createdAt: (r.created_at as string) ?? new Date().toISOString(),
+                    ...(r.updated_at ? { updatedAt: r.updated_at as string } : {}),
+                    ...(typeof r.trip_id === 'string' && r.trip_id ? { tripId: r.trip_id } : {}),
+                    ...(typeof r.leg_ordinal === 'number' && Number.isInteger(r.leg_ordinal) && r.leg_ordinal > 0
+                        ? { legOrdinal: r.leg_ordinal }
+                        : {}),
+                    ...(typeof r.dest_name === 'string' && r.dest_name ? { destName: r.dest_name } : {}),
+                    ...(typeof r.planned_route_id === 'string' && r.planned_route_id
+                        ? { plannedRouteId: r.planned_route_id }
+                        : {}),
+                    ...(typeof r.passage_voyage_id === 'string' && r.passage_voyage_id
+                        ? { passageVoyageId: r.passage_voyage_id }
+                        : {}),
+                    ...(verification ? { verification } : {}),
+                    points,
+                };
+            })
             .filter((t) => t.points.length >= 2);
         const remoteById = new Map(remote.map((t) => [t.id, t]));
         const stamp = (t: SavedTrace): number => new Date(t.updatedAt ?? t.createdAt).getTime();
@@ -267,7 +279,10 @@ export async function syncSavedRoutes(): Promise<SavedTrace[]> {
         // meaningful change moves — the revision stamp and the point count.
         const signature = (traces: SavedTrace[]) =>
             traces
-                .map((t) => `${t.id}:${t.updatedAt ?? t.createdAt}:${t.points.length}`)
+                .map(
+                    (t) =>
+                        `${t.id}:${t.updatedAt ?? t.createdAt}:${t.points.length}:${t.verification?.geometryKey ?? ''}`,
+                )
                 .sort()
                 .join('|');
         if (isAuthIdentityScopeCurrent(scope) && signature(local) !== signature(repaired.traces)) {

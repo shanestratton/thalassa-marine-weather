@@ -13,7 +13,7 @@
  * GET/POST ?bbox=w,s,e,n  →  OsmRouteOverlay JSON
  */
 import { createClient } from 'npm:@supabase/supabase-js@2';
-import type { FeatureCollection, Feature, Polygon, LineString, Position } from 'npm:@types/geojson@7946';
+import type { Feature, FeatureCollection, LineString, Polygon, Position } from 'npm:@types/geojson@7946';
 import { requireAuthenticatedOrPublicQuota, withCors } from '../_shared/auth-rate-limit.ts';
 import {
     fetchWithTimeout,
@@ -382,8 +382,11 @@ Deno.serve(async (req) => {
         let bboxStr = url.searchParams.get('bbox');
         if (!bboxStr && req.method === 'POST') {
             const body = await readJsonObject(req, 4096);
-            bboxStr =
-                typeof body?.bbox === 'string' ? body.bbox : Array.isArray(body?.bbox) ? body.bbox.join(',') : null;
+            bboxStr = typeof body?.bbox === 'string'
+                ? body.bbox
+                : Array.isArray(body?.bbox)
+                ? body.bbox.join(',')
+                : null;
         }
         const parts = (bboxStr ?? '').split(',').map(Number);
         if (parts.length !== 4 || parts.some((n) => !Number.isFinite(n))) {

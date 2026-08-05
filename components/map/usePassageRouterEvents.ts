@@ -93,9 +93,12 @@ export function usePassageRouterEvents({ mapRef, setIsoProgress, setPassageNotic
                         source: 'route-preview',
                         layout: { 'line-join': 'round', 'line-cap': 'round' },
                         paint: {
-                            'line-color': '#00e676',
+                            // Progressive wavefront geometry has not completed
+                            // the final chart/depth pass. Amber dashes prevent a
+                            // growing preview from being mistaken for a safe line.
+                            'line-color': '#f59e0b',
                             'line-width': 2,
-                            'line-opacity': 0.5,
+                            'line-opacity': 0.75,
                             'line-dasharray': [4, 4],
                         },
                     });

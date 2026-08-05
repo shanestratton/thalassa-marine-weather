@@ -50,4 +50,44 @@ describe('onboarding location overlays', () => {
         expect(screen.queryByRole('dialog', { name: 'Tap the chart to pick your home port' })).not.toBeInTheDocument();
         expect(opener).toHaveFocus();
     });
+
+    it('does not let a resolving map label become the saved home port', () => {
+        const onConfirm = vi.fn();
+        render(
+            <HomePortStep
+                homePort=""
+                onHomePortChange={() => {}}
+                isLocating={false}
+                showMap
+                onShowMap={() => {}}
+                tempLocation={{ lat: -27.47, lon: 153.03, name: 'Identifying...' }}
+                onLocate={() => {}}
+                onMapSelect={() => {}}
+                onConfirmMapSelection={onConfirm}
+                prefix=""
+                onPrefixChange={() => {}}
+                firstName="Shane"
+                onFirstNameChange={() => {}}
+                lastName="Stratton"
+                onLastNameChange={() => {}}
+                nickname=""
+                onNicknameChange={() => {}}
+                onNext={() => {}}
+            />,
+        );
+
+        const confirm = screen.getByRole('button', { name: 'Confirm Identifying... as home port' });
+        expect(confirm).toBeDisabled();
+        expect(confirm).toHaveAttribute('aria-busy', 'true');
+        fireEvent.click(confirm);
+        expect(onConfirm).not.toHaveBeenCalled();
+    });
+
+    it('marks identity and home-port inputs as required', () => {
+        render(<HomePortHarness />);
+
+        expect(screen.getByRole('textbox', { name: 'First name (required)' })).toBeRequired();
+        expect(screen.getByRole('textbox', { name: 'Surname (required)' })).toBeRequired();
+        expect(screen.getByRole('textbox', { name: 'Home Port' })).toBeRequired();
+    });
 });

@@ -1,4 +1,16 @@
 {
+    "redirects": [
+        {
+            "source": "/float",
+            "destination": "/logs",
+            "permanent": false
+        },
+        {
+            "source": "/float/:path*",
+            "destination": "/logs",
+            "permanent": false
+        }
+    ],
     "rewrites": [
         {
             "source": "/terms",
@@ -18,15 +30,7 @@
         },
         {
             "source": "/plan/:path*",
-            "destination": "/plan.html"
-        },
-        {
-            "source": "/float",
-            "destination": "/plan.html"
-        },
-        {
-            "source": "/float/:path*",
-            "destination": "/plan.html"
+            "destination": "/index.html"
         },
         {
             "source": "/voyage-log-api",
@@ -38,6 +42,69 @@
         }
     ],
     "headers": [
+        {
+            "source": "/assets/(.*)",
+            "headers": [
+                {
+                    "key": "Cache-Control",
+                    "value": "public, max-age=31536000, immutable"
+                }
+            ]
+        },
+        {
+            "source": "/sw.js",
+            "headers": [
+                {
+                    "key": "Cache-Control",
+                    "value": "public, max-age=0, must-revalidate"
+                }
+            ]
+        },
+        {
+            "source": "/((?!.*\\..*).*)",
+            "headers": [
+                {
+                    "key": "Cache-Control",
+                    "value": "public, max-age=0, must-revalidate"
+                }
+            ]
+        },
+        {
+            "source": "/index.html",
+            "headers": [
+                {
+                    "key": "Cache-Control",
+                    "value": "public, max-age=0, must-revalidate"
+                }
+            ]
+        },
+        {
+            "source": "/logs.html",
+            "headers": [
+                {
+                    "key": "Cache-Control",
+                    "value": "public, max-age=0, must-revalidate"
+                }
+            ]
+        },
+        {
+            "source": "/terms.html",
+            "headers": [
+                {
+                    "key": "Cache-Control",
+                    "value": "public, max-age=0, must-revalidate"
+                }
+            ]
+        },
+        {
+            "source": "/voyage-log-api.html",
+            "headers": [
+                {
+                    "key": "Cache-Control",
+                    "value": "public, max-age=0, must-revalidate"
+                }
+            ]
+        },
         {
             "source": "/(.*)",
             "headers": [

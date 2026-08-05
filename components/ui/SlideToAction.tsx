@@ -148,6 +148,16 @@ export const SlideToAction: React.FC<SlideToActionProps> = ({
         setSlide(0);
     }, [isDragging, setSlide]);
 
+    const handleKeyDown = useCallback(
+        (event: React.KeyboardEvent<HTMLDivElement>) => {
+            if (disabled || loading || (event.key !== 'Enter' && event.key !== ' ')) return;
+            event.preventDefault();
+            triggerHaptic('medium');
+            onConfirm();
+        },
+        [disabled, loading, onConfirm],
+    );
+
     // Belt-and-braces reset: any path that clears dragging clears the thumb.
     useEffect(() => {
         if (!isDragging && slideXRef.current !== 0) setSlide(0);
@@ -185,6 +195,11 @@ export const SlideToAction: React.FC<SlideToActionProps> = ({
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
             onPointerCancel={handlePointerCancel}
+            onKeyDown={handleKeyDown}
+            role="button"
+            tabIndex={disabled ? -1 : 0}
+            aria-disabled={disabled}
+            aria-label={label}
         >
             {/* Shimmer animation */}
             <div className="absolute inset-0 overflow-hidden rounded-full pointer-events-none">

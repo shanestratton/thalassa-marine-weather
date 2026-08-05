@@ -8,6 +8,7 @@ import { FEATURE_VISIBILITY } from '../utils/featureVisibility';
 describe('beta feature disablement', () => {
     it('keeps launch-gated integrations off by default', () => {
         expect(FEATURE_VISIBILITY.spoonacular).toBe(false);
+        expect(FEATURE_VISIBILITY.guardian).toBe(false);
     });
 
     it('shows offline meal ideas without exposing the online generator', () => {

@@ -76,6 +76,19 @@ describe('/plan session gate', () => {
         await waitFor(() => expect(logout).toHaveBeenCalledTimes(1));
     });
 
+    it('shows an actionable safety-interlock rejection instead of swallowing it', async () => {
+        authState = { ...authState, user: { id: 'skipper' } };
+        logout.mockRejectedValueOnce(
+            new Error('Man Overboard is active on this device. Clear the Man Overboard emergency before you sign out.'),
+        );
+        render(<PlanSignOutButton />);
+
+        fireEvent.click(screen.getByTestId('plan-sign-out'));
+
+        expect(await screen.findByRole('alert')).toHaveTextContent('Clear the Man Overboard emergency');
+        expect(screen.getByTestId('plan-sign-out')).toBeEnabled();
+    });
+
     it('ignores a second tap while the sign-out is still in flight', async () => {
         authState = { ...authState, user: { id: 'skipper' } };
         render(<PlanSignOutButton />);

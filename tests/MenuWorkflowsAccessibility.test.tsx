@@ -70,15 +70,29 @@ describe('non-modal workflow menus', () => {
     });
 
     it('gives the passage share menu full arrow-key and dismissal semantics', () => {
-        render(<SharePassageButton briefData={{} as PassageBriefData} />);
+        const completeBrief: PassageBriefData = {
+            routeName: 'Test passage',
+            origin: { name: 'Newport', lat: -27.2, lon: 153.1 },
+            destination: { name: 'Lady Musgrave', lat: -23.9, lon: 152.4 },
+            departureTime: '2026-08-05T00:00:00.000Z',
+            totalDistanceNM: 178,
+            estimatedDuration: 30,
+            speed: 6,
+            crewCount: 3,
+        };
+        render(<SharePassageButton briefData={completeBrief} />);
 
         const trigger = screen.getByRole('button', { name: 'Open share passage menu' });
         trigger.focus();
         fireEvent.click(trigger);
 
         expect(screen.getByRole('menu', { name: 'Share passage plan' })).toBeInTheDocument();
-        const quickBrief = screen.getByRole('menuitem', { name: /Quick Brief/ });
+        const floatPlan = screen.getByRole('menuitem', { name: /Float Plan/ });
+        const quickBrief = screen.getByRole('menuitem', { name: /Quick Passage Brief/ });
         const cancel = screen.getByRole('menuitem', { name: 'Cancel' });
+        expect(floatPlan).toHaveFocus();
+
+        fireEvent.keyDown(floatPlan, { key: 'ArrowDown' });
         expect(quickBrief).toHaveFocus();
 
         fireEvent.keyDown(quickBrief, { key: 'End' });

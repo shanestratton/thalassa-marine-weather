@@ -1,24 +1,21 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import { ONBOARDED_STORAGE } from './helpers/storageState';
+
+const openOnboardedApp = async (page: Page) => {
+    await page.goto('/');
+    await expect(page.getByRole('navigation', { name: 'Main' })).toBeVisible({ timeout: 15_000 });
+};
 
 test.describe('Tab Navigation', () => {
     test.use({ storageState: ONBOARDED_STORAGE });
 
     test('app renders navigation tabs', async ({ page }) => {
-        await page.goto('/');
-        await page.waitForTimeout(2000);
-
-        // Should have a nav element or tab-like buttons
-        const nav = page.locator('nav, [role="tablist"], [role="navigation"]');
-        const navCount = await nav.count();
-
-        // Navigation should exist
-        expect(navCount).toBeGreaterThan(0);
+        await openOnboardedApp(page);
+        await expect(page.getByRole('tablist', { name: 'Main navigation' })).toBeVisible();
     });
 
     test('tab buttons are keyboard accessible', async ({ page }) => {
-        await page.goto('/');
-        await page.waitForTimeout(2000);
+        await openOnboardedApp(page);
 
         // Tab through interactive elements
         await page.keyboard.press('Tab');
@@ -29,32 +26,20 @@ test.describe('Tab Navigation', () => {
         expect(focused).toBeTruthy();
     });
 
-    test('navigation preserves state on tab switch', async ({ page }) => {
-        await page.goto('/');
-        await page.waitForTimeout(2000);
+    test('navigation returns to the original tab after a chart switch', async ({ page }) => {
+        test.setTimeout(60_000);
+        await openOnboardedApp(page);
 
-        // Get initial page content
-        const _initialContent = await page.textContent('body');
+        const glassTab = page.getByRole('tab', { name: 'Navigate to The Glass' });
+        const chartsTab = page.getByRole('tab', { name: 'Navigate to Charts and observations' });
 
-        // Try clicking a tab/button if visible
-        const tabs = page.locator('nav button, [role="tab"]');
-        const tabCount = await tabs.count();
+        await chartsTab.click();
+        await expect(chartsTab).toHaveAttribute('aria-selected', 'true');
+        await expect(page.getByRole('region', { name: 'Map' })).toBeVisible({ timeout: 30_000 });
 
-        if (tabCount > 1) {
-            await tabs.nth(1).click();
-            await page.waitForTimeout(1000);
-
-            // Content should change
-            const newContent = await page.textContent('body');
-            expect(newContent).toBeTruthy();
-
-            // Switch back
-            await tabs.first().click();
-            await page.waitForTimeout(1000);
-
-            const restoredContent = await page.textContent('body');
-            expect(restoredContent).toBeTruthy();
-        }
+        await glassTab.click();
+        await expect(glassTab).toHaveAttribute('aria-selected', 'true');
+        await expect(page.getByRole('textbox', { name: 'Current location' })).toBeVisible({ timeout: 20_000 });
     });
 
     test('skip to content link works', async ({ page }) => {

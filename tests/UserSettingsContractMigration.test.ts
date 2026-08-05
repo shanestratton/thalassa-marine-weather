@@ -61,10 +61,16 @@ describe('user settings contract migration', () => {
         expect(migration).toMatch(/GRANT EXECUTE ON FUNCTION public\.merge_user_settings\(JSONB\) TO authenticated/i);
     });
 
-    it('uses user_settings plus patches in the client rather than profiles or full snapshots', () => {
+    it('uses user_settings plus identity-fenced, client-writable patches rather than profiles or full snapshots', () => {
         expect(store).toMatch(/\.from\('user_settings'\)/);
         expect(store).toMatch(/\.rpc\('merge_user_settings', \{ p_patch: settingsPatch \}\)/);
-        expect(store).toMatch(/void queueSettingsSync\(scope, patch\)/);
+        // updateSettings strips client-authored entitlement fields before it
+        // reaches the serialised merge queue. The old `patch` name described
+        // the same sparse-write contract but would now bypass that boundary.
+        expect(store).toMatch(/void queueSettingsSync\(scope, clientWritablePatch\)/);
+        expect(store).toMatch(/if \(!supabase \|\| !scope\.userId \|\| !isAuthIdentityScopeCurrent\(scope\)\) return;/);
+        expect(store).toMatch(/if \(scope\.userId && _userId === scope\.userId\) \{/);
+        expect(store).not.toMatch(/void queueSettingsSync\(scope, updated\)/);
         expect(store).not.toMatch(/\.from\('profiles'\)/);
 
         for (const field of excludedFields) {

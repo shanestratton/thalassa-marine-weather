@@ -22,7 +22,12 @@ vi.mock('@capacitor/app', () => ({
     },
 }));
 
-import { haversineDistance, bearing, calculateSwingRadius } from '../services/AnchorWatchService';
+import {
+    haversineDistance,
+    bearing,
+    calculateSwingRadius,
+    validateAndNormalizeAnchorWatchConfig,
+} from '../services/AnchorWatchService';
 
 // ── Haversine Distance ──
 
@@ -123,20 +128,20 @@ describe('calculateSwingRadius', () => {
             waterDepth: 10,
             scopeRatio: 5,
             rodeType: 'chain',
-            safetyMargin: 0,
+            safetyMargin: 1,
         });
         const ropeR = calculateSwingRadius({
             rodeLength: 50,
             waterDepth: 10,
             scopeRatio: 5,
             rodeType: 'rope',
-            safetyMargin: 0,
+            safetyMargin: 1,
         });
         expect(ropeR).toBeGreaterThan(chainR);
     });
 
     it('mixed is between chain and rope', () => {
-        const config = { rodeLength: 50, waterDepth: 10, scopeRatio: 5, safetyMargin: 0 };
+        const config = { rodeLength: 50, waterDepth: 10, scopeRatio: 5, safetyMargin: 1 };
         const chain = calculateSwingRadius({ ...config, rodeType: 'chain' as const });
         const rope = calculateSwingRadius({ ...config, rodeType: 'rope' as const });
         const mixed = calculateSwingRadius({ ...config, rodeType: 'mixed' as const });
@@ -144,15 +149,27 @@ describe('calculateSwingRadius', () => {
         expect(mixed).toBeLessThan(rope);
     });
 
-    it('returns safety margin when rode ≤ depth', () => {
+    it('rejects a rode shorter than the entered water depth', () => {
+        expect(() =>
+            calculateSwingRadius({
+                rodeLength: 5,
+                waterDepth: 10,
+                scopeRatio: 0.5,
+                rodeType: 'chain',
+                safetyMargin: 15,
+            }),
+        ).toThrow('scope ratio');
+    });
+
+    it('never advertises a tighter radius than the native locked-screen geofence', () => {
         const r = calculateSwingRadius({
-            rodeLength: 5,
-            waterDepth: 10,
-            scopeRatio: 5,
+            rodeLength: 10,
+            waterDepth: 9,
+            scopeRatio: 10 / 9,
             rodeType: 'chain',
-            safetyMargin: 15,
+            safetyMargin: 1,
         });
-        expect(r).toBe(15);
+        expect(r).toBe(20);
     });
 
     it('safety margin adds to horizontal distance', () => {
@@ -168,26 +185,63 @@ describe('calculateSwingRadius', () => {
             waterDepth: 10,
             scopeRatio: 5,
             rodeType: 'chain',
-            safetyMargin: 0,
+            safetyMargin: 1,
         });
-        expect(withMargin - withoutMargin).toBeCloseTo(20, 1);
+        expect(withMargin - withoutMargin).toBeCloseTo(19, 1);
     });
 
     it('shallow water gives larger radius (more horizontal)', () => {
         const shallow = calculateSwingRadius({
             rodeLength: 50,
             waterDepth: 3,
-            scopeRatio: 5,
+            scopeRatio: 50 / 3,
             rodeType: 'chain',
-            safetyMargin: 0,
+            safetyMargin: 1,
         });
         const deep = calculateSwingRadius({
             rodeLength: 50,
             waterDepth: 15,
-            scopeRatio: 5,
+            scopeRatio: 50 / 15,
             rodeType: 'chain',
-            safetyMargin: 0,
+            safetyMargin: 1,
         });
         expect(shallow).toBeGreaterThan(deep);
+    });
+});
+
+describe('validateAndNormalizeAnchorWatchConfig', () => {
+    const valid = {
+        rodeLength: 30,
+        waterDepth: 5,
+        scopeRatio: 6,
+        rodeType: 'chain' as const,
+        safetyMargin: 10,
+    };
+
+    it.each([
+        ['negative rode', { rodeLength: -1 }],
+        ['zero rode', { rodeLength: 0 }],
+        ['zero depth', { waterDepth: 0 }],
+        ['zero margin', { safetyMargin: 0 }],
+        ['NaN depth', { waterDepth: Number.NaN }],
+        ['huge rode', { rodeLength: 1_000_000 }],
+        ['huge depth', { waterDepth: 1_000_000 }],
+        ['huge margin', { safetyMargin: 1_000_000 }],
+    ])('rejects %s', (_label, patch) => {
+        expect(validateAndNormalizeAnchorWatchConfig(patch, valid).ok).toBe(false);
+    });
+
+    it('rejects a supplied scope ratio that disagrees with rode and depth', () => {
+        expect(validateAndNormalizeAnchorWatchConfig({ ...valid, scopeRatio: 5 })).toMatchObject({
+            ok: false,
+            error: expect.stringContaining('inconsistent'),
+        });
+    });
+
+    it('derives a consistent ratio for a partial geometry update', () => {
+        expect(validateAndNormalizeAnchorWatchConfig({ rodeLength: 40 }, valid)).toEqual({
+            ok: true,
+            config: { ...valid, rodeLength: 40, scopeRatio: 8 },
+        });
     });
 });

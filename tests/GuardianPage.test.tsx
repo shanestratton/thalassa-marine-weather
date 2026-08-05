@@ -42,6 +42,7 @@ vi.mock('../services/GuardianService', () => ({
         fetchProfile: vi.fn().mockResolvedValue(null),
         fetchNearbyUsers: vi.fn().mockResolvedValue([]),
         fetchAlerts: vi.fn().mockResolvedValue([]),
+        refreshArmedPresence: vi.fn().mockResolvedValue(true),
         getNearbyUsers: vi.fn().mockResolvedValue([]),
         getAlerts: vi.fn().mockResolvedValue([]),
         getProfile: vi.fn().mockResolvedValue(null),
@@ -145,6 +146,22 @@ describe('GuardianPage', () => {
         return result;
     };
 
+    const renderWithArmedProfile = async () => {
+        const armedProfile = { ...existingProfile, armed: true, armed_at: '2026-07-23T00:00:00.000Z' };
+        vi.mocked(GuardianService.fetchProfile).mockResolvedValue(armedProfile);
+        guardianState.current = {
+            profile: armedProfile,
+            nearbyUsers: [],
+            alerts: [],
+            loading: false,
+            armed: true,
+            nearbyCount: 0,
+        };
+        const result = render(<GuardianPage onBack={vi.fn()} />);
+        await screen.findByLabelText('Edit Profile');
+        return result;
+    };
+
     it('renders without crashing', async () => {
         const { container } = await renderSettled();
         expect(container).toBeDefined();
@@ -153,6 +170,84 @@ describe('GuardianPage', () => {
     it('renders without empty container', async () => {
         const { container } = await renderSettled();
         expect(container.innerHTML.length).toBeGreaterThan(0);
+    });
+
+    it('shows a complete signed-out state with navigation instead of an endless spinner', async () => {
+        authState.user = null;
+        setAuthIdentityScope(null);
+        const onBack = vi.fn();
+
+        render(<GuardianPage onBack={onBack} />);
+
+        expect(await screen.findByRole('status')).toHaveTextContent('Sign in to use Guardian');
+        expect(screen.getByText('Guardian')).toBeInTheDocument();
+        const back = screen.getByRole('button', { name: /back/i });
+        fireEvent.click(back);
+        expect(onBack).toHaveBeenCalledOnce();
+        expect(screen.queryByText('Loading Guardian…')).not.toBeInTheDocument();
+    });
+
+    it('keeps the page header and Back control visible while Guardian is loading', async () => {
+        let finishInitialization!: () => void;
+        vi.mocked(GuardianService.initialize).mockReturnValueOnce(
+            new Promise((resolve) => {
+                finishInitialization = resolve;
+            }),
+        );
+        const onBack = vi.fn();
+
+        render(<GuardianPage onBack={onBack} />);
+
+        expect(screen.getByRole('status')).toHaveTextContent('Loading Guardian');
+        fireEvent.click(screen.getByRole('button', { name: /back/i }));
+        expect(onBack).toHaveBeenCalledOnce();
+        finishInitialization();
+    });
+
+    it('does not acquire, share or poll location while the profile is disarmed', async () => {
+        await renderWithProfile();
+
+        expect(await screen.findByText('Disarmed — no location sharing or nearby polling')).toBeInTheDocument();
+        expect(screen.queryByText('Thalassa boats nearby')).not.toBeInTheDocument();
+        expect(
+            screen.getByText('Disarmed: Guardian does not heartbeat your position or poll the nearby feed.'),
+        ).toBeInTheDocument();
+        expect(acquireFreshOwnshipPosition).not.toHaveBeenCalled();
+        expect(GuardianService.fetchNearbyUsers).not.toHaveBeenCalled();
+        expect(GuardianService.fetchAlerts).not.toHaveBeenCalled();
+    });
+
+    it('keeps location-based community broadcasts unavailable while disarmed', async () => {
+        await renderWithProfile();
+
+        const report = screen.getByRole('button', { name: 'Report suspicious activity in your area' });
+        const weather = screen.getByRole('button', { name: 'Broadcast a weather alert to nearby boats' });
+        expect(report).toHaveAttribute('aria-disabled', 'true');
+        expect(weather).toHaveAttribute('aria-disabled', 'true');
+
+        fireEvent.click(report);
+        expect(await screen.findByRole('alert')).toHaveTextContent('Arm Guardian before sending a location-based');
+        expect(screen.queryByRole('dialog', { name: /Report Suspicious Activity/i })).not.toBeInTheDocument();
+    });
+
+    it('does not report zero nearby boats when an armed watch has no fresh GPS fix', async () => {
+        const armedProfile = { ...existingProfile, armed: true, armed_at: '2026-07-23T00:00:00.000Z' };
+        vi.mocked(acquireFreshOwnshipPosition).mockResolvedValue(null);
+        guardianState.current = {
+            profile: armedProfile,
+            nearbyUsers: [],
+            alerts: [],
+            loading: false,
+            armed: true,
+            nearbyCount: 0,
+        };
+        vi.mocked(GuardianService.fetchProfile).mockResolvedValue(armedProfile);
+
+        render(<GuardianPage onBack={vi.fn()} />);
+
+        expect(await screen.findByText('GPS unavailable — nearby coverage not checked')).toBeInTheDocument();
+        expect(screen.queryByText('Thalassa boats nearby')).not.toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Retry GPS' })).toBeInTheDocument();
     });
 
     it('displays Guardian/BOLO related text', async () => {
@@ -180,7 +275,7 @@ describe('GuardianPage', () => {
     });
 
     it('contains report focus and restores the report trigger after Escape', async () => {
-        await renderWithProfile();
+        await renderWithArmedProfile();
         const opener = screen.getByRole('button', { name: 'Report suspicious activity in your area' });
 
         opener.focus();
@@ -199,7 +294,7 @@ describe('GuardianPage', () => {
     });
 
     it('starts weather alerts on the safe cancel action and restores focus after Escape', async () => {
-        await renderWithProfile();
+        await renderWithArmedProfile();
         const opener = screen.getByRole('button', { name: 'Broadcast a weather alert to nearby boats' });
 
         opener.focus();
@@ -217,34 +312,31 @@ describe('GuardianPage', () => {
     });
 
     it('contains hail focus and restores the vessel trigger after Escape', async () => {
-        vi.mocked(GuardianService.fetchProfile).mockResolvedValue(existingProfile);
+        const armedProfile = { ...existingProfile, armed: true, armed_at: '2026-07-23T00:00:00.000Z' };
+        vi.mocked(GuardianService.fetchProfile).mockResolvedValue(armedProfile);
         const nearbyUser = {
             user_id: 'nearby-user',
             vessel_name: 'Sea Biscuit',
-            owner_name: 'Alex',
-            dog_name: 'Biscuit',
-            mmsi: 987654321,
-            armed: false,
             distance_nm: 0.8,
             last_known_at: '2026-07-23T00:00:00.000Z',
         };
         vi.mocked(GuardianService.subscribe).mockImplementation((listener) => {
             listener({
-                profile: existingProfile,
+                profile: armedProfile,
                 nearbyUsers: [nearbyUser],
                 alerts: [],
                 loading: false,
-                armed: false,
+                armed: true,
                 nearbyCount: 1,
             } satisfies GuardianState);
             return vi.fn();
         });
         guardianState.current = {
-            profile: existingProfile,
+            profile: armedProfile,
             nearbyUsers: [nearbyUser],
             alerts: [],
             loading: false,
-            armed: false,
+            armed: true,
             nearbyCount: 1,
         };
         render(<GuardianPage onBack={vi.fn()} />);
@@ -277,7 +369,7 @@ describe('GuardianPage', () => {
     });
 
     it('fails closed with accessible feedback when no fresh ownship fix is available', async () => {
-        vi.mocked(acquireFreshOwnshipPosition).mockResolvedValueOnce(null);
+        vi.mocked(acquireFreshOwnshipPosition).mockResolvedValue(null);
         await renderWithProfile();
 
         fireEvent.click(screen.getByRole('button', { name: 'Set digital tripwire at current position' }));
@@ -293,7 +385,7 @@ describe('GuardianPage', () => {
                 finishReport = resolve;
             }),
         );
-        await renderWithProfile();
+        await renderWithArmedProfile();
         fireEvent.click(screen.getByRole('button', { name: 'Report suspicious activity in your area' }));
         const input = await screen.findByRole('textbox', { name: 'Suspicious activity details' });
         fireEvent.change(input, { target: { value: 'Account A private report' } });

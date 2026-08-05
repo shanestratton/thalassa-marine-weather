@@ -3,23 +3,25 @@
  *
  * Every metric carries a `lastUpdated` epoch timestamp.
  * A 1-second watchdog ticker classifies each metric into three tiers:
- *   Tier 1: LIVE     (0-3s)   → Bright, high-contrast
- *   Tier 2: STALE    (3-10s)  → Muted, 50% opacity
- *   Tier 3: DEAD     (>10s)   → Replace with dashes, red warning
+ *   Tier 1: LIVE     (0-6.5s)  → Bright, high-contrast
+ *   Tier 2: STALE    (6.5-13s) → Muted, 50% opacity
+ *   Tier 3: DEAD     (>13s)    → Replace with dashes, red warning
  *
  * Subscribers receive the full store snapshot on every tick or data update.
  */
-import type { NmeaSample } from '../types';
+import type { NmeaDepthReference, NmeaDepthSource, NmeaSample } from '../types';
 import { NmeaListenerService, type NmeaConnectionStatus } from './NmeaListenerService';
 import { NmeaGpsProvider } from './NmeaGpsProvider';
 import { AisStore } from './AisStore';
 import { AisHubService } from './AisHubService';
+import { NMEA_LIVE_MAX_AGE_MS, NMEA_USABLE_MAX_AGE_MS } from './nmea/nmeaCadence';
+export { NMEA_LIVE_MAX_AGE_MS, NMEA_USABLE_MAX_AGE_MS } from './nmea/nmeaCadence';
 
 // ── Freshness tiers ──
 export type DataFreshness = 'live' | 'stale' | 'dead';
 
-const STALE_THRESHOLD_MS = 3000; // 3 seconds
-const DEAD_THRESHOLD_MS = 10000; // 10 seconds
+/** Listener publishes one aggregate every 5 seconds. The live budget includes
+ * scheduler/network jitter; dead requires more than two missed windows. */
 const WATCHDOG_INTERVAL_MS = 1000; // 1 second tick
 
 // ── Timestamped metric ──
@@ -29,6 +31,29 @@ export interface TimestampedMetric<T = number> {
     freshness: DataFreshness;
 }
 
+export function getNmeaFreshness(lastUpdated: number, now: number = Date.now()): DataFreshness {
+    if (!Number.isFinite(lastUpdated) || lastUpdated <= 0 || lastUpdated > now + 1000) return 'dead';
+    const age = now - lastUpdated;
+    if (age <= NMEA_LIVE_MAX_AGE_MS) return 'live';
+    if (age <= NMEA_USABLE_MAX_AGE_MS) return 'stale';
+    return 'dead';
+}
+
+/**
+ * Reconcile one metric with the watchdog clock. Dead readings are retired,
+ * not merely tagged, so a consumer cannot accidentally render or act on a
+ * >two-sample-window-old numeric value while the socket remains connected.
+ */
+export function reconcileNmeaMetricFreshness(metric: TimestampedMetric, now: number = Date.now()): boolean {
+    if (metric.lastUpdated === 0) return false;
+    const freshness = getNmeaFreshness(metric.lastUpdated, now);
+    const shouldClear = freshness === 'dead' && metric.value !== null;
+    if (freshness === metric.freshness && !shouldClear) return false;
+    metric.freshness = freshness;
+    if (shouldClear) metric.value = null;
+    return true;
+}
+
 // ── Full store state ──
 export interface NmeaStoreState {
     // Navigation
@@ -36,7 +61,10 @@ export interface NmeaStoreState {
     twa: TimestampedMetric; // True Wind Angle (°)
     stw: TimestampedMetric; // Speed Through Water (kts)
     heading: TimestampedMetric; // Heading (°)
-    depth: TimestampedMetric; // Depth Below Transducer (m)
+    depth: TimestampedMetric; // Referenced depth (m); see depthReference
+    depthSource: NmeaDepthSource | null;
+    depthReference: NmeaDepthReference | null;
+    depthOffsetM: number | null;
     sog: TimestampedMetric; // Speed Over Ground (kts)
     cog: TimestampedMetric; // Course Over Ground (°)
     waterTemp: TimestampedMetric; // Water Temperature (°C)
@@ -78,6 +106,7 @@ class NmeaStoreClass {
         this.unsubSample = NmeaListenerService.onSample((sample) => this.ingestSample(sample));
         this.unsubStatus = NmeaListenerService.onStatusChange((status) => {
             this.state.connectionStatus = status;
+            if (status !== 'connected') this.retireAllMetrics();
             this.notify();
         });
         this.state.connectionStatus = NmeaListenerService.getStatus();
@@ -91,7 +120,8 @@ class NmeaStoreClass {
         // Start AIS vessel tracking store
         AisStore.start();
 
-        // Initialize AISHub uplink (loads saved config, opens UDP if previously enabled)
+        // Initialize the fail-closed AISHub boundary. It retires any remembered
+        // legacy opt-in and never opens an outbound UDP transport in this beta.
         AisHubService.init();
     }
 
@@ -100,6 +130,7 @@ class NmeaStoreClass {
         this.running = false;
         // Reset connection status and notify UI before unsubscribing
         this.state.connectionStatus = 'disconnected';
+        this.retireAllMetrics();
         this.notify();
         if (this.unsubSample) {
             this.unsubSample();
@@ -134,16 +165,14 @@ class NmeaStoreClass {
         return (
             this.state.latitude.freshness === 'live' &&
             this.state.longitude.freshness === 'live' &&
-            this.state.latitude.value !== null
+            this.state.latitude.value !== null &&
+            this.state.longitude.value !== null
         );
     }
 
     /** Get freshness tier for a given timestamp */
     static getFreshness(lastUpdated: number): DataFreshness {
-        const age = Date.now() - lastUpdated;
-        if (age <= STALE_THRESHOLD_MS) return 'live';
-        if (age <= DEAD_THRESHOLD_MS) return 'stale';
-        return 'dead';
+        return getNmeaFreshness(lastUpdated);
     }
 
     // ── Internals ──
@@ -159,7 +188,12 @@ class NmeaStoreClass {
         if (sample.heading !== null) this.updateMetric(this.state.heading, sample.heading, now);
         if (sample.rpm !== null) this.updateMetric(this.state.rpm, sample.rpm, now);
         if (sample.voltage !== null) this.updateMetric(this.state.voltage, sample.voltage, now);
-        if (sample.depth !== null) this.updateMetric(this.state.depth, sample.depth, now);
+        if (sample.depth !== null && Number.isFinite(sample.depth)) {
+            this.updateMetric(this.state.depth, sample.depth, now);
+            this.state.depthSource = sample.depthSource ?? null;
+            this.state.depthReference = sample.depthReference ?? 'below-transducer';
+            this.state.depthOffsetM = sample.depthOffsetM ?? null;
+        }
         if (sample.sog !== null) this.updateMetric(this.state.sog, sample.sog, now);
         if (sample.cog !== null) this.updateMetric(this.state.cog, sample.cog, now);
         if (sample.waterTemp !== null) this.updateMetric(this.state.waterTemp, sample.waterTemp, now);
@@ -202,20 +236,61 @@ class NmeaStoreClass {
             this.state.satellites,
         ];
 
-        for (const m of metrics) {
-            if (m.lastUpdated === 0) continue; // Never received
-            const newFreshness = NmeaStoreClass.getFreshness(m.lastUpdated);
-            if (newFreshness !== m.freshness) {
-                m.freshness = newFreshness;
-                changed = true;
-            }
+        for (const m of metrics) changed = reconcileNmeaMetricFreshness(m) || changed;
+
+        if (this.state.depth.value === null && this.state.depthReference !== null) {
+            this.clearDepthMetadata();
+            changed = true;
+        }
+        if (
+            (this.state.latitude.value === null || this.state.longitude.value === null) &&
+            this.state.gpsFixQuality !== null
+        ) {
+            this.state.gpsFixQuality = null;
+            changed = true;
         }
 
         if (changed) this.notify();
     }
 
     private notify(): void {
-        for (const cb of this.listeners) cb(this.state);
+        // React state setters bail out on Object.is equality. The store mutates
+        // metric objects in place, so publish a new root snapshot on every
+        // notification or freshness/data changes never repaint the panel.
+        const snapshot = { ...this.state };
+        for (const cb of this.listeners) cb(snapshot);
+    }
+
+    private retireAllMetrics(): void {
+        const metrics: TimestampedMetric[] = [
+            this.state.tws,
+            this.state.twa,
+            this.state.stw,
+            this.state.heading,
+            this.state.depth,
+            this.state.sog,
+            this.state.cog,
+            this.state.waterTemp,
+            this.state.rpm,
+            this.state.voltage,
+            this.state.latitude,
+            this.state.longitude,
+            this.state.hdop,
+            this.state.satellites,
+        ];
+        for (const metric of metrics) {
+            metric.value = null;
+            metric.lastUpdated = 0;
+            metric.freshness = 'dead';
+        }
+        this.state.gpsFixQuality = null;
+        this.clearDepthMetadata();
+    }
+
+    private clearDepthMetadata(): void {
+        this.state.depthSource = null;
+        this.state.depthReference = null;
+        this.state.depthOffsetM = null;
     }
 
     private createEmptyState(): NmeaStoreState {
@@ -231,6 +306,9 @@ class NmeaStoreClass {
             stw: emptyMetric(),
             heading: emptyMetric(),
             depth: emptyMetric(),
+            depthSource: null,
+            depthReference: null,
+            depthOffsetM: null,
             sog: emptyMetric(),
             cog: emptyMetric(),
             waterTemp: emptyMetric(),

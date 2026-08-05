@@ -42,6 +42,7 @@ vi.mock('@capacitor/browser', () => ({
 
 vi.mock('../services/SubscriptionService', () => ({ canAccess: vi.fn(() => true) }));
 vi.mock('../services/voice/integrations/gmail', () => ({
+    GMAIL_PUBLIC_BETA_ENABLED: true,
     beginAuthorization: mocks.beginAuthorization,
     clearGmailTokens: mocks.clearGmailTokens,
     completeAuthorization: mocks.completeAuthorization,
@@ -67,7 +68,7 @@ function settings(overrides: Partial<UserSettings> = {}): UserSettings {
     } as UserSettings;
 }
 
-describe('Calypso Gmail app-native status handling', () => {
+describe('Calypso integrations app-native status handling', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         mocks.appUrlOpen = null;
@@ -81,6 +82,31 @@ describe('Calypso Gmail app-native status handling', () => {
         mocks.getConnectedEmail.mockResolvedValue(null);
         mocks.isGmailConfigured.mockResolvedValue(true);
         setAuthIdentityScope('calypso-user');
+    });
+
+    it('shows an inert Apple Music public-beta boundary without connection controls', async () => {
+        render(<CalypsoIntegrationsTab settings={settings()} onSave={vi.fn()} />);
+
+        expect(await screen.findByText('Apple Music unavailable in public beta')).toBeInTheDocument();
+        await waitFor(() => {
+            expect(mocks.getConnectedEmail).toHaveBeenCalled();
+            expect(mocks.isGmailConfigured).toHaveBeenCalled();
+        });
+        expect(screen.getByText(/no Apple Music connection or permission is requested/i)).toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: 'Open Music' })).not.toBeInTheDocument();
+        expect(screen.queryByText(/Voice commands work the moment/i)).not.toBeInTheDocument();
+    });
+
+    it('holds proactive vessel alerts without a switch or background-safety claim', async () => {
+        render(<CalypsoIntegrationsTab settings={settings({ calypsoAlertsEnabled: true })} onSave={vi.fn()} />);
+
+        expect(await screen.findByText('Proactive alerts unavailable in public beta')).toBeInTheDocument();
+        expect(screen.getByText(/not running as a background or terminated-app vessel monitor/i)).toBeInTheDocument();
+        expect(
+            screen.getByText(/Keep dedicated instrument alarms and watchkeeping procedures active/i),
+        ).toBeInTheDocument();
+        expect(screen.queryByRole('switch', { name: 'Calypso speak-up alerts' })).not.toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: 'Test alert' })).not.toBeInTheDocument();
     });
 
     it('deduplicates connect attempts and announces missing configuration inline', async () => {

@@ -78,11 +78,10 @@ function clientAddress(req: Request): string | null {
     // Reverse proxies append their peer to X-Forwarded-For. Use the final
     // address, not the attacker-controlled first entry.
     const forwarded = req.headers.get('x-forwarded-for');
-    const forwardedHops =
-        forwarded
-            ?.split(',')
-            .map((value) => value.trim())
-            .filter(Boolean) ?? [];
+    const forwardedHops = forwarded
+        ?.split(',')
+        .map((value) => value.trim())
+        .filter(Boolean) ?? [];
     const finalHop = forwardedHops[forwardedHops.length - 1];
     return finalHop && finalHop.length <= 64 ? finalHop : null;
 }
@@ -159,8 +158,7 @@ export async function requireAuthenticatedOrPublicQuota(
     const authorization = req.headers.get('authorization');
     const apiKey = req.headers.get('apikey');
     const bearer = authorization?.match(/^Bearer ([^\s]+)$/)?.[1] ?? null;
-    const isPublicCredential =
-        bearer === publicKey ||
+    const isPublicCredential = bearer === publicKey ||
         (!bearer && apiKey === publicKey) ||
         (allowCredentiallessPublic && !authorization && !apiKey);
 

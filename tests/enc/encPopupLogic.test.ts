@@ -132,15 +132,15 @@ describe('buildGebcoDepthPopupHtml — uncharted-water tap answer (cycle-4 audit
         expect(html).not.toContain('NOT chart-verified');
     });
 
-    it('a deep GEBCO reading reads deeper-than-safety-depth + the loud caveat', () => {
+    it('a deep ETOPO reading reads deeper-than-safety-depth + the loud caveat', () => {
         const html = buildGebcoDepthPopupHtml(-12, 2.9, 'ready');
         expect(html).toContain('~12 m');
         expect(html).toContain('deeper than your 2.9 m safety depth');
         expect(html).toContain('NOT chart-verified');
-        expect(html).toContain('460 m GEBCO');
+        expect(html).toContain('1.8 km NOAA ETOPO');
     });
 
-    it('a shallow GEBCO reading flags SHALLOWER-than-safety-depth caution', () => {
+    it('a shallow ETOPO reading flags SHALLOWER-than-safety-depth caution', () => {
         const html = buildGebcoDepthPopupHtml(-1.5, 2.9, 'ready');
         expect(html).toContain('~2 m'); // 1.5 rounds to 2 for display
         expect(html).toContain('SHALLOWER than your 2.9 m safety depth');
@@ -151,7 +151,7 @@ describe('buildGebcoDepthPopupHtml — uncharted-water tap answer (cycle-4 audit
         expect(buildGebcoDepthPopupHtml(5, 2.9, 'ready')).toContain('land / above sea level');
     });
 
-    it('null depth on ready = no data here (GEBCO unavailable)', () => {
+    it('null depth on ready = no data here (ETOPO unavailable)', () => {
         expect(buildGebcoDepthPopupHtml(null, 2.9, 'ready')).toContain('no data here');
     });
 
@@ -192,6 +192,12 @@ describe('buildFeaturePopupHtml — chart-currency caveat on provenance (re-audi
             'verify NtM',
         );
         expect(buildFeaturePopupHtml(ENC_VEC_LAYERS.DEPARE, depareProps, {})).not.toContain('verify NtM');
+    });
+
+    it('marks every tapped reference feature as unverified and outside safety checks', () => {
+        const html = buildFeaturePopupHtml(ENC_VEC_LAYERS.DEPARE, { ...depareProps, _reference: true }, {});
+        expect(html).toContain('Unverified reference pack');
+        expect(html).toContain('ignored by route checks and Cast Off');
     });
 
     it('emits an explicitly non-submitting close button for the non-modal dialog', () => {

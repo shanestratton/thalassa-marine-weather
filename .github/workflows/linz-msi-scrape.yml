@@ -17,37 +17,55 @@ on:
 permissions:
     contents: read
 
+concurrency:
+    group: linz-msi-scrape
+    # Queue a manual run behind an active scheduled run. Cancelling a
+    # writer mid-upsert/cleanup would leave a partially refreshed set.
+    cancel-in-progress: false
+
 jobs:
     scrape:
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 10
-        # Don't run on PR forks — secrets aren't available there and
-        # the job would just no-op-fail. master + manual only.
-        if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/master'
+        # The secret-bearing writer runs only from reviewed master source,
+        # including manual dispatches (whose selected ref may otherwise vary).
+        if: github.ref == 'refs/heads/master'
         defaults:
             run:
                 working-directory: scripts/linz-msi-scrape
         steps:
             - name: Checkout
-              uses: actions/checkout@v4
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
             - name: Set up Node
-              uses: actions/setup-node@v4
+              uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
               with:
                   # Node 22+ for the native WebSocket implementation —
                   # supabase-js v2 initialises its Realtime transport on
                   # createClient() and errors out on Node 20 without it.
                   node-version: '22'
                   cache: 'npm'
-                  cache-dependency-path: scripts/linz-msi-scrape/package.json
+                  cache-dependency-path: scripts/linz-msi-scrape/package-lock.json
 
             - name: Install scraper deps
-              run: npm install --no-audit --no-fund
+              run: npm ci
+
+            - name: Audit scraper dependencies
+              run: npm audit --audit-level=high
+
+            - name: Verify scraper dependency tree
+              run: npm ls --all
+
+            - name: Verify parser and dry-run write boundary
+              # Runs before secrets enter any step environment. The tests
+              # exercise the parser safety bounds, browser env allowlist,
+              # dry-run no-write path and mocked service-role persistence.
+              run: npm test
 
             - name: Install Chromium for Playwright
               # --with-deps installs the OS-level libs (libnss3 et al.)
               # that headless Chromium needs on Ubuntu.
-              run: npx playwright install chromium --with-deps
+              run: npx --no-install playwright install chromium --with-deps
 
             - name: Scrape Maritime NZ and upsert to Supabase
               env:
@@ -57,7 +75,7 @@ jobs:
 
             - name: Upload page state on failure
               if: failure()
-              uses: actions/upload-artifact@v4
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
               with:
                   name: linz-msi-debug-${{ github.run_id }}
                   path: /tmp/linz-debug/

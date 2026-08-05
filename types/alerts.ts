@@ -1,11 +1,11 @@
 /**
  * types/alerts.ts — Calypso proactive-alert types.
  *
- * The "speak up" feature: an always-on monitor service subscribes to
- * NmeaStore + (later) Victron + bilge sensors, runs a rules engine,
- * and fires AlertEvents when something looks wrong. AlertNotifier
- * routes the event to:
- *   - chime via AlarmAudioService (full-volume, mute-bypassed)
+ * Dormant rules for a future native-lifecycle "speak up" feature. The current
+ * JavaScript monitor is held in public beta because it cannot run reliably
+ * while iOS suspends or terminates the app. When exercised in tests, it
+ * subscribes to NmeaStore, runs a rules engine, and routes AlertEvents to:
+ *   - an ordinary in-app chime via AlarmAudioService
  *   - Calypso voice (ElevenLabs TTS via the standalone ttsClient)
  *   - voice console takeover (dispatches a 'thalassa:navigate' event
  *     to setPage('voice') so the alert lands on the front page)

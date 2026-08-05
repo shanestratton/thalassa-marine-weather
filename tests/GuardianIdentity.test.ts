@@ -28,6 +28,17 @@ vi.mock('../stores/LocationStore', () => ({
     LocationStore: { getState: () => ({ lat: -27.47, lon: 153.02 }) },
 }));
 
+vi.mock('../services/ownshipPosition', () => ({
+    acquireFreshOwnshipPosition: vi.fn().mockResolvedValue({
+        lat: -27.47,
+        lon: 153.02,
+        sog: 0,
+        cog: 0,
+        timestamp: Date.now(),
+        source: 'gps',
+    }),
+}));
+
 type Deferred<T> = {
     promise: Promise<T>;
     resolve: (value: T) => void;
@@ -122,7 +133,10 @@ describe('Guardian identity boundary', () => {
     it('stops account timers at the identity fence without disarming A on the server', async () => {
         vi.useFakeTimers();
         const clearIntervalSpy = vi.spyOn(globalThis, 'clearInterval');
-        mockMaybeSingle.mockResolvedValue({ data: null, error: null });
+        mockMaybeSingle.mockResolvedValue({
+            data: { user_id: 'account-a', vessel_name: 'Armed vessel', armed: true },
+            error: null,
+        });
         mockRpc.mockResolvedValue({ data: [], error: null });
 
         await GuardianService.initialize();

@@ -50,6 +50,24 @@ export type ChartRegion =
     | 'sp-other'
     | 'sp-overview';
 
+export type ChartDistributionStatus =
+    | 'official-public-release'
+    | 'licensed-provider-download'
+    | 'source-hosted-unverified';
+
+/**
+ * Human-readable origin and licence information for every package that the
+ * app makes downloadable. This is deliberately package data, not UI copy, so
+ * every download surface has the same trust statement available.
+ */
+export interface ChartPackageProvenance {
+    publisher: string;
+    sourceUrl: string;
+    licenseName: string;
+    licenseUrl?: string;
+    distributionStatus: ChartDistributionStatus;
+}
+
 export interface ChartPackage {
     id: string;
     name: string;
@@ -67,6 +85,8 @@ export interface ChartPackage {
     isMediaFire?: boolean;
     /** Credit for community charts */
     credit?: string;
+    /** Source, licence and distribution basis shown beside the download. */
+    provenance: ChartPackageProvenance;
 }
 
 export type UploadPhase = 'idle' | 'picking' | 'downloading' | 'uploading' | 'deleting' | 'done' | 'error';
@@ -93,7 +113,15 @@ export type DownloadMode = 'phone-proxy' | 'pi-direct';
 
 const NOAA_BASE_URL = 'https://distribution.charts.noaa.gov/ncds/mbtiles';
 
-const NOAA_CATALOG: ChartPackage[] = [
+const NOAA_PROVENANCE: ChartPackageProvenance = {
+    publisher: 'NOAA Office of Coast Survey',
+    sourceUrl: 'https://distribution.charts.noaa.gov/ncds/index.html',
+    licenseName: 'US Government public chart release',
+    licenseUrl: 'https://www.nauticalcharts.noaa.gov/data/licensing.html',
+    distributionStatus: 'official-public-release',
+};
+
+const NOAA_CATALOG: Omit<ChartPackage, 'provenance'>[] = [
     // US East Coast
     {
         id: 'ncds_01a',
@@ -375,7 +403,15 @@ function buildLinzUrl(layerId: number, apiKey: string): string {
     return `https://data.linz.govt.nz/services;key=${encodeURIComponent(apiKey)}/api/v1/layers/${layerId}/data/?format=image/tiff`;
 }
 
-const LINZ_CATALOG_TEMPLATE: Omit<ChartPackage, 'url'>[] = [
+const LINZ_PROVENANCE: ChartPackageProvenance = {
+    publisher: 'Land Information New Zealand',
+    sourceUrl: 'https://data.linz.govt.nz/',
+    licenseName: 'Creative Commons Attribution 4.0',
+    licenseUrl: 'https://data.linz.govt.nz/license/attribution-4-0-international/',
+    distributionStatus: 'licensed-provider-download',
+};
+
+const LINZ_CATALOG_TEMPLATE: Omit<ChartPackage, 'url' | 'provenance'>[] = [
     {
         id: 'linz-51277',
         name: 'Approaches to Auckland',
@@ -479,11 +515,19 @@ const LINZ_CATALOG_TEMPLATE: Omit<ChartPackage, 'url'>[] = [
 ];
 
 // ── Community Charts — South Pacific ──
-// Bruce Balan's Chart Locker (brucebalan.com/chartlocker)
-// Free satellite + Navionics MBTiles made by cruisers, for cruisers.
-// Files are on MediaFire as .zip containing .mbtiles.
+// Bruce Balan's Chart Locker (brucebalan.com/chartlocker).
+// Files are source-hosted on MediaFire as .zip containing .mbtiles. The entire
+// source is quarantined from the public beta until package-level source data
+// and written redistribution rights can be attached and reviewed.
 
-const COMMUNITY_CATALOG: ChartPackage[] = [
+const COMMUNITY_PROVENANCE: ChartPackageProvenance = {
+    publisher: "Bruce Balan's Chart Locker",
+    sourceUrl: 'https://www.brucebalan.com/chartlocker',
+    licenseName: 'Publisher-hosted download; redistribution terms not supplied',
+    distributionStatus: 'source-hosted-unverified',
+};
+
+const COMMUNITY_CATALOG: Omit<ChartPackage, 'provenance'>[] = [
     // Pacific Overview
     {
         id: 'tcl-pacific',
@@ -492,66 +536,6 @@ const COMMUNITY_CATALOG: ChartPackage[] = [
         regionLabel: '🌏 Pacific Overview',
         sizeMB: 500,
         url: 'https://www.mediafire.com/file_premium/jldlsrftsasf0ab/Pacific_Overview_TCL10-23.zip/file',
-        format: 'zip',
-        source: 'community',
-        isZipped: true,
-        isMediaFire: true,
-        credit: 'Bruce Balan',
-    },
-
-    // Fiji
-    {
-        id: 'tcl-fiji',
-        name: 'Fiji (Navionics)',
-        region: 'sp-fiji',
-        regionLabel: '🇫🇯 Fiji',
-        sizeMB: 736,
-        url: 'https://www.mediafire.com/file_premium/722rc3rabytojt1/Fiji_TCL2407_Navionics.zip/file',
-        format: 'zip',
-        source: 'community',
-        isZipped: true,
-        isMediaFire: true,
-        credit: 'Bruce Balan',
-    },
-
-    // Tonga
-    {
-        id: 'tcl-tonga',
-        name: 'Tonga, Niue & Minerva (Navionics)',
-        region: 'sp-tonga',
-        regionLabel: '🇹🇴 Tonga',
-        sizeMB: 235,
-        url: 'https://www.mediafire.com/file_premium/p8m29cdchck96ev/Tonga_Niue_Minerva_TCL2403_Navionics.zip/file',
-        format: 'zip',
-        source: 'community',
-        isZipped: true,
-        isMediaFire: true,
-        credit: 'Bruce Balan',
-    },
-
-    // Vanuatu
-    {
-        id: 'tcl-vanuatu',
-        name: 'Vanuatu (Navionics)',
-        region: 'sp-vanuatu',
-        regionLabel: '🇻🇺 Vanuatu',
-        sizeMB: 164,
-        url: 'https://www.mediafire.com/file_premium/t6r60765orhrhm5/Vanuatu_TCL2402_Navionics_Z13-16%252C18.zip/file',
-        format: 'zip',
-        source: 'community',
-        isZipped: true,
-        isMediaFire: true,
-        credit: 'Bruce Balan',
-    },
-
-    // New Caledonia
-    {
-        id: 'tcl-newcal',
-        name: 'New Caledonia (Navionics)',
-        region: 'sp-newcal',
-        regionLabel: '🇳🇨 New Caledonia',
-        sizeMB: 751,
-        url: 'https://www.mediafire.com/file/98mj9ydt5rozvb3/SP_NewCaledonia_Navionics.zip/file',
         format: 'zip',
         source: 'community',
         isZipped: true,
@@ -617,19 +601,6 @@ const COMMUNITY_CATALOG: ChartPackage[] = [
         credit: 'Bruce Balan',
     },
     {
-        id: 'tcl-fp-tuamotus',
-        name: 'Tuamotus (Navionics)',
-        region: 'sp-frpoly',
-        regionLabel: '🇵🇫 French Polynesia',
-        sizeMB: 500,
-        url: 'https://www.mediafire.com/file_premium/5337hpnnhn3glha/FP_Tuamotus_TCL2023_Navionics.zip/file',
-        format: 'zip',
-        source: 'community',
-        isZipped: true,
-        isMediaFire: true,
-        credit: 'Bruce Balan',
-    },
-    {
         id: 'tcl-fp-australs',
         name: 'Austral Islands',
         region: 'sp-frpoly',
@@ -644,19 +615,6 @@ const COMMUNITY_CATALOG: ChartPackage[] = [
     },
 
     // Other South Pacific
-    {
-        id: 'tcl-solomons',
-        name: 'Solomon Islands (Navionics)',
-        region: 'sp-other',
-        regionLabel: '🏝 Other South Pacific',
-        sizeMB: 586,
-        url: 'https://www.mediafire.com/file/bsp9l8apokb24lb/SP_Solomons_Navionics.zip/file',
-        format: 'zip',
-        source: 'community',
-        isZipped: true,
-        isMediaFire: true,
-        credit: 'Bruce Balan',
-    },
     {
         id: 'tcl-tuvalu',
         name: 'Tuvalu',
@@ -685,6 +643,57 @@ const COMMUNITY_CATALOG: ChartPackage[] = [
     },
 ];
 
+/**
+ * These packages identify third-party Navionics-derived content but carry no
+ * documented redistribution permission in this repository. Keep the IDs
+ * explicit so a cosmetic rename cannot accidentally put them back on sale.
+ */
+const QUARANTINED_COMMUNITY_PACKAGE_IDS = new Set([
+    'tcl-fiji',
+    'tcl-tonga',
+    'tcl-vanuatu',
+    'tcl-newcal',
+    'tcl-fp-tuamotus',
+    'tcl-solomons',
+]);
+
+type ChartDistributionCandidate = Pick<ChartPackage, 'id' | 'name' | 'url' | 'source'> &
+    Partial<Pick<ChartPackage, 'isMediaFire' | 'provenance'>>;
+
+export function chartPackageDistributionBlockReason(pkg: ChartDistributionCandidate): string | null {
+    const carriesQuarantinedBrand = /navionics/i.test(`${pkg.name} ${pkg.url}`);
+    const isUnverifiedSource = pkg.provenance?.distributionStatus === 'source-hosted-unverified';
+    const isMediaFire = pkg.isMediaFire === true || /(^|\.)mediafire\.com(?:\/|$)/i.test(pkg.url);
+    if (
+        pkg.source !== 'community' &&
+        !isUnverifiedSource &&
+        !isMediaFire &&
+        !QUARANTINED_COMMUNITY_PACKAGE_IDS.has(pkg.id) &&
+        !carriesQuarantinedBrand
+    ) {
+        return null;
+    }
+    return 'This source-hosted chart package is unavailable in the public beta while its source data licence and redistribution rights are verified.';
+}
+
+function reportDistributionBlock(
+    pkg: Pick<ChartPackage, 'id' | 'name' | 'url' | 'source'>,
+    onProgress?: (progress: UploadProgress) => void,
+): { success: false; error: string } | null {
+    const error = chartPackageDistributionBlockReason(pkg);
+    if (!error) return null;
+    log.warn(`[Trust] Blocked chart package ${pkg.id}: ${error}`);
+    onProgress?.({
+        phase: 'error',
+        progress: 0,
+        message: 'Chart unavailable',
+        bytesTransferred: 0,
+        bytesTotal: 0,
+        error,
+    });
+    return { success: false, error };
+}
+
 // ── Supported file extensions ──
 
 const ACCEPTED_EXTENSIONS = ['.mbtiles', '.oesenc', '.gemf', '.kap', '.tif', '.tiff', '.geotiff', '.zip'];
@@ -696,18 +705,24 @@ class ChartLockerServiceImpl {
     // ── Catalog API ──
 
     getNoaaCatalog(): ChartPackage[] {
-        return [...NOAA_CATALOG];
+        return NOAA_CATALOG.map((pkg) => ({ ...pkg, provenance: { ...NOAA_PROVENANCE } }));
     }
 
     getLinzCatalog(apiKey: string): ChartPackage[] {
         return LINZ_CATALOG_TEMPLATE.map((tmpl) => ({
             ...tmpl,
             url: buildLinzUrl(tmpl.linzLayerId!, apiKey),
+            provenance: { ...LINZ_PROVENANCE },
         }));
     }
 
     getCommunityCatalog(): ChartPackage[] {
-        return [...COMMUNITY_CATALOG];
+        // Intentional beta boundary: retain the dormant catalog data for later
+        // rights review, but expose no unverified/MediaFire package to the UI.
+        return COMMUNITY_CATALOG.filter((pkg) => chartPackageDistributionBlockReason(pkg) === null).map((pkg) => ({
+            ...pkg,
+            provenance: { ...COMMUNITY_PROVENANCE },
+        }));
     }
 
     getFullCatalog(linzApiKey?: string | null): ChartPackage[] {
@@ -969,6 +984,8 @@ class ChartLockerServiceImpl {
         deleteAfter: boolean,
         onProgress?: (progress: UploadProgress) => void,
     ): Promise<{ success: boolean; error?: string }> {
+        const blocked = reportDistributionBlock(pkg, onProgress);
+        if (blocked) return blocked;
         const defaultFileName = pkg.url.split('/').pop() || `${pkg.id}.${pkg.format}`;
 
         try {
@@ -1362,6 +1379,8 @@ class ChartLockerServiceImpl {
         _avnavPort: number,
         onProgress?: (progress: UploadProgress) => void,
     ): Promise<{ success: boolean; error?: string }> {
+        const blocked = reportDistributionBlock(pkg, onProgress);
+        if (blocked) return blocked;
         if (!piCache.isAvailable()) {
             const msg =
                 'Pi cache not reachable — connect to your boat’s WiFi and toggle Pi Cache on in Boat Network settings.';
@@ -1742,6 +1761,8 @@ class ChartLockerServiceImpl {
         pkg: ChartPackage,
         onProgress?: (progress: UploadProgress) => void,
     ): Promise<{ success: boolean; fileName?: string; error?: string }> {
+        const blocked = reportDistributionBlock(pkg, onProgress);
+        if (blocked) return blocked;
         const defaultFileName = pkg.url.split('/').pop() || `${pkg.id}.${pkg.format}`;
 
         try {

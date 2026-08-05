@@ -178,7 +178,8 @@ async function fetchWeather(lat: number, lon: number): Promise<Record<string, nu
             ? 'https://customer-api.open-meteo.com/v1/forecast'
             : 'https://api.open-meteo.com/v1/forecast';
         const keyParam = apiKey ? `&apikey=${apiKey}` : '';
-        const url = `${base}?latitude=${lat}&longitude=${lon}&current=${WEATHER_VARS}&wind_speed_unit=kmh&timezone=auto${keyParam}`;
+        const url =
+            `${base}?latitude=${lat}&longitude=${lon}&current=${WEATHER_VARS}&wind_speed_unit=kmh&timezone=auto${keyParam}`;
         const res = await fetchWithTimeout(url, {}, 10_000);
         if (!res.ok) {
             console.warn(`Open-Meteo error: ${res.status}`);
@@ -477,10 +478,9 @@ serve(async (req: Request) => {
                 if (!triggered) continue;
 
                 // ── 4. Atomically claim the daily alert slot ──
-                const alertKey =
-                    check.type === 'precipitation'
-                        ? `precip-${weatherCodeToDescription(weather.weather_code ?? 0)}-${today}`
-                        : `${check.type}-${check.formatValue(value)}${check.unit}-${today}`;
+                const alertKey = check.type === 'precipitation'
+                    ? `precip-${weatherCodeToDescription(weather.weather_code ?? 0)}-${today}`
+                    : `${check.type}-${check.formatValue(value)}${check.unit}-${today}`;
 
                 // `weather_alerts_log` has a `(user_id, alert_key)` unique
                 // constraint. Claim it before enqueueing the push so two
@@ -515,10 +515,9 @@ serve(async (req: Request) => {
                 } else {
                     const valueStr = check.formatValue(value);
                     title = `${check.emoji} ${check.label}: ${valueStr}${check.unit}`;
-                    body =
-                        check.compare === 'gte'
-                            ? `${check.label} at ${user.locationName} has exceeded your ${threshold}${check.unit} threshold.`
-                            : `${check.label} at ${user.locationName} has dropped below your ${threshold}${check.unit} threshold.`;
+                    body = check.compare === 'gte'
+                        ? `${check.label} at ${user.locationName} has exceeded your ${threshold}${check.unit} threshold.`
+                        : `${check.label} at ${user.locationName} has dropped below your ${threshold}${check.unit} threshold.`;
                 }
 
                 // Determine if this should be a critical alert

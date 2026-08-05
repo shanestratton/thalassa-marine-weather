@@ -44,7 +44,7 @@ import {
 import {
     GLAZE_MIN_ZOOM,
     getMergedVectorData,
-    hasAnyCells,
+    hasAnyDisplayCells,
     setMergeInteractionProbe,
     subscribe as subscribeToEnc,
     subscribeGeometryUpgrades,
@@ -95,13 +95,13 @@ function windowFor(map: mapboxgl.Map): Bbox {
  */
 export function prewarmEncMerge(map: mapboxgl.Map): void {
     try {
-        if (map.getZoom() < ENC_MERGE_MIN_ZOOM || !hasAnyCells()) return;
+        if (map.getZoom() < ENC_MERGE_MIN_ZOOM || !hasAnyDisplayCells()) return;
         const now = Date.now();
         if (prewarmInFlight || now - lastPrewarmAt < 2_000) return;
         lastPrewarmAt = now;
         const win = windowFor(map);
         log.info(`[prewarm] boot merge start z=${map.getZoom().toFixed(1)}`);
-        prewarmInFlight = getMergedVectorData(win, map.getZoom())
+        prewarmInFlight = getMergedVectorData(win, map.getZoom(), { includeReferences: true })
             .catch(() => undefined)
             .finally(() => {
                 prewarmInFlight = null;
@@ -325,7 +325,7 @@ export function useEncVectorLayer(
         let cancelled = false;
 
         const apply = async () => {
-            if (!hasAnyCells()) {
+            if (!hasAnyDisplayCells()) {
                 if (mountedRef.current) {
                     detachEncFeatureClickHandlers(map);
                     unmountEncVectorLayer(map);
@@ -378,7 +378,7 @@ export function useEncVectorLayer(
                 log.info(
                     `[apply] merge start z=${map.getZoom().toFixed(1)} win=${win.map((v) => v.toFixed(2)).join(',')}`,
                 );
-                const data = await getMergedVectorData(win, map.getZoom());
+                const data = await getMergedVectorData(win, map.getZoom(), { includeReferences: true });
                 log.info(
                     `[apply] merge done: ${
                         data

@@ -16,6 +16,7 @@ import { useSettingsStore } from '../stores/settingsStore';
 import { getAuthenticatedFunctionHeaders } from './supabaseAuth';
 import { supabaseUrl } from './supabase';
 import { createLogger } from '../utils/createLogger';
+import { PI_INTEGRATION_ENABLED } from './piPublicBetaBoundary';
 
 const log = createLogger('DiaryRelayTransport');
 const PAIR_TTL_MS = 10 * 60 * 1000;
@@ -120,7 +121,7 @@ export async function hasReachableDiaryCloud(): Promise<boolean> {
 }
 
 async function postToPi<T>(path: string, body: unknown): Promise<T | null> {
-    if (!piCache.isAvailable()) return null;
+    if (!PI_INTEGRATION_ENABLED || !piCache.isAvailable()) return null;
     const url = `${piCache.baseUrl}${path}`;
     try {
         try {
@@ -159,6 +160,7 @@ async function configurePiRelay(
     relay: { relayId: string; ownerId: string; token: string },
     allowInternet: boolean,
 ): Promise<boolean> {
+    if (!PI_INTEGRATION_ENABLED) return false;
     return piCache.pushConfig({
         supabaseUrl: '',
         supabaseAnonKey: '',
@@ -176,6 +178,7 @@ async function configurePiRelay(
  * outbox; it does not assert that the phone is online right now.
  */
 export async function syncPiDiaryRelayInternetPolicy(): Promise<boolean> {
+    if (!PI_INTEGRATION_ENABLED) return false;
     return piCache.setDiaryRelayInternetPolicy(isDiaryRelayInternetAllowed());
 }
 
@@ -238,7 +241,7 @@ export async function submitDiaryDirect(entry: DiaryRelayEnvelope): Promise<Reco
 /** Persist a cancellation in the Pi while on Boat LAN. The Pi will relay it
  * before any queued creates when ordinary Internet is permitted again. */
 export async function cancelDiaryOnPi(clientOperationId: string): Promise<boolean> {
-    if (!validOperationId(clientOperationId) || !piCache.isAvailable()) return false;
+    if (!PI_INTEGRATION_ENABLED || !validOperationId(clientOperationId) || !piCache.isAvailable()) return false;
     const scope = getAuthIdentityScope();
     const status = piCache.getStatus();
     if (status.diaryRelayConfigured && status.diaryRelayOwnerId && status.diaryRelayOwnerId !== scope.userId)
@@ -276,6 +279,7 @@ export async function cancelDiaryDirect(clientOperationId: string): Promise<bool
 }
 
 async function pairPiWhenCloudIsAvailable(scope: AuthIdentityScope, allowInternet: boolean): Promise<boolean> {
+    if (!PI_INTEGRATION_ENABLED) return false;
     if (!allowInternet || !scope.userId || !isAuthIdentityScopeCurrent(scope)) return false;
     const status = piCache.getStatus();
     const relayId = status.diaryRelayId;
@@ -356,7 +360,7 @@ async function pairPiWhenCloudIsAvailable(scope: AuthIdentityScope, allowInterne
  * deduplicated by `client_operation_id` on both the Pi and Supabase.
  */
 export async function handoffDiaryToPi(entry: DiaryRelayEnvelope): Promise<PiDiaryRelayResult | null> {
-    if (!entry.client_operation_id || !piCache.isAvailable()) return null;
+    if (!PI_INTEGRATION_ENABLED || !entry.client_operation_id || !piCache.isAvailable()) return null;
     const scope = getAuthIdentityScope();
     if (!scope.userId || !isAuthIdentityScopeCurrent(scope)) return null;
     const status = piCache.getStatus();

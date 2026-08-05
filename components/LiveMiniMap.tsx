@@ -80,7 +80,7 @@ export const LiveMiniMap: React.FC<LiveMiniMapProps> = memo(
 
             const map = L.map(containerRef.current, {
                 zoomControl: false,
-                attributionControl: false,
+                attributionControl: true,
                 dragging: true,
                 scrollWheelZoom: freeZoom,
                 // doubleClickZoom stays off even in free-zoom — a double
@@ -120,7 +120,11 @@ export const LiveMiniMap: React.FC<LiveMiniMapProps> = memo(
                 piCache.leafletTileTemplate(
                     'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
                 ),
-                { maxZoom: 19 },
+                {
+                    maxZoom: 19,
+                    attribution:
+                        'Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community',
+                },
             );
             // The iPhone WebKit seam guard belongs on the opaque imagery
             // only — overscanning the transparent seamark symbols would make
@@ -132,6 +136,8 @@ export const LiveMiniMap: React.FC<LiveMiniMapProps> = memo(
             L.tileLayer(piCache.leafletTileTemplate('https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png'), {
                 maxZoom: 18,
                 opacity: 0.8,
+                attribution:
+                    'Map data: &copy; <a href="https://www.openseamap.org" target="_blank" rel="noopener noreferrer">OpenSeaMap contributors</a>',
             }).addTo(map);
 
             // Keep the followed plan below the recorded track even when a

@@ -119,6 +119,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, layer = '
                 setLoading(false);
                 return;
             }
+            // Keep the exact canonical address used to request the OTP. iOS
+            // autocomplete can leave invisible characters in the input; using
+            // the raw state at verification makes a valid code impossible.
+            setEmail(cleanEmail);
             const { error } = await supabase.auth.signInWithOtp({
                 email: cleanEmail,
                 options: {
@@ -169,7 +173,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, layer = '
 
         try {
             const result = await supabase.auth.verifyOtp({
-                email,
+                email: sanitizeEmail(email),
                 token: otp,
                 type: 'email',
             });
@@ -319,10 +323,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, layer = '
                     {step === 'input' && (
                         <form onSubmit={handleSendCode} className="w-full space-y-4">
                             <div className="text-left">
-                                <label className="text-sm uppercase font-bold text-gray-400 mb-1.5 ml-1 block">
+                                <label
+                                    htmlFor="auth-email"
+                                    className="text-sm uppercase font-bold text-gray-400 mb-1.5 ml-1 block"
+                                >
                                     Email Address
                                 </label>
                                 <input
+                                    id="auth-email"
                                     type="email"
                                     value={email}
                                     onChange={(e) => setEmail(e.target.value.replace(/\s+/g, ''))}
@@ -343,7 +351,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, layer = '
                             )}
 
                             <button
-                                aria-label="Save account changes"
+                                aria-label="Send verification code"
                                 type="submit"
                                 disabled={loading || !supabase || resendCooldown > 0}
                                 className={`w-full py-3.5 bg-white text-slate-900 font-bold rounded-xl shadow-lg transition-all active:scale-95 flex items-center justify-center gap-2 ${!supabase || resendCooldown > 0 ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-100'}`}
@@ -367,10 +375,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, layer = '
                     {step === 'otp' && (
                         <form onSubmit={handleVerifyOtp} className="w-full space-y-4">
                             <div className="text-left">
-                                <label className="text-sm uppercase font-bold text-gray-400 mb-1.5 ml-1 block">
+                                <label
+                                    htmlFor="auth-otp"
+                                    className="text-sm uppercase font-bold text-gray-400 mb-1.5 ml-1 block"
+                                >
                                     Verification Code
                                 </label>
                                 <input
+                                    id="auth-otp"
                                     ref={otpInputRef}
                                     type="text"
                                     inputMode="numeric"
@@ -397,7 +409,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, layer = '
                             )}
 
                             <button
-                                aria-label="Save account changes"
+                                aria-label="Verify email code"
                                 type="submit"
                                 disabled={loading || otp.length < 6}
                                 className={`w-full py-3.5 bg-white text-slate-900 font-bold rounded-xl shadow-lg transition-all active:scale-95 flex items-center justify-center gap-2 ${otp.length < 6 ? 'opacity-50' : 'hover:bg-gray-100'}`}

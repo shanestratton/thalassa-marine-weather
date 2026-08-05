@@ -6,13 +6,14 @@
  * callout, tappable scenario rows) but runs the LOCAL Phase 8 engine
  * instead of the isochrone fleet: sweepDepartures() re-walks the SAME
  * locked inshore polyline at 25 candidate departures × 30 min, with the
- * destination tide curve (free extremes path) and CMEMS currents threaded
- * into the ETAs. Sub-second, fully on-device once the two fields load.
+ * destination tide curve (free extremes path). CMEMS current refinement is
+ * explicitly held for public beta because the source is global-only and is
+ * not an acceptable implicit mobile download.
  *
  * Honesty rules surface directly in the UI:
  *   - tide unavailable → options say so rather than fake confidence;
  *   - EXTREMES_INTERP curves label the sheet "tide approx ±0.3 m";
- *   - currents refine ETAs only — never the open/blocked verdicts;
+ *   - current-unadjusted ETAs are labelled explicitly;
  *   - depth chokepoint gating (amber window chips) lights up when the
  *     engine's per-run charted depths arrive (masterplan Phase 4) — the
  *     sweep already supports it via shallowSpots.
@@ -157,6 +158,7 @@ export const DepartureSweepSheet: React.FC<DepartureSweepSheetProps> = ({
     useEffect(() => {
         if (!open || !polyline) return;
         let cancelled = false;
+        const currentSequenceAbort = new AbortController();
         setLoading(true);
         setSweep(null);
         setSelectedIdx(null);
@@ -192,9 +194,10 @@ export const DepartureSweepSheet: React.FC<DepartureSweepSheetProps> = ({
                         west: Math.min(...lons),
                     },
                     { startMs, endMs: horizonMs },
+                    currentSequenceAbort.signal,
                 );
             } catch (e) {
-                log.warn('current field unavailable for sweep:', e);
+                if (!currentSequenceAbort.signal.aborted) log.warn('current field unavailable for sweep:', e);
             }
 
             if (cancelled) return;
@@ -221,6 +224,7 @@ export const DepartureSweepSheet: React.FC<DepartureSweepSheetProps> = ({
 
         return () => {
             cancelled = true;
+            currentSequenceAbort.abort(new Error('departure sweep closed or superseded'));
         };
     }, [open, polyline, shallowSpots, tideAnchor, vessel]);
 
@@ -269,7 +273,7 @@ export const DepartureSweepSheet: React.FC<DepartureSweepSheetProps> = ({
                             onClick={onClose}
                             type="button"
                             aria-label="Close"
-                            className="shrink-0 p-2 -mr-2 -mt-1 text-slate-400 hover:text-white"
+                            className="shrink-0 min-w-[44px] min-h-[44px] -mr-2 -mt-1 flex items-center justify-center text-slate-400 hover:text-white rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
                         >
                             <svg
                                 className="w-5 h-5"
@@ -285,7 +289,7 @@ export const DepartureSweepSheet: React.FC<DepartureSweepSheetProps> = ({
                     {loading && (
                         <div className="mt-3 flex items-center gap-2 text-[11px] text-sky-400">
                             <div className="w-1.5 h-1.5 bg-sky-400 rounded-full animate-pulse" />
-                            <span className="font-mono tracking-wide">Loading tide + current fields…</span>
+                            <span className="font-mono tracking-wide">Loading tide data…</span>
                         </div>
                     )}
                     {!loading && tideProvenance === 'EXTREMES_INTERP' && (
@@ -294,6 +298,11 @@ export const DepartureSweepSheet: React.FC<DepartureSweepSheetProps> = ({
                     {!loading && tideProvenance === 'NONE' && (
                         <p className="mt-2 text-[10px] text-slate-500">
                             Tide data unavailable here — times shown without tidal gating.
+                        </p>
+                    )}
+                    {!loading && (
+                        <p className="mt-2 text-[10px] text-slate-500">
+                            Current refinement is held for public beta — ETAs are not adjusted for currents.
                         </p>
                     )}
                 </div>

@@ -16,6 +16,7 @@
 
 import { getCachedSubscriptionStatus, isPremiumUser, triggerPaywall } from './SubscriptionManager';
 import { createLogger } from '../utils/createLogger';
+import { PUBLIC_BETA_ACCESS } from '../services/SubscriptionService';
 
 const log = createLogger('FeatureGate');
 
@@ -177,6 +178,8 @@ export async function isFeatureLocked(feature: FeatureName): Promise<boolean> {
         return true;
     }
 
+    if (PUBLIC_BETA_ACCESS.enabled) return false;
+
     // Free features are never locked
     if (def.tier === 'free') return false;
 
@@ -197,6 +200,7 @@ export function isFeatureLockedSync(feature: FeatureName): boolean {
         log.warn(`Unknown feature: ${feature}`);
         return true;
     }
+    if (PUBLIC_BETA_ACCESS.enabled) return false;
     if (def.tier === 'free') return false;
 
     // Entitlements are account-specific. A missing/expired cache stays locked

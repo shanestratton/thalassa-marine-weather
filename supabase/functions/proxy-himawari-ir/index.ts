@@ -71,8 +71,7 @@ Deno.serve(async (req: Request) => {
 
     for (const dateStr of dates) {
         // KVP WMTS format — the working endpoint for Himawari IR
-        const tileUrl =
-            `${GIBS_BASE}?` +
+        const tileUrl = `${GIBS_BASE}?` +
             new URLSearchParams({
                 Service: 'WMTS',
                 Request: 'GetTile',

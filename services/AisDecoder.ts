@@ -14,6 +14,7 @@
  * References: ITU-R M.1371-5, https://gpsd.gitlab.io/gpsd/AIVDM.html
  */
 import type { AisTarget } from '../types/navigation';
+import { validateNmeaSentence } from './nmea/nmeaSentence';
 
 // ── Fragment buffer for multi-part messages ──
 interface Fragment {
@@ -167,8 +168,12 @@ function decodeClassBStatic(bits: Uint8Array): Partial<AisTarget> | null {
  * Handles multi-fragment message assembly internally.
  */
 export function processAisSentence(sentence: string): Partial<AisTarget> | null {
-    // Strip checksum
-    const raw = sentence.split('*')[0];
+    // AIS target data is accepted only with a structurally valid, verified
+    // checksum. NmeaListenerService enforces the same ingress boundary, but
+    // this decoder is also called directly by other pipelines.
+    const validated = validateNmeaSentence(sentence);
+    if (!validated || validated.kind !== 'ais') return null;
+    const raw = validated.raw;
     const parts = raw.split(',');
 
     // !AIVDM,fragCount,fragNum,seqMsgId,channel,payload,fillBits

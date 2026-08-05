@@ -43,6 +43,13 @@ vi.mock('../utils/system', () => ({
     triggerHaptic: vi.fn(),
 }));
 
+// Recipe-editor behaviour is independent of the delayed Realtime transport.
+// Keep this integration focused and do not leave a real subscription timer
+// competing with the suite's intentionally minimal Supabase mock.
+vi.mock('../hooks/useRealtimeSync', () => ({
+    useRealtimeSync: vi.fn(),
+}));
+
 vi.mock('../stores/authStore', () => ({
     useAuthStore: (selector: (state: { user: { id: string } }) => unknown) => selector({ user: { id: 'user-1' } }),
 }));

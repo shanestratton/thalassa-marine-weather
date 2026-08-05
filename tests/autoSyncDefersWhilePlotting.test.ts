@@ -23,7 +23,9 @@ const h = vi.hoisted(() => ({
 
 vi.mock('../services/EncImportService', () => ({ syncEncFromPi: h.syncEncFromPi }));
 vi.mock('../services/PiCacheService', () => ({ piCache: { isAvailable: h.isAvailable } }));
-vi.mock('../services/GpsService', () => ({ GpsService: { getCurrentPosition: h.getCurrentPosition } }));
+vi.mock('../services/GpsService', () => ({
+    GpsService: { getCurrentPositionIfGranted: h.getCurrentPosition },
+}));
 
 import { autoSyncFromPiIfPossible } from '../services/enc/autoSyncFromPi';
 

@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { ThalassaHelixControl } from '../components/map/ThalassaHelixControl';
+import { MARINE_MOTION_HONESTY, ThalassaHelixControl, type HelixLayer } from '../components/map/ThalassaHelixControl';
 
 describe('ThalassaHelixControl', () => {
     it('exposes the forecast timeline as a keyboard-operable slider', () => {
@@ -41,5 +41,26 @@ describe('ThalassaHelixControl', () => {
         expect(onScrub).toHaveBeenLastCalledWith(30);
         fireEvent.keyDown(timeline, { key: 'Home' });
         expect(onScrub).toHaveBeenLastCalledWith(0);
+    });
+
+    it.each([
+        ['currents', MARINE_MOTION_HONESTY.currents],
+        ['waves', MARINE_MOTION_HONESTY.waves],
+    ] as const)('shows honest measured-colour and illustrative-motion semantics for %s', (activeLayer, note) => {
+        render(
+            <ThalassaHelixControl
+                activeLayer={activeLayer as HelixLayer}
+                frameIndex={0}
+                totalFrames={2}
+                frameLabel="Now"
+                isPlaying={false}
+                onScrub={vi.fn()}
+                onPlayToggle={vi.fn()}
+            />,
+        );
+
+        expect(screen.getByText(note)).toBeVisible();
+        expect(note).toMatch(/^Colour = .+ \(.+\) · particle motion = direction only \(speed illustrative\)$/);
+        expect(note).not.toMatch(/propagation speed|particle speed =|motion = measured/i);
     });
 });

@@ -1,43 +1,90 @@
 /**
- * CmemsAttribution — mandatory Copernicus Marine licence attribution chip.
- *
- * The CMEMS licence requires the service name, product DOI, and Mercator
- * Ocean copyright notice to be visible whenever CMEMS-derived data is on
- * screen. Not optional. See scripts/cmems-currents-pipeline/README.md.
+ * Mandatory attribution for the CMEMS-derived map layers currently visible.
+ * Product metadata is sourced from the official Copernicus Marine catalogue.
  */
 import React from 'react';
 
+export type CmemsLayerId = 'currents' | 'waves' | 'sst' | 'chl' | 'seaice' | 'mld';
+
 interface CmemsAttributionProps {
-    visible: boolean;
+    layers: readonly CmemsLayerId[];
+    embedded?: boolean;
 }
 
-// DOI of the product this attribution covers. Update when the pipeline
-// switches to a different CMEMS dataset.
-const PRODUCT_DOI = '10.48670/moi-00016';
-const PRODUCT_DOI_URL = `https://doi.org/${PRODUCT_DOI}`;
+const LAYER_LABELS: Record<CmemsLayerId, string> = {
+    currents: 'Currents',
+    waves: 'Waves',
+    sst: 'Sea temperature',
+    chl: 'Chlorophyll',
+    seaice: 'Sea ice',
+    mld: 'Mixed-layer depth',
+};
 
-export const CmemsAttribution: React.FC<CmemsAttributionProps> = ({ visible }) => {
-    if (!visible) return null;
+const LAYER_ORDER: readonly CmemsLayerId[] = ['currents', 'waves', 'sst', 'chl', 'seaice', 'mld'];
+
+export const CMEMS_PRODUCT_ATTRIBUTIONS = [
+    {
+        id: 'physics',
+        label: 'Global Ocean Physics Analysis and Forecast',
+        shortLabel: 'Physics',
+        doi: '10.48670/moi-00016',
+        layers: ['currents', 'sst', 'seaice', 'mld'] as const,
+    },
+    {
+        id: 'waves',
+        label: 'Global Ocean Waves Analysis and Forecast',
+        shortLabel: 'Waves',
+        doi: '10.48670/moi-00017',
+        layers: ['waves'] as const,
+    },
+    {
+        id: 'biogeochemistry',
+        label: 'Global Ocean Biogeochemistry Analysis and Forecast',
+        shortLabel: 'Biogeochemistry',
+        doi: '10.48670/moi-00015',
+        layers: ['chl'] as const,
+    },
+] as const;
+
+export const CmemsAttribution: React.FC<CmemsAttributionProps> = ({ layers, embedded = false }) => {
+    const requestedLayers = new Set(layers);
+    const activeLayers = LAYER_ORDER.filter((layer) => requestedLayers.has(layer));
+    if (activeLayers.length === 0) return null;
+
+    const activeProducts = CMEMS_PRODUCT_ATTRIBUTIONS.filter((product) =>
+        product.layers.some((layer) => requestedLayers.has(layer)),
+    );
+    const activeLayerLabel = activeLayers.map((layer) => LAYER_LABELS[layer]).join(', ');
 
     return (
-        <div
-            className="absolute left-2 bottom-2 z-[140] pointer-events-auto max-w-[280px]"
-            role="contentinfo"
-            aria-label="Ocean current data attribution"
+        <aside
+            className="absolute left-2 z-[520] max-w-[min(360px,calc(100vw-1rem))] pointer-events-auto"
+            style={{
+                bottom: embedded ? '84px' : 'calc(156px + env(safe-area-inset-bottom))',
+            }}
+            aria-label={`Copernicus Marine data attribution for ${activeLayerLabel}`}
         >
-            <div className="rounded-lg border border-cyan-400/30 bg-black/60 backdrop-blur-sm px-2 py-1 text-[10px] leading-tight text-cyan-100/80">
-                <span className="font-bold text-cyan-300">Currents:</span> E.U. Copernicus Marine Service Information ·{' '}
-                <a
-                    href={PRODUCT_DOI_URL}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    referrerPolicy="no-referrer"
-                    className="underline hover:text-cyan-200"
-                >
-                    DOI
-                </a>{' '}
-                · © Mercator Ocean International
+            <div className="rounded-lg border border-cyan-400/30 bg-black/70 px-2 py-1 text-[10px] leading-tight text-cyan-50/85 shadow-lg backdrop-blur-sm">
+                <div className="font-semibold text-cyan-200">E.U. Copernicus Marine Service Information</div>
+                <div className="mt-0.5 text-cyan-50/80">{activeLayerLabel}</div>
+                <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                    {activeProducts.map((product) => (
+                        <a
+                            key={product.id}
+                            href={`https://doi.org/${product.doi}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            referrerPolicy="no-referrer"
+                            title={product.label}
+                            className="rounded-sm underline underline-offset-2 hover:text-cyan-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300"
+                            aria-label={`${product.label}, DOI ${product.doi}`}
+                        >
+                            {product.shortLabel} DOI {product.doi}
+                        </a>
+                    ))}
+                    <span>© Mercator Ocean International</span>
+                </div>
             </div>
-        </div>
+        </aside>
     );
 };

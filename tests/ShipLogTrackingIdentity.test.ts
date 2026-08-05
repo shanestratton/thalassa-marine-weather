@@ -13,6 +13,10 @@ const mocks = vi.hoisted(() => {
         },
         blockStoppedStateWrite: false,
         releaseStoppedStateWrite: null as null | (() => void),
+        failNextActiveStateWrite: false,
+        failPendingTeardownWrites: 0,
+        gpsStartError: null as Error | null,
+        captureLocalOnly: false,
         gpsOptions: null as null | {
             onFix: (position: unknown) => void;
             onAcceptedFix?: (position: unknown) => void;
@@ -25,9 +29,32 @@ const mocks = vi.hoisted(() => {
         state,
         schedulerStop: vi.fn(),
         gpsStop: vi.fn(),
-        nativeStop: vi.fn(async () => undefined),
+        nativeStop: vi.fn<() => Promise<void>>(async () => undefined),
+        nativeStart: vi.fn(async () => ({
+            supported: true,
+            activeLeaseCount: 1,
+            nativeTrackingEnabled: true,
+            active: true,
+        })),
+        getLeaseState: vi.fn(async () => ({
+            supported: true,
+            activeLeaseCount: 1,
+            nativeTrackingEnabled: true,
+            active: true,
+        })),
+        revalidateExistingLease: vi.fn(async () => ({
+            supported: true,
+            activeLeaseCount: 1,
+            nativeTrackingEnabled: true,
+            active: true,
+        })),
+        requireAlwaysLocation: vi.fn(async () => undefined),
+        nativeTrackingEnabled: vi.fn(async () => false),
+        strictNativeTrackingEnabled: vi.fn(async () => false),
         setSamplingMode: vi.fn(async () => undefined),
-        captureImmediate: vi.fn(async () => null),
+        captureImmediate: vi.fn<(ctx: CaptureContext, voyageId?: string, waypointLabel?: string) => Promise<null>>(
+            async () => null,
+        ),
         captureLog: vi.fn(async () => null),
         addManual: vi.fn(async () => null),
         flushBuffered: vi.fn<(ctx: CaptureContext) => Promise<FlushBufferedTrackResult>>(async () => 'complete'),
@@ -36,6 +63,10 @@ const mocks = vi.hoisted(() => {
         cache: vi.fn(async () => undefined),
         disarmTrickle: vi.fn(),
         stopTrickle: vi.fn(async () => undefined),
+        retireTrickle: vi.fn(async () => undefined),
+        setCaptureLocalOnly: vi.fn((enabled: boolean) => {
+            state.captureLocalOnly = enabled;
+        }),
     };
 });
 
@@ -43,6 +74,22 @@ vi.mock('@capacitor/preferences', () => ({
     Preferences: {
         get: async ({ key }: { key: string }) => ({ value: mocks.state.prefs.get(key) ?? null }),
         set: async ({ key, value }: { key: string; value: string }) => {
+            if (
+                mocks.state.failPendingTeardownWrites > 0 &&
+                key.startsWith('ship_log_tracking_state') &&
+                value.includes('"nativeTeardownPending":"release-only"')
+            ) {
+                mocks.state.failPendingTeardownWrites -= 1;
+                throw new Error('Pending teardown Preferences write failed');
+            }
+            if (
+                mocks.state.failNextActiveStateWrite &&
+                key.startsWith('ship_log_tracking_state') &&
+                value.includes('"isTracking":true')
+            ) {
+                mocks.state.failNextActiveStateWrite = false;
+                throw new Error('Preferences write failed');
+            }
             if (
                 mocks.state.blockStoppedStateWrite &&
                 key.startsWith('ship_log_tracking_state') &&
@@ -71,9 +118,13 @@ vi.mock('@capacitor/app', () => ({
 vi.mock('../services/BgGeoManager', () => ({
     BgGeoManager: {
         ensureReady: vi.fn(async () => undefined),
-        requestStart: vi.fn(async () => undefined),
+        requireAlwaysLocationAuthorization: mocks.requireAlwaysLocation,
+        requestStart: mocks.nativeStart,
         requestStop: mocks.nativeStop,
-        isNativeTrackingEnabled: vi.fn(async () => false),
+        getLeaseState: mocks.getLeaseState,
+        revalidateExistingLease: mocks.revalidateExistingLease,
+        isNativeTrackingEnabled: mocks.nativeTrackingEnabled,
+        getNativeTrackingEnabledStrict: mocks.strictNativeTrackingEnabled,
         setSamplingMode: mocks.setSamplingMode,
     },
 }));
@@ -105,6 +156,11 @@ vi.mock('../services/shiplog/AdaptiveScheduler', () => ({
 vi.mock('../services/shiplog/GpsSubscriptionManager', () => ({
     GpsSubscriptionManager: class {
         start(options: typeof mocks.state.gpsOptions) {
+            if (mocks.state.gpsStartError) {
+                const error = mocks.state.gpsStartError;
+                mocks.state.gpsStartError = null;
+                throw error;
+            }
             mocks.state.gpsOptions = options;
         }
         stop() {
@@ -173,7 +229,8 @@ vi.mock('../services/shiplog/PositionResolver', () => ({
 }));
 
 vi.mock('../services/shiplog/EntrySave', () => ({
-    setCaptureLocalOnly: vi.fn(),
+    isCaptureLocalOnly: () => mocks.state.captureLocalOnly,
+    setCaptureLocalOnly: mocks.setCaptureLocalOnly,
 }));
 
 vi.mock('../services/shiplog/LiveTrickle', () => ({
@@ -181,6 +238,7 @@ vi.mock('../services/shiplog/LiveTrickle', () => ({
     stopLiveTrickle: mocks.stopTrickle,
     purgeLiveTrack: mocks.purge,
     disarmLiveTrickleForIdentityChange: mocks.disarmTrickle,
+    retireLiveTrackVoyage: mocks.retireTrickle,
 }));
 
 vi.mock('../services/shiplog/OfflineQueue', () => ({
@@ -230,6 +288,18 @@ afterAll(() => {
 });
 
 describe('ShipLogService tracking owner fence', () => {
+    const seedPersistedTrackingState = (userId: string, value: Record<string, unknown>) => {
+        mocks.state.prefs.set(
+            `ship_log_tracking_state::${encodeURIComponent(`user:${userId}`)}`,
+            JSON.stringify({
+                version: 1,
+                ownerKey: `user:${userId}`,
+                ownerUserId: userId,
+                value,
+            }),
+        );
+    };
+
     it('synchronously disarms A on A→B, rejects stale callbacks/B stop, and resumes A as paused', async () => {
         setAuthIdentityScope('ship-owner-a');
         await ShipLogService.initialize();
@@ -401,5 +471,565 @@ describe('ShipLogService tracking owner fence', () => {
         await ShipLogService.stopTracking();
 
         expect(useFollowRouteStore.getState().isFollowing).toBe(false);
+    });
+
+    it('releases the verified native lease when active-state persistence fails', async () => {
+        const nativeStopsBefore = mocks.nativeStop.mock.calls.length;
+        const startCapturesBefore = mocks.captureImmediate.mock.calls.filter(
+            (call) => call[2] === 'Voyage Start',
+        ).length;
+        mocks.state.failNextActiveStateWrite = true;
+
+        await expect(ShipLogService.startTracking(false)).rejects.toThrow('Preferences write failed');
+
+        expect(ShipLogService.getTrackingStatus().isTracking).toBe(false);
+        expect(mocks.nativeStop).toHaveBeenCalledTimes(nativeStopsBefore + 1);
+        expect(mocks.state.captureLocalOnly).toBe(false);
+        expect(mocks.captureImmediate.mock.calls.filter((call) => call[2] === 'Voyage Start')).toHaveLength(
+            startCapturesBefore,
+        );
+    });
+
+    it('rolls back subscriptions, local-only capture, live sharing, persistence, and memory on setup failure', async () => {
+        const nativeStopsBefore = mocks.nativeStop.mock.calls.length;
+        const trickleStopsBefore = mocks.stopTrickle.mock.calls.length;
+        const startCapturesBefore = mocks.captureImmediate.mock.calls.filter(
+            (call) => call[2] === 'Voyage Start',
+        ).length;
+        mocks.state.gpsStartError = new Error('GPS subscription failed');
+
+        await expect(ShipLogService.startTracking(false)).rejects.toThrow('GPS subscription failed');
+
+        expect(ShipLogService.getTrackingStatus().isTracking).toBe(false);
+        expect(mocks.nativeStop).toHaveBeenCalledTimes(nativeStopsBefore + 1);
+        expect(mocks.gpsStop).toHaveBeenCalled();
+        expect(mocks.stopTrickle).toHaveBeenCalledTimes(trickleStopsBefore + 1);
+        expect(mocks.state.captureLocalOnly).toBe(false);
+        expect(mocks.captureImmediate.mock.calls.filter((call) => call[2] === 'Voyage Start')).toHaveLength(
+            startCapturesBefore,
+        );
+        const persisted = [...mocks.state.prefs.entries()].find(([key]) => key.startsWith('ship_log_tracking_state'));
+        expect(persisted).toBeDefined();
+        expect(JSON.parse(persisted![1]).value.isTracking).toBe(false);
+    });
+
+    it('persists a failed-start cleanup as a paused teardown and End Voyage can retry it', async () => {
+        const nativeStartsBefore = mocks.nativeStart.mock.calls.length;
+        const nativeStopsBefore = mocks.nativeStop.mock.calls.length;
+        mocks.state.gpsStartError = new Error('GPS subscription failed before release');
+        mocks.nativeStop.mockRejectedValueOnce(new Error('native stop remained enabled'));
+
+        await expect(ShipLogService.startTracking(false, 'failed-cast-off-voyage')).rejects.toThrow(
+            'GPS subscription failed before release',
+        );
+        expect(ShipLogService.getTrackingStatus()).toMatchObject({
+            isTracking: false,
+            isPaused: true,
+            nativeTeardownPending: 'release-only',
+            currentVoyageId: 'failed-cast-off-voyage',
+        });
+
+        await ShipLogService.stopTracking();
+
+        expect(mocks.nativeStart).toHaveBeenCalledTimes(nativeStartsBefore + 1);
+        expect(mocks.nativeStop).toHaveBeenCalledTimes(nativeStopsBefore + 2);
+        expect(ShipLogService.getTrackingStatus()).toMatchObject({
+            isTracking: false,
+            isPaused: false,
+        });
+    });
+
+    it('fails closed in memory when a retained native lease recovery marker cannot be persisted', async () => {
+        const voyageId = 'failed-start-undurable-teardown';
+        mocks.state.gpsStartError = new Error('GPS subscription failed before durable rollback');
+        mocks.nativeStop.mockRejectedValueOnce(new Error('native stop remained enabled'));
+        mocks.state.failPendingTeardownWrites = 2;
+
+        await expect(ShipLogService.startTracking(false, voyageId)).rejects.toThrow(
+            'recovery state could not be saved',
+        );
+        expect(mocks.state.failPendingTeardownWrites).toBe(0);
+        expect(ShipLogService.getTrackingStatus()).toMatchObject({
+            isTracking: false,
+            isPaused: true,
+            nativeTeardownPending: 'release-only',
+            currentVoyageId: voyageId,
+        });
+
+        await ShipLogService.stopTracking(voyageId);
+        expect(ShipLogService.getTrackingStatus()).toMatchObject({ isTracking: false, isPaused: false });
+    });
+
+    it('Retry GPS clears a failed-start native teardown without emitting a false Voyage End', async () => {
+        const voyageId = 'failed-start-retry-voyage';
+        const nativeStartsBefore = mocks.nativeStart.mock.calls.length;
+        const nativeStopsBefore = mocks.nativeStop.mock.calls.length;
+        const endCapturesBefore = mocks.captureImmediate.mock.calls.filter((call) => call[2] === 'Voyage End').length;
+        mocks.state.gpsStartError = new Error('GPS subscription failed before retry');
+        mocks.nativeStop.mockRejectedValueOnce(new Error('initial cleanup remained enabled'));
+
+        await expect(ShipLogService.startTracking(false, voyageId)).rejects.toThrow(
+            'GPS subscription failed before retry',
+        );
+        await ShipLogService.startTracking(true, voyageId);
+
+        expect(mocks.nativeStart).toHaveBeenCalledTimes(nativeStartsBefore + 2);
+        expect(mocks.nativeStop).toHaveBeenCalledTimes(nativeStopsBefore + 2);
+        expect(mocks.captureImmediate.mock.calls.filter((call) => call[2] === 'Voyage End')).toHaveLength(
+            endCapturesBefore,
+        );
+        expect(ShipLogService.getTrackingStatus()).toMatchObject({
+            isTracking: true,
+            currentVoyageId: voyageId,
+        });
+        await ShipLogService.pauseTracking();
+    });
+
+    it('reports a retryable paused state when final native stop fails, then completes on retry', async () => {
+        const pausedVoyageId = ShipLogService.getTrackingStatus().currentVoyageId;
+        await ShipLogService.startTracking(true, pausedVoyageId);
+        mocks.nativeStop.mockRejectedValueOnce(new Error('native engine remained enabled'));
+
+        await expect(ShipLogService.stopTracking()).rejects.toThrow(
+            'Voyage recording is paused, but background GPS is still active',
+        );
+        expect(ShipLogService.getTrackingStatus()).toMatchObject({
+            isTracking: false,
+            isPaused: true,
+            nativeTeardownPending: 'end-voyage',
+            currentVoyageId: pausedVoyageId,
+        });
+
+        await ShipLogService.stopTracking();
+        expect(ShipLogService.getTrackingStatus()).toMatchObject({
+            isTracking: false,
+            isPaused: false,
+            currentVoyageId: pausedVoyageId,
+        });
+    });
+
+    it('joins concurrent stops until the one native GPS teardown is verified', async () => {
+        const voyageId = ShipLogService.getTrackingStatus().currentVoyageId;
+        await ShipLogService.startTracking(true, voyageId);
+
+        let releaseNativeStop!: () => void;
+        const nativeStopsBefore = mocks.nativeStop.mock.calls.length;
+        mocks.nativeStop.mockImplementationOnce(
+            () =>
+                new Promise<void>((resolve) => {
+                    releaseNativeStop = resolve;
+                }),
+        );
+
+        let firstSettled = false;
+        let secondSettled = false;
+        const firstStop = ShipLogService.stopTracking(voyageId).then(() => {
+            firstSettled = true;
+        });
+        const secondStop = ShipLogService.stopTracking(voyageId).then(() => {
+            secondSettled = true;
+        });
+
+        for (let i = 0; i < 100 && !releaseNativeStop; i++) await Promise.resolve();
+        expect(releaseNativeStop).toBeTypeOf('function');
+        expect(mocks.nativeStop).toHaveBeenCalledTimes(nativeStopsBefore + 1);
+        expect(firstSettled).toBe(false);
+        expect(secondSettled).toBe(false);
+        await expect(ShipLogService.stopTracking('different-voyage')).rejects.toThrow(
+            'different voyage is already completing GPS teardown',
+        );
+
+        releaseNativeStop();
+        await Promise.all([firstStop, secondStop]);
+
+        expect(mocks.nativeStop).toHaveBeenCalledTimes(nativeStopsBefore + 1);
+        expect(firstSettled).toBe(true);
+        expect(secondSettled).toBe(true);
+        expect(ShipLogService.getTrackingStatus()).toMatchObject({ isTracking: false, isPaused: false });
+    });
+
+    it('makes an exact-voyage End wait for a matching in-flight Cast Off start and its teardown', async () => {
+        const voyageId = 'slow-cast-off-voyage';
+        const nativeStopsBefore = mocks.nativeStop.mock.calls.length;
+        let releaseNativeStart!: (state: {
+            supported: boolean;
+            activeLeaseCount: number;
+            nativeTrackingEnabled: boolean;
+            active: boolean;
+        }) => void;
+        mocks.nativeStart.mockImplementationOnce(
+            () =>
+                new Promise((resolve) => {
+                    releaseNativeStart = resolve;
+                }),
+        );
+
+        const starting = ShipLogService.startTracking(false, voyageId);
+        for (let i = 0; i < 50 && !releaseNativeStart; i++) await Promise.resolve();
+        expect(releaseNativeStart).toBeTypeOf('function');
+
+        let endSettled = false;
+        const ending = ShipLogService.stopTracking(voyageId).then(() => {
+            endSettled = true;
+        });
+        await Promise.resolve();
+        expect(endSettled).toBe(false);
+        expect(mocks.nativeStop).toHaveBeenCalledTimes(nativeStopsBefore);
+
+        releaseNativeStart({
+            supported: true,
+            activeLeaseCount: 1,
+            nativeTrackingEnabled: true,
+            active: true,
+        });
+        await Promise.all([starting, ending]);
+
+        expect(mocks.nativeStop).toHaveBeenCalledTimes(nativeStopsBefore + 1);
+        expect(ShipLogService.getTrackingStatus()).toMatchObject({
+            isTracking: false,
+            isPaused: false,
+            currentVoyageId: voyageId,
+        });
+    });
+
+    it('makes a plain Log-page Stop wait for an in-flight start instead of no-oping on a null owner', async () => {
+        const voyageId = 'slow-log-page-start';
+        const nativeStopsBefore = mocks.nativeStop.mock.calls.length;
+        let releaseNativeStart!: (state: {
+            supported: boolean;
+            activeLeaseCount: number;
+            nativeTrackingEnabled: boolean;
+            active: boolean;
+        }) => void;
+        mocks.nativeStart.mockImplementationOnce(
+            () =>
+                new Promise((resolve) => {
+                    releaseNativeStart = resolve;
+                }),
+        );
+
+        const starting = ShipLogService.startTracking(false, voyageId);
+        for (let i = 0; i < 50 && !releaseNativeStart; i++) await Promise.resolve();
+        let stopSettled = false;
+        const stopping = ShipLogService.stopTracking().then(() => {
+            stopSettled = true;
+        });
+        await Promise.resolve();
+
+        expect(stopSettled).toBe(false);
+        expect(mocks.nativeStop).toHaveBeenCalledTimes(nativeStopsBefore);
+        releaseNativeStart({
+            supported: true,
+            activeLeaseCount: 1,
+            nativeTrackingEnabled: true,
+            active: true,
+        });
+        await Promise.all([starting, stopping]);
+
+        expect(mocks.nativeStop).toHaveBeenCalledTimes(nativeStopsBefore + 1);
+        expect(ShipLogService.getTrackingStatus()).toMatchObject({ isTracking: false, isPaused: false });
+    });
+
+    it('retains failed identity-transition lease ownership and releases it before the next account starts', async () => {
+        await ShipLogService.startTracking(false);
+        const nativeStartsAfterAccountA = mocks.nativeStart.mock.calls.length;
+        mocks.nativeStop
+            .mockRejectedValueOnce(new Error('account A identity teardown failed'))
+            .mockRejectedValueOnce(new Error('account A retained lease retry failed'));
+
+        setAuthIdentityScope('ship-owner-b');
+        for (let i = 0; i < 20; i++) await Promise.resolve();
+
+        await expect(ShipLogService.startTracking(false)).rejects.toThrow(
+            'could not release background GPS from the previous session',
+        );
+        expect(mocks.nativeStart).toHaveBeenCalledTimes(nativeStartsAfterAccountA);
+
+        await ShipLogService.startTracking(false);
+        expect(mocks.nativeStart).toHaveBeenCalledTimes(nativeStartsAfterAccountA + 1);
+        expect(ShipLogService.getTrackingStatus().isTracking).toBe(true);
+        await ShipLogService.pauseTracking();
+    });
+
+    it('releases an old-generation lease when the same account returns through A→B→A', async () => {
+        const userA = 'returning-ship-owner-a';
+        const userB = 'returning-ship-owner-b';
+        const voyageId = 'returning-owner-voyage';
+        setAuthIdentityScope(userA);
+        await ShipLogService.initialize();
+        await ShipLogService.startTracking(false, voyageId);
+        const nativeStartsAfterInitialCastOff = mocks.nativeStart.mock.calls.length;
+        const nativeStopsBeforeTransition = mocks.nativeStop.mock.calls.length;
+        mocks.nativeStop.mockRejectedValueOnce(new Error('identity release remained enabled'));
+
+        setAuthIdentityScope(userB);
+        const markerKey = `ship_log_tracking_state::${encodeURIComponent(`user:${userA}`)}`;
+        for (let i = 0; i < 100; i++) {
+            const persisted = mocks.state.prefs.get(markerKey);
+            if (persisted?.includes('"nativeTeardownPending":"release-only"')) break;
+            await Promise.resolve();
+        }
+        expect(mocks.state.prefs.get(markerKey)).toContain('"nativeTeardownPending":"release-only"');
+
+        mocks.strictNativeTrackingEnabled.mockResolvedValue(true);
+        setAuthIdentityScope(userA);
+        await ShipLogService.initialize();
+        expect(ShipLogService.getTrackingStatus()).toMatchObject({
+            isTracking: false,
+            isPaused: true,
+            nativeTeardownPending: 'release-only',
+            currentVoyageId: voyageId,
+        });
+
+        await ShipLogService.startTracking(true, voyageId);
+
+        expect(mocks.nativeStop).toHaveBeenCalledTimes(nativeStopsBeforeTransition + 2);
+        expect(mocks.nativeStart).toHaveBeenCalledTimes(nativeStartsAfterInitialCastOff + 1);
+        expect(ShipLogService.getTrackingStatus()).toMatchObject({
+            isTracking: true,
+            currentVoyageId: voyageId,
+        });
+        await ShipLogService.pauseTracking();
+    });
+
+    it('makes exact End join a retained same-account lease before owner rehydration', async () => {
+        const userA = 'fast-return-owner-a';
+        const voyageId = 'fast-return-voyage';
+        setAuthIdentityScope(userA);
+        await ShipLogService.initialize();
+        await ShipLogService.startTracking(false, voyageId);
+
+        let rejectTransitionStop!: (error: Error) => void;
+        const nativeStopsBefore = mocks.nativeStop.mock.calls.length;
+        mocks.nativeStop.mockImplementationOnce(
+            () =>
+                new Promise<void>((_resolve, reject) => {
+                    rejectTransitionStop = reject;
+                }),
+        );
+
+        setAuthIdentityScope(null);
+        const markerKey = `ship_log_tracking_state::${encodeURIComponent(`user:${userA}`)}`;
+        for (let i = 0; i < 100; i++) {
+            const persisted = mocks.state.prefs.get(markerKey);
+            if (persisted?.includes('"isPaused":true')) break;
+            await Promise.resolve();
+        }
+        expect(mocks.state.prefs.get(markerKey)).toContain('"isPaused":true');
+        setAuthIdentityScope(userA);
+        await expect(ShipLogService.stopTracking('different-fast-return-voyage')).rejects.toThrow(
+            'different voyage is currently using GPS logging',
+        );
+        expect(mocks.nativeStop).toHaveBeenCalledTimes(nativeStopsBefore + 1);
+
+        let endSettled = false;
+        const firstEnd = ShipLogService.stopTracking(voyageId).finally(() => {
+            endSettled = true;
+        });
+        for (let i = 0; i < 50 && !rejectTransitionStop; i++) await Promise.resolve();
+
+        expect(rejectTransitionStop).toBeTypeOf('function');
+        expect(endSettled).toBe(false);
+        expect(mocks.nativeStop).toHaveBeenCalledTimes(nativeStopsBefore + 1);
+        rejectTransitionStop(new Error('old-generation native stop failed'));
+        await expect(firstEnd).rejects.toThrow('Voyage remains active');
+
+        await ShipLogService.stopTracking(voyageId);
+        expect(mocks.nativeStop).toHaveBeenCalledTimes(nativeStopsBefore + 2);
+    });
+
+    it('cannot claim background voyage logging while iOS location is only When In Use', async () => {
+        if (ShipLogService.getTrackingStatus().isTracking) await ShipLogService.stopTracking();
+        const nativeStartsBefore = mocks.nativeStart.mock.calls.length;
+        mocks.requireAlwaysLocation.mockRejectedValueOnce(
+            new Error('Voyage logging needs Always Location access for locked-screen operation.'),
+        );
+
+        await expect(ShipLogService.startTracking(false)).rejects.toThrow(
+            'Voyage logging needs Always Location access',
+        );
+
+        expect(mocks.requireAlwaysLocation).toHaveBeenCalledWith('voyage-log');
+        expect(mocks.nativeStart).toHaveBeenCalledTimes(nativeStartsBefore);
+        expect(ShipLogService.getTrackingStatus().isTracking).toBe(false);
+    });
+
+    it('reclaims one persisted pending-stop lease after a WebView reload and verifies release before finalizing', async () => {
+        const userId = 'ship-owner-reload-pending';
+        seedPersistedTrackingState(userId, {
+            isTracking: false,
+            isPaused: true,
+            isRapidMode: false,
+            isPrecisionMode: false,
+            nativeTeardownPending: 'end-voyage',
+            currentVoyageId: 'reload-pending-voyage',
+        });
+        mocks.nativeTrackingEnabled.mockResolvedValue(true);
+        mocks.strictNativeTrackingEnabled.mockResolvedValue(true);
+        const nativeStartsBefore = mocks.nativeStart.mock.calls.length;
+        const nativeStopsBefore = mocks.nativeStop.mock.calls.length;
+
+        setAuthIdentityScope(userId);
+        await ShipLogService.initialize();
+
+        // Initialization inspects only; it never holds a speculative claim.
+        expect(mocks.nativeStart).toHaveBeenCalledTimes(nativeStartsBefore);
+        expect(ShipLogService.getTrackingStatus()).toMatchObject({
+            isPaused: true,
+            nativeTeardownPending: 'end-voyage',
+            currentVoyageId: 'reload-pending-voyage',
+        });
+
+        let releaseNativeStop!: () => void;
+        mocks.nativeStop.mockImplementationOnce(
+            () =>
+                new Promise<void>((resolve) => {
+                    releaseNativeStop = resolve;
+                }),
+        );
+        let settled = false;
+        const ending = ShipLogService.stopTracking().then(() => {
+            settled = true;
+        });
+        for (let i = 0; i < 50 && !releaseNativeStop; i++) await Promise.resolve();
+
+        expect(releaseNativeStop).toBeTypeOf('function');
+        expect(settled).toBe(false);
+        expect(ShipLogService.getTrackingStatus().nativeTeardownPending).toBe('end-voyage');
+        releaseNativeStop();
+        await ending;
+
+        expect(mocks.nativeStart).toHaveBeenCalledTimes(nativeStartsBefore + 1);
+        expect(mocks.nativeStop).toHaveBeenCalledTimes(nativeStopsBefore + 1);
+        expect(ShipLogService.getTrackingStatus()).toMatchObject({ isTracking: false, isPaused: false });
+    });
+
+    it('keeps a reloaded pending stop fail-closed when strict native state cannot be read', async () => {
+        const userId = 'ship-owner-reload-unverifiable';
+        seedPersistedTrackingState(userId, {
+            isTracking: false,
+            isPaused: true,
+            isRapidMode: false,
+            nativeTeardownPending: 'end-voyage',
+            currentVoyageId: 'reload-unverifiable-voyage',
+        });
+        mocks.nativeTrackingEnabled.mockResolvedValue(true);
+        mocks.strictNativeTrackingEnabled.mockRejectedValue(new Error('native state bridge unavailable'));
+        const nativeStopsBefore = mocks.nativeStop.mock.calls.length;
+
+        setAuthIdentityScope(userId);
+        await ShipLogService.initialize();
+        await expect(ShipLogService.stopTracking()).rejects.toThrow('background GPS teardown is still pending');
+
+        expect(mocks.nativeStop).toHaveBeenCalledTimes(nativeStopsBefore);
+        expect(ShipLogService.getTrackingStatus()).toMatchObject({
+            isTracking: false,
+            isPaused: true,
+            nativeTeardownPending: 'end-voyage',
+            currentVoyageId: 'reload-unverifiable-voyage',
+        });
+
+        mocks.strictNativeTrackingEnabled.mockResolvedValue(true);
+        await ShipLogService.stopTracking();
+        expect(ShipLogService.getTrackingStatus()).toMatchObject({ isTracking: false, isPaused: false });
+    });
+
+    it('clears the durable teardown marker only after a strict read verifies native GPS is already off', async () => {
+        const userId = 'ship-owner-reload-native-off';
+        seedPersistedTrackingState(userId, {
+            isTracking: false,
+            isPaused: true,
+            isRapidMode: false,
+            nativeTeardownPending: 'end-voyage',
+            currentVoyageId: 'reload-native-off-voyage',
+        });
+        mocks.nativeTrackingEnabled.mockResolvedValue(false);
+        mocks.strictNativeTrackingEnabled.mockResolvedValue(false);
+        const nativeStartsBefore = mocks.nativeStart.mock.calls.length;
+        const nativeStopsBefore = mocks.nativeStop.mock.calls.length;
+
+        setAuthIdentityScope(userId);
+        await ShipLogService.initialize();
+
+        expect(mocks.nativeStart).toHaveBeenCalledTimes(nativeStartsBefore);
+        expect(mocks.nativeStop).toHaveBeenCalledTimes(nativeStopsBefore);
+        expect(ShipLogService.getTrackingStatus()).toMatchObject({
+            isTracking: false,
+            isPaused: true,
+            currentVoyageId: 'reload-native-off-voyage',
+        });
+        expect(ShipLogService.getTrackingStatus().nativeTeardownPending).toBeUndefined();
+    });
+
+    it('joins concurrent Pause and End across one persisted native release transaction', async () => {
+        const userId = 'ship-owner-release-race';
+        const voyageId = 'release-only-race-voyage';
+        seedPersistedTrackingState(userId, {
+            isTracking: false,
+            isPaused: true,
+            isRapidMode: false,
+            nativeTeardownPending: 'release-only',
+            currentVoyageId: voyageId,
+        });
+        mocks.strictNativeTrackingEnabled.mockResolvedValue(true);
+        setAuthIdentityScope(userId);
+        await ShipLogService.initialize();
+
+        const strictReadsBefore = mocks.strictNativeTrackingEnabled.mock.calls.length;
+        const nativeStartsBefore = mocks.nativeStart.mock.calls.length;
+        const nativeStopsBefore = mocks.nativeStop.mock.calls.length;
+        let resolveStrictRead!: (enabled: boolean) => void;
+        mocks.strictNativeTrackingEnabled.mockImplementationOnce(
+            () =>
+                new Promise<boolean>((resolve) => {
+                    resolveStrictRead = resolve;
+                }),
+        );
+
+        const pausing = ShipLogService.pauseTracking();
+        for (let i = 0; i < 50 && mocks.strictNativeTrackingEnabled.mock.calls.length === strictReadsBefore; i++) {
+            await Promise.resolve();
+        }
+        expect(resolveStrictRead).toBeTypeOf('function');
+
+        let endSettled = false;
+        const ending = ShipLogService.stopTracking(voyageId).then(() => {
+            endSettled = true;
+        });
+        await Promise.resolve();
+        expect(endSettled).toBe(false);
+
+        resolveStrictRead(true);
+        await Promise.all([pausing, ending]);
+
+        expect(mocks.nativeStart).toHaveBeenCalledTimes(nativeStartsBefore + 1);
+        expect(mocks.nativeStop).toHaveBeenCalledTimes(nativeStopsBefore + 1);
+        expect(ShipLogService.getTrackingStatus()).toMatchObject({ isTracking: false, isPaused: false });
+    });
+
+    it('does not claim native GPS for an ordinary reloaded pause owned by another feature', async () => {
+        const userId = 'ship-owner-reload-ordinary-pause';
+        seedPersistedTrackingState(userId, {
+            isTracking: false,
+            isPaused: true,
+            isRapidMode: false,
+            currentVoyageId: 'ordinary-paused-voyage',
+        });
+        mocks.nativeTrackingEnabled.mockResolvedValue(true);
+        mocks.strictNativeTrackingEnabled.mockResolvedValue(true);
+        const nativeStartsBefore = mocks.nativeStart.mock.calls.length;
+        const nativeStopsBefore = mocks.nativeStop.mock.calls.length;
+
+        setAuthIdentityScope(userId);
+        await ShipLogService.initialize();
+
+        expect(mocks.nativeStart).toHaveBeenCalledTimes(nativeStartsBefore);
+        expect(mocks.nativeStop).toHaveBeenCalledTimes(nativeStopsBefore);
+        expect(ShipLogService.getTrackingStatus()).toMatchObject({
+            isTracking: false,
+            isPaused: true,
+            currentVoyageId: 'ordinary-paused-voyage',
+        });
+        expect(ShipLogService.getTrackingStatus().nativeTeardownPending).toBeUndefined();
     });
 });

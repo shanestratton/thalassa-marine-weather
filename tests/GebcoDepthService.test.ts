@@ -6,7 +6,11 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { GebcoDepthService, alignDepthsToRequest } from '../services/GebcoDepthService';
+import {
+    COARSE_BATHYMETRY_MAX_POINTS_PER_REQUEST,
+    GebcoDepthService,
+    alignDepthsToRequest,
+} from '../services/GebcoDepthService';
 
 // ── classifyDepth ────────────────────────────────────────────
 
@@ -111,7 +115,7 @@ describe('GebcoDepthService.queryDepths', () => {
                 JSON.stringify({
                     depths: [{ lat: -33.868, lon: 151.209, depth_m: -45 }],
                     elapsed_ms: 50,
-                    source: 'gebco',
+                    source: 'noaa_etopo_erddap',
                 }),
                 { status: 200 },
             );
@@ -156,6 +160,51 @@ describe('GebcoDepthService.queryDepths', () => {
         expect(result.length).toBe(1);
         expect(result[0].depth_m).toBeNull();
     });
+
+    it('fails closed when the endpoint provenance is not the expected NOAA ETOPO source', async () => {
+        vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+            new Response(
+                JSON.stringify({
+                    depths: [{ lat: -33.868, lon: 151.209, depth_m: -45 }],
+                    elapsed_ms: 5,
+                    source: 'unexpected-bathymetry',
+                }),
+                { status: 200 },
+            ),
+        );
+
+        const result = await GebcoDepthService.queryDepths([{ lat: -33.868, lon: 151.209 }]);
+        expect(result[0].depth_m).toBeNull();
+        expect(GebcoDepthService.cacheSize).toBe(0);
+    });
+
+    it('splits oversized point sets at the Edge request cap and preserves order', async () => {
+        const points = Array.from({ length: COARSE_BATHYMETRY_MAX_POINTS_PER_REQUEST + 1 }, (_, index) => ({
+            lat: -35 + index * 0.002,
+            lon: 150,
+        }));
+        vi.spyOn(globalThis, 'fetch').mockImplementation(async (_url, options) => {
+            const body = JSON.parse(String(options?.body ?? '{}')) as { points?: typeof points };
+            const depths = (body.points ?? []).map((point, index) => ({
+                ...point,
+                depth_m: -10 - index,
+            }));
+            return new Response(JSON.stringify({ depths, elapsed_ms: 5, source: 'noaa_etopo_erddap' }), {
+                status: 200,
+            });
+        });
+
+        const result = await GebcoDepthService.queryDepths(points);
+
+        expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+        const requestSizes = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.map(
+            ([, options]) => (JSON.parse(String(options?.body ?? '{}')).points as unknown[]).length,
+        );
+        expect(requestSizes).toEqual([COARSE_BATHYMETRY_MAX_POINTS_PER_REQUEST, 1]);
+        expect(result).toHaveLength(points.length);
+        expect(result[0]).toMatchObject({ ...points[0], depth_m: -10 });
+        expect(result.at(-1)).toMatchObject({ ...points.at(-1), depth_m: -10 });
+    });
 });
 
 // ── queryRouteDepths ─────────────────────────────────────────
@@ -170,7 +219,9 @@ describe('GebcoDepthService.queryRouteDepths', () => {
                 lon: p.lon,
                 depth_m: -50,
             }));
-            return new Response(JSON.stringify({ depths, elapsed_ms: 10, source: 'gebco' }), { status: 200 });
+            return new Response(JSON.stringify({ depths, elapsed_ms: 10, source: 'noaa_etopo_erddap' }), {
+                status: 200,
+            });
         });
     });
 
@@ -205,7 +256,7 @@ describe('GebcoDepthService.queryDepth', () => {
                 JSON.stringify({
                     depths: [{ lat: 0, lon: 0, depth_m: -100 }],
                     elapsed_ms: 5,
-                    source: 'gebco',
+                    source: 'noaa_etopo_erddap',
                 }),
                 { status: 200 },
             );
@@ -313,7 +364,7 @@ describe('GebcoDepthService.queryDepths — positional-trust guard end-to-end', 
                         { ...shoal, depth_m: -1 },
                     ],
                     elapsed_ms: 5,
-                    source: 'gebco',
+                    source: 'noaa_etopo_erddap',
                 }),
                 { status: 200 },
             );

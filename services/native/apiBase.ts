@@ -34,7 +34,7 @@ function resolveBase(): string {
     try {
         const fromEnv = import.meta.env?.VITE_NATIVE_API_BASE;
         if (fromEnv && typeof fromEnv === 'string' && fromEnv.length > 0) {
-            // Trim trailing slash so callers can append `/sst/manifest.json` cleanly.
+            // Trim the trailing slash so callers can append `/sst/manifest-v2.json` cleanly.
             return fromEnv.replace(/\/$/, '');
         }
     } catch {
@@ -48,6 +48,6 @@ function resolveBase(): string {
  *   Web  → '/api'                                  (relative; proxied)
  *   iOS  → 'https://thalassawx.vercel.app/api'     (or VITE_NATIVE_API_BASE)
  *
- * Use as a prefix:  `${API_BASE}/sst/manifest.json`
+ * Use as a prefix:  `${API_BASE}/sst/manifest-v2.json`
  */
 export const API_BASE = resolveBase();

@@ -88,6 +88,9 @@ export const AUTO_ROUTE_BUTTON_VISIBLE = false;
 export const TRACER_COPY_BUTTON_VISIBLE = false;
 export const SAIL_IT_BUTTON_VISIBLE = false;
 export const CHARTS_FAB_CATEGORY_VISIBLE = false;
+// Public OSM/OpenSeaMap endpoints are render-only in the beta; they are not a
+// licensed bulk-download provider. Keep user-imported MBTiles/o-charts intact,
+// but do not advertise an offline-area prefetch Thalassa may not perform.
 export const OFFLINE_AREA_FAB_VISIBLE = false;
 export const COURSE_FRAME_VISIBLE = false;
 export const TRACER_CARD_LIBRARY_VISIBLE = false;

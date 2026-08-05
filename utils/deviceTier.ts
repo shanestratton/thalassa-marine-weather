@@ -21,6 +21,7 @@
  *
  * Used by:
  *   - components/map/CurrentParticleLayer.ts (NUM_PARTICLES)
+ *   - components/map/WaveParticleLayer.ts    (NUM_PARTICLES)
  *   - components/map/WindParticleLayer.ts    (NUM_PARTICLES)
  *   - components/map/WindGLEngine.ts          (PARTICLE_RES)
  */

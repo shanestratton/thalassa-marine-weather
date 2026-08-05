@@ -26,6 +26,7 @@ import {
     subscribeAuthIdentityScope,
     type AuthIdentityScope,
 } from '../../services/authIdentityScope';
+import { canAccess } from '../../services/SubscriptionService';
 
 interface DraftState {
     id: string | null; // null = new entry
@@ -41,7 +42,7 @@ const getIdentitySnapshot = (): AuthIdentityScope => getAuthIdentityScope();
 export const CalypsoKnowledgeTab: React.FC<SettingsTabProps> = ({ settings }) => {
     // Top-tier (Skipper / 'owner') feature. Non-owners see an upsell
     // wall rather than a hidden tab — keeps it discoverable.
-    const isTopTier = settings?.subscriptionTier === 'owner';
+    const isTopTier = canAccess(settings?.subscriptionTier ?? 'free', 'bosunVoice');
     const identityScope = useSyncExternalStore(subscribeIdentitySnapshot, getIdentitySnapshot, getIdentitySnapshot);
     const [items, setItems] = useState<VesselKnowledge[]>([]);
     const [itemsScope, setItemsScope] = useState(identityScope);

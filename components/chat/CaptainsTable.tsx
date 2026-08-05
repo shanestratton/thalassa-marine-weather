@@ -121,26 +121,46 @@ interface WheelRatingProps {
     size?: number;
 }
 
-const WheelRating: React.FC<WheelRatingProps> = ({ rating, count, interactive, onRate, size = 14 }) => (
-    <div className="flex items-center gap-1">
-        <div className="flex gap-0.5">
-            {[1, 2, 3, 4, 5].map((i) => (
-                <button
-                    key={i}
-                    onClick={() => interactive && onRate?.(i)}
-                    disabled={!interactive}
-                    className={`${interactive ? 'cursor-pointer hover:scale-125 active:scale-90' : 'cursor-default'} transition-transform`}
-                    aria-label={`Rate ${i} wheel${i !== 1 ? 's' : ''}`}
-                >
-                    <ShipWheelIcon filled={i <= Math.round(rating)} size={size} />
-                </button>
-            ))}
+const WheelRating: React.FC<WheelRatingProps> = ({ rating, count, interactive = false, onRate, size = 14 }) => {
+    const roundedRating = Math.round(rating);
+    return (
+        <div
+            className="flex items-center gap-1"
+            role={interactive ? 'group' : 'img'}
+            aria-label={
+                interactive
+                    ? 'Rate this recipe'
+                    : `Rating ${rating.toFixed(1)} out of 5 wheels${count ? ` from ${count} ratings` : ''}`
+            }
+        >
+            <div className="flex gap-0.5" aria-hidden={!interactive}>
+                {[1, 2, 3, 4, 5].map((i) =>
+                    interactive ? (
+                        <button
+                            key={i}
+                            type="button"
+                            onClick={() => onRate?.(i)}
+                            className="cursor-pointer transition-transform hover:scale-125 active:scale-90"
+                            aria-label={`Rate ${i} wheel${i !== 1 ? 's' : ''}`}
+                            aria-pressed={i === roundedRating}
+                        >
+                            <ShipWheelIcon filled={i <= roundedRating} size={size} />
+                        </button>
+                    ) : (
+                        <span key={i} className="cursor-default" aria-hidden="true">
+                            <ShipWheelIcon filled={i <= roundedRating} size={size} />
+                        </span>
+                    ),
+                )}
+            </div>
+            {count !== undefined && count > 0 && (
+                <span className="text-[11px] text-gray-500 font-medium ml-0.5" aria-hidden="true">
+                    ({count})
+                </span>
+            )}
         </div>
-        {count !== undefined && count > 0 && (
-            <span className="text-[11px] text-gray-500 font-medium ml-0.5">({count})</span>
-        )}
-    </div>
-);
+    );
+};
 
 // ── Recipe Detail Modal ────────────────────────────────────────────────────
 
@@ -1001,85 +1021,83 @@ export const CaptainsTable: React.FC<CaptainsTableProps> = ({ className, fullPag
                                     ? bilgeDiveResults.find((r) => r.recipe.supabaseId === recipe.supabaseId)
                                     : null;
                                 return (
-                                    <button
+                                    <div
                                         key={recipe.supabaseId}
-                                        onClick={() => {
-                                            setSelectedRecipe(recipe);
-                                            triggerHaptic('light');
-                                        }}
-                                        className="w-full flex items-stretch gap-3 p-2.5 rounded-xl bg-white/[0.03] border border-white/[0.06] hover:bg-amber-500/[0.04] hover:border-amber-500/15 transition-all text-left active:scale-[0.98]"
+                                        data-recipe-card={recipe.supabaseId}
+                                        className="group relative rounded-xl border border-white/[0.06] bg-white/[0.03] transition-all hover:border-amber-500/15 hover:bg-amber-500/[0.04]"
                                     >
-                                        {/* Thumbnail with galley light filter */}
-                                        {recipe.image && !brokenImageIds.has(recipe.supabaseId) ? (
-                                            <div className="w-16 h-16 rounded-lg flex-shrink-0 overflow-hidden relative">
-                                                <SafeImage
-                                                    src={recipe.image}
-                                                    alt=""
-                                                    className="w-full h-full object-cover"
-                                                    style={{ filter: 'brightness(1.05) contrast(1.05) saturate(1.15)' }}
-                                                    loading="lazy"
-                                                    onError={() =>
-                                                        setBrokenImageIds((prev) => {
-                                                            const next = new Set(prev);
-                                                            next.add(recipe.supabaseId);
-                                                            return next;
-                                                        })
-                                                    }
-                                                />
-                                                <div className="absolute inset-0 bg-gradient-to-t from-black/20 via-transparent to-black/5 rounded-lg pointer-events-none" />
-                                            </div>
-                                        ) : (
-                                            <div className="w-16 h-16 rounded-lg bg-amber-500/10 flex items-center justify-center text-2xl flex-shrink-0">
-                                                {getFallbackIcon(recipe.supabaseId)}
-                                            </div>
-                                        )}
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setSelectedRecipe(recipe);
+                                                triggerHaptic('light');
+                                            }}
+                                            aria-label={`Open recipe: ${recipe.title}`}
+                                            className="flex w-full items-stretch gap-3 rounded-xl p-2.5 pr-12 text-left transition-transform active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
+                                        >
+                                            {/* Thumbnail with galley light filter */}
+                                            {recipe.image && !brokenImageIds.has(recipe.supabaseId) ? (
+                                                <div className="w-16 h-16 rounded-lg flex-shrink-0 overflow-hidden relative">
+                                                    <SafeImage
+                                                        src={recipe.image}
+                                                        alt=""
+                                                        className="w-full h-full object-cover"
+                                                        style={{
+                                                            filter: 'brightness(1.05) contrast(1.05) saturate(1.15)',
+                                                        }}
+                                                        loading="lazy"
+                                                        onError={() =>
+                                                            setBrokenImageIds((prev) => {
+                                                                const next = new Set(prev);
+                                                                next.add(recipe.supabaseId);
+                                                                return next;
+                                                            })
+                                                        }
+                                                    />
+                                                    <div className="absolute inset-0 bg-gradient-to-t from-black/20 via-transparent to-black/5 rounded-lg pointer-events-none" />
+                                                </div>
+                                            ) : (
+                                                <div className="w-16 h-16 rounded-lg bg-amber-500/10 flex items-center justify-center text-2xl flex-shrink-0">
+                                                    {getFallbackIcon(recipe.supabaseId)}
+                                                </div>
+                                            )}
 
-                                        {/* Content */}
-                                        <div className="flex-1 min-w-0 flex flex-col justify-between py-0.5">
-                                            <div>
-                                                <p className="text-xs font-bold text-white truncate">{recipe.title}</p>
-                                                <p className="text-[11px] text-gray-500 mt-0.5">
-                                                    by {recipe.authorName} · {recipe.readyInMinutes} min
-                                                </p>
+                                            {/* Content */}
+                                            <div className="flex-1 min-w-0 flex flex-col justify-between py-0.5">
+                                                <div>
+                                                    <p className="text-xs font-bold text-white truncate">
+                                                        {recipe.title}
+                                                    </p>
+                                                    <p className="text-[11px] text-gray-500 mt-0.5">
+                                                        by {recipe.authorName} · {recipe.readyInMinutes} min
+                                                    </p>
+                                                </div>
+                                                <div className="flex items-center gap-2 mt-1">
+                                                    <WheelRating rating={recipe.ratingAvg} size={11} />
+                                                    {bilgeResult && (
+                                                        <span
+                                                            className={`text-[11px] font-bold px-1.5 py-0.5 rounded-full ${
+                                                                bilgeResult.matchPercent >= 80
+                                                                    ? 'bg-emerald-500/15 text-emerald-400'
+                                                                    : bilgeResult.matchPercent >= 50
+                                                                      ? 'bg-amber-500/15 text-amber-400'
+                                                                      : 'bg-gray-500/15 text-gray-400'
+                                                            }`}
+                                                        >
+                                                            {bilgeResult.matchedIngredients.length}/
+                                                            {bilgeResult.totalSearched} match
+                                                        </span>
+                                                    )}
+                                                </div>
                                             </div>
-                                            <div className="flex items-center gap-2 mt-1">
-                                                <WheelRating rating={recipe.ratingAvg} size={11} />
-                                                {bilgeResult && (
-                                                    <span
-                                                        className={`text-[11px] font-bold px-1.5 py-0.5 rounded-full ${
-                                                            bilgeResult.matchPercent >= 80
-                                                                ? 'bg-emerald-500/15 text-emerald-400'
-                                                                : bilgeResult.matchPercent >= 50
-                                                                  ? 'bg-amber-500/15 text-amber-400'
-                                                                  : 'bg-gray-500/15 text-gray-400'
-                                                        }`}
-                                                    >
-                                                        {bilgeResult.matchedIngredients.length}/
-                                                        {bilgeResult.totalSearched} match
-                                                    </span>
-                                                )}
-                                            </div>
-                                        </div>
 
-                                        {/* Favourite heart + Chevron */}
-                                        <div className="flex flex-col items-center justify-between py-0.5">
-                                            <button
-                                                onClick={(e) => handleToggleFavourite(recipe.supabaseId, e)}
-                                                className={`w-7 h-7 rounded-full flex items-center justify-center text-sm transition-all active:scale-90 ${
-                                                    isFav
-                                                        ? 'text-rose-400 bg-rose-500/10'
-                                                        : 'text-gray-500 hover:text-gray-400'
-                                                }`}
-                                                aria-label={isFav ? 'Remove from favourites' : 'Add to favourites'}
-                                            >
-                                                {isFav ? '♥' : '♡'}
-                                            </button>
                                             <svg
-                                                className="w-3.5 h-3.5 text-gray-500"
+                                                className="pointer-events-none absolute bottom-3 right-4 h-3.5 w-3.5 text-gray-500"
                                                 fill="none"
                                                 viewBox="0 0 24 24"
                                                 stroke="currentColor"
                                                 strokeWidth={2}
+                                                aria-hidden="true"
                                             >
                                                 <path
                                                     strokeLinecap="round"
@@ -1087,8 +1105,23 @@ export const CaptainsTable: React.FC<CaptainsTableProps> = ({ className, fullPag
                                                     d="M8.25 4.5l7.5 7.5-7.5 7.5"
                                                 />
                                             </svg>
-                                        </div>
-                                    </button>
+                                        </button>
+
+                                        {/* Independent sibling control: never nest an interactive
+                                            favourite action inside the card-open button. */}
+                                        <button
+                                            type="button"
+                                            onClick={(e) => handleToggleFavourite(recipe.supabaseId, e)}
+                                            className={`absolute right-2.5 top-2.5 z-10 flex h-8 w-8 items-center justify-center rounded-full text-sm transition-all active:scale-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-400/70 ${
+                                                isFav
+                                                    ? 'text-rose-400 bg-rose-500/10'
+                                                    : 'text-gray-500 hover:text-gray-400 hover:bg-white/[0.05]'
+                                            }`}
+                                            aria-label={isFav ? 'Remove from favourites' : 'Add to favourites'}
+                                        >
+                                            {isFav ? '♥' : '♡'}
+                                        </button>
+                                    </div>
                                 );
                             })}
                         </div>

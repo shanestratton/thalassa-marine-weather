@@ -188,6 +188,9 @@ describe('DocumentSyncService canonical sync facade', () => {
         service.markForSync('doc-a');
         await vi.waitFor(() => expect(service.getStatus('doc-a')).toBe('synced'));
 
+        expect(localStorage.getItem('thalassa_doc_sync_status::user%3Auser-a')).not.toBeNull();
+        expect(localStorage.getItem('thalassa_doc_sync_status:user-a')).toBeNull();
+
         mocks.identity = 'user-b';
         expect(service.getAllStatuses()).toEqual({});
         service.markForSync('doc-b');
@@ -198,6 +201,23 @@ describe('DocumentSyncService canonical sync facade', () => {
             'doc-a': expect.objectContaining({ status: 'synced' }),
         });
         expect(service.getAllStatuses()).not.toHaveProperty('doc-b');
+    });
+
+    it('copy-before-removes the retired status key into the shared exact-owner namespace', async () => {
+        localStorage.setItem(
+            'thalassa_doc_sync_status:user-a',
+            JSON.stringify({
+                'legacy-doc': { status: 'uploading', lastAttempt: '2026-08-05T00:00:00.000Z' },
+            }),
+        );
+
+        const service = await loadService();
+
+        expect(service.getStatus('legacy-doc')).toBe('pending');
+        expect(localStorage.getItem('thalassa_doc_sync_status:user-a')).toBeNull();
+        expect(JSON.parse(localStorage.getItem('thalassa_doc_sync_status::user%3Auser-a') ?? '{}')).toEqual({
+            'legacy-doc': { status: 'pending', lastAttempt: '2026-08-05T00:00:00.000Z' },
+        });
     });
 
     it('restores through the canonical full pull and counts newly materialized document IDs', async () => {

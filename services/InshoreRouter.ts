@@ -37,7 +37,6 @@
  * producing nothing.
  */
 
-import { CapacitorHttp } from '@capacitor/core';
 import type { FeatureCollection } from 'geojson';
 import { DeadlineExceeded, withDeadline } from '../utils/deadline';
 import { cellsForBBox, listCells } from './enc/EncCellMetadata';
@@ -428,7 +427,7 @@ async function tryInshoreRouteInner(
             `GATE: corridor coverage gap ${corridorGap.atNM.toFixed(1)} NM along the direct line, near ${corridorGap.lat.toFixed(3)},${corridorGap.lon.toFixed(3)} — refusing inshore (coverage-gap)`,
         );
         return {
-            error: `Inshore charts don't cover the full passage yet — coverage gap ~${corridorGap.atNM.toFixed(0)} NM along the route (near ${corridorGap.lat.toFixed(2)}, ${corridorGap.lon.toFixed(2)}). Sync the missing cells via Pi Cache.`,
+            error: `Trusted inshore ENC coverage is incomplete — gap ~${corridorGap.atNM.toFixed(0)} NM along the route (near ${corridorGap.lat.toFixed(2)}, ${corridorGap.lon.toFixed(2)}). Unverified reference packs cannot clear this safety gate.`,
             code: 'coverage-gap',
         };
     }

@@ -24,6 +24,8 @@ const log = createLogger('watchBridge');
  *  WatchConnectivity has tight payload limits and re-serialising the
  *  entire 500-point positionHistory on every update would be wasteful. */
 export interface WatchAnchorSnapshot {
+    /** Generated-at timestamp (epoch ms). The Watch must age-gate durable context. */
+    generatedAt: number;
     /** 'idle' | 'setting' | 'watching' | 'alarm' | 'paused' */
     state: string;
     /** Anchor coordinates (lat, lon, ts) — null when no anchor set */
@@ -68,12 +70,28 @@ export interface WatchAvailability {
     installed: boolean;
 }
 
+/** Versioned Watch→phone MOB request envelope. Runtime validation remains in
+ * watchMobRequestSafety because native bridge events are untrusted input. */
+export interface WatchMobTriggerEvent extends Record<string, unknown> {
+    mobRequestVersion: number;
+    mobRequestId: string;
+    mobRequestedAtMs: number;
+    mobRequestTtlMs: number;
+    mobRequestExpiresAtMs: number;
+    deliveryChannel?: 'immediate' | 'queued';
+    phoneReceivedAtMs?: number;
+}
+
 interface WatchConnectivityPlugin {
     isAvailable(): Promise<WatchAvailability>;
     pushAnchorState(snapshot: WatchAnchorSnapshot): Promise<void>;
     pushWeatherSnapshot(snapshot: WatchWeatherSnapshot): Promise<void>;
     addListener(
-        eventName: 'mobTriggered' | 'alarmAck',
+        eventName: 'mobTriggered',
+        listenerFunc: (event: WatchMobTriggerEvent) => void,
+    ): Promise<PluginListenerHandle>;
+    addListener(
+        eventName: 'alarmAck',
         listenerFunc: (event: Record<string, unknown>) => void,
     ): Promise<PluginListenerHandle>;
     removeAllListeners(): Promise<void>;
@@ -156,7 +174,7 @@ export async function pushWeatherSnapshot(snapshot: WatchWeatherSnapshot): Promi
  * watch-initiated MOB events flow through the same alarm pipeline as
  * the in-app red MOB button.
  */
-export async function onMobTriggered(handler: (event: Record<string, unknown>) => void): Promise<PluginListenerHandle> {
+export async function onMobTriggered(handler: (event: WatchMobTriggerEvent) => void): Promise<PluginListenerHandle> {
     return NativeWatch.addListener('mobTriggered', handler);
 }
 

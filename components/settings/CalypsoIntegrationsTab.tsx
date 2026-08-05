@@ -2,12 +2,13 @@
  * Calypso Integrations — Settings tab.
  *
  * Lets the skipper grant Calypso (the voice assistant) access to:
- *   - Apple Music — managed entirely on the dedicated Music page
- *     (auth gate + playlist tiles + transport). No toggle here; if
- *     you have Skipper tier, Calypso has it.
+ *   - Apple Music — a public-beta unavailable notice while the
+ *     compile-time visibility boundary is closed. The dedicated Music
+ *     page and controls are reachable only after that gate is reviewed.
  *   - Gmail — read inbox / draft / send with explicit confirmation.
  *     Real OAuth 2.0 + PKCE flow, opt-in toggle.
- *   - Proactive alerts — Calypso speaks up on threshold violations.
+ *   - Proactive alerts — an explicit public-beta hold until monitoring
+ *     moves to a verified native lifecycle.
  *
  * Voice picker also lives here (which voice Calypso speaks in).
  */
@@ -21,6 +22,7 @@ import {
     clearGmailTokens,
     completeAuthorization,
     extractAuthCallbackFromUrl,
+    GMAIL_PUBLIC_BETA_ENABLED,
     getConnectedEmail,
     isGmailConfigured,
 } from '../../services/voice/integrations/gmail';
@@ -33,6 +35,7 @@ import {
 import { AlertMonitorService } from '../../services/AlertMonitorService';
 import { CALYPSO_VOICE_PRESETS, DEFAULT_VOICE_PRESET_ID } from '../../services/voice/voicePresets';
 import { speak } from '../../services/voice/ttsClient';
+import { FEATURE_VISIBILITY } from '../../utils/featureVisibility';
 import { Row, Section, Toggle, type SettingsTabProps } from './SettingsPrimitives';
 
 export const CalypsoIntegrationsTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
@@ -336,39 +339,21 @@ export const CalypsoIntegrationsTab: React.FC<SettingsTabProps> = ({ settings, o
         window.dispatchEvent(new CustomEvent('thalassa:navigate', { detail: { tab: 'music' } }));
     }, []);
 
-    /** Deep-link to iOS Settings → Apps → Music. The `App-Prefs:`
-     *  scheme has been intermittently restricted by Apple over the
-     *  years; we try the music-specific path first, fall back to the
-     *  app-specific page, then to the general Settings root. iOS will
-     *  silently no-op if a scheme isn't recognised, so worst case the
-     *  button does nothing — but on iOS 17+ the music path works. */
+    /** Apple's supported route opens Thalassa's own Settings page. iOS does
+     * not expose a public URL for the system Music crossfade control. */
     const handleOpenMusicSystemSettings = useCallback(() => {
-        const tryUrl = (url: string): boolean => {
-            try {
-                window.location.href = url;
-                return true;
-            } catch {
-                return false;
-            }
-        };
-        // Best-effort cascade. The first one that doesn't throw is
-        // assumed to launch Settings; iOS handles unknown schemes
-        // gracefully.
-        if (tryUrl('App-Prefs:Music')) return;
-        if (tryUrl('App-Prefs:com.apple.Music')) return;
-        if (tryUrl('App-Prefs:')) return;
         try {
-            window.open('App-Prefs:', '_system');
+            window.location.href = 'app-settings:';
         } catch {
-            /* nothing more we can do — user opens Settings manually */
+            /* Browser preview only: the user can still follow the manual path. */
         }
     }, []);
 
     return (
         <div className="px-4 pb-8">
             <p className="text-sm text-gray-400 mb-6">
-                Grant Calypso access to integrations on your phone. Each is opt-in — Calypso only sees a tool when you
-                toggle it on here. Skipper-tier only.
+                Available third-party integrations are opt-in. Calypso only sees a tool after you connect it, and
+                public-beta holds are shown explicitly. Skipper-tier only.
             </p>
 
             <Section title="Voice">
@@ -427,8 +412,25 @@ export const CalypsoIntegrationsTab: React.FC<SettingsTabProps> = ({ settings, o
                 })}
             </Section>
 
-            <Section title="Calypso speaks up">
-                {!canAlerts ? (
+            <Section title="Proactive vessel alerts">
+                {!FEATURE_VISIBILITY.calypsoAlerts ? (
+                    <Row>
+                        <div className="flex-1" role="status">
+                            <div className="text-sm font-bold text-white">
+                                Proactive alerts unavailable in public beta
+                            </div>
+                            <div className="mt-1 text-xs leading-relaxed text-amber-300">
+                                Calypso is not running as a background or terminated-app vessel monitor in this beta.
+                                Previously saved alert opt-ins are switched off, and no battery, depth, GPS, engine, or
+                                lost-NMEA alert will run from this feature.
+                            </div>
+                            <div className="mt-2 text-xs leading-relaxed text-gray-400">
+                                Keep dedicated instrument alarms and watchkeeping procedures active. Calypso's on-demand
+                                voice console remains available while Thalassa is open.
+                            </div>
+                        </div>
+                    </Row>
+                ) : !canAlerts ? (
                     <Row>
                         <div className="flex-1">
                             <div className="text-sm text-white">Proactive alerts</div>
@@ -441,14 +443,13 @@ export const CalypsoIntegrationsTab: React.FC<SettingsTabProps> = ({ settings, o
                             <div className="flex-1">
                                 <div className="text-sm text-white font-bold">Let Calypso interrupt with alerts</div>
                                 <div className="text-xs text-gray-400 mt-1">
-                                    Calypso watches the NMEA backbone in the background and speaks up when something
-                                    looks wrong — battery low, alternator overcharging, depth shoaling, GPS lost,
-                                    backbone offline. Critical alerts ring a chime, open the voice page, and Calypso
-                                    speaks aloud through the speaker even if the app is backgrounded.
+                                    While Thalassa is open and active, Calypso can watch incoming NMEA data and speak up
+                                    about battery, charging, depth, GPS, engine, or backbone conditions. This is an
+                                    ordinary in-app audio path, not a Critical Alert or independent vessel alarm.
                                 </div>
                                 <div className="text-xs text-gray-500 mt-2">
-                                    Defaults are conservative — no per-rule controls yet, but we won't fire on a single
-                                    bad reading (each rule debounces several samples and rate-limits re-fires).
+                                    Monitoring can stop when the app is backgrounded, suspended, force-quit, or
+                                    terminated. Keep dedicated alarms and normal watchkeeping active.
                                 </div>
                             </div>
                             <Toggle
@@ -478,7 +479,18 @@ export const CalypsoIntegrationsTab: React.FC<SettingsTabProps> = ({ settings, o
             </Section>
 
             <Section title="Apple Music">
-                {!canMusic ? (
+                {!FEATURE_VISIBILITY.appleMusic ? (
+                    <Row>
+                        <div className="flex-1">
+                            <div className="text-sm text-white font-bold">Apple Music unavailable in public beta</div>
+                            <div className="text-xs text-amber-300 mt-1 leading-relaxed">
+                                Music controls remain held until the production MusicKit capability and signed-device
+                                playback are verified. Calypso voice continues normally, and no Apple Music connection
+                                or permission is requested by this beta.
+                            </div>
+                        </div>
+                    </Row>
+                ) : !canMusic ? (
                     <Row>
                         <div className="flex-1">
                             <div className="text-sm text-white">Apple Music access</div>
@@ -514,19 +526,21 @@ export const CalypsoIntegrationsTab: React.FC<SettingsTabProps> = ({ settings, o
                                     Apple's MusicKit doesn't let third-party apps toggle crossfade on or off — the
                                     setting is system-wide and lives in iOS Settings. Once enabled, every track
                                     transition in Thalassa (and every other music app on your phone) glides into the
-                                    next without the gap. Tap the button to open the Apple Music settings page; flip{' '}
+                                    next without the gap. iOS does not offer apps a supported direct link to this
+                                    switch, so open Settings manually and turn{' '}
                                     <strong className="text-gray-300">Crossfade</strong> on and pick a duration.
                                 </div>
                                 <div className="text-xs text-gray-500 mt-2">
                                     Path: <span className="text-gray-400">iOS Settings → Apps → Music → Audio</span>.
-                                    iOS 17 or newer required.
+                                    The button below opens Thalassa's own settings for its app permissions; iOS 17 or
+                                    newer is required for the Music path above.
                                 </div>
                             </div>
                             <button
                                 onClick={handleOpenMusicSystemSettings}
                                 className="text-sm font-bold text-pink-400 hover:text-pink-300 px-3 py-1.5 rounded border border-pink-400/40 hover:border-pink-300/60 transition-colors"
                             >
-                                Open Settings
+                                Open Thalassa Settings
                             </button>
                         </Row>
                     </>
@@ -551,7 +565,17 @@ export const CalypsoIntegrationsTab: React.FC<SettingsTabProps> = ({ settings, o
                         </button>
                     </div>
                 )}
-                {!canEmail ? (
+                {!GMAIL_PUBLIC_BETA_ENABLED ? (
+                    <Row>
+                        <div className="flex-1">
+                            <div className="text-sm font-bold text-white">Email access paused for public beta</div>
+                            <div className="mt-1 text-xs leading-relaxed text-gray-400">
+                                Gmail will return after its credentials move into Keychain storage and provider-grant
+                                revocation is verified. No Gmail token or inbox content is used by this beta build.
+                            </div>
+                        </div>
+                    </Row>
+                ) : !canEmail ? (
                     <Row>
                         <div className="flex-1">
                             <div className="text-sm text-white">Email access</div>

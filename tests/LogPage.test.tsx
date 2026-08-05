@@ -45,9 +45,11 @@ const followRouteMock = vi.hoisted(() => {
 const fetchVoyageAsTrackMock = vi.hoisted(() => vi.fn());
 const publishFollowedRouteMock = vi.hoisted(() => vi.fn());
 const clearFollowedRouteMock = vi.hoisted(() => vi.fn(async () => true));
+const traceDirectUseBlockReasonMock = vi.hoisted(() => vi.fn(() => null as string | null));
 const gpsHealthMock = vi.hoisted(() => ({
     value: null as null | { usable: boolean; reason: string; actionable: boolean },
 }));
+const acquireFreshOwnshipPositionMock = vi.hoisted(() => vi.fn());
 
 // ── Mock services & context ──
 vi.mock('../utils/createLogger', () => ({
@@ -94,11 +96,19 @@ vi.mock('../services/shiplog/publishFollowedRoute', () => ({
     clearFollowedRoute: clearFollowedRouteMock,
 }));
 
+vi.mock('../services/traceDirectUseGate', () => ({
+    tracedRouteDirectUseBlockReason: traceDirectUseBlockReasonMock,
+}));
+
 vi.mock('../hooks/useGpsHealth', () => ({
     useGpsHealth: () => gpsHealthMock.value,
     gpsHealthMessage: (reason: string) =>
         reason === 'denied' ? { title: 'Location access is off', detail: 'Nothing is being recorded.' } : null,
     openDeviceSettings: vi.fn(),
+}));
+
+vi.mock('../services/ownshipPosition', () => ({
+    acquireFreshOwnshipPosition: acquireFreshOwnshipPositionMock,
 }));
 
 vi.mock('../utils/lazyRetry', () => ({
@@ -154,7 +164,21 @@ vi.mock('../components/VoyageStatsPanel', () => ({
     ),
 }));
 vi.mock('../components/ui/SlideToAction', () => ({
-    SlideToAction: ({ label }: { label: string }) => <button data-testid="slide-to-action">{label}</button>,
+    SlideToAction: ({
+        label,
+        onConfirm,
+        loading,
+        loadingText,
+    }: {
+        label: string;
+        onConfirm: () => void;
+        loading?: boolean;
+        loadingText?: string;
+    }) => (
+        <button data-testid="slide-to-action" onClick={onConfirm} disabled={loading}>
+            {loading ? loadingText : label}
+        </button>
+    ),
 }));
 vi.mock('../components/ui/UndoToast', () => ({ UndoToast: () => null }));
 vi.mock('../components/ui/ConfirmDialog', () => ({ ConfirmDialog: () => null }));
@@ -407,6 +431,16 @@ describe('LogPage', () => {
         });
         fetchVoyageAsTrackMock.mockResolvedValue(null);
         publishFollowedRouteMock.mockResolvedValue('linked');
+        traceDirectUseBlockReasonMock.mockReturnValue(null);
+        gpsHealthMock.value = null;
+        acquireFreshOwnshipPositionMock.mockResolvedValue({
+            lat: -27.5,
+            lon: 153,
+            sog: 0,
+            cog: 0,
+            timestamp: Date.now(),
+            source: 'gps',
+        });
     });
 
     it('renders without crashing', () => {
@@ -532,6 +566,66 @@ describe('LogPage', () => {
         expect(() => {
             render(<LogPage onBack={onBack} />);
         }).not.toThrow();
+    });
+
+    it('fails closed before tracking when location permission is denied', async () => {
+        const startTracking = vi.fn();
+        logPageStateOverrides.hook.handleStartTracking = startTracking;
+        gpsHealthMock.value = { usable: false, reason: 'denied', actionable: true };
+        acquireFreshOwnshipPositionMock.mockResolvedValueOnce(null);
+
+        render(<LogPage />);
+        fireEvent.click(screen.getByTestId('slide-to-action'));
+
+        expect(await screen.findByRole('alert')).toHaveTextContent('Location access is off');
+        expect(await screen.findByRole('alert')).toHaveTextContent('Nothing is being recorded');
+        expect(acquireFreshOwnshipPositionMock).toHaveBeenCalledOnce();
+        expect(startTracking).not.toHaveBeenCalled();
+    });
+
+    it('allows a fresh vessel/NMEA fix to override unavailable phone location', async () => {
+        const startTracking = vi.fn();
+        logPageStateOverrides.hook.handleStartTracking = startTracking;
+        gpsHealthMock.value = { usable: false, reason: 'denied', actionable: true };
+        const { Preferences } = await import('@capacitor/preferences');
+        vi.mocked(Preferences.get).mockResolvedValueOnce({ value: 'true' });
+
+        render(<LogPage />);
+        fireEvent.click(screen.getByTestId('slide-to-action'));
+
+        await waitFor(() => expect(acquireFreshOwnshipPositionMock).toHaveBeenCalledOnce());
+        await waitFor(() => expect(startTracking).toHaveBeenCalledOnce());
+        expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    });
+
+    it('does not enter Live Recording when a fresh GPS fix cannot be acquired', async () => {
+        const startTracking = vi.fn();
+        logPageStateOverrides.hook.handleStartTracking = startTracking;
+        gpsHealthMock.value = { usable: true, reason: 'ok', actionable: false };
+        acquireFreshOwnshipPositionMock.mockResolvedValueOnce(null);
+
+        render(<LogPage />);
+        fireEvent.click(screen.getByTestId('slide-to-action'));
+
+        expect(await screen.findByRole('alert')).toHaveTextContent('No fresh GPS fix');
+        expect(screen.getByRole('alert')).toHaveTextContent('Tracking did not start');
+        expect(startTracking).not.toHaveBeenCalled();
+        expect(screen.queryByText('Live Recording')).not.toBeInTheDocument();
+    });
+
+    it('starts only after the fresh-fix preflight succeeds', async () => {
+        const startTracking = vi.fn();
+        logPageStateOverrides.hook.handleStartTracking = startTracking;
+        gpsHealthMock.value = { usable: true, reason: 'ok', actionable: false };
+        const { Preferences } = await import('@capacitor/preferences');
+        vi.mocked(Preferences.get).mockResolvedValueOnce({ value: 'true' });
+
+        render(<LogPage />);
+        fireEvent.click(screen.getByTestId('slide-to-action'));
+
+        await waitFor(() => expect(acquireFreshOwnshipPositionMock).toHaveBeenCalledOnce());
+        await waitFor(() => expect(startTracking).toHaveBeenCalledOnce());
+        expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     });
 
     it('does not throw on rerender', () => {
@@ -970,11 +1064,7 @@ describe('LogPage', () => {
         expect(screen.queryByRole('dialog', { name: 'Following a route?' })).not.toBeInTheDocument();
     });
 
-    it('still publishes the public link when the local geometry cannot be loaded', async () => {
-        // Finding A (hardening 2026-08-01): the ~200-byte link write used to
-        // be gated behind the heavy geometry fetch, so marginal signal that
-        // timed out the fetch also silently forfeited the publish. The two are
-        // now decoupled: the publish races the geometry and wins on its own.
+    it('does not publish a route whose exact geometry cannot be verified', async () => {
         Object.assign(logPageStateOverrides.state, {
             isTracking: true,
             currentVoyageId: 'active-voyage',
@@ -997,13 +1087,10 @@ describe('LogPage', () => {
         render(<LogPage />);
         fireEvent.click(await screen.findByRole('button', { name: 'Follow route missing-planned-voyage' }));
 
-        await waitFor(() => expect(publishFollowedRouteMock).toHaveBeenCalledWith('missing-planned-voyage'));
-        // No local line — the geometry genuinely failed…
+        await waitFor(() => expect(screen.getByRole('button', { name: 'Just recording' })).toBeEnabled());
         expect(followRouteMock.state.startFollowing).not.toHaveBeenCalled();
-        // …but the public question is answered, so the sheet closes.
-        await waitFor(() =>
-            expect(screen.queryByRole('dialog', { name: 'Following a route?' })).not.toBeInTheDocument(),
-        );
+        expect(publishFollowedRouteMock).not.toHaveBeenCalled();
+        expect(screen.getByRole('dialog', { name: 'Following a route?' })).toBeInTheDocument();
     });
 
     it('keeps the sheet open when BOTH the geometry and the publish fail', async () => {
@@ -1029,16 +1116,14 @@ describe('LogPage', () => {
         render(<LogPage />);
         fireEvent.click(await screen.findByRole('button', { name: 'Follow route missing-planned-voyage' }));
 
-        await waitFor(() => expect(publishFollowedRouteMock).toHaveBeenCalled());
+        await waitFor(() => expect(screen.getByRole('button', { name: 'Just recording' })).toBeEnabled());
+        expect(publishFollowedRouteMock).not.toHaveBeenCalled();
         expect(followRouteMock.state.startFollowing).not.toHaveBeenCalled();
         expect(screen.getByRole('dialog', { name: 'Following a route?' })).toBeInTheDocument();
     });
 
     it('unlocks a stalled cast-off prompt and ignores geometry that arrives after the deadline', async () => {
         vi.useFakeTimers();
-        // Publish must fail too: since finding A's fix, a successful publish
-        // legitimately closes the sheet even when the geometry stalls, so the
-        // stranded-modal path this test pins needs BOTH halves down.
         publishFollowedRouteMock.mockResolvedValue('error');
         let resolveRoute!: (route: {
             id: string;
@@ -1084,9 +1169,7 @@ describe('LogPage', () => {
         });
 
         expect(screen.getByRole('button', { name: 'Just recording' })).toBeEnabled();
-        // The publish is DELIBERATELY already in flight — it races the
-        // geometry rather than waiting behind it (finding A).
-        expect(publishFollowedRouteMock).toHaveBeenCalledTimes(1);
+        expect(publishFollowedRouteMock).not.toHaveBeenCalled();
 
         await act(async () => {
             resolveRoute({
@@ -1107,7 +1190,7 @@ describe('LogPage', () => {
         });
 
         expect(followRouteMock.state.startFollowing).not.toHaveBeenCalled();
-        expect(publishFollowedRouteMock).toHaveBeenCalledTimes(1); // still just the pick-time call
+        expect(publishFollowedRouteMock).not.toHaveBeenCalled();
     });
 
     it('starts local follow mode when a route is chosen from the Log cast-off prompt', async () => {
@@ -1183,6 +1266,51 @@ describe('LogPage', () => {
             resolvePublication('linked');
             await Promise.resolve();
         });
+    });
+
+    it('blocks both local follow and public publication for an unverified linked trace', async () => {
+        traceDirectUseBlockReasonMock.mockReturnValue(
+            'This traced route is not verified on this device. Open it in Route Tracer and check every leg.',
+        );
+        fetchVoyageAsTrackMock.mockResolvedValue({
+            id: 'planned-trace',
+            label: 'Unsafe legacy trace',
+            sublabel: 'Planned',
+            points: [
+                { lat: -27.5, lon: 153 },
+                { lat: -27.4, lon: 153.1 },
+            ],
+            bbox: [153, -27.5, 153.1, -27.4],
+            timestamp: Date.now(),
+            distanceNm: 8,
+            isLocal: false,
+            kind: 'sea',
+            savedRouteId: 'trace-legacy',
+        });
+        Object.assign(logPageStateOverrides.state, {
+            isTracking: true,
+            currentVoyageId: 'active-voyage',
+            summaries: [
+                {
+                    voyageId: 'planned-trace',
+                    isPlannedRoute: true,
+                    totalDistanceNM: 8,
+                    entryCount: 2,
+                    firstLat: -27.5,
+                    firstLon: 153,
+                    lastLat: -27.4,
+                    lastLon: 153.1,
+                },
+            ],
+        });
+
+        render(<LogPage />);
+        fireEvent.click(await screen.findByRole('button', { name: 'Follow route planned-trace' }));
+
+        await waitFor(() => expect(traceDirectUseBlockReasonMock).toHaveBeenCalled());
+        expect(followRouteMock.state.startFollowing).not.toHaveBeenCalled();
+        expect(publishFollowedRouteMock).not.toHaveBeenCalled();
+        expect(screen.getByRole('dialog', { name: 'Following a route?' })).toBeInTheDocument();
     });
 });
 

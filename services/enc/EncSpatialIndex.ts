@@ -32,18 +32,15 @@ import { compareHazardSeverity, grazeOutranks } from './hazardSeverity';
  * UWTROC, point WRECKS/OBSTRN, and exploded MultiPoint clusters.
  *
  * A point hazard has a ZERO-AREA bbox at its exact coordinate, so a
- * route sampled at ~231 m (landAvoidance FINE_SAMPLE_SPACING_NM = 0.125
- * NM) intervals never lands EXACTLY on a rock — the router would plot
- * straight over a charted isolated danger and only mention it in the
- * passive proximity report. We pad each point hazard's index bbox by
- * this radius and confirm candidates with a true-circle distance test
- * in queryPoint, so any sample within R metres detects it.
+ * discrete route sample rarely lands EXACTLY on a rock. We pad each point
+ * hazard's index bbox by this radius and confirm candidates with a true-circle
+ * distance test in queryPoint, so any nearby sample detects it.
  *
- * R (150 m) is deliberately > half the 231 m sample spacing (≈116 m):
- * an on-track danger can never slip between two consecutive samples.
- * It doubles as a sane minimum berth for a charted rock/wreck. This is
- * FAIL-SAFE — an over-wide radius causes an unnecessary detour, never a
- * sail-over. (mission audit: point hazards were undetectable to routing.)
+ * The exact segment pass below independently measures every route leg against
+ * point and line hazards, so the safety invariant does not depend on sample
+ * spacing. R also supplies a sane minimum berth for a charted rock/wreck.
+ * This is FAIL-SAFE — an over-wide radius causes an unnecessary detour, never
+ * a sail-over. (mission audit: point hazards were undetectable to routing.)
  */
 export const POINT_HAZARD_GUARD_RADIUS_M = 150;
 
@@ -678,10 +675,10 @@ export class EncSpatialIndex {
      * COVERAGE (mission audit, the fail-dangerous fix): `covered: true` means
      * the point falls INSIDE an actual charted feature (a DEPARE/DRGARE depth
      * area, land, or a hazard) — the authoritative "we have ENC data here"
-     * signal that lets the caller skip GEBCO. A point inside the cell BBOX
+     * signal that lets the caller skip coarse ETOPO. A point inside the cell BBOX
      * but inside no charted polygon (a data gap / unsurveyed area — S-57
      * UNSARE isn't extracted) returns `covered: false` so the router falls
-     * back to GEBCO instead of trusting a false-clear. Charted deep water
+     * back to ETOPO instead of trusting a false-clear. Charted deep water
      * still returns `covered: true, hazard: false`.
      */
     queryPoint(lat: number, lon: number): EncHazardResult {
@@ -701,7 +698,7 @@ export class EncSpatialIndex {
         // No charted feature's bbox even contains the point → this cell
         // charts NOTHING here: a data gap / unsurveyed area inside its own
         // bbox. NOT authoritatively clear — covered:false lets the router
-        // fall back to GEBCO rather than trust a false-clear (mission audit,
+        // fall back to ETOPO rather than trust a false-clear (mission audit,
         // the UNSARE/unsurveyed grounding gap: covered used to key off the
         // cell BBOX, so gap water read as ENC-validated clear water).
         if (candidates.length === 0) {
@@ -724,8 +721,8 @@ export class EncSpatialIndex {
                 // from the guard-radius-PADDED bbox; confirm it with a real
                 // distance test so the true detection zone is a circle of
                 // POINT_HAZARD_GUARD_RADIUS_M, not the padded square. This is
-                // what lets a 231 m-spaced route sample detect a charted rock
-                // it doesn't land exactly on (mission audit fix).
+                // what lets a nearby route sample detect a charted rock it
+                // doesn't land exactly on (mission audit fix).
                 const [hLon, hLat] = geom.coordinates as [number, number];
                 inside = metresBetween(lat, lon, hLat, hLon) <= POINT_HAZARD_GUARD_RADIUS_M;
             } else if (geom.type === 'LineString' || geom.type === 'MultiLineString') {
@@ -740,7 +737,7 @@ export class EncSpatialIndex {
             // feature is DEEP water (classifyHazard → null below). EXCEPT a
             // spot sounding: a lone SOUNDG within the guard radius is hazard
             // EVIDENCE, never area coverage — it must not be able to suppress
-            // the GEBCO fallback on its own (burn-down 2026-07-16).
+            // the coarse ETOPO fallback on its own (burn-down 2026-07-16).
             if (entry.hazard.layer !== 'SOUNDG') insideCharted = true;
 
             const type = classifyHazard(entry.hazard);
@@ -760,7 +757,7 @@ export class EncSpatialIndex {
         // A FOUND hazard is authoritative danger evidence regardless of area
         // coverage — a shoal sounding sitting in a coverage gap must still
         // flag. `soundingOnly` marks the no-area-coverage case so the caller
-        // can fall through to GEBCO if the draft re-eval clears it (a lone
+        // can fall through to ETOPO if the draft re-eval clears it (a lone
         // 12 m sounding must not certify the water around it).
         if (bestType !== null) {
             return {
@@ -775,7 +772,7 @@ export class EncSpatialIndex {
         }
 
         // Inside the cell bbox and inside the candidates' bboxes, but inside
-        // NO actual polygon → still a gap. Fall back to GEBCO.
+        // NO actual polygon → still a gap. Fall back to ETOPO.
         if (!insideCharted) {
             return { covered: false, hazard: false, minDepthM: null };
         }
@@ -784,20 +781,20 @@ export class EncSpatialIndex {
     }
 
     /**
-     * Worst POLYGON hazard the SEGMENT (lat1,lon1)→(lat2,lon2) CROSSES —
+     * Worst charted hazard the SEGMENT (lat1,lon1)→(lat2,lon2) CROSSES —
      * even when neither endpoint nor any discrete route sample falls inside
      * it. This closes the gap where a charted shoal DEPARE / LNDARE islet
-     * NARROWER than the route sample spacing (231 m) slips between two
+     * NARROWER than the route sample spacing slips between two
      * consecutive samples and reads as clear (mission audit #1, the top
      * remaining fail-dangerous finding).
      *
-     * Only AREA features are tested here — point/line hazards are already
-     * caught by the guarded queryPoint sampling, and re-testing them would
-     * double-count. A segment "crosses" a polygon if either endpoint is
-     * inside it OR the segment line intersects any polygon edge. Returns the
-     * same covered/hazard shape as queryPoint so it folds through
+     * AREA, POINT, and LINE features are all tested here. A segment "crosses"
+     * a polygon if either endpoint is inside it or the segment line intersects
+     * an edge; point/line dangers use the same 150 m corridor as queryPoint.
+     * This exact leg pass is the spacing-independent backstop. Returns the same
+     * covered/hazard shape as queryPoint so it folds through
      * mergeHazardResults identically; covered:false when this cell charts no
-     * crossed polygon along the segment.
+     * crossed feature along the segment.
      */
     segmentHazard(
         lat1: number,
@@ -872,7 +869,8 @@ export class EncSpatialIndex {
             } else if (geom.type === 'Point') {
                 // Point hazard within the guard corridor of the segment. This
                 // is what catches a charted rock/wreck on a SHORT terminal leg
-                // that sampleSegment skips (<231 m) — the sampled point query
+                // that sampleSegment skips because it is shorter than the
+                // current sampling interval — the sampled point query
                 // can't see it, but the segment can (mission audit: terminal-
                 // leg POINT blind zone). Also a redundant backstop on long legs.
                 const [hLon, hLat] = geom.coordinates as [number, number];

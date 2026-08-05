@@ -35,6 +35,7 @@
 import { CapacitorHttp } from '@capacitor/core';
 import { createLogger } from '../utils/createLogger';
 import { PI_INTEGRATION_ENABLED, PI_PUBLIC_BETA_UNAVAILABLE_MESSAGE } from './piPublicBetaBoundary';
+import { utf8ByteLength } from './enc/types';
 
 const log = createLogger('PiPairing');
 
@@ -289,9 +290,21 @@ export async function fetchVerifiedFromPi<T>(options: {
     readTimeout?: number;
     /** Extra binding for POSTs — see routeRequestBinding. */
     requestBinding?: string;
+    /** Reject oversized navigation payloads before hashing/JSON.parse. The
+     * native bridge has already received the response, but this still avoids
+     * turning an accidental/hostile body into multiple further heap copies. */
+    maxResponseBytes?: number;
 }): Promise<T> {
     if (!PI_INTEGRATION_ENABLED) throw new Error(PI_PUBLIC_BETA_UNAVAILABLE_MESSAGE);
-    const { url, method = 'GET', data, connectTimeout = 5000, readTimeout = 30000, requestBinding } = options;
+    const {
+        url,
+        method = 'GET',
+        data,
+        connectTimeout = 5000,
+        readTimeout = 30000,
+        requestBinding,
+        maxResponseBytes,
+    } = options;
 
     const res =
         method === 'POST'
@@ -307,6 +320,12 @@ export async function fetchVerifiedFromPi<T>(options: {
 
     if (res.status < 200 || res.status >= 300) throw new Error(`HTTP ${res.status}`);
     const body = typeof res.data === 'string' ? res.data : JSON.stringify(res.data);
+    if (maxResponseBytes !== undefined) {
+        if (!Number.isFinite(maxResponseBytes) || maxResponseBytes <= 0) throw new Error('Invalid response size limit');
+        if (body.length > maxResponseBytes || utf8ByteLength(body, maxResponseBytes) > maxResponseBytes) {
+            throw new Error(`Pi response exceeds the ${(maxResponseBytes / 1_048_576).toFixed(0)} MB safety limit`);
+        }
+    }
 
     const pairing = getPairing();
     if (pairing) {

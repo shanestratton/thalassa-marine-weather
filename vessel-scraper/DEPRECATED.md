@@ -22,7 +22,9 @@
 
 ## Do not deploy
 
-`railway.toml` is still present for reference, but this directory should
-**not** be redeployed. If you're reading this because a cron looks broken,
-check the Supabase function logs first — the old worker is no longer the
-source of truth.
+`railway.toml`, `Dockerfile`, and the package `start` command now fail closed
+instead of retaining a runnable deployment path. They remain temporarily as
+an explicit guard while the owner verifies that the external Railway service
+has been stopped and deleted. If you're reading this because a cron looks
+broken, check the Supabase function logs first — the old worker is no longer
+the source of truth.

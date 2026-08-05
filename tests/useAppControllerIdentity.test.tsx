@@ -14,6 +14,11 @@ const h = vi.hoisted(() => ({
     updateSettings: vi.fn(),
     setPage: vi.fn(),
     getCurrentPosition: vi.fn(),
+    getCurrentPositionIfGranted: vi.fn(),
+    requestCurrentForegroundPosition: vi.fn(),
+    checkLocationPermissions: vi.fn(),
+    requestLocationPermissions: vi.fn(),
+    getNativeCurrentPosition: vi.fn(),
 }));
 
 vi.mock('../context/WeatherContext', () => ({
@@ -80,13 +85,16 @@ vi.mock('../services/supabase', () => ({
 vi.mock('../services/GpsService', () => ({
     GpsService: {
         getCurrentPosition: h.getCurrentPosition,
+        getCurrentPositionIfGranted: h.getCurrentPositionIfGranted,
+        requestCurrentForegroundPosition: h.requestCurrentForegroundPosition,
     },
 }));
 
 vi.mock('@capacitor/geolocation', () => ({
     Geolocation: {
-        requestPermissions: vi.fn(),
-        getCurrentPosition: vi.fn(),
+        checkPermissions: h.checkLocationPermissions,
+        requestPermissions: h.requestLocationPermissions,
+        getCurrentPosition: h.getNativeCurrentPosition,
     },
 }));
 
@@ -117,6 +125,14 @@ describe('useAppController account boundary', () => {
         h.authChecked = true;
         h.getBoat.mockResolvedValue({ data: null, error: null });
         h.getCurrentPosition.mockResolvedValue(null);
+        h.getCurrentPositionIfGranted.mockResolvedValue(null);
+        h.requestCurrentForegroundPosition.mockResolvedValue(null);
+        h.checkLocationPermissions.mockResolvedValue({ location: 'denied', coarseLocation: 'denied' });
+        h.requestLocationPermissions.mockResolvedValue({ location: 'granted', coarseLocation: 'granted' });
+        h.getNativeCurrentPosition.mockResolvedValue({
+            coords: { latitude: -27.4, longitude: 153.1 },
+            timestamp: Date.now(),
+        });
         vi.mocked(Preferences.set).mockReset().mockResolvedValue(undefined);
         setAuthIdentityScope(null);
         setAuthIdentityScope('controller-a');
@@ -181,23 +197,96 @@ describe('useAppController account boundary', () => {
         expect(localStorage.getItem(accountAKey)).toBeNull();
     });
 
-    it('drops A GPS boot completion after B becomes active', async () => {
+    it('never requests Location while restoring a returning account', async () => {
+        h.getBoat.mockResolvedValueOnce({ data: { id: 'boat-a' }, error: null });
+
+        renderHook(() => useAppController());
+
+        await waitFor(() => expect(h.getBoat).toHaveBeenCalledWith('controller-a'));
+        await waitFor(() =>
+            expect(localStorage.getItem(authScopedStorageKey('thalassa_v3_onboarded', getAuthIdentityScope()))).toBe(
+                'true',
+            ),
+        );
+        expect(h.requestLocationPermissions).not.toHaveBeenCalled();
+        expect(h.requestCurrentForegroundPosition).not.toHaveBeenCalled();
+        expect(h.getCurrentPosition).not.toHaveBeenCalled();
+    });
+
+    it('keeps an onboarded boot quiet when Location is not already granted', async () => {
         localStorage.setItem(authScopedStorageKey('thalassa_v3_onboarded'), 'true');
-        let resolveGps!: (value: { latitude: number; longitude: number }) => void;
-        h.getCurrentPosition.mockReturnValueOnce(
+
+        renderHook(() => useAppController());
+
+        await waitFor(() => expect(h.getCurrentPositionIfGranted).toHaveBeenCalledOnce());
+        expect(h.checkLocationPermissions).not.toHaveBeenCalled();
+        expect(h.requestLocationPermissions).not.toHaveBeenCalled();
+        expect(h.getNativeCurrentPosition).not.toHaveBeenCalled();
+        expect(h.requestCurrentForegroundPosition).not.toHaveBeenCalled();
+        expect(h.getCurrentPosition).not.toHaveBeenCalled();
+    });
+
+    it('uses the lightweight one-shot provider when Location was already granted', async () => {
+        localStorage.setItem(authScopedStorageKey('thalassa_v3_onboarded'), 'true');
+        h.getCurrentPositionIfGranted.mockResolvedValueOnce({
+            latitude: -27.4,
+            longitude: 153.1,
+            accuracy: 8,
+            altitude: null,
+            heading: null,
+            speed: 0,
+            timestamp: Date.now(),
+        });
+
+        renderHook(() => useAppController());
+
+        await waitFor(() =>
+            expect(h.selectLocation).toHaveBeenCalledWith('Current Location', { lat: -27.4, lon: 153.1 }),
+        );
+        expect(h.getCurrentPositionIfGranted).toHaveBeenCalledWith({
+            staleLimitMs: 60_000,
+            timeoutSec: 8,
+        });
+        expect(h.checkLocationPermissions).not.toHaveBeenCalled();
+        expect(h.getNativeCurrentPosition).not.toHaveBeenCalled();
+        expect(h.requestLocationPermissions).not.toHaveBeenCalled();
+        expect(h.requestCurrentForegroundPosition).not.toHaveBeenCalled();
+        expect(h.getCurrentPosition).not.toHaveBeenCalled();
+    });
+
+    it('drops A lightweight GPS boot completion after B becomes active', async () => {
+        localStorage.setItem(authScopedStorageKey('thalassa_v3_onboarded'), 'true');
+        let resolveGps!: (value: {
+            latitude: number;
+            longitude: number;
+            accuracy: number;
+            altitude: null;
+            heading: null;
+            speed: number;
+            timestamp: number;
+        }) => void;
+        h.getCurrentPositionIfGranted.mockReturnValueOnce(
             new Promise((resolve) => {
                 resolveGps = resolve;
             }),
         );
         renderHook(() => useAppController());
-        await waitFor(() => expect(h.getCurrentPosition).toHaveBeenCalledOnce());
+        await waitFor(() => expect(h.getCurrentPositionIfGranted).toHaveBeenCalledOnce());
 
         act(() => {
             h.user = { id: 'controller-b' };
             setAuthIdentityScope('controller-b');
         });
         await act(async () => {
-            resolveGps({ latitude: -27.4, longitude: 153.1 });
+            resolveGps({
+                latitude: -27.4,
+                longitude: 153.1,
+                accuracy: 8,
+                altitude: null,
+                heading: null,
+                speed: 0,
+                timestamp: Date.now(),
+            });
         });
 
         expect(h.selectLocation).not.toHaveBeenCalled();

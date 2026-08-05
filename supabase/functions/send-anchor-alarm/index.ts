@@ -192,7 +192,8 @@ serve(async (req: Request) => {
         const distanceStr = Math.round(distance_m);
         const radiusStr = Math.round(swing_radius_m);
         const title = '⚓ ANCHOR DRAG ALARM';
-        const body = `Your vessel has drifted ${distanceStr}m from anchor (${radiusStr}m swing radius). Check immediately!`;
+        const body =
+            `Your vessel has drifted ${distanceStr}m from anchor (${radiusStr}m swing radius). Check immediately!`;
 
         const results = await Promise.all(
             tokens.map((t: { device_token: string }) =>
@@ -203,7 +204,7 @@ serve(async (req: Request) => {
                     swing_radius_m,
                     vessel_lat,
                     vessel_lon,
-                }),
+                })
             ),
         );
 

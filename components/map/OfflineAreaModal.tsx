@@ -5,15 +5,21 @@
  * (defaults to 8–13 — a good cruising sweet spot), shows a tile-count
  * and size estimate, and runs the download via MapOfflineService.
  *
- * Tiles are routed through the Pi when the boat network is up,
- * otherwise they're cached by the service worker on the phone.
+ * Tiles are routed through the Pi when the boat network is up. Otherwise they
+ * are persisted in app storage on native or CacheStorage on the web.
  */
 import React, { useState, useMemo, useRef, useCallback } from 'react';
 import type mapboxgl from 'mapbox-gl';
 import { ModalSheet } from '../ui/ModalSheet';
 import { triggerHaptic } from '../../utils/system';
-import { MapOfflineService, type OfflineBounds, type OfflineDownloadProgress } from '../../services/MapOfflineService';
+import {
+    BULK_OFFLINE_PREFETCH_CAPABILITY,
+    MapOfflineService,
+    type OfflineBounds,
+    type OfflineDownloadProgress,
+} from '../../services/MapOfflineService';
 import { piCache } from '../../services/PiCacheService';
+import { Capacitor } from '@capacitor/core';
 
 interface OfflineAreaModalProps {
     isOpen: boolean;
@@ -57,6 +63,7 @@ export const OfflineAreaModal: React.FC<OfflineAreaModalProps> = ({ isOpen, onCl
     const sizeMB = useMemo(() => MapOfflineService.estimateSizeMB(tileCount), [tileCount]);
 
     const route: 'pi' | 'direct' = piCache.isAvailable() ? 'pi' : 'direct';
+    const directStorageLabel = Capacitor.isNativePlatform() ? 'persistent app storage' : 'browser offline storage';
 
     const busy = progress?.phase === 'downloading';
     const done = progress?.phase === 'done';
@@ -91,6 +98,30 @@ export const OfflineAreaModal: React.FC<OfflineAreaModalProps> = ({ isOpen, onCl
 
     const canDownload = bounds && tileCount > 0 && tileCount < 20000 && !busy;
 
+    if (!BULK_OFFLINE_PREFETCH_CAPABILITY.enabled) {
+        return (
+            <ModalSheet isOpen={isOpen} onClose={handleClose} title="Offline Charts" maxWidth="max-w-md">
+                <div className="space-y-3 text-[13px] leading-relaxed text-gray-300">
+                    <div role="status" className="rounded-xl border border-amber-500/25 bg-amber-500/[0.08] p-3">
+                        <p className="font-bold text-amber-200">Area download unavailable for this map source</p>
+                        <p className="mt-1 text-xs text-amber-100/75">{BULK_OFFLINE_PREFETCH_CAPABILITY.reason}</p>
+                    </div>
+                    <p className="text-xs text-gray-400">
+                        You can still import MBTiles, GeoTIFF, KAP and licensed o-charts in Chart Locker. Charts already
+                        installed on your phone or boat Pi are unaffected.
+                    </p>
+                    <button
+                        type="button"
+                        onClick={handleClose}
+                        className="w-full rounded-xl border border-white/10 bg-white/[0.05] py-3 text-xs font-bold text-white"
+                    >
+                        Close
+                    </button>
+                </div>
+            </ModalSheet>
+        );
+    }
+
     return (
         <ModalSheet isOpen={isOpen} onClose={handleClose} title="Download Offline Area" maxWidth="max-w-md">
             <div className="space-y-4 text-[13px] text-gray-300">
@@ -108,7 +139,7 @@ export const OfflineAreaModal: React.FC<OfflineAreaModalProps> = ({ isOpen, onCl
                         <p className="text-[11px] text-gray-500">
                             {route === 'pi'
                                 ? 'Pi detected — tiles cached on boat network for all devices.'
-                                : 'No Pi detected — tiles cached in the phone\u2019s browser.'}
+                                : `No Pi detected — tiles saved in ${directStorageLabel}.`}
                         </p>
                     </div>
                 </div>

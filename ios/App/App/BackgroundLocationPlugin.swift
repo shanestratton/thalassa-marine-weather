@@ -146,13 +146,10 @@ public class BackgroundLocationPlugin: CAPPlugin, CLLocationManagerDelegate {
     }
 
     /**
-     * Best-effort MFi accessory metadata. iOS only exposes accessories whose
-     * protocols this app declares — Info.plist now carries
-     * UISupportedExternalAccessoryProtocols with com.bad-elf.gps
-     * (2026-08-02), so a paired Bad Elf shows up here by name/model even
-     * between fixes. We never scan Bluetooth or open an EASession; the JS
-     * layer uses this only to enrich a verified external-location source
-     * with a human-readable identity.
+     * Best-effort MFi accessory metadata. The public-beta target intentionally
+     * declares no vendor-specific External Accessory protocol without written
+     * vendor authorisation. Core Location still uses an external receiver
+     * system-wide; its human-readable accessory metadata may be unavailable.
      */
     @objc func getConnectedAccessories(_ call: CAPPluginCall) {
         DispatchQueue.main.async {

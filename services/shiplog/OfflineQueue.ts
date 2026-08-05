@@ -11,6 +11,7 @@ import { Preferences } from '@capacitor/preferences';
 import { ShipLogEntry } from '../../types';
 import { supabase, getCurrentUser } from '../supabase';
 import { createLogger } from '../../utils/createLogger';
+import { boundedLocalQuarantine } from '../../utils/localPrivacyRetention';
 import { SHIP_LOGS_TABLE, toDbFormat } from './helpers';
 import {
     authScopedStorageKey,
@@ -338,22 +339,28 @@ async function quarantineLegacyValues(
     if (value) {
         try {
             const parsed = JSON.parse(value) as unknown;
-            if (Array.isArray(parsed)) existing = parsed;
+            existing = Array.isArray(parsed) ? parsed : [parsed];
         } catch {
-            existing = [{ unreadable_quarantine_payload: value }];
+            existing = [
+                {
+                    quarantined_at: new Date().toISOString(),
+                    reason: 'unreadable prior ship-log quarantine',
+                    unreadable_quarantine_payload: value,
+                },
+            ];
         }
     }
+    const retained = boundedLocalQuarantine(existing, [
+        {
+            kind,
+            reason: 'missing or ambiguous owner',
+            quarantined_at: new Date().toISOString(),
+            values,
+        },
+    ]);
     await Preferences.set({
         key: OFFLINE_QUEUE_QUARANTINE_KEY,
-        value: JSON.stringify([
-            ...existing,
-            {
-                kind,
-                reason: 'missing or ambiguous owner',
-                quarantined_at: new Date().toISOString(),
-                values,
-            },
-        ]),
+        value: JSON.stringify(retained),
     });
 }
 

@@ -20,6 +20,12 @@ import {
     subscribeAuthIdentityScope,
     type AuthIdentityScope,
 } from './authIdentityScope';
+import {
+    captureOwnedMediaAuthorization,
+    retainUncertainOwnedMedia,
+    retireOwnedMedia,
+    type OwnedMediaAuthorization,
+} from './OwnedMediaCleanupService';
 
 // --- CONFIG ---
 const BUCKET_NAME = 'chat-avatars';
@@ -28,6 +34,33 @@ const JPEG_QUALITY = 0.8;
 const MAX_FILE_BYTES = 2 * 1024 * 1024; // 2MB after compression
 const PROFILES_TABLE = 'chat_profiles';
 const log = createLogger('ProfilePhoto');
+
+function uniqueOwnedProfilePaths(ownerId: string, files: Array<{ name?: unknown }> | null | undefined): string[] {
+    return [
+        ...new Set(
+            (files || [])
+                .map((file) => (typeof file.name === 'string' ? file.name.trim() : ''))
+                .filter((name) => name && !name.includes('/') && name !== '.' && name !== '..')
+                .map((name) => `${ownerId}/${name}`),
+        ),
+    ];
+}
+
+async function retireProfilePaths(
+    identity: AuthIdentityScope,
+    authorization: OwnedMediaAuthorization | null,
+    paths: Iterable<string>,
+): Promise<void> {
+    for (const path of new Set(paths)) {
+        await retireOwnedMedia(identity, authorization, BUCKET_NAME, path);
+    }
+}
+
+function retainUncertainProfilePaths(identity: AuthIdentityScope, paths: Iterable<string>): void {
+    for (const path of new Set(paths)) {
+        retainUncertainOwnedMedia(identity, BUCKET_NAME, path, { kind: 'chat-profile-avatar' });
+    }
+}
 
 /**
  * The columns clients may SELECT from chat_profiles — NOT a style preference.
@@ -314,6 +347,10 @@ export const uploadProfilePhoto = async (
     if (!supabase) return { success: false, error: 'Supabase not configured' };
 
     const identity = getAuthIdentityScope();
+    let uploadedPath: string | null = null;
+    let uploadDisposition: 'none' | 'uncommitted' | 'uncertain' | 'adopted' = 'none';
+    let cleanupAuthorization: OwnedMediaAuthorization | null = null;
+    let previousPaths: string[] = [];
     try {
         const ownerId = await verifyAuthenticatedOwner(identity);
         if (!ownerId) return { success: false, error: 'Not authenticated or account changed' };
@@ -354,6 +391,12 @@ export const uploadProfilePhoto = async (
         if (!isAuthIdentityScopeCurrent(identity)) {
             return { success: false, error: 'Account changed during upload' };
         }
+        previousPaths = uniqueOwnedProfilePaths(ownerId, existingFiles);
+
+        cleanupAuthorization = await captureOwnedMediaAuthorization(identity);
+        if (!cleanupAuthorization || !isAuthIdentityScopeCurrent(identity)) {
+            return { success: false, error: 'Not authenticated or account changed' };
+        }
 
         const { error: uploadError } = await supabase.storage.from(BUCKET_NAME).upload(fileName, compressed, {
             contentType: 'image/jpeg',
@@ -363,6 +406,8 @@ export const uploadProfilePhoto = async (
         if (uploadError) {
             return { success: false, error: `Upload failed: ${uploadError.message}` };
         }
+        uploadedPath = fileName;
+        uploadDisposition = 'uncommitted';
         if (!isAuthIdentityScopeCurrent(identity)) {
             return { success: false, error: 'Account changed during upload' };
         }
@@ -371,46 +416,80 @@ export const uploadProfilePhoto = async (
         const { data: urlData } = supabase.storage.from(BUCKET_NAME).getPublicUrl(fileName);
 
         const publicUrl = urlData?.publicUrl;
-        if (!publicUrl) return { success: false, error: 'Failed to get public URL' };
-
-        // Step 5: Save to profile
-        reportProgress(identity, onProgress, 'Saving profile...');
-        const { error: profileError } = await supabase.from(PROFILES_TABLE).upsert(
-            {
-                user_id: ownerId,
-                avatar_url: publicUrl,
-                updated_at: new Date().toISOString(),
-            },
-            { onConflict: 'user_id' },
-        );
-        if (profileError) return { success: false, error: `Could not save profile photo: ${profileError.message}` };
+        if (!publicUrl) {
+            return { success: false, error: 'Failed to get public URL' };
+        }
         if (!isAuthIdentityScopeCurrent(identity)) {
             return { success: false, error: 'Account changed during upload' };
         }
 
+        // Step 5: Save to profile
+        reportProgress(identity, onProgress, 'Saving profile...');
+        let profileResult: {
+            data: { user_id?: unknown; avatar_url?: unknown } | null;
+            error: { message: string } | null;
+        };
+        try {
+            profileResult = await supabase
+                .from(PROFILES_TABLE)
+                .upsert(
+                    {
+                        user_id: ownerId,
+                        avatar_url: publicUrl,
+                        updated_at: new Date().toISOString(),
+                    },
+                    { onConflict: 'user_id' },
+                )
+                .select('user_id, avatar_url')
+                .maybeSingle();
+        } catch (error) {
+            uploadDisposition = 'uncertain';
+            retainUncertainProfilePaths(identity, [fileName, ...previousPaths]);
+            const message = error instanceof Error ? error.message : 'Profile write response was unavailable';
+            return {
+                success: false,
+                error: isAuthIdentityScopeCurrent(identity)
+                    ? `Could not verify saved profile photo: ${message}`
+                    : 'Account changed during upload',
+            };
+        }
+        if (!isAuthIdentityScopeCurrent(identity)) {
+            uploadDisposition = 'uncertain';
+            retainUncertainProfilePaths(identity, [fileName, ...previousPaths]);
+            return { success: false, error: 'Account changed during upload' };
+        }
+        const { data: savedProfile, error: profileError } = profileResult;
+        if (profileError) {
+            return { success: false, error: `Could not save profile photo: ${profileError.message}` };
+        }
+        if (savedProfile?.user_id !== ownerId || savedProfile.avatar_url !== publicUrl) {
+            uploadDisposition = 'uncertain';
+            retainUncertainProfilePaths(identity, [fileName, ...previousPaths]);
+            return { success: false, error: 'Could not verify the saved profile photo' };
+        }
+        uploadDisposition = 'adopted';
+
         // Step 6: Update cache
         avatarCache.set(ownerId, publicUrl);
 
-        // The new profile is committed. Old storage objects are now safe to
-        // remove; cleanup failure must not misreport the successful upload.
-        if (existingFiles && existingFiles.length > 0) {
-            const filesToRemove = existingFiles.map((file) => `${ownerId}/${file.name}`);
-            try {
-                await supabase.storage.from(BUCKET_NAME).remove(filesToRemove);
-            } catch {
-                // The profile already references the new object. An orphaned
-                // old object is preferable to telling the user the upload
-                // failed when their visible profile was updated correctly.
-            }
-            if (!isAuthIdentityScopeCurrent(identity)) {
-                return { success: false, error: 'Account changed during upload' };
-            }
+        // Exact owner-row adoption makes only old minus new paths disposable.
+        await retireProfilePaths(
+            identity,
+            cleanupAuthorization,
+            previousPaths.filter((path) => path !== fileName),
+        );
+        if (!isAuthIdentityScopeCurrent(identity)) {
+            return { success: false, error: 'Account changed during upload' };
         }
 
         return { success: true, url: publicUrl };
     } catch (e) {
         const msg = e instanceof Error ? e.message : 'Unknown error';
         return { success: false, error: msg };
+    } finally {
+        if (uploadedPath && uploadDisposition === 'uncommitted') {
+            await retireOwnedMedia(identity, cleanupAuthorization, BUCKET_NAME, uploadedPath);
+        }
     }
 };
 
@@ -424,27 +503,45 @@ export const removeProfilePhoto = async (): Promise<boolean> => {
     const ownerId = await verifyAuthenticatedOwner(identity);
     if (!ownerId) return false;
 
-    // Remove from storage
+    // Snapshot exact owner paths first, but never mutate storage until the
+    // canonical row has returned avatar_url=null for this owner.
     const { data: files, error: listError } = await supabase.storage.from(BUCKET_NAME).list(ownerId);
     if (listError || !isAuthIdentityScopeCurrent(identity)) return false;
+    const previousPaths = uniqueOwnedProfilePaths(ownerId, files);
+    const cleanupAuthorization = await captureOwnedMediaAuthorization(identity);
+    if (!cleanupAuthorization || !isAuthIdentityScopeCurrent(identity)) return false;
 
-    if (files && files.length > 0) {
-        const filesToRemove = files.map((f) => `${ownerId}/${f.name}`);
-        const { error: removeError } = await supabase.storage.from(BUCKET_NAME).remove(filesToRemove);
-        if (removeError || !isAuthIdentityScopeCurrent(identity)) return false;
+    let profileResult: {
+        data: { user_id?: unknown; avatar_url?: unknown } | null;
+        error: { message: string } | null;
+    };
+    try {
+        profileResult = await supabase
+            .from(PROFILES_TABLE)
+            .update({ avatar_url: null, updated_at: new Date().toISOString() })
+            .eq('user_id', ownerId)
+            .select('user_id, avatar_url')
+            .maybeSingle();
+    } catch {
+        retainUncertainProfilePaths(identity, previousPaths);
+        return false;
     }
-
-    // Clear from profile
-    const { error: profileError } = await supabase
-        .from(PROFILES_TABLE)
-        .update({ avatar_url: null, updated_at: new Date().toISOString() })
-        .eq('user_id', ownerId);
-    if (profileError || !isAuthIdentityScopeCurrent(identity)) return false;
+    if (!isAuthIdentityScopeCurrent(identity)) {
+        retainUncertainProfilePaths(identity, previousPaths);
+        return false;
+    }
+    const { data: savedProfile, error: profileError } = profileResult;
+    if (profileError) return false;
+    if (savedProfile?.user_id !== ownerId || savedProfile.avatar_url !== null) {
+        retainUncertainProfilePaths(identity, previousPaths);
+        return false;
+    }
 
     // Clear cache
     avatarCache.delete(ownerId);
+    await retireProfilePaths(identity, cleanupAuthorization, previousPaths);
 
-    return true;
+    return isAuthIdentityScopeCurrent(identity);
 };
 
 /**

@@ -120,11 +120,13 @@ export function useWeatherInspectPopup(
             const view: {
                 data: PointWeatherData | null;
                 loading: boolean;
+                error: string | null;
                 suggestedName: string;
                 savedAs: string | null;
             } = {
                 data: null,
                 loading: true,
+                error: null,
                 suggestedName: coordName(lat, lon),
                 savedAs: findSavedAt(settingsRef.current.savedLocationCoords, lat, lon),
             };
@@ -159,6 +161,8 @@ export function useWeatherInspectPopup(
                         <WIP
                             data={view.data}
                             loading={view.loading}
+                            error={view.error}
+                            onRetry={() => loadWeather()}
                             onClose={closePopup}
                             save={{
                                 suggestedName: view.suggestedName,
@@ -232,24 +236,37 @@ export function useWeatherInspectPopup(
                 inspectLoadingRef.current = false;
             });
 
-            import('../../services/weather/pointWeather')
-                .then(({ fetchPointWeather }) => fetchPointWeather(lat, lon))
-                .then((data) => {
-                    if (!inspectPopupRef.current) return; // popup was closed
-                    inspectDataRef.current = data;
-                    inspectLoadingRef.current = false;
-                    view.data = data;
-                    view.loading = false;
-                    paint();
-                })
-                .catch(() => {
-                    inspectLoadingRef.current = false;
-                    // Drop the skeleton rather than spinning forever — the save
-                    // row still stands, so a failed forecast doesn't cost the
-                    // punter the spot they tapped.
-                    view.loading = false;
-                    paint();
-                });
+            const loadWeather = (): void => {
+                if (inspectRootRef.current !== root) return;
+                view.loading = true;
+                view.error = null;
+                inspectLoadingRef.current = true;
+                paint();
+                void import('../../services/weather/pointWeather')
+                    .then(({ fetchPointWeather }) => fetchPointWeather(lat, lon))
+                    .then((data) => {
+                        if (inspectRootRef.current !== root || !inspectPopupRef.current) return;
+                        if (!data) throw new Error('No atmospheric report was returned for this position.');
+                        inspectDataRef.current = data;
+                        inspectLoadingRef.current = false;
+                        view.data = data;
+                        view.loading = false;
+                        view.error = null;
+                        paint();
+                    })
+                    .catch((cause: unknown) => {
+                        if (inspectRootRef.current !== root || !inspectPopupRef.current) return;
+                        inspectLoadingRef.current = false;
+                        view.loading = false;
+                        view.error =
+                            cause instanceof Error && cause.message.includes('No atmospheric report')
+                                ? cause.message
+                                : 'Check the internet connection and try this point again.';
+                        paint();
+                    });
+            };
+
+            loadWeather();
         },
         [mapRef, settingsRef, updateSettings, closeWeatherInspect],
     );

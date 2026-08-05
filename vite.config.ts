@@ -2,14 +2,93 @@
 import path from 'path';
 import http from 'http';
 import net from 'node:net';
-import { defineConfig, loadEnv } from 'vite';
+import fs from 'node:fs';
+import { defineConfig, loadEnv, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import { visualizer } from 'rollup-plugin-visualizer';
 import { fileURLToPath } from 'url';
+import {
+    PUBLIC_BETA_FEATURE_ARTIFACT_FILE,
+    publicBetaCredentialPresenceFromEnvironment,
+    publicBetaFeatureDefines,
+    publicBetaFeatureEnvironmentConflicts,
+    readPublicBetaFeatureProfile,
+    serializePublicBetaFeatureArtifact,
+} from './scripts/public-beta-feature-profile.mjs';
 
 // Define __dirname for ESM context
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const publicBetaFeatureProfile = readPublicBetaFeatureProfile(__dirname);
+
+export const MARINE_PROXY_DATASETS = ['currents', 'waves', 'sst', 'chl', 'seaice', 'mld', 'mpa'] as const;
+
+/**
+ * Local QA must exercise the same shard-aware Edge boundary as production.
+ * Rolling GitHub tags carry redundant manifest-v2-a/b.json discovery slots;
+ * immutable generation files live in ISO-week asset tags selected by the
+ * canonical proxy.
+ */
+export const canonicalMarineDevProxy = Object.fromEntries(
+    MARINE_PROXY_DATASETS.map((dataset) => [
+        `/api/${dataset}`,
+        {
+            target: 'https://thalassawx.vercel.app',
+            changeOrigin: true,
+        },
+    ]),
+);
+
+function releasePublicBetaFeatureManifest(credentialPresence: Record<string, boolean>): Plugin {
+    const source = serializePublicBetaFeatureArtifact(publicBetaFeatureProfile, credentialPresence);
+    const define = publicBetaFeatureDefines(publicBetaFeatureProfile);
+
+    return {
+        name: 'release-public-beta-feature-manifest',
+        apply: 'build',
+        config() {
+            // The committed profile owns production feature switches and
+            // public endpoint choices. Local files and CI/Vercel variables
+            // cannot silently create a different release candidate.
+            return { define };
+        },
+        generateBundle() {
+            this.emitFile({
+                type: 'asset',
+                fileName: PUBLIC_BETA_FEATURE_ARTIFACT_FILE,
+                source,
+            });
+        },
+    };
+}
+
+function releasePublicInputFence() {
+    let outDir = path.resolve(__dirname, 'dist');
+
+    function removeFinderMetadata(directory: string): void {
+        if (!fs.existsSync(directory)) return;
+        for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+            const target = path.join(directory, entry.name);
+            if (entry.isDirectory()) removeFinderMetadata(target);
+            else if (entry.name === '.DS_Store') fs.rmSync(target, { force: true });
+        }
+    }
+
+    return {
+        name: 'release-public-input-fence',
+        apply: 'build' as const,
+        configResolved(config: { root: string; build: { outDir: string } }) {
+            outDir = path.resolve(config.root, config.build.outDir);
+        },
+        closeBundle() {
+            // `public/enc-samples` is an ignored local chart-development input.
+            // It must never make a submitted web/Capacitor artifact differ from
+            // a clean CI checkout, regardless of the cell's provenance.
+            fs.rmSync(path.join(outDir, 'enc-samples'), { recursive: true, force: true });
+            removeFinderMetadata(outDir);
+        },
+    };
+}
 
 function isAllowedLanChartHost(host: string): boolean {
     const normalized = host.toLowerCase().replace(/^\[|\]$/g, '');
@@ -32,6 +111,48 @@ function isAllowedLanChartHost(host: string): boolean {
     );
 }
 
+/**
+ * `vite preview` serves the production bytes but does not interpret
+ * `vercel.json`. Mirror the small, public document-routing surface here so
+ * the local release gate can exercise the same deep links without pretending
+ * that it has proved Vercel's edge configuration. The release verifier also
+ * audits `vercel.json` directly and the deployment workflow checks the real
+ * hosted responses.
+ */
+function releasePreviewDocumentRoutes() {
+    return {
+        name: 'release-preview-document-routes',
+        configurePreviewServer(server: any) {
+            server.middlewares.use((req: http.IncomingMessage, res: http.ServerResponse, next: () => void) => {
+                if (req.method !== 'GET' && req.method !== 'HEAD') {
+                    next();
+                    return;
+                }
+
+                const requestUrl = new URL(req.url ?? '/', 'http://127.0.0.1');
+                const pathname = requestUrl.pathname.replace(/\/+$/, '') || '/';
+
+                if (pathname === '/float' || pathname.startsWith('/float/')) {
+                    res.statusCode = 307;
+                    res.setHeader('Location', '/logs');
+                    res.end();
+                    return;
+                }
+
+                let destination: string | null = null;
+                if (pathname === '/terms') destination = '/terms.html';
+                else if (pathname === '/voyage-log-api') destination = '/voyage-log-api.html';
+                else if (pathname === '/logs' || pathname.startsWith('/logs/')) destination = '/logs.html';
+                else if (pathname === '/plan' || pathname.startsWith('/plan/')) destination = '/index.html';
+                else if (pathname !== '/' && !pathname.split('/').pop()?.includes('.')) destination = '/index.html';
+
+                if (destination) req.url = `${destination}${requestUrl.search}`;
+                next();
+            });
+        },
+    };
+}
+
 export default defineConfig(({ mode }) => {
     // 1. Load env vars from local .env files
     const env = loadEnv(mode, __dirname, '');
@@ -43,6 +164,19 @@ export default defineConfig(({ mode }) => {
         if (val) return val;
         return '';
     };
+    const publicBetaCredentialPresence = publicBetaCredentialPresenceFromEnvironment(publicBetaFeatureProfile, {
+        ...env,
+        ...process.env,
+    });
+    const publicBetaEnvironmentConflicts = publicBetaFeatureEnvironmentConflicts(publicBetaFeatureProfile, {
+        ...env,
+        ...process.env,
+    });
+    if (mode === 'production' && publicBetaEnvironmentConflicts.length > 0) {
+        throw new Error(
+            `Production environment disagrees with config/public-beta-features.json: ${publicBetaEnvironmentConflicts.join(', ')}`,
+        );
+    }
 
     return {
         server: {
@@ -71,93 +205,13 @@ export default defineConfig(({ mode }) => {
                     changeOrigin: true,
                     rewrite: (path: string) => path.replace(/^\/api\/nga-msi/, '/api/publications'),
                 },
-                // Proxy CMEMS currents binaries from the rolling GitHub Release.
-                // github.com release URLs 302 to objects.githubusercontent.com
-                // which lacks CORS headers, so we proxy same-origin.
-                // Path is `/api/currents` (not `/currents`) to match prod:
-                // Vercel's Attack Challenge Mode 403s non-API paths but
-                // exempts /api/*, so the client hits /api/currents directly
-                // and skips the rewrite that used to live in vercel.json.
-                '/api/currents': {
-                    target: 'https://github.com',
-                    changeOrigin: true,
-                    followRedirects: true,
-                    rewrite: (path: string) =>
-                        path.replace(
-                            /^\/api\/currents/,
-                            '/shanestratton/thalassa-marine-weather/releases/download/cmems-currents-latest',
-                        ),
-                },
-                // Same pattern for waves (sister pipeline, sister release).
-                '/api/waves': {
-                    target: 'https://github.com',
-                    changeOrigin: true,
-                    followRedirects: true,
-                    rewrite: (path: string) =>
-                        path.replace(
-                            /^\/api\/waves/,
-                            '/shanestratton/thalassa-marine-weather/releases/download/cmems-waves-latest',
-                        ),
-                },
-                // SST (scalar temperature field packed into u-channel).
-                '/api/sst': {
-                    target: 'https://github.com',
-                    changeOrigin: true,
-                    followRedirects: true,
-                    rewrite: (path: string) =>
-                        path.replace(
-                            /^\/api\/sst/,
-                            '/shanestratton/thalassa-marine-weather/releases/download/cmems-sst-latest',
-                        ),
-                },
-                // Chlorophyll (scalar, log-normalised into u-channel).
-                '/api/chl': {
-                    target: 'https://github.com',
-                    changeOrigin: true,
-                    followRedirects: true,
-                    rewrite: (path: string) =>
-                        path.replace(
-                            /^\/api\/chl/,
-                            '/shanestratton/thalassa-marine-weather/releases/download/cmems-chl-latest',
-                        ),
-                },
-                // Sea ice concentration (scalar [0,1] direct into u-channel).
-                '/api/seaice': {
-                    target: 'https://github.com',
-                    changeOrigin: true,
-                    followRedirects: true,
-                    rewrite: (path: string) =>
-                        path.replace(
-                            /^\/api\/seaice/,
-                            '/shanestratton/thalassa-marine-weather/releases/download/cmems-seaice-latest',
-                        ),
-                },
-                // Mixed-layer depth (scalar metres, log10-encoded into u-channel).
-                '/api/mld': {
-                    target: 'https://github.com',
-                    changeOrigin: true,
-                    followRedirects: true,
-                    rewrite: (path: string) =>
-                        path.replace(
-                            /^\/api\/mld/,
-                            '/shanestratton/thalassa-marine-weather/releases/download/cmems-mld-latest',
-                        ),
-                },
+                // Same-origin dev routes retain their /api/{dataset}/... path
+                // and pass through the canonical shard-aware production proxy.
+                ...canonicalMarineDevProxy,
                 // Xweather proxy removed 2026-04-22 with the Xweather
                 // decommission. Lightning moved to Blitzortung WebSocket
                 // (no proxy needed, browser-direct WSS). Squall awaiting
                 // NOAA replacement.
-                // Marine Protected Areas (CAPAD GeoJSON polygons).
-                '/api/mpa': {
-                    target: 'https://github.com',
-                    changeOrigin: true,
-                    followRedirects: true,
-                    rewrite: (path: string) =>
-                        path.replace(
-                            /^\/api\/mpa/,
-                            '/shanestratton/thalassa-marine-weather/releases/download/mpa-aus-latest',
-                        ),
-                },
                 // Proxy Signal K mock server (dev only) — avoids CORS for localhost:3100
                 '/signalk': {
                     target: 'http://localhost:3100',
@@ -170,6 +224,8 @@ export default defineConfig(({ mode }) => {
             },
         },
         plugins: [
+            releasePreviewDocumentRoutes(),
+            mode === 'production' && releasePublicBetaFeatureManifest(publicBetaCredentialPresence),
             // Dev-only mirror of the Vercel rewrite /logs/<handle> → logs.html
             // (vercel.json + middleware.ts own this in prod). Without it the
             // public Voyage Log page can't be exercised locally at all —
@@ -285,6 +341,7 @@ export default defineConfig(({ mode }) => {
                 },
             },
             react(),
+            mode === 'production' && releasePublicInputFence(),
             mode === 'production' &&
                 visualizer({
                     filename: 'bundle-stats.html',
@@ -312,7 +369,7 @@ export default defineConfig(({ mode }) => {
             // 5. Supabase (Backend/Auth)
             'process.env.SUPABASE_URL': JSON.stringify(getKey('VITE_SUPABASE_URL') || getKey('SUPABASE_URL') || ''),
             'process.env.SUPABASE_KEY': JSON.stringify(
-                getKey('VITE_SUPABASE_ANON_KEY') || getKey('VITE_SUPABASE_KEY') || getKey('SUPABASE_KEY') || '',
+                getKey('VITE_SUPABASE_ANON_KEY') || getKey('VITE_SUPABASE_KEY') || '',
             ),
         },
         // Strip debug-noise console.* from production but KEEP .warn and .error

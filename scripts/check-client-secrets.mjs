@@ -30,6 +30,8 @@ export const FORBIDDEN_CLIENT_SECRET_NAMES = [
     'VITE_SPOONACULAR_KEY',
     'VITE_STORMGLASS_API_KEY',
     'VITE_STRIPE_SECRET_KEY',
+    'VITE_SUPABASE_SECRET_KEY',
+    'VITE_SUPABASE_SERVICE_ROLE_KEY',
     // The Transistorsoft licence lives ONLY in Info.plist (TSLocationManager
     // reads it natively). A VITE_ copy served no code path — two dead
     // underscore-prefixed reads inlined the 66-char key into the public
@@ -42,9 +44,29 @@ export const FORBIDDEN_CLIENT_SECRET_NAMES = [
 
 const forbidden = new Set(FORBIDDEN_CLIENT_SECRET_NAMES);
 const violations = [];
+const CLIENT_SUPABASE_KEY_NAMES = new Set(['VITE_SUPABASE_ANON_KEY', 'VITE_SUPABASE_KEY']);
+
+function isPublishableSupabaseClientKey(value) {
+    const key = String(value ?? '').trim().replace(/^(['"])(.*)\1$/, '$2');
+    if (/^sb_publishable_[A-Za-z0-9_-]{20,}$/.test(key)) return true;
+    const parts = key.split('.');
+    if (parts.length !== 3) return false;
+    try {
+        const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
+        return payload?.role === 'anon';
+    } catch {
+        return false;
+    }
+}
 
 for (const name of FORBIDDEN_CLIENT_SECRET_NAMES) {
     if (Object.hasOwn(process.env, name)) violations.push(`process environment: ${name}`);
+}
+for (const name of CLIENT_SUPABASE_KEY_NAMES) {
+    const value = process.env[name];
+    if (value && !isPublishableSupabaseClientKey(value)) {
+        violations.push(`process environment: ${name} is not a publishable/anon Supabase key`);
+    }
 }
 
 function activeEnvFiles() {
@@ -64,8 +86,12 @@ function activeEnvFiles() {
 for (const file of activeEnvFiles()) {
     const relative = path.relative(ROOT, file);
     for (const line of fs.readFileSync(file, 'utf8').split(/\r?\n/)) {
-        const name = line.match(/^\s*(?:export\s+)?([A-Z][A-Z0-9_]*)\s*=/)?.[1];
+        const match = line.match(/^\s*(?:export\s+)?([A-Z][A-Z0-9_]*)\s*=\s*(.*)$/);
+        const name = match?.[1];
         if (name && forbidden.has(name)) violations.push(`${relative}: ${name}`);
+        if (name && CLIENT_SUPABASE_KEY_NAMES.has(name) && !isPublishableSupabaseClientKey(match?.[2] ?? '')) {
+            violations.push(`${relative}: ${name} is not a publishable/anon Supabase key`);
+        }
     }
 }
 
@@ -94,6 +120,21 @@ if (CHECK_DIST) {
         const source = fs.readFileSync(file, 'utf8');
         for (const name of FORBIDDEN_CLIENT_SECRET_NAMES) {
             if (source.includes(name)) violations.push(`${path.relative(ROOT, file)}: ${name}`);
+        }
+        if (/sb_secret_[A-Za-z0-9_-]{20,}/.test(source)) {
+            violations.push(`${path.relative(ROOT, file)}: Supabase sb_secret_ credential value`);
+        }
+        for (const token of source.match(/eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g) ?? []) {
+            const parts = token.split('.');
+            try {
+                const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
+                if (payload?.role === 'service_role') {
+                    violations.push(`${path.relative(ROOT, file)}: Supabase service_role JWT value`);
+                    break;
+                }
+            } catch {
+                /* unrelated JWT-shaped text */
+            }
         }
     }
 }

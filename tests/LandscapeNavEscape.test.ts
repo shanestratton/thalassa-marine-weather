@@ -24,6 +24,8 @@ import { describe, expect, it } from 'vitest';
 const app = readFileSync(resolve(process.cwd(), 'App.tsx'), 'utf8');
 const store = readFileSync(resolve(process.cwd(), 'stores/settingsStore.ts'), 'utf8');
 const displayPrefs = readFileSync(resolve(process.cwd(), 'components/onboarding/DisplayPrefsStep.tsx'), 'utf8');
+const routePlanner = readFileSync(resolve(process.cwd(), 'components/RoutePlanner.tsx'), 'utf8');
+const globalStyles = readFileSync(resolve(process.cwd(), 'index.css'), 'utf8');
 
 describe('mobile landscape can always reach navigation', () => {
     it('still offers the landscape preference that creates the hazard', () => {
@@ -60,5 +62,15 @@ describe('mobile landscape can always reach navigation', () => {
         const toggleZ = /z-\[901\]/.test(app);
         expect(navZ).toBe(true);
         expect(toggleZ).toBe(true);
+    });
+
+    it('moves the Route Planner CTA into document flow on a short landscape phone', () => {
+        expect(routePlanner).toContain('route-planner-page');
+        expect(routePlanner).toContain('route-planner-form');
+        expect(routePlanner).toContain('route-planner-cta');
+        expect(globalStyles).toMatch(
+            /@media \(orientation: landscape\) and \(max-height: 500px\)[\s\S]*?\.route-planner-page[\s\S]*?overflow-y: auto !important/,
+        );
+        expect(globalStyles).toMatch(/\.route-planner-cta\s*\{[\s\S]*?position: relative !important/);
     });
 });

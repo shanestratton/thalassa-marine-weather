@@ -15,10 +15,21 @@ const h = vi.hoisted(() => ({
     getGpsHealth: vi.fn(),
     getLastPosition: vi.fn(),
     isNativeTrackingEnabled: vi.fn(async () => false),
-    requestStart: vi.fn(async () => {}),
-    requestStop: vi.fn(async () => {}),
+    requestStart: vi.fn(async () => ({
+        supported: true,
+        active: true,
+        activeLeaseCount: 1,
+        nativeTrackingEnabled: true,
+    })),
+    requestStop: vi.fn(async () => ({
+        supported: true,
+        active: false,
+        activeLeaseCount: 0,
+        nativeTrackingEnabled: false,
+    })),
     setSamplingMode: vi.fn(async () => 7),
     restoreSamplingModeIfCurrent: vi.fn(async () => {}),
+    logError: vi.fn(),
     locationCb: null as null | ((p: { accuracy?: number }) => void),
     unsubscribe: vi.fn(),
 }));
@@ -40,7 +51,7 @@ vi.mock('../services/BgGeoManager', () => ({
 }));
 
 vi.mock('../utils/createLogger', () => ({
-    createLogger: () => ({ debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }),
+    createLogger: () => ({ debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: h.logError }),
     getErrorMessage: (e: unknown) => String(e),
 }));
 
@@ -58,6 +69,18 @@ beforeEach(() => {
     h.getGpsHealth.mockResolvedValue({ usable: true, reason: 'ok' });
     h.getLastPosition.mockReturnValue(null);
     h.isNativeTrackingEnabled.mockResolvedValue(false);
+    h.requestStart.mockResolvedValue({
+        supported: true,
+        active: true,
+        activeLeaseCount: 1,
+        nativeTrackingEnabled: true,
+    });
+    h.requestStop.mockResolvedValue({
+        supported: true,
+        active: false,
+        activeLeaseCount: 0,
+        nativeTrackingEnabled: false,
+    });
 });
 
 afterEach(() => {
@@ -105,6 +128,21 @@ describe('warmUpGps — never touches an engine that is already running', () => 
 });
 
 describe('warmUpGps — invariant 2: one lease, one release', () => {
+    it('immediately releases a retained lease when native tracking was not verified', async () => {
+        h.requestStart.mockResolvedValueOnce({
+            supported: true,
+            active: false,
+            activeLeaseCount: 1,
+            nativeTrackingEnabled: true,
+        });
+
+        await warmUpGps();
+
+        expect(h.requestStop).toHaveBeenCalledTimes(1);
+        expect(h.setSamplingMode).not.toHaveBeenCalled();
+        expect(h.locationCb).toBeNull();
+    });
+
     it('releases exactly once even if several exits fire', async () => {
         await warmUpGps();
         expect(h.requestStart).toHaveBeenCalledTimes(1);
@@ -126,6 +164,21 @@ describe('warmUpGps — invariant 2: one lease, one release', () => {
         await warmUpGps();
         await warmUpGps();
         expect(h.requestStart).toHaveBeenCalledTimes(1);
+    });
+
+    it('retains responsibility and retries when native teardown is not verified', async () => {
+        vi.useFakeTimers();
+        h.requestStop.mockRejectedValueOnce(new Error('native engine still enabled'));
+        await warmUpGps();
+
+        h.locationCb?.({ accuracy: 8 });
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(h.requestStop).toHaveBeenCalledTimes(1);
+        expect(h.logError).toHaveBeenCalledWith(expect.stringContaining('release failed; retrying'));
+
+        await vi.advanceTimersByTimeAsync(1_000);
+        expect(h.requestStop).toHaveBeenCalledTimes(2);
     });
 });
 

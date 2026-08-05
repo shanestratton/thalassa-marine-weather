@@ -261,10 +261,9 @@ Deno.serve(async (req: Request) => {
         ),
         style: clampSetting(requestedSettings.style, DEFAULT_VOICE_SETTINGS.style, 0, 1),
         speed: clampSetting(requestedSettings.speed, DEFAULT_VOICE_SETTINGS.speed, 0.7, 1.2),
-        use_speaker_boost:
-            typeof requestedSettings.use_speaker_boost === 'boolean'
-                ? requestedSettings.use_speaker_boost
-                : DEFAULT_VOICE_SETTINGS.use_speaker_boost,
+        use_speaker_boost: typeof requestedSettings.use_speaker_boost === 'boolean'
+            ? requestedSettings.use_speaker_boost
+            : DEFAULT_VOICE_SETTINGS.use_speaker_boost,
     };
 
     const t0 = Date.now();

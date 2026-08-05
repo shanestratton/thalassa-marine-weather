@@ -52,5 +52,5 @@ export function useMapFitRequest(mapRef: MutableRefObject<mapboxgl.Map | null>, 
         if (peekMapFit()) apply();
         // Apply any future requests dispatched while we're mounted.
         return subscribeMapFit(apply);
-    }, [mapReady]);
+    }, [mapReady, mapRef]);
 }

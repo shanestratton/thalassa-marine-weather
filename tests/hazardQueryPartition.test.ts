@@ -1,8 +1,8 @@
 /**
  * queryHazards phase-1/2 partition (burn-down seam tests): ENC-covered
- * points use the ENC result, uncovered points fall to GEBCO, a draft-cleared
- * SOUNDING-ONLY result is demoted to GEBCO (a lone sounding certifies
- * nothing), and a GEBCO outage degrades to loud source:'none' — never a
+ * points use the ENC result, uncovered points fall to ETOPO, a draft-cleared
+ * SOUNDING-ONLY result is demoted to ETOPO (a lone sounding certifies
+ * nothing), and an ETOPO outage degrades to loud source:'none' — never a
  * silent clear, never a throw.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -39,7 +39,7 @@ describe('queryHazards phase-1/2 partition', () => {
         gebcoQueryDepths.mockReset();
     });
 
-    it('an ENC-covered hazard answers from ENC — GEBCO is never called', async () => {
+    it('an ENC-covered hazard answers from ENC — ETOPO is never called', async () => {
         encQueryHazards.mockResolvedValue([
             { covered: true, hazard: true, hazardType: 'rock', minDepthM: null, cellId: 'A' },
         ]);
@@ -48,16 +48,16 @@ describe('queryHazards phase-1/2 partition', () => {
         expect(gebcoQueryDepths).not.toHaveBeenCalled();
     });
 
-    it('an UNCOVERED point falls to GEBCO', async () => {
+    it('an UNCOVERED point falls to ETOPO', async () => {
         encQueryHazards.mockResolvedValue([{ covered: false, hazard: false, minDepthM: null }]);
         gebcoQueryDepths.mockResolvedValue([{ lat: P[0].lat, lon: P[0].lon, depth_m: -30 }]);
         const out = await queryHazards(P, { vesselDraftM: 2 });
-        expect(out[0]).toMatchObject({ isHazard: false, source: 'gebco', depth_m: -30 });
+        expect(out[0]).toMatchObject({ isHazard: false, source: 'etopo', depth_m: -30 });
     });
 
-    it('a draft-CLEARED sounding-only result is DEMOTED to GEBCO (no false ENC-clear)', async () => {
+    it('a draft-CLEARED sounding-only result is DEMOTED to ETOPO (no false ENC-clear)', async () => {
         // A lone 12 m sounding near the point: hazard evidence, not coverage.
-        // 2 m draft clears it → must NOT read "ENC-verified clear"; GEBCO
+        // 2 m draft clears it → must NOT read "ENC-verified clear"; ETOPO
         // gets the final say (here: a 2 m bank the sounding knew nothing of).
         encQueryHazards.mockResolvedValue([
             { covered: true, hazard: true, hazardType: 'shallow', minDepthM: 12, cellId: 'A', soundingOnly: true },
@@ -65,7 +65,7 @@ describe('queryHazards phase-1/2 partition', () => {
         gebcoQueryDepths.mockResolvedValue([{ lat: P[0].lat, lon: P[0].lon, depth_m: -2 }]);
         const out = await queryHazards(P, { vesselDraftM: 2 });
         expect(gebcoQueryDepths).toHaveBeenCalled();
-        expect(out[0]).toMatchObject({ isHazard: true, source: 'gebco' }); // the 2 m bank flags
+        expect(out[0]).toMatchObject({ isHazard: true, source: 'etopo' }); // the 2 m bank flags
     });
 
     it('a sounding-only result that ENDANGERS the vessel stays an ENC hazard', async () => {
@@ -77,37 +77,37 @@ describe('queryHazards phase-1/2 partition', () => {
         expect(gebcoQueryDepths).not.toHaveBeenCalled();
     });
 
-    it('a GEBCO OUTAGE degrades to loud source:none — never a throw, never a silent clear', async () => {
+    it('an ETOPO OUTAGE degrades to loud source:none — never a throw, never a silent clear', async () => {
         encQueryHazards.mockResolvedValue([{ covered: false, hazard: false, minDepthM: null }]);
         gebcoQueryDepths.mockRejectedValue(new Error('edge down'));
         const out = await queryHazards(P, { vesselDraftM: 2 });
         expect(out[0]).toMatchObject({ isHazard: false, source: 'none', depth_m: null });
     });
 
-    it('GEBCO tide credit is CLAMPED (LAT/MSL datum guard): no positive tide on gebco depths', async () => {
+    it('ETOPO tide credit is CLAMPED (LAT/MSL datum guard): no positive tide on coarse depths', async () => {
         encQueryHazards.mockResolvedValue([{ covered: false, hazard: false, minDepthM: null }]);
         // -3.2 m at MSL with a 2 m draft (threshold -3.5): crediting +2 m of
         // LAT tide would read -5.2 (clear); the guard keeps it -3.2 → hazard.
         gebcoQueryDepths.mockResolvedValue([{ lat: P[0].lat, lon: P[0].lon, depth_m: -3.2 }]);
         const out = await queryHazards(P, { vesselDraftM: 2, tideOffsetM: 2 });
-        expect(out[0]).toMatchObject({ isHazard: true, source: 'gebco', depth_m: -3.2 });
+        expect(out[0]).toMatchObject({ isHazard: true, source: 'etopo', depth_m: -3.2 });
     });
 });
 
-describe('GEBCO MSL→LAT pessimism (audit #7)', () => {
-    it('a GEBCO depth clear at MSL but not at LAT-pessimism reads HAZARD', async () => {
+describe('ETOPO MSL→LAT pessimism (audit #7)', () => {
+    it('an ETOPO depth clear at MSL but not at LAT-pessimism reads HAZARD', async () => {
         encQueryHazards.mockResolvedValue([{ covered: false, hazard: false, minDepthM: null }]);
-        // Draft 2 m → threshold -3.5. GEBCO -4.0 at MSL clears raw
+        // Draft 2 m → threshold -3.5. ETOPO -4.0 at MSL clears raw
         // (-4.0 < -3.5) but with the 1.3 m MSL→LAT pessimism reads -2.7 →
         // hazard: at low water that point may have ~2.7 m, not 4.
         gebcoQueryDepths.mockResolvedValue([{ lat: P[0].lat, lon: P[0].lon, depth_m: -4.0 }]);
         const out = await queryHazards(P, { vesselDraftM: 2 });
-        expect(out[0].source).toBe('gebco');
+        expect(out[0].source).toBe('etopo');
         expect(out[0].isHazard).toBe(true);
         expect(out[0].depth_m).toBeCloseTo(-4.0, 5); // reported depth stays honest MSL
     });
 
-    it('a comfortably deep GEBCO point still clears after the pessimism', async () => {
+    it('a comfortably deep ETOPO point still clears after the pessimism', async () => {
         encQueryHazards.mockResolvedValue([{ covered: false, hazard: false, minDepthM: null }]);
         gebcoQueryDepths.mockResolvedValue([{ lat: P[0].lat, lon: P[0].lon, depth_m: -5.5 }]);
         const out = await queryHazards(P, { vesselDraftM: 2 });
@@ -115,10 +115,10 @@ describe('GEBCO MSL→LAT pessimism (audit #7)', () => {
     });
 });
 
-describe('GEBCO regional datum delta (closing audit: big-tide QLD)', () => {
+describe('ETOPO regional datum delta (closing audit: big-tide QLD)', () => {
     it('a caller-supplied larger delta flags points the Moreton constant cleared', async () => {
         encQueryHazards.mockResolvedValue([{ covered: false, hazard: false, minDepthM: null }]);
-        // Draft 2 m → threshold -3.5. GEBCO -5.5: clears with the 1.3 m
+        // Draft 2 m → threshold -3.5. ETOPO -5.5: clears with the 1.3 m
         // Moreton delta (-4.2 < -3.5) but a Broad-Sound-scale 4.8 m delta
         // reads -0.7 → hazard.
         gebcoQueryDepths.mockResolvedValue([{ lat: P[0].lat, lon: P[0].lon, depth_m: -5.5 }]);

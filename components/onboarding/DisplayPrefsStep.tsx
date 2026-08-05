@@ -55,7 +55,9 @@ export const DisplayPrefsStep: React.FC<DisplayPrefsStepProps> = ({
                         const isActive = prefDisplayMode === opt.value;
                         return (
                             <button
+                                type="button"
                                 aria-label={`Display mode ${opt.label}`}
+                                aria-pressed={isActive}
                                 key={opt.value}
                                 onClick={() => onDisplayModeChange(opt.value)}
                                 className={`flex flex-col items-center gap-1.5 p-3 rounded-xl border-2 transition-all duration-300 active:scale-95 ${
@@ -99,7 +101,9 @@ export const DisplayPrefsStep: React.FC<DisplayPrefsStepProps> = ({
                         </p>
                     </div>
                     <button
-                        aria-label="Pref Always On"
+                        type="button"
+                        aria-label="Keep display always on"
+                        aria-pressed={prefAlwaysOn}
                         onClick={() => onAlwaysOnChange(!prefAlwaysOn)}
                         className={`relative w-12 h-7 rounded-full transition-all duration-300 shrink-0 ml-4 ${
                             prefAlwaysOn ? 'bg-sky-500' : 'bg-white/15'
@@ -123,7 +127,9 @@ export const DisplayPrefsStep: React.FC<DisplayPrefsStepProps> = ({
                         const isActive = prefOrientation === opt.value;
                         return (
                             <button
-                                aria-label="Pref Orientation"
+                                type="button"
+                                aria-label={`Screen orientation ${opt.label}`}
+                                aria-pressed={isActive}
                                 key={opt.value}
                                 onClick={() => onOrientationChange(opt.value)}
                                 className={`flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-all duration-300 active:scale-95 ${
@@ -159,6 +165,7 @@ export const DisplayPrefsStep: React.FC<DisplayPrefsStepProps> = ({
         </div>
 
         <button
+            type="button"
             aria-label="Finish setup"
             onClick={onFinish}
             className="w-full bg-emerald-500 hover:bg-emerald-400 text-white font-bold py-4 rounded-xl transition-all shadow-lg shadow-emerald-500/20"

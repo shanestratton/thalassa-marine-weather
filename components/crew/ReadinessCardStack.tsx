@@ -499,6 +499,7 @@ export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
                             activeVoyage={activeVoyage}
                             departure={activeVoyage?.departureCoords}
                             destination={activeVoyage?.arrivalCoords}
+                            routeCoordinates={activeVoyage?.routeCoordinates}
                             departureTime={activeVoyage?.departure_time}
                             onDepartureTimeChange={passageStatus.isOwner ? handleActiveDepartureTimeChange : undefined}
                             onReviewedChange={onWeatherWindowChange}
@@ -521,6 +522,8 @@ export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
                             activeVoyage={activeVoyage}
                             departure={activeVoyage?.departureCoords}
                             destination={activeVoyage?.arrivalCoords}
+                            routeCoordinates={activeVoyage?.routeCoordinates}
+                            distanceNM={activeVoyage?.distanceNm}
                             onReviewedChange={onCurrentsChange}
                         />
                     </CardAccordion>

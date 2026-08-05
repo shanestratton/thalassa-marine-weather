@@ -31,6 +31,7 @@ import { askBosunText, askBosunVoice, isBosunReachable } from '../../services/vo
 import { askCloudVoice } from '../../services/voice/cloudFallback';
 import { publishTurn, startConversationSync, type ConversationSyncHandle } from '../../services/voice/conversationSync';
 import { askHaiku, synthesiseSpeech } from '../../services/voice/orchestrator';
+import { FEATURE_VISIBILITY } from '../../utils/featureVisibility';
 import { selectVoiceQueryRoute } from '../../services/voice/voiceQueryRouting';
 import {
     isDeepgramAvailable,
@@ -54,6 +55,8 @@ import {
     type SpeechRecognizerHandle,
 } from '../../services/voice/speechRecognizer';
 import { gatherThalassaContext, prewarmPhoneGpsContext } from '../../services/voice/thalassaContext';
+import { GMAIL_PUBLIC_BETA_ENABLED } from '../../services/voice/integrations/gmail';
+import { PI_INTEGRATION_ENABLED, PI_PUBLIC_BETA_UNAVAILABLE_MESSAGE } from '../../services/piPublicBetaBoundary';
 import { canAccess } from '../../services/SubscriptionService';
 import {
     getAuthIdentityScope,
@@ -238,6 +241,17 @@ const initialTargetState: TargetState = { bosun: 'idle', cloud: 'idle' };
 interface VoiceOperation {
     readonly identity: AuthIdentityScope;
     readonly lifecycleGeneration: number;
+}
+
+const PREWARM_FAIL_OPEN_MS = 6_000;
+
+function voiceDiagnosticsEnabled(): boolean {
+    if (!import.meta.env.DEV) return false;
+    try {
+        return localStorage.getItem('thalassa_voice_diagnostics') === '1';
+    } catch {
+        return false;
+    }
 }
 
 /** Decode a base64 string to a Blob URL for HTML5 audio playback. */
@@ -442,6 +456,8 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
      * cue that the system is ready for the tap.
      */
     const [prewarmReady, setPrewarmReady] = useState(false);
+    const [prewarmDegraded, setPrewarmDegraded] = useState(false);
+    const showVoiceDiagnostics = useMemo(voiceDiagnosticsEnabled, []);
 
     /**
      * Open state for the Pi-provisioning wizard. Triggered from the
@@ -597,6 +613,7 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
             setSrActive(false);
             setActiveRecognizerKind(null);
             setPrewarmReady(false);
+            setPrewarmDegraded(false);
             setPiSetupOpen(false);
             setSrEventLog([]);
             setIdentityGeneration(next.generation);
@@ -755,10 +772,31 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
         // legacy isOpen guard is redundant — effects always run on mount.
         const operation = captureVoiceOperation();
         let cancelled = false;
-        void isDeepgramAvailable(true).then((available) => {
-            if (cancelled || !isVoiceOperationCurrent(operation)) return;
-            setDeepgramStatus(available ? 'available' : 'unavailable');
-            if (available) {
+        let readyReported = false;
+        const markReady = (degraded: boolean) => {
+            if (readyReported || cancelled || !isVoiceOperationCurrent(operation)) return;
+            readyReported = true;
+            setPrewarmDegraded(degraded);
+            setPrewarmReady(true);
+            if (!degraded) {
+                void Haptics.impact({ style: ImpactStyle.Medium }).catch(() => {
+                    /* ignore — web/sim has no haptics */
+                });
+            }
+        };
+        // Warm-up is an optimisation, never an availability gate. A network,
+        // auth, GPS or microphone probe is allowed six seconds, after which
+        // typed mode stays usable and speech retries on the user's tap.
+        const failOpenTimer = window.setTimeout(() => markReady(true), PREWARM_FAIL_OPEN_MS);
+
+        void isDeepgramAvailable(true)
+            .then((available) => {
+                if (cancelled || !isVoiceOperationCurrent(operation)) return;
+                setDeepgramStatus(available ? 'available' : 'unavailable');
+                if (!available) {
+                    markReady(true);
+                    return;
+                }
                 // Multi-prewarm to slash cold-start latency on first
                 // tap. Each one shaves a chunk off the tap-to-ready
                 // critical path:
@@ -786,7 +824,7 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
                 // The ring buffer captures leading audio so the first
                 // words after tap don't get clipped by AVAudioSession
                 // activation latency.
-                void Promise.all([
+                void Promise.allSettled([
                     prewarmMicStream().then(async (ok) => {
                         if (ok) {
                             // Chained so the mic stream is alive when
@@ -812,22 +850,24 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
                     // name) — Calypso falls back to coords in that case
                     // per the system prompt's PHONE GPS rules.
                     prewarmPhoneGpsContext(),
-                ]).then(() => {
+                ]).then((results) => {
                     if (cancelled || !isVoiceOperationCurrent(operation)) {
                         releasePrewarmedMicStream();
                         releasePrewarmedWebSocket();
                         releasePrewarmedAudioContext();
                         return;
                     }
-                    setPrewarmReady(true);
-                    void Haptics.impact({ style: ImpactStyle.Medium }).catch(() => {
-                        /* ignore — web/sim has no haptics */
-                    });
+                    markReady(results.some((result) => result.status === 'rejected'));
                 });
-            }
-        });
+            })
+            .catch(() => {
+                if (cancelled || !isVoiceOperationCurrent(operation)) return;
+                setDeepgramStatus('unavailable');
+                markReady(true);
+            });
         return () => {
             cancelled = true;
+            window.clearTimeout(failOpenTimer);
             // Release everything that was prewarmed when the console
             // unmounts: mic (so iOS indicator stops), the held
             // Cloudflare Worker WebSocket (with its keep-alive timer),
@@ -1164,8 +1204,8 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
     const calypsoEmailEnabled = useSettingsStore((s) => s.settings.calypsoEmailEnabled ?? false);
     const integrationsEnabled = useMemo(
         () => ({
-            appleMusic: canAccess(tier, 'calypsoMusic'),
-            gmail: calypsoEmailEnabled && canAccess(tier, 'calypsoEmail'),
+            appleMusic: FEATURE_VISIBILITY.appleMusic && canAccess(tier, 'calypsoMusic'),
+            gmail: GMAIL_PUBLIC_BETA_ENABLED && calypsoEmailEnabled && canAccess(tier, 'calypsoEmail'),
         }),
         [tier, calypsoEmailEnabled],
     );
@@ -1858,20 +1898,26 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
      * The single Bosun button + typed input both target this route, and
      * the subtitle reflects which brain is currently active.
      */
-    const route: 'bosun' | 'cloud' | null = cloudAvailable ? 'cloud' : bosunAvailable ? 'bosun' : null;
+    const signedIn = Boolean(getAuthIdentityScope().userId);
+    const route: 'bosun' | 'cloud' | null =
+        cloudAvailable && signedIn ? 'cloud' : PI_INTEGRATION_ENABLED && bosunAvailable ? 'bosun' : null;
     // Subtitle under the talk button. While the prewarms are still
     // running (mic acquisition is the slow one — ~1-1.4s on iOS) we
     // surface "Warming up…" so the skipper sees explicit feedback that
     // the system needs a moment, instead of seeing "Calypso cloud" and
     // tapping into a still-cold path. A medium haptic fires the moment
     // prewarm flips ready so they feel the cue too.
-    const brainSubtitle = !prewarmReady
-        ? 'Warming up…'
-        : route === 'cloud'
-          ? 'Calypso cloud'
-          : route === 'bosun'
-            ? 'Calypso local (3B)'
-            : 'Calypso offline';
+    const brainSubtitle = !route
+        ? signedIn
+            ? 'Restore internet to use Calypso'
+            : 'Sign in to use Calypso'
+        : !prewarmReady
+          ? 'Voice warming — typing ready'
+          : route === 'cloud'
+            ? 'Calypso cloud'
+            : route === 'bosun'
+              ? 'Calypso local (3B)'
+              : 'Calypso offline';
     const typedTarget: 'bosun' | 'cloud' = route ?? 'cloud';
 
     const isAnyAwaiting = useMemo(
@@ -1900,19 +1946,21 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
                          *  browsing + playback. Always visible because
                          *  music can be triggered from any console
                          *  state (idle, talking, listening). */}
-                        <button
-                            onClick={() => {
-                                window.dispatchEvent(
-                                    new CustomEvent('thalassa:navigate', { detail: { tab: 'music' } }),
-                                );
-                            }}
-                            className="w-10 h-10 rounded-full bg-pink-500/15 border border-pink-400/30 flex items-center justify-center text-pink-300 hover:bg-pink-500/25 active:scale-95 transition-all"
-                            aria-label="Open music"
-                        >
-                            <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
-                                <path d="M9 17.5a2.5 2.5 0 0 1-2.5 2.5A2.5 2.5 0 0 1 4 17.5 2.5 2.5 0 0 1 6.5 15c.34 0 .67.07.97.18V6L20 4v11.5a2.5 2.5 0 0 1-2.5 2.5 2.5 2.5 0 0 1-2.5-2.5 2.5 2.5 0 0 1 2.5-2.5c.34 0 .67.07.97.18V7.79L9 9.5v8z" />
-                            </svg>
-                        </button>
+                        {FEATURE_VISIBILITY.appleMusic && (
+                            <button
+                                onClick={() => {
+                                    window.dispatchEvent(
+                                        new CustomEvent('thalassa:navigate', { detail: { tab: 'music' } }),
+                                    );
+                                }}
+                                className="w-10 h-10 rounded-full bg-pink-500/15 border border-pink-400/30 flex items-center justify-center text-pink-300 hover:bg-pink-500/25 active:scale-95 transition-all"
+                                aria-label="Open music"
+                            >
+                                <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
+                                    <path d="M9 17.5a2.5 2.5 0 0 1-2.5 2.5A2.5 2.5 0 0 1 4 17.5 2.5 2.5 0 0 1 6.5 15c.34 0 .67.07.97.18V6L20 4v11.5a2.5 2.5 0 0 1-2.5 2.5 2.5 2.5 0 0 1-2.5-2.5 2.5 2.5 0 0 1 2.5-2.5c.34 0 .67.07.97.18V7.79L9 9.5v8z" />
+                                </svg>
+                            </button>
+                        )}
                         {turns.length > 0 && (
                             <button
                                 onClick={clearHistory}
@@ -1926,7 +1974,7 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
                 }
             />
             {/* Pi-setup CTA — surfaces only when no Pi is discovered. */}
-            {bosunAvailable === false && (
+            {PI_INTEGRATION_ENABLED && bosunAvailable === false && (
                 <div className="shrink-0 px-4 pb-2">
                     <button
                         onClick={() => setPiSetupOpen(true)}
@@ -1941,10 +1989,17 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
             <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
                 {turns.length === 0 && !errorMessage && (
                     <div className="flex flex-col items-center justify-center h-full text-center text-gray-500 gap-2 pt-8">
-                        <p className="text-sm font-bold text-gray-400">Tap Calypso to talk.</p>
+                        <p className="text-sm font-bold text-gray-400">
+                            {route
+                                ? 'Tap Calypso to talk.'
+                                : signedIn
+                                  ? 'Calypso is offline.'
+                                  : 'Sign in to use Calypso.'}
+                        </p>
                         <p className="text-xs max-w-[280px]">
-                            One Calypso, two brains behind her. Local 3B on the Pi when reachable, cloud Haiku otherwise
-                            — the active brain shows under the button.
+                            {PI_INTEGRATION_ENABLED
+                                ? 'One Calypso, two brains behind her. Local 3B on the Pi when reachable, cloud Haiku otherwise — the active brain shows under the button.'
+                                : PI_PUBLIC_BETA_UNAVAILABLE_MESSAGE}
                         </p>
                     </div>
                 )}
@@ -1996,7 +2051,7 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
                 underlying srEventLog state + the various event-tap
                 hooks are kept intact so we can re-add a developer-mode
                 toggle later if needed without rewiring everything. */}
-            {import.meta.env.DEV && srEventLog.length > 0 && (
+            {showVoiceDiagnostics && srEventLog.length > 0 && (
                 <details className="shrink-0 px-5 pt-1">
                     <summary className="text-[9px] uppercase tracking-widest text-gray-500 cursor-pointer select-none">
                         SR debug ({srEventLog.length})
@@ -2014,6 +2069,17 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
                         })}
                     </div>
                 </details>
+            )}
+
+            {prewarmDegraded && route && (
+                <div
+                    className="shrink-0 mx-5 mt-2 px-3 py-2 rounded-xl bg-amber-500/10 border border-amber-400/20"
+                    role="status"
+                >
+                    <p className="text-xs text-amber-100">
+                        Voice warm-up did not finish. You can type now; speech will retry when you tap.
+                    </p>
+                </div>
             )}
 
             {/* ── One Bosun button — auto-routed to active brain ────── */}
@@ -2053,17 +2119,21 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
                         value={typedQuery}
                         onChange={(e) => setTypedQuery(e.target.value)}
                         placeholder={
-                            !prewarmReady
-                                ? 'Warming up Calypso…'
-                                : `Or type — sends to ${brainSubtitle.toLowerCase()}...`
+                            !route
+                                ? signedIn
+                                    ? 'Restore internet to ask Calypso'
+                                    : 'Sign in to ask Calypso'
+                                : !prewarmReady
+                                  ? 'Type now — voice is still warming…'
+                                  : `Or type — sends to ${brainSubtitle.toLowerCase()}...`
                         }
                         className="flex-1 px-4 py-3 rounded-full bg-white/5 border border-white/10 text-white placeholder:text-gray-500 text-sm focus:outline-none focus:border-sky-500/50 disabled:opacity-50"
-                        disabled={!prewarmReady || isAnyAwaiting || isAnySending}
+                        disabled={!route || isAnyAwaiting || isAnySending}
                     />
                     <button
                         type="submit"
                         disabled={
-                            !prewarmReady ||
+                            !route ||
                             !typedQuery.trim() ||
                             (!bosunAvailable && !cloudAvailable) ||
                             isAnyAwaiting ||
@@ -2081,7 +2151,7 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
 
             {/* Pi-provisioning wizard — overlays the console when open. */}
             {/* Renders nothing when piSetupOpen=false, so no perf cost. */}
-            <PiSetupWizard isOpen={piSetupOpen} onClose={() => setPiSetupOpen(false)} />
+            {PI_INTEGRATION_ENABLED && <PiSetupWizard isOpen={piSetupOpen} onClose={() => setPiSetupOpen(false)} />}
         </div>
     );
 };

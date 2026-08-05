@@ -14,10 +14,12 @@ storybook-static/
 coverage
 playwright-report/
 test-results/
+.lighthouseci/
 *.local
 .env
 .env.*
 !/.env.example
+!/workers/ais-ingest/.env.example
 
 # Editor directories and files
 .vscode/*
@@ -33,9 +35,9 @@ test-results/
 .vercel
 .env*.local
 
-# o-charts decrypted ENC chart samples — redistribution prohibited by EULA.
-# Files are bundled into the local dev/TestFlight build via Vite's public/
-# folder but must never reach the repo or be shared with third parties.
+# Local ENC development samples. They are ignored here and the production
+# Vite fence removes the directory from web/Capacitor artifacts, so a release
+# is reproducible from a clean checkout and never redistributes local cells.
 public/enc-samples/
 
 # Claude-managed per-session worktrees (local only)
@@ -70,6 +72,8 @@ scripts/brisbane_river_*.geojson
 scripts/scarborough_danger.json
 
 # Script cache and temp files
+__pycache__/
+*.py[cod]
 scripts/.overpass_cache.json
 scripts/.waterway_cache.json
 scripts/.temp_*.json

@@ -8,6 +8,7 @@ import type { VoyagePlan, VesselProfile } from '../../types';
 import { fmtLat, fmtLon, fmtCoord } from '../../utils/coords';
 import { calculateDistanceKm } from '../../utils/math';
 import { WindIcon, WaveIcon } from '../Icons';
+import { waypointDepthDisplay } from '../../utils/depthDisplay';
 
 interface VoyageLogTableProps {
     voyagePlan: VoyagePlan;
@@ -71,6 +72,7 @@ export const VoyageLogTable: React.FC<VoyageLogTableProps> = React.memo(
                                 ? calculateDistanceKm(prevLat, prevLon, wp.coordinates.lat, wp.coordinates.lon)
                                 : 0;
                         const _distNm = distKm * 0.539957;
+                        const depth = waypointDepthDisplay(wp.depth_m);
 
                         return (
                             <tr key={i} className="border-b border-white/5 group hover:bg-white/5 transition-colors">
@@ -89,11 +91,11 @@ export const VoyageLogTable: React.FC<VoyageLogTableProps> = React.memo(
                                     )}
                                 </td>
                                 <td className="py-3.5">
-                                    {wp.depth_m !== undefined ? (
+                                    {depth ? (
                                         <div
-                                            className={`flex items-center gap-1 font-mono text-xs ${wp.depth_m < 10 ? 'text-red-400' : wp.depth_m < 30 ? 'text-amber-400' : 'text-sky-400'}`}
+                                            className={`flex items-center gap-1 font-mono text-xs ${depth.tone === 'danger' ? 'text-red-400' : depth.tone === 'caution' ? 'text-amber-400' : 'text-sky-400'}`}
                                         >
-                                            ⚓ {wp.depth_m}m
+                                            {depth.kind === 'land' ? `LAND +${depth.metres}m` : `⚓ ${depth.metres}m`}
                                         </div>
                                     ) : (
                                         <span className="text-gray-400 italic">--</span>

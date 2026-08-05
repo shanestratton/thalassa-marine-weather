@@ -17,6 +17,7 @@ import {
     type AuthIdentityScope,
 } from '../../services/authIdentityScope';
 import { toast } from '../../components/Toast';
+import { FEATURE_VISIBILITY } from '../../utils/featureVisibility';
 
 const log = createLogger('useTrackSharing');
 const subscribeIdentitySnapshot = (notify: () => void): (() => void) => subscribeAuthIdentityScope(() => notify());
@@ -90,6 +91,7 @@ export function useTrackSharing(options: UseTrackSharingOptions) {
     activeChannelIdRef.current = activeChannel?.id ?? null;
 
     const stateBelongsToCurrentIdentity =
+        FEATURE_VISIBILITY.communityTrackSharing &&
         stateOwnerRef.current.key === identityScope.key &&
         stateOwnerRef.current.generation === identityScope.generation &&
         isAuthIdentityScopeCurrent(stateOwnerRef.current);
@@ -106,7 +108,9 @@ export function useTrackSharing(options: UseTrackSharingOptions) {
 
     const setShowTrackPicker = useCallback<React.Dispatch<React.SetStateAction<boolean>>>(
         (value) => {
-            if (isAuthIdentityScopeCurrent(identityScope)) rawSetShowTrackPicker(value);
+            if (FEATURE_VISIBILITY.communityTrackSharing && isAuthIdentityScopeCurrent(identityScope)) {
+                rawSetShowTrackPicker(value);
+            }
         },
         [identityScope],
     );
@@ -114,7 +118,9 @@ export function useTrackSharing(options: UseTrackSharingOptions) {
         React.Dispatch<React.SetStateAction<{ trackId: string; title: string } | null>>
     >(
         (value) => {
-            if (isAuthIdentityScopeCurrent(identityScope)) rawSetShowTrackDisclaimer(value);
+            if (FEATURE_VISIBILITY.communityTrackSharing && isAuthIdentityScopeCurrent(identityScope)) {
+                rawSetShowTrackDisclaimer(value);
+            }
         },
         [identityScope],
     );
@@ -161,6 +167,11 @@ export function useTrackSharing(options: UseTrackSharingOptions) {
     // --- Actions ---
 
     const openTrackPicker = useCallback(async () => {
+        if (!FEATURE_VISIBILITY.communityTrackSharing) {
+            setShowAttachMenu(false);
+            rawSetShowTrackPicker(false);
+            return;
+        }
         const scope = identityScope;
         if (!isAuthIdentityScopeCurrent(scope)) return;
         const requestId = ++pickerRequestRef.current;
@@ -216,6 +227,7 @@ export function useTrackSharing(options: UseTrackSharingOptions) {
 
     const sendTrack = useCallback(
         async (voyage: VoyageSummary) => {
+            if (!FEATURE_VISIBILITY.communityTrackSharing) return;
             const scope = identityScope;
             const channelId = activeChannel?.id;
             if (
@@ -309,6 +321,7 @@ export function useTrackSharing(options: UseTrackSharingOptions) {
 
     const handleImportTrack = useCallback(
         async (trackId: string, title: string) => {
+            if (!FEATURE_VISIBILITY.communityTrackSharing) return;
             const scope = identityScope;
             const normalizedTrackId = trackId.trim();
             const titleSnapshot = title;

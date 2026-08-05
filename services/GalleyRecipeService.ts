@@ -12,7 +12,18 @@ import { getAll, insertLocal, query, updateLocal, generateUUID } from './vessel/
 import { supabase } from './supabase';
 import { compressImage } from './ProfilePhotoService';
 import { createLogger } from '../utils/createLogger';
-import { authScopedStorageKey } from './authIdentityScope';
+import {
+    authScopedStorageKey,
+    getAuthIdentityScope,
+    isAuthIdentityScopeCurrent,
+    type AuthIdentityScope,
+} from './authIdentityScope';
+import {
+    captureOwnedMediaAuthorization,
+    retainUncertainOwnedMedia,
+    retireOwnedMedia,
+    type OwnedMediaAuthorization,
+} from './OwnedMediaCleanupService';
 import { safeExternalHttpUrl, safeImageUrl } from '../utils/safeUrl';
 import { FEATURE_VISIBILITY } from '../utils/featureVisibility';
 import { fetchSpoonacular } from './spoonacularProxy';
@@ -419,14 +430,19 @@ export async function getRecipeInstructions(spoonacularId: number | null): Promi
     // 2. Fetch through the server-side Spoonacular proxy. The paid API key
     // must never enter the Vite client bundle.
     try {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const data = (await fetchSpoonacular('information', { recipe_id: spoonacularId })) as any;
+        const data = (await fetchSpoonacular('information', {
+            recipe_id: spoonacularId,
+        })) as { analyzedInstructions?: unknown } | null;
         if (!data) return [];
         const steps = parseInstructions(data.analyzedInstructions);
 
         // Cache for offline use
         if (steps.length > 0 && stored.length > 0) {
-            const updated = { ...stored[0], instructions: JSON.stringify(steps), updated_at: new Date().toISOString() };
+            const updated = {
+                ...stored[0],
+                instructions: JSON.stringify(steps),
+                updated_at: new Date().toISOString(),
+            };
             await updateLocal(RECIPE_TABLE, updated.id, updated);
         }
 
@@ -553,7 +569,9 @@ export async function generateGalleyPlan(days: number, crew: number): Promise<Ga
 
             if (mealIds.length > 0) {
                 try {
-                    const details = await fetchSpoonacular('bulk', { recipe_ids: mealIds });
+                    const details = await fetchSpoonacular('bulk', {
+                        recipe_ids: mealIds,
+                    });
                     if (Array.isArray(details)) {
                         for (const candidate of details.slice(0, mealIds.length)) {
                             const detail = asRecord(candidate);
@@ -661,7 +679,9 @@ export async function getShoppingList(recipeIds: number[]): Promise<ShoppingItem
     }
 
     try {
-        const recipes = await fetchSpoonacular('bulk', { recipe_ids: safeRecipeIds });
+        const recipes = await fetchSpoonacular('bulk', {
+            recipe_ids: safeRecipeIds,
+        });
         if (!Array.isArray(recipes)) return [];
 
         const ingredientMap = new Map<string, ShoppingItem>();
@@ -717,38 +737,362 @@ export interface CustomRecipeInput {
     tags?: string[];
 }
 
+const RECIPE_PHOTO_BUCKET = 'recipe-photos';
+const STORAGE_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+/**
+ * The existing `recipe-photos` bucket is deliberately public because photos
+ * attached to Community Galley recipes must render for anonymous viewers.
+ * Until private recipe media has its own private bucket + signed-URL flow, a
+ * private recipe photo must never be uploaded there.
+ */
+export class PrivateRecipePhotoUnavailableError extends Error {
+    readonly code = 'PRIVATE_RECIPE_PHOTO_UNAVAILABLE';
+
+    constructor() {
+        super('Private recipe photos are unavailable in the public beta. Remove the photo or choose Community Galley.');
+        this.name = 'PrivateRecipePhotoUnavailableError';
+    }
+}
+
+export class RecipePhotoUploadError extends Error {
+    readonly code = 'RECIPE_PHOTO_UPLOAD_FAILED';
+
+    constructor(message = 'The recipe photo could not be uploaded.') {
+        super(message);
+        this.name = 'RecipePhotoUploadError';
+    }
+}
+
+function recipePhotoStoragePath(ownerId: string, recipeId: string): string {
+    if (!STORAGE_UUID.test(ownerId) || !STORAGE_UUID.test(recipeId)) {
+        throw new RecipePhotoUploadError('The recipe photo path was invalid.');
+    }
+    return `${ownerId}/${recipeId}.jpg`;
+}
+
+function isManagedRecipePhotoUrl(value: string | null | undefined): boolean {
+    if (!value) return false;
+    try {
+        const url = new URL(value);
+        return url.pathname.includes(`/recipe-photos/`);
+    } catch {
+        return false;
+    }
+}
+
+function managedPhotoPathFromUrl(value: string | null | undefined, ownerId: string, recipeId: string): string | null {
+    if (!value) return null;
+    try {
+        const url = new URL(value);
+        const markers = [
+            `/storage/v1/object/public/${RECIPE_PHOTO_BUCKET}/`,
+            `/storage/v1/object/sign/${RECIPE_PHOTO_BUCKET}/`,
+        ];
+        const marker = markers.find((candidate) => url.pathname.includes(candidate));
+        if (!marker) return null;
+        const path = decodeURIComponent(url.pathname.slice(url.pathname.indexOf(marker) + marker.length));
+        if (path.includes('..') || path.includes('\\')) return null;
+        const ownerPath = `${ownerId}/${recipeId}.jpg`;
+        const legacyPath = `${recipeId}.jpg`;
+        return path === ownerPath || path === legacyPath ? path : null;
+    } catch {
+        return null;
+    }
+}
+
+function managedPhotoPathsForRecipe(recipe: Pick<StoredRecipe, 'id' | 'image_url'>, ownerId: string): string[] {
+    const path = managedPhotoPathFromUrl(recipe.image_url, ownerId, recipe.id);
+    return path ? [path] : [];
+}
+
+interface RecipeOwnerAuthorization {
+    scope: AuthIdentityScope;
+    authorization: OwnedMediaAuthorization;
+}
+
+async function captureRecipeOwnerAuthorization(ownerId: string): Promise<RecipeOwnerAuthorization | null> {
+    if (!supabase) return null;
+    const scope = getAuthIdentityScope();
+    if (!scope.userId || scope.userId !== ownerId || !isAuthIdentityScopeCurrent(scope)) return null;
+
+    const authorization = await captureOwnedMediaAuthorization(scope);
+    if (!authorization || !isAuthIdentityScopeCurrent(scope)) return null;
+
+    try {
+        const {
+            data: { user },
+            error,
+        } = await supabase.auth.getUser();
+        if (error || user?.id !== ownerId || !isAuthIdentityScopeCurrent(scope)) return null;
+        return { scope, authorization };
+    } catch {
+        return null;
+    }
+}
+
+async function retireRecipePhotoPath(
+    scope: AuthIdentityScope,
+    authorization: OwnedMediaAuthorization,
+    ownerId: string,
+    recipeId: string,
+    path: string,
+): Promise<boolean> {
+    if (path === `${ownerId}/${recipeId}.jpg`) {
+        return retireOwnedMedia(scope, authorization, RECIPE_PHOTO_BUCKET, path);
+    }
+
+    if (path !== `${recipeId}.jpg`) return false;
+
+    // The temporary Storage policy permits a legacy root-level object only
+    // while an owned recipe row still exists. Remove it before deleting that
+    // ownership proof. If the response is uncertain, keep both the row/local
+    // retry handle and a reference-aware cleanup ticket.
+    try {
+        if (!supabase || !isAuthIdentityScopeCurrent(scope)) throw new Error('Recipe owner changed');
+        const { error } = await supabase.storage.from(RECIPE_PHOTO_BUCKET).remove([path]);
+        if (!error && isAuthIdentityScopeCurrent(scope)) return true;
+    } catch (error) {
+        log.warn('Legacy recipe photo cleanup is incomplete:', error);
+    }
+
+    retainUncertainOwnedMedia(scope, RECIPE_PHOTO_BUCKET, path, {
+        kind: 'recipe-photo',
+        recipeId,
+    });
+    return false;
+}
+
+async function retireRecipePhotoPaths(
+    scope: AuthIdentityScope,
+    authorization: OwnedMediaAuthorization,
+    ownerId: string,
+    recipeId: string,
+    paths: Iterable<string>,
+): Promise<boolean> {
+    let complete = true;
+    for (const path of new Set(paths)) {
+        if (!(await retireRecipePhotoPath(scope, authorization, ownerId, recipeId, path))) complete = false;
+    }
+    return complete;
+}
+
+type OwnedCloudRecipeTable = 'recipes' | 'community_recipes';
+
+interface OwnedCloudRecipeRow {
+    id: string;
+    user_id: string;
+    image_url: string | null;
+    visibility: string;
+    [key: string]: unknown;
+}
+
+interface OwnedCloudRecipeRows {
+    recipes: OwnedCloudRecipeRow | null;
+    community_recipes: OwnedCloudRecipeRow | null;
+}
+
+interface OwnedCloudRecipePatches {
+    recipes: Record<string, unknown>;
+    community_recipes: Record<string, unknown>;
+}
+
+function isExactOwnedCloudRecipeRow(value: unknown, recipeId: string, ownerId: string): value is OwnedCloudRecipeRow {
+    if (!value || typeof value !== 'object') return false;
+    const row = value as Partial<OwnedCloudRecipeRow>;
+    return row.id === recipeId && row.user_id === ownerId;
+}
+
+function cloudValuesEqual(actual: unknown, expected: unknown): boolean {
+    if (actual == null && expected == null) return true;
+    if (typeof actual !== 'object' || actual === null || typeof expected !== 'object' || expected === null) {
+        return actual === expected;
+    }
+    try {
+        return JSON.stringify(actual) === JSON.stringify(expected);
+    } catch {
+        return false;
+    }
+}
+
+function cloudRowMatchesPatch(row: OwnedCloudRecipeRow, patch: Record<string, unknown>): boolean {
+    return Object.entries(patch).every(([key, expected]) => {
+        // Database triggers own the precise timestamp. Identity and every
+        // user-authored value are still checked exactly.
+        if (key === 'updated_at') return true;
+        return cloudValuesEqual(row[key], expected);
+    });
+}
+
+async function readOwnedCloudRecipeRows(
+    recipeId: string,
+    ownerId: string,
+    scope: AuthIdentityScope,
+): Promise<OwnedCloudRecipeRows | null> {
+    if (!supabase || !isAuthIdentityScopeCurrent(scope)) return null;
+    try {
+        const [recipesResult, communityResult] = await Promise.all([
+            supabase.from('recipes').select('*').eq('id', recipeId).eq('user_id', ownerId).maybeSingle(),
+            supabase.from('community_recipes').select('*').eq('id', recipeId).eq('user_id', ownerId).maybeSingle(),
+        ]);
+        if (
+            recipesResult.error ||
+            communityResult.error ||
+            !isAuthIdentityScopeCurrent(scope) ||
+            (recipesResult.data && !isExactOwnedCloudRecipeRow(recipesResult.data, recipeId, ownerId)) ||
+            (communityResult.data && !isExactOwnedCloudRecipeRow(communityResult.data, recipeId, ownerId))
+        ) {
+            return null;
+        }
+        return {
+            recipes: recipesResult.data as OwnedCloudRecipeRow | null,
+            community_recipes: communityResult.data as OwnedCloudRecipeRow | null,
+        };
+    } catch (error) {
+        log.warn('Could not read the owned cloud recipe rows:', error);
+        return null;
+    }
+}
+
+async function updateOwnedCloudRecipeRows(
+    recipeId: string,
+    ownerId: string,
+    scope: AuthIdentityScope,
+    before: OwnedCloudRecipeRows,
+    patches: OwnedCloudRecipePatches,
+): Promise<boolean> {
+    if (!supabase || !isAuthIdentityScopeCurrent(scope)) return false;
+    try {
+        const [recipesResult, communityResult] = await Promise.all([
+            supabase
+                .from('recipes')
+                .update(patches.recipes)
+                .eq('id', recipeId)
+                .eq('user_id', ownerId)
+                .select('*')
+                .maybeSingle(),
+            supabase
+                .from('community_recipes')
+                .update(patches.community_recipes)
+                .eq('id', recipeId)
+                .eq('user_id', ownerId)
+                .select('*')
+                .maybeSingle(),
+        ]);
+        if (!isAuthIdentityScopeCurrent(scope)) return false;
+
+        const resultByTable = {
+            recipes: recipesResult,
+            community_recipes: communityResult,
+        };
+        return (Object.keys(resultByTable) as OwnedCloudRecipeTable[]).every((table) => {
+            const result = resultByTable[table];
+            if (result.error) return false;
+            if (!result.data) return before[table] === null;
+            return (
+                isExactOwnedCloudRecipeRow(result.data, recipeId, ownerId) &&
+                cloudRowMatchesPatch(result.data, patches[table])
+            );
+        });
+    } catch (error) {
+        // A network exception may arrive after Postgres committed one or both
+        // updates. Keep local state/media untouched; the next retry reads both
+        // canonical rows before deciding what is unreferenced.
+        log.warn('Cloud recipe update response was incomplete:', error);
+        return false;
+    }
+}
+
+function cloudRowsConfirmPatches(
+    before: OwnedCloudRecipeRows,
+    after: OwnedCloudRecipeRows,
+    patches: OwnedCloudRecipePatches,
+): boolean {
+    const tables: OwnedCloudRecipeTable[] = ['recipes', 'community_recipes'];
+    if (!after.recipes && !after.community_recipes) return false;
+    return tables.every((table) => {
+        if (before[table] && !after[table]) return false;
+        return !after[table] || cloudRowMatchesPatch(after[table], patches[table]);
+    });
+}
+
+function managedPhotoPathsFromCloudRows(rows: OwnedCloudRecipeRows, ownerId: string, recipeId: string): Set<string> {
+    const paths = new Set<string>();
+    for (const row of [rows.recipes, rows.community_recipes]) {
+        const path = managedPhotoPathFromUrl(row?.image_url, ownerId, recipeId);
+        if (path) paths.add(path);
+    }
+    return paths;
+}
+
 /**
  * Upload a recipe photo to Supabase Storage.
  * Compresses to max 800px and JPEG quality before upload to handle
  * low-bandwidth maritime connections (satellite, one-bar cell).
- * Returns the public URL on success, empty string on failure.
+ * Returns the public URL on success and throws on any incomplete upload.
  */
-export async function uploadRecipePhoto(file: File | Blob, recipeId: string): Promise<string> {
-    if (!supabase) return '';
+export async function uploadRecipePhoto(
+    file: File | Blob,
+    recipeId: string,
+    ownerId: string,
+    capturedAuthorization?: OwnedMediaAuthorization,
+): Promise<string> {
+    if (!supabase) throw new RecipePhotoUploadError('Recipe photo storage is unavailable.');
+    const scope = getAuthIdentityScope();
+    if (!scope.userId || scope.userId !== ownerId || !isAuthIdentityScopeCurrent(scope)) {
+        throw new RecipePhotoUploadError('The signed-in account changed before the recipe photo upload.');
+    }
+    const authorization = capturedAuthorization ?? (await captureOwnedMediaAuthorization(scope));
+    if (authorization?.ownerId !== ownerId || !isAuthIdentityScopeCurrent(scope)) {
+        throw new RecipePhotoUploadError('The recipe photo upload could not be authorized for this account.');
+    }
 
-    // Compress before upload — 800px max for recipe photos (more fidelity than 512px avatars)
     let uploadBlob: Blob = file;
     try {
         uploadBlob = await compressImage(file, 800);
         log.info(`Compressed photo: ${(file.size / 1024).toFixed(0)}KB → ${(uploadBlob.size / 1024).toFixed(0)}KB`);
-    } catch (e) {
-        log.warn('Compression failed, uploading original:', e);
-        // Fall through with original file
+    } catch (error) {
+        log.warn('Compression failed, uploading original:', error);
+    }
+    if (!isAuthIdentityScopeCurrent(scope)) {
+        throw new RecipePhotoUploadError('The signed-in account changed before the recipe photo upload.');
     }
 
-    const path = `${recipeId}.jpg`;
+    const path = recipePhotoStoragePath(ownerId, recipeId);
+    let handedOff = false;
+    try {
+        const { data, error } = await supabase.storage.from(RECIPE_PHOTO_BUCKET).upload(path, uploadBlob, {
+            contentType: 'image/jpeg',
+            cacheControl: '31536000',
+            upsert: true,
+        });
+        if (error) {
+            log.warn('Photo upload failed:', error.message);
+            throw new RecipePhotoUploadError(
+                'The recipe photo could not be uploaded. Check your connection and try again.',
+            );
+        }
+        if (data?.path !== path) {
+            throw new RecipePhotoUploadError('The recipe photo upload could not be confirmed.');
+        }
+        if (!isAuthIdentityScopeCurrent(scope)) {
+            throw new RecipePhotoUploadError('The signed-in account changed during the recipe photo upload.');
+        }
 
-    const { error } = await supabase.storage
-        .from('recipe-photos')
-        .upload(path, uploadBlob, { contentType: 'image/jpeg', cacheControl: '31536000', upsert: true });
-
-    if (error) {
-        log.warn('Photo upload failed:', error.message);
-        return '';
+        const { data: urlData } = supabase.storage.from(RECIPE_PHOTO_BUCKET).getPublicUrl(path);
+        if (!urlData?.publicUrl) {
+            throw new RecipePhotoUploadError('The recipe photo URL could not be created.');
+        }
+        if (!isAuthIdentityScopeCurrent(scope)) {
+            throw new RecipePhotoUploadError('The signed-in account changed during the recipe photo upload.');
+        }
+        handedOff = true;
+        return urlData.publicUrl;
+    } finally {
+        if (!handedOff) {
+            await retireOwnedMedia(scope, authorization, RECIPE_PHOTO_BUCKET, path);
+        }
     }
-
-    const { data: urlData } = supabase.storage.from('recipe-photos').getPublicUrl(path);
-    return urlData?.publicUrl || '';
 }
 
 /**
@@ -756,101 +1100,155 @@ export async function uploadRecipePhoto(file: File | Blob, recipeId: string): Pr
  * Also persists locally for offline access.
  */
 export async function saveCustomRecipe(input: CustomRecipeInput): Promise<GalleyMeal | null> {
+    if (input.visibility === 'private' && input.imageFile) {
+        throw new PrivateRecipePhotoUnavailableError();
+    }
     if (!supabase) {
         log.warn('Cannot save custom recipe — no Supabase connection');
         return null;
     }
 
+    const scope = getAuthIdentityScope();
+
     const {
         data: { user },
     } = await supabase.auth.getUser();
-    if (!user) return null;
+    if (!user || scope.userId !== user.id || !isAuthIdentityScopeCurrent(scope)) return null;
 
     const recipeId = generateUUID();
+    let uploadedPhotoPath: string | null = null;
+    let authorization: OwnedMediaAuthorization | null = null;
+    let databaseOutcome: 'not-started' | 'known-noncommit' | 'ambiguous' | 'committed' = 'not-started';
 
-    // Upload photo if provided
-    let imageUrl = '';
-    if (input.imageFile) {
-        imageUrl = await uploadRecipePhoto(input.imageFile, recipeId);
-    }
-
-    // Chat profiles are the canonical deployed source for community-facing
-    // names. Do not depend on the retired generic `profiles` table here.
-    let authorName = 'Anonymous Sailor';
     try {
-        const { data: profile } = await supabase
-            .from('chat_profiles')
-            .select('display_name')
-            .eq('user_id', user.id)
-            .maybeSingle();
-        if (profile?.display_name) authorName = profile.display_name;
-    } catch {
-        /* use default */
-    }
+        // Upload photo if provided
+        let imageUrl = '';
+        if (input.imageFile) {
+            const photoPath = recipePhotoStoragePath(user.id, recipeId);
+            authorization = await captureOwnedMediaAuthorization(scope);
+            if (!authorization || !isAuthIdentityScopeCurrent(scope)) {
+                throw new RecipePhotoUploadError('The recipe photo upload could not be authorized for this account.');
+            }
+            imageUrl = await uploadRecipePhoto(input.imageFile, recipeId, user.id, authorization);
+            uploadedPhotoPath = photoPath;
+            if (!isAuthIdentityScopeCurrent(scope)) return null;
+        }
 
-    const { data, error } = await supabase
-        .from('community_recipes')
-        .insert({
+        // Chat profiles are the canonical deployed source for community-facing
+        // names. Do not depend on the retired generic `profiles` table here.
+        let authorName = 'Anonymous Sailor';
+        try {
+            const { data: profile } = await supabase
+                .from('chat_profiles')
+                .select('display_name')
+                .eq('user_id', user.id)
+                .maybeSingle();
+            if (!isAuthIdentityScopeCurrent(scope)) return null;
+            if (profile?.display_name) authorName = profile.display_name;
+        } catch {
+            if (!isAuthIdentityScopeCurrent(scope)) return null;
+            /* use default */
+        }
+
+        if (!isAuthIdentityScopeCurrent(scope)) return null;
+        databaseOutcome = 'ambiguous';
+        let result;
+        try {
+            result = await supabase
+                .from('community_recipes')
+                .insert({
+                    id: recipeId,
+                    user_id: user.id,
+                    title: input.title,
+                    image_url: imageUrl,
+                    ready_in_minutes: input.readyInMinutes,
+                    servings: input.servings,
+                    ingredients: input.ingredients,
+                    instructions: input.instructions,
+                    visibility: input.visibility,
+                    tags: input.tags || [],
+                    author_name: authorName,
+                })
+                .select('*')
+                .maybeSingle();
+        } catch (error) {
+            // The insert may have committed before the response disappeared.
+            // Keep a reference-aware cleanup job; it will read both owner rows
+            // and never delete a photo the committed recipe adopted.
+            log.warn('saveCustomRecipe response was incomplete:', error);
+            return null;
+        }
+
+        if (result.error) {
+            databaseOutcome = 'known-noncommit';
+            log.error('saveCustomRecipe failed:', result.error.message);
+            return null;
+        }
+        const data = result.data;
+        if (
+            !isExactOwnedCloudRecipeRow(data, recipeId, user.id) ||
+            (data.image_url ?? '') !== imageUrl ||
+            data.visibility !== input.visibility
+        ) {
+            // A mutation without the exact returned owner row is not proof of
+            // failure or success. Reconciliation must decide before bytes move.
+            return null;
+        }
+        databaseOutcome = 'committed';
+        if (!isAuthIdentityScopeCurrent(scope)) return null;
+
+        // Also persist locally for offline
+        const now = new Date().toISOString();
+        const localRecord: StoredRecipe = {
             id: recipeId,
+            spoonacular_id: null,
             user_id: user.id,
             title: input.title,
             image_url: imageUrl,
             ready_in_minutes: input.readyInMinutes,
             servings: input.servings,
+            source_url: '',
+            instructions: JSON.stringify(input.instructions),
             ingredients: input.ingredients,
-            instructions: input.instructions,
-            visibility: input.visibility,
+            is_favorite: false,
+            is_custom: true,
+            visibility: input.visibility === 'community' ? 'shared' : 'personal',
             tags: input.tags || [],
-            author_name: authorName,
-        })
-        .select()
-        .single();
+            created_at: now,
+            updated_at: now,
+        };
+        try {
+            await insertLocal(RECIPE_TABLE, localRecord);
+        } catch {
+            /* non-critical */
+        }
 
-    if (error) {
-        log.error('saveCustomRecipe failed:', error.message);
-        return null;
+        // Return as GalleyMeal for immediate use
+        return {
+            id: Date.now(), // numeric id for compatibility
+            title: typeof data.title === 'string' ? data.title : input.title,
+            readyInMinutes: typeof data.ready_in_minutes === 'number' ? data.ready_in_minutes : input.readyInMinutes,
+            servings: typeof data.servings === 'number' ? data.servings : input.servings,
+            image: data.image_url || '',
+            sourceUrl: '',
+            ingredients: (data.ingredients as RecipeIngredient[]) || [],
+            instructions: (data.instructions as RecipeStep[]) || [],
+            source: 'private',
+            supabaseId: recipeId,
+            authorName,
+        };
+    } finally {
+        if (uploadedPhotoPath && databaseOutcome === 'ambiguous') {
+            retainUncertainOwnedMedia(scope, RECIPE_PHOTO_BUCKET, uploadedPhotoPath, {
+                kind: 'recipe-photo',
+                recipeId,
+            });
+        } else if (uploadedPhotoPath && databaseOutcome !== 'committed') {
+            // No database mutation started, or PostgREST returned a definite
+            // non-commit. The exact fresh path cannot be referenced.
+            await retireOwnedMedia(scope, authorization, RECIPE_PHOTO_BUCKET, uploadedPhotoPath);
+        }
     }
-
-    // Also persist locally for offline
-    const now = new Date().toISOString();
-    const localRecord: StoredRecipe = {
-        id: recipeId,
-        spoonacular_id: null,
-        user_id: user.id,
-        title: input.title,
-        image_url: imageUrl,
-        ready_in_minutes: input.readyInMinutes,
-        servings: input.servings,
-        source_url: '',
-        instructions: JSON.stringify(input.instructions),
-        ingredients: input.ingredients,
-        is_favorite: false,
-        is_custom: true,
-        visibility: input.visibility === 'community' ? 'shared' : 'personal',
-        tags: input.tags || [],
-        created_at: now,
-        updated_at: now,
-    };
-    try {
-        await insertLocal(RECIPE_TABLE, localRecord);
-    } catch {
-        /* non-critical */
-    }
-
-    // Return as GalleyMeal for immediate use
-    return {
-        id: Date.now(), // numeric id for compatibility
-        title: data.title,
-        readyInMinutes: data.ready_in_minutes,
-        servings: data.servings,
-        image: data.image_url || '',
-        sourceUrl: '',
-        ingredients: (data.ingredients as RecipeIngredient[]) || [],
-        instructions: (data.instructions as RecipeStep[]) || [],
-        source: 'private',
-        supabaseId: recipeId,
-        authorName: authorName,
-    };
 }
 
 // ── Recipe Search (3-Tier Pipeline) ────────────────────────────────────────
@@ -1095,8 +1493,18 @@ export interface GalleyDifficulty {
 }
 
 const DIFFICULTY_LEVELS: Record<number, Omit<GalleyDifficulty, 'score'>> = {
-    1: { maxSeaStateM: 5.0, label: 'Any Conditions', emoji: '🟢', color: 'emerald' },
-    2: { maxSeaStateM: 3.0, label: 'Moderate Seas', emoji: '🟢', color: 'emerald' },
+    1: {
+        maxSeaStateM: 5.0,
+        label: 'Any Conditions',
+        emoji: '🟢',
+        color: 'emerald',
+    },
+    2: {
+        maxSeaStateM: 3.0,
+        label: 'Moderate Seas',
+        emoji: '🟢',
+        color: 'emerald',
+    },
     3: { maxSeaStateM: 2.0, label: 'Fair Weather', emoji: '🟡', color: 'amber' },
     4: { maxSeaStateM: 1.5, label: 'Calm Only', emoji: '🟠', color: 'orange' },
     5: { maxSeaStateM: 0.5, label: 'Harbour Only', emoji: '🔴', color: 'red' },
@@ -1216,7 +1624,10 @@ export function getGalleyDifficulty(
     }
 
     if (keywordScore > 0) {
-        return { score: keywordScore as GalleyDifficulty['score'], ...DIFFICULTY_LEVELS[keywordScore] };
+        return {
+            score: keywordScore as GalleyDifficulty['score'],
+            ...DIFFICULTY_LEVELS[keywordScore],
+        };
     }
 
     // 3. Fall back to cook time + ingredient count heuristic
@@ -1659,38 +2070,75 @@ export async function updateCustomRecipe(
     const existing = query<StoredRecipe>(RECIPE_TABLE, (r) => r.id === recipeId && r.is_custom);
     if (existing.length === 0) return null;
 
-    const ownerId = existing[0].user_id;
-    if (ownerId) {
-        const currentUserId = await getCurrentRecipeUserId();
-        if (currentUserId && currentUserId !== ownerId) return null;
+    const currentRecipe = existing[0];
+    const ownerId = currentRecipe.user_id;
+    const now = new Date().toISOString();
+    const targetVisibility = patch.visibility ?? currentRecipe.visibility;
+    const effectivePatch =
+        targetVisibility === 'personal'
+            ? // A personal recipe has no public-photo delivery mechanism in
+              // this beta. Clear every image before the local UI can call it
+              // personal, including legacy rows already pointing at Storage.
+              { ...patch, image_url: '' }
+            : patch;
+
+    // Anonymous/offline-only recipes have no cloud ownership or public
+    // Storage contract. Preserve their established local-only behaviour.
+    if (!ownerId) {
+        return updateLocal<StoredRecipe>(RECIPE_TABLE, recipeId, {
+            ...effectivePatch,
+            updated_at: now,
+        } as Partial<StoredRecipe>);
     }
 
-    const now = new Date().toISOString();
-    const updated = await updateLocal<StoredRecipe>(RECIPE_TABLE, recipeId, {
-        ...patch,
-        updated_at: now,
-    } as Partial<StoredRecipe>);
+    if (!supabase) return null;
+    if (
+        effectivePatch.image_url &&
+        isManagedRecipePhotoUrl(effectivePatch.image_url) &&
+        !managedPhotoPathFromUrl(effectivePatch.image_url, ownerId, recipeId)
+    ) {
+        // Never let one recipe claim another recipe/owner's managed object.
+        return null;
+    }
 
-    // There are two historical cloud stores for user-authored recipes:
-    // the canonical `recipes` table and the older Captain's Table
-    // `community_recipes` table. Local records intentionally share one
-    // shape and do not carry a cloud-table discriminator, so update both.
-    // RLS limits either update to the current user's matching row and an
-    // unmatched UUID is a no-op.
-    if (supabase) {
-        const communityPatch: Record<string, unknown> = {
-            ...(patch.title !== undefined ? { title: patch.title } : {}),
-            ...(patch.image_url !== undefined ? { image_url: patch.image_url || null } : {}),
-            ...(patch.ready_in_minutes !== undefined ? { ready_in_minutes: patch.ready_in_minutes } : {}),
-            ...(patch.servings !== undefined ? { servings: patch.servings } : {}),
-            ...(patch.ingredients !== undefined ? { ingredients: patch.ingredients } : {}),
-            ...(patch.tags !== undefined ? { tags: patch.tags } : {}),
-            ...(patch.visibility !== undefined
-                ? { visibility: patch.visibility === 'shared' ? 'community' : 'private' }
+    const owner = await captureRecipeOwnerAuthorization(ownerId);
+    if (!owner) return null;
+
+    const before = await readOwnedCloudRecipeRows(recipeId, ownerId, owner.scope);
+    if (!before || (!before.recipes && !before.community_recipes)) return null;
+
+    const patches: OwnedCloudRecipePatches = {
+        recipes: {
+            ...(effectivePatch.title !== undefined ? { title: effectivePatch.title } : {}),
+            ...(effectivePatch.instructions !== undefined ? { instructions: effectivePatch.instructions } : {}),
+            ...(effectivePatch.image_url !== undefined ? { image_url: effectivePatch.image_url || null } : {}),
+            ...(effectivePatch.ready_in_minutes !== undefined
+                ? { ready_in_minutes: effectivePatch.ready_in_minutes }
                 : {}),
-            ...(patch.instructions !== undefined
+            ...(effectivePatch.servings !== undefined ? { servings: effectivePatch.servings } : {}),
+            ...(effectivePatch.ingredients !== undefined ? { ingredients: effectivePatch.ingredients } : {}),
+            ...(effectivePatch.tags !== undefined ? { tags: effectivePatch.tags } : {}),
+            ...(effectivePatch.visibility !== undefined ? { visibility: effectivePatch.visibility } : {}),
+            ...(effectivePatch.is_favorite !== undefined ? { is_favorite: effectivePatch.is_favorite } : {}),
+            updated_at: now,
+        },
+        community_recipes: {
+            ...(effectivePatch.title !== undefined ? { title: effectivePatch.title } : {}),
+            ...(effectivePatch.image_url !== undefined ? { image_url: effectivePatch.image_url || null } : {}),
+            ...(effectivePatch.ready_in_minutes !== undefined
+                ? { ready_in_minutes: effectivePatch.ready_in_minutes }
+                : {}),
+            ...(effectivePatch.servings !== undefined ? { servings: effectivePatch.servings } : {}),
+            ...(effectivePatch.ingredients !== undefined ? { ingredients: effectivePatch.ingredients } : {}),
+            ...(effectivePatch.tags !== undefined ? { tags: effectivePatch.tags } : {}),
+            ...(effectivePatch.visibility !== undefined
                 ? {
-                      instructions: patch.instructions
+                      visibility: effectivePatch.visibility === 'shared' ? 'community' : 'private',
+                  }
+                : {}),
+            ...(effectivePatch.instructions !== undefined
+                ? {
+                      instructions: effectivePatch.instructions
                           .split(/\r?\n/)
                           .map((step) => step.trim())
                           .filter(Boolean)
@@ -1698,44 +2146,221 @@ export async function updateCustomRecipe(
                   }
                 : {}),
             updated_at: now,
-        };
+        },
+    };
 
-        await Promise.allSettled([
-            supabase
-                .from('recipes')
-                .update({ ...patch, updated_at: now })
-                .eq('id', recipeId),
-            supabase.from('community_recipes').update(communityPatch).eq('id', recipeId),
-        ]);
+    if (!(await updateOwnedCloudRecipeRows(recipeId, ownerId, owner.scope, before, patches))) return null;
+
+    const after = await readOwnedCloudRecipeRows(recipeId, ownerId, owner.scope);
+    if (!after || !cloudRowsConfirmPatches(before, after, patches)) return null;
+
+    const oldPaths = managedPhotoPathsFromCloudRows(before, ownerId, recipeId);
+    for (const path of managedPhotoPathsForRecipe(currentRecipe, ownerId)) oldPaths.add(path);
+    const newPaths = managedPhotoPathsFromCloudRows(after, ownerId, recipeId);
+    const pathsToRetire = [...oldPaths].filter((path) => !newPaths.has(path));
+
+    if (
+        pathsToRetire.length > 0 &&
+        !(await retireRecipePhotoPaths(owner.scope, owner.authorization, ownerId, recipeId, pathsToRetire))
+    ) {
+        // Cloud rows are already safe, but the unchanged local record and the
+        // durable cleanup ticket preserve an honest retry handle.
+        return null;
     }
+    if (!isAuthIdentityScopeCurrent(owner.scope)) return null;
 
-    return updated;
+    return updateLocal<StoredRecipe>(RECIPE_TABLE, recipeId, {
+        ...effectivePatch,
+        updated_at: now,
+    } as Partial<StoredRecipe>);
 }
 
-/**
- * Delete a custom recipe.
- */
-export async function deleteCustomRecipe(recipeId: string): Promise<boolean> {
-    const existing = query<StoredRecipe>(RECIPE_TABLE, (r) => r.id === recipeId && r.is_custom);
-    if (existing.length === 0) return false;
+export type RecipeDeleteResult =
+    | { status: 'deleted'; scope: 'local' | 'cloud-and-local'; message: string }
+    | { status: 'not-found' | 'not-owner' | 'pending'; message: string };
 
-    try {
-        const { deleteLocal: del } = await import('./vessel/LocalDatabase');
-        await del(RECIPE_TABLE, recipeId);
-    } catch {
-        return false;
+/**
+ * Delete a custom recipe without stranding a compatible cloud row or public
+ * photo. Cloud-owned recipes are cloud-first: a failure keeps the local row so
+ * the owner has an honest retry handle instead of seeing a false success.
+ */
+export async function deleteCustomRecipe(recipeId: string): Promise<RecipeDeleteResult> {
+    const existing = query<StoredRecipe>(RECIPE_TABLE, (r) => r.id === recipeId && r.is_custom);
+    if (existing.length === 0) {
+        return {
+            status: 'not-found',
+            message: 'This custom recipe no longer exists on this device.',
+        };
     }
 
-    // Delete from Supabase
-    if (supabase) {
+    const recipe = existing[0];
+
+    // Anonymous/offline-only recipes have never had an account owner or cloud
+    // row. They can be removed locally without manufacturing a sync promise.
+    if (!recipe.user_id) {
         try {
-            await supabase.from('recipes').delete().eq('id', recipeId);
+            const { deleteLocal: del } = await import('./vessel/LocalDatabase');
+            await del(RECIPE_TABLE, recipeId);
+            return {
+                status: 'deleted',
+                scope: 'local',
+                message: 'Recipe deleted from this device.',
+            };
         } catch {
-            // Offline — queued for next sync
+            return {
+                status: 'pending',
+                message: 'The local recipe could not be deleted. Try again.',
+            };
         }
     }
 
-    return true;
+    if (!supabase) {
+        return {
+            status: 'pending',
+            message: 'Reconnect before deleting this synced recipe. Nothing has been removed yet.',
+        };
+    }
+    const database = supabase;
+
+    const ownerId = recipe.user_id;
+    const owner = await captureRecipeOwnerAuthorization(ownerId);
+    if (!owner) {
+        return {
+            status: 'not-owner',
+            message: 'Only the recipe owner can delete this synced recipe.',
+        };
+    }
+
+    try {
+        const before = await readOwnedCloudRecipeRows(recipeId, ownerId, owner.scope);
+        if (!before) {
+            return {
+                status: 'pending',
+                message: 'The cloud recipe could not be checked safely. Nothing was deleted; try again.',
+            };
+        }
+
+        let privateRows = before;
+        if (before.recipes || before.community_recipes) {
+            const privacyPatches: OwnedCloudRecipePatches = {
+                recipes: {
+                    visibility: 'personal',
+                    image_url: null,
+                    updated_at: new Date().toISOString(),
+                },
+                community_recipes: {
+                    visibility: 'private',
+                    image_url: null,
+                    updated_at: new Date().toISOString(),
+                },
+            };
+
+            // First remove every public reference, but retain the rows as
+            // ownership proof for legacy root-level Storage objects.
+            if (!(await updateOwnedCloudRecipeRows(recipeId, ownerId, owner.scope, before, privacyPatches))) {
+                return {
+                    status: 'pending',
+                    message: 'The recipe could not be made private safely. Nothing else was deleted; try again.',
+                };
+            }
+            const readBack = await readOwnedCloudRecipeRows(recipeId, ownerId, owner.scope);
+            if (!readBack || !cloudRowsConfirmPatches(before, readBack, privacyPatches)) {
+                return {
+                    status: 'pending',
+                    message: 'The private cloud state could not be confirmed. The local recipe was kept for retry.',
+                };
+            }
+            privateRows = readBack;
+        }
+
+        const mediaPaths = managedPhotoPathsFromCloudRows(before, ownerId, recipeId);
+        for (const path of managedPhotoPathsForRecipe(recipe, ownerId)) mediaPaths.add(path);
+        if (
+            mediaPaths.size > 0 &&
+            !(await retireRecipePhotoPaths(owner.scope, owner.authorization, ownerId, recipeId, mediaPaths))
+        ) {
+            return {
+                status: 'pending',
+                message: 'The recipe is private, but photo cleanup is incomplete. The local recipe was kept for retry.',
+            };
+        }
+        if (!isAuthIdentityScopeCurrent(owner.scope)) {
+            return {
+                status: 'pending',
+                message: 'The account changed during deletion. The local recipe was kept for the owner to retry.',
+            };
+        }
+
+        const deleteOwnedRow = async (table: OwnedCloudRecipeTable): Promise<boolean> => {
+            if (!privateRows[table]) return true;
+            try {
+                const result = await database
+                    .from(table)
+                    .delete()
+                    .eq('id', recipeId)
+                    .eq('user_id', ownerId)
+                    .select('id, user_id')
+                    .maybeSingle();
+                return (
+                    isAuthIdentityScopeCurrent(owner.scope) &&
+                    !result.error &&
+                    isExactOwnedCloudRecipeRow(result.data, recipeId, ownerId)
+                );
+            } catch (error) {
+                // A lost response may still mean the delete committed. The
+                // unchanged local row makes the next call read back and finish.
+                log.warn(`Could not confirm ${table} deletion:`, error);
+                return false;
+            }
+        };
+
+        // Rows are deleted only after media is gone. This order is mandatory
+        // for the temporary legacy Storage policy's ownership proof.
+        if (!(await deleteOwnedRow('community_recipes'))) {
+            return {
+                status: 'pending',
+                message: 'The community row deletion is incomplete. The local recipe was kept for retry.',
+            };
+        }
+        if (!(await deleteOwnedRow('recipes'))) {
+            return {
+                status: 'pending',
+                message: 'Cloud deletion is incomplete. The local recipe was kept so you can retry.',
+            };
+        }
+
+        const deletedReadBack = await readOwnedCloudRecipeRows(recipeId, ownerId, owner.scope);
+        if (!deletedReadBack || deletedReadBack.recipes || deletedReadBack.community_recipes) {
+            return {
+                status: 'pending',
+                message: 'Cloud deletion could not be verified. The local recipe was kept so you can retry.',
+            };
+        }
+
+        // Do not let an A -> B account switch delete A's local row after the
+        // awaits above. The cloud rows are already safely retired; A can finish
+        // local cleanup after returning to that account.
+        if (!isAuthIdentityScopeCurrent(owner.scope)) {
+            return {
+                status: 'pending',
+                message: 'The account changed during deletion. Cloud content was removed; local cleanup is pending.',
+            };
+        }
+
+        const { deleteLocal: del } = await import('./vessel/LocalDatabase');
+        await del(RECIPE_TABLE, recipeId);
+        return {
+            status: 'deleted',
+            scope: 'cloud-and-local',
+            message: 'Recipe and its photo were deleted everywhere.',
+        };
+    } catch (error) {
+        log.warn('deleteCustomRecipe failed:', error);
+        return {
+            status: 'pending',
+            message: 'The recipe could not be fully deleted. The local copy was kept so you can retry.',
+        };
+    }
 }
 
 /**

@@ -15,7 +15,7 @@
  * GPS Engine: @transistorsoft/capacitor-background-geolocation (Premium)
  * - Bulletproof background tracking (survives app kill, screen lock)
  * - Native SQLite persistence (zero data loss on crash)
- * - Battery-conscious motion detection
+ * - Explicit voyage-scoped lease and sampling control (no motion permission)
  * - Works with screen locked, app backgrounded, or terminated
  */
 
@@ -62,7 +62,7 @@ import {
     type FlushBufferedTrackResult,
 } from './shiplog/CapturePipeline';
 import { getGpsStatus as _getGpsStatus, getGpsNavData as _getGpsNavData } from './shiplog/PositionResolver';
-import { setCaptureLocalOnly } from './shiplog/EntrySave';
+import { isCaptureLocalOnly, setCaptureLocalOnly } from './shiplog/EntrySave';
 import {
     startLiveTrickle,
     stopLiveTrickle,
@@ -162,6 +162,13 @@ interface CaptureHandoffStore {
     batches: CaptureHandoffBatch[];
 }
 
+class StartTrackingCancelledError extends Error {
+    constructor() {
+        super('Voyage tracking start was cancelled before it completed.');
+        this.name = 'StartTrackingCancelledError';
+    }
+}
+
 // --- MAIN SERVICE CLASS ---
 
 class ShipLogServiceClass {
@@ -193,8 +200,30 @@ class ShipLogServiceClass {
     private trackingOwnerScope: AuthIdentityScope | null = null;
     /** Invalidates overlapping start calls within one auth generation. */
     private startAttempt = 0;
+    /** Same-scope callers join one transactional voyage start. */
+    private startOperation: {
+        scope: AuthIdentityScope;
+        voyageId?: string;
+        promise: Promise<void>;
+    } | null = null;
+    /** Same-scope callers join one complete, bridge-verified voyage stop. */
+    private stopOperation: {
+        scope: AuthIdentityScope;
+        voyageId?: string;
+        promise: Promise<void>;
+    } | null = null;
     /** One ref-counted native GPS lease held by this service, if any. */
     private nativeLeaseScope: AuthIdentityScope | null = null;
+    /** Every path releasing this service's native lease joins the same bridge transition. */
+    private nativeLeaseReleaseOperation: { scope: AuthIdentityScope; promise: Promise<void> } | null = null;
+    /** Joins strict-read → reclaim → release → durable marker clear as one transaction. */
+    private pendingNativeReleaseOperation: {
+        scope: AuthIdentityScope;
+        state: TrackingState;
+        promise: Promise<void>;
+    } | null = null;
+    /** Final voyage work completed, but native GPS teardown still needs retry. */
+    private pendingStop: { scope: AuthIdentityScope; state: TrackingState; voyageId?: string } | null = null;
     /** Serialises durable raw-fix handoffs independently per account. */
     private captureHandoffTails = new Map<string, Promise<void>>();
     /**
@@ -273,6 +302,132 @@ class ShipLogServiceClass {
             this.sameScope(this.trackingOwnerScope, scope) &&
             state === this.trackingState
         );
+    }
+
+    /**
+     * Release the one BgGeo lease owned by ShipLogService.
+     *
+     * BgGeoManager retains its final logical lease when native stop cannot be
+     * verified. Keep `nativeLeaseScope` just as durable in memory: clearing the
+     * owner before the bridge succeeds lets another account increment the
+     * shared count and strands the first account's retry ownership. All pause,
+     * stop, rollback, and identity-transition paths join this operation so one
+     * logical lease can never be decremented twice by overlapping teardown.
+     */
+    private async releaseNativeLease(scope: AuthIdentityScope): Promise<void> {
+        if (!this.isNative || !this.sameScope(this.nativeLeaseScope, scope)) return;
+
+        const inFlight = this.nativeLeaseReleaseOperation;
+        if (inFlight && this.sameScope(inFlight.scope, scope)) {
+            await inFlight.promise;
+            return;
+        }
+
+        const promise = BgGeoManager.requestStop().then(() => {
+            if (this.sameScope(this.nativeLeaseScope, scope)) this.nativeLeaseScope = null;
+        });
+        this.nativeLeaseReleaseOperation = { scope, promise };
+        try {
+            await promise;
+        } finally {
+            if (this.nativeLeaseReleaseOperation?.promise === promise) this.nativeLeaseReleaseOperation = null;
+        }
+    }
+
+    /**
+     * Complete a persisted ShipLog native teardown without performing any
+     * voyage-level work. Resume/Retry calls this directly; End Voyage calls it
+     * before (and separately from) terminal finalization.
+     *
+     * A fresh WebView has no logical lease count. Only the durable marker may
+     * authorize reclaiming exactly one shared lease, and only a strict bridge
+     * read may prove that no reclaim is needed. A reclaimed retry lease is
+     * released in this same operation—initialize never holds it speculatively.
+     */
+    private async completePendingNativeRelease(scope: AuthIdentityScope, state: TrackingState): Promise<void> {
+        const inFlight = this.pendingNativeReleaseOperation;
+        if (inFlight) {
+            if (this.sameScope(inFlight.scope, scope) && inFlight.state === state) {
+                await inFlight.promise;
+                return;
+            }
+            await inFlight.promise;
+            return this.completePendingNativeRelease(scope, state);
+        }
+        if (!state.nativeTeardownPending) return;
+
+        const promise = this.performPendingNativeRelease(scope, state);
+        this.pendingNativeReleaseOperation = { scope, state, promise };
+        try {
+            await promise;
+        } finally {
+            if (this.pendingNativeReleaseOperation?.promise === promise) {
+                this.pendingNativeReleaseOperation = null;
+            }
+        }
+    }
+
+    private async performPendingNativeRelease(scope: AuthIdentityScope, state: TrackingState): Promise<void> {
+        const pendingIntent = state.nativeTeardownPending;
+        if (!pendingIntent) return;
+        if (!this.ownerIsCurrent(scope, state)) {
+            throw new Error('Pending voyage GPS teardown was superseded by another account session.');
+        }
+        let releasedRetainedLease = false;
+        const retainedLeaseScope = this.nativeLeaseScope;
+        if (retainedLeaseScope && !this.sameScope(retainedLeaseScope, scope)) {
+            if (retainedLeaseScope.key !== scope.key) {
+                throw new Error('Pending voyage GPS teardown belongs to a different account session.');
+            }
+            // Auth generations fence stale callbacks, but the logical native
+            // lease survives A→B→A. Release it through its captured generation
+            // so we join an old transition operation instead of issuing a
+            // second requestStop or incrementing the retained logical lease.
+            await this.releaseNativeLease(retainedLeaseScope);
+            releasedRetainedLease = true;
+            if (!this.ownerIsCurrent(scope, state)) {
+                throw new Error('Pending voyage GPS teardown was superseded by another account session.');
+            }
+        }
+
+        const releasing = this.nativeLeaseReleaseOperation;
+        if (releasing && this.sameScope(releasing.scope, scope)) {
+            await releasing.promise;
+            if (!this.ownerIsCurrent(scope, state)) {
+                throw new Error('Pending voyage GPS teardown was superseded by another account session.');
+            }
+        }
+
+        if (this.sameScope(this.nativeLeaseScope, scope)) {
+            await this.releaseNativeLease(scope);
+        } else if (!releasedRetainedLease) {
+            // The UI-friendly helper maps bridge errors to false. Cleanup must
+            // propagate unknown state and retain the durable marker instead.
+            const nativeTrackingEnabled = await BgGeoManager.getNativeTrackingEnabledStrict();
+            if (nativeTrackingEnabled) {
+                await BgGeoManager.requestStart();
+                // Even an inactive return can represent BgGeoManager's one
+                // retained retry lease. Own it before release so no later call
+                // can increment over an unverified native effect.
+                this.nativeLeaseScope = scope;
+                await this.releaseNativeLease(scope);
+            }
+        }
+
+        if (!this.ownerIsCurrent(scope, state)) {
+            throw new Error('Pending voyage GPS teardown was superseded by another account session.');
+        }
+        state.nativeTeardownPending = undefined;
+        try {
+            await _saveTrackingState(state, scope);
+        } catch (error) {
+            state.nativeTeardownPending = pendingIntent;
+            throw error;
+        }
+        if (!this.ownerIsCurrent(scope, state)) {
+            state.nativeTeardownPending = pendingIntent;
+            throw new Error('Pending voyage GPS teardown was superseded by another account session.');
+        }
     }
 
     private captureHandoffStorageKey(scope: AuthIdentityScope): string {
@@ -458,7 +613,7 @@ class ShipLogServiceClass {
         const ownedPrevious = this.sameScope(this.trackingOwnerScope, previous);
         const releaseNativeLease = this.sameScope(this.nativeLeaseScope, previous);
         this.startAttempt += 1;
-        if (releaseNativeLease) this.nativeLeaseScope = null;
+        if (this.pendingStop && this.sameScope(this.pendingStop.scope, previous)) this.pendingStop = null;
 
         this.scheduler.stop();
         this.gpsSubs.stop();
@@ -505,12 +660,35 @@ class ShipLogServiceClass {
 
         if (releaseNativeLease && this.isNative) {
             // requestStop is ref-counted by BgGeoManager. This is a safety
-            // disarm only; it deliberately does not run stopTracking().
-            void BgGeoManager.requestStop().catch((error) => {
-                log.warn('native tracking stop on identity transition failed:', error);
-            });
+            // disarm only; it deliberately does not run stopTracking(). Keep
+            // ownership until the bridge verifies release so the next account
+            // can join/retry this exact lease instead of incrementing over it.
+            void this.releaseNativeLease(previous)
+                .then(() =>
+                    suspendTrackingStateForIdentityChange(
+                        { ...previousState, nativeTeardownPending: undefined },
+                        previous,
+                    ),
+                )
+                .catch((error) => {
+                    // Persist the failed native stop under A's key even though
+                    // B is already current. On a fresh WebView, only this
+                    // marker authorizes ShipLog to reclaim one shared lease.
+                    void suspendTrackingStateForIdentityChange(
+                        { ...previousState, nativeTeardownPending: 'release-only' },
+                        previous,
+                    ).catch((persistError) => {
+                        log.warn('failed to persist identity GPS teardown marker:', persistError);
+                    });
+                    log.warn('native tracking stop on identity transition failed:', error);
+                });
         }
-        void BgGeoManager.setSamplingMode('default').catch(() => {});
+        // Reset a mode only when this service really owned a native GPS lease.
+        // Merely signing out or switching accounts must not initialize the
+        // background plugin (and potentially surface Motion permission UI).
+        if (releaseNativeLease) {
+            void BgGeoManager.setSamplingMode('default').catch(() => {});
+        }
 
         if (this.initializeWasRequested && isAuthIdentityScopeCurrent(next)) {
             void this.initialize().catch((error) => {
@@ -564,8 +742,34 @@ class ShipLogServiceClass {
                 // When navigating between pages within an active session the
                 // scheduler IS running, so the decision is 'none' and active
                 // tracking is untouched.
-                const nativeTrackingEnabled = await BgGeoManager.isNativeTrackingEnabled();
+                // A UI availability read maps bridge errors to false; lifecycle
+                // reconciliation cannot. Unknown native state must leave the
+                // persisted voyage untouched and retryable, never mark it
+                // stopped or clear teardown ownership.
+                const nativeTrackingEnabled = await BgGeoManager.getNativeTrackingEnabledStrict();
                 if (!isAuthIdentityScopeCurrent(scope)) return;
+                if (this.trackingState.nativeTeardownPending) {
+                    if (!nativeTrackingEnabled) {
+                        // Strict false is proof the requested native end state
+                        // already holds. Clear only the marker; a normal pause
+                        // stays paused and resumable.
+                        this.trackingState.nativeTeardownPending = undefined;
+                        await this.saveTrackingState(scope);
+                        if (!isAuthIdentityScopeCurrent(scope)) return;
+                    } else if (
+                        this.trackingState.nativeTeardownPending === 'end-voyage' &&
+                        this.trackingState.currentVoyageId
+                    ) {
+                        // Only an interrupted terminal End reconstructs voyage
+                        // finalization. Pause/identity/start rollback markers
+                        // remain release-only until an explicit Resume or End.
+                        this.pendingStop = {
+                            scope,
+                            state: this.trackingState,
+                            voyageId: this.trackingState.currentVoyageId,
+                        };
+                    }
+                }
                 const decision = decideInitTrackingAction({
                     persistedIsTracking: this.trackingState.isTracking,
                     persistedIsPaused: this.trackingState.isPaused,
@@ -841,6 +1045,140 @@ class ShipLogServiceClass {
         }
     }
 
+    private async rollbackFailedTrackingStart(options: {
+        scope: AuthIdentityScope;
+        attempt: number;
+        previousState: TrackingState;
+        previousOwnerScope: AuthIdentityScope | null;
+        previousNativeLeaseScope: AuthIdentityScope | null;
+        previousCaptureLocalOnly: boolean;
+        previousLastBgLocation: CachedPosition | null;
+        previousLastAcceptedLocation: CachedPosition | null;
+        previousLastWaterStatus: boolean | undefined;
+        previousLastWaterCheck: WaterCheckResult | undefined;
+        previousTrackGpsGateOpen: boolean;
+        attemptedVoyageId: string;
+        nativeLeaseAcquired: boolean;
+        liveTrickleStarted: boolean;
+    }): Promise<void> {
+        const {
+            scope,
+            attempt,
+            previousState,
+            previousOwnerScope,
+            previousNativeLeaseScope,
+            previousCaptureLocalOnly,
+            previousLastBgLocation,
+            previousLastAcceptedLocation,
+            previousLastWaterStatus,
+            previousLastWaterCheck,
+            previousTrackGpsGateOpen,
+            attemptedVoyageId,
+            nativeLeaseAcquired,
+            liveTrickleStarted,
+        } = options;
+
+        // Identity transition or stopTracking may already own teardown. Never
+        // overwrite its newer state. There is one narrow handoff case: auth
+        // can change while requestStart() is inside the native bridge, before
+        // the identity handler can see this lease. If it is still registered
+        // to the failed attempt, release it here; the shared release operation
+        // joins any handler/stop path already tearing down the same lease.
+        if (attempt !== this.startAttempt || !isAuthIdentityScopeCurrent(scope)) {
+            if (nativeLeaseAcquired && this.isNative && this.sameScope(this.nativeLeaseScope, scope)) {
+                try {
+                    await this.releaseNativeLease(scope);
+                } catch (error) {
+                    log.error('failed to release stale native GPS start lease:', error);
+                }
+            }
+            return;
+        }
+
+        this.scheduler.stop();
+        this.gpsSubs.stop();
+        this.courseDetector.stop();
+        this.courseDetector.reset();
+        this.envPoller.stop();
+        this.clearFastLock();
+        this.trackBuffer.clear();
+
+        if (liveTrickleStarted) {
+            await stopLiveTrickle(false, scope).catch((error) => {
+                log.warn('failed to roll back live tracking after voyage start failed:', error);
+            });
+        }
+
+        let nativeLeaseReleased = !nativeLeaseAcquired;
+        if (nativeLeaseAcquired && this.isNative && this.sameScope(this.nativeLeaseScope, scope)) {
+            try {
+                await this.releaseNativeLease(scope);
+                nativeLeaseReleased = true;
+            } catch (error) {
+                // BgGeoManager deliberately retains the final lease on an
+                // unverified stop. Keep our ownership marker as well so a
+                // retry can reuse/release it rather than leak an orphan count.
+                log.error('native GPS lease could not be released after voyage start failed:', error);
+            }
+        }
+
+        const retainedFailedStartLease = nativeLeaseAcquired && !nativeLeaseReleased;
+        const rollbackState: TrackingState = retainedFailedStartLease
+            ? {
+                  ...previousState,
+                  isTracking: false,
+                  isPaused: true,
+                  isRapidMode: false,
+                  isPrecisionMode: false,
+                  nativeTeardownPending: 'release-only',
+                  currentVoyageId: attemptedVoyageId,
+                  voyageStartTime:
+                      previousState.currentVoyageId === attemptedVoyageId ? previousState.voyageStartTime : undefined,
+                  voyageEndTime: undefined,
+              }
+            : previousState;
+
+        this.trackingState = rollbackState;
+        this.trackingOwnerScope = retainedFailedStartLease ? scope : previousOwnerScope;
+        if (nativeLeaseReleased) this.nativeLeaseScope = previousNativeLeaseScope;
+        this.lastBgLocation = previousLastBgLocation;
+        this.lastAcceptedLocation = previousLastAcceptedLocation;
+        this.lastWaterStatus = previousLastWaterStatus;
+        this.lastWaterCheck = previousLastWaterCheck;
+        this.trackGpsGateOpen = previousTrackGpsGateOpen;
+        setCaptureLocalOnly(previousCaptureLocalOnly);
+        this.shoreZoneResolver.reset();
+
+        // The active snapshot may already have reached Preferences before a
+        // later subscription/timer setup failed. Restore the exact pre-start
+        // state so a WebView reload cannot resurrect a voyage that never armed.
+        let rollbackPersistenceError: unknown;
+        try {
+            await _saveTrackingState(rollbackState, scope);
+        } catch (error) {
+            log.error('failed to restore persisted voyage state after start rollback:', error);
+            if (retainedFailedStartLease) {
+                try {
+                    // A failed native stop leaves a real background lease to
+                    // recover. Give its durable release-only marker one more
+                    // bridge attempt before surfacing a fail-closed error.
+                    await _saveTrackingState(rollbackState, scope);
+                } catch (retryError) {
+                    rollbackPersistenceError = retryError;
+                    log.error('failed again to persist pending voyage GPS teardown:', retryError);
+                }
+            }
+        }
+        if (retainedFailedStartLease) {
+            this.notifyTrackingChanged();
+            if (rollbackPersistenceError) {
+                throw new Error(
+                    `Background GPS cleanup remains pending, but its recovery state could not be saved. Keep Thalassa open and retry End Voyage. ${rollbackPersistenceError instanceof Error ? rollbackPersistenceError.message : ''}`.trim(),
+                );
+            }
+        }
+    }
+
     /**
      * Begin GPS tracking for a new or resumed voyage.
      * Creates a voyage ID, aligns to the next quarter-hour, and starts
@@ -866,315 +1204,434 @@ class ShipLogServiceClass {
         _freshDeparture: boolean = false,
     ): Promise<void> {
         if (!isAuthIdentityScopeCurrent(scope)) return;
-        if (this.trackingState.isTracking) {
-            return;
+        const stopping = this.stopOperation;
+        if (stopping && this.sameScope(stopping.scope, scope)) {
+            // A restart must never overtake the stop's final persistence/native
+            // release. Apart from corrupting the stored active state, doing so
+            // lets an End Voyage caller observe a successful stop while a new
+            // lease is already being acquired for the same passage.
+            await stopping.promise;
+            if (!isAuthIdentityScopeCurrent(scope)) return;
+        }
+        const inFlight = this.startOperation;
+        if (inFlight && this.sameScope(inFlight.scope, scope)) return inFlight.promise;
+
+        const requestedVoyageId = continueVoyageId ?? (resume ? this.trackingState.currentVoyageId : undefined);
+        const promise = this.performStartTracking(resume, continueVoyageId, scope, _freshDeparture);
+        this.startOperation = { scope, voyageId: requestedVoyageId, promise };
+        try {
+            await promise;
+        } finally {
+            if (this.startOperation?.promise === promise) this.startOperation = null;
+        }
+    }
+
+    private async performStartTracking(
+        resume: boolean,
+        continueVoyageId: string | undefined,
+        scope: AuthIdentityScope,
+        _freshDeparture: boolean,
+    ): Promise<void> {
+        if (!isAuthIdentityScopeCurrent(scope)) return;
+        const stateBeforeStart = this.trackingState;
+        if (stateBeforeStart.isTracking) return;
+        const pendingStop = this.pendingStop;
+        if (pendingStop && this.sameScope(pendingStop.scope, scope)) {
+            throw new Error('Finish the pending End Voyage GPS teardown before starting or resuming a voyage.');
         }
         const attempt = ++this.startAttempt;
         const startIsCurrent = () => attempt === this.startAttempt && isAuthIdentityScopeCurrent(scope);
-
-        // Initialize GPS engine (native-only: Transistorsoft BgGeo).
-        // On web, GPS is started via navigator.geolocation in gpsSubs.start().
-        if (this.isNative) {
-            const tg = performance.now();
-            await BgGeoManager.ensureReady();
+        if (stateBeforeStart.nativeTeardownPending === 'release-only') {
+            const requestedVoyageId = continueVoyageId ?? (resume ? stateBeforeStart.currentVoyageId : undefined);
+            if (!requestedVoyageId || requestedVoyageId !== stateBeforeStart.currentVoyageId) {
+                throw new Error('Finish the pending voyage GPS teardown before starting a different voyage.');
+            }
+            await this.completePendingNativeRelease(scope, stateBeforeStart);
             if (!startIsCurrent()) return;
-            const tReady = performance.now();
-            await BgGeoManager.requestStart();
-            if (!startIsCurrent()) {
-                await BgGeoManager.requestStop().catch(() => {});
-                return;
-            }
-            this.nativeLeaseScope = scope;
-            log.warn(
-                `[perf] startTracking GPS: ensureReady ${Math.round(tReady - tg)}ms + ` +
-                    `requestStart ${Math.round(performance.now() - tReady)}ms`,
-            );
         }
+        const previousState = { ...this.trackingState };
+        const previousOwnerScope = this.trackingOwnerScope;
+        let previousNativeLeaseScope = this.nativeLeaseScope;
+        const attemptedVoyageId =
+            continueVoyageId ??
+            (resume && previousState.currentVoyageId
+                ? previousState.currentVoyageId
+                : `voyage_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`);
+        const previousCaptureLocalOnly = isCaptureLocalOnly();
+        const previousLastBgLocation = this.lastBgLocation;
+        const previousLastAcceptedLocation = this.lastAcceptedLocation;
+        const previousLastWaterStatus = this.lastWaterStatus;
+        const previousLastWaterCheck = this.lastWaterCheck;
+        const previousTrackGpsGateOpen = this.trackGpsGateOpen;
+        let nativeLeaseAcquired = false;
+        let liveTrickleStarted = false;
 
-        // GPS engine confirmed running — NOW commit tracking state.
-        // Determine voyage ID:
-        // 1. If continueVoyageId is provided, use that
-        // 2. If resume and currentVoyageId exists, use that
-        // 3. Otherwise, generate new
-        let voyageId: string;
-        if (continueVoyageId) {
-            voyageId = continueVoyageId;
-        } else if (resume && this.trackingState.currentVoyageId) {
-            voyageId = this.trackingState.currentVoyageId;
-        } else {
-            voyageId = `voyage_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-        }
-        // WHY FAST-LOCK EXISTS AT ALL (kept from the 2026-07-28 work, because
-        // the reasoning outlived the condition it was written for): at the dock
-        // distanceFilter stays at 1 m, a stationary boat never travels 1 m, so
-        // the GPS emits almost nothing and the first-fix consistency gate
-        // starves waiting for a corroborating second fix that cannot arrive.
-        // That was Shane's "takes a very long time" — never the satellite lock.
-        //
-        // This used to be decided by an `isNewVoyage` predicate that tried to
-        // enumerate which starts deserved a re-spike (mint vs resume vs the
-        // helm's Cast Off, which passes its fresh id as `continueVoyageId` and
-        // so read FALSE on the one path that needed it most). The gate itself
-        // answers the question directly and cannot drift out of sync with it —
-        // see the arm site below.
-
-        // Bind the selected vessel ONCE at cast-off. Do not look this up
-        // again from the currently selected fleet profile after a track has
-        // started: a delivery skipper can switch the default for tomorrow
-        // without moving today's live track to another yacht.
-        const isResumingRecordedVoyage =
-            (resume || Boolean(continueVoyageId)) && this.trackingState.currentVoyageId === voyageId;
-        let boatId = isResumingRecordedVoyage ? this.trackingState.boatId : undefined;
-        if (!boatId && !isResumingRecordedVoyage) {
-            try {
-                const { useSettingsStore } = await import('../stores/settingsStore');
-                const fleetState = useSettingsStore.getState();
-                boatId =
-                    fleetState.activeVesselId ??
-                    (fleetState.vesselFleet.length === 1 ? fleetState.vesselFleet[0]?.id : undefined);
-
-                // A brand-new device can reach Cast Off before the settings
-                // provider finishes its initial fleet pull. Take one bounded
-                // direct look at the cloud selection so this voyage is still
-                // permanently bound at cast-off rather than being assigned by
-                // whichever yacht is active when its offline queue uploads.
-                if (!boatId && scope.userId) {
-                    const { loadOwnedVesselFleet } = await import('./VesselFleetService');
-                    let timeoutId: ReturnType<typeof setTimeout> | undefined;
-                    const fleet = await Promise.race([
-                        loadOwnedVesselFleet(scope).catch(() => null),
-                        new Promise<null>((resolve) => {
-                            timeoutId = setTimeout(() => resolve(null), 1_200);
-                        }),
-                    ]);
-                    if (timeoutId) clearTimeout(timeoutId);
-                    boatId = fleet?.activeBoatId ?? (fleet?.vessels.length === 1 ? fleet.vessels[0]?.id : undefined);
-                }
-            } catch (error) {
-                // A first-ever offline voyage may pre-date the fleet pull.
-                // The entry remains locally durable; the database's legacy
-                // fallback assigns its active boat when it later syncs.
-                log.warn('could not resolve vessel at cast-off:', error);
-            }
-        }
-
-        this.trackingOwnerScope = scope;
-        this.trackingState = {
-            isTracking: true,
-            isPaused: false,
-            isRapidMode: false, // Rapid Mode (3 s selected-vertex cadence) — kept off
-            // by default; the adaptive scheduler + live decimation cover
-            // the same density requirement more efficiently.
-            // ── 2026-05-17: Precision Mode is now ON BY DEFAULT ──
-            // User feedback: "we have two modes of tracking, one works
-            // and one doesn't". 2 Hz capture + live decimation is the
-            // canonical tracking experience now — no toggle needed.
-            // Assumption: user is on charger when actively tracking a
-            // voyage (their explicit acknowledgement). 60-minute auto-
-            // shutoff also removed; tracking sessions stay at hi-fi
-            // for the duration.
-            isPrecisionMode: true,
-            boatId: boatId,
-            currentVoyageId: voyageId,
-            voyageStartTime: resume || continueVoyageId ? this.trackingState.voyageStartTime : new Date().toISOString(),
-            lastMovementTime: new Date().toISOString(),
-        };
-        const sessionState = this.trackingState;
-        // The UI may show raw incoming GPS during acquisition, but no raw
-        // sample from a prior/cold session may become a persisted track point
-        // before GpsSubscriptionManager opens its vetted gate.
-        this.lastBgLocation = null;
-        this.lastAcceptedLocation = null;
-        this.lastWaterStatus = undefined;
-        this.lastWaterCheck = undefined;
-        this.shoreZoneResolver.reset();
-        this.trackGpsGateOpen = false;
-
-        await this.saveTrackingState(scope);
-        if (!startIsCurrent() || !this.ownerIsCurrent(scope, sessionState)) return;
-
-        // LOCAL-FIRST CAPTURE: while this voyage records, every entry is
-        // written to the device only (offline queue) — zero network on the
-        // capture path. The whole voyage uploads in the background at stop.
-        setCaptureLocalOnly(true);
-
-        // If this account was switched away mid-fix, replay its transition
-        // batches before accepting fresh GPS points. A different account can
-        // never read this scoped store, and a different voyage never adopts it.
         try {
-            await this.replayCaptureHandoffs(scope, sessionState, voyageId);
-        } catch (error) {
-            log.warn('capture handoff replay deferred:', error);
-        }
-        if (!startIsCurrent() || !this.ownerIsCurrent(scope, sessionState)) return;
+            // Initialize GPS engine (native-only: Transistorsoft BgGeo).
+            // On web, GPS is started via navigator.geolocation in gpsSubs.start().
+            if (this.isNative) {
+                const tg = performance.now();
+                await BgGeoManager.ensureReady();
+                if (!startIsCurrent()) return;
+                const pendingRelease = this.nativeLeaseReleaseOperation;
+                if (pendingRelease) {
+                    try {
+                        await pendingRelease.promise;
+                    } catch (error) {
+                        throw new Error(
+                            `Voyage logging is waiting for background GPS from the previous session to stop. Retry Cast Off. ${error instanceof Error ? error.message : ''}`.trim(),
+                        );
+                    }
+                    if (!startIsCurrent()) return;
+                }
 
-        // Live position sharing (public Voyage Log "live tail") — a
-        // read-only shadow of the offline queue, gated on
-        // settings.liveTrackShare. Never touches the capture path.
-        startLiveTrickle(sessionState.currentVoyageId ?? null, scope, sessionState.boatId);
+                const retainedLeaseScope = this.nativeLeaseScope;
+                if (retainedLeaseScope && !this.sameScope(retainedLeaseScope, scope)) {
+                    try {
+                        await this.releaseNativeLease(retainedLeaseScope);
+                    } catch (error) {
+                        throw new Error(
+                            `Voyage logging could not release background GPS from the previous session. Retry Cast Off. ${error instanceof Error ? error.message : ''}`.trim(),
+                        );
+                    }
+                    if (!startIsCurrent()) return;
+                }
+                // A foreign retained lease may just have been released. Capture
+                // the real pre-start state for transactional rollback only now.
+                previousNativeLeaseScope = this.nativeLeaseScope;
+                const tReady = performance.now();
+                await BgGeoManager.requireAlwaysLocationAuthorization('voyage-log');
+                if (!startIsCurrent()) return;
+                let leaseState = this.sameScope(previousNativeLeaseScope, scope)
+                    ? await BgGeoManager.getLeaseState()
+                    : null;
+                if (leaseState && leaseState.activeLeaseCount > 0 && !leaseState.active) {
+                    leaseState = await BgGeoManager.revalidateExistingLease();
+                }
+                if (!leaseState?.active || !leaseState.nativeTrackingEnabled) {
+                    // A prior final-stop failure deliberately leaves this
+                    // service's ownership marker intact. Reuse a verified live
+                    // lease; only acquire a new one when no such lease exists.
+                    this.nativeLeaseScope = null;
+                    leaseState = await BgGeoManager.requestStart();
+                    nativeLeaseAcquired = true;
+                    this.nativeLeaseScope = scope;
+                }
+                if (!leaseState.active || !leaseState.nativeTrackingEnabled) {
+                    throw new Error('Voyage logging could not verify that background GPS is active. Please try again.');
+                }
+                if (!startIsCurrent()) throw new StartTrackingCancelledError();
+                log.warn(
+                    `[perf] startTracking GPS: ensureReady ${Math.round(tReady - tg)}ms + ` +
+                        `requestStart ${Math.round(performance.now() - tReady)}ms`,
+                );
+            }
 
-        this.notifyTrackingChanged();
+            // GPS engine confirmed running — NOW commit tracking state.
+            // Determine voyage ID:
+            // 1. If continueVoyageId is provided, use that
+            // 2. If resume and currentVoyageId exists, use that
+            // 3. Otherwise, generate new
+            const voyageId = attemptedVoyageId;
+            // WHY FAST-LOCK EXISTS AT ALL (kept from the 2026-07-28 work, because
+            // the reasoning outlived the condition it was written for): at the dock
+            // distanceFilter stays at 1 m, a stationary boat never travels 1 m, so
+            // the GPS emits almost nothing and the first-fix consistency gate
+            // starves waiting for a corroborating second fix that cannot arrive.
+            // That was Shane's "takes a very long time" — never the satellite lock.
+            //
+            // This used to be decided by an `isNewVoyage` predicate that tried to
+            // enumerate which starts deserved a re-spike (mint vs resume vs the
+            // helm's Cast Off, which passes its fresh id as `continueVoyageId` and
+            // so read FALSE on the one path that needed it most). The gate itself
+            // answers the question directly and cannot drift out of sync with it —
+            // see the arm site below.
 
-        // COLD-START FAST-LOCK (new voyages only). distanceFilter:0 emits
-        // a fix on every chip update even while stationary at the dock,
-        // so the first-fix consistency gate gets its corroborating 2nd
-        // fix in seconds instead of waiting for 1 m of movement — the
-        // "Acquiring GPS fix…" banner clears sooner. Reverts to the
-        // steady 1 m filter after FAST_LOCK_MS. On resume / mid-voyage
-        // reload we stay at the steady mode (no re-spike).
-        // Arm on the GATE, not on newness. GpsSubscriptionManager.start()
-        // resets its first-fix bookkeeping on EVERY start and this service
-        // clears trackGpsGateOpen alongside it, so a resume — or a WebView
-        // reload mid-voyage, which happens — re-closes the gate with exactly
-        // the same stationary-vessel problem and, under the old condition, no
-        // mitigation at all. The original intent ("no re-spike mid-voyage")
-        // is preserved: once the gate is open this is false and we stay at the
-        // steady filter.
-        if (this.isNative && !this.trackGpsGateOpen) {
-            this.armFastLock(voyageId, scope, sessionState);
-        } else {
-            BgGeoManager.setSamplingMode('default').catch((e) => {
-                log.warn('failed to set GPS sampling on track start:', e);
+            // Bind the selected vessel ONCE at cast-off. Do not look this up
+            // again from the currently selected fleet profile after a track has
+            // started: a delivery skipper can switch the default for tomorrow
+            // without moving today's live track to another yacht.
+            const isResumingRecordedVoyage =
+                (resume || Boolean(continueVoyageId)) && this.trackingState.currentVoyageId === voyageId;
+            let boatId = isResumingRecordedVoyage ? this.trackingState.boatId : undefined;
+            if (!boatId && !isResumingRecordedVoyage) {
+                try {
+                    const { useSettingsStore } = await import('../stores/settingsStore');
+                    const fleetState = useSettingsStore.getState();
+                    boatId =
+                        fleetState.activeVesselId ??
+                        (fleetState.vesselFleet.length === 1 ? fleetState.vesselFleet[0]?.id : undefined);
+
+                    // A brand-new device can reach Cast Off before the settings
+                    // provider finishes its initial fleet pull. Take one bounded
+                    // direct look at the cloud selection so this voyage is still
+                    // permanently bound at cast-off rather than being assigned by
+                    // whichever yacht is active when its offline queue uploads.
+                    if (!boatId && scope.userId) {
+                        const { loadOwnedVesselFleet } = await import('./VesselFleetService');
+                        let timeoutId: ReturnType<typeof setTimeout> | undefined;
+                        const fleet = await Promise.race([
+                            loadOwnedVesselFleet(scope).catch(() => null),
+                            new Promise<null>((resolve) => {
+                                timeoutId = setTimeout(() => resolve(null), 1_200);
+                            }),
+                        ]);
+                        if (timeoutId) clearTimeout(timeoutId);
+                        boatId =
+                            fleet?.activeBoatId ?? (fleet?.vessels.length === 1 ? fleet.vessels[0]?.id : undefined);
+                    }
+                } catch (error) {
+                    // A first-ever offline voyage may pre-date the fleet pull.
+                    // The entry remains locally durable; the database's legacy
+                    // fallback assigns its active boat when it later syncs.
+                    log.warn('could not resolve vessel at cast-off:', error);
+                }
+            }
+            if (!startIsCurrent()) throw new StartTrackingCancelledError();
+
+            this.trackingOwnerScope = scope;
+            this.trackingState = {
+                isTracking: true,
+                isPaused: false,
+                isRapidMode: false, // Rapid Mode (3 s selected-vertex cadence) — kept off
+                // by default; the adaptive scheduler + live decimation cover
+                // the same density requirement more efficiently.
+                // ── 2026-05-17: Precision Mode is now ON BY DEFAULT ──
+                // User feedback: "we have two modes of tracking, one works
+                // and one doesn't". 2 Hz capture + live decimation is the
+                // canonical tracking experience now — no toggle needed.
+                // Assumption: user is on charger when actively tracking a
+                // voyage (their explicit acknowledgement). 60-minute auto-
+                // shutoff also removed; tracking sessions stay at hi-fi
+                // for the duration.
+                isPrecisionMode: true,
+                boatId: boatId,
+                currentVoyageId: voyageId,
+                voyageStartTime:
+                    resume || continueVoyageId ? this.trackingState.voyageStartTime : new Date().toISOString(),
+                lastMovementTime: new Date().toISOString(),
+            };
+            const sessionState = this.trackingState;
+            const initialProfile = getPlottingProfile('nearshore');
+            sessionState.loggingZone = initialProfile.zone;
+            sessionState.currentIntervalMs = initialProfile.intervalMs;
+            // The UI may show raw incoming GPS during acquisition, but no raw
+            // sample from a prior/cold session may become a persisted track point
+            // before GpsSubscriptionManager opens its vetted gate.
+            this.lastBgLocation = null;
+            this.lastAcceptedLocation = null;
+            this.lastWaterStatus = undefined;
+            this.lastWaterCheck = undefined;
+            this.shoreZoneResolver.reset();
+            this.trackGpsGateOpen = false;
+
+            await this.saveTrackingState(scope);
+            if (!startIsCurrent() || !this.ownerIsCurrent(scope, sessionState)) {
+                throw new StartTrackingCancelledError();
+            }
+
+            // LOCAL-FIRST CAPTURE: while this voyage records, every entry is
+            // written to the device only (offline queue) — zero network on the
+            // capture path. The whole voyage uploads in the background at stop.
+            setCaptureLocalOnly(true);
+
+            // If this account was switched away mid-fix, replay its transition
+            // batches before accepting fresh GPS points. A different account can
+            // never read this scoped store, and a different voyage never adopts it.
+            try {
+                await this.replayCaptureHandoffs(scope, sessionState, voyageId);
+            } catch (error) {
+                log.warn('capture handoff replay deferred:', error);
+            }
+            if (!startIsCurrent() || !this.ownerIsCurrent(scope, sessionState)) {
+                throw new StartTrackingCancelledError();
+            }
+
+            // Live position sharing (public Voyage Log "live tail") — a
+            // read-only shadow of the offline queue, gated on
+            // settings.liveTrackShare. Never touches the capture path.
+            startLiveTrickle(sessionState.currentVoyageId ?? null, scope, sessionState.boatId);
+            liveTrickleStarted = true;
+
+            // COLD-START FAST-LOCK (new voyages only). distanceFilter:0 emits
+            // a fix on every chip update even while stationary at the dock,
+            // so the first-fix consistency gate gets its corroborating 2nd
+            // fix in seconds instead of waiting for 1 m of movement — the
+            // "Acquiring GPS fix…" banner clears sooner. Reverts to the
+            // steady 1 m filter after FAST_LOCK_MS. On resume / mid-voyage
+            // reload we stay at the steady mode (no re-spike).
+            // Arm on the GATE, not on newness. GpsSubscriptionManager.start()
+            // resets its first-fix bookkeeping on EVERY start and this service
+            // clears trackGpsGateOpen alongside it, so a resume — or a WebView
+            // reload mid-voyage, which happens — re-closes the gate with exactly
+            // the same stationary-vessel problem and, under the old condition, no
+            // mitigation at all. The original intent ("no re-spike mid-voyage")
+            // is preserved: once the gate is open this is false and we stay at the
+            // steady filter.
+            if (this.isNative && !this.trackGpsGateOpen) {
+                this.armFastLock(voyageId, scope, sessionState);
+            } else {
+                BgGeoManager.setSamplingMode('default').catch((e) => {
+                    log.warn('failed to set GPS sampling on track start:', e);
+                });
+            }
+
+            // --- BATTLE-HARDENED GPS STREAMING ---
+            // Wire up continuous position caching + the speed-tier debounce +
+            // fix-acceptance gate. The timer decides WHEN to log; the
+            // subscription manager ensures GPS is ALWAYS fresh.
+            this.gpsSubs.start({
+                isNative: this.isNative,
+                trackBuffer: this.trackBuffer,
+                isActive: () =>
+                    this.ownerIsCurrent(scope, sessionState) && sessionState.isTracking && !sessionState.isPaused,
+                isRapidMode: () => this.ownerIsCurrent(scope, sessionState) && sessionState.isRapidMode === true,
+                isPrecisionMode: () =>
+                    this.ownerIsCurrent(scope, sessionState) && sessionState.isPrecisionMode === true,
+                getIntervalMs: () =>
+                    this.ownerIsCurrent(scope, sessionState)
+                        ? (sessionState.currentIntervalMs ?? TRACKING_INTERVAL_MS)
+                        : TRACKING_INTERVAL_MS,
+                getLastEntryTime: () =>
+                    this.ownerIsCurrent(scope, sessionState) ? sessionState.lastEntryTime : undefined,
+                getPlottingProfile: (pos) =>
+                    this.ownerIsCurrent(scope, sessionState)
+                        ? sessionState.isRapidMode
+                            ? getPlottingProfile('nearshore')
+                            : this.plottingProfileFor(pos)
+                        : getPlottingProfile('nearshore'),
+                onFix: (pos) => {
+                    if (!this.ownerIsCurrent(scope, sessionState)) return;
+                    this.lastBgLocation = pos;
+                },
+                onAcceptedFix: (pos) => {
+                    if (!this.ownerIsCurrent(scope, sessionState)) return;
+                    this.lastAcceptedLocation = pos;
+                    this.refreshShoreZone(pos, scope, sessionState).catch((error) => {
+                        log.warn('shore-zone refresh failed:', error);
+                    });
+                },
+                onSpeedTierChanged: () => {
+                    this.rescheduleAdaptiveInterval(scope, sessionState).catch((e) => {
+                        log.warn(``, e);
+                    });
+                },
+                onHeartbeatTick: () => {
+                    this.flushBufferedTrack(scope, sessionState).catch((e) => {
+                        log.warn(``, e);
+                    });
+                },
+                onTrackOpened: () => {
+                    if (!this.ownerIsCurrent(scope, sessionState)) return;
+                    this.trackGpsGateOpen = true;
+                    // Fast-lock exists only to obtain the corroborating opening
+                    // fix. Keeping distanceFilter:0 active for a fixed 30 s
+                    // afterwards records stationary GPS wander at the dock.
+                    this.settleFastLock(voyageId, scope, sessionState);
+                    this.envPoller.requestCheck();
+                },
+                onPlottingProfileChanged: (profile) => {
+                    this.applyPlottingProfile(profile, scope, sessionState, true).catch((error) => {
+                        log.warn('failed to apply geographic plotting profile:', error);
+                    });
+                },
+                onPlotPointBuffered: () => {
+                    // Persist each selected vertex promptly. The clock-aligned
+                    // scheduler remains a background/heartbeat safety net, but
+                    // a vertex retained just after a tick must not live only in
+                    // JavaScript memory until the next 30-second or 5-minute mark.
+                    this.flushBufferedTrack(scope, sessionState).catch((error) => {
+                        log.warn('failed to flush selected plot point:', error);
+                    });
+                },
             });
+
+            // Reset position-based bearing tracker for new voyage
+            this.courseDetector.reset();
+            // AUTO TURN-PIN GENERATION DISABLED 2026-06-12 (Shane: "do away
+            // with the wayward waypoints — we will address that later").
+            // The midpoint pins landed visibly off-route and cluttered the
+            // track. The detector, the TurnEvent.timestamp plumbing, and
+            // captureLog's positionOverride all remain — re-wire the block
+            // below when the waypoint feature is redesigned.
+            //
+            // this.courseDetector.start({
+            //     getPos: () => this.lastBgLocation,
+            //     isActive: () => this.trackingState.isTracking && !this.trackingState.isPaused,
+            //     onTurn: ({ oldCardinal, newCardinal, lat, lon, timestamp }) => {
+            //         _captureLog(this._captureCtx(), {
+            //             entryType: 'waypoint',
+            //             notes: `Auto: COG ${oldCardinal} → ${newCardinal}`,
+            //             waypointName: `COG ${oldCardinal} → ${newCardinal}`,
+            //             eventCategory: 'navigation',
+            //             positionOverride: { lat, lon, timestamp },
+            //         }).catch(() => {
+            //             /* best effort */
+            //         });
+            //     },
+            // });
+
+            // Start dense until actual GPS-position shoreline evidence proves a
+            // less detailed profile is safe. We never use the dashboard weather
+            // location for a live voyage.
+            this.scheduler.scheduleClockAligned(initialProfile.intervalMs, () =>
+                this.flushBufferedTrack(scope, sessionState),
+            );
+
+            // Kick off async zone refinement in the background — won't block UI.
+            this.rescheduleAdaptiveInterval(scope, sessionState).catch((e) => {
+                log.warn(``, e);
+            });
+
+            // --- 60-SECOND ENVIRONMENT POLLING ---
+            // Checks water/land status at a bounded cadence and hands the same
+            // actual GPS coordinate to the OSM shoreline resolver.
+            this.envPoller.start({
+                getPos: () => this.lastAcceptedLocation,
+                isActive: () =>
+                    this.ownerIsCurrent(scope, sessionState) && sessionState.isTracking && !sessionState.isPaused,
+                onWaterStatus: (waterStatus) => {
+                    if (!this.ownerIsCurrent(scope, sessionState)) return;
+                    // Cache for stamping onto subsequent log entries.
+                    this.lastWaterStatus = waterStatus.isWater;
+                    this.lastWaterCheck = waterStatus;
+                    // Update EnvironmentService for UI consumers.
+                    EnvironmentService.updateWaterStatus(waterStatus.isWater);
+                },
+                onZoneRecheck: (pos, waterStatus) => this.refreshShoreZone(pos, scope, sessionState, waterStatus),
+            });
+            // If the track opened before the poller was wired, request its first
+            // real water check now; otherwise onTrackOpened does this.
+            if (this.trackGpsGateOpen) this.envPoller.requestCheck();
+            this.notifyTrackingChanged();
+
+            // No startup operation below this point can fail synchronously. Only
+            // now may the durable Voyage Start entry be launched; otherwise a
+            // subscription/timer setup exception could leave an orphan start pin
+            // for a voyage whose tracking transaction was rolled back.
+            this.captureImmediateEntry(undefined, 'Voyage Start', scope).catch((e) => {
+                log.warn(``, e);
+            });
+        } catch (error) {
+            await this.rollbackFailedTrackingStart({
+                scope,
+                attempt,
+                previousState,
+                previousOwnerScope,
+                previousNativeLeaseScope,
+                previousCaptureLocalOnly,
+                previousLastBgLocation,
+                previousLastAcceptedLocation,
+                previousLastWaterStatus,
+                previousLastWaterCheck,
+                previousTrackGpsGateOpen,
+                attemptedVoyageId,
+                nativeLeaseAcquired,
+                liveTrickleStarted,
+            });
+            if (error instanceof StartTrackingCancelledError || !isAuthIdentityScopeCurrent(scope)) return;
+            throw error;
         }
-
-        // --- BATTLE-HARDENED GPS STREAMING ---
-        // Wire up continuous position caching + the speed-tier debounce +
-        // fix-acceptance gate. The timer decides WHEN to log; the
-        // subscription manager ensures GPS is ALWAYS fresh.
-        this.gpsSubs.start({
-            isNative: this.isNative,
-            trackBuffer: this.trackBuffer,
-            isActive: () =>
-                this.ownerIsCurrent(scope, sessionState) && sessionState.isTracking && !sessionState.isPaused,
-            isRapidMode: () => this.ownerIsCurrent(scope, sessionState) && sessionState.isRapidMode === true,
-            isPrecisionMode: () => this.ownerIsCurrent(scope, sessionState) && sessionState.isPrecisionMode === true,
-            getIntervalMs: () =>
-                this.ownerIsCurrent(scope, sessionState)
-                    ? (sessionState.currentIntervalMs ?? TRACKING_INTERVAL_MS)
-                    : TRACKING_INTERVAL_MS,
-            getLastEntryTime: () => (this.ownerIsCurrent(scope, sessionState) ? sessionState.lastEntryTime : undefined),
-            getPlottingProfile: (pos) =>
-                this.ownerIsCurrent(scope, sessionState)
-                    ? sessionState.isRapidMode
-                        ? getPlottingProfile('nearshore')
-                        : this.plottingProfileFor(pos)
-                    : getPlottingProfile('nearshore'),
-            onFix: (pos) => {
-                if (!this.ownerIsCurrent(scope, sessionState)) return;
-                this.lastBgLocation = pos;
-            },
-            onAcceptedFix: (pos) => {
-                if (!this.ownerIsCurrent(scope, sessionState)) return;
-                this.lastAcceptedLocation = pos;
-                this.refreshShoreZone(pos, scope, sessionState).catch((error) => {
-                    log.warn('shore-zone refresh failed:', error);
-                });
-            },
-            onSpeedTierChanged: () => {
-                this.rescheduleAdaptiveInterval(scope, sessionState).catch((e) => {
-                    log.warn(``, e);
-                });
-            },
-            onHeartbeatTick: () => {
-                this.flushBufferedTrack(scope, sessionState).catch((e) => {
-                    log.warn(``, e);
-                });
-            },
-            onTrackOpened: () => {
-                if (!this.ownerIsCurrent(scope, sessionState)) return;
-                this.trackGpsGateOpen = true;
-                // Fast-lock exists only to obtain the corroborating opening
-                // fix. Keeping distanceFilter:0 active for a fixed 30 s
-                // afterwards records stationary GPS wander at the dock.
-                this.settleFastLock(voyageId, scope, sessionState);
-                this.envPoller.requestCheck();
-            },
-            onPlottingProfileChanged: (profile) => {
-                this.applyPlottingProfile(profile, scope, sessionState, true).catch((error) => {
-                    log.warn('failed to apply geographic plotting profile:', error);
-                });
-            },
-            onPlotPointBuffered: () => {
-                // Persist each selected vertex promptly. The clock-aligned
-                // scheduler remains a background/heartbeat safety net, but
-                // a vertex retained just after a tick must not live only in
-                // JavaScript memory until the next 30-second or 5-minute mark.
-                this.flushBufferedTrack(scope, sessionState).catch((error) => {
-                    log.warn('failed to flush selected plot point:', error);
-                });
-            },
-        });
-
-        // IMMEDIATE ENTRY: Fire-and-forget — GPS acquisition runs in background
-        // so the UI is not blocked by the 3s GPS warm-up loop.
-        this.captureImmediateEntry(undefined, 'Voyage Start', scope).catch((e) => {
-            log.warn(``, e);
-        });
-
-        // Reset position-based bearing tracker for new voyage
-        this.courseDetector.reset();
-        // AUTO TURN-PIN GENERATION DISABLED 2026-06-12 (Shane: "do away
-        // with the wayward waypoints — we will address that later").
-        // The midpoint pins landed visibly off-route and cluttered the
-        // track. The detector, the TurnEvent.timestamp plumbing, and
-        // captureLog's positionOverride all remain — re-wire the block
-        // below when the waypoint feature is redesigned.
-        //
-        // this.courseDetector.start({
-        //     getPos: () => this.lastBgLocation,
-        //     isActive: () => this.trackingState.isTracking && !this.trackingState.isPaused,
-        //     onTurn: ({ oldCardinal, newCardinal, lat, lon, timestamp }) => {
-        //         _captureLog(this._captureCtx(), {
-        //             entryType: 'waypoint',
-        //             notes: `Auto: COG ${oldCardinal} → ${newCardinal}`,
-        //             waypointName: `COG ${oldCardinal} → ${newCardinal}`,
-        //             eventCategory: 'navigation',
-        //             positionOverride: { lat, lon, timestamp },
-        //         }).catch(() => {
-        //             /* best effort */
-        //         });
-        //     },
-        // });
-
-        // Start dense until actual GPS-position shoreline evidence proves a
-        // less detailed profile is safe. We never use the dashboard weather
-        // location for a live voyage.
-        const initialProfile = getPlottingProfile('nearshore');
-        sessionState.loggingZone = initialProfile.zone;
-        sessionState.currentIntervalMs = initialProfile.intervalMs;
-        await this.saveTrackingState(scope);
-        if (!this.ownerIsCurrent(scope, sessionState)) return;
-
-        this.scheduler.scheduleClockAligned(initialProfile.intervalMs, () =>
-            this.flushBufferedTrack(scope, sessionState),
-        );
-
-        // Kick off async zone refinement in the background — won't block UI.
-        this.rescheduleAdaptiveInterval(scope, sessionState).catch((e) => {
-            log.warn(``, e);
-        });
-
-        // --- 60-SECOND ENVIRONMENT POLLING ---
-        // Checks water/land status at a bounded cadence and hands the same
-        // actual GPS coordinate to the OSM shoreline resolver.
-        this.envPoller.start({
-            getPos: () => this.lastAcceptedLocation,
-            isActive: () =>
-                this.ownerIsCurrent(scope, sessionState) && sessionState.isTracking && !sessionState.isPaused,
-            onWaterStatus: (waterStatus) => {
-                if (!this.ownerIsCurrent(scope, sessionState)) return;
-                // Cache for stamping onto subsequent log entries.
-                this.lastWaterStatus = waterStatus.isWater;
-                this.lastWaterCheck = waterStatus;
-                // Update EnvironmentService for UI consumers.
-                EnvironmentService.updateWaterStatus(waterStatus.isWater);
-            },
-            onZoneRecheck: (pos, waterStatus) => this.refreshShoreZone(pos, scope, sessionState, waterStatus),
-        });
-        // If the track opened before the poller was wired, request its first
-        // real water check now; otherwise onTrackOpened does this.
-        if (this.trackGpsGateOpen) this.envPoller.requestCheck();
     }
 
     // Fix-acceptance gate, GPS subscription wiring, NMEA ingest, heartbeat,
@@ -1304,7 +1761,15 @@ class ShipLogServiceClass {
     async pauseTracking(): Promise<void> {
         const scope = this.trackingOwnerScope;
         if (!scope || !this.ownerIsCurrent(scope)) return;
-        this.startAttempt += 1;
+        const pauseAttempt = ++this.startAttempt;
+        const pauseIsCurrent = () => pauseAttempt === this.startAttempt && this.ownerIsCurrent(scope);
+        if (this.trackingState.nativeTeardownPending === 'end-voyage') {
+            throw new Error('Finish the pending End Voyage GPS teardown before pausing this voyage.');
+        }
+        if (this.trackingState.nativeTeardownPending === 'release-only') {
+            await this.completePendingNativeRelease(scope, this.trackingState);
+            if (!pauseIsCurrent()) return;
+        }
         this.scheduler.stop();
         this.clearFastLock();
         this.trackGpsGateOpen = false;
@@ -1323,28 +1788,209 @@ class ShipLogServiceClass {
         this.trackingState.isTracking = false;
         this.trackingState.isPaused = true;
         await this.saveTrackingState(scope);
-        if (!this.ownerIsCurrent(scope)) return;
+        if (!pauseIsCurrent()) return;
         await stopLiveTrickle(false, scope);
-        if (!this.ownerIsCurrent(scope)) return;
+        if (!pauseIsCurrent()) return;
         if (this.isNative && this.sameScope(this.nativeLeaseScope, scope)) {
-            this.nativeLeaseScope = null;
-            await BgGeoManager.requestStop();
-            if (!this.ownerIsCurrent(scope)) return;
+            try {
+                await this.releaseNativeLease(scope);
+            } catch (error) {
+                this.trackingState.nativeTeardownPending = 'release-only';
+                await this.saveTrackingState(scope).catch((persistError) => {
+                    log.error('failed to persist pending Pause GPS teardown:', persistError);
+                });
+                this.notifyTrackingChanged();
+                throw new Error(
+                    `Voyage recording is paused, but background GPS could not be stopped. Retry Pause before leaving the app. ${error instanceof Error ? error.message : ''}`.trim(),
+                );
+            }
+            if (!pauseIsCurrent()) return;
         }
         this.notifyTrackingChanged();
+    }
+
+    private async finalizeStoppedTracking(
+        scope: AuthIdentityScope,
+        activeState: TrackingState,
+        previousVoyageId: string | undefined,
+        stopAttempt: number,
+    ): Promise<void> {
+        this.assertStopCurrent(scope, activeState, stopAttempt);
+        const stoppedState: TrackingState = {
+            isTracking: false,
+            isPaused: false,
+            isRapidMode: false,
+            isPrecisionMode: false,
+            currentVoyageId: previousVoyageId,
+            voyageStartTime: activeState.voyageStartTime,
+            voyageEndTime: new Date().toISOString(),
+        };
+        this.trackingState = stoppedState;
+        await this.saveTrackingState(scope);
+        this.assertStopCurrent(scope, stoppedState, stopAttempt);
+        this.pendingStop = null;
+        this.notifyTrackingChanged();
+
+        void stopLiveTrickle(true, scope).catch((e) => log.warn('[ShipLog] live-trickle final flush failed:', e));
+        setCaptureLocalOnly(false);
+        void this.syncOfflineQueueForScope(scope)
+            .then((n) => {
+                if (n > 0) {
+                    log.warn(`[ShipLog] voyage upload complete: ${n} entries synced in background`);
+                    if (isAuthIdentityScopeCurrent(scope)) this.notifyTrackingChanged();
+                }
+            })
+            .catch((e) => log.warn('[ShipLog] background voyage upload failed (will retry on interval):', e));
+        this.trackingOwnerScope = null;
+    }
+
+    private assertStopCurrent(scope: AuthIdentityScope, state: TrackingState, stopAttempt: number): void {
+        if (stopAttempt === this.startAttempt && this.ownerIsCurrent(scope, state)) return;
+        throw new Error(
+            'Voyage stop was superseded before background GPS teardown could be verified. Retry End Voyage.',
+        );
     }
 
     /**
      * Stop tracking and end voyage
      * Responds instantly - final entry capture happens in background
      */
-    async stopTracking(): Promise<void> {
-        const scope = this.trackingOwnerScope;
+    async stopTracking(expectedVoyageId?: string): Promise<void> {
+        const requestScope = getAuthIdentityScope();
+        const starting = this.startOperation;
+        if (starting && isAuthIdentityScopeCurrent(starting.scope)) {
+            if (expectedVoyageId && starting.voyageId !== expectedVoyageId) {
+                throw new Error('A different voyage GPS start is still pending. Retry End Voyage when it settles.');
+            }
+            try {
+                await starting.promise;
+            } catch {
+                // A failed start completes its transactional rollback before
+                // rejecting. Inspect the resulting exact-voyage state below:
+                // it may be idle, or a durable release-only teardown that End
+                // must verify before the remote voyage can be archived.
+            }
+            if (!isAuthIdentityScopeCurrent(starting.scope)) {
+                throw new Error('Voyage GPS start changed account session before End Voyage could verify it.');
+            }
+        }
+
+        let scope = this.trackingOwnerScope;
+        if ((!scope || !this.ownerIsCurrent(scope)) && expectedVoyageId) {
+            // A fast A→anonymous→A return synchronously clears the visible
+            // owner before A's paused state can hydrate. The stable account
+            // key alone cannot prove which voyage owns a retained lease, so
+            // exact End waits for hydration before it may release or archive.
+            await this.initialize();
+            if (!isAuthIdentityScopeCurrent(requestScope)) {
+                throw new Error('Account session changed before End Voyage could verify voyage GPS ownership.');
+            }
+            if (this.initializedGeneration !== requestScope.generation) {
+                throw new Error(
+                    'Voyage remains active because local GPS ownership could not be verified. Retry End Voyage.',
+                );
+            }
+            scope = this.trackingOwnerScope;
+        }
+        const inFlight = this.stopOperation;
+        if (
+            inFlight &&
+            ((scope && this.sameScope(inFlight.scope, scope)) || (!scope && isAuthIdentityScopeCurrent(inFlight.scope)))
+        ) {
+            if (expectedVoyageId && inFlight.voyageId !== expectedVoyageId) {
+                throw new Error('A different voyage is already completing GPS teardown. End Voyage was not applied.');
+            }
+            await inFlight.promise;
+            return;
+        }
+        if (!scope || !this.ownerIsCurrent(scope)) {
+            const retainedLeaseScope = this.nativeLeaseScope;
+            if (
+                expectedVoyageId &&
+                retainedLeaseScope &&
+                retainedLeaseScope.key === requestScope.key &&
+                isAuthIdentityScopeCurrent(requestScope)
+            ) {
+                try {
+                    // A fast A→anonymous→A return can reach End Voyage before
+                    // A's paused tracking state rehydrates. The native lease is
+                    // still real: join/retry its old-generation release and do
+                    // not let the remote row archive on an unverified stop.
+                    await this.releaseNativeLease(retainedLeaseScope);
+                } catch (error) {
+                    throw new Error(
+                        `Voyage remains active because background GPS from this account session could not be stopped. Retry End Voyage. ${error instanceof Error ? error.message : ''}`.trim(),
+                    );
+                }
+                if (!isAuthIdentityScopeCurrent(requestScope)) {
+                    throw new Error('Account session changed before End Voyage could verify background GPS teardown.');
+                }
+            }
+            return;
+        }
+        if (expectedVoyageId && this.trackingState.currentVoyageId !== expectedVoyageId) {
+            throw new Error('A different voyage is currently using GPS logging. End Voyage was not applied.');
+        }
+        const retainedLeaseScope = this.nativeLeaseScope;
+        if (
+            expectedVoyageId &&
+            !this.trackingState.nativeTeardownPending &&
+            retainedLeaseScope &&
+            !this.sameScope(retainedLeaseScope, scope) &&
+            retainedLeaseScope.key === scope.key
+        ) {
+            try {
+                // Hydration proved the exact voyage. Join the retained lease's
+                // captured generation before terminal work; final teardown
+                // must not skip it merely because A returned as a new gen.
+                await this.releaseNativeLease(retainedLeaseScope);
+            } catch (error) {
+                throw new Error(
+                    `Voyage remains active because background GPS from this account session could not be stopped. Retry End Voyage. ${error instanceof Error ? error.message : ''}`.trim(),
+                );
+            }
+            if (!this.ownerIsCurrent(scope) || this.trackingState.currentVoyageId !== expectedVoyageId) {
+                throw new Error('Voyage GPS ownership changed before End Voyage could verify teardown.');
+            }
+        }
+
+        const promise = this.performStopTracking(scope);
+        this.stopOperation = { scope, voyageId: this.trackingState.currentVoyageId, promise };
+        try {
+            await promise;
+        } finally {
+            if (this.stopOperation?.promise === promise) this.stopOperation = null;
+        }
+    }
+
+    private async performStopTracking(scope: AuthIdentityScope): Promise<void> {
+        const pending = this.pendingStop;
+        if (pending && this.sameScope(pending.scope, scope) && this.ownerIsCurrent(scope, pending.state)) {
+            const retryAttempt = ++this.startAttempt;
+            try {
+                await this.completePendingNativeRelease(scope, pending.state);
+            } catch (error) {
+                throw new Error(
+                    `Voyage remains paused because background GPS teardown is still pending. Retry End Voyage. ${error instanceof Error ? error.message : ''}`.trim(),
+                );
+            }
+            await this.finalizeStoppedTracking(scope, pending.state, pending.voyageId, retryAttempt);
+            return;
+        }
         const activeState = this.trackingState;
-        if (!scope || !this.ownerIsCurrent(scope, activeState)) return;
+        if (!this.ownerIsCurrent(scope, activeState)) return;
         const stopAttempt = ++this.startAttempt;
-        const stopIsCurrent = (state: TrackingState) =>
-            stopAttempt === this.startAttempt && this.ownerIsCurrent(scope, state);
+        const assertStopCurrent = (state: TrackingState) => this.assertStopCurrent(scope, state, stopAttempt);
+        if (activeState.nativeTeardownPending) {
+            try {
+                await this.completePendingNativeRelease(scope, activeState);
+            } catch (error) {
+                throw new Error(
+                    `Voyage remains paused because background GPS teardown is still pending. Retry End Voyage. ${error instanceof Error ? error.message : ''}`.trim(),
+                );
+            }
+            assertStopCurrent(activeState);
+        }
         const previousVoyageId = activeState.currentVoyageId;
 
         // Following a route is a CHILD of this passage, not a peer of it: the
@@ -1394,12 +2040,12 @@ class ShipLogServiceClass {
         } catch (e) {
             log.warn('[ShipLog] final buffer flush deferred to durable handoff:', e);
         }
-        if (!stopIsCurrent(activeState)) return;
+        assertStopCurrent(activeState);
         if (previousVoyageId) {
             await this.replayCaptureHandoffs(scope, activeState, previousVoyageId).catch((error) => {
                 log.warn('final capture handoff remains durable for later replay:', error);
             });
-            if (!stopIsCurrent(activeState)) return;
+            assertStopCurrent(activeState);
         }
 
         // No callback may append after the final drain.
@@ -1418,28 +2064,28 @@ class ShipLogServiceClass {
         // and subscription teardown.
         if (this.trackBuffer.length > 0) {
             const finalFlush = await this.flushBufferedTrack(scope, activeState);
-            if (!stopIsCurrent(activeState)) return;
+            assertStopCurrent(activeState);
             if (finalFlush !== 'complete' && this.trackBuffer.length > 0 && previousVoyageId) {
                 const retained = drainBufferedTrackForHandoff(this.trackBuffer);
                 await this.queueCaptureHandoff(scope, previousVoyageId, retained);
-                if (!stopIsCurrent(activeState)) return;
+                assertStopCurrent(activeState);
             }
         }
 
         await BgGeoManager.setSamplingMode('default');
-        if (!stopIsCurrent(activeState)) return;
+        assertStopCurrent(activeState);
         GpsPrecision.reset();
 
         await this.captureImmediateEntry(previousVoyageId, 'Voyage End', scope).catch((err) => {
             log.warn(``, err);
         });
-        if (!stopIsCurrent(activeState)) return;
+        assertStopCurrent(activeState);
 
         // Clear the old voyage anchor while a new same-account start is still
         // blocked by activeState.isTracking. It can never erase a new
         // voyage's first position.
         await _clearVoyageState(scope);
-        if (!stopIsCurrent(activeState)) return;
+        assertStopCurrent(activeState);
 
         // EMPTY-VOYAGE DISCARD + LOCAL TRACK CACHE. The voyage's points are
         // still ONLY in the offline queue here (local-first capture never
@@ -1457,7 +2103,7 @@ class ShipLogServiceClass {
         if (previousVoyageId) {
             try {
                 const queued = await _getOfflineEntries();
-                if (!stopIsCurrent(activeState)) return;
+                assertStopCurrent(activeState);
                 voyageTrack = queued.filter(
                     (entry) =>
                         entry.voyageId === previousVoyageId &&
@@ -1471,7 +2117,7 @@ class ShipLogServiceClass {
 
                 if (voyageWasEmpty) {
                     await _deleteVoyageFromOfflineQueue(previousVoyageId);
-                    if (!stopIsCurrent(activeState)) return;
+                    assertStopCurrent(activeState);
                     // A discarded voyage never uploads to ship_logs, so any
                     // dock points it trickled to live_track would linger as a
                     // stale public "live" tail that nothing supersedes. Retire
@@ -1495,41 +2141,30 @@ class ShipLogServiceClass {
         // Release exactly the lease owned by this stopping session before a
         // same-account start can acquire its own lease.
         if (this.isNative && this.sameScope(this.nativeLeaseScope, scope)) {
-            this.nativeLeaseScope = null;
-            await BgGeoManager.requestStop();
-            if (!stopIsCurrent(activeState)) return;
+            try {
+                await this.releaseNativeLease(scope);
+            } catch (error) {
+                assertStopCurrent(activeState);
+                // All JS capture paths are already disarmed. Represent that
+                // truthfully as a paused, retryable stop rather than leaving
+                // isTracking=true with no subscriptions while native GPS still
+                // holds the retained lease.
+                activeState.isTracking = false;
+                activeState.isPaused = true;
+                activeState.isPrecisionMode = false;
+                activeState.nativeTeardownPending = 'end-voyage';
+                this.pendingStop = { scope, state: activeState, voyageId: previousVoyageId };
+                await this.saveTrackingState(scope);
+                await stopLiveTrickle(false, scope).catch(() => {});
+                this.notifyTrackingChanged();
+                throw new Error(
+                    `Voyage recording is paused, but background GPS is still active. Retry End Voyage to finish stopping. ${error instanceof Error ? error.message : ''}`.trim(),
+                );
+            }
+            assertStopCurrent(activeState);
         }
 
-        const stoppedState: TrackingState = {
-            isTracking: false,
-            isPaused: false,
-            isRapidMode: false,
-            isPrecisionMode: false,
-            currentVoyageId: previousVoyageId,
-            voyageStartTime: activeState.voyageStartTime,
-            voyageEndTime: new Date().toISOString(),
-        };
-        this.trackingState = stoppedState;
-        await this.saveTrackingState(scope);
-        if (!stopIsCurrent(stoppedState)) return;
-        this.notifyTrackingChanged();
-
-        void stopLiveTrickle(true, scope).catch((e) => log.warn('[ShipLog] live-trickle final flush failed:', e));
-
-        // Voyage complete → exit local-only capture and upload the whole
-        // recorded voyage to Supabase in the background. Fire-and-forget:
-        // the UI never waits on this, and if it fails (offshore, no link)
-        // the 2-minute sync interval + app-launch sync retry until it lands.
-        setCaptureLocalOnly(false);
-        void this.syncOfflineQueueForScope(scope)
-            .then((n) => {
-                if (n > 0) {
-                    log.warn(`[ShipLog] voyage upload complete: ${n} entries synced in background`);
-                    if (isAuthIdentityScopeCurrent(scope)) this.notifyTrackingChanged();
-                }
-            })
-            .catch((e) => log.warn('[ShipLog] background voyage upload failed (will retry on interval):', e));
-        if (stopIsCurrent(stoppedState)) this.trackingOwnerScope = null;
+        await this.finalizeStoppedTracking(scope, activeState, previousVoyageId, stopAttempt);
     }
 
     /**

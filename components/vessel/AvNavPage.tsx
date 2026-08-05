@@ -32,6 +32,8 @@ import {
     subscribeAuthIdentityScope,
     type AuthIdentityScope,
 } from '../../services/authIdentityScope';
+import { PI_INTEGRATION_ENABLED } from '../../services/piPublicBetaBoundary';
+import { PiPublicBetaUnavailable } from '../ui/PiPublicBetaUnavailable';
 
 const SETUP_GUIDE_KEY = 'thalassa_avnav_setup_dismissed';
 
@@ -43,6 +45,8 @@ const SUPABASE_KEY =
 
 interface AvNavPageProps {
     onBack: () => void;
+    /** Production-safe escape to local, Pi-independent ENC management. */
+    onOpenEncLibrary?: () => void;
 }
 
 const subscribeIdentity = (notify: () => void): (() => void) => subscribeAuthIdentityScope(() => notify());
@@ -155,6 +159,13 @@ const ChartPackageRow: React.FC<{
         activeProgress.phase !== 'done' &&
         activeProgress.phase !== 'error';
     const sizeLabel = pkg.sizeMB >= 1000 ? `${(pkg.sizeMB / 1024).toFixed(1)} GB` : `${pkg.sizeMB} MB`;
+    const provenanceLabel =
+        pkg.provenance.distributionStatus === 'official-public-release'
+            ? 'Official public release'
+            : pkg.provenance.distributionStatus === 'licensed-provider-download'
+              ? 'Licensed provider download'
+              : 'Source-hosted · licence unverified';
+    const provenanceHref = pkg.provenance.licenseUrl || pkg.provenance.sourceUrl;
 
     return (
         <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-white/[0.02] border border-white/[0.04]">
@@ -164,14 +175,32 @@ const ChartPackageRow: React.FC<{
                 {isActive && activeProgress && activeProgress.phase !== 'idle' ? (
                     <ProgressBar progress={activeProgress} />
                 ) : (
-                    <p className="text-[11px] text-gray-500">
-                        {sizeLabel} · {pkg.isZipped ? 'ZIP \u2192 MBTiles' : pkg.format.toUpperCase()}
-                        {pkg.source === 'linz' && ' · LINZ CC-BY'}
-                        {pkg.credit && ` · ${pkg.credit}`}
-                    </p>
+                    <>
+                        <p className="text-[11px] text-gray-500">
+                            {sizeLabel} · {pkg.isZipped ? 'ZIP \u2192 MBTiles' : pkg.format.toUpperCase()}
+                            {pkg.credit && ` · ${pkg.credit}`}
+                        </p>
+                        <p className="text-[10px] text-gray-500 leading-snug mt-0.5">
+                            {pkg.provenance.publisher} ·{' '}
+                            <a
+                                href={provenanceHref}
+                                target="_blank"
+                                rel="noreferrer noopener"
+                                className={
+                                    pkg.provenance.distributionStatus === 'source-hosted-unverified'
+                                        ? 'text-amber-300/80 underline underline-offset-2'
+                                        : 'text-sky-300/80 underline underline-offset-2'
+                                }
+                            >
+                                {provenanceLabel}
+                            </a>
+                        </p>
+                    </>
                 )}
             </div>
             <button
+                type="button"
+                aria-label={`Download ${pkg.name}`}
                 onClick={() => {
                     triggerHaptic('light');
                     onDownload(pkg);
@@ -231,7 +260,7 @@ const RegionHeader: React.FC<{
 
 // ── Main Component ──
 
-export const AvNavPage: React.FC<AvNavPageProps> = ({ onBack }) => {
+const AvNavPageDevelopment: React.FC<AvNavPageProps> = ({ onBack }) => {
     const identityScope = useSyncExternalStore(subscribeIdentity, getAuthIdentityScope, getAuthIdentityScope);
 
     // ── Boat Network discovery state ──
@@ -937,7 +966,9 @@ export const AvNavPage: React.FC<AvNavPageProps> = ({ onBack }) => {
                         <span className="text-lg">{'\u{1F4E6}'}</span>
                         <div className="flex-1 text-left">
                             <p className="text-sm font-bold text-white">Chart Locker</p>
-                            <p className="text-[11px] text-gray-400">Free charts, o-charts & community charts</p>
+                            <p className="text-[11px] text-gray-400">
+                                Official charts, licensed sources & your imports
+                            </p>
                         </div>
                         <svg
                             className={`w-4 h-4 text-gray-500 transition-transform ${lockerExpanded ? 'rotate-180' : ''}`}
@@ -1170,11 +1201,11 @@ export const AvNavPage: React.FC<AvNavPageProps> = ({ onBack }) => {
                                 </p>
                             </div>
 
-                            {/* ── Free Chart Catalog ── */}
+                            {/* ── Chart source catalog ── */}
                             <div className="space-y-1">
                                 <div className="flex items-center gap-2 mb-2">
                                     <p className="text-[11px] font-bold uppercase tracking-widest text-white/40 flex-1">
-                                        Free Charts
+                                        Chart Sources
                                     </p>
                                     <span className="text-[11px] text-emerald-400/60 font-mono bg-emerald-500/10 px-2 py-0.5 rounded-full">
                                         {catalog.length} charts
@@ -1216,20 +1247,19 @@ export const AvNavPage: React.FC<AvNavPageProps> = ({ onBack }) => {
                                 )}
                             </div>
 
-                            {/* ── Community Charts Credit ── */}
-                            <div className="px-3 py-2.5 rounded-xl bg-sky-500/5 border border-sky-500/10">
-                                <p className="text-[11px] font-bold text-sky-400 mb-1">
-                                    {'\u26F5'} Community Charts {'\u2014'} South Pacific
+                            {/* ── Community source trust notice ── */}
+                            <div className="px-3 py-2.5 rounded-xl bg-amber-500/5 border border-amber-500/10">
+                                <p className="text-[11px] font-bold text-amber-300 mb-1">
+                                    {'\u26F5'} Community Packages Quarantined for Beta
                                 </p>
                                 <p className="text-[11px] text-gray-400 leading-relaxed">
-                                    Fiji, Tonga, Vanuatu, French Polynesia and more — satellite + Navionics overlays
-                                    made by cruisers, for cruisers. Courtesy of{' '}
-                                    <span className="text-sky-300 font-bold">Bruce Balan's Chart Locker</span>. Not
-                                    official charts — use alongside proper navigation.
+                                    The beta catalog contains only direct NOAA releases and licensed LINZ downloads.
+                                    Source-hosted and MediaFire cruising packages are not offered while their source
+                                    data licences and redistribution rights are unverified.
                                 </p>
                                 <p className="text-[11px] text-gray-500 mt-1">
-                                    Downloads are automated — Thalassa resolves the links, downloads the zip, and
-                                    uploads to your AvNav Pi. One tap. {'\u2615'}
+                                    Your own legally obtained MBTiles, KAP, GeoTIFF and o-charts files can still be
+                                    selected above and remain under your existing licence.
                                 </p>
                             </div>
                         </div>
@@ -1511,6 +1541,19 @@ export const AvNavPage: React.FC<AvNavPageProps> = ({ onBack }) => {
                         </div>
                     </div>
                 </ModalSheet>
+            </div>
+        </div>
+    );
+};
+
+/** Production beta replacement: no discovery, setup, chart, or Pi controls. */
+export const AvNavPage: React.FC<AvNavPageProps> = (props) => {
+    if (PI_INTEGRATION_ENABLED) return <AvNavPageDevelopment {...props} />;
+    return (
+        <div className="w-full h-full flex flex-col bg-slate-950 slide-up-enter">
+            <PageHeader title="Boat Network" subtitle="Unavailable in public beta" onBack={props.onBack} />
+            <div className="flex-1 overflow-y-auto">
+                <PiPublicBetaUnavailable onOpenEncLibrary={props.onOpenEncLibrary} />
             </div>
         </div>
     );

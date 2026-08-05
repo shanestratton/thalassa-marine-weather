@@ -204,6 +204,7 @@ describe('AnchorWatchSnapshot', () => {
             gpsQuality: 'precision',
             gpsQualityLabel: 'Precision GPS',
             guardianStatus: 'idle',
+            setupError: null,
         };
 
         expect(snapshot.state).toBe('watching');
@@ -242,6 +243,7 @@ describe('AnchorWatchSnapshot', () => {
             gpsQuality: 'standard',
             gpsQualityLabel: 'Standard GPS',
             guardianStatus: 'idle',
+            setupError: null,
         };
 
         expect(snapshot.state).toBe('alarm');

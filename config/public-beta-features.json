@@ -1,0 +1,45 @@
+{
+    "schemaVersion": 1,
+    "profile": "public-beta-v1",
+    "featureFlags": {
+        "VITE_CMEMS_CURRENTS_ENABLED": true,
+        "VITE_CMEMS_WAVES_ENABLED": false,
+        "VITE_CMEMS_SST_ENABLED": true,
+        "VITE_CMEMS_CHL_ENABLED": true,
+        "VITE_CMEMS_SEAICE_ENABLED": false,
+        "VITE_CMEMS_MLD_ENABLED": false,
+        "VITE_MPA_ENABLED": true,
+        "VITE_APPLE_SIGN_IN_ENABLED": false,
+        "VITE_ACCOUNT_DELETION_ENABLED": false,
+        "VITE_GRANT_ALL_FEATURES": false,
+        "VITE_ENABLE_ENC_DEMO_SAMPLES": false,
+        "VITE_WX_SERVER_ENABLED": false
+    },
+    "publicEndpoints": {
+        "VITE_DEEPGRAM_PROXY_URL": "https://thalassa-deepgram-proxy.thalassacalypso.workers.dev",
+        "VITE_NATIVE_API_BASE": "https://thalassawx.vercel.app/api",
+        "VITE_WX_SERVER_BASE": ""
+    },
+    "heldCapabilities": [
+        "apple-sign-in",
+        "account-deletion",
+        "gmail",
+        "grant-all-features",
+        "enc-demo-samples",
+        "private-weather-server",
+        "guardian",
+        "community-precise-track-sharing",
+        "pi-integration",
+        "musickit",
+        "aishub-contribution",
+        "retired-public-float-plan",
+        "calypso-proactive-alerts",
+        "billing",
+        "private-recipe-photos",
+        "unverified-commercial-chart-packages",
+        "spoonacular-online-catalogue",
+        "marketplace"
+    ],
+    "requiredAbsentClientConfig": ["VITE_GOOGLE_OAUTH_CLIENT_ID"],
+    "requiredCredentialPresence": ["VITE_OWM_API_KEY", "VITE_SENTRY_DSN"]
+}

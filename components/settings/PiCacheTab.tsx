@@ -46,6 +46,8 @@ import {
     isAuthIdentityScopeCurrent,
     type AuthIdentityScope,
 } from '../../services/authIdentityScope';
+import { PI_INTEGRATION_ENABLED } from '../../services/piPublicBetaBoundary';
+import { PiPublicBetaUnavailable } from '../ui/PiPublicBetaUnavailable';
 
 const SUPABASE_URL = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) || '';
 const SUPABASE_KEY =
@@ -68,7 +70,7 @@ const PHASE_DISPLAY: Record<ProvisionPhase, { Icon: React.FC<{ className?: strin
 
 // ── Component ─────────────────────────────────────────────────
 
-export const PiCacheTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
+const PiCacheTabDevelopment: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
     const [status, setStatus] = useState<PiCacheStatus | null>(null);
     const [discovering, setDiscovering] = useState(false);
     const [pairing, setPairing] = useState<PiPairingRecord | null>(() => getPairing());
@@ -657,7 +659,7 @@ export const PiCacheTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => 
             </Section>
 
             {/* ── One-Tap Install (SSH Provisioning) ── */}
-            {privateStateBelongsToIdentity && showInstall && !status?.reachable && (
+            {PiProvisionService.isAvailable && privateStateBelongsToIdentity && showInstall && !status?.reachable && (
                 <Section title="Install on Pi">
                     {!provisionDone ? (
                         <div className="p-4 space-y-3">
@@ -914,6 +916,10 @@ export const PiCacheTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => 
         </div>
     );
 };
+
+/** Production builds expose the beta hold notice, never setup controls. */
+export const PiCacheTab: React.FC<SettingsTabProps> = (props) =>
+    PI_INTEGRATION_ENABLED ? <PiCacheTabDevelopment {...props} /> : <PiPublicBetaUnavailable />;
 
 const StatCard = ({ label, value, sub }: { label: string; value: number; sub: string }) => (
     <div className="p-3 bg-white/[0.03] rounded-xl border border-white/5 text-center">

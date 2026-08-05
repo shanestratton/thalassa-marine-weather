@@ -17,6 +17,7 @@
 import { Capacitor, CapacitorHttp, registerPlugin } from '@capacitor/core';
 import { createLogger } from '../utils/createLogger';
 import { piCache } from './PiCacheService';
+import { PI_INTEGRATION_ENABLED, PI_PUBLIC_BETA_UNAVAILABLE_MESSAGE } from './piPublicBetaBoundary';
 
 const log = createLogger('PiProvision');
 
@@ -125,7 +126,11 @@ const CHECK_COMMAND = 'systemctl is-active thalassa-cache 2>/dev/null || echo "n
 class PiProvisionServiceClass {
     /** Whether the native SSH plugin is available */
     get isAvailable(): boolean {
-        return Capacitor.isNativePlatform();
+        // The current native bridge is intentionally excluded from Release:
+        // it depends on an absent SSH library and does not verify host keys.
+        // Keep the workflow available to native development only until the
+        // secure replacement has been integrated and device-tested.
+        return PI_INTEGRATION_ENABLED && Capacitor.isNativePlatform();
     }
 
     /**
@@ -137,6 +142,7 @@ class PiProvisionServiceClass {
         username: string,
         password: string,
     ): Promise<{ host: string; error?: string } | null> {
+        if (!this.isAvailable) return null;
         const candidates = preferredHost ? [preferredHost, ...DEFAULT_HOSTS] : DEFAULT_HOSTS;
 
         for (const host of candidates) {
@@ -182,7 +188,7 @@ class PiProvisionServiceClass {
             return {
                 success: false,
                 piHost: host,
-                message: 'SSH is only available on iOS/Android — use the manual install for web.',
+                message: PI_PUBLIC_BETA_UNAVAILABLE_MESSAGE,
             };
         }
 

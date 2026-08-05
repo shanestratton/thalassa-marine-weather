@@ -28,7 +28,7 @@
 
 import { useEffect, useRef } from 'react';
 import { piCache } from '../../services/PiCacheService';
-import { MapOfflineService } from '../../services/MapOfflineService';
+import { BULK_OFFLINE_PREFETCH_CAPABILITY, MapOfflineService } from '../../services/MapOfflineService';
 import { getConnectionState, onConnectionChange } from '../../services/ConnectionPriorityService';
 import { createLogger } from '../../utils/createLogger';
 
@@ -71,6 +71,9 @@ export function usePiTileAutoCache({ weatherCoords, embedded, pickerMode, isPinV
     // anything. No prompts, no confirmations.
     const autoCacheRanRef = useRef(false);
     useEffect(() => {
+        // No subscription/listener setup at all when the selected public tile
+        // provider is not licensed for bulk prefetch.
+        if (!BULK_OFFLINE_PREFETCH_CAPABILITY.enabled) return;
         // Planning mode is a visual-isolation concern. This silent Pi cache
         // job is non-visual, and aborting it on Chart → Plan after setting the
         // session guard could prevent it from ever retrying.

@@ -1,8 +1,9 @@
 /**
  * Vessel Intelligence Scraper — "The Railroad"
  *
- * Standalone Node.js service for Railway.app deployment.
- * Runs every 15 minutes via Railway Cron.
+ * RETIRED archive of the former standalone Railway service.
+ * The deploy manifests and package start command now fail closed; production
+ * metadata scraping lives in the scheduled Supabase Edge Function.
  *
  * Two-phase approach:
  *   Phase 1 — AIS SEED: Populate vessel_metadata from existing AIS data

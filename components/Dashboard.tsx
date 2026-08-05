@@ -36,7 +36,6 @@ import { resolveHeroRowTemperatureRange } from './dashboard/hero/heroSlideHelper
 import { useSettings } from '../context/SettingsContext';
 // useWeather removed with the StalenessBanner — re-add if a new Glass-page
 // element needs error / loading / refreshData hooks.
-import { useLiveLocationName } from '../hooks/useLiveLocationName';
 
 import { DashboardWidgetContext, DashboardWidgetContextType } from './WidgetRenderer';
 import { UnitPreferences, SourcedWeatherMetrics } from '../types';
@@ -44,6 +43,8 @@ import { fetchMinutelyRainWithSummary, MinutelyRain } from '../services/weather/
 import { fetchRainbowPrecip } from '../services/weather/api/rainbowPrecip';
 import { useSettingsStore } from '../stores/settingsStore';
 import { useUIStore } from '../stores/uiStore';
+import { canAccess } from '../services/SubscriptionService';
+import { canRefreshRainForecast } from '../utils/offlineAuthority';
 import {
     DndContext,
     PointerSensor,
@@ -137,12 +138,6 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
     // re-mounted 2026-06-21 only the age props came back — the loud
     // 'error' and 'offline-cache' tiers were unreachable until 2026-08-03.
 
-    // Live reverse-geocode of the user's GPS — polls every 10s, only
-    // calls the geocoder if the punter has actually moved > 50m since
-    // the last update. Gated on LocationStore.source === 'gps' so
-    // pinned-map or searched locations aren't overwritten.
-    const liveLocationName = useLiveLocationName();
-
     // Reactive offline flag (internetProbe-verified WAN reachability, not just
     // navigator.onLine) — feeds the StalenessBanner so the Glass page warns the
     // moment the connection drops, even on otherwise-fresh data.
@@ -204,7 +199,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
     const precipRef = useRef<number>(0);
     precipRef.current = current?.precipitation ?? 0;
     const subscriptionTier = useSettingsStore((s) => s.settings.subscriptionTier);
-    const isSkipper = subscriptionTier === 'owner';
+    const isSkipper = canAccess(subscriptionTier, 'weatherFull');
 
     // ── DnD: Phase 2 of the metric-pin feature ───────────────────────
     // Long-press activation means taps on cells still pass through to the
@@ -327,10 +322,19 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                     if (cachedSummary) setRainSummary(cachedSummary);
                     if (cachedSource) setRainSource(cachedSource);
                     setRainStatus('loaded');
+                    // A recent cached nowcast remains useful while offline, but
+                    // no network timer should run until the reachability probe
+                    // explicitly clears the authoritative offline flag.
+                    if (isOffline) {
+                        return () => {
+                            cancelled = true;
+                        };
+                    }
+
                     // Still set up the refresh timer below, but skip initial fetch
                     const rainTimer = setInterval(() => {
-                        if (document.hidden) return; // Battery: skip when backgrounded
-                        if (!navigator.onLine || cancelled) return;
+                        if (!canRefreshRainForecast(document.hidden, useUIStore.getState().isOffline, cancelled))
+                            return;
                         fetchRainData(lat, lon, isSkipper, cancelled, (rain, summary, src) => {
                             setMinutelyRain(rain);
                             setRainSummary(summary);
@@ -351,6 +355,19 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
             } catch (e) {
                 log.warn('corrupted cache, continue with fresh fetch:', e);
             }
+        }
+
+        if (isOffline) {
+            // An expired minutely feed cannot honestly be shifted forward in
+            // time. Leave the rain product unavailable; the main weather cache
+            // and global staleness banner remain visible independently.
+            setMinutelyRain([]);
+            setRainSummary('');
+            setRainSource('unknown');
+            setRainStatus('error');
+            return () => {
+                cancelled = true;
+            };
         }
 
         // ── Unified rain fetch: Rainbow.ai for Skipper, WeatherKit for others ──
@@ -380,8 +397,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
 
         // Live refresh on the rationed interval (30 min by default)
         const rainTimer = setInterval(() => {
-            if (document.hidden) return;
-            if (!navigator.onLine) return;
+            if (!canRefreshRainForecast(document.hidden, useUIStore.getState().isOffline, cancelled)) return;
             fetchRainData(lat, lon, isSkipper, cancelled, (rain, summary, src) => {
                 if (rain.length > 0) {
                     setMinutelyRain(rain);
@@ -426,7 +442,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
             }));
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [data?.coordinates?.lat, data?.coordinates?.lon, isSkipper]);
+    }, [data?.coordinates?.lat, data?.coordinates?.lon, isOffline, isSkipper]);
 
     // Stable scroll callbacks that batch state updates via rAF
     const handleTimeSelect = useCallback((time: number | undefined) => {
@@ -720,10 +736,9 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
             tideHourly: data?.tideHourly || [],
             boatingAdvice: boatingAdvice || '',
             lockerItems: lockerItems,
-            // Prefer the live GPS-derived name when available; fall back
-            // to the name baked into the weather snapshot. The live name
-            // only resolves when the user is in GPS-follow mode.
-            locationName: liveLocationName || data?.locationName,
+            // WeatherContext owns GPS-follow naming and updates this snapshot
+            // without starting the background-location engine at launch.
+            locationName: data?.locationName,
             timeZone: data?.timeZone,
             modelUsed: data?.modelUsed,
             isLandlocked: isLandlocked,
@@ -763,7 +778,6 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
             shareReport,
             props.onTriggerUpgrade,
             props.onOpenMap,
-            liveLocationName,
         ],
     );
 
@@ -964,6 +978,11 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                   via opacity:0 and to clicks via pointer-events:none. */}
                                 <div
                                     className="fixed left-0 right-0 z-[110] px-4 transition-[opacity,transform] duration-200 ease-out"
+                                    aria-hidden={isExpanded}
+                                    ref={(element) => {
+                                        if (element)
+                                            (element as HTMLDivElement & { inert: boolean }).inert = isExpanded;
+                                    }}
                                     style={{
                                         top: glassSafeTopOffset(glassTopLayout.primaryCardTopPx),
                                         opacity: !isExpanded ? 1 : 0,
@@ -980,6 +999,11 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                 two layers cross-fade in sync. */}
                                 <div
                                     className="fixed left-0 right-0 z-[110] px-4 transition-[opacity,transform] duration-200 ease-out"
+                                    aria-hidden={!isExpanded}
+                                    ref={(element) => {
+                                        if (element)
+                                            (element as HTMLDivElement & { inert: boolean }).inert = !isExpanded;
+                                    }}
                                     style={{
                                         top: glassSafeTopOffset(glassTopLayout.primaryCardTopPx),
                                         opacity: isExpanded ? 1 : 0,

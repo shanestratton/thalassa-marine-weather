@@ -26,13 +26,20 @@ coarsening is needed — grab it as-is.
 from __future__ import annotations
 
 import logging
+import math
 import os
 import struct
-import subprocess
 import sys
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
+SCRIPTS_DIR = Path(__file__).resolve().parents[1]
+if str(SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS_DIR))
+
+from cmems_contract import validate_cmems_source, validate_thcu_payloads
+from publisher_contract import build_cmems_bundle, producer_provenance
 
 log = logging.getLogger("cmems-chl-pipeline")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -55,20 +62,31 @@ SUBSAMPLE_DEG = 0.25
 # oligotrophic floor, 50 mg/m³ = rare but-observed bloom peak. Cover
 # the full 4-orders-of-magnitude span so every real ocean value maps
 # into the colour ramp.
-CHL_LOG_MIN = -2.0   # log10(0.01)
-CHL_LOG_MAX = 1.7    # log10(50)
-CHL_LOG_RANGE = CHL_LOG_MAX - CHL_LOG_MIN  # 3.7
+CHL_FLOOR = 0.01
+CHL_CEILING = 50.0
+CHL_LOG_MIN = math.log10(CHL_FLOOR)
+CHL_LOG_MAX = math.log10(CHL_CEILING)
+CHL_LOG_RANGE = CHL_LOG_MAX - CHL_LOG_MIN
 
 RELEASE_TAG = "cmems-chl-latest"
 
 OUT_DIR = Path(os.environ.get("CMEMS_OUT_DIR", "/tmp/cmems-chl"))
 OUT_DIR.mkdir(parents=True, exist_ok=True)
+BUNDLE_DIR = OUT_DIR / "bundle"
 
 BINARY_MAGIC = b"THCU"
 BINARY_VERSION = 2
 
 
 # ── Steps ─────────────────────────────────────────────────────────────────
+
+
+def normalise_chlorophyll_value(value_mg_m3: float) -> float:
+    """Reference scalar transform used by offline and client parity fixtures."""
+    if not math.isfinite(value_mg_m3) or value_mg_m3 < 0:
+        raise ValueError("chlorophyll must be finite and non-negative")
+    clipped = min(CHL_CEILING, max(CHL_FLOOR, value_mg_m3))
+    return (math.log10(clipped) - CHL_LOG_MIN) / CHL_LOG_RANGE
 
 
 def fetch_cmems(start: datetime, end: datetime) -> Path:
@@ -167,13 +185,13 @@ def encode_daily_binaries(nc_path: Path) -> list[tuple[Path, int]]:
     for i, t in enumerate(times):
         chl_raw = ds["chl"].isel(time=i).fillna(0.01).astype(np.float32).values
 
-        # Log10 + normalise to [0, 1]. Clamp to the range so coastal
-        # bloom spikes above 50 mg/m³ saturate at max colour instead of
-        # wrapping / going negative.
-        log_chl = np.log10(np.maximum(chl_raw, 0.001) + 0.01).astype(np.float32)
+        # Exact documented transform: clip physical chlorophyll into
+        # [0.01, 50] mg/m³, take log10, then normalize those endpoints to
+        # exactly [0,1]. No additive shift is applied.
+        log_chl = np.log10(np.clip(chl_raw, CHL_FLOOR, CHL_CEILING)).astype(np.float32)
         t_norm = np.clip((log_chl - CHL_LOG_MIN) / CHL_LOG_RANGE, 0.0, 1.0).astype(np.float32)
 
-        u = t_norm                              # pre-normalised [0,1] for direct shader use
+        u = np.where(land_mask == 1, 0.0, t_norm).astype(np.float32)
         v = np.zeros_like(t_norm, dtype=np.float32)
 
         hour_offset = int(round(float((t - t0).astype("timedelta64[s]").astype(float)) / 3600.0))
@@ -207,50 +225,6 @@ def encode_daily_binaries(nc_path: Path) -> list[tuple[Path, int]]:
     return out
 
 
-def upload_to_github_release(entries: list[tuple[Path, int]]) -> None:
-    """Attach binary files to the rolling `cmems-chl-latest` release."""
-    repo = require_env("GITHUB_REPOSITORY")
-    token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
-    if not token:
-        log.error("Neither GH_TOKEN nor GITHUB_TOKEN set — cannot upload release assets")
-        sys.exit(2)
-    env = {**os.environ, "GH_TOKEN": token}
-
-    create = subprocess.run(
-        ["gh", "release", "view", RELEASE_TAG, "--repo", repo],
-        env=env, capture_output=True, text=True,
-    )
-    if create.returncode != 0:
-        log.info("Release %s missing — creating", RELEASE_TAG)
-        subprocess.run(
-            ["gh", "release", "create", RELEASE_TAG,
-             "--repo", repo,
-             "--title", "CMEMS chlorophyll (rolling latest)",
-             "--notes", "Updated daily. Surface chlorophyll (log-normalised) for the WebGL client."],
-            env=env, check=True,
-        )
-
-    manifest_path = OUT_DIR / "manifest.json"
-    manifest = {
-        "version": 1,
-        "generated_at": datetime.now(timezone.utc).isoformat(),
-        "hours": [
-            {"hour": hr, "file": p.name, "bytes": p.stat().st_size}
-            for (p, hr) in entries
-        ],
-    }
-    import json as _json
-    manifest_path.write_text(_json.dumps(manifest, indent=2))
-
-    paths = [p for (p, _) in entries]
-    cmd = ["gh", "release", "upload", RELEASE_TAG,
-           "--repo", repo,
-           "--clobber"] + [str(p) for p in paths] + [str(manifest_path)]
-    log.info("$ %s", " ".join(cmd[:5] + ["<%d files>" % (len(paths) + 1)]))
-    subprocess.run(cmd, env=env, check=True)
-    log.info("✓ Uploaded %d binaries + manifest to %s release", len(paths), RELEASE_TAG)
-
-
 def require_env(name: str) -> str:
     val = os.environ.get(name)
     if not val:
@@ -265,13 +239,35 @@ def main() -> int:
 
     try:
         nc_path = fetch_cmems(now, end)
+        data_times = validate_cmems_source(
+            nc_path,
+            dataset_key="chl",
+            variables=VARIABLES,
+            expected_steps=6,
+            cadence_hours=24,
+            native_resolution=0.25,
+        )
         entries = encode_daily_binaries(nc_path)
-        upload_to_github_release(entries)
+        paths = [path for path, _ in entries]
+        offsets = [offset for _, offset in entries]
+        validate_thcu_payloads(paths)
+        build_cmems_bundle(
+            dataset_key="chl",
+            source_paths=paths,
+            offsets_hours=offsets,
+            data_times=data_times,
+            bundle_dir=BUNDLE_DIR,
+            provenance=producer_provenance(),
+            metadata={
+                "attribution": "Copernicus Marine Service",
+                "encoding": "u=(log10(clip(chl,0.01,50))-log10(0.01))/(log10(50)-log10(0.01)); v=0",
+            },
+        )
     except Exception:  # noqa: BLE001
         log.exception("Pipeline failed")
         return 1
 
-    log.info("✓ Pipeline complete — %d daily snapshots on %s", len(entries), RELEASE_TAG)
+    log.info("✓ Generated and validated %d immutable daily snapshots in %s", len(entries), BUNDLE_DIR)
     return 0
 
 

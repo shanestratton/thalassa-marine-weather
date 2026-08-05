@@ -128,9 +128,9 @@ function baroTrend(track: { pressure: unknown; timestamp?: unknown }[]): 'rising
     const hourAgo = Number.isFinite(lastTs) ? lastTs - 3600_000 : NaN;
     const windowed = Number.isFinite(hourAgo)
         ? readings.filter((t) => {
-              const ts = Date.parse(String(t.timestamp ?? ''));
-              return Number.isFinite(ts) && ts >= hourAgo;
-          })
+            const ts = Date.parse(String(t.timestamp ?? ''));
+            return Number.isFinite(ts) && ts >= hourAgo;
+        })
         : readings.slice(-5);
     if (windowed.length < 2) return 'steady';
     const delta = (windowed[windowed.length - 1].pressure as number) - (windowed[0].pressure as number);
@@ -278,8 +278,9 @@ Deno.serve(async (req: Request) => {
         }
 
         // ── Build the entries query — personal = owner only, combined = all members ─
-        const entryUserIds: string[] =
-            scope === 'combined' && combinedAuthors ? Array.from(combinedAuthors.keys()) : [ownerId];
+        const entryUserIds: string[] = scope === 'combined' && combinedAuthors
+            ? Array.from(combinedAuthors.keys())
+            : [ownerId];
 
         // ── Fetch vessel info, entries, track ──────────────────────
         // TABLE FIX (2026-07-04): the app has always uploaded voyages to
@@ -296,8 +297,7 @@ Deno.serve(async (req: Request) => {
         // passage's public track to its first ~17 minutes (audit
         // 2026-07-03). Page ascending in 1000-row steps up to the
         // declared envelope.
-        const TRACK_SELECT =
-            'latitude, longitude, timestamp, speed_kts, course_deg, pressure, ' +
+        const TRACK_SELECT = 'latitude, longitude, timestamp, speed_kts, course_deg, pressure, ' +
             'wind_speed, wind_gust, wind_direction, ' +
             'air_temp, water_temp, wave_height, entry_type, waypoint_name, notes, voyage_id, ' +
             'cumulative_distance_nm, is_on_water';
@@ -493,10 +493,10 @@ Deno.serve(async (req: Request) => {
         const vesselRes = await (boatId
             ? supabase.from('boats').select('name, vessel_type, model').eq('id', boatId).maybeSingle()
             : supabase
-                  .from('vessel_identity')
-                  .select('vessel_name, vessel_type, model')
-                  .eq('owner_id', ownerId)
-                  .maybeSingle());
+                .from('vessel_identity')
+                .select('vessel_name, vessel_type, model')
+                .eq('owner_id', ownerId)
+                .maybeSingle());
 
         if (vesselRes.error) {
             console.error('voyage-log: vessel fetch failed:', vesselRes.error);
@@ -581,15 +581,15 @@ Deno.serve(async (req: Request) => {
             : Number.NaN;
         const liveNow = Date.now();
         const LIVE_VOYAGE_FRESH_MS = 10 * 60_000;
-        const latestCatalogueVoyageId =
-            typeof latestCatalogueLive?.voyage_id === 'string' ? latestCatalogueLive.voyage_id.trim() : '';
-        const currentVoyageId =
-            latestCatalogueVoyageId &&
-            Number.isFinite(latestCatalogueLiveTs) &&
-            latestCatalogueLiveTs <= liveNow + 60_000 &&
-            liveNow - latestCatalogueLiveTs < LIVE_VOYAGE_FRESH_MS
-                ? latestCatalogueVoyageId
-                : null;
+        const latestCatalogueVoyageId = typeof latestCatalogueLive?.voyage_id === 'string'
+            ? latestCatalogueLive.voyage_id.trim()
+            : '';
+        const currentVoyageId = latestCatalogueVoyageId &&
+                Number.isFinite(latestCatalogueLiveTs) &&
+                latestCatalogueLiveTs <= liveNow + 60_000 &&
+                liveNow - latestCatalogueLiveTs < LIVE_VOYAGE_FRESH_MS
+            ? latestCatalogueVoyageId
+            : null;
 
         const planIdByVoyageId = new Map<string, string>();
         const catalogueMetadataByVoyageId = new Map<string, CatalogueMetadata>();
@@ -600,7 +600,9 @@ Deno.serve(async (req: Request) => {
             const voyageId = typeof row.voyage_id === 'string' ? row.voyage_id.trim() : '';
             const landFraction = typeof row.land_fraction === 'number' ? row.land_fraction : null;
             if (!voyageId || hiddenVoyageIds.has(voyageId) || (landFraction !== null && landFraction >= 0.6)) {
-                if (voyageId) suppressedCatalogueVoyageIds.add(voyageId);
+                if (voyageId) {
+                    suppressedCatalogueVoyageIds.add(voyageId);
+                }
                 continue;
             }
             const startedAt = typeof row.started_at === 'string' ? row.started_at : null;
@@ -613,12 +615,16 @@ Deno.serve(async (req: Request) => {
                 typeof row.distance_nm === 'number' && Number.isFinite(row.distance_nm) && row.distance_nm >= 0
                     ? row.distance_nm
                     : null;
-            const planVoyageId =
-                typeof row.plan_voyage_id === 'string' && row.plan_voyage_id.trim() ? row.plan_voyage_id.trim() : null;
+            const planVoyageId = typeof row.plan_voyage_id === 'string' && row.plan_voyage_id.trim()
+                ? row.plan_voyage_id.trim()
+                : null;
             catalogueMetadataByVoyageId.set(voyageId, { pointCount, distanceNm, planVoyageId });
-            if (planVoyageId) planIdByVoyageId.set(voyageId, planVoyageId);
-            if (startedAt)
+            if (planVoyageId) {
+                planIdByVoyageId.set(voyageId, planVoyageId);
+            }
+            if (startedAt) {
                 cataloguePoints.push({ voyage_id: voyageId, timestamp: startedAt, cumulative_distance_nm: 0 });
+            }
             if (endedAt && endedAt !== startedAt) {
                 cataloguePoints.push({ voyage_id: voyageId, timestamp: endedAt, cumulative_distance_nm: distanceNm });
             }
@@ -633,7 +639,9 @@ Deno.serve(async (req: Request) => {
                 .eq('user_id', ownerId)
                 .eq('voyage_id', currentVoyageId)
                 .maybeSingle();
-            if (liveLinkError) console.warn('voyage-log: live passage-link fetch failed:', liveLinkError.message);
+            if (liveLinkError) {
+                console.warn('voyage-log: live passage-link fetch failed:', liveLinkError.message);
+            }
             const livePlanVoyageId = liveLink?.plan_voyage_id;
             if (typeof livePlanVoyageId === 'string' && livePlanVoyageId.trim()) {
                 planIdByVoyageId.set(currentVoyageId, livePlanVoyageId.trim());
@@ -645,12 +653,15 @@ Deno.serve(async (req: Request) => {
         for (const row of catalogueFallbackRows) {
             const voyageId = typeof row.voyage_id === 'string' ? row.voyage_id.trim() : '';
             const timestamp = typeof row.timestamp === 'string' ? row.timestamp : '';
-            if (!voyageId || !timestamp) continue;
+            if (!voyageId || !timestamp) {
+                continue;
+            }
             cataloguePoints.push({
                 voyage_id: voyageId,
                 timestamp,
-                cumulative_distance_nm:
-                    typeof row.cumulative_distance_nm === 'number' ? row.cumulative_distance_nm : null,
+                cumulative_distance_nm: typeof row.cumulative_distance_nm === 'number'
+                    ? row.cumulative_distance_nm
+                    : null,
             });
         }
 
@@ -659,7 +670,9 @@ Deno.serve(async (req: Request) => {
         // fix, while old/stale tails cannot invent phantom passages.
         const activeLivePoints =
             currentVoyageId && !suppressedCatalogueVoyageIds.has(currentVoyageId) && !landVoyageIds.has(currentVoyageId)
-                ? catalogueLiveRows.filter((row) => row.voyage_id === currentVoyageId)
+                ? catalogueLiveRows.filter((row) =>
+                    row.voyage_id === currentVoyageId
+                )
                 : [];
         for (const row of activeLivePoints) {
             const timestamp = typeof row.timestamp === 'string' ? row.timestamp : '';
@@ -676,8 +689,9 @@ Deno.serve(async (req: Request) => {
                     return {
                         ...trip,
                         point_count: metadata.pointCount + (activeLiveCounts.get(trip.id) ?? 0),
-                        distance_nm:
-                            metadata.distanceNm === null ? trip.distance_nm : Math.round(metadata.distanceNm * 10) / 10,
+                        distance_nm: metadata.distanceNm === null
+                            ? trip.distance_nm
+                            : Math.round(metadata.distanceNm * 10) / 10,
                     };
                 },
             ),
@@ -694,12 +708,11 @@ Deno.serve(async (req: Request) => {
         // Geometry is fetched only for the chosen trip. That gives each old
         // passage its own decimation budget and keeps a historical dropdown
         // from turning the public endpoint into an all-tracks bulk export.
-        const trackRes =
-            selectedTrackId !== null
-                ? await fetchTrack({ voyageId: selectedTrackId })
-                : tripSelection.mode === 'legacy'
-                  ? await fetchTrack({ since: trackSince })
-                  : { data: [] as Record<string, unknown>[], error: null };
+        const trackRes = selectedTrackId !== null
+            ? await fetchTrack({ voyageId: selectedTrackId })
+            : tripSelection.mode === 'legacy'
+            ? await fetchTrack({ since: trackSince })
+            : { data: [] as Record<string, unknown>[], error: null };
         if (trackRes.error) {
             console.error('voyage-log: selected track fetch failed:', trackRes.error);
             return json({ error: 'Internal server error' }, 500);
@@ -743,10 +756,9 @@ Deno.serve(async (req: Request) => {
         // uploaded). All-diary intentionally has neither geometry nor a boat
         // position; it is a diary-only view.
         const lastDurableTs = (durableTrack[durableTrack.length - 1]?.timestamp as string | undefined) ?? trackSince;
-        const liveRows =
-            trackVisibilityReadable && tripSelection.mode !== 'all-diary'
-                ? await fetchLiveTail(lastDurableTs, selectedTrackId ?? undefined)
-                : [];
+        const liveRows = trackVisibilityReadable && tripSelection.mode !== 'all-diary'
+            ? await fetchLiveTail(lastDurableTs, selectedTrackId ?? undefined)
+            : [];
         const liveTail = liveRows.map((p) => ({
             lat: p.latitude,
             lon: p.longitude,
@@ -801,8 +813,7 @@ Deno.serve(async (req: Request) => {
         // filters *before* the 200-row cap; combined crew entries stay in the
         // All diary entries view because their local voyage ids are not a
         // trustworthy shared boat identity.
-        const diarySelect =
-            'id, user_id, title, body, mood, photos, location_name, latitude, longitude, ' +
+        const diarySelect = 'id, user_id, title, body, mood, photos, location_name, latitude, longitude, ' +
             'weather_summary, weather_data, tags, created_at, voyage_id';
         // Named for the same reason as the config row above: a concatenated
         // select string carries no column information for postgrest-js to infer.
@@ -824,10 +835,10 @@ Deno.serve(async (req: Request) => {
         };
         let diaryQuery = selectedTrackId
             ? supabase
-                  .from('diary_entries')
-                  .select<string, PublicDiaryRow>(diarySelect)
-                  .eq('user_id', ownerId)
-                  .eq('voyage_id', selectedTrackId)
+                .from('diary_entries')
+                .select<string, PublicDiaryRow>(diarySelect)
+                .eq('user_id', ownerId)
+                .eq('voyage_id', selectedTrackId)
             : supabase.from('diary_entries').select<string, PublicDiaryRow>(diarySelect).in('user_id', entryUserIds);
         if (boatId) diaryQuery = diaryQuery.eq('boat_id', boatId);
         const entriesRes = await diaryQuery
@@ -856,10 +867,9 @@ Deno.serve(async (req: Request) => {
                 created_at: e.created_at,
                 // Byline only in combined scope. Personal scope omits it
                 // (renderer hides the chip — single voice, no need to attribute).
-                author:
-                    combinedAuthors && combinedAuthors.has(e.user_id as string)
-                        ? { user_id: e.user_id, display_name: combinedAuthors.get(e.user_id as string) }
-                        : null,
+                author: combinedAuthors && combinedAuthors.has(e.user_id as string)
+                    ? { user_id: e.user_id, display_name: combinedAuthors.get(e.user_id as string) }
+                    : null,
             })),
         );
 
@@ -900,8 +910,7 @@ Deno.serve(async (req: Request) => {
             const R = 6_371_000;
             const dLat = ((lat2 - lat1) * Math.PI) / 180;
             const dLon = ((lon2 - lon1) * Math.PI) / 180;
-            const a =
-                Math.sin(dLat / 2) ** 2 +
+            const a = Math.sin(dLat / 2) ** 2 +
                 Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLon / 2) ** 2;
             return 2 * R * Math.asin(Math.sqrt(a)) * NM_PER_M;
         };
@@ -949,7 +958,7 @@ Deno.serve(async (req: Request) => {
                 const plannedNM = Math.max(
                     0,
                     ...plan.map((point) =>
-                        typeof point.cumulative_distance_nm === 'number' ? point.cumulative_distance_nm : 0,
+                        typeof point.cumulative_distance_nm === 'number' ? point.cumulative_distance_nm : 0
                     ),
                 );
                 const planEnd = planPoints[planPoints.length - 1];
@@ -961,7 +970,7 @@ Deno.serve(async (req: Request) => {
                 let doneNM = Math.max(
                     0,
                     ...voyageDurable.map((point) =>
-                        typeof point.cumulative_distance_nm === 'number' ? point.cumulative_distance_nm : 0,
+                        typeof point.cumulative_distance_nm === 'number' ? point.cumulative_distance_nm : 0
                     ),
                 );
                 let previous = voyageDurable[voyageDurable.length - 1] ?? null;
@@ -994,40 +1003,36 @@ Deno.serve(async (req: Request) => {
                         recent[index].longitude as number,
                     );
                 }
-                const recentHours =
-                    recent.length >= 2
-                        ? (Date.parse(String(recent[recent.length - 1].timestamp)) -
-                              Date.parse(String(recent[0].timestamp))) /
-                          3600_000
-                        : 0;
+                const recentHours = recent.length >= 2
+                    ? (Date.parse(String(recent[recent.length - 1].timestamp)) -
+                        Date.parse(String(recent[0].timestamp))) /
+                        3600_000
+                    : 0;
                 const avgSog = recentHours > 0.1 ? recentNM / recentHours : 0;
                 const remainingNM = Math.max(0, plannedNM - doneNM);
-                const etaIso =
-                    avgSog > 0.5 && plannedNM > 0 && Number.isFinite(voyageLastTs)
-                        ? new Date(voyageLastTs + (remainingNM / avgSog) * 3600_000).toISOString()
-                        : null;
+                const etaIso = avgSog > 0.5 && plannedNM > 0 && Number.isFinite(voyageLastTs)
+                    ? new Date(voyageLastTs + (remainingNM / avgSog) * 3600_000).toISOString()
+                    : null;
 
                 // Prefer the saved dense curve rather than rebuilding a
                 // straight line from waypoints. Decimate independently for
                 // the selected passage so historical curves remain legible.
                 const routeGeometry = recoverPublicRouteGeometry(firstNotes);
                 const planStart = planPoints[0];
-                const routeGeometryMatchesPlan =
-                    routeGeometry !== null &&
+                const routeGeometryMatchesPlan = routeGeometry !== null &&
                     havNM(
-                        planStart.latitude as number,
-                        planStart.longitude as number,
-                        routeGeometry[0][1],
-                        routeGeometry[0][0],
-                    ) <= 2 &&
+                            planStart.latitude as number,
+                            planStart.longitude as number,
+                            routeGeometry[0][1],
+                            routeGeometry[0][0],
+                        ) <= 2 &&
                     havNM(
-                        planEnd.latitude as number,
-                        planEnd.longitude as number,
-                        routeGeometry[routeGeometry.length - 1][1],
-                        routeGeometry[routeGeometry.length - 1][0],
-                    ) <= 2;
-                const routeLine: Array<[number, number]> =
-                    (routeGeometryMatchesPlan ? routeGeometry : null) ??
+                            planEnd.latitude as number,
+                            planEnd.longitude as number,
+                            routeGeometry[routeGeometry.length - 1][1],
+                            routeGeometry[routeGeometry.length - 1][0],
+                        ) <= 2;
+                const routeLine: Array<[number, number]> = (routeGeometryMatchesPlan ? routeGeometry : null) ??
                     planPoints.map(
                         (point) => [point.longitude as number, point.latitude as number] as [number, number],
                     );
@@ -1123,8 +1128,7 @@ Deno.serve(async (req: Request) => {
             const fLon = f?.longitude as number | undefined;
             // Same plausibility rules the track filter applies — a null-island
             // row would otherwise park the public page in the Gulf of Guinea.
-            const plausible =
-                typeof fLat === 'number' &&
+            const plausible = typeof fLat === 'number' &&
                 typeof fLon === 'number' &&
                 Math.abs(fLat) <= 90 &&
                 Math.abs(fLon) <= 180 &&
@@ -1232,35 +1236,34 @@ Deno.serve(async (req: Request) => {
         // A selected historic track can use its final point for map framing,
         // but it must not masquerade as the vessel's current instruments to
         // other consumers of this public API.
-        const telemetryBelongsToView =
-            tripSelection.mode === 'legacy' || (selectedTrackId !== null && selectedTrackId === currentVoyageId);
-        const telemetry =
-            telemetryBelongsToView && last
-                ? {
-                      sog: last.speed_kts,
-                      cog: last.course_deg,
-                      heading: last.heading_deg,
-                      baro: last.pressure,
-                      baro_trend: baroTrend(selectedFullTrack),
-                      aws: last.wind_speed_apparent,
-                      awa: last.wind_angle_apparent,
-                      tws: last.wind_speed_true,
-                      twd: last.wind_direction_true,
-                      wind_direction: (last as { wind_direction?: string | null }).wind_direction ?? null,
-                      depth: last.depth_m,
-                      air_temp: last.air_temp,
-                      water_temp: last.water_temp,
-                      wave_height: last.wave_height,
-                      lat: last.lat,
-                      lon: last.lon,
-                      updated_at: last.timestamp,
-                      // TRUE when this is the last-known-position fallback rather
-                      // than a live/recent track fix. The page must say so — a month
-                      // -old berth position presented as current is the kind of thing
-                      // someone could plan a rendezvous around.
-                      is_last_known: lastIsStale,
-                  }
-                : null;
+        const telemetryBelongsToView = tripSelection.mode === 'legacy' ||
+            (selectedTrackId !== null && selectedTrackId === currentVoyageId);
+        const telemetry = telemetryBelongsToView && last
+            ? {
+                sog: last.speed_kts,
+                cog: last.course_deg,
+                heading: last.heading_deg,
+                baro: last.pressure,
+                baro_trend: baroTrend(selectedFullTrack),
+                aws: last.wind_speed_apparent,
+                awa: last.wind_angle_apparent,
+                tws: last.wind_speed_true,
+                twd: last.wind_direction_true,
+                wind_direction: (last as { wind_direction?: string | null }).wind_direction ?? null,
+                depth: last.depth_m,
+                air_temp: last.air_temp,
+                water_temp: last.water_temp,
+                wave_height: last.wave_height,
+                lat: last.lat,
+                lon: last.lon,
+                updated_at: last.timestamp,
+                // TRUE when this is the last-known-position fallback rather
+                // than a live/recent track fix. The page must say so — a month
+                // -old berth position presented as current is the kind of thing
+                // someone could plan a rendezvous around.
+                is_last_known: lastIsStale,
+            }
+            : null;
 
         return json(
             {

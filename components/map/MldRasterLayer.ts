@@ -17,6 +17,14 @@
  */
 import mapboxgl from 'mapbox-gl';
 import { createLogger } from '../../utils/createLogger';
+import {
+    beginWebGlOperation,
+    createWebGlProgram,
+    proveWebGlOperation,
+    requireWebGlAttribute,
+    requireWebGlResource,
+    requireWebGlUniform,
+} from './cmemsWebglSafety';
 
 const log = createLogger('MldRasterLayer');
 
@@ -118,37 +126,6 @@ void main() {
     gl_FragColor = vec4(color, alpha);
 }`;
 
-// ── Helpers ────────────────────────────────────────────────────────────
-
-function compileShader(gl: WebGLRenderingContext, type: number, src: string, label: string): WebGLShader {
-    const shader = gl.createShader(type);
-    if (!shader) throw new Error(`[MldRasterLayer] failed to create ${label}`);
-    gl.shaderSource(shader, src);
-    gl.compileShader(shader);
-    if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-        const info = gl.getShaderInfoLog(shader);
-        gl.deleteShader(shader);
-        throw new Error(`[MldRasterLayer] ${label}: ${info}`);
-    }
-    return shader;
-}
-
-function linkProgram(gl: WebGLRenderingContext, vs: WebGLShader, fs: WebGLShader): WebGLProgram {
-    const program = gl.createProgram();
-    if (!program) throw new Error('[MldRasterLayer] failed to create program');
-    gl.attachShader(program, vs);
-    gl.attachShader(program, fs);
-    gl.linkProgram(program);
-    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-        const info = gl.getProgramInfoLog(program);
-        gl.deleteProgram(program);
-        throw new Error(`[MldRasterLayer] link: ${info}`);
-    }
-    gl.deleteShader(vs);
-    gl.deleteShader(fs);
-    return program;
-}
-
 interface Bounds {
     north: number;
     south: number;
@@ -183,6 +160,7 @@ export class MldRasterLayer implements mapboxgl.CustomLayerInterface {
     private gridW = 0;
     private gridH = 0;
     private globalMode = false;
+    private dataValid = false;
 
     private _keepaliveTimer: ReturnType<typeof setTimeout> | null = null;
     private _onVisibilityChange: (() => void) | null = null;
@@ -194,67 +172,102 @@ export class MldRasterLayer implements mapboxgl.CustomLayerInterface {
     onAdd(map: mapboxgl.Map, gl: WebGLRenderingContext): void {
         this.map = map;
         this.gl = gl;
+        this.dataValid = false;
+        try {
+            beginWebGlOperation(gl, 'MldRasterLayer', 'initialisation');
+            this.program = createWebGlProgram(gl, 'MldRasterLayer', HEATMAP_VERT, HEATMAP_FRAG, 'heatmap');
 
-        const vs = compileShader(gl, gl.VERTEX_SHADER, HEATMAP_VERT, 'mld vert');
-        const fs = compileShader(gl, gl.FRAGMENT_SHADER, HEATMAP_FRAG, 'mld frag');
-        this.program = linkProgram(gl, vs, fs);
+            this.aQuadPosLoc = requireWebGlAttribute(
+                gl.getAttribLocation(this.program, 'a_quad_pos'),
+                'MldRasterLayer',
+                'a_quad_pos',
+            );
+            this.uMatrixLoc = requireWebGlUniform(
+                gl.getUniformLocation(this.program, 'u_matrix'),
+                'MldRasterLayer',
+                'u_matrix',
+            );
+            this.uGridBoundsLoc = requireWebGlUniform(
+                gl.getUniformLocation(this.program, 'u_grid_bounds'),
+                'MldRasterLayer',
+                'u_grid_bounds',
+            );
+            this.uLonOffsetLoc = requireWebGlUniform(
+                gl.getUniformLocation(this.program, 'u_lon_offset'),
+                'MldRasterLayer',
+                'u_lon_offset',
+            );
+            this.uDataTexLoc = requireWebGlUniform(
+                gl.getUniformLocation(this.program, 'u_data_tex'),
+                'MldRasterLayer',
+                'u_data_tex',
+            );
+            this.uOpacityLoc = requireWebGlUniform(
+                gl.getUniformLocation(this.program, 'u_opacity'),
+                'MldRasterLayer',
+                'u_opacity',
+            );
 
-        this.aQuadPosLoc = gl.getAttribLocation(this.program, 'a_quad_pos');
-        this.uMatrixLoc = gl.getUniformLocation(this.program, 'u_matrix');
-        this.uGridBoundsLoc = gl.getUniformLocation(this.program, 'u_grid_bounds');
-        this.uLonOffsetLoc = gl.getUniformLocation(this.program, 'u_lon_offset');
-        this.uDataTexLoc = gl.getUniformLocation(this.program, 'u_data_tex');
-        this.uOpacityLoc = gl.getUniformLocation(this.program, 'u_opacity');
-
-        const SUBDIV = 32;
-        const vCount = (SUBDIV + 1) * (SUBDIV + 1);
-        const positions = new Float32Array(vCount * 2);
-        {
-            let p = 0;
-            for (let y = 0; y <= SUBDIV; y++) {
-                for (let x = 0; x <= SUBDIV; x++) {
-                    positions[p++] = x / SUBDIV;
-                    positions[p++] = y / SUBDIV;
+            const SUBDIV = 32;
+            const vCount = (SUBDIV + 1) * (SUBDIV + 1);
+            const positions = new Float32Array(vCount * 2);
+            {
+                let p = 0;
+                for (let y = 0; y <= SUBDIV; y++) {
+                    for (let x = 0; x <= SUBDIV; x++) {
+                        positions[p++] = x / SUBDIV;
+                        positions[p++] = y / SUBDIV;
+                    }
                 }
             }
-        }
-        const indexCount = SUBDIV * SUBDIV * 6;
-        const indices = new Uint16Array(indexCount);
-        {
-            let ix = 0;
-            for (let y = 0; y < SUBDIV; y++) {
-                for (let x = 0; x < SUBDIV; x++) {
-                    const v0 = y * (SUBDIV + 1) + x;
-                    const v1 = v0 + 1;
-                    const v2 = v0 + (SUBDIV + 1);
-                    const v3 = v2 + 1;
-                    indices[ix++] = v0;
-                    indices[ix++] = v1;
-                    indices[ix++] = v2;
-                    indices[ix++] = v1;
-                    indices[ix++] = v3;
-                    indices[ix++] = v2;
+            const indexCount = SUBDIV * SUBDIV * 6;
+            const indices = new Uint16Array(indexCount);
+            {
+                let ix = 0;
+                for (let y = 0; y < SUBDIV; y++) {
+                    for (let x = 0; x < SUBDIV; x++) {
+                        const v0 = y * (SUBDIV + 1) + x;
+                        const v1 = v0 + 1;
+                        const v2 = v0 + (SUBDIV + 1);
+                        const v3 = v2 + 1;
+                        indices[ix++] = v0;
+                        indices[ix++] = v1;
+                        indices[ix++] = v2;
+                        indices[ix++] = v1;
+                        indices[ix++] = v3;
+                        indices[ix++] = v2;
+                    }
                 }
             }
+
+            this.quadBuffer = requireWebGlResource(gl.createBuffer(), 'MldRasterLayer', 'heatmap vertex buffer');
+            gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer);
+            gl.bufferData(gl.ARRAY_BUFFER, positions, gl.STATIC_DRAW);
+            proveWebGlOperation(gl, 'MldRasterLayer', 'heatmap vertex upload');
+
+            this.indexBuffer = requireWebGlResource(gl.createBuffer(), 'MldRasterLayer', 'heatmap index buffer');
+            gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.indexBuffer);
+            gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indices, gl.STATIC_DRAW);
+            proveWebGlOperation(gl, 'MldRasterLayer', 'heatmap index upload');
+            this.indexCount = indexCount;
+
+            this.dataTexture = requireWebGlResource(gl.createTexture(), 'MldRasterLayer', 'mixed-layer texture');
+            proveWebGlOperation(gl, 'MldRasterLayer', 'mixed-layer texture allocation');
+
+            this._onVisibilityChange = () => {
+                if (!document.hidden && this.dataValid) this.map?.triggerRepaint();
+            };
+            document.addEventListener('visibilitychange', this._onVisibilityChange);
+
+            log.info(`onAdd — ${SUBDIV}×${SUBDIV} mld mesh`);
+        } catch (error) {
+            try {
+                this.onRemove(map, gl);
+            } catch {
+                // Preserve the allocation failure; cleanup is idempotent.
+            }
+            throw error;
         }
-
-        this.quadBuffer = gl.createBuffer();
-        gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer);
-        gl.bufferData(gl.ARRAY_BUFFER, positions, gl.STATIC_DRAW);
-
-        this.indexBuffer = gl.createBuffer();
-        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.indexBuffer);
-        gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indices, gl.STATIC_DRAW);
-        this.indexCount = indexCount;
-
-        this.dataTexture = gl.createTexture();
-
-        this._onVisibilityChange = () => {
-            if (!document.hidden && this.gridW > 0) this.map?.triggerRepaint();
-        };
-        document.addEventListener('visibilitychange', this._onVisibilityChange);
-
-        log.info(`onAdd — ${SUBDIV}×${SUBDIV} mld mesh`);
     }
 
     onRemove(_map: mapboxgl.Map, gl: WebGLRenderingContext): void {
@@ -274,6 +287,7 @@ export class MldRasterLayer implements mapboxgl.CustomLayerInterface {
         this.quadBuffer = null;
         this.indexBuffer = null;
         this.dataTexture = null;
+        this.dataValid = false;
         this.gl = null;
         this.map = null;
     }
@@ -283,28 +297,41 @@ export class MldRasterLayer implements mapboxgl.CustomLayerInterface {
      *  values in [0, 1] (pipeline does the mapping). Land cells are
      *  masked separately and can hold any value. */
     setData(mldNormalised: Float32Array, width: number, height: number, bounds: Bounds, landMask: Uint8Array): void {
+        if (!Number.isSafeInteger(width) || !Number.isSafeInteger(height) || width <= 0 || height <= 0) {
+            throw new Error('[MldRasterLayer] grid dimensions must be positive safe integers');
+        }
         if (mldNormalised.length !== width * height) {
-            log.warn(`mld length mismatch: ${mldNormalised.length} expected=${width * height}`);
-            return;
+            throw new Error(`[MldRasterLayer] mld length mismatch: ${mldNormalised.length} expected=${width * height}`);
         }
         if (landMask.length !== width * height) {
-            log.warn(`mask length mismatch: ${landMask.length} expected=${width * height}`);
-            return;
+            throw new Error(`[MldRasterLayer] mask length mismatch: ${landMask.length} expected=${width * height}`);
         }
+        if (!this.map || !this.gl || !this.program || !this.quadBuffer || !this.indexBuffer || !this.dataTexture) {
+            throw new Error('[MldRasterLayer] renderer is not fully initialised');
+        }
+        const globalMode = Math.abs(bounds.east - bounds.west) >= 359;
+        this.dataValid = false;
+        this.uploadDataTexture(mldNormalised, landMask, width, height, globalMode);
         this.gridW = width;
         this.gridH = height;
         this.gridBounds = { ...bounds };
-        this.globalMode = Math.abs(bounds.east - bounds.west) >= 359;
-        this.uploadDataTexture(mldNormalised, landMask);
+        this.globalMode = globalMode;
+        this.dataValid = true;
         this.map?.triggerRepaint();
     }
 
-    private uploadDataTexture(values: Float32Array, mask: Uint8Array): void {
+    private uploadDataTexture(
+        values: Float32Array,
+        mask: Uint8Array,
+        width: number,
+        height: number,
+        globalMode: boolean,
+    ): void {
         const gl = this.gl;
         const tex = this.dataTexture;
-        if (!gl || !tex) return;
-        const w = this.gridW;
-        const h = this.gridH;
+        if (!gl || !tex) throw new Error('[MldRasterLayer] mixed-layer texture upload is not initialised');
+        const w = width;
+        const h = height;
         const size = w * h;
         const rgba = new Uint8Array(size * 4);
         const inv = 255.0 / ENCODE_RANGE_MLD;
@@ -316,17 +343,29 @@ export class MldRasterLayer implements mapboxgl.CustomLayerInterface {
             rgba[off + 2] = 0;
             rgba[off + 3] = 255;
         }
+        beginWebGlOperation(gl, 'MldRasterLayer', 'mixed-layer texture upload');
         gl.bindTexture(gl.TEXTURE_2D, tex);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, this.globalMode ? gl.REPEAT : gl.CLAMP_TO_EDGE);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, rgba);
-        gl.bindTexture(gl.TEXTURE_2D, null);
+        try {
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, globalMode ? gl.REPEAT : gl.CLAMP_TO_EDGE);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, rgba);
+            proveWebGlOperation(gl, 'MldRasterLayer', 'mixed-layer texture upload');
+        } finally {
+            gl.bindTexture(gl.TEXTURE_2D, null);
+        }
     }
 
     render(gl: WebGLRenderingContext, matrixOrOptions: unknown): void {
-        if (!this.program || !this.quadBuffer || !this.indexBuffer || !this.dataTexture || !matrixOrOptions) {
+        if (
+            !this.dataValid ||
+            !this.program ||
+            !this.quadBuffer ||
+            !this.indexBuffer ||
+            !this.dataTexture ||
+            !matrixOrOptions
+        ) {
             this._scheduleKeepalive();
             return;
         }

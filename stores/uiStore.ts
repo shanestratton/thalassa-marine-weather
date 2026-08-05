@@ -18,13 +18,26 @@ const TAB_PAGES = new Set(['dashboard', 'map', 'voyage', 'details', 'vessel']);
 const VESSEL_CHILDREN = new Set([
     'chat',
     'compass',
+    'weatherWindow',
+    'skipperReference',
     'inventory',
     'maintenance',
     'polars',
     'nmea',
+    'glass',
+    'avnav',
+    'encLibrary',
+    'notices',
+    'gpx-import',
     'equipment',
     'documents',
     'diary',
+    'crew',
+    'checklists',
+    'guardian',
+    'radio',
+    'mob',
+    'galley',
 ]);
 const OVERLAY_PAGES = new Set(['settings', 'warnings']);
 

@@ -7,6 +7,70 @@ import { SearchIcon, GearIcon, DropletIcon, AnchorIcon } from '../Icons';
 import { YachtDatabaseSearch } from '../settings/YachtDatabaseSearch';
 import type { VesselProfile, LengthUnit, WeightUnit, VolumeUnit } from '../../types';
 import type { PolarDatabaseEntry } from '../../data/polarDatabase';
+import { validateVesselName } from '../../utils/inputValidation';
+
+export type VesselDimensionField = 'length' | 'beam' | 'draft';
+export type VesselDimensionAutofillSource = 'database' | 'estimate';
+export type AutoFilledVesselDimensions = Partial<Record<VesselDimensionField, VesselDimensionAutofillSource>>;
+
+export interface VesselDetailsValues {
+    name: string;
+    mmsi: string;
+    length: string;
+    beam: string;
+    draft: string;
+    displacement: string;
+    airDraft: string;
+    fuel: string;
+    water: string;
+    crewCount: string;
+}
+
+export type VesselDetailsErrors = Partial<Record<keyof VesselDetailsValues, string>>;
+
+export function roughEstimatedDimensionFields(dimensions: AutoFilledVesselDimensions): VesselDimensionField[] {
+    return (Object.entries(dimensions) as Array<[VesselDimensionField, VesselDimensionAutofillSource]>)
+        .filter(([, source]) => source === 'estimate')
+        .map(([field]) => field);
+}
+
+/**
+ * Validate the controlled onboarding fields independently of the browser's
+ * number-input UI. The same function is used again at the save boundary so a
+ * synthetic click or stale render cannot persist NaN/negative dimensions.
+ */
+export function validateVesselDetails(values: VesselDetailsValues): VesselDetailsErrors {
+    const errors: VesselDetailsErrors = {};
+    const vesselName = validateVesselName(values.name);
+    if (!vesselName.valid) errors.name = vesselName.error;
+
+    const positiveNumber = (field: keyof VesselDetailsValues, label: string, required = false) => {
+        const raw = values[field].trim();
+        if (!raw) {
+            if (required) errors[field] = `${label} is required`;
+            return;
+        }
+        const value = Number(raw);
+        if (!Number.isFinite(value) || value <= 0) errors[field] = `${label} must be greater than zero`;
+    };
+
+    positiveNumber('length', 'Length', true);
+    positiveNumber('beam', 'Beam');
+    positiveNumber('draft', 'Draft');
+    positiveNumber('displacement', 'Displacement');
+    positiveNumber('airDraft', 'Air draft');
+    positiveNumber('fuel', 'Fuel capacity');
+    positiveNumber('water', 'Water capacity');
+
+    if (values.mmsi && !/^\d{9}$/.test(values.mmsi)) errors.mmsi = 'MMSI must contain exactly 9 digits';
+
+    const crew = Number(values.crewCount);
+    if (!Number.isInteger(crew) || crew < 1 || crew > 99) {
+        errors.crewCount = 'Crew aboard must be a whole number from 1 to 99';
+    }
+
+    return errors;
+}
 
 interface VesselDetailsStepProps {
     vesselType: 'sail' | 'power' | 'observer';
@@ -58,6 +122,9 @@ interface VesselDetailsStepProps {
     // Polar / yacht DB
     selectedPolarModel?: string;
     onYachtSelect: (entry: PolarDatabaseEntry) => void;
+    autoFilledDimensions?: AutoFilledVesselDimensions;
+    estimatedDimensionsAcknowledged?: boolean;
+    onEstimatedDimensionsAcknowledgedChange?: (acknowledged: boolean) => void;
     // Keyboard
     keyboardHeight: number;
     // Navigation
@@ -69,6 +136,7 @@ const INPUT_CLASS =
 
 const UnitToggle: React.FC<{ value: string; onClick: () => void }> = ({ value, onClick }) => (
     <button
+        type="button"
         aria-label={`Switch unit, currently ${value}`}
         onClick={onClick}
         className="px-2.5 py-1.5 -my-1.5 rounded-md bg-sky-500/10 text-sky-400 hover:text-white text-xs font-bold uppercase transition-colors active:scale-95"
@@ -76,6 +144,26 @@ const UnitToggle: React.FC<{ value: string; onClick: () => void }> = ({ value, o
         {value}
     </button>
 );
+
+const FieldError: React.FC<{ id: string; message?: string }> = ({ id, message }) =>
+    message ? (
+        <p id={id} className="mt-1 text-[11px] font-medium text-red-300" role="alert">
+            {message}
+        </p>
+    ) : null;
+
+const DimensionSourceBadge: React.FC<{ source?: VesselDimensionAutofillSource }> = ({ source }) =>
+    source ? (
+        <span
+            className={`ml-1 rounded px-1.5 py-0.5 text-[9px] font-black tracking-normal ${
+                source === 'estimate'
+                    ? 'border border-amber-400/30 bg-amber-400/10 text-amber-200'
+                    : 'border border-sky-400/30 bg-sky-400/10 text-sky-200'
+            }`}
+        >
+            {source === 'estimate' ? 'ROUGH EST.' : 'MODEL DATA'}
+        </span>
+    ) : null;
 
 /**
  * JargonHint — inline "?" badge that toggles a tap-to-reveal tooltip
@@ -112,7 +200,7 @@ const JargonHint: React.FC<{ term: string; explanation: string }> = ({ term, exp
                     e.stopPropagation();
                     setOpen((v) => !v);
                 }}
-                className="ml-1.5 inline-flex items-center justify-center w-[18px] h-[18px] rounded-full bg-sky-500/15 hover:bg-sky-500/25 text-sky-300 text-[10px] font-bold transition-colors"
+                className="hit-target-44 ml-1.5 inline-flex items-center justify-center w-[18px] h-[18px] rounded-full bg-sky-500/15 hover:bg-sky-500/25 text-sky-300 text-[10px] font-bold transition-colors"
                 aria-label={`What is ${term}?`}
                 aria-expanded={open}
             >
@@ -180,267 +268,395 @@ export const VesselDetailsStep: React.FC<VesselDetailsStepProps> = React.memo(
         onCrewCountChange,
         selectedPolarModel,
         onYachtSelect,
+        autoFilledDimensions = {},
+        estimatedDimensionsAcknowledged = false,
+        onEstimatedDimensionsAcknowledgedChange,
         keyboardHeight,
         onNext,
-    }) => (
-        <div
-            className="animate-in fade-in slide-in-from-right-8 duration-500"
-            // Keyboard-height padding at the bottom keeps the lower inputs
-            // (fuel / water / crew count) scrollable above the keyboard
-            // rather than letting them hide underneath it. The outer
-            // wizard owns the scroll — it snapshots scrollTop on
-            // keyboardWillHide and restores it on the next frame so
-            // collapsing this padding doesn't yank the user back to the
-            // top of the form.
-            style={{ paddingBottom: keyboardHeight > 0 ? `${keyboardHeight}px` : undefined }}
-        >
-            {vesselType === 'observer' ? (
-                <div className="text-center py-10">
-                    <SearchIcon className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-                    <h2 className="text-xl font-bold text-white mb-2">Crew Member Mode</h2>
-                    <p className="text-gray-400 mb-8">
-                        Crew members skip vessel setup. We&apos;ll optimize the display for general sea state
-                        conditions.
-                    </p>
-                    <button
-                        aria-label="Proceed to next step"
-                        onClick={onNext}
-                        className="w-full bg-sky-500 hover:bg-sky-400 text-white font-bold py-4 rounded-xl transition-all"
-                    >
-                        Continue to Preferences
-                    </button>
-                </div>
-            ) : (
-                <>
-                    <h2 className="text-2xl font-bold text-white mb-2 text-center">Tell us about your boat</h2>
-                    <p className="text-sm text-gray-400 text-center mb-6">
-                        Search our database or enter details manually.
-                    </p>
+    }) => {
+        const errors = validateVesselDetails({
+            name,
+            mmsi,
+            length,
+            beam,
+            draft,
+            displacement,
+            airDraft,
+            fuel,
+            water,
+            crewCount,
+        });
+        const roughEstimateFields = roughEstimatedDimensionFields(autoFilledDimensions);
+        const requiresEstimateAcknowledgement = roughEstimateFields.length > 0;
+        const canContinue =
+            Object.keys(errors).length === 0 && (!requiresEstimateAcknowledgement || estimatedDimensionsAcknowledged);
 
-                    {/* Sail vs Power toggle */}
-                    <div className="mb-6">
-                        <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-2">
-                            Vessel Type
-                        </label>
-                        <div className="flex bg-white/5 p-1 rounded-xl border border-white/10 gap-1">
-                            <button
-                                aria-label="Select sailing vessel"
-                                onClick={() => onVesselTypeChange('sail')}
-                                className={`flex-1 py-2.5 rounded-lg text-sm font-bold transition-all flex items-center justify-center gap-2 ${vesselType === 'sail' ? 'bg-sky-500 text-white' : 'text-gray-400 hover:text-white/60'}`}
-                            >
-                                ⛵ Sailing
-                            </button>
-                            <button
-                                aria-label="Select power vessel"
-                                onClick={() => onVesselTypeChange('power')}
-                                className={`flex-1 py-2.5 rounded-lg text-sm font-bold transition-all flex items-center justify-center gap-2 ${vesselType === 'power' ? 'bg-sky-500 text-white' : 'text-gray-400 hover:text-white/60'}`}
-                            >
-                                🚤 Power
-                            </button>
-                        </div>
+        return (
+            <div
+                className="animate-in fade-in slide-in-from-right-8 duration-500"
+                // Keyboard-height padding at the bottom keeps the lower inputs
+                // (fuel / water / crew count) scrollable above the keyboard
+                // rather than letting them hide underneath it. The outer
+                // wizard owns the scroll — it snapshots scrollTop on
+                // keyboardWillHide and restores it on the next frame so
+                // collapsing this padding doesn't yank the user back to the
+                // top of the form.
+                style={{ paddingBottom: keyboardHeight > 0 ? `${keyboardHeight}px` : undefined }}
+            >
+                {vesselType === 'observer' ? (
+                    <div className="text-center py-10">
+                        <SearchIcon className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+                        <h2 className="text-xl font-bold text-white mb-2">Crew Member Mode</h2>
+                        <p className="text-gray-400 mb-8">
+                            Crew members skip vessel setup. We&apos;ll optimize the display for general sea state
+                            conditions.
+                        </p>
+                        <button
+                            type="button"
+                            aria-label="Continue as crew member"
+                            onClick={onNext}
+                            className="w-full bg-sky-500 hover:bg-sky-400 text-white font-bold py-4 rounded-xl transition-all"
+                        >
+                            Continue to Preferences
+                        </button>
                     </div>
+                ) : (
+                    <>
+                        <h2 className="text-2xl font-bold text-white mb-2 text-center">Tell us about your boat</h2>
+                        <p className="text-sm text-gray-400 text-center mb-6">
+                            Vessel name and length are required. Draft can stay blank, but depth guidance will remain
+                            conservative until you add it.
+                        </p>
 
-                    {/* Yacht Database Search */}
-                    <div className="mb-6">
-                        <YachtDatabaseSearch selectedModel={selectedPolarModel} onSelect={onYachtSelect} compact />
-                    </div>
-
-                    <div className="space-y-6">
-                        {/* Vessel Identity */}
-                        <div>
+                        {/* Sail vs Power toggle */}
+                        <div className="mb-6">
                             <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-2">
-                                Vessel Name
+                                Vessel Type
                             </label>
-                            <input
-                                type="text"
-                                value={name}
-                                onChange={(e) => onNameChange(e.target.value)}
-                                placeholder="e.g. Black Pearl"
-                                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-sky-500 outline-none text-lg font-medium"
-                            />
+                            <div className="flex bg-white/5 p-1 rounded-xl border border-white/10 gap-1">
+                                <button
+                                    type="button"
+                                    aria-label="Select sailing vessel"
+                                    aria-pressed={vesselType === 'sail'}
+                                    onClick={() => onVesselTypeChange('sail')}
+                                    className={`flex-1 py-2.5 rounded-lg text-sm font-bold transition-all flex items-center justify-center gap-2 ${vesselType === 'sail' ? 'bg-sky-500 text-white' : 'text-gray-400 hover:text-white/60'}`}
+                                >
+                                    ⛵ Sailing
+                                </button>
+                                <button
+                                    type="button"
+                                    aria-label="Select power vessel"
+                                    aria-pressed={vesselType === 'power'}
+                                    onClick={() => onVesselTypeChange('power')}
+                                    className={`flex-1 py-2.5 rounded-lg text-sm font-bold transition-all flex items-center justify-center gap-2 ${vesselType === 'power' ? 'bg-sky-500 text-white' : 'text-gray-400 hover:text-white/60'}`}
+                                >
+                                    🚤 Power
+                                </button>
+                            </div>
                         </div>
-                        <div className="grid grid-cols-2 gap-4">
+
+                        {/* Yacht Database Search */}
+                        <div className="mb-6">
+                            <YachtDatabaseSearch selectedModel={selectedPolarModel} onSelect={onYachtSelect} compact />
+                            {Object.keys(autoFilledDimensions).length > 0 && (
+                                <div
+                                    className="mt-3 rounded-xl border border-amber-400/25 bg-amber-400/10 p-3 text-xs leading-relaxed text-amber-100"
+                                    role="status"
+                                >
+                                    <p className="font-bold">Check the dimensions we filled in</p>
+                                    <p className="mt-1 text-amber-100/80">
+                                        Length marked “model data” comes from the selected database entry. Beam and
+                                        draft marked “rough est.” are ratios derived from length, not manufacturer
+                                        measurements. An estimated draft stays flagged as unknown in depth guidance.
+                                    </p>
+                                    {requiresEstimateAcknowledgement && (
+                                        <label className="mt-3 flex min-h-11 cursor-pointer items-start gap-3 rounded-lg border border-amber-200/20 bg-black/15 px-3 py-2.5">
+                                            <input
+                                                type="checkbox"
+                                                checked={estimatedDimensionsAcknowledged}
+                                                onChange={(event) =>
+                                                    onEstimatedDimensionsAcknowledgedChange?.(event.target.checked)
+                                                }
+                                                className="mt-0.5 h-5 w-5 shrink-0 accent-amber-400"
+                                            />
+                                            <span>
+                                                I reviewed the rough {roughEstimateFields.join(' and ')} estimate
+                                                {roughEstimateFields.length === 1 ? '' : 's'} and will replace them with
+                                                measured values when available.
+                                            </span>
+                                        </label>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+
+                        <div className="space-y-6">
+                            {/* Vessel Identity */}
                             <div>
                                 <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-2">
-                                    Registration
+                                    Vessel Name <span className="text-sky-300">*</span>
                                 </label>
                                 <input
                                     type="text"
-                                    value={registration}
-                                    onChange={(e) => onRegistrationChange(e.target.value)}
-                                    placeholder="e.g. ABC-1234"
-                                    className={INPUT_CLASS}
+                                    required
+                                    aria-required="true"
+                                    aria-label="Vessel name"
+                                    aria-invalid={Boolean(errors.name)}
+                                    aria-describedby={errors.name ? 'onboarding-vessel-name-error' : undefined}
+                                    value={name}
+                                    onChange={(e) => onNameChange(e.target.value)}
+                                    placeholder="e.g. Black Pearl"
+                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-sky-500 outline-none text-lg font-medium"
                                 />
+                                <FieldError id="onboarding-vessel-name-error" message={errors.name} />
                             </div>
-                            <div>
-                                <div className="flex items-baseline justify-between mb-2 gap-2">
-                                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block">
-                                        MMSI
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-2">
+                                        Registration
                                     </label>
-                                    {/* Plain-English hint added 2026-05-17 — MMSI
+                                    <input
+                                        type="text"
+                                        aria-label="Vessel registration (optional)"
+                                        value={registration}
+                                        onChange={(e) => onRegistrationChange(e.target.value)}
+                                        placeholder="e.g. ABC-1234"
+                                        className={INPUT_CLASS}
+                                    />
+                                </div>
+                                <div>
+                                    <div className="flex items-baseline justify-between mb-2 gap-2">
+                                        <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block">
+                                            MMSI
+                                        </label>
+                                        {/* Plain-English hint added 2026-05-17 — MMSI
                                         is universal jargon among VHF-licensed
                                         sailors but completely opaque to a first-
                                         time owner. The hint sits next to the
                                         label as a quiet aside, doesn't get in
                                         the way of users who already know. */}
-                                    <span className="text-[10px] text-slate-500 italic normal-case tracking-normal shrink-0">
-                                        your VHF radio ID
-                                    </span>
+                                        <span className="text-[10px] text-slate-500 italic normal-case tracking-normal shrink-0">
+                                            your VHF radio ID
+                                        </span>
+                                    </div>
+                                    <input
+                                        type="text"
+                                        inputMode="numeric"
+                                        maxLength={9}
+                                        aria-label="MMSI (optional)"
+                                        aria-invalid={Boolean(errors.mmsi)}
+                                        aria-describedby={errors.mmsi ? 'onboarding-mmsi-error' : undefined}
+                                        value={mmsi}
+                                        onChange={(e) => onMmsiChange(e.target.value.replace(/\D/g, '').slice(0, 9))}
+                                        placeholder="Leave blank if you don't have one yet"
+                                        className={INPUT_CLASS}
+                                    />
+                                    <FieldError id="onboarding-mmsi-error" message={errors.mmsi} />
                                 </div>
-                                <input
-                                    type="text"
-                                    inputMode="numeric"
-                                    maxLength={9}
-                                    value={mmsi}
-                                    onChange={(e) => onMmsiChange(e.target.value.replace(/\D/g, '').slice(0, 9))}
-                                    placeholder="Leave blank if you don't have one yet"
-                                    className={INPUT_CLASS}
-                                />
                             </div>
-                        </div>
 
-                        {/* Hull Type */}
-                        <div>
-                            <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-2">
-                                Hull Type
-                            </label>
-                            <div className="flex bg-white/5 p-1 rounded-xl border border-white/10 gap-1">
-                                {(['monohull', 'catamaran', 'trimaran'] as const).map((ht) => (
-                                    <button
-                                        aria-label="Hull Type Change"
-                                        key={ht}
-                                        onClick={() => onHullTypeChange(ht)}
-                                        className={`flex-1 py-2.5 rounded-lg text-xs font-bold uppercase transition-all ${hullType === ht ? 'bg-sky-500 text-white' : 'text-gray-400'}`}
-                                    >
-                                        {ht === 'monohull' ? 'Mono' : ht === 'catamaran' ? 'Cat' : 'Tri'}
-                                    </button>
-                                ))}
-                            </div>
-                        </div>
-
-                        {/* Keel Type */}
-                        <div>
-                            <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-2">
-                                Keel Type
-                                <JargonHint
-                                    term="Keel Type"
-                                    explanation="The fin or weight under your hull. Fin = single deep blade (most modern boats). Full = runs the length of the hull (classic). Wing = horizontal foils on a stub. Skeg = small protective fin. C/Board = retractable. Bilge = twin shallow keels."
-                                />
-                            </label>
-                            <div className="grid grid-cols-3 bg-white/5 p-1 rounded-xl border border-white/10 gap-1">
-                                {(['fin', 'full', 'wing', 'skeg', 'centerboard', 'bilge'] as const).map((kt) => (
-                                    <button
-                                        aria-label="Keel Type Change"
-                                        key={kt}
-                                        onClick={() => onKeelTypeChange(kt)}
-                                        className={`py-2.5 rounded-lg text-xs font-bold uppercase transition-all ${keelType === kt ? 'bg-sky-500 text-white' : 'text-gray-400'}`}
-                                    >
-                                        {kt === 'centerboard' ? 'C/Board' : kt}
-                                    </button>
-                                ))}
-                            </div>
-                        </div>
-
-                        {vesselType === 'sail' && (
+                            {/* Hull Type */}
                             <div>
                                 <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-2">
-                                    Rigging Type
+                                    Hull Type
+                                </label>
+                                <div className="flex bg-white/5 p-1 rounded-xl border border-white/10 gap-1">
+                                    {(['monohull', 'catamaran', 'trimaran'] as const).map((ht) => (
+                                        <button
+                                            type="button"
+                                            aria-label={`Select ${ht} hull`}
+                                            aria-pressed={hullType === ht}
+                                            key={ht}
+                                            onClick={() => onHullTypeChange(ht)}
+                                            className={`flex-1 py-2.5 rounded-lg text-xs font-bold uppercase transition-all ${hullType === ht ? 'bg-sky-500 text-white' : 'text-gray-400'}`}
+                                        >
+                                            {ht === 'monohull' ? 'Mono' : ht === 'catamaran' ? 'Cat' : 'Tri'}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* Keel Type */}
+                            <div>
+                                <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-2">
+                                    Keel Type
                                     <JargonHint
-                                        term="Rigging Type"
-                                        explanation="The shape and layout of your masts and sails. Sloop = one mast, one mainsail + one headsail (most common). Cutter = one mast, two headsails. Ketch / Yawl = two masts, mainmast forward. Schooner = two masts, taller aft. Catboat = single sail."
+                                        term="Keel Type"
+                                        explanation="The fin or weight under your hull. Fin = single deep blade (most modern boats). Full = runs the length of the hull (classic). Wing = horizontal foils on a stub. Skeg = small protective fin. C/Board = retractable. Bilge = twin shallow keels."
                                     />
                                 </label>
-                                <select
-                                    value={riggingType}
-                                    onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
-                                        onRiggingTypeChange(e.target.value as VesselProfile['riggingType'] & string)
-                                    }
-                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-sky-500 outline-none appearance-none"
-                                >
-                                    {['Sloop', 'Cutter', 'Ketch', 'Yawl', 'Schooner', 'Catboat', 'Solent', 'Other'].map(
-                                        (r) => (
+                                <div className="grid grid-cols-3 bg-white/5 p-1 rounded-xl border border-white/10 gap-1">
+                                    {(['fin', 'full', 'wing', 'skeg', 'centerboard', 'bilge'] as const).map((kt) => (
+                                        <button
+                                            type="button"
+                                            aria-label={`Select ${kt === 'centerboard' ? 'centerboard' : kt} keel`}
+                                            aria-pressed={keelType === kt}
+                                            key={kt}
+                                            onClick={() => onKeelTypeChange(kt)}
+                                            className={`py-2.5 rounded-lg text-xs font-bold uppercase transition-all ${keelType === kt ? 'bg-sky-500 text-white' : 'text-gray-400'}`}
+                                        >
+                                            {kt === 'centerboard' ? 'C/Board' : kt}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {vesselType === 'sail' && (
+                                <div>
+                                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-2">
+                                        Rigging Type
+                                        <JargonHint
+                                            term="Rigging Type"
+                                            explanation="The shape and layout of your masts and sails. Sloop = one mast, one mainsail + one headsail (most common). Cutter = one mast, two headsails. Ketch / Yawl = two masts, mainmast forward. Schooner = two masts, taller aft. Catboat = single sail."
+                                        />
+                                    </label>
+                                    <select
+                                        aria-label="Rigging type"
+                                        value={riggingType}
+                                        onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
+                                            onRiggingTypeChange(e.target.value as VesselProfile['riggingType'] & string)
+                                        }
+                                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-sky-500 outline-none appearance-none"
+                                    >
+                                        {[
+                                            'Sloop',
+                                            'Cutter',
+                                            'Ketch',
+                                            'Yawl',
+                                            'Schooner',
+                                            'Catboat',
+                                            'Solent',
+                                            'Other',
+                                        ].map((r) => (
                                             <option key={r} value={r} className="bg-slate-900">
                                                 {r}
                                             </option>
-                                        ),
+                                        ))}
+                                    </select>
+                                </div>
+                            )}
+
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-2 flex justify-between">
+                                        <span>
+                                            Length <span className="text-sky-300">*</span>
+                                            <DimensionSourceBadge source={autoFilledDimensions.length} />
+                                        </span>
+                                        <UnitToggle value={lengthUnit} onClick={onToggleLengthUnit} />
+                                    </label>
+                                    <input
+                                        type="number"
+                                        inputMode="decimal"
+                                        min="0.1"
+                                        step="any"
+                                        required
+                                        aria-required="true"
+                                        aria-label={`Vessel length in ${lengthUnit}`}
+                                        aria-invalid={Boolean(errors.length)}
+                                        aria-describedby={errors.length ? 'onboarding-vessel-length-error' : undefined}
+                                        value={length}
+                                        onChange={(e) => onLengthChange(e.target.value)}
+                                        placeholder="Required"
+                                        className={INPUT_CLASS}
+                                    />
+                                    <FieldError id="onboarding-vessel-length-error" message={errors.length} />
+                                </div>
+                                <div>
+                                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-2 flex justify-between">
+                                        <span>
+                                            Beam <DimensionSourceBadge source={autoFilledDimensions.beam} />
+                                        </span>
+                                        <UnitToggle value={beamUnit} onClick={onToggleBeamUnit} />
+                                    </label>
+                                    <input
+                                        type="number"
+                                        inputMode="decimal"
+                                        min="0.1"
+                                        step="any"
+                                        aria-label={`Vessel beam in ${beamUnit} (optional)`}
+                                        aria-invalid={Boolean(errors.beam)}
+                                        aria-describedby={errors.beam ? 'onboarding-vessel-beam-error' : undefined}
+                                        value={beam}
+                                        onChange={(e) => onBeamChange(e.target.value)}
+                                        placeholder="Estimated if blank"
+                                        className={INPUT_CLASS}
+                                    />
+                                    <FieldError id="onboarding-vessel-beam-error" message={errors.beam} />
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-2 flex justify-between items-center">
+                                        <span>
+                                            Draft
+                                            <DimensionSourceBadge source={autoFilledDimensions.draft} />
+                                            <JargonHint
+                                                term="Draft"
+                                                explanation="How deep your boat sits below the waterline. Tells us the shallowest water you can safely cross."
+                                            />
+                                        </span>
+                                        <UnitToggle value={draftUnit} onClick={onToggleDraftUnit} />
+                                    </label>
+                                    <input
+                                        type="number"
+                                        inputMode="decimal"
+                                        min="0.1"
+                                        step="any"
+                                        aria-label={`Vessel draft in ${draftUnit} (optional)`}
+                                        aria-invalid={Boolean(errors.draft)}
+                                        aria-describedby={
+                                            errors.draft
+                                                ? 'onboarding-vessel-draft-error'
+                                                : 'onboarding-vessel-draft-help'
+                                        }
+                                        value={draft}
+                                        onChange={(e) => onDraftChange(e.target.value)}
+                                        placeholder="Unknown if blank"
+                                        className={INPUT_CLASS}
+                                    />
+                                    <FieldError id="onboarding-vessel-draft-error" message={errors.draft} />
+                                    {!errors.draft && (
+                                        <p id="onboarding-vessel-draft-help" className="mt-1 text-[11px] text-gray-400">
+                                            Leave blank if unknown; Thalassa will show an unknown-draft warning.
+                                        </p>
                                     )}
-                                </select>
+                                </div>
+                                <div>
+                                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-2 flex justify-between items-center">
+                                        <span>
+                                            Displacement
+                                            <JargonHint
+                                                term="Displacement"
+                                                explanation="Your boat's total weight in the water (loaded, with crew + fuel + tanks). Used by routing and weather models to predict performance accurately."
+                                            />
+                                        </span>
+                                        <UnitToggle value={dispUnit} onClick={onToggleDispUnit} />
+                                    </label>
+                                    <input
+                                        type="number"
+                                        inputMode="decimal"
+                                        min="0.1"
+                                        step="any"
+                                        aria-label={`Vessel displacement in ${dispUnit} (optional)`}
+                                        aria-invalid={Boolean(errors.displacement)}
+                                        aria-describedby={
+                                            errors.displacement ? 'onboarding-vessel-displacement-error' : undefined
+                                        }
+                                        value={displacement}
+                                        onChange={(e) => onDisplacementChange(e.target.value)}
+                                        placeholder="Estimated if blank"
+                                        className={INPUT_CLASS}
+                                    />
+                                    <FieldError
+                                        id="onboarding-vessel-displacement-error"
+                                        message={errors.displacement}
+                                    />
+                                </div>
                             </div>
-                        )}
 
-                        <div className="grid grid-cols-2 gap-4">
-                            <div>
-                                <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-2 flex justify-between">
-                                    Length <UnitToggle value={lengthUnit} onClick={onToggleLengthUnit} />
-                                </label>
-                                <input
-                                    type="number"
-                                    inputMode="decimal"
-                                    value={length}
-                                    onChange={(e) => onLengthChange(e.target.value)}
-                                    placeholder="0"
-                                    className={INPUT_CLASS}
-                                />
-                            </div>
-                            <div>
-                                <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-2 flex justify-between">
-                                    Beam <UnitToggle value={beamUnit} onClick={onToggleBeamUnit} />
-                                </label>
-                                <input
-                                    type="number"
-                                    inputMode="decimal"
-                                    value={beam}
-                                    onChange={(e) => onBeamChange(e.target.value)}
-                                    placeholder="Auto"
-                                    className={INPUT_CLASS}
-                                />
-                            </div>
-                        </div>
-
-                        <div className="grid grid-cols-2 gap-4">
-                            <div>
-                                <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-2 flex justify-between items-center">
-                                    <span>
-                                        Draft
-                                        <JargonHint
-                                            term="Draft"
-                                            explanation="How deep your boat sits below the waterline. Tells us the shallowest water you can safely cross."
-                                        />
-                                    </span>
-                                    <UnitToggle value={draftUnit} onClick={onToggleDraftUnit} />
-                                </label>
-                                <input
-                                    type="number"
-                                    inputMode="decimal"
-                                    value={draft}
-                                    onChange={(e) => onDraftChange(e.target.value)}
-                                    placeholder="Auto"
-                                    className={INPUT_CLASS}
-                                />
-                            </div>
-                            <div>
-                                <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-2 flex justify-between items-center">
-                                    <span>
-                                        Displacement
-                                        <JargonHint
-                                            term="Displacement"
-                                            explanation="Your boat's total weight in the water (loaded, with crew + fuel + tanks). Used by routing and weather models to predict performance accurately."
-                                        />
-                                    </span>
-                                    <UnitToggle value={dispUnit} onClick={onToggleDispUnit} />
-                                </label>
-                                <input
-                                    type="number"
-                                    inputMode="decimal"
-                                    value={displacement}
-                                    onChange={(e) => onDisplacementChange(e.target.value)}
-                                    placeholder="Auto"
-                                    className={INPUT_CLASS}
-                                />
-                            </div>
-                        </div>
-
-                        {/* ── Optional details — progressive disclosure
+                            {/* ── Optional details — progressive disclosure
                             added 2026-05-17. Air draft / fuel / water /
                             crew-count are useful for routing and
                             provisioning but rarely needed for first-time
@@ -448,111 +664,155 @@ export const VesselDetailsStep: React.FC<VesselDetailsStepProps> = React.memo(
                             disclosure trims ~40 % of the form's visible
                             length at first paint. Users with the
                             numbers tap to expand. */}
-                        <details className="group/optional">
-                            <summary className="list-none cursor-pointer flex items-center gap-2 py-3 text-xs font-bold uppercase tracking-widest text-sky-300/80 hover:text-sky-300 transition-colors">
-                                <svg
-                                    className="w-3.5 h-3.5 transition-transform group-open/optional:rotate-90"
-                                    fill="none"
-                                    viewBox="0 0 24 24"
-                                    stroke="currentColor"
-                                    strokeWidth={2.5}
-                                    aria-hidden="true"
-                                >
-                                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-                                </svg>
-                                <span className="flex-1">More details</span>
-                                <span className="text-[10px] text-slate-500 normal-case tracking-normal italic font-normal">
-                                    Optional — for routing &amp; provisioning
-                                </span>
-                            </summary>
-                            <div className="space-y-6 pt-3">
-                                {/* Air Draft */}
-                                <div>
-                                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-2 flex justify-between">
-                                        Air Draft <UnitToggle value={airDraftUnit} onClick={onToggleAirDraftUnit} />
-                                    </label>
-                                    <input
-                                        type="number"
-                                        inputMode="decimal"
-                                        value={airDraft}
-                                        onChange={(e) => onAirDraftChange(e.target.value)}
-                                        placeholder="Height above waterline"
-                                        className={INPUT_CLASS}
-                                    />
-                                    <p className="text-[11px] text-gray-400 mt-1">
-                                        Used for bridge clearance on routes
-                                    </p>
-                                </div>
-
-                                {/* Tankage */}
-                                <div className="grid grid-cols-2 gap-4">
+                            <details className="group/optional">
+                                <summary className="list-none cursor-pointer flex items-center gap-2 py-3 text-xs font-bold uppercase tracking-widest text-sky-300/80 hover:text-sky-300 transition-colors">
+                                    <svg
+                                        className="w-3.5 h-3.5 transition-transform group-open/optional:rotate-90"
+                                        fill="none"
+                                        viewBox="0 0 24 24"
+                                        stroke="currentColor"
+                                        strokeWidth={2.5}
+                                        aria-hidden="true"
+                                    >
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                                    </svg>
+                                    <span className="flex-1">More details</span>
+                                    <span className="text-[10px] text-slate-500 normal-case tracking-normal italic font-normal">
+                                        Optional — for routing &amp; provisioning
+                                    </span>
+                                </summary>
+                                <div className="space-y-6 pt-3">
+                                    {/* Air Draft */}
                                     <div>
-                                        <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-2 flex justify-between gap-1 items-center">
-                                            <span className="flex items-center gap-1">
-                                                <GearIcon className="w-3 h-3 text-amber-400" /> Fuel
-                                            </span>{' '}
-                                            <UnitToggle value={volUnit} onClick={onToggleVolUnit} />
+                                        <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-2 flex justify-between">
+                                            Air Draft <UnitToggle value={airDraftUnit} onClick={onToggleAirDraftUnit} />
                                         </label>
                                         <input
                                             type="number"
                                             inputMode="decimal"
-                                            value={fuel}
-                                            onChange={(e) => onFuelChange(e.target.value)}
-                                            placeholder="0"
+                                            min="0.1"
+                                            step="any"
+                                            aria-label={`Air draft in ${airDraftUnit} (optional)`}
+                                            aria-invalid={Boolean(errors.airDraft)}
+                                            aria-describedby={
+                                                errors.airDraft
+                                                    ? 'onboarding-air-draft-error'
+                                                    : 'onboarding-air-draft-help'
+                                            }
+                                            value={airDraft}
+                                            onChange={(e) => onAirDraftChange(e.target.value)}
+                                            placeholder="Height above waterline"
                                             className={INPUT_CLASS}
                                         />
+                                        <FieldError id="onboarding-air-draft-error" message={errors.airDraft} />
+                                        <p id="onboarding-air-draft-help" className="text-[11px] text-gray-400 mt-1">
+                                            Needed for bridge-clearance checks; leave blank if you do not know it.
+                                        </p>
                                     </div>
+
+                                    {/* Tankage */}
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div>
+                                            <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-2 flex justify-between gap-1 items-center">
+                                                <span className="flex items-center gap-1">
+                                                    <GearIcon className="w-3 h-3 text-amber-400" /> Fuel
+                                                </span>{' '}
+                                                <UnitToggle value={volUnit} onClick={onToggleVolUnit} />
+                                            </label>
+                                            <input
+                                                type="number"
+                                                inputMode="decimal"
+                                                min="0.1"
+                                                step="any"
+                                                aria-label={`Fuel capacity in ${volUnit} (optional)`}
+                                                aria-invalid={Boolean(errors.fuel)}
+                                                aria-describedby={errors.fuel ? 'onboarding-fuel-error' : undefined}
+                                                value={fuel}
+                                                onChange={(e) => onFuelChange(e.target.value)}
+                                                placeholder="0"
+                                                className={INPUT_CLASS}
+                                            />
+                                            <FieldError id="onboarding-fuel-error" message={errors.fuel} />
+                                        </div>
+                                        <div>
+                                            <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-2 flex justify-between gap-1 items-center">
+                                                <span className="flex items-center gap-1">
+                                                    <DropletIcon className="w-3 h-3 text-sky-400" /> Water
+                                                </span>{' '}
+                                                <UnitToggle value={volUnit} onClick={onToggleVolUnit} />
+                                            </label>
+                                            <input
+                                                type="number"
+                                                inputMode="decimal"
+                                                min="0.1"
+                                                step="any"
+                                                aria-label={`Water capacity in ${volUnit} (optional)`}
+                                                aria-invalid={Boolean(errors.water)}
+                                                aria-describedby={errors.water ? 'onboarding-water-error' : undefined}
+                                                value={water}
+                                                onChange={(e) => onWaterChange(e.target.value)}
+                                                placeholder="0"
+                                                className={INPUT_CLASS}
+                                            />
+                                            <FieldError id="onboarding-water-error" message={errors.water} />
+                                        </div>
+                                    </div>
+
+                                    {/* Crew */}
                                     <div>
-                                        <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-2 flex justify-between gap-1 items-center">
-                                            <span className="flex items-center gap-1">
-                                                <DropletIcon className="w-3 h-3 text-sky-400" /> Water
-                                            </span>{' '}
-                                            <UnitToggle value={volUnit} onClick={onToggleVolUnit} />
+                                        <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-2 flex items-center gap-1">
+                                            <AnchorIcon className="w-3 h-3 text-sky-400" /> Crew Aboard (incl. Skipper)
                                         </label>
                                         <input
                                             type="number"
-                                            inputMode="decimal"
-                                            value={water}
-                                            onChange={(e) => onWaterChange(e.target.value)}
-                                            placeholder="0"
+                                            inputMode="numeric"
+                                            min="1"
+                                            max="99"
+                                            step="1"
+                                            required
+                                            aria-required="true"
+                                            aria-label="Crew aboard including skipper"
+                                            aria-invalid={Boolean(errors.crewCount)}
+                                            aria-describedby={
+                                                errors.crewCount
+                                                    ? 'onboarding-crew-count-error'
+                                                    : 'onboarding-crew-count-help'
+                                            }
+                                            value={crewCount}
+                                            onChange={(e) => onCrewCountChange(e.target.value)}
+                                            placeholder="2"
                                             className={INPUT_CLASS}
                                         />
+                                        <FieldError id="onboarding-crew-count-error" message={errors.crewCount} />
+                                        <p id="onboarding-crew-count-help" className="text-[11px] text-gray-400 mt-1">
+                                            Used for provisioning and watch schedules
+                                        </p>
                                     </div>
                                 </div>
-
-                                {/* Crew */}
-                                <div>
-                                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-2 flex items-center gap-1">
-                                        <AnchorIcon className="w-3 h-3 text-sky-400" /> Crew Aboard (incl. Skipper)
-                                    </label>
-                                    <input
-                                        type="number"
-                                        inputMode="numeric"
-                                        min="1"
-                                        max="99"
-                                        value={crewCount}
-                                        onChange={(e) => onCrewCountChange(e.target.value)}
-                                        placeholder="2"
-                                        className={INPUT_CLASS}
-                                    />
-                                    <p className="text-[11px] text-gray-400 mt-1">
-                                        Used for provisioning and watch schedules
-                                    </p>
-                                </div>
-                            </div>
-                        </details>
-                    </div>
-                    <button
-                        aria-label="Proceed to next step"
-                        onClick={onNext}
-                        className="w-full mt-8 bg-sky-500 hover:bg-sky-400 text-white font-bold py-4 rounded-xl transition-all"
-                    >
-                        Next
-                    </button>
-                </>
-            )}
-        </div>
-    ),
+                            </details>
+                        </div>
+                        <button
+                            type="button"
+                            aria-label="Continue after vessel details"
+                            onClick={onNext}
+                            disabled={!canContinue}
+                            aria-describedby={!canContinue ? 'onboarding-vessel-next-help' : undefined}
+                            className="w-full mt-8 bg-sky-500 hover:bg-sky-400 disabled:bg-white/5 disabled:text-gray-400 disabled:cursor-not-allowed text-white font-bold py-4 rounded-xl transition-all"
+                        >
+                            Next
+                        </button>
+                        {!canContinue && (
+                            <p id="onboarding-vessel-next-help" className="mt-2 text-center text-xs text-gray-400">
+                                {requiresEstimateAcknowledgement && !estimatedDimensionsAcknowledged
+                                    ? 'Review and acknowledge the rough dimensions above to continue.'
+                                    : 'Complete the required fields and correct the highlighted values to continue.'}
+                            </p>
+                        )}
+                    </>
+                )}
+            </div>
+        );
+    },
 );
 
 VesselDetailsStep.displayName = 'VesselDetailsStep';

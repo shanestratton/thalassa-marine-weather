@@ -19,6 +19,7 @@
  */
 
 import { BoatNetworkService } from '../BoatNetworkService';
+import { PI_INTEGRATION_ENABLED, PI_PUBLIC_BETA_UNAVAILABLE_MESSAGE } from '../piPublicBetaBoundary';
 
 /** Pi AP IP when phone is joined to Calypso-Setup-XXXX. */
 const SETUP_AP_IP = '10.0.0.1';
@@ -90,12 +91,14 @@ interface PiEnvelope<T> {
 type ProvisionContext = { mode: 'setup-ap' } | { mode: 'station'; piHost: string };
 
 function baseUrl(ctx: ProvisionContext): string {
+    if (!PI_INTEGRATION_ENABLED) throw new Error(PI_PUBLIC_BETA_UNAVAILABLE_MESSAGE);
     if (ctx.mode === 'setup-ap') return `http://${SETUP_AP_IP}:${BOSUN_WEB_PORT}`;
     return `http://${ctx.piHost}:${BOSUN_WEB_PORT}`;
 }
 
 /** Returns a station-mode context if the Pi is currently discovered, else null. */
 export function currentStationContext(): ProvisionContext | null {
+    if (!PI_INTEGRATION_ENABLED) return null;
     const piHost = BoatNetworkService.getState().piHost;
     if (!piHost) return null;
     return { mode: 'station', piHost };

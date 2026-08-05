@@ -252,6 +252,9 @@ export function buildContourPayload(soundings: Feature[]): { lon: number; lat: n
     const out: { lon: number; lat: number; d: number }[] = [];
     for (const f of soundings) {
         if (f?.geometry?.type !== 'Point') continue;
+        // Derived contours look authoritative and carry no per-line publisher
+        // provenance. Never interpolate them from unsigned reference packs.
+        if ((f.properties as { _reference?: unknown } | null)?._reference === true) continue;
         const c = f.geometry.coordinates;
         out.push({ lon: c[0], lat: c[1], d: Number((f.properties as { _d?: number } | null)?._d) });
     }

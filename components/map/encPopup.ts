@@ -347,6 +347,10 @@ export function buildFeaturePopupHtml(
     const provenance = cellId
         ? `<div class="enc-popup-cell">${esc(cellId)}${sourceHO ? ` · ${esc(sourceHO)}` : ''}${staleSuffix}</div>`
         : '';
+    const referenceCaveat =
+        props._reference === true
+            ? '<div class="enc-popup-cell" style="color:#fbbf24"><b>Unverified reference pack</b> · ignored by route checks and Cast Off</div>'
+            : '';
 
     let title = 'Feature';
     let body = '';
@@ -690,6 +694,7 @@ export function buildFeaturePopupHtml(
             <div class="enc-popup-title" style="color:${accent}">${esc(title)}</div>
             <div class="enc-popup-body">${body}</div>
             ${provenance}
+            ${referenceCaveat}
         </div>
         <style>
             .enc-popup {
@@ -777,9 +782,9 @@ export function buildFeaturePopupHtml(
 /**
  * Popup for a tap on UNCHARTED water — no ENC area feature under the point, so
  * the flagship tap-the-water gesture would otherwise answer with SILENCE
- * (cycle-4 closing audit #6). Surfaces the coarse ~460 m GEBCO ocean depth the
+ * (cycle-4 closing audit #6). Surfaces the coarse ~1.8 km NOAA ETOPO depth the
  * router itself falls back to, with a loud "not chart-verified" caveat and a
- * keel read against the vessel safety depth. `depthM` is GEBCO convention
+ * keel read against the vessel safety depth. `depthM` is relief convention
  * (negative = below sea level, positive = land); `phase` is 'loading' before
  * the async depth lands, 'ready' after (null depth then = no data). Reuses the
  * .enc-popup classes with a compact self-contained style so it stands alone.
@@ -807,7 +812,7 @@ export function buildGebcoDepthPopupBodyHtml(
                     : `SHALLOWER than your ${safetyDepthM.toFixed(1)} m safety depth — caution`;
             body += `<div class="enc-popup-row"><span>Keel</span><b>${esc(keel)}</b></div>`;
             // Draft honesty (cycle-5 audit #5): the charted DEPARE popup carries
-            // this caveat, but the LEAST-certain read (coarse GEBCO) was missing
+            // this caveat, but the LEAST-certain read (coarse ETOPO) was missing
             // it — a keel verdict against an assumed default draft must say so.
             if (draftAssumed) {
                 body += `<div class="enc-popup-row"><span></span><b style="color:#fbbf24">checked against a default 2.5 m draft — set your vessel</b></div>`;
@@ -816,7 +821,7 @@ export function buildGebcoDepthPopupBodyHtml(
     }
     const caveat =
         phase === 'ready'
-            ? `<div class="enc-popup-sub">Uncharted here — coarse ~460 m GEBCO ocean bathymetry, ` +
+            ? `<div class="enc-popup-sub">Uncharted here — coarse ~1.8 km NOAA ETOPO global relief, ` +
               `NOT chart-verified. Shoals smaller than the grid are invisible to it.</div>`
             : '';
     return `${body}${caveat}`;

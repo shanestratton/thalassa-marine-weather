@@ -2,8 +2,8 @@
  * Voyage Log — Settings tab.
  *
  * Manages the punter's public Voyage Log: the master on/off switch, their
- * public page URL, and the publishable API key + raw endpoint for anyone
- * who wants to build their own front-end against the voyage-log API.
+ * public page URL, and the raw public endpoint for anyone who wants to build
+ * their own front-end against the voyage-log API.
  *
  * Diary entries are published one-by-one via the modal that appears after
  * saving an entry — this tab is the account-level control surface.
@@ -59,13 +59,12 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = ({ settings, onSave }) =
     /**
      * Data is rendered only when it was reset/loaded for this exact generation.
      * The render immediately following A → B therefore shows a blank skeleton,
-     * before effects have a chance to run, rather than flashing A's API key.
+     * before effects have a chance to run, rather than flashing A's page.
      */
     const [dataGeneration, setDataGeneration] = useState(identityScope.generation);
     const [config, setConfig] = useState<VoyageLogConfig | null>(null);
     const [loading, setLoading] = useState(true);
     const [busy, setBusy] = useState(false);
-    const [keyRevealed, setKeyRevealed] = useState(false);
     const [copiedField, setCopiedField] = useState<string | null>(null);
     const [crewBoats, setCrewBoats] = useState<CrewBoatLog[]>([]);
     const [crewBusyBoatId, setCrewBusyBoatId] = useState<string | null>(null);
@@ -184,7 +183,6 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = ({ settings, onSave }) =
         setConfig(null);
         setLoading(true);
         setBusy(false);
-        setKeyRevealed(false);
         setCopiedField(null);
         setCrewBoats([]);
         setCrewBusyBoatId(null);
@@ -403,7 +401,7 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = ({ settings, onSave }) =
 
         setBusy(true);
         setSetupError(null);
-        const nextConfig = await VoyageLogService.ensureEnabled();
+        const nextConfig = await VoyageLogService.ensureConfigured();
         if (!operationIsCurrent(scope) || operationEpochRef.current !== epoch) return;
         setConfig(nextConfig);
         if (!nextConfig) {
@@ -467,12 +465,12 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = ({ settings, onSave }) =
                     boat_id: immutableBoat.boatId,
                     handle: candidate,
                     scope: 'personal',
-                    enabled: true,
+                    enabled: false,
                 });
                 if (!operationIsCurrent(scope) || operationEpochRef.current !== epoch) return;
                 if (!error) {
                     triggerHaptic('medium');
-                    toast.success(`Live at ${candidate}.thalassawx.app`);
+                    toast.success('Personal Voyage Log created privately. Turn it on when you are ready to publish.');
                     const nextCrewBoats = await loadCrewBoats(scope);
                     if (!operationIsCurrent(scope) || operationEpochRef.current !== epoch || nextCrewBoats === null) {
                         return;
@@ -576,11 +574,6 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = ({ settings, onSave }) =
         [identityScope, operationIsCurrent],
     );
 
-    const toggleKeyReveal = useCallback(() => {
-        if (!operationIsCurrent(identityScope)) return;
-        setKeyRevealed((revealed) => !revealed);
-    }, [identityScope, operationIsCurrent]);
-
     const toggleLinkPicker = useCallback(
         (voyageId: string) => {
             if (!operationIsCurrent(identityScope)) return;
@@ -636,7 +629,7 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = ({ settings, onSave }) =
                                     </button>
                                 )}
                             </Row>
-                            {handle && (
+                            {handle && boat.config?.enabled && (
                                 <Row>
                                     <div className="flex-1 min-w-0">
                                         <div className="text-xs text-gray-500">Share link</div>
@@ -651,6 +644,14 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = ({ settings, onSave }) =
                                     >
                                         {copiedField === `crew-${boat.boatId}` ? 'Copied' : 'Copy'}
                                     </button>
+                                </Row>
+                            )}
+                            {handle && !boat.config?.enabled && (
+                                <Row>
+                                    <div className="flex-1 text-xs text-gray-500">
+                                        Reserved handle: <span className="font-mono text-gray-400">{handle}</span>. Turn
+                                        the page on before sharing it.
+                                    </div>
                                 </Row>
                             )}
                         </React.Fragment>
@@ -673,8 +674,8 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = ({ settings, onSave }) =
                         <div className="flex-1">
                             <div className="text-sm text-white font-bold">Set up your own Voyage Log</div>
                             <div className="text-xs text-gray-400 mt-1">
-                                Creates your public page and a shareable link. Nothing goes public until you publish an
-                                entry — your diary stays private by default.
+                                Reserves your public handle with the page switched off. Nothing is published until you
+                                turn the page on or explicitly publish a diary entry.
                             </div>
                         </div>
                         <button
@@ -704,19 +705,18 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = ({ settings, onSave }) =
     }
 
     // ── Set up — full control surface ──────────────────────────────
-    const publicUrl = voyageLogPublicUrl(config.handle, config.api_key);
-    const apiUrl = voyageLogApiUrl(config.handle, config.api_key);
-    const maskedKey = `${config.api_key.slice(0, 6)}${'•'.repeat(18)}`;
+    const publicUrl = voyageLogPublicUrl(config.handle);
+    const apiUrl = voyageLogApiUrl(config.handle);
 
     return (
         <div className="px-4 pb-8">
-            {/* Hero — the punter's main "your log is live, here's the URL"
-                takeaway. Reads at a glance, big-tap copy + open buttons. */}
+            {/* Hero — distinguish a reserved private handle from an actually
+                enabled public page. */}
             <div className="mb-5 rounded-2xl border border-sky-500/25 bg-gradient-to-br from-sky-500/10 to-cyan-500/[0.04] p-4">
                 <div className="flex items-center gap-2 mb-3">
-                    <span className="text-xl">🌐</span>
+                    <span className="text-xl">{config.enabled ? '🌐' : '🔒'}</span>
                     <span className="text-[10px] font-black text-sky-300/80 uppercase tracking-[0.2em]">
-                        Your Voyage Log is live
+                        {config.enabled ? 'Your Voyage Log is live' : 'Your Voyage Log is switched off'}
                     </span>
                 </div>
                 <div
@@ -726,22 +726,29 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = ({ settings, onSave }) =
                 >
                     {publicUrl}
                 </div>
-                <div className="flex gap-2 mt-3">
-                    <button
-                        onClick={() => openPrivateUrl(publicUrl)}
-                        aria-label="Open your voyage log in browser"
-                        className="flex-1 text-xs font-bold text-white bg-sky-600 hover:bg-sky-500 active:scale-95 transition-all px-3 py-2 rounded-lg uppercase tracking-wider"
-                    >
-                        Open
-                    </button>
-                    <button
-                        onClick={() => void copy('url', publicUrl)}
-                        aria-label="Copy your voyage log share link"
-                        className="flex-1 text-xs font-bold text-sky-300 border border-sky-400/40 hover:bg-sky-500/10 active:scale-95 transition-all px-3 py-2 rounded-lg uppercase tracking-wider"
-                    >
-                        {copiedField === 'url' ? 'Copied!' : 'Copy link'}
-                    </button>
-                </div>
+                {config.enabled ? (
+                    <div className="flex gap-2 mt-3">
+                        <button
+                            onClick={() => openPrivateUrl(publicUrl)}
+                            aria-label="Open your voyage log in browser"
+                            className="flex-1 text-xs font-bold text-white bg-sky-600 hover:bg-sky-500 active:scale-95 transition-all px-3 py-2 rounded-lg uppercase tracking-wider"
+                        >
+                            Open
+                        </button>
+                        <button
+                            onClick={() => void copy('url', publicUrl)}
+                            aria-label="Copy your voyage log share link"
+                            className="flex-1 text-xs font-bold text-sky-300 border border-sky-400/40 hover:bg-sky-500/10 active:scale-95 transition-all px-3 py-2 rounded-lg uppercase tracking-wider"
+                        >
+                            {copiedField === 'url' ? 'Copied!' : 'Copy link'}
+                        </button>
+                    </div>
+                ) : (
+                    <p className="mt-3 text-xs text-gray-400">
+                        This handle is reserved, but the page and API return no voyage data. Turn on Public Voyage Log
+                        below when you are ready to share.
+                    </p>
+                )}
             </div>
 
             {/* What to do next — surface the not-obvious bits. The biggest
@@ -922,34 +929,10 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = ({ settings, onSave }) =
                 <Row>
                     <div className="flex-1">
                         <div className="text-xs text-gray-400">
-                            Building your own front-end? The voyage-log API serves your published log as JSON. The key
-                            below is a publishable token — it's safe to ship in a public page, and you can rotate it by
-                            turning the log off and on.
+                            Building your own front-end? The voyage-log API serves the enabled page as public JSON. It
+                            intentionally uses the public handle, not a secret key; anyone who has or guesses the handle
+                            can read the published feed. Switch off Public Voyage Log above to revoke access.
                         </div>
-                    </div>
-                </Row>
-                <Row>
-                    <div className="flex-1 min-w-0">
-                        <div className="text-sm text-white font-bold">API key</div>
-                        <div className="text-xs font-mono text-gray-300 mt-1 truncate">
-                            {keyRevealed ? config.api_key : maskedKey}
-                        </div>
-                    </div>
-                    <div className="shrink-0 flex items-center gap-2">
-                        <button
-                            onClick={toggleKeyReveal}
-                            aria-label={keyRevealed ? 'Hide API key' : 'Reveal API key'}
-                            className="text-xs font-bold text-gray-400 hover:text-gray-200 px-2.5 py-1 rounded border border-white/10 hover:border-white/20 transition-colors uppercase tracking-wider"
-                        >
-                            {keyRevealed ? 'Hide' : 'Show'}
-                        </button>
-                        <button
-                            onClick={() => void copy('key', config.api_key)}
-                            aria-label="Copy API key"
-                            className="text-xs font-bold text-sky-400 hover:text-sky-300 px-2.5 py-1 rounded border border-sky-400/40 hover:border-sky-300/60 transition-colors uppercase tracking-wider"
-                        >
-                            {copiedField === 'key' ? 'Copied' : 'Copy'}
-                        </button>
                     </div>
                 </Row>
                 <Row>

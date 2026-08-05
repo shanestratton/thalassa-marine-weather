@@ -77,7 +77,7 @@ export function setSrEventTap(tap: ((message: string) => void) | null): void {
     eventTap = tap;
 }
 function emitEvent(message: string): void {
-    console.log(message);
+    if (import.meta.env.DEV) console.log(message);
     eventTap?.(message);
 }
 
@@ -254,11 +254,7 @@ export async function startSpeechRecognition(opts: StartOptions = {}): Promise<S
             await teardown();
             const trimmed = lastTranscript.trim();
             const durationMs = Date.now() - t0;
-            // Include the captured text (truncated) in the debug log so
-            // the skipper can see exactly what SR heard — useful for
-            // diagnosing "I said over but the gesture didn't fire" cases.
-            const preview = trimmed.length > 60 ? trimmed.slice(0, 57) + '…' : trimmed;
-            emitEvent(`[SR] stop() — partials: ${partialCount}, ${durationMs}ms, text="${preview || '(empty)'}"`);
+            emitEvent(`[SR] stop() — partials: ${partialCount}, ${durationMs}ms, chars=${trimmed.length}`);
             if (trimmed.length < MIN_USABLE_CHARS) {
                 return { text: null, durationMs };
             }

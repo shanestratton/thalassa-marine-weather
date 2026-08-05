@@ -29,6 +29,7 @@ const flagKey = 'thalassa.enc.samplesImported.v7';
 beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
+    vi.unstubAllEnvs();
     localStorage.clear();
     enc.getPlatform.mockReturnValue('web');
     enc.listCells.mockReturnValue([]);
@@ -39,8 +40,25 @@ async function bootstrap() {
     return import('../services/enc/bootstrapEncSamples');
 }
 
+function enableDemoSamples() {
+    vi.stubEnv('VITE_ENABLE_ENC_DEMO_SAMPLES', 'true');
+}
+
 describe('bootstrapEncSamplesIfNeeded', () => {
+    it('does no storage, network, or import work without explicit demo opt-in', async () => {
+        vi.stubGlobal('fetch', vi.fn());
+        const { bootstrapEncSamplesIfNeeded, isEncDemoSampleOptedIn } = await bootstrap();
+
+        expect(isEncDemoSampleOptedIn()).toBe(false);
+        await bootstrapEncSamplesIfNeeded();
+
+        expect(fetch).not.toHaveBeenCalled();
+        expect(enc.listCells).not.toHaveBeenCalled();
+        expect(enc.importCell).not.toHaveBeenCalled();
+    });
+
     it('skips all storage and network work after a completed bootstrap', async () => {
+        enableDemoSamples();
         localStorage.setItem(flagKey, '1');
         vi.stubGlobal('fetch', vi.fn());
         const { bootstrapEncSamplesIfNeeded } = await bootstrap();
@@ -53,6 +71,7 @@ describe('bootstrapEncSamplesIfNeeded', () => {
     });
 
     it('is single-flight and latches only after importing a valid bundled cell', async () => {
+        enableDemoSamples();
         const blob = {
             cellId: 'US5GA22M',
             sourceHO: 'NOAA',
@@ -79,7 +98,7 @@ describe('bootstrapEncSamplesIfNeeded', () => {
 
         expect(fetch).toHaveBeenCalledOnce();
         expect(fetch).toHaveBeenCalledWith('/enc-samples/US5GA22M.geojson');
-        expect(enc.importCell).toHaveBeenCalledWith(blob);
+        expect(enc.importCell).toHaveBeenCalledWith(blob, { usage: 'demo' });
         expect(localStorage.getItem(flagKey)).toBe('1');
     });
 
@@ -97,6 +116,7 @@ describe('bootstrapEncSamplesIfNeeded', () => {
             response: { ok: true, status: 200, text: async () => JSON.stringify({ cellId: 'US5GA22M' }) },
         },
     ])('leaves the retry flag clear for a $name', async ({ response }) => {
+        enableDemoSamples();
         vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response));
         const { bootstrapEncSamplesIfNeeded } = await bootstrap();
 
@@ -107,6 +127,7 @@ describe('bootstrapEncSamplesIfNeeded', () => {
     });
 
     it('contains fetch and import failures so startup can continue and retry later', async () => {
+        enableDemoSamples();
         vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('bundle unavailable')));
         const { bootstrapEncSamplesIfNeeded } = await bootstrap();
 
@@ -114,6 +135,7 @@ describe('bootstrapEncSamplesIfNeeded', () => {
         expect(localStorage.getItem(flagKey)).toBeNull();
 
         vi.resetModules();
+        enableDemoSamples();
         vi.stubGlobal(
             'fetch',
             vi.fn().mockResolvedValue({

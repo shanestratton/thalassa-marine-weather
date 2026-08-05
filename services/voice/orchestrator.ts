@@ -28,6 +28,7 @@
  */
 
 import type { ThalassaContext, VoiceHistoryTurn } from '../../types/voice';
+import { FEATURE_VISIBILITY } from '../../utils/featureVisibility';
 import { getKnowledgePromptBlock } from '../CalypsoKnowledgeService';
 import { runThalassaWeather } from './cloudTools';
 import { executePiTool, isBosunWebReachable, isPiToolName } from './piTools';
@@ -630,16 +631,9 @@ You also have a suite of voyage tools always available:
 
 When the boat-side Pi is reachable, you have additional tools that read LIVE vessel instruments (\`get_vessel_position\`, \`get_vessel_state\`), the static vessel profile (\`get_vessel_profile\`), and a marine knowledge corpus (\`search_manuals\`). Call them when the skipper asks for something they cover. When those tools are NOT in your registry, the Pi is unreachable and you only have the Thalassa snapshot to work from — be honest about that boundary.
 
-The skipper may also have enabled Gmail integration from Settings. Apple Music tools are available whenever the skipper holds the Skipper tier:
-- **Apple Music**:
-  - \`play_music\` — full Apple Music catalog (~100M tracks) via MusicKit. Use for "play X by Y" / "queue up Z" / "play me some [genre]". Tries the catalog first; if catalog auth isn't ready, falls through to the skipper's library playlists with the same query. Either way the result includes \`suggested_phrase\` — read it verbatim.
-  - \`play_library_playlist\` — explicit "play one of MY saved playlists by name". Use for "play my X" / "put on my Y" / "play the rock playlist". Reliable regardless of catalog auth state.
-  - \`list_library_playlists\` — answers "what playlists do I have?". Read 5-7 names back naturally; don't recite all of them.
-  - \`create_playlist\` — make a new (empty) library playlist. Use for "make a playlist called X" / "create a passage playlist". Keep the name verbatim from the skipper's words. After creation, briefly mention they can ask "save this to my <name>" while a track is playing to start populating it.
-  - \`save_current_to_playlist\` — add the now-playing track to a named library playlist. Use for "save this to my X" / "add this song to my Y" / "remember this in my passage mix". If status is \`no_track_playing\`, tell them nothing is playing. If \`playlist_not_found\`, say so plainly and offer to create one.
-  - Transport: \`pause_music\`, \`resume_music\`, \`skip_track\`, \`previous_track\`, \`now_playing\` — work on whatever is currently queued. Music keeps playing while you talk; your voice and the music mix cleanly.
-  - On \`permission_denied\` from any of the above, tell the skipper to grant access on the Music page or in iOS Settings → Thalassa.
-- **Gmail** (\`search_emails\`, \`read_email\`, \`draft_email\`, \`send_draft\`, \`inbox_summary\`): read inbox, draft + send email. CRITICAL safety rule for sending: NEVER call \`send_draft\` without first calling \`draft_email\`, reading the to/subject/preview back to the skipper aloud, and getting explicit verbal confirmation ("send it" / "yes send"). Drafting is reversible (lands in Drafts folder); sending is not. Any ambiguity → ask, don't act.
+The skipper may also have enabled Gmail integration from Settings. Gmail tools (\`search_emails\`, \`read_email\`, \`draft_email\`, \`send_draft\`, \`inbox_summary\`) can read the inbox and draft or send email. CRITICAL safety rule for sending: NEVER call \`send_draft\` without first calling \`draft_email\`, reading the to/subject/preview back to the skipper aloud, and getting explicit verbal confirmation ("send it" / "yes send"). Drafting is reversible (lands in Drafts); sending is not. Any ambiguity → ask, don't act.
+
+Apple Music controls are unavailable in this public beta. If asked to control music, say that plainly and direct the skipper to the Apple Music app; never claim that playback, playlists, or the Music library were changed.
 
 ## VESSEL PROFILE (static, always true)
 
@@ -1050,6 +1044,19 @@ export async function synthesiseSpeech(text: string, signal?: AbortSignal): Prom
 
 // ── Tool dispatcher ────────────────────────────────────────────
 
+const APPLE_MUSIC_TOOL_NAMES = new Set([
+    'play_music',
+    'pause_music',
+    'resume_music',
+    'skip_track',
+    'previous_track',
+    'now_playing',
+    'play_library_playlist',
+    'list_library_playlists',
+    'create_playlist',
+    'save_current_to_playlist',
+]);
+
 async function dispatchTool(
     name: string,
     input: Record<string, unknown>,
@@ -1070,6 +1077,12 @@ async function dispatchTool(
         return { content: result.content, isError: result.is_error };
     }
     // ── Calypso integration tools ──────────────────────────────────
+    if (!FEATURE_VISIBILITY.appleMusic && APPLE_MUSIC_TOOL_NAMES.has(name)) {
+        return {
+            content: JSON.stringify({ error: 'Apple Music controls are unavailable in this public beta.' }),
+            isError: true,
+        };
+    }
     if (name === 'play_music') {
         const q = typeof input.query === 'string' ? input.query : '';
         const k =
@@ -1259,11 +1272,10 @@ export async function askHaiku(input: AskHaikuInput): Promise<OrchestratorResult
     // they were hitting at 3 conversations.
     const baseTools: ToolDef[] = [...CLOUD_TOOLS];
     if (piReachable) baseTools.push(...PI_TOOLS);
-    // Apple Music is always on for Skipper tier (BosunConsole's
-    // runOrchestrator wrapper resolves the tier check before passing
-    // appleMusic:true here). No per-toggle opt-in: MusicKit auth is
-    // handled inline via the dedicated Music page.
-    if (input.integrations?.appleMusic) baseTools.push(...APPLE_MUSIC_TOOLS);
+    // Apple Music remains compile-time fail-closed for this beta. A future
+    // reviewed build must open the source-controlled visibility gate as well
+    // as pass the caller's entitlement check before any MusicKit tool exists.
+    if (FEATURE_VISIBILITY.appleMusic && input.integrations?.appleMusic) baseTools.push(...APPLE_MUSIC_TOOLS);
     if (input.integrations?.gmail) baseTools.push(...GMAIL_TOOLS);
     const tools: ToolDef[] =
         baseTools.length > 0

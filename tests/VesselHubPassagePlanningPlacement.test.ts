@@ -5,30 +5,26 @@ import { describe, expect, it } from 'vitest';
 const source = readFileSync(resolve(process.cwd(), 'components/VesselHub.tsx'), 'utf8');
 
 describe('VesselHub passage-planning placement', () => {
-    it('orders Passage Planning and its Saved Routes shortcut after Skipper Device and before the permanent Diary tiles', () => {
+    it('orders the single Passage Planning entry after Skipper Device and before the permanent Diary tiles', () => {
         const skipperDevice = source.indexOf('<SkipperDeviceControl');
         const passagePlanning = source.indexOf('label="Passage Planning"');
-        const savedRoutes = source.indexOf('label="Saved Routes"', passagePlanning);
-        const diary = source.indexOf('aria-label="Open Diary"', savedRoutes);
+        const diary = source.indexOf('aria-label="Open Diary"', passagePlanning);
         const scuttlebutt = source.indexOf('aria-label="Open Scuttlebutt"', diary);
 
         expect(skipperDevice).toBeGreaterThan(-1);
         expect(passagePlanning).toBeGreaterThan(skipperDevice);
-        expect(savedRoutes).toBeGreaterThan(passagePlanning);
-        expect(diary).toBeGreaterThan(savedRoutes);
+        expect(diary).toBeGreaterThan(passagePlanning);
         expect(scuttlebutt).toBeGreaterThan(diary);
         expect(source).not.toContain('label="Sharing"');
         expect(source).not.toContain('id="sharing"');
         expect(source.match(/label="Passage Planning"/g)).toHaveLength(1);
-        expect(source.match(/label="Saved Routes"/g)).toHaveLength(1);
+        expect(source).not.toContain('label="Saved Routes"');
     });
 
-    it('preserves the crew route, opens the existing Plan library, and keeps GPX import in Boat Binder', () => {
+    it('preserves the crew route, avoids a duplicate Saved Routes entry, and keeps GPX import in Boat Binder', () => {
         const passagePlanning = source.indexOf('label="Passage Planning"');
-        const savedRoutes = source.indexOf('label="Saved Routes"', passagePlanning);
-        const diary = source.indexOf('aria-label="Open Diary"', savedRoutes);
-        const passageRow = source.slice(passagePlanning, savedRoutes);
-        const savedRoutesRow = source.slice(savedRoutes, diary);
+        const diary = source.indexOf('aria-label="Open Diary"', passagePlanning);
+        const passageRow = source.slice(passagePlanning, diary);
         const binderStart = source.indexOf('if (binderOpen)');
         const skipperDevice = source.indexOf('<SkipperDeviceControl');
         const binderBlock = source.slice(binderStart, skipperDevice);
@@ -36,10 +32,8 @@ describe('VesselHub passage-planning placement', () => {
         expect(passageRow).toContain("onNavigate('crew')");
         expect(passageRow).toContain('passageCrewCount');
         expect(passageRow).toContain('pendingCrewInvites');
-        expect(savedRoutesRow).toContain('requestSavedRoutesLibraryOpen(scope)');
-        expect(savedRoutesRow).toContain("onNavigate('voyage')");
-        expect(savedRoutesRow).toContain('savedRouteCount');
-        expect(savedRoutesRow).not.toContain("onNavigate('crew')");
+        expect(source).not.toContain('requestSavedRoutesLibraryOpen(scope)');
+        expect(source).not.toContain('label="Saved Routes"');
         expect(binderBlock).not.toContain('label="Passage Planning"');
         expect(binderBlock).toContain('label="Import GPX"');
     });

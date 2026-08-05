@@ -1,7 +1,11 @@
 /**
- * GEBCO Depth Service — Client-side interface to the gebco-depth Edge Function.
+ * Coarse global bathymetry service — client interface to the legacy-named
+ * `gebco-depth` Edge Function.
  *
- * Provides depth-at-point queries for the routing engine.
+ * The deployed endpoint currently queries NOAA ETOPO at nominal 1 arc-minute
+ * (~1.8 km at the equator). It is a coarse corroborating source, not an ENC,
+ * hydrographic survey, or navigation clearance. The exported service name is
+ * retained for compatibility with existing callers.
  * Caches results in-memory per session to avoid redundant network calls.
  *
  * Usage:
@@ -23,6 +27,13 @@ import { withDeadline } from '../utils/deadline';
 import { getAuthenticatedFunctionHeaders } from './supabaseAuth';
 
 const log = createLogger('GebcoDepthService');
+
+/** Provenance contract returned by the point-query Edge endpoint. */
+export const COARSE_BATHYMETRY_SOURCE_ID = 'noaa_etopo_erddap';
+export const COARSE_BATHYMETRY_SOURCE_LABEL = 'NOAA ETOPO global relief';
+export const COARSE_BATHYMETRY_NOMINAL_RESOLUTION_M = 1_850;
+/** Hard request cap enforced by the legacy-named Edge endpoint. */
+export const COARSE_BATHYMETRY_MAX_POINTS_PER_REQUEST = 200;
 export interface DepthPoint {
     lat: number;
     lon: number;
@@ -79,7 +90,7 @@ function putDepth(key: string, depth: number | null): void {
  * precision (closing audit 2026-07-18 #5: the response was trusted
  * POSITIONALLY — `depths[j]` assigned to request point j by index — so a
  * reordered or mismatched same-length array silently gave a neighbour's depth
- * to a shoal sample on the weakest-data GEBCO fallback water). The gebco-depth
+ * to a shoal sample on the weakest-data coarse-bathymetry fallback water). The legacy-named gebco-depth
  * edge echoes the request lat/lon verbatim (supabase/functions/gebco-depth:
  * queryDepthBatch), so a correct response matches exactly; any misalignment
  * (reorder, short/long array, corruption) drops THAT point to the loud no-data
@@ -134,15 +145,24 @@ class GebcoDepthServiceClass {
             }
         }
 
-        // Fetch uncached points
+        // Fetch uncached points. Keep the endpoint's 200-point cap here at the
+        // service boundary so every caller gets the same safe behaviour; one
+        // oversized route must not turn the entire coarse-depth pass into nulls.
         if (uncachedPoints.length > 0) {
-            const fetched = await this._fetchFromEdge(uncachedPoints);
+            const fetched: DepthResult[] = [];
+            for (let start = 0; start < uncachedPoints.length; start += COARSE_BATHYMETRY_MAX_POINTS_PER_REQUEST) {
+                fetched.push(
+                    ...(await this._fetchFromEdge(
+                        uncachedPoints.slice(start, start + COARSE_BATHYMETRY_MAX_POINTS_PER_REQUEST),
+                    )),
+                );
+            }
 
             for (let j = 0; j < fetched.length; j++) {
                 const idx = uncachedIndices[j];
                 results[idx] = fetched[j];
 
-                // Cache REAL depths only. GEBCO is global bathymetry — a null
+                // Cache REAL depths only. ETOPO is global relief — a null
                 // here always means the FETCH failed (edge error / offline),
                 // never "no data exists at this point". Caching the null
                 // poisoned the session: one transient outage degraded every
@@ -283,6 +303,13 @@ class GebcoDepthServiceClass {
             // Body read bounded separately — a trickling LTE body resets
             // WKWebView's request timer byte-by-byte and can stall too.
             const data: DepthQueryResponse = await withDeadline(resp.json(), 15_000, 'gebco-depth body');
+            if (data?.source !== COARSE_BATHYMETRY_SOURCE_ID) {
+                log.error(
+                    `[GebcoDepth] Unexpected bathymetry source ${String(data?.source)} — ` +
+                        `expected ${COARSE_BATHYMETRY_SOURCE_ID}; dropping response to no-data`,
+                );
+                return points.map((pt) => ({ lat: pt.lat, lon: pt.lon, depth_m: null }));
+            }
             return alignDepthsToRequest(points, Array.isArray(data?.depths) ? data.depths : []);
         } catch (err) {
             log.error('[GebcoDepth] Fetch error:', err);

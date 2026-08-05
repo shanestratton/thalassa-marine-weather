@@ -32,6 +32,8 @@ const baseProps = {
         departure: { lat: -27.5, lon: 153.0, name: 'Brisbane' },
         arrival: { lat: -20.0, lon: 148.7, name: 'Airlie Beach' },
         routeAnalysis: { totalDistance: 520, estimatedDuration: 72 },
+        routeVerification: { status: 'verified' as const, geometryKey: 'verified-route' },
+        routeActionsAvailable: true,
         departureTime: '2026-03-25T08:00:00Z',
         setShowPassage: vi.fn(),
         clearRoute: vi.fn(),
@@ -154,5 +156,37 @@ describe('PassageBanner', () => {
             />,
         );
         expect(screen.getByText(/Route too short/)).toBeDefined();
+    });
+
+    it('withholds Save, GPX and Brief actions while the displayed route is unverified', () => {
+        render(
+            <PassageBanner
+                {...baseProps}
+                passage={{
+                    ...baseProps.passage,
+                    routeVerification: {
+                        status: 'unverified',
+                        geometryKey: 'candidate-route',
+                        reason: 'depth validation timed out',
+                    },
+                    routeActionsAvailable: false,
+                }}
+                isoProgress={null}
+            />,
+        );
+
+        expect(screen.getByTestId('passage-route-unverified')).toHaveTextContent('depth validation timed out');
+        expect(screen.queryByRole('button', { name: 'Export GPX' })).not.toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: 'Share Brief' })).not.toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: 'Save to Log' })).not.toBeInTheDocument();
+    });
+
+    it('shows route actions only for the exact geometry marked verified', () => {
+        render(<PassageBanner {...baseProps} isoProgress={null} />);
+
+        expect(screen.getByRole('button', { name: 'Export GPX' })).toBeEnabled();
+        expect(screen.getByRole('button', { name: 'Share Brief' })).toBeEnabled();
+        expect(screen.getByRole('button', { name: 'Save to Log' })).toBeEnabled();
+        expect(screen.queryByTestId('passage-route-unverified')).not.toBeInTheDocument();
     });
 });

@@ -1,8 +1,8 @@
 /**
- * WindVelocityLayer — Leaflet Velocity Particle Layer for offline wind animation.
+ * WindVelocityLayer — Leaflet Velocity Particle Layer for a caller-supplied live wind feed.
  *
  * Drop-in React component that:
- * - Fetches /wind_test.json (or live from Supabase edge function)
+ * - Fetches only the explicitly supplied live-data URL
  * - Creates an animated particle wind field via leaflet-velocity-ts
  * - Cleanly mounts/unmounts from the parent Leaflet map
  *
@@ -23,7 +23,7 @@ interface WindVelocityLayerProps {
     map: L.Map | null;
     /** Whether this layer should be visible */
     visible: boolean;
-    /** Optional: custom data URL (defaults to /wind_test.json) */
+    /** Live wind-data URL. No default: absent data must fail closed. */
     dataUrl?: string;
     /** Show speed readout on hover */
     showReadout?: boolean;
@@ -48,12 +48,7 @@ const WIND_COLORS = [
 
 // ── Component ─────────────────────────────────────────────────
 
-export const WindVelocityLayer: React.FC<WindVelocityLayerProps> = ({
-    map,
-    visible,
-    dataUrl = '/wind_test.json',
-    showReadout = true,
-}) => {
+export const WindVelocityLayer: React.FC<WindVelocityLayerProps> = ({ map, visible, dataUrl, showReadout = true }) => {
     const layerRef = useRef<L.Layer | null>(null);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const [windData, setWindData] = useState<any[] | null>(null);
@@ -62,6 +57,11 @@ export const WindVelocityLayer: React.FC<WindVelocityLayerProps> = ({
     // ── Fetch wind data ────────────────────────────────────────
     useEffect(() => {
         if (!visible) return;
+        if (!dataUrl) {
+            setWindData(null);
+            setError('No live wind source configured');
+            return;
+        }
 
         let cancelled = false;
 

@@ -16,6 +16,15 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
 const BOLO_THRESHOLD_M = 50;
 const WATCHDOG_INTERVAL_MS = 30_000;
 
+/**
+ * Guardian is held for the public beta. Keep the opt-in deliberately strict:
+ * an absent, padded, differently-cased, or otherwise ambiguous value must not
+ * start privileged monitoring or notification work.
+ */
+export function isGuardianWatchdogEnabled(value: string | undefined): boolean {
+    return value === 'true';
+}
+
 // Track which vessels we've already alerted for (prevent duplicate BOLOs)
 const boloAlerted = new Set<string>();
 const geofenceAlerted = new Set<string>();

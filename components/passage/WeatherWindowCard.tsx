@@ -2,14 +2,16 @@
  * WeatherWindowCard — Departure window analyser for cruisers.
  *
  * "When should I leave?"
- * Analyses 7 days of weather, scores 6h departure windows.
+ * Analyses 16 days of weather, scores 6h departure windows.
  * Shows Go / Marginal / Wait ratings.
  * Red → Green when skipper accepts a departure window.
  */
 
-import React, { useState, useEffect, useCallback, useLayoutEffect, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useLayoutEffect, useMemo, useRef } from 'react';
 import {
     WeatherWindowService,
+    WEATHER_WINDOW_MAX_FALLBACK_AGE_MS,
+    isWeatherWindowResultAcceptable,
     type WeatherWindowResult,
     type DepartureWindow,
 } from '../../services/WeatherWindowService';
@@ -22,11 +24,20 @@ import {
     useSingleCheckSync,
 } from '../../hooks/useReadinessSync';
 import { isAuthIdentityScopeCurrent } from '../../services/authIdentityScope';
+import { useSettings } from '../../context/SettingsContext';
+import {
+    isWeatherWindowAcceptanceRecord,
+    passageDataFingerprint,
+    passageRouteFingerprint,
+    weatherWindowAcceptanceFingerprint,
+    type WeatherWindowAcceptanceRecord,
+} from '../../services/passageEnvironmentReadiness';
 
 interface WeatherWindowCardProps {
     voyageId?: string;
     departure?: { lat: number; lon: number };
     destination?: { lat: number; lon: number };
+    routeCoordinates?: Array<{ lat: number; lon: number }>;
     activeVoyage?: Voyage | null;
     /** ISO timestamp the skipper picked for departure. When provided,
      *  the card auto-scopes the visible windows to ±3 days around this
@@ -71,6 +82,7 @@ export const WeatherWindowCard: React.FC<WeatherWindowCardProps> = ({
     voyageId,
     departure,
     destination,
+    routeCoordinates,
     activeVoyage: _activeVoyage,
     departureTime,
     onDepartureTimeChange,
@@ -87,6 +99,14 @@ export const WeatherWindowCard: React.FC<WeatherWindowCardProps> = ({
     //      pipes the chosen date through).
     //   3. The active voyage's departure_time (last-resort fallback).
     const [eventDepartureIso, setEventDepartureIso] = useState<string | null>(null);
+    const externalDepartureIso = departureTime ?? _activeVoyage?.departure_time ?? null;
+    const previousExternalDepartureRef = useRef(externalDepartureIso);
+    useLayoutEffect(() => {
+        if (previousExternalDepartureRef.current !== externalDepartureIso) {
+            previousExternalDepartureRef.current = externalDepartureIso;
+            setEventDepartureIso(externalDepartureIso);
+        }
+    }, [externalDepartureIso]);
     useEffect(() => {
         const operationScope = identityScope;
         const handler = (e: Event) => {
@@ -104,21 +124,20 @@ export const WeatherWindowCard: React.FC<WeatherWindowCardProps> = ({
         return () => window.removeEventListener('thalassa:departure-time-updated', handler);
     }, [identityScope, voyageId]);
 
-    const chosenDepartureIso = eventDepartureIso ?? departureTime ?? _activeVoyage?.departure_time ?? null;
+    const chosenDepartureIso = eventDepartureIso ?? externalDepartureIso;
     const chosenDepartureMs = chosenDepartureIso ? Date.parse(chosenDepartureIso) : NaN;
     const hasChosenDate = Number.isFinite(chosenDepartureMs);
     const [result, setResult] = useState<WeatherWindowResult | null>(null);
+    const [resultInputFingerprint, setResultInputFingerprint] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const lifecycleGenerationRef = useRef(0);
     const analysisRequestRef = useRef(0);
     const acceptanceMutationRef = useRef(0);
-    const [acceptedIndex, setAcceptedIndex] = useScopedReadinessStorageState<number | null>(
-        STORAGE_KEY,
-        voyageId,
-        null,
-    );
+    const [acceptance, setAcceptance] = useScopedReadinessStorageState<unknown>(STORAGE_KEY, voyageId, null);
     const [showAll, setShowAll] = useState(false);
+    const [freshnessNowMs, setFreshnessNowMs] = useState(() => Date.now());
+    const { settings } = useSettings();
 
     // Determine departure coordinates
     const lat = departure?.lat ?? null;
@@ -132,6 +151,26 @@ export const WeatherWindowCard: React.FC<WeatherWindowCardProps> = ({
     if (lat != null && lon != null && destLat != null && destLon != null) {
         courseBearing = calculateBearing(lat, lon, destLat, destLon);
     }
+    const hasRoute = lat != null && lon != null && destLat != null && destLon != null;
+    const routeFingerprint = useMemo(
+        () => passageRouteFingerprint(routeCoordinates, departure, destination),
+        [routeCoordinates, departure, destination],
+    );
+    const vesselAndComfortFingerprint = passageDataFingerprint('weather-window-vessel-inputs', {
+        vessel: {
+            type: settings.vessel?.type,
+            cruisingSpeedKts: settings.vessel?.cruisingSpeed,
+            maxWindKts: settings.vessel?.maxWindSpeed,
+            maxWaveHeight: settings.vessel?.maxWaveHeight,
+        },
+        comfort: settings.comfortParams,
+    });
+    const analysisInputFingerprint = passageDataFingerprint('weather-window-card-analysis', {
+        lat,
+        lon,
+        courseBearing,
+        vesselAndComfortFingerprint,
+    });
 
     useLayoutEffect(() => {
         lifecycleGenerationRef.current += 1;
@@ -139,6 +178,7 @@ export const WeatherWindowCard: React.FC<WeatherWindowCardProps> = ({
         acceptanceMutationRef.current += 1;
         setEventDepartureIso(null);
         setResult(null);
+        setResultInputFingerprint(null);
         setLoading(false);
         setError(null);
         setShowAll(false);
@@ -153,49 +193,36 @@ export const WeatherWindowCard: React.FC<WeatherWindowCardProps> = ({
         [],
     );
 
-    // Supabase sync — acceptance is per-voyage so this is a single-check
-    // sync (one row per voyage). On voyageId change, load from server and
-    // mark accepted if the server says so. Without this, accepting on
-    // iPhone wouldn't show on iPad and vice versa.
-    const { syncSingleCheck, loadSingleCheck } = useSingleCheckSync(voyageId, 'weather_window', 'accepted');
+    // Supabase sync — restore only a complete fingerprint record. Legacy
+    // index-only acceptance rows cannot prove which route/data was reviewed.
+    const { syncSingleCheck } = useSingleCheckSync(voyageId, 'weather_window', 'accepted');
     useEffect(() => {
         if (!voyageId) return;
         const operationScope = identityScope;
         const mutationAtLoadStart = acceptanceMutationRef.current;
         let cancelled = false;
-        void loadSingleCheck().then(async () => {
-            if (cancelled || !isAuthIdentityScopeCurrent(operationScope)) return;
-            // The single-check service returns a bool; the actual window
-            // index is in the metadata column. Fetch it directly to
-            // recover which window was accepted.
-            try {
-                const { ReadinessCheckService } = await import('../../services/ReadinessCheckService');
-                const checks = await ReadinessCheckService.loadCardChecks(voyageId, 'weather_window');
-                const acceptedCheck = checks['accepted'];
+        void import('../../services/ReadinessCheckService')
+            .then(({ ReadinessCheckService }) => ReadinessCheckService.loadCardChecks(voyageId, 'weather_window'))
+            .then((checks) => {
+                const acceptedCheck = checks.accepted;
                 if (
                     cancelled ||
                     !isAuthIdentityScopeCurrent(operationScope) ||
                     acceptanceMutationRef.current !== mutationAtLoadStart ||
-                    !acceptedCheck?.checked
-                )
+                    !acceptedCheck?.checked ||
+                    !isWeatherWindowAcceptanceRecord(acceptedCheck.metadata)
+                ) {
                     return;
-                const idx = (acceptedCheck.metadata as { index?: number } | undefined)?.index;
-                if (typeof idx !== 'number') return;
-                setAcceptedIndex(idx);
-            } catch {
-                /* offline / no Supabase — the scoped local mirror is
-                   already visible. */
-            }
-        });
+                }
+                setAcceptance(acceptedCheck.metadata);
+            })
+            .catch(() => {
+                /* scoped local record remains authoritative while offline */
+            });
         return () => {
             cancelled = true;
         };
-    }, [identityScope, voyageId, loadSingleCheck, setAcceptedIndex]);
-
-    // Notify parent
-    useEffect(() => {
-        onReviewedChange?.(acceptedIndex !== null);
-    }, [acceptedIndex, onReviewedChange]);
+    }, [identityScope, voyageId, setAcceptance]);
 
     const analyse = useCallback(async () => {
         const operationScope = identityScope;
@@ -212,17 +239,82 @@ export const WeatherWindowCard: React.FC<WeatherWindowCardProps> = ({
             const data = await WeatherWindowService.analyse(lat, lon, voyageId, courseBearing);
             if (!isOperationCurrent()) return;
             setResult(data);
+            setResultInputFingerprint(analysisInputFingerprint);
+            setFreshnessNowMs(Date.now());
+            if (data.availability === 'unavailable') setError(data.failureReason);
         } catch {
             if (isOperationCurrent()) setError('Failed to analyse weather windows');
         } finally {
             if (isOperationCurrent()) setLoading(false);
         }
-    }, [identityScope, lat, lon, voyageId, courseBearing]);
+    }, [identityScope, lat, lon, voyageId, courseBearing, analysisInputFingerprint]);
 
     // Auto-analyse on mount
     useEffect(() => {
         if (lat != null && lon != null) void analyse();
     }, [lat, lon, analyse]);
+
+    const acceptedWindowIndex =
+        isWeatherWindowAcceptanceRecord(acceptance) && result?.availability === 'available'
+            ? result.windows.findIndex((window) => Date.parse(window.time) === Date.parse(acceptance.departureIso))
+            : -1;
+    const acceptedWindow = acceptedWindowIndex >= 0 ? result?.windows[acceptedWindowIndex] : undefined;
+    const resultMatchesInputs = resultInputFingerprint === analysisInputFingerprint;
+    const currentAcceptanceFingerprint =
+        resultMatchesInputs && result?.availability === 'available' && acceptedWindow
+            ? weatherWindowAcceptanceFingerprint({
+                  departureIso: new Date(acceptedWindow.time).toISOString(),
+                  routeFingerprint,
+                  vessel: {
+                      type: settings.vessel?.type,
+                      cruisingSpeedKts: settings.vessel?.cruisingSpeed,
+                      maxWindKts: settings.vessel?.maxWindSpeed,
+                      maxWaveHeight: settings.vessel?.maxWaveHeight,
+                  },
+                  comfort: settings.comfortParams ?? {},
+                  analysisContextFingerprint: result.analysisContextFingerprint,
+                  dataFingerprint: result.dataFingerprint,
+              })
+            : null;
+    const normalizedChosenDepartureIso = hasChosenDate ? new Date(chosenDepartureMs).toISOString() : null;
+    const weatherDataAcceptable = resultMatchesInputs && isWeatherWindowResultAcceptable(result, freshnessNowMs);
+    const accepted =
+        weatherDataAcceptable &&
+        isWeatherWindowAcceptanceRecord(acceptance) &&
+        currentAcceptanceFingerprint === acceptance.fingerprint &&
+        normalizedChosenDepartureIso === acceptance.departureIso;
+
+    useEffect(() => {
+        onReviewedChange?.(accepted);
+    }, [accepted, onReviewedChange]);
+
+    useEffect(() => {
+        if (result?.availability !== 'available') return;
+        const expiresAt = Date.parse(result.analysisTime) + WEATHER_WINDOW_MAX_FALLBACK_AGE_MS;
+        const delayMs = expiresAt - Date.now();
+        if (delayMs <= 0) {
+            setFreshnessNowMs(Date.now());
+            return;
+        }
+        const timeout = window.setTimeout(() => setFreshnessNowMs(Date.now()), Math.min(delayMs + 25, 2_147_483_647));
+        return () => window.clearTimeout(timeout);
+    }, [result]);
+
+    // Mobile browsers can suspend expiry timers while the app is in the
+    // background. Re-evaluate age as soon as the page becomes visible again
+    // so a six-hour-old forecast can never remain accepted after resume.
+    useEffect(() => {
+        const refreshFreshness = () => setFreshnessNowMs(Date.now());
+        const onVisibilityChange = () => {
+            if (document.visibilityState === 'visible') refreshFreshness();
+        };
+        window.addEventListener('focus', refreshFreshness);
+        document.addEventListener('visibilitychange', onVisibilityChange);
+        return () => {
+            window.removeEventListener('focus', refreshFreshness);
+            document.removeEventListener('visibilitychange', onVisibilityChange);
+        };
+    }, []);
 
     const acceptWindow = useCallback(
         (index: number) => {
@@ -230,29 +322,58 @@ export const WeatherWindowCard: React.FC<WeatherWindowCardProps> = ({
             const operationGeneration = lifecycleGenerationRef.current;
             const isOperationCurrent = () =>
                 isAuthIdentityScopeCurrent(operationScope) && lifecycleGenerationRef.current === operationGeneration;
-            if (!isOperationCurrent()) return;
+            if (
+                !isOperationCurrent() ||
+                !hasRoute ||
+                !resultMatchesInputs ||
+                !isWeatherWindowResultAcceptable(result, Date.now())
+            ) {
+                setError('Refresh the forecast before accepting a departure window.');
+                return;
+            }
+            const win = result.windows[index];
+            if (!win?.time || !Number.isFinite(Date.parse(win.time))) return;
+            const newDepartureIso = new Date(win.time).toISOString();
+            const record: WeatherWindowAcceptanceRecord = {
+                version: 1,
+                fingerprint: weatherWindowAcceptanceFingerprint({
+                    departureIso: newDepartureIso,
+                    routeFingerprint,
+                    vessel: {
+                        type: settings.vessel?.type,
+                        cruisingSpeedKts: settings.vessel?.cruisingSpeed,
+                        maxWindKts: settings.vessel?.maxWindSpeed,
+                        maxWaveHeight: settings.vessel?.maxWaveHeight,
+                    },
+                    comfort: settings.comfortParams ?? {},
+                    analysisContextFingerprint: result.analysisContextFingerprint,
+                    dataFingerprint: result.dataFingerprint,
+                }),
+                routeFingerprint,
+                dataFingerprint: result.dataFingerprint,
+                departureIso: newDepartureIso,
+                acceptedAt: new Date().toISOString(),
+            };
             acceptanceMutationRef.current += 1;
-            setAcceptedIndex(index);
+            setAcceptance(record);
             triggerHaptic('medium');
             if (voyageId) {
                 // Mirror to Supabase so the acceptance follows the
                 // skipper to other devices. Index is carried in
                 // metadata; the boolean state is "accepted: true".
-                syncSingleCheck(true, { index, accepted_at: Date.now() });
+                syncSingleCheck(true, { ...record, index });
             }
 
             // ── Sync the accepted window through the parent route scheduler.
             // That one path uses the saved curve + vessel cruise speed for
             // ETA; preserving a previously stored ETA duration is wrong after
             // either the route or vessel profile has changed.
-            const win = result?.windows?.[index];
-            if (win?.time) {
+            if (win.time) {
                 const winDate = new Date(win.time);
                 if (!isNaN(winDate.getTime())) {
                     const hh = String(winDate.getHours()).padStart(2, '0');
                     const mm = String(winDate.getMinutes()).padStart(2, '0');
                     const hhmm = `${hh}:${mm}`;
-                    const newDepartureIso = winDate.toISOString();
                     setEventDepartureIso(newDepartureIso);
                     onDepartureTimeChange?.(newDepartureIso, null);
 
@@ -273,7 +394,19 @@ export const WeatherWindowCard: React.FC<WeatherWindowCardProps> = ({
                 }
             }
         },
-        [identityScope, voyageId, result, onDepartureTimeChange, setAcceptedIndex, syncSingleCheck],
+        [
+            identityScope,
+            hasRoute,
+            resultMatchesInputs,
+            result,
+            routeFingerprint,
+            settings.vessel,
+            settings.comfortParams,
+            setAcceptance,
+            voyageId,
+            syncSingleCheck,
+            onDepartureTimeChange,
+        ],
     );
 
     // Determine windows to show.
@@ -288,10 +421,9 @@ export const WeatherWindowCard: React.FC<WeatherWindowCardProps> = ({
     // When no date is picked yet, fall back to the previous behaviour
     // (top-rated windows from the full forecast).
     //
-    // Indices below stay in `allWindows` coordinates because
-    // `acceptedIndex` / `acceptWindow` persist through localStorage and
-    // pull from `result.windows[idx]`. Filtering only changes what's
-    // visible — never the canonical index space.
+    // Indices below stay in `allWindows` coordinates. The durable acceptance
+    // resolves by the window's departure instant, so filtering never changes
+    // the identity of what the skipper accepted.
     const allWindows = result?.windows ?? [];
     const FOCUS_HALF_WINDOW_MS = 3 * 24 * 60 * 60 * 1000;
     const displayWindows = hasChosenDate
@@ -327,6 +459,17 @@ export const WeatherWindowCard: React.FC<WeatherWindowCardProps> = ({
               month: 'short',
           })
         : null;
+    const weatherDataAgeMs =
+        result?.availability === 'available'
+            ? Math.max(0, freshnessNowMs - Date.parse(result.analysisTime))
+            : Number.POSITIVE_INFINITY;
+    const weatherDataAgeLabel = Number.isFinite(weatherDataAgeMs)
+        ? weatherDataAgeMs < 60_000
+            ? 'less than 1 minute old'
+            : weatherDataAgeMs < 60 * 60_000
+              ? `${Math.floor(weatherDataAgeMs / 60_000)} minutes old`
+              : `${Math.floor(weatherDataAgeMs / (60 * 60_000))}h ${Math.floor((weatherDataAgeMs % (60 * 60_000)) / 60_000)}m old`
+        : 'age unknown';
 
     return (
         <div className="space-y-4">
@@ -352,14 +495,22 @@ export const WeatherWindowCard: React.FC<WeatherWindowCardProps> = ({
 
             {/* Error */}
             {error && (
-                <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-3 flex items-center gap-2">
+                <div role="alert" className="bg-red-500/10 border border-red-500/20 rounded-xl p-3 flex gap-2">
                     <span className="text-lg">⚠️</span>
-                    <p className="text-xs text-red-400">{error}</p>
+                    <div className="flex-1">
+                        <p className="text-xs text-red-300">{error}</p>
+                        {result?.availability === 'unavailable' && (
+                            <p className="text-[11px] text-gray-400 mt-1">Provider: {result.provider}</p>
+                        )}
+                        <button onClick={analyse} className="text-[11px] font-bold text-cyan-300 mt-2">
+                            Retry forecast analysis
+                        </button>
+                    </div>
                 </div>
             )}
 
             {/* Results */}
-            {result && !loading && (
+            {result?.availability === 'available' && !loading && (
                 <>
                     {/* Summary bar */}
                     <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-3 flex items-center gap-3">
@@ -380,11 +531,8 @@ export const WeatherWindowCard: React.FC<WeatherWindowCardProps> = ({
                                 )}
                             </p>
                             <p className="text-[11px] text-gray-500 mt-0.5">
-                                {result.source === 'live' ? 'Live forecast' : 'Cached data'} ·{' '}
-                                {new Date(result.analysisTime).toLocaleTimeString([], {
-                                    hour: '2-digit',
-                                    minute: '2-digit',
-                                })}
+                                {result.provider} · {result.source === 'live' ? 'live download' : 'cached analysis'} ·
+                                updated {new Date(result.analysisTime).toLocaleString()} · {weatherDataAgeLabel}
                                 {chosenDateLabel ? ' · scope ±3 days' : ''}
                             </p>
                         </div>
@@ -395,6 +543,16 @@ export const WeatherWindowCard: React.FC<WeatherWindowCardProps> = ({
                             Refresh
                         </button>
                     </div>
+
+                    {!weatherDataAcceptable && (
+                        <div role="alert" className="bg-red-500/10 border border-red-500/20 rounded-xl p-3">
+                            <p className="text-xs font-bold text-red-300">Forecast is too old to accept</p>
+                            <p className="text-[11px] text-gray-400 mt-1">
+                                Refresh this {weatherDataAgeLabel} analysis. Departure readiness is blocked after 6
+                                hours.
+                            </p>
+                        </div>
+                    )}
 
                     {/* No windows in the chosen-date scope (e.g. user
                         picked a date beyond the 16-day forecast horizon) */}
@@ -417,14 +575,15 @@ export const WeatherWindowCard: React.FC<WeatherWindowCardProps> = ({
                             window={allWindows[scopedBestIdx]}
                             index={scopedBestIdx}
                             isBest
-                            isAccepted={acceptedIndex === scopedBestIdx}
+                            isAccepted={accepted && acceptedWindowIndex === scopedBestIdx}
+                            canAccept={weatherDataAcceptable && hasRoute}
+                            disabledLabel={hasRoute ? 'Refresh forecast to accept' : 'Complete route to accept'}
                             onAccept={acceptWindow}
                         />
                     )}
 
-                    {/* Other windows. Indices map back to allWindows
-                        (canonical) so acceptedIndex / persistence
-                        survive any filtering changes. */}
+                    {/* Other windows. Indices map back to allWindows while
+                        persistence resolves by departure instant. */}
                     {topWindows
                         .filter((w) => allWindows.indexOf(w) !== scopedBestIdx)
                         .map((w) => {
@@ -434,7 +593,9 @@ export const WeatherWindowCard: React.FC<WeatherWindowCardProps> = ({
                                     key={w.time}
                                     window={w}
                                     index={origIdx}
-                                    isAccepted={acceptedIndex === origIdx}
+                                    isAccepted={accepted && acceptedWindowIndex === origIdx}
+                                    canAccept={weatherDataAcceptable && hasRoute}
+                                    disabledLabel={hasRoute ? 'Refresh forecast to accept' : 'Complete route to accept'}
                                     onAccept={acceptWindow}
                                 />
                             );
@@ -453,18 +614,19 @@ export const WeatherWindowCard: React.FC<WeatherWindowCardProps> = ({
             )}
 
             {/* Accepted summary */}
-            {acceptedIndex !== null && result?.windows[acceptedIndex] && (
+            {accepted && acceptedWindow && (
                 <div className="flex items-center gap-2 px-4 py-3 rounded-xl border bg-emerald-500/10 border-emerald-500/20">
                     <span className="text-lg">✅</span>
                     <div>
-                        <p className="text-xs font-bold text-emerald-400">
-                            Window accepted: {result.windows[acceptedIndex].label}
-                        </p>
-                        <p className="text-[11px] text-emerald-400/60 mt-0.5">
-                            {result.windows[acceptedIndex].description}
-                        </p>
+                        <p className="text-xs font-bold text-emerald-400">Window accepted: {acceptedWindow.label}</p>
+                        <p className="text-[11px] text-emerald-400/60 mt-0.5">{acceptedWindow.description}</p>
                     </div>
                 </div>
+            )}
+            {!accepted && isWeatherWindowAcceptanceRecord(acceptance) && result?.availability === 'available' && (
+                <p role="status" className="text-[11px] text-amber-300 text-center">
+                    Departure, route, vessel limits or forecast data changed — accept a current matching window again.
+                </p>
             )}
         </div>
     );
@@ -476,8 +638,10 @@ const WindowCard: React.FC<{
     index: number;
     isBest?: boolean;
     isAccepted?: boolean;
+    canAccept: boolean;
+    disabledLabel: string;
     onAccept: (index: number) => void;
-}> = ({ window: w, index, isBest, isAccepted, onAccept }) => {
+}> = ({ window: w, index, isBest, isAccepted, canAccept, disabledLabel, onAccept }) => {
     const style = RATING_STYLES[w.rating];
     return (
         <div
@@ -535,15 +699,16 @@ const WindowCard: React.FC<{
             {!isAccepted ? (
                 <button
                     onClick={() => onAccept(index)}
+                    disabled={!canAccept}
                     className={`w-full py-2 rounded-lg text-[11px] font-bold transition-all active:scale-[0.98] ${
                         w.rating === 'go'
                             ? 'bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 border border-emerald-500/20'
                             : w.rating === 'marginal'
                               ? 'bg-amber-500/10 text-amber-300 hover:bg-amber-500/20 border border-amber-500/15'
                               : 'bg-red-500/10 text-red-300 hover:bg-red-500/20 border border-red-500/15'
-                    }`}
+                    } disabled:opacity-40 disabled:cursor-not-allowed`}
                 >
-                    Accept This Window
+                    {canAccept ? 'Accept This Window' : disabledLabel}
                 </button>
             ) : (
                 <div className="text-center text-[11px] font-bold text-emerald-400 py-1">✅ Accepted</div>

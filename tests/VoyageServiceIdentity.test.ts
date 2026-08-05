@@ -9,6 +9,9 @@ const harness = vi.hoisted(() => ({
     closeLeg: vi.fn(),
     getActiveLeg: vi.fn(),
     deleteLegsForVoyage: vi.fn(),
+    getTrackingStatus: vi.fn(),
+    getCurrentVoyageId: vi.fn(),
+    stopTracking: vi.fn(),
 }));
 
 vi.mock('../services/supabase', () => ({
@@ -28,10 +31,23 @@ vi.mock('../services/VoyageLegService', () => ({
     deleteLegsForVoyage: harness.deleteLegsForVoyage,
 }));
 
+// endVoyage intentionally tears down a matching live ship-log before it
+// updates the passage row. Keep that runtime boundary explicit here: this
+// suite is about VoyageService identity fences, not loading the complete GPS
+// capture stack through a dynamic import.
+vi.mock('../services/ShipLogService', () => ({
+    ShipLogService: {
+        getTrackingStatus: harness.getTrackingStatus,
+        getCurrentVoyageId: harness.getCurrentVoyageId,
+        stopTracking: harness.stopTracking,
+    },
+}));
+
 import {
     createVoyage,
     deleteDraftVoyagesByNameAndDay,
     deleteVoyageById,
+    endActiveVoyageIfNameMatches,
     endVoyage,
     getActiveVoyage,
     getAllVoyagesForUser,
@@ -107,6 +123,9 @@ describe('VoyageService exact identity and account isolation', () => {
         setAuthIdentityScope('account-a');
         harness.getUser.mockResolvedValue(authUser('account-a'));
         harness.getActiveLeg.mockReturnValue(null);
+        harness.getTrackingStatus.mockReturnValue({ isTracking: false });
+        harness.getCurrentVoyageId.mockReturnValue(null);
+        harness.stopTracking.mockResolvedValue(undefined);
     });
 
     it('owner-binds draft updates, strips hostile identity fields, and drops stale completions', async () => {
@@ -169,6 +188,103 @@ describe('VoyageService exact identity and account isolation', () => {
         expect(harness.deleteLegsForVoyage).not.toHaveBeenCalled();
         expect(JSON.parse(localStorage.getItem(accountBKey) || 'null')).toEqual(activeB);
         expect(dispatch).not.toHaveBeenCalled();
+    });
+
+    it('stops before the remote mutation when identity changes during ship-log teardown', async () => {
+        const activeA = voyage('account-a', 'voyage-1', 'active');
+        const accountAKey = authScopedStorageKey('thalassa_active_voyage');
+        localStorage.setItem(accountAKey, JSON.stringify(activeA));
+        const stopResult = deferred<void>();
+        const updateQuery = queryFor({ data: voyage('account-a', 'voyage-1', 'completed'), error: null });
+        harness.from.mockReturnValue(updateQuery);
+        harness.getTrackingStatus.mockReturnValue({ isTracking: true });
+        harness.getCurrentVoyageId.mockReturnValue('voyage-1');
+        harness.stopTracking.mockReturnValue(stopResult.promise);
+        const dispatch = vi.spyOn(window, 'dispatchEvent');
+
+        const pending = endVoyage('voyage-1');
+        await vi.waitFor(() => expect(harness.stopTracking).toHaveBeenCalledOnce());
+        expect(harness.stopTracking).toHaveBeenCalledWith('voyage-1');
+        expect(updateQuery.update).not.toHaveBeenCalled();
+
+        setAuthIdentityScope('account-b');
+        stopResult.resolve();
+
+        await expect(pending).resolves.toBe(false);
+        expect(updateQuery.update).not.toHaveBeenCalled();
+        expect(harness.closeLeg).not.toHaveBeenCalled();
+        expect(harness.deleteLegsForVoyage).not.toHaveBeenCalled();
+        expect(JSON.parse(localStorage.getItem(accountAKey) || 'null')).toEqual(activeA);
+        expect(dispatch).not.toHaveBeenCalled();
+    });
+
+    it('keeps the passage active when background GPS teardown is pending', async () => {
+        const active = voyage('account-a', 'voyage-1', 'active');
+        localStorage.setItem(authScopedStorageKey('thalassa_active_voyage'), JSON.stringify(active));
+        const updateQuery = queryFor({ data: voyage('account-a', 'voyage-1', 'completed'), error: null });
+        harness.from.mockReturnValue(updateQuery);
+        harness.getTrackingStatus.mockReturnValue({ isTracking: true });
+        harness.getCurrentVoyageId.mockReturnValue('voyage-1');
+        harness.stopTracking.mockRejectedValueOnce(new Error('Background GPS is still active'));
+
+        await expect(endVoyage('voyage-1')).resolves.toBe(false);
+
+        expect(updateQuery.update).not.toHaveBeenCalled();
+        expect(JSON.parse(localStorage.getItem(authScopedStorageKey('thalassa_active_voyage')) || 'null')).toEqual(
+            active,
+        );
+    });
+
+    it('waits for exact-voyage teardown before archiving even while sampled tracking state is idle', async () => {
+        const active = voyage('account-a', 'voyage-1', 'active');
+        localStorage.setItem(authScopedStorageKey('thalassa_active_voyage'), JSON.stringify(active));
+        const stopResult = deferred<void>();
+        const updateQuery = queryFor({ data: voyage('account-a', 'voyage-1', 'completed'), error: null });
+        harness.from.mockReturnValue(updateQuery);
+        harness.getTrackingStatus.mockReturnValue({ isTracking: false, isPaused: false });
+        harness.getCurrentVoyageId.mockReturnValue(null);
+        harness.stopTracking.mockReturnValue(stopResult.promise);
+
+        const ending = endVoyage('voyage-1');
+        await vi.waitFor(() => expect(harness.stopTracking).toHaveBeenCalledWith('voyage-1'));
+        expect(updateQuery.update).not.toHaveBeenCalled();
+
+        stopResult.resolve();
+        await expect(ending).resolves.toBe(true);
+        expect(updateQuery.update).toHaveBeenCalledWith({ status: 'completed' });
+    });
+
+    it('retries a paused pending GPS stop before archiving the passage', async () => {
+        const active = voyage('account-a', 'voyage-1', 'active');
+        localStorage.setItem(authScopedStorageKey('thalassa_active_voyage'), JSON.stringify(active));
+        const updateQuery = queryFor({ data: voyage('account-a', 'voyage-1', 'completed'), error: null });
+        harness.from.mockReturnValue(updateQuery);
+        harness.getTrackingStatus.mockReturnValue({ isTracking: false, isPaused: true });
+        harness.getCurrentVoyageId.mockReturnValue('voyage-1');
+
+        await expect(endVoyage('voyage-1')).resolves.toBe(true);
+
+        expect(harness.stopTracking).toHaveBeenCalledOnce();
+        expect(harness.stopTracking).toHaveBeenCalledWith('voyage-1');
+        expect(updateQuery.update).toHaveBeenCalledWith({ status: 'completed' });
+    });
+
+    it('never clears active-voyage state when route deletion cannot finish pending GPS teardown', async () => {
+        const active = voyage('account-a', 'voyage-1', 'active');
+        localStorage.setItem(authScopedStorageKey('thalassa_active_voyage'), JSON.stringify(active));
+        const updateQuery = queryFor({ data: voyage('account-a', 'voyage-1', 'aborted'), error: null });
+        harness.from.mockReturnValue(updateQuery);
+        harness.getTrackingStatus.mockReturnValue({ isTracking: false, isPaused: true });
+        harness.getCurrentVoyageId.mockReturnValue('voyage-1');
+        harness.stopTracking.mockRejectedValue(new Error('Background GPS is still active'));
+
+        await expect(endActiveVoyageIfNameMatches(' Brisbane to Noumea ')).resolves.toBe(false);
+
+        expect(updateQuery.update).not.toHaveBeenCalled();
+        expect(harness.deleteLegsForVoyage).not.toHaveBeenCalled();
+        expect(JSON.parse(localStorage.getItem(authScopedStorageKey('thalassa_active_voyage')) || 'null')).toEqual(
+            active,
+        );
     });
 
     it('does not perform eager local deletion when the owner-filtered remote delete fails', async () => {

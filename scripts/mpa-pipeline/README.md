@@ -1,58 +1,59 @@
-# MPA Pipeline — Australian Marine Protected Areas → GeoJSON
+# MPA Pipeline — Australian Protected Areas to Trusted GeoJSON
 
-Fetches the Commonwealth + State marine reserves from the DCCEEW
-[CAPAD](https://www.dcceew.gov.au/environment/land/nrs/science/capad)
-FeatureServer, normalises the attributes, and ships a single
-`mpa.geojson` file to a rolling GitHub Release that the Mapbox
-client loads through the Vercel edge proxy.
+This producer fetches the DCCEEW CAPAD marine polygon layer, reconciles every
+authoritative object ID, and builds a bounded immutable schema-v2 GeoJSON bundle.
+It does not publish or possess a GitHub write token; publication is a separate
+isolated dual-slot publish job.
 
-## Why CAPAD
+## Completeness and geometry contract
 
-CAPAD is the canonical, government-maintained registry of all
-Australian marine reserves. It refreshes at minimum twice a year,
-covers Commonwealth and State jurisdictions, and is published under
-CC BY 4.0 — perfect for a commercial app.
+The producer first obtains the authoritative `GIS_AREA>0` count and exact ID
+list, then requests deterministic ID-addressed pages. Missing, tiny, or
+simplification-damaged polygons are refetched without simplification. Every ID
+must reconcile exactly; null geometry, partial pages, duplicates, coordinates
+outside the Australian-territory safety envelope, excessive source bytes, or
+excessive coordinate counts fail the run.
 
-## Why GeoJSON (and not PMTiles)
+`GIS_AREA` is hectares and is explicitly divided by 100 for `area_km2`. The
+public GeoJSON is capped at 16 MiB, validated again across the artifact trust
+boundary, and published under a generation-named immutable filename.
 
-Mapbox-GL v3 removed `addProtocol`, breaking the easy MapLibre-style
-PMTiles bridge. Until we write a Mapbox CustomSource adapter, GeoJSON
-is the lowest-friction shipping format. CAPAD's full marine slice
-weighs ~2 MB after geometry simplification + gzip — fine as a one-shot
-fetch when the user toggles MPA on for the first time.
+## Neutral display classification
 
-## Restriction buckets
+CAPAD registry labels do not determine whether fishing, anchoring, entry, or any
+other activity is lawful at a position. The artifact therefore contains only a
+neutral, display-oriented `protection_class`:
 
-CAPAD's TYPE / IUCN / ZONE_TYPE attributes are noisy. The pipeline
-collapses them into 3 user-facing buckets:
+- `high`
+- `conditional`
+- `multiple_use`
 
-- **`no_take`** — sanctuary zones, marine national parks, IUCN Ia/Ib/II.
-  Fishing, anchoring, collecting all banned.
-- **`partial`** — habitat protection, conservation zones, IUCN III/IV.
-  Some restrictions; check local rules.
-- **`general`** — multiple-use, recreational-use, IPA Sea Country
-  without specific zoning. Recreational fishing usually allowed.
+Each feature also carries `classification_source: indicative_heuristic`. These
+classes control map styling only. They are not permissions, prohibitions, legal
+advice, or a substitute for the responsible authority's current zoning rules.
 
-The frontend colours each bucket distinctly so users see at-a-glance
-"can I drop a line here?".
+## CI and publication
 
-## Running locally
+`.github/workflows/mpa-pipeline.yml` polls weekly. Generation installs the
+Python 3.11.15 hash-locked requirements, has read-only repository permission,
+and is the only job allowed to contact DCCEEW. The isolated publish job binds
+the sealed producer commit and run ID to its workflow context. A publish-only
+rerun may reuse an earlier attempt from that same run while the one-day artifact
+is retained; after expiry, rerun all jobs. The job revalidates the entire bundle,
+uploads the immutable GeoJSON to its UTC ISO-week release shard, verifies its
+size and SHA-256, and updates only the inactive dual v2 discovery slot (seeding
+both slots on bootstrap). Legacy `mpa.geojson` is not bridged because the old
+display schema is incompatible; it returns `410`.
+
+## Running the producer
 
 ```bash
-cd scripts/mpa-pipeline
-pip install -r requirements.txt
-
-# Just fetch + write GeoJSON (no tippecanoe / upload):
-python -c 'import pipeline; fc = pipeline.fetch_capad_marine(); print(len(fc["features"]))'
-
-# Full run (needs GH_TOKEN + GITHUB_REPOSITORY):
-GITHUB_REPOSITORY=shanestratton/thalassa-marine-weather \
-GH_TOKEN=$(gh auth token) \
+python -m pip install --require-hashes --only-binary=:all: -r requirements.txt
+export GITHUB_SHA=0123456789abcdef0123456789abcdef01234567
+export GITHUB_RUN_ID=1
+export GITHUB_RUN_ATTEMPT=1
 python pipeline.py
 ```
 
-## CI
-
-Runs weekly via `.github/workflows/mpa-pipeline.yml`. CAPAD only
-updates ~twice a year so weekly is plenty — the cheap polling keeps
-the rolling release fresh in case of off-cycle corrections.
+Local output defaults to `/tmp/mpa-pipeline/bundle`. The producer deliberately
+has no release-upload mode.

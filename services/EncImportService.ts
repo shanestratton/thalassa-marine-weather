@@ -35,6 +35,7 @@ import { createLogger } from '../utils/createLogger';
 import { piCache } from './PiCacheService';
 import { fetchVerifiedFromPi } from './PiPairingService';
 import * as EncHazardService from './enc/EncHazardService';
+import { canonicalEncCellId, ENC_CELL_BLOB_MAX_BYTES, ENC_CELL_ID_PATTERN, encCellStorageIdentity } from './enc/types';
 import type { EncCell, EncConversionBatch, EncConversionResult } from './enc/types';
 
 const log = createLogger('EncImportService');
@@ -297,6 +298,59 @@ export interface PiInstalledCell {
     sourceUrl?: string;
 }
 
+const PI_INSTALLED_INDEX_MAX_CELLS = 5_000;
+
+function validatePiInstalledCells(value: unknown): PiInstalledCell[] {
+    if (!value || typeof value !== 'object' || !Array.isArray((value as { cells?: unknown }).cells)) {
+        throw new Error('Pi returned a malformed installed-chart index');
+    }
+    const rawCells = (value as { cells: unknown[] }).cells;
+    if (rawCells.length > PI_INSTALLED_INDEX_MAX_CELLS) {
+        throw new Error(`Pi chart index exceeds ${PI_INSTALLED_INDEX_MAX_CELLS} cells`);
+    }
+    const identities = new Set<string>();
+    return rawCells.map((raw, index) => {
+        if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+            throw new Error(`Pi chart index entry ${index + 1} is malformed`);
+        }
+        const candidate = raw as Partial<PiInstalledCell>;
+        const cellId = typeof candidate.cellId === 'string' ? canonicalEncCellId(candidate.cellId) : '';
+        const sourceHO = typeof candidate.sourceHO === 'string' ? candidate.sourceHO.trim().toUpperCase() : '';
+        const bbox = candidate.bbox;
+        const identity = encCellStorageIdentity(cellId);
+        if (
+            !ENC_CELL_ID_PATTERN.test(cellId) ||
+            sourceHO !== cellId.slice(0, 2) ||
+            !Number.isInteger(candidate.edition) ||
+            (candidate.edition ?? -1) < 0 ||
+            !Array.isArray(bbox) ||
+            bbox.length !== 4 ||
+            !bbox.every((coordinate) => typeof coordinate === 'number' && Number.isFinite(coordinate)) ||
+            bbox[0] < -180 ||
+            bbox[2] > 180 ||
+            bbox[1] < -90 ||
+            bbox[3] > 90 ||
+            bbox[0] >= bbox[2] ||
+            bbox[1] >= bbox[3] ||
+            !Number.isInteger(candidate.featureCount) ||
+            (candidate.featureCount ?? -1) < 0 ||
+            !Number.isInteger(candidate.sizeBytes) ||
+            (candidate.sizeBytes ?? -1) <= 0 ||
+            (candidate.sizeBytes ?? 0) > ENC_CELL_BLOB_MAX_BYTES ||
+            (candidate.source !== 'phone-upload' && candidate.source !== 'url') ||
+            identities.has(identity)
+        ) {
+            throw new Error(`Pi chart index entry ${index + 1} failed identity/extent/size validation`);
+        }
+        identities.add(identity);
+        return { ...candidate, cellId, sourceHO, bbox } as PiInstalledCell;
+    });
+}
+
+function bboxesMatch(a: [number, number, number, number], b: [number, number, number, number]): boolean {
+    return a.every((coordinate, index) => Math.abs(coordinate - b[index]) <= 1e-9);
+}
+
 /**
  * Install a chart on the Pi by URL. Pi downloads from the URL,
  * runs through the same GDAL conversion pipeline as a phone
@@ -423,12 +477,13 @@ export async function syncEncFromPi(
 
     let installed: PiInstalledCell[];
     try {
-        const data = await fetchVerifiedFromPi<{ cells?: PiInstalledCell[] }>({
+        const data = await fetchVerifiedFromPi<unknown>({
             url: `${piBase}/api/enc/installed`,
             connectTimeout: 5000,
             readTimeout: 10000,
+            maxResponseBytes: 2 * 1024 * 1024,
         });
-        installed = (data?.cells ?? []) as PiInstalledCell[];
+        installed = validatePiInstalledCells(data);
     } catch (err) {
         const error = `Failed to list Pi charts: ${err instanceof Error ? err.message : String(err)}`;
         emit({ phase: 'error', progress: 0, error });
@@ -446,7 +501,8 @@ export async function syncEncFromPi(
     // chart-edition stays unchanged but the byte count shifts. Without
     // this guard, iOS would never pick up the cleaner version.
     const localCells = EncHazardService.getCoverage();
-    const localKey = (id: string, ed: number, sz?: number): string => `${id}@${ed}@${sz ?? 'unknown'}`;
+    const localKey = (id: string, ed: number, sz?: number): string =>
+        `${encCellStorageIdentity(id)}@${ed}@${sz ?? 'unknown'}`;
     const localKeys = new Set(localCells.map((c) => localKey(c.id, c.edition, c.sizeBytes)));
     let toFetch = installed.filter((c) => !localKeys.has(localKey(c.cellId, c.edition, c.sizeBytes)));
 
@@ -529,17 +585,19 @@ export async function syncEncFromPi(
                 url: `${piBase}/api/enc/installed/${encodeURIComponent(remote.cellId)}/data`,
                 connectTimeout: 10000,
                 readTimeout: 120000,
+                maxResponseBytes: ENC_CELL_BLOB_MAX_BYTES + 1024 * 1024,
             });
-            if (!blob || !Array.isArray(blob.cells) || blob.cells.length === 0) {
-                throw new Error('Pi returned malformed cell data');
+            const { validateLocalEncPack } = await import('./enc/localEncPackImport');
+            const cells = validateLocalEncPack(blob).cells;
+            if (
+                cells.length !== 1 ||
+                encCellStorageIdentity(cells[0].cellId) !== encCellStorageIdentity(remote.cellId) ||
+                cells[0].edition !== remote.edition ||
+                !bboxesMatch(cells[0].bbox, remote.bbox)
+            ) {
+                throw new Error('Pi cell payload did not match its signed index/path');
             }
-            // Each Pi cell file holds one cell, but the wire format
-            // is the {cells: [...]} envelope so a future multi-cell
-            // bundle would also work.
-            for (const conversion of blob.cells) {
-                const cell = await EncHazardService.importCell(conversion);
-                persisted.push(cell);
-            }
+            persisted.push(await EncHazardService.importCell(cells[0]));
         } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
             log.warn(`[SyncFromPi] cell ${remote.cellId} failed`, err);
@@ -575,7 +633,7 @@ export async function listPiInstalledCharts(): Promise<PiInstalledCell[]> {
             responseType: 'json',
         });
         if (res.status < 200 || res.status >= 300) return [];
-        return ((res.data as { cells?: PiInstalledCell[] })?.cells ?? []) as PiInstalledCell[];
+        return validatePiInstalledCells(res.data);
     } catch (err) {
         log.warn('listPiInstalledCharts failed', err);
         return [];
@@ -677,11 +735,10 @@ async function pollAndFetchAndStore(
             url: `${piBase}/api/enc/result/${jobId}`,
             connectTimeout: 10000,
             readTimeout: 180000,
+            maxResponseBytes: ENC_CELL_BLOB_MAX_BYTES + 1024 * 1024,
         });
-        if ('cells' in raw && Array.isArray(raw.cells)) batch = raw;
-        else if ('cellId' in raw) batch = { cells: [raw as EncConversionResult] };
-        else throw new Error('Pi returned malformed conversion result');
-        if (batch.cells.length === 0) throw new Error('Pi returned an empty cell list');
+        const { validateLocalEncPack } = await import('./enc/localEncPackImport');
+        batch = validateLocalEncPack(raw);
     } catch (err) {
         const error = err instanceof Error ? err.message : String(err);
         emit({ phase: 'error', progress: 0, error });
@@ -748,4 +805,33 @@ function arrayBufferToBase64(buffer: ArrayBuffer): string {
         binary += String.fromCharCode.apply(null, Array.from(slice));
     }
     return btoa(binary);
+}
+
+/** What the Pi can see about this boat's o-charts setup. See the Pi's
+ *  `/api/enc/ocharts/setup` for why each field exists. */
+export interface OchartsSetup {
+    dongle: { present: boolean; product?: string };
+    /** SG-Lock serial, derived from an installed keyFile. Null until a set is installed. */
+    systemId: string | null;
+    chartSets: { name: string; cells: number }[];
+    shopUrl: string;
+    manualUrl: string;
+}
+
+/**
+ * Read the boat's o-charts state so the UI can show the one next step that
+ * applies. Returns null when the Pi isn't reachable or is too old to answer —
+ * the caller simply doesn't render the card.
+ */
+export async function fetchOchartsSetup(): Promise<OchartsSetup | null> {
+    if (!piCache.isAvailable()) return null;
+    try {
+        return await fetchVerifiedFromPi<OchartsSetup>({
+            url: `${piCache.baseUrl}/api/enc/ocharts/setup`,
+            connectTimeout: 4000,
+            readTimeout: 6000,
+        });
+    } catch {
+        return null;
+    }
 }

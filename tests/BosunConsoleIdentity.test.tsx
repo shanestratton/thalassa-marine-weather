@@ -25,6 +25,7 @@ const voiceMocks = vi.hoisted(() => ({
     releaseMic: vi.fn(),
     releaseSocket: vi.fn(),
     releaseAudioContext: vi.fn(),
+    isDeepgramAvailable: vi.fn().mockResolvedValue(true),
     startSync: vi.fn(),
     syncStop: vi.fn().mockResolvedValue(undefined),
     srTap: null as ((message: string) => void) | null,
@@ -115,7 +116,7 @@ vi.mock('../services/voice/orchestrator', () => ({
 }));
 
 vi.mock('../services/voice/deepgramRecognizer', () => ({
-    isDeepgramAvailable: vi.fn().mockResolvedValue(true),
+    isDeepgramAvailable: voiceMocks.isDeepgramAvailable,
     prewarmAudioContext: vi.fn().mockResolvedValue(true),
     prewarmDeepgramWebSocket: vi.fn().mockResolvedValue(true),
     prewarmMicStream: vi.fn().mockResolvedValue(true),
@@ -218,6 +219,24 @@ describe('BosunConsole identity cutover', () => {
         voiceMocks.synthesiseSpeech.mockResolvedValue(null);
         setAuthIdentityScope(null);
         setAuthIdentityScope('voice-a');
+    });
+
+    it('keeps typed Calypso available while voice prewarm is still pending', async () => {
+        voiceMocks.isDeepgramAvailable.mockReturnValueOnce(new Promise<boolean>(() => undefined));
+        render(<BosunConsole />);
+
+        await waitFor(() => expect(screen.getByRole('textbox')).toBeEnabled());
+        expect(screen.getByRole('textbox')).toHaveAttribute('placeholder', 'Type now — voice is still warming…');
+        expect(screen.getByRole('button', { name: /Talk idle/i })).toBeDisabled();
+    });
+
+    it('shows an honest sign-in state instead of enabling a cloud request anonymously', async () => {
+        act(() => setAuthIdentityScope(null));
+        render(<BosunConsole />);
+
+        await waitFor(() => expect(screen.getByText('Sign in to use Calypso.')).toBeInTheDocument());
+        expect(screen.getByRole('textbox')).toBeDisabled();
+        expect(screen.getByRole('textbox')).toHaveAttribute('placeholder', 'Sign in to ask Calypso');
     });
 
     it('drops A typed/orchestrator work when its deferred result resolves for B', async () => {

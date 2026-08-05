@@ -12,7 +12,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { GpsService, type GpsPosition } from '../../services/GpsService';
 import { useGpsHealth, gpsHealthMessage, openDeviceSettings } from '../../hooks/useGpsHealth';
-import { MobService } from '../../services/MobService';
+import { MOB_PRECISE_FIX_ACCURACY_M, MobService, type MobSnapshot, type MobState } from '../../services/MobService';
 import { useSettings } from '../../context/SettingsContext';
 import { triggerHaptic } from '../../utils/system';
 import { PageHeader } from '../ui/PageHeader';
@@ -24,6 +24,8 @@ interface RadioConsolePageProps {
     onBack: () => void;
     onNavigate?: (page: string) => void;
 }
+
+type EmergencyVesselType = 'sail' | 'power' | 'observer' | undefined;
 
 // ── Coordinate formatting ─────────────────────────────────────────────────
 /** Convert decimal degrees to degrees°minutes.decimal′ N/S/E/W format */
@@ -41,6 +43,76 @@ function formatLon(dec: number): string {
     const min = (abs - deg) * 60;
     const dir = dec >= 0 ? 'E' : 'W';
     return `${String(deg).padStart(3, '0')}°${min.toFixed(3)}′${dir}`;
+}
+
+/** Empty/setup placeholder values are instructions, never vessel identities. */
+function emergencyIdentity(value: unknown): string | undefined {
+    if (typeof value !== 'string') return undefined;
+    const trimmed = value.trim();
+    if (
+        !trimmed ||
+        /^(?:not\s+(?:set|configured|available)|unset|unknown|none|null|undefined|tbd|n\/?a|[-—]+)$/i.test(trimmed)
+    )
+        return undefined;
+    return trimmed;
+}
+
+function emergencyVesselType(value: unknown): EmergencyVesselType {
+    return value === 'sail' || value === 'power' || value === 'observer' ? value : undefined;
+}
+
+function spokenVesselKind(type: EmergencyVesselType): string {
+    if (type === 'sail') return 'sailing vessel';
+    if (type === 'power') return 'motor vessel';
+    return 'vessel';
+}
+
+function validCourse(value: number | null | undefined): number | null {
+    return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 360 ? value : null;
+}
+
+function isMobSnapshot(value: unknown): value is MobSnapshot {
+    if (!value || typeof value !== 'object') return false;
+    const snapshot = value as Partial<MobSnapshot>;
+    return (
+        typeof snapshot.fixLat === 'number' &&
+        Number.isFinite(snapshot.fixLat) &&
+        snapshot.fixLat >= -90 &&
+        snapshot.fixLat <= 90 &&
+        typeof snapshot.fixLon === 'number' &&
+        Number.isFinite(snapshot.fixLon) &&
+        snapshot.fixLon >= -180 &&
+        snapshot.fixLon <= 180 &&
+        typeof snapshot.activatedAt === 'number' &&
+        Number.isFinite(snapshot.activatedAt) &&
+        snapshot.activatedAt > 0 &&
+        snapshot.activatedAt <= Date.now() + 5 * 60_000 &&
+        typeof snapshot.fixAccuracy === 'number' &&
+        Number.isFinite(snapshot.fixAccuracy) &&
+        snapshot.fixAccuracy >= 0
+    );
+}
+
+function readMobIntent(raw: string | null): { matched: boolean; snapshot: MobSnapshot | null } {
+    if (raw === 'distress-mob') return { matched: true, snapshot: null };
+    if (!raw) return { matched: false, snapshot: null };
+    try {
+        const parsed = JSON.parse(raw) as { version?: unknown; kind?: unknown; snapshot?: unknown };
+        if (parsed?.version !== 1 || parsed.kind !== 'distress-mob') return { matched: false, snapshot: null };
+        return { matched: true, snapshot: isMobSnapshot(parsed.snapshot) ? { ...parsed.snapshot } : null };
+    } catch {
+        return { matched: false, snapshot: null };
+    }
+}
+
+function mobDatumSpoken(snapshot: MobSnapshot): string {
+    const markedAt = new Date(snapshot.activatedAt).toISOString().slice(11, 16) + ' UTC';
+    let out = `Man Overboard datum ${formatSpokenPosition(snapshot.fixLat, snapshot.fixLon)}. `;
+    out += `MOB marked at ${markedAt}. `;
+    if (snapshot.fixAccuracy > MOB_PRECISE_FIX_ACCURACY_M) {
+        out += `Datum is approximate within ${Math.round(snapshot.fixAccuracy)} metres. `;
+    }
+    return out;
 }
 
 // ── DSC transcript modes ─────────────────────────────────────────────────
@@ -109,61 +181,76 @@ function formatSpokenPosition(lat: number, lon: number): string {
 
 /** Routine position readback (standard VHF position report). */
 function buildRoutineText(
-    vesselName: string,
+    vesselName: string | undefined,
+    vesselType: EmergencyVesselType,
     phoneticName: string | undefined,
     callSign: string | undefined,
     mmsi: string | undefined,
     lat: number,
     lon: number,
     sogKts: number,
-    cogDeg: number,
+    cogDeg: number | null,
 ): string {
-    const name = phoneticName || vesselName || 'vessel';
-    let report = `This is sailing vessel ${name}. `;
+    const name = phoneticName || vesselName;
+    const vesselKind = spokenVesselKind(vesselType);
+    let report = name ? `This is ${vesselKind} ${name}. ` : `This is ${vesselKind}. Say your vessel name now. `;
     if (callSign) report += `Call sign ${callSign.split('').join(' ')}. `;
     if (mmsi) report += `MMSI ${mmsi.split('').join(' ')}. `;
     report += `Position: ${formatSpokenPosition(lat, lon)}. `;
     report += `Speed over ground ${sogKts.toFixed(1)} knots. `;
-    report += `Course ${Math.round(cogDeg)} degrees true.`;
-    return report;
+    if (cogDeg !== null) report += `Course ${Math.round(cogDeg)} degrees true.`;
+    return report.trim();
 }
 
 /** Pan-Pan urgency voice script — ITU-R M.1171 phraseology. */
 function buildUrgencyText(
-    vesselName: string,
+    vesselName: string | undefined,
+    vesselType: EmergencyVesselType,
     callSign: string | undefined,
     mmsi: string | undefined,
     lat: number,
     lon: number,
     natureWords: string,
+    mobSnapshot: MobSnapshot | null,
 ): string {
+    const vesselKind = spokenVesselKind(vesselType);
     let out = 'Pan-Pan, Pan-Pan, Pan-Pan. ';
     out += 'All stations, all stations, all stations. ';
-    out += `This is sailing vessel ${vesselName}, ${vesselName}, ${vesselName}. `;
+    out += vesselName
+        ? `This is ${vesselKind} ${vesselName}, ${vesselName}, ${vesselName}. `
+        : `This is ${vesselKind}. Say your vessel name three times now. `;
     if (callSign) out += `Call sign ${callSign.split('').join(' ')}. `;
     if (mmsi) out += `MMSI ${mmsi.split('').join(' ')}. `;
-    out += `Position ${formatSpokenPosition(lat, lon)}. `;
+    out += `Current vessel position ${formatSpokenPosition(lat, lon)}. `;
+    if (mobSnapshot) out += mobDatumSpoken(mobSnapshot);
     out += `${natureWords}. Requesting assistance. Over.`;
     return out;
 }
 
 /** Mayday distress voice script — ITU-R M.1171 phraseology. */
 function buildDistressText(
-    vesselName: string,
+    vesselName: string | undefined,
+    vesselType: EmergencyVesselType,
     callSign: string | undefined,
     mmsi: string | undefined,
     pob: number | undefined,
-    lat: number,
-    lon: number,
+    currentPosition: { lat: number; lon: number } | null,
     natureSpoken: string,
+    mobSnapshot: MobSnapshot | null,
 ): string {
+    const vesselKind = spokenVesselKind(vesselType);
     let out = 'Mayday, Mayday, Mayday. ';
-    out += `This is sailing vessel ${vesselName}, ${vesselName}, ${vesselName}. `;
+    out += vesselName
+        ? `This is ${vesselKind} ${vesselName}, ${vesselName}, ${vesselName}. `
+        : `This is ${vesselKind}. Say your vessel name three times now. `;
     if (callSign) out += `Call sign ${callSign.split('').join(' ')}. `;
     if (mmsi) out += `MMSI ${mmsi.split('').join(' ')}. `;
     out += 'Mayday. ';
-    out += `This is sailing vessel ${vesselName}. `;
-    out += `Position ${formatSpokenPosition(lat, lon)}. `;
+    out += vesselName ? `This is ${vesselKind} ${vesselName}. ` : 'Say your vessel name once now. ';
+    out += currentPosition
+        ? `Current vessel position ${formatSpokenPosition(currentPosition.lat, currentPosition.lon)}. `
+        : 'Current vessel position is unavailable in this app. Say your current position from the chartplotter now. ';
+    if (mobSnapshot) out += mobDatumSpoken(mobSnapshot);
     out += `Nature of distress: ${natureSpoken}. `;
     if (pob !== undefined) out += `${pob} persons on board. `;
     out += 'Requesting immediate assistance. Over.';
@@ -172,21 +259,23 @@ function buildDistressText(
 
 /** Build a compact clipboard-friendly position string */
 function buildClipboardText(
-    vesselName: string,
+    vesselName: string | undefined,
     callSign: string | undefined,
     mmsi: string | undefined,
     rego: string | undefined,
     lat: number,
     lon: number,
     sogKts: number,
-    cogDeg: number,
+    cogDeg: number | null,
 ): string {
-    const lines = [vesselName];
+    const lines = vesselName ? [vesselName] : ['Vessel name not set — add your vessel name before sending'];
     if (callSign) lines.push(`CS: ${callSign}`);
     if (mmsi) lines.push(`MMSI: ${mmsi}`);
     if (rego) lines.push(`Rego: ${rego}`);
     lines.push(`Pos: ${formatLat(lat)} ${formatLon(lon)}`);
-    lines.push(`SOG: ${sogKts.toFixed(1)}kts  COG: ${Math.round(cogDeg)}°T`);
+    lines.push(
+        cogDeg === null ? `SOG: ${sogKts.toFixed(1)}kts` : `SOG: ${sogKts.toFixed(1)}kts  COG: ${Math.round(cogDeg)}°T`,
+    );
     lines.push(`UTC: ${new Date().toISOString().slice(0, 19).replace('T', ' ')}`);
     return lines.join('\n');
 }
@@ -206,17 +295,26 @@ export const RadioConsolePage: React.FC<RadioConsolePageProps> = ({ onBack, onNa
     const [lastVoiceEngine, setLastVoiceEngine] = useState<'calypso' | 'native' | null>(null);
     const utteranceRef = useRef<SafetyUtteranceHandle | null>(null);
     const [copied, setCopied] = useState(false);
+    const [speechError, setSpeechError] = useState<string | null>(null);
+    const [copyFailureText, setCopyFailureText] = useState<string | null>(null);
     const [gpsError, setGpsError] = useState(false);
     const tickRef = useRef<ReturnType<typeof setInterval>>();
 
     // ── DSC state ──
     const [dscMode, setDscMode] = useState<DscMode>('routine');
     const [natureOfDistress, setNatureOfDistress] = useState<DistressNature>('undesignated');
-    const [mobActive, setMobActive] = useState<boolean>(() => MobService.isActive());
+    const [activeMobSnapshot, setActiveMobSnapshot] = useState<MobSnapshot | null>(
+        () => MobService.currentState().active,
+    );
+    const [handoffMobSnapshot, setHandoffMobSnapshot] = useState<MobSnapshot | null>(null);
+    const mobSnapshot = handoffMobSnapshot ?? activeMobSnapshot;
+    // The one-shot handoff preserves a casualty datum, but only the live
+    // device-authoritative service is allowed to claim the MOB is still active.
+    const mobActive = activeMobSnapshot !== null;
 
     // Track MOB so Distress mode can default to "Man Overboard"
     useEffect(() => {
-        const unsub = MobService.subscribe((s) => setMobActive(s.active !== null));
+        const unsub = MobService.subscribe((state: MobState) => setActiveMobSnapshot(state.active));
         return () => {
             unsub();
         };
@@ -226,8 +324,9 @@ export const RadioConsolePage: React.FC<RadioConsolePageProps> = ({ onBack, onNa
     useEffect(() => {
         if (typeof window === 'undefined') return;
         const intentKey = authScopedStorageKey('thalassa_dsc_intent');
-        const intent = localStorage.getItem(intentKey);
-        if (intent === 'distress-mob') {
+        const intent = readMobIntent(localStorage.getItem(intentKey));
+        if (intent.matched) {
+            setHandoffMobSnapshot(intent.snapshot ?? MobService.currentState().active);
             setDscMode('distress');
             setNatureOfDistress('mob');
             localStorage.removeItem(intentKey);
@@ -245,11 +344,19 @@ export const RadioConsolePage: React.FC<RadioConsolePageProps> = ({ onBack, onNa
     const gpsHealth = useGpsHealth();
     const gpsBlocked = gpsHealth && !gpsHealth.usable ? gpsHealthMessage(gpsHealth.reason) : null;
 
-    // Poll GPS every 3 seconds
+    const requestGpsAccess = useCallback(async () => {
+        const pos = await GpsService.requestCurrentForegroundPosition({ staleLimitMs: 10_000, timeoutSec: 8 });
+        setPosition(pos);
+        setGpsError(pos === null);
+    }, []);
+
+    // Poll an existing foreground grant every 3 seconds. Opening the radio
+    // page itself must not initialize background tracking or raise a prompt;
+    // the not-determined state below provides the explicit permission action.
     useEffect(() => {
         let active = true;
         const poll = () => {
-            GpsService.getCurrentPosition({ staleLimitMs: 10_000, timeoutSec: 8 })
+            GpsService.getCurrentPositionIfGranted({ staleLimitMs: 10_000, timeoutSec: 8 })
                 .then((pos) => {
                     if (!active) return;
                     setPosition(pos);
@@ -289,53 +396,69 @@ export const RadioConsolePage: React.FC<RadioConsolePageProps> = ({ onBack, onNa
 
     // ── SOG/COG from GPS ──
     const sogKts = position ? position.speed * 1.94384 : 0; // m/s to knots
-    const cogDeg = position?.heading ?? 0;
+    const cogDeg = validCourse(position?.heading);
 
     // ── Vessel identity ──
-    const vesselName = vessel?.name || 'Not Set';
-    const callSign = vessel?.callSign || undefined;
-    const mmsi = vessel?.mmsi || undefined;
-    const rego = vessel?.registration || undefined;
-    const phoneticName = vessel?.phoneticName || undefined;
-    const pob = (vessel?.crewCount as number | undefined) ?? undefined;
+    const vesselName = emergencyIdentity(vessel?.name);
+    const vesselType = emergencyVesselType(vessel?.type);
+    const callSign = emergencyIdentity(vessel?.callSign);
+    const mmsi = emergencyIdentity(vessel?.mmsi);
+    const rego = emergencyIdentity(vessel?.registration);
+    const phoneticName = emergencyIdentity(vessel?.phoneticName);
+    const configuredPob = vessel?.crewCount as number | undefined;
+    const pob =
+        typeof configuredPob === 'number' && Number.isFinite(configuredPob) && configuredPob > 0
+            ? Math.round(configuredPob)
+            : undefined;
 
     // ── Current transcript derived from DSC mode ──
-    const currentTranscript = position
-        ? dscMode === 'routine'
-            ? buildRoutineText(
-                  vesselName,
-                  phoneticName,
-                  callSign,
-                  mmsi,
-                  position.latitude,
-                  position.longitude,
-                  sogKts,
-                  cogDeg,
-              )
+    const transcriptMobDatum = natureOfDistress === 'mob' ? mobSnapshot : null;
+    const currentTranscript =
+        dscMode === 'routine'
+            ? position
+                ? buildRoutineText(
+                      vesselName,
+                      vesselType,
+                      phoneticName,
+                      callSign,
+                      mmsi,
+                      position.latitude,
+                      position.longitude,
+                      sogKts,
+                      cogDeg,
+                  )
+                : ''
             : dscMode === 'urgency'
-              ? buildUrgencyText(
-                    vesselName,
-                    callSign,
-                    mmsi,
-                    position.latitude,
-                    position.longitude,
-                    NATURE_SPOKEN[natureOfDistress],
-                )
-              : buildDistressText(
-                    vesselName,
-                    callSign,
-                    mmsi,
-                    pob,
-                    position.latitude,
-                    position.longitude,
-                    NATURE_SPOKEN[natureOfDistress],
-                )
-        : '';
+              ? position
+                  ? buildUrgencyText(
+                        vesselName,
+                        vesselType,
+                        callSign,
+                        mmsi,
+                        position.latitude,
+                        position.longitude,
+                        NATURE_SPOKEN[natureOfDistress],
+                        transcriptMobDatum,
+                    )
+                  : ''
+              : position || transcriptMobDatum
+                ? buildDistressText(
+                      vesselName,
+                      vesselType,
+                      callSign,
+                      mmsi,
+                      pob,
+                      position ? { lat: position.latitude, lon: position.longitude } : null,
+                      NATURE_SPOKEN[natureOfDistress],
+                      transcriptMobDatum,
+                  )
+                : '';
 
     // ── TTS ──
     const handleSpeak = useCallback(() => {
         if (!currentTranscript || isSpeaking) return;
         triggerHaptic(dscMode === 'routine' ? 'medium' : 'heavy');
+        setSpeechError(null);
 
         // Cancel anything in-flight so a rapid tap doesn't stack
         // overlapping speeches.
@@ -344,23 +467,36 @@ export const RadioConsolePage: React.FC<RadioConsolePageProps> = ({ onBack, onNa
         // if Calypso can't deliver in time. Distress reports use a
         // slower rate (0.75) for the listener at the other end of the
         // VHF; routine ones a touch faster.
-        const handle = speakSafetyMessage(currentTranscript, {
-            nativeRate: dscMode === 'distress' ? 0.75 : 0.85,
-            nativePitch: 0.9,
-            // Calypso override: distress = extra-deliberate (slower
-            // + most stable), routine = slightly slower than default
-            // but still natural. Distress matches the MOB cadence
-            // so a listener at the other end gets the same calm
-            // measured delivery regardless of which surface fired.
-            voiceSettings: dscMode === 'distress' ? { speed: 0.875, stability: 0.8 } : { speed: 0.92, stability: 0.7 },
-            onPlaybackStart: (engine) => {
-                setIsSpeaking(true);
-                setLastVoiceEngine(engine);
-            },
-            onPlaybackEnd: () => setIsSpeaking(false),
-            onError: () => setIsSpeaking(false),
-        });
-        utteranceRef.current = handle;
+        try {
+            const handle = speakSafetyMessage(currentTranscript, {
+                nativeRate: dscMode === 'distress' ? 0.75 : 0.85,
+                nativePitch: 0.9,
+                // Calypso override: distress = extra-deliberate (slower
+                // + most stable), routine = slightly slower than default
+                // but still natural. Distress matches the MOB cadence
+                // so a listener at the other end gets the same calm
+                // measured delivery regardless of which surface fired.
+                voiceSettings:
+                    dscMode === 'distress' ? { speed: 0.875, stability: 0.8 } : { speed: 0.92, stability: 0.7 },
+                onPlaybackStart: (engine) => {
+                    setIsSpeaking(true);
+                    setLastVoiceEngine(engine);
+                },
+                onPlaybackEnd: () => setIsSpeaking(false),
+                onError: () => {
+                    setIsSpeaking(false);
+                    setSpeechError(
+                        'Audio playback stopped or could not start. Read the visible transcript aloud; no complete playback was confirmed.',
+                    );
+                },
+            });
+            utteranceRef.current = handle;
+        } catch {
+            setIsSpeaking(false);
+            setSpeechError(
+                'Audio playback stopped or could not start. Read the visible transcript aloud; no complete playback was confirmed.',
+            );
+        }
     }, [currentTranscript, isSpeaking, dscMode]);
 
     // Cancel any in-flight TTS on unmount so navigating away mid-
@@ -373,13 +509,15 @@ export const RadioConsolePage: React.FC<RadioConsolePageProps> = ({ onBack, onNa
 
     // ── Copy to clipboard ──
     const handleCopy = useCallback(() => {
-        if (!position) return;
+        if (!currentTranscript) return;
         triggerHaptic('light');
+        setCopied(false);
+        setCopyFailureText(null);
 
         // Routine: keep the compact tabular format (sat-phone SMS friendly).
         // Urgency / Distress: copy the full voice transcript.
         const text =
-            dscMode === 'routine'
+            dscMode === 'routine' && position
                 ? buildClipboardText(
                       vesselName,
                       callSign,
@@ -392,10 +530,22 @@ export const RadioConsolePage: React.FC<RadioConsolePageProps> = ({ onBack, onNa
                   )
                 : currentTranscript;
 
-        navigator.clipboard.writeText(text).then(() => {
-            setCopied(true);
-            setTimeout(() => setCopied(false), 2000);
-        });
+        const failCopy = () => setCopyFailureText(text);
+        try {
+            if (typeof navigator === 'undefined' || !navigator.clipboard?.writeText) {
+                failCopy();
+                return;
+            }
+            void navigator.clipboard
+                .writeText(text)
+                .then(() => {
+                    setCopied(true);
+                    setTimeout(() => setCopied(false), 2000);
+                })
+                .catch(failCopy);
+        } catch {
+            failCopy();
+        }
     }, [position, dscMode, currentTranscript, vesselName, callSign, mmsi, rego, sogKts, cogDeg]);
 
     const utcTime = new Date().toISOString().slice(11, 19);
@@ -426,7 +576,9 @@ export const RadioConsolePage: React.FC<RadioConsolePageProps> = ({ onBack, onNa
 
             {/* ── Vessel identity strip ── */}
             <div className="shrink-0 px-5 py-4 border-b border-white/[0.06]">
-                <div className="text-2xl font-black text-white uppercase tracking-wide mb-2.5">{vesselName}</div>
+                <div className="text-2xl font-black text-white uppercase tracking-wide mb-2.5">
+                    {vesselName ?? 'Vessel name not set'}
+                </div>
                 <div className="flex flex-wrap gap-2">
                     {callSign && (
                         <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-white/[0.04] border border-white/[0.08]">
@@ -452,8 +604,9 @@ export const RadioConsolePage: React.FC<RadioConsolePageProps> = ({ onBack, onNa
                             <span className="text-[13px] font-bold text-sky-400 tracking-wide">{rego}</span>
                         </div>
                     )}
-                    {!callSign && !mmsi && !rego && (
+                    {(!vesselName || (!callSign && !mmsi && !rego)) && (
                         <button
+                            type="button"
                             onClick={() => {
                                 localStorage.setItem(authScopedStorageKey('thalassa_settings_return_to'), 'radio');
                                 onNavigate?.('settings');
@@ -461,10 +614,19 @@ export const RadioConsolePage: React.FC<RadioConsolePageProps> = ({ onBack, onNa
                             className="px-2.5 py-1 rounded-md bg-white/[0.02] border border-dashed border-white/10 text-[11px] font-bold text-slate-500 hover:text-slate-400 hover:border-white/20 transition-colors inline-flex items-center gap-1.5"
                         >
                             <GearIcon className="w-3 h-3" />
-                            <span>Set identity in Vessel Settings →</span>
+                            <span>{vesselName ? 'Add radio identity in Vessel Settings →' : 'Set vessel name →'}</span>
                         </button>
                     )}
                 </div>
+                {!vesselName && (
+                    <p
+                        role="alert"
+                        className="mt-2 rounded-lg border border-amber-400/30 bg-amber-500/10 px-2.5 py-2 text-[11px] font-semibold leading-relaxed text-amber-100"
+                    >
+                        The script will prompt you to say your vessel name. It will not read an app name or setup
+                        placeholder as your identity.
+                    </p>
+                )}
             </div>
 
             {/* ── Position display ── */}
@@ -523,10 +685,14 @@ export const RadioConsolePage: React.FC<RadioConsolePageProps> = ({ onBack, onNa
                                 </span>
                                 {gpsHealth?.actionable && (
                                     <button
-                                        onClick={openDeviceSettings}
+                                        onClick={
+                                            gpsHealth.reason === 'not-determined'
+                                                ? () => void requestGpsAccess()
+                                                : openDeviceSettings
+                                        }
                                         className="rounded-lg bg-sky-500/90 px-4 py-2 text-[11px] font-black uppercase tracking-widest text-white active:scale-95"
                                     >
-                                        Open Settings
+                                        {gpsHealth.reason === 'not-determined' ? 'Allow Location' : 'Open Settings'}
                                     </button>
                                 )}
                             </>
@@ -548,7 +714,7 @@ export const RadioConsolePage: React.FC<RadioConsolePageProps> = ({ onBack, onNa
                 <div className="flex-1 text-center">
                     <div className="text-[9px] font-extrabold tracking-[0.2em] text-slate-500 uppercase mb-1">COG</div>
                     <div className="text-[22px] font-black text-white font-mono">
-                        {position ? `${Math.round(cogDeg)}` : '—'}
+                        {position && cogDeg !== null ? `${Math.round(cogDeg)}` : '—'}
                         <span className="text-[11px] font-bold text-slate-500 ml-0.5">°T</span>
                     </div>
                 </div>
@@ -565,8 +731,48 @@ export const RadioConsolePage: React.FC<RadioConsolePageProps> = ({ onBack, onNa
             {/* ── Nature of distress (urgency & distress only) ── */}
             {dscMode !== 'routine' && <NatureSelector value={natureOfDistress} onChange={setNatureOfDistress} />}
 
+            {dscMode !== 'routine' && natureOfDistress === 'mob' && mobSnapshot && (
+                <div className="mx-5 mt-3 rounded-xl border border-red-400/35 bg-red-950/30 px-3 py-2.5">
+                    <div className="text-[10px] font-extrabold tracking-[0.2em] uppercase text-red-300">
+                        MOB datum · not current vessel position
+                    </div>
+                    <div className="mt-1 font-mono text-sm font-bold text-white">
+                        {formatLat(mobSnapshot.fixLat)} {formatLon(mobSnapshot.fixLon)}
+                    </div>
+                    <div className="mt-1 text-[11px] font-semibold text-red-100/80">
+                        Marked {new Date(mobSnapshot.activatedAt).toISOString().slice(11, 19)} UTC · ±
+                        {Math.round(mobSnapshot.fixAccuracy)} m
+                    </div>
+                </div>
+            )}
+
             {/* ── Instructions + transcript preview ── */}
             <DscInstructions mode={dscMode} transcript={currentTranscript} />
+
+            {speechError && (
+                <div
+                    role="alert"
+                    className="mx-5 mt-3 rounded-xl border border-red-400/45 bg-red-500/15 px-3 py-2 text-xs font-bold leading-relaxed text-red-100"
+                >
+                    {speechError}
+                </div>
+            )}
+
+            {copyFailureText && (
+                <div
+                    role="alert"
+                    className="mx-5 mt-3 rounded-xl border border-red-400/45 bg-red-500/15 px-3 py-2 text-xs font-bold leading-relaxed text-red-100"
+                >
+                    <p>Transcript was not copied. Select the text below and copy it manually.</p>
+                    <textarea
+                        aria-label="Manual radio transcript"
+                        readOnly
+                        value={copyFailureText}
+                        onFocus={(event) => event.currentTarget.select()}
+                        className="mt-2 min-h-28 w-full resize-y rounded-lg border border-white/15 bg-slate-950/80 p-2 font-mono text-[11px] font-medium leading-relaxed text-white"
+                    />
+                </div>
+            )}
 
             {/* ── Action buttons ── */}
             <div
@@ -575,7 +781,7 @@ export const RadioConsolePage: React.FC<RadioConsolePageProps> = ({ onBack, onNa
             >
                 <button
                     onClick={handleSpeak}
-                    disabled={!position || isSpeaking}
+                    disabled={!currentTranscript || isSpeaking}
                     className={`flex-1 flex items-center justify-center gap-2.5 py-4 px-5 rounded-2xl text-[13px] font-extrabold uppercase tracking-wider transition-all border disabled:opacity-30 disabled:cursor-not-allowed active:scale-[0.97] ${
                         isSpeaking
                             ? dscMode === 'distress'
@@ -625,7 +831,7 @@ export const RadioConsolePage: React.FC<RadioConsolePageProps> = ({ onBack, onNa
 
                 <button
                     onClick={handleCopy}
-                    disabled={!position}
+                    disabled={!currentTranscript}
                     className={`flex-1 flex items-center justify-center gap-2.5 py-4 px-5 rounded-2xl text-[13px] font-extrabold uppercase tracking-wider transition-all border disabled:opacity-30 disabled:cursor-not-allowed active:scale-[0.97] ${
                         copied
                             ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-400'

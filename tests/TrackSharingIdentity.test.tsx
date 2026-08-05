@@ -15,6 +15,10 @@ const mocks = vi.hoisted(() => ({
     toastInfo: vi.fn(),
 }));
 
+vi.mock('../utils/featureVisibility', () => ({
+    FEATURE_VISIBILITY: { communityTrackSharing: true },
+}));
+
 vi.mock('../services/ShipLogService', () => ({
     ShipLogService: {
         getLogEntries: mocks.getLogEntries,

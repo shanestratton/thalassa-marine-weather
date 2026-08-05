@@ -134,8 +134,9 @@ function decodeGrib2PressureServer(buffer: ArrayBuffer): DecodedFrame[] {
                 view.getUint8(pos + 1) === 0x37 &&
                 view.getUint8(pos + 2) === 0x37 &&
                 view.getUint8(pos + 3) === 0x37
-            )
+            ) {
                 break;
+            }
 
             const sectionLength = view.getUint32(pos, false);
             const sectionNum = view.getUint8(pos + 4);
@@ -204,7 +205,9 @@ function decodeGrib2PressureServer(buffer: ArrayBuffer): DecodedFrame[] {
         }
         const avg = sum / sampleCount;
         console.info(
-            `[GRIB2-Server] Frame avg pressure: ${avg.toFixed(1)} hPa (${numValues} values, ${bitsPerValue} bpv, D=${decimalScale})`,
+            `[GRIB2-Server] Frame avg pressure: ${
+                avg.toFixed(1)
+            } hPa (${numValues} values, ${bitsPerValue} bpv, D=${decimalScale})`,
         );
 
         if (avg > 900 && avg < 1100 && width > 0 && height > 0) {
@@ -347,7 +350,9 @@ Deno.serve(async (req: Request) => {
         const la1Check = f0.lat1;
         if (Math.abs(la1Check) <= 90) {
             console.info(
-                `[GRIB2] La1=${la1Check.toFixed(2)} (GRIB), using request bounds: ${gridSouth}→${gridNorth}, ${gridWest}→${gridEast}`,
+                `[GRIB2] La1=${
+                    la1Check.toFixed(2)
+                } (GRIB), using request bounds: ${gridSouth}→${gridNorth}, ${gridWest}→${gridEast}`,
             );
         } else {
             console.warn(`[GRIB2] La1=${la1Check} is out of range, ignoring GRIB coords`);

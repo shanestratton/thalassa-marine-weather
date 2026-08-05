@@ -53,6 +53,18 @@ describe('encIndexCache', () => {
         expect(touchIndex('a')).toBeUndefined();
         expect(isIndexFailed('a')).toBe(false);
     });
+
+    it('treats cell-ID case variants as one native-file identity', () => {
+        cacheIndex('vu5port1', idx('vu5port1'));
+        markIndexFailed('vu5other');
+
+        expect(touchIndex('VU5PORT1')).toBeDefined();
+        expect(isIndexFailed('VU5OTHER')).toBe(true);
+        dropIndex('VU5PORT1');
+        dropIndex('VU5OTHER');
+        expect(touchIndex('vu5port1')).toBeUndefined();
+        expect(isIndexFailed('vu5other')).toBe(false);
+    });
 });
 
 describe('failed-load cooldown retry (2026-07-17 audit #1: session-pinning killed)', () => {

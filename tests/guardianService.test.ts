@@ -121,6 +121,37 @@ describe('GuardianService — state management', () => {
         await GuardianService.fetchProfile();
         expect(listener).not.toHaveBeenCalled(); // Unsubscribed
     });
+
+    it('does not acquire or transmit position while initialized disarmed', async () => {
+        mockMaybeSingle.mockResolvedValue({
+            data: { user_id: 'test-user', armed: false, vessel_name: 'Private Vessel' },
+            error: null,
+        });
+
+        await GuardianService.initialize();
+
+        expect(GuardianService.getState().armed).toBe(false);
+        expect(mockAcquireFreshOwnshipPosition).not.toHaveBeenCalled();
+        expect(mockRpc).not.toHaveBeenCalled();
+    });
+
+    it('heartbeats and polls only after restoring an armed profile', async () => {
+        mockMaybeSingle.mockResolvedValue({
+            data: { user_id: 'test-user', armed: true, vessel_name: 'Watch Vessel' },
+            error: null,
+        });
+        mockRpc.mockResolvedValue({ data: [], error: null });
+
+        await GuardianService.initialize();
+
+        expect(mockAcquireFreshOwnshipPosition).toHaveBeenCalledOnce();
+        expect(mockRpc).toHaveBeenCalledWith('guardian_heartbeat', {
+            lat: -36.8485,
+            lon: 174.7633,
+        });
+        expect(mockRpc).toHaveBeenCalledWith('nearby_guardians', { radius_nm: 5 });
+        expect(mockRpc).toHaveBeenCalledWith('guardian_alerts_nearby', { radius_nm: 10, max_hours: 24 });
+    });
 });
 
 describe('GuardianService — ARM / DISARM', () => {
@@ -164,29 +195,63 @@ describe('GuardianService — ARM / DISARM', () => {
 });
 
 describe('GuardianService — Bay Presence', () => {
-    it('fetchNearbyUsers() calls thalassa_users_nearby RPC', async () => {
+    it('fetchNearbyUsers() uses the server-held caller position and minimal nearby RPC', async () => {
         const mockUsers = [
-            { user_id: 'u1', vessel_name: 'S/V Poodle', distance_nm: 0.5, armed: false },
-            { user_id: 'u2', vessel_name: 'S/V Biscuit', distance_nm: 1.2, armed: true },
+            { user_id: 'u1', vessel_name: 'S/V Poodle', distance_nm: 0.5, last_known_at: new Date().toISOString() },
+            { user_id: 'u2', vessel_name: 'S/V Biscuit', distance_nm: 1.2, last_known_at: new Date().toISOString() },
         ];
+        mockMaybeSingle.mockResolvedValueOnce({
+            data: { user_id: 'test-user', armed: true, vessel_name: 'Test' },
+            error: null,
+        });
+        await GuardianService.fetchProfile();
         mockRpc.mockResolvedValueOnce({ data: mockUsers, error: null });
 
         const users = await GuardianService.fetchNearbyUsers();
         expect(users).toHaveLength(2);
         expect(users[0].vessel_name).toBe('S/V Poodle');
-        expect(mockRpc).toHaveBeenCalledWith('thalassa_users_nearby', {
-            query_lat: -36.8485,
-            query_lon: 174.7633,
-            radius_nm: 5,
-        });
+        expect(mockRpc).toHaveBeenCalledWith('nearby_guardians', { radius_nm: 5 });
+        expect(mockAcquireFreshOwnshipPosition).not.toHaveBeenCalled();
         expect(GuardianService.getState().nearbyCount).toBe(2);
     });
 
     it('fetchNearbyUsers() returns empty on error', async () => {
+        mockMaybeSingle.mockResolvedValueOnce({ data: { user_id: 'test-user', armed: true }, error: null });
+        await GuardianService.fetchProfile();
         mockRpc.mockResolvedValueOnce({ data: null, error: { message: 'Network error' } });
 
         const users = await GuardianService.fetchNearbyUsers();
         expect(users).toEqual([]);
+    });
+
+    it('does not query nearby presence while disarmed', async () => {
+        expect(await GuardianService.fetchNearbyUsers()).toEqual([]);
+        expect(await GuardianService.refreshArmedPresence()).toBe(false);
+        expect(mockRpc).not.toHaveBeenCalled();
+        expect(mockAcquireFreshOwnshipPosition).not.toHaveBeenCalled();
+    });
+
+    it('refreshes an armed heartbeat before polling from the server-held fix', async () => {
+        mockMaybeSingle.mockResolvedValueOnce({ data: { user_id: 'test-user', armed: true }, error: null });
+        await GuardianService.fetchProfile();
+        mockRpc.mockResolvedValue({ data: [], error: null });
+        const position = {
+            lat: -36.8485,
+            lon: 174.7633,
+            sog: 0,
+            cog: 0,
+            timestamp: Date.now(),
+            source: 'gps' as const,
+        };
+
+        expect(await GuardianService.refreshArmedPresence(position)).toBe(true);
+
+        expect(mockRpc.mock.calls.map(([name]) => name)).toEqual([
+            'guardian_heartbeat',
+            'nearby_guardians',
+            'guardian_alerts_nearby',
+        ]);
+        expect(mockAcquireFreshOwnshipPosition).not.toHaveBeenCalled();
     });
 });
 
@@ -204,6 +269,8 @@ describe('GuardianService — Alert Feed', () => {
                 created_at: new Date().toISOString(),
             },
         ];
+        mockMaybeSingle.mockResolvedValueOnce({ data: { user_id: 'test-user', armed: true }, error: null });
+        await GuardianService.fetchProfile();
         mockRpc.mockResolvedValueOnce({ data: mockAlerts, error: null });
 
         const alerts = await GuardianService.fetchAlerts();
@@ -212,15 +279,18 @@ describe('GuardianService — Alert Feed', () => {
         expect(mockRpc).toHaveBeenCalledWith(
             'guardian_alerts_nearby',
             expect.objectContaining({
-                query_lat: -36.8485,
-                query_lon: 174.7633,
+                radius_nm: 10,
+                max_hours: 24,
             }),
         );
+        expect(mockAcquireFreshOwnshipPosition).not.toHaveBeenCalled();
     });
 });
 
 describe('GuardianService — Report Suspicious', () => {
     it('broadcasts alert via RPC', async () => {
+        mockMaybeSingle.mockResolvedValueOnce({ data: { user_id: 'test-user', armed: true }, error: null });
+        await GuardianService.fetchProfile();
         mockGetUser.mockResolvedValueOnce({ data: { user: { id: 'test-user' } } });
         mockRpc
             .mockResolvedValueOnce({ data: 3, error: null }) // broadcast
@@ -238,6 +308,15 @@ describe('GuardianService — Report Suspicious', () => {
                 radius_nm: 5,
             }),
         );
+    });
+
+    it('does not acquire or broadcast a location-based report while disarmed', async () => {
+        expect(await GuardianService.reportSuspicious('Unknown dinghy at 2 AM')).toEqual({
+            success: false,
+            notified: 0,
+        });
+        expect(mockAcquireFreshOwnshipPosition).not.toHaveBeenCalled();
+        expect(mockRpc).not.toHaveBeenCalled();
     });
 });
 

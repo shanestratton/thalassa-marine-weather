@@ -10,40 +10,55 @@ concurrency:
 
 permissions:
     contents: read
-    pull-requests: write
 
 jobs:
     lighthouse:
         name: Lighthouse Audit
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 10
+        env:
+            VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+            VITE_SUPABASE_KEY: ${{ vars.VITE_SUPABASE_KEY }}
+            VITE_MAPBOX_ACCESS_TOKEN: ${{ vars.VITE_MAPBOX_ACCESS_TOKEN }}
+            VITE_OWM_API_KEY: ${{ vars.VITE_OWM_API_KEY }}
+            VITE_SENTRY_DSN: ${{ vars.VITE_SENTRY_DSN }}
+            VITE_APP_VERSION: ${{ vars.VITE_APP_VERSION }}
 
         steps:
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
             - name: Setup Node.js
-              uses: actions/setup-node@v4
+              uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
               with:
-                  node-version: 20
+                  node-version: 24
                   cache: 'npm'
 
             - name: Install dependencies
-              run: npm ci --legacy-peer-deps
+              run: npm ci
+
+            - name: Verify public-beta release configuration
+              run: npm run check:beta
 
             - name: Build
-              run: npx vite build
+              run: npm run build
 
-            - name: Run Lighthouse CI
-              uses: treosh/lighthouse-ci-action@v12
-              with:
-                  configPath: './lighthouserc.json'
-                  uploadArtifacts: true
-                  temporaryPublicStorage: true
+            - name: Install Lighthouse browser
+              run: npx puppeteer browsers install chrome
+
+            - name: Run Lighthouse audit
+              id: lighthouse-audit
+              run: node scripts/run-lighthouse-audit.mjs
+
+            - name: Assert Lighthouse audited the application shell
+              if: ${{ always() && steps.lighthouse-audit.outcome != 'skipped' }}
+              run: node scripts/assert-lighthouse-audited-app.mjs
 
             - name: Upload Lighthouse report
               if: always()
-              uses: actions/upload-artifact@v4
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
               with:
                   name: lighthouse-report
                   path: .lighthouseci/
                   retention-days: 14
+                  include-hidden-files: true
+                  if-no-files-found: error

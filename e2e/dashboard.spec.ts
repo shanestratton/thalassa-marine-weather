@@ -11,8 +11,7 @@ test.describe('Dashboard Navigation', () => {
 
     test('dashboard loads with content', async ({ page }) => {
         await page.goto('/');
-        // Wait for dashboard to settle
-        await page.waitForTimeout(3000);
+        await expect(page.getByRole('navigation', { name: 'Main' })).toBeVisible();
 
         // Dismiss feature intro modal if it appears ("Your Weather" intro slides)
         const skipBtn = page.getByText('Skip', { exact: true });
@@ -21,30 +20,8 @@ test.describe('Dashboard Navigation', () => {
             await page.waitForTimeout(1000);
         }
 
-        // Should see meaningful content — not a blank page
-        const body = await page.textContent('body');
-        expect(body?.length).toBeGreaterThan(50);
-
-        // Check for weather-related UI elements (may or may not have API data)
-        const hasContent = async () => {
-            try {
-                if (await page.getByText('Sydney', { exact: false }).first().isVisible()) return true;
-            } catch {
-                /* noop */
-            }
-            try {
-                if (await page.getByText('WX', { exact: false }).first().isVisible()) return true;
-            } catch {
-                /* noop */
-            }
-            try {
-                if (await page.locator('[class*="hero"], [class*="dashboard"], nav').first().isVisible()) return true;
-            } catch {
-                /* noop */
-            }
-            return false;
-        };
-        expect(await hasContent()).toBe(true);
+        await expect(page.getByRole('textbox', { name: 'Current location' })).toHaveValue('Sydney, NSW');
+        await expect(page.getByRole('region', { name: 'Weather metrics dashboard' })).toBeVisible();
     });
 
     test('bottom tabs are navigable', async ({ page }) => {
@@ -63,10 +40,9 @@ test.describe('Dashboard Navigation', () => {
 
     test('theme classes are applied to root', async ({ page }) => {
         await page.goto('/');
-        await page.waitForTimeout(3000);
-        // The root should have either theme-onshore or theme-offshore
-        const root = page.locator('[class*="theme-"]');
-        const count = await root.count();
-        expect(count).toBeGreaterThan(0);
+        await expect(page.getByRole('navigation', { name: 'Main' })).toBeVisible();
+        // ThemeProvider owns one wrapper with both the semantic data marker
+        // and its matching theme-onshore/theme-offshore CSS class.
+        await expect(page.locator('[data-theme][class*="theme-"]')).toHaveCount(1);
     });
 });

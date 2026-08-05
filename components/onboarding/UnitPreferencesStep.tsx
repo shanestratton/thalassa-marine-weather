@@ -107,7 +107,7 @@ export const UnitPreferencesStep: React.FC<UnitPreferencesStepProps> = React.mem
             </div>
 
             <button
-                aria-label="Proceed to next step"
+                aria-label="Continue after choosing units"
                 onClick={onNext}
                 className="w-full bg-sky-500 hover:bg-sky-400 text-white font-bold py-4 rounded-xl transition-all"
             >

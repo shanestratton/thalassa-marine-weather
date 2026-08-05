@@ -18,6 +18,7 @@ import { AlertTriangleIcon, MapIcon, MapPinIcon } from './Icons';
 import { createLogger } from '../utils/createLogger';
 import { useFocusTrap } from '../hooks/useFocusTrap';
 import { getAuthIdentityScope, isAuthIdentityScopeCurrent } from '../services/authIdentityScope';
+import { FEATURE_VISIBILITY } from '../utils/featureVisibility';
 
 const log = createLogger('CommunityTrackBrowser');
 
@@ -78,6 +79,7 @@ export const CommunityTrackBrowser: React.FC<CommunityTrackBrowserProps> = ({ is
 
     const fetchTracks = useCallback(
         async (searchQuery?: string) => {
+            if (!FEATURE_VISIBILITY.communityTrackSharing) return;
             setLoading(true);
             setError(null);
             try {
@@ -104,14 +106,14 @@ export const CommunityTrackBrowser: React.FC<CommunityTrackBrowserProps> = ({ is
 
     // Fetch on open and when filters change
     useEffect(() => {
-        if (isOpen) {
+        if (isOpen && FEATURE_VISIBILITY.communityTrackSharing) {
             fetchTracks();
         }
     }, [isOpen, fetchTracks]);
 
     // Fetch available regions once on open
     useEffect(() => {
-        if (isOpen) {
+        if (isOpen && FEATURE_VISIBILITY.communityTrackSharing) {
             TrackSharingService.getDistinctRegions()
                 .then(setAvailableRegions)
                 .catch((e) => {
@@ -204,6 +206,7 @@ export const CommunityTrackBrowser: React.FC<CommunityTrackBrowserProps> = ({ is
     };
 
     const fetchMyTracks = useCallback(async () => {
+        if (!FEATURE_VISIBILITY.communityTrackSharing) return;
         setMyTracksLoading(true);
         try {
             const result = await TrackSharingService.getMySharedTracks();
@@ -245,12 +248,12 @@ export const CommunityTrackBrowser: React.FC<CommunityTrackBrowserProps> = ({ is
 
     // Load my tracks when tab switches
     useEffect(() => {
-        if (activeTab === 'mine' && isOpen) {
+        if (FEATURE_VISIBILITY.communityTrackSharing && activeTab === 'mine' && isOpen) {
             fetchMyTracks();
         }
     }, [activeTab, isOpen, fetchMyTracks]);
 
-    if (!isOpen) return null;
+    if (!isOpen || !FEATURE_VISIBILITY.communityTrackSharing) return null;
 
     return (
         <OverlayPortal

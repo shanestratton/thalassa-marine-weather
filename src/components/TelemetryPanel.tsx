@@ -1,25 +1,17 @@
 import React from 'react';
 import type { VoyageLogTelemetry } from '../voyageLogApi';
+import { formatPublicAge, isPublicPositionFresh } from '../publicVoyageFreshness';
 import { ArcDial, CompassDial, WindDial } from './dials';
 
 interface TelemetryPanelProps {
     telemetry: VoyageLogTelemetry | null;
+    nowMs: number;
+    connectionLost: boolean;
+    lastSuccessfulAt: number | null;
 }
-
-/** Instruments older than this aren't "live" — the boat's not under way. */
-const LIVE_WINDOW_MS = 3 * 3600_000;
 
 const trendArrow = (t: VoyageLogTelemetry['baro_trend']): string =>
     t === 'rising' ? '↑' : t === 'falling' ? '↓' : '→';
-
-const relativeTime = (iso: string): string => {
-    const mins = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
-    if (mins < 1) return 'just now';
-    if (mins < 60) return `${mins}m ago`;
-    const hrs = Math.round(mins / 60);
-    if (hrs < 24) return `${hrs}h ago`;
-    return `${Math.round(hrs / 24)}d ago`;
-};
 
 const Stat: React.FC<{ label: string; value: string; tone: string }> = ({ label, value, tone }) => (
     <div className="flex flex-col">
@@ -46,14 +38,35 @@ const ChampagneCard: React.FC<{ lastSeen: string | null }> = ({ lastSeen }) => (
     </div>
 );
 
+const ConnectionLostCard: React.FC<{ lastUpdate: string }> = ({ lastUpdate }) => (
+    <div
+        role="status"
+        aria-live="polite"
+        className="shrink-0 border-b border-amber-500/25 bg-amber-500/[0.08] px-4 py-4"
+    >
+        <div className="text-sm font-bold text-amber-200">Connection lost</div>
+        <div className="mt-0.5 text-xs leading-relaxed text-amber-100/75">
+            Showing last-known voyage data · last update {lastUpdate}.
+        </div>
+    </div>
+);
+
 /** Live instrument cluster — dials + readouts, pinned atop the sidebar.
- *  When the feed is stale (> LIVE_WINDOW_MS) or absent, the boat isn't
+ *  When the feed is stale by the server's ten-minute live-voyage bound or absent, the boat isn't
  *  sailing — swap the dead dials for the champagne card (owner ask
  *  2026-07-04: "we must be living it up"). Also stops the pulsing LIVE
  *  badge from fibbing over hours-old data. */
-export const TelemetryPanel: React.FC<TelemetryPanelProps> = ({ telemetry: t }) => {
-    const fresh = !!t && Date.now() - new Date(t.updated_at).getTime() < LIVE_WINDOW_MS;
-    if (!t || !fresh) return <ChampagneCard lastSeen={t ? relativeTime(t.updated_at) : null} />;
+export const TelemetryPanel: React.FC<TelemetryPanelProps> = ({
+    telemetry: t,
+    nowMs,
+    connectionLost,
+    lastSuccessfulAt,
+}) => {
+    if (connectionLost) {
+        return <ConnectionLostCard lastUpdate={formatPublicAge(lastSuccessfulAt, nowMs)} />;
+    }
+    const fresh = !!t && !t.is_last_known && isPublicPositionFresh(t.updated_at, nowMs);
+    if (!t || !fresh) return <ChampagneCard lastSeen={t ? formatPublicAge(t.updated_at, nowMs) : null} />;
 
     // Secondary readouts — everything the three dials don't already show.
     const stats: { label: string; value: string; tone: string }[] = [];
@@ -77,7 +90,7 @@ export const TelemetryPanel: React.FC<TelemetryPanelProps> = ({ telemetry: t }) 
     // is champagne & good times, however rich the weather snapshot is.
     const makingWay = t.sog != null && t.sog >= 0.5;
     if (!makingWay) {
-        return <ChampagneCard lastSeen={relativeTime(t.updated_at)} />;
+        return <ChampagneCard lastSeen={formatPublicAge(t.updated_at, nowMs)} />;
     }
 
     return (
@@ -87,7 +100,7 @@ export const TelemetryPanel: React.FC<TelemetryPanelProps> = ({ telemetry: t }) 
                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
                     Live
                 </span>
-                <span className="text-[10px] font-mono text-slate-500">{relativeTime(t.updated_at)}</span>
+                <span className="text-[10px] font-mono text-slate-500">{formatPublicAge(t.updated_at, nowMs)}</span>
             </div>
 
             {/* Instrument dials */}

@@ -12,8 +12,9 @@
 
 import React, { useState, useCallback, useEffect, useId, useRef, useMemo } from 'react';
 import { motion, AnimatePresence, type Variants } from 'framer-motion';
-import { type WeatherLayer, SEA_STATE_LAYERS, ATMOSPHERE_LAYERS, isParkedLayer } from './mapConstants';
+import { type WeatherLayer, SEA_STATE_LAYERS, ATMOSPHERE_LAYERS } from './mapConstants';
 import { triggerHaptic } from '../../utils/system';
+import { isCmemsLayerAvailable, isCmemsProductLayer } from './cmemsFeatureAvailability';
 
 // ── Data structures ──────────────────────────────────────────────
 
@@ -35,6 +36,8 @@ export interface HelmCategory {
     id: string;
     label: string;
     icon: React.ReactNode;
+    /** Noun used by the submenu header. Defaults to "layers". */
+    itemNoun?: string;
     /** Accent color class (tailwind) */
     color: string;
     /** Glow color for active state */
@@ -76,9 +79,9 @@ export interface RadialHelmMenuProps {
         mpaVisible?: boolean;
         onToggleMpa?: () => void;
     };
-    /** Nautical chart sources — populated by MapHub from the chart catalog +
-     *  SignalK/AvNav + local MBTiles. Each entry renders as a toggle in the
-     *  "Charts" category of the radial menu. Left empty → category hides. */
+    /** Map-source entries populated by MapHub. This can contain nautical chart
+     *  sources, route/track overlays, or both. The category label and icon are
+     *  derived from what is actually present; left empty → category hides. */
     chartsState?: {
         sources?: Array<{
             id: string;
@@ -166,8 +169,8 @@ const glowPulse: Variants = {
 };
 
 // Operational-reference tactical items PARKED (Shane 2026-07-17: "remove
-// marks, tides, no-go and window from the tactical area — they're on the
-// wrong page"). Marks/Tides/No-Go/Window drop off the fan; AIS, Anchor and
+// marks, tides, protected areas and window from the tactical area — they're on
+// the wrong page"). Marks/Tides/MPA/Window drop off the fan; AIS, Anchor and
 // Inspect stay. Flip to restore. Handlers stay wired at the MapHub call site.
 const TACTICAL_REFERENCE_ITEMS_VISIBLE = false;
 
@@ -184,7 +187,7 @@ function buildCategories(
     // so the FIRST items are the ones a user is most likely to want
     // when something is going wrong. Threat-critical layers first
     // (lightning, squall, storms, vessel-traffic awareness), then
-    // operational reference layers (marks, tides, no-go zones,
+    // operational reference layers (marks, tides, protected-area context,
     // diagnostic inspector).
     //
     // The radial menu doesn't yet have visual sub-categories, but the
@@ -193,9 +196,10 @@ function buildCategories(
     // ─────────────────────────────────────────────────────────────────
 
     // ── Threat-critical (top of the fan) ──
-    // MOB first, always, ungated: the 2026-08-03 audit's top safety
-    // finding was MOB being three taps away via the Vessel hub with no
-    // chart affordance at all. From the helm it is now radial → MOB.
+    // MOB also remains first inside the tactical menu as a redundant route.
+    // The always-visible red button beside the helm below is the primary,
+    // one-tap chart affordance; emergency access must not depend on opening
+    // and navigating a layer menu.
     if (tacticalState?.onOpenMob) {
         tactical.push({
             id: 'mob',
@@ -238,7 +242,7 @@ function buildCategories(
     }
 
     // ── Operational reference (lower in the fan) ──
-    // Marks / Tides / Window / No-Go PARKED (see TACTICAL_REFERENCE_ITEMS_VISIBLE).
+    // Marks / Tides / Window / MPA PARKED (see TACTICAL_REFERENCE_ITEMS_VISIBLE).
     if (TACTICAL_REFERENCE_ITEMS_VISIBLE && tacticalState?.onToggleSeamark) {
         tactical.push({
             id: 'seamark',
@@ -274,7 +278,10 @@ function buildCategories(
     if (TACTICAL_REFERENCE_ITEMS_VISIBLE && tacticalState?.onToggleMpa) {
         tactical.push({
             id: 'mpa',
-            label: 'No-Go',
+            // CAPAD identifies protected-area boundaries; it does not itself
+            // determine whether entry, anchoring, fishing or another activity
+            // is prohibited at the selected position.
+            label: 'MPA',
             icon: <MpaIcon />,
             action: tacticalState.onToggleMpa,
         });
@@ -356,7 +363,7 @@ function buildCategories(
                         group: SEA_STATE_LAYERS,
                     },
                 ] as HelmMenuItem[]
-            ).filter((it) => !it.layerKey || !isParkedLayer(it.layerKey)),
+            ).filter((it) => !it.layerKey || !isCmemsProductLayer(it.layerKey) || isCmemsLayerAvailable(it.layerKey)),
         },
         {
             id: 'atmosphere',
@@ -419,21 +426,25 @@ function buildCategories(
                 // wire up GFS-derived gusts or similar.
             ],
         },
-        // ── Charts (4th category) ──
-        // Surfaces o-charts (AvNav/SignalK), free charts (NOAA, LINZ) and any
-        // local MBTiles directly in the radial menu. Each source is a plain
-        // on/off toggle — for opacity / fly-to / per-chart selection users
-        // still have the legacy Chart FAB panel.
+        // ── Routes / charts (4th category) ──
+        // The builder names this category from its actual contents. Routes +
+        // Tracks alone read as "Routes"; adding protected-area context makes
+        // the mixed category "Map" without implying chart acquisition tools.
         ...buildChartsCategory(chartsState),
     ];
 }
 
-/** Build the "Charts" category. Returns an empty array if no sources exist,
- *  so the radial menu falls back to 3 categories when the user has no chart
- *  sources configured (keeps the arc layout clean). */
+/** Build the route/chart category. Returns an empty array if no sources exist,
+ *  so the radial menu falls back to 3 categories when there is nothing useful
+ *  to show (keeps the arc layout clean). */
 function buildChartsCategory(chartsState: RadialHelmMenuProps['chartsState']): HelmCategory[] {
     const sources = chartsState?.sources ?? [];
     if (sources.length === 0) return [];
+
+    const isRouteOrTrack = (id: string) => id === 'routes' || id === 'tracks';
+    const routeSourceCount = sources.filter((source) => isRouteOrTrack(source.id)).length;
+    const routeOnly = routeSourceCount === sources.length;
+    const chartOnly = routeSourceCount === 0;
 
     const items: HelmMenuItem[] = sources.map((src) => ({
         id: `chart-${src.id}`,
@@ -445,8 +456,9 @@ function buildChartsCategory(chartsState: RadialHelmMenuProps['chartsState']): H
     return [
         {
             id: 'charts',
-            label: 'Charts',
-            icon: <ChartsCategoryIcon />,
+            label: routeOnly ? 'Routes' : chartOnly ? 'Charts' : 'Map',
+            icon: routeOnly ? <RoutesCategoryIcon /> : <ChartsCategoryIcon />,
+            itemNoun: routeOnly ? 'overlays' : chartOnly ? 'sources' : 'items',
             color: 'text-violet-400',
             glowColor: 'rgba(167,139,250,0.4)',
             items,
@@ -783,7 +795,7 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
     return (
         <div
             ref={containerRef}
-            className={`absolute z-[700] top-[192px] right-[16px] ${isOpen ? 'pointer-events-auto' : ''}`}
+            className={`radial-helm-menu absolute z-[700] top-[192px] right-[16px] ${isOpen ? 'pointer-events-auto' : ''}`}
             onKeyDown={handleMenuKeyDown}
             onPointerDown={handleContainerPointerDown}
             onPointerMove={handlePointerMove}
@@ -791,6 +803,42 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
             onPointerCancel={handlePointerUp}
             style={{ touchAction: 'none' }}
         >
+            {tacticalState?.onOpenMob && (
+                <motion.button
+                    type="button"
+                    aria-label={
+                        tacticalState.mobActive ? 'Open active Man Overboard emergency' : 'Open Man Overboard emergency'
+                    }
+                    onPointerDown={(event) => event.stopPropagation()}
+                    onClick={(event) => {
+                        event.stopPropagation();
+                        triggerHaptic('medium');
+                        closeMenu();
+                        tacticalState.onOpenMob?.();
+                    }}
+                    className={`absolute -top-16 right-0 flex min-h-[52px] min-w-[52px] flex-col items-center justify-center rounded-2xl border text-white shadow-2xl backdrop-blur-xl transition-colors active:scale-95 ${
+                        tacticalState.mobActive
+                            ? 'border-red-300 bg-red-600 shadow-red-500/50'
+                            : 'border-red-400/70 bg-red-700/95 shadow-red-950/60 hover:bg-red-600'
+                    }`}
+                    animate={
+                        tacticalState.mobActive
+                            ? {
+                                  boxShadow: [
+                                      '0 0 8px 2px rgba(248,113,113,0.45)',
+                                      '0 0 20px 6px rgba(248,113,113,0.75)',
+                                      '0 0 8px 2px rgba(248,113,113,0.45)',
+                                  ],
+                              }
+                            : undefined
+                    }
+                    transition={tacticalState.mobActive ? { duration: 1.2, repeat: Infinity } : undefined}
+                >
+                    <MobIcon />
+                    <span className="mt-0.5 text-[10px] font-black leading-none tracking-[0.08em]">MOB</span>
+                </motion.button>
+            )}
+
             {/* ── Scrim (click-away to close) ── */}
             <AnimatePresence>
                 {isOpen && (
@@ -827,8 +875,8 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
                             <motion.div
                                 key={`grid-${cat.id}`}
                                 role="menu"
-                                aria-label={`${cat.label} layers`}
-                                className="fixed flex flex-col gap-2 rounded-2xl border border-white/15 bg-slate-900/95 p-3 backdrop-blur-xl shadow-2xl"
+                                aria-label={`${cat.label} ${cat.itemNoun ?? 'layers'}`}
+                                className="radial-helm-layer-grid fixed flex flex-col gap-2 rounded-2xl border border-white/15 bg-slate-900/95 p-3 backdrop-blur-xl shadow-2xl"
                                 style={{
                                     // Anchor the grid to the right edge of the viewport, BELOW the
                                     // Tier 1 category arc. Fixed (not absolute) so it escapes the
@@ -856,7 +904,7 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
                                         </span>
                                     </div>
                                     <span className="text-[10px] font-semibold text-gray-500">
-                                        {cat.items.length} layers
+                                        {cat.items.length} {cat.itemNoun ?? 'layers'}
                                     </span>
                                 </div>
 
@@ -960,7 +1008,7 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
             <div
                 id={categoryMenuId}
                 role={isOpen ? 'menu' : undefined}
-                aria-label={isOpen ? 'Chart layer categories' : undefined}
+                aria-label={isOpen ? 'Map overlay categories' : undefined}
                 className="contents"
             >
                 <AnimatePresence>
@@ -977,7 +1025,7 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
                                     role="menuitem"
                                     aria-haspopup="menu"
                                     aria-expanded={isActive}
-                                    aria-label={`${cat.label} layers`}
+                                    aria-label={`${cat.label} ${cat.itemNoun ?? 'layers'}`}
                                     custom={i}
                                     variants={categoryVariants}
                                     initial="hidden"
@@ -1012,7 +1060,7 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
                                     >
                                         <span className="text-xl leading-none">{cat.icon}</span>
                                         {/* Category label — tight tracking so longer words ("Tactical",
-                                        "Charts") fit inside the 60px bubble without hanging over
+                                        "Routes") fit inside the 60px bubble without hanging over
                                         the edges. Width clamp + truncate is a safety net for any
                                         future label that still overflows. */}
                                         <span className="mt-1 max-w-[52px] truncate text-[10px] font-black uppercase leading-none tracking-wider">
@@ -1155,6 +1203,22 @@ const ChartsCategoryIcon = () => (
             strokeLinecap="round"
             strokeLinejoin="round"
             d="M6.429 9.75L2.25 12l4.179 2.25m0-4.5l5.571 3 5.571-3m-11.142 0L2.25 7.5 12 2.25l9.75 5.25-4.179 2.25m0 0L21.75 12l-4.179 2.25m0 0l4.179 2.25L12 21.75 2.25 16.5l4.179-2.25m11.142 0l-5.571 3-5.571-3"
+        />
+    </svg>
+);
+
+// Route with a dotted sailed-track twin — used when the category contains
+// only planned routes and recorded tracks, not nautical chart sources.
+const RoutesCategoryIcon = () => (
+    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+        <circle cx={5} cy={18} r={1.75} />
+        <circle cx={19} cy={6} r={1.75} />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M6.5 16.9c2.5-1.8 2.3-5.1 5.2-6.2 2-.8 3.7-.2 5.8-3.3" />
+        <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeDasharray="2 2"
+            d="M5.8 14.2c2.4-1.7 4.5-1.4 6.2-3.7"
         />
     </svg>
 );

@@ -291,10 +291,19 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
     // Cancels. Defer deletion until that operation settles so it cannot race
     // its own read/upload pipeline.
     const savingVoiceAudioRef = useRef<string | null>(null);
+    // Photos returned by uploadPhoto are still compose-owned until a confirmed
+    // create/update adopts them. Existing edit photos never enter this set.
+    const unsavedPhotoRefs = useRef<Set<string>>(new Set());
+    // A Save snapshots only the refs it is adopting. Account B can therefore
+    // begin a clean compose after an A→B switch without Cancel racing A's bytes.
+    const savingPhotoRefsRef = useRef<Set<string> | null>(null);
+    const abandonedComposeSessionsRef = useRef<Set<number>>(new Set());
+    const composeSaveInFlightRef = useRef(false);
     const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
     const fileRef = useRef<HTMLInputElement>(null);
     const pageScopeRef = useRef(getAuthIdentityScope());
+    const entriesLoadRequestRef = useRef(0);
     const pageActiveRef = useRef(true);
     const voicePolishContextRef = useRef({ mood, locationName, polishStyle });
     voicePolishContextRef.current = { mood, locationName, polishStyle };
@@ -350,11 +359,32 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                 setIsRecording(false);
                 setTranscribing(false);
                 setPolishing(false);
-                setSaving(false);
+                if (!composeSaveInFlightRef.current) setSaving(false);
             }
         },
         [setIsRecording, setPolishing, setSaving, setTranscribing],
     );
+
+    const discardNewPhoto = useCallback((ref: string): void => {
+        if (!unsavedPhotoRefs.current.delete(ref)) return;
+        void DiaryService.discardUnsavedPhoto(ref);
+    }, []);
+
+    const discardAllNewPhotos = useCallback((): void => {
+        const refs = [...unsavedPhotoRefs.current];
+        unsavedPhotoRefs.current.clear();
+        for (const ref of refs) void DiaryService.discardUnsavedPhoto(ref);
+    }, []);
+
+    /** Detach an abandoned compose without touching refs an active Save owns. */
+    const abandonComposePhotos = useCallback((): void => {
+        const savingRefs = savingPhotoRefsRef.current ?? new Set<string>();
+        const refs = [...unsavedPhotoRefs.current];
+        unsavedPhotoRefs.current.clear();
+        for (const ref of refs) {
+            if (!savingRefs.has(ref)) void DiaryService.discardUnsavedPhoto(ref);
+        }
+    }, []);
 
     // Keep the compose reducer in sync with the shared native/web keyboard
     // measurement. DiaryComposeForm uses this value to lift its bottom actions.
@@ -362,66 +392,121 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
         setKeyboardHeight(sharedKeyboardHeight);
     }, [setKeyboardHeight, sharedKeyboardHeight]);
     // ── Load entries ───────────────────────────────────────────
+    const loadEntriesForScope = useCallback(
+        async (scope: ReturnType<typeof getAuthIdentityScope>, replace: boolean): Promise<void> => {
+            const requestId = ++entriesLoadRequestRef.current;
+            const requestIsCurrent = () =>
+                pageActiveRef.current &&
+                requestId === entriesLoadRequestRef.current &&
+                pageScopeRef.current.key === scope.key &&
+                pageScopeRef.current.generation === scope.generation &&
+                isAuthIdentityScopeCurrent(scope);
+            try {
+                const data = await DiaryService.getEntries(100);
+                if (!requestIsCurrent()) return;
+                const pendingIds = pendingDeleteIdsRef.current;
+                const fresh = pendingIds.size > 0 ? data.filter((entry) => !pendingIds.has(entry.id)) : data;
+                if (replace) {
+                    setEntries(fresh);
+                    return;
+                }
+
+                setEntries((previous) => {
+                    const freshIds = new Set(fresh.map((entry) => entry.id));
+                    const preserved = previous.filter(
+                        (entry) =>
+                            entry.id.startsWith('offline-') &&
+                            !freshIds.has(entry.id) &&
+                            !freshIds.has(DiaryService.resolveServerId(entry.id) ?? ''),
+                    );
+                    return [...fresh, ...preserved].sort(
+                        (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+                    );
+                });
+            } catch (error) {
+                if (requestIsCurrent()) log.warn('Diary entries could not be refreshed:', error);
+            } finally {
+                if (replace && requestIsCurrent()) setLoading(false);
+            }
+        },
+        [setEntries, setLoading],
+    );
     const refreshEntries = useCallback(() => {
-        DiaryService.getEntries(100).then((data) => {
-            // Filter out entries pending soft-delete (undo window still open)
-            const pendingIds = pendingDeleteIdsRef.current;
-            const fresh = pendingIds.size > 0 ? data.filter((e) => !pendingIds.has(e.id)) : data;
-            // MERGE with existing state instead of replacing.
-            // Any offline-created entries already in React state are preserved
-            // even if getEntries() doesn't return them (e.g. localStorage quota
-            // overflow prevented them from being saved to the pending queue).
-            setEntries((prev) => {
-                const freshIds = new Set(fresh.map((e) => e.id));
-                // Keep entries from prev that are offline-created and NOT in the
-                // fresh data — unless they already synced and the fresh data has
-                // them under their server id (a stale offline copy shadowing its
-                // twin would render as a duplicate and swipe-delete the wrong id).
-                const preservedFromPrev = prev.filter(
-                    (e) =>
-                        e.id.startsWith('offline-') &&
-                        !freshIds.has(e.id) &&
-                        !freshIds.has(DiaryService.resolveServerId(e.id) ?? ''),
-                );
-                // Merge: fresh data + preserved offline entries, sorted by date
-                return [...fresh, ...preservedFromPrev].sort(
-                    (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
-                );
-            });
-        });
-    }, [setEntries]);
+        void loadEntriesForScope(pageScopeRef.current, false);
+    }, [loadEntriesForScope]);
     useEffect(() => {
-        DiaryService.getEntries(100).then((data) => {
-            setEntries(data);
-            setLoading(false);
-        });
+        void loadEntriesForScope(pageScopeRef.current, true);
         // Periodically refresh to clear PENDING badges after background sync
         const interval = setInterval(() => {
             if (!document.hidden) refreshEntries();
         }, 8000);
         return () => clearInterval(interval);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [refreshEntries]);
+    }, [loadEntriesForScope, refreshEntries]);
     // Cleanup on unmount
     useEffect(() => {
         pageActiveRef.current = true;
+        const abandonedComposeSessions = abandonedComposeSessionsRef.current;
         return () => {
             pageActiveRef.current = false;
+            entriesLoadRequestRef.current += 1;
+            if (composeSaveInFlightRef.current) {
+                abandonedComposeSessions.add(composeSessionRef.current);
+            }
+            abandonComposePhotos();
             abortVoiceSession(false);
             if (audioPlayerRef.current) {
                 audioPlayerRef.current.pause();
                 audioPlayerRef.current = null;
             }
         };
-    }, [abortVoiceSession]);
-    // Recording is private to the currently signed-in skipper. A scope change
-    // must stop the native/media capture immediately, not merely ignore a
-    // stale callback after the fact.
+    }, [abandonComposePhotos, abortVoiceSession]);
+    // The mounted page is an auth boundary too: hide A synchronously, abandon
+    // A's compose ownership, then load only B's namespace. Request ids prevent
+    // a late A read from repainting the timeline.
     useEffect(() => {
-        return subscribeAuthIdentityScope(() => {
+        return subscribeAuthIdentityScope((next) => {
+            if (composeSaveInFlightRef.current) {
+                abandonedComposeSessionsRef.current.add(composeSessionRef.current);
+            }
+            pageScopeRef.current = next;
+            entriesLoadRequestRef.current += 1;
+            setEntries([]);
+            setSelectedEntry(null);
+            setPublishPromptEntry(null);
+            setPhotoPinPrompt(null);
+            setDeletedItem(null);
+            locationFromPhotoRef.current = false;
+            pendingDeleteIdsRef.current.clear();
+            dispatch({ type: 'EXIT_SELECT_MODE' });
+            dispatch({ type: 'OPEN_COMPOSE', weatherSummary: '' });
+            dispatch({ type: 'CLOSE_COMPOSE' });
+            setUploading(false);
+            setGpsLoading(false);
+            setMenuOpen(false);
+            setLoading(true);
+            abandonComposePhotos();
             abortVoiceSession();
+            if (audioPlayerRef.current) {
+                audioPlayerRef.current.pause();
+                audioPlayerRef.current = null;
+                setIsPlaying(false);
+            }
+            void loadEntriesForScope(next, true);
         });
-    }, [abortVoiceSession]);
+    }, [
+        abandonComposePhotos,
+        abortVoiceSession,
+        dispatch,
+        loadEntriesForScope,
+        setDeletedItem,
+        setEntries,
+        setGpsLoading,
+        setIsPlaying,
+        setLoading,
+        setMenuOpen,
+        setSelectedEntry,
+        setUploading,
+    ]);
     // ── GPS helper ─────────────────────────────────────────────
     // True once an attached photo's EXIF GPS has set the entry position.
     // The photo's location outranks the device fix: the entry is about
@@ -430,9 +515,16 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
     // openCompose reset or a fresh compose clears it.
     const locationFromPhotoRef = useRef(false);
     const grabGps = useCallback(async () => {
+        const operationScope = getAuthIdentityScope();
+        const composeSession = composeSessionRef.current;
+        const operationIsCurrent = () =>
+            pageActiveRef.current &&
+            isAuthIdentityScopeCurrent(operationScope) &&
+            composeSessionRef.current === composeSession;
         if (locationFromPhotoRef.current) return;
         setGpsLoading(true);
         const loc = await DiaryService.getCurrentLocation();
+        if (!operationIsCurrent()) return;
         // Re-check after the await — a photo may have been attached while
         // the fix was in flight (openCompose fires this async).
         if (loc && !locationFromPhotoRef.current) {
@@ -443,6 +535,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
             const isAnchored = anchorSnap.state === 'watching' || anchorSnap.state === 'alarm';
             // Reverse geocode for a readable place name
             const placeName = await DiaryService.reverseGeocode(loc.lat, loc.lon);
+            if (!operationIsCurrent()) return;
             if (isAnchored) {
                 const depth = anchorSnap.config.waterDepth;
                 const prefix = `Anchored in ${depth}m of water`;
@@ -451,7 +544,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                 setLocationName(placeName || formatCoord(loc.lat, loc.lon));
             }
         }
-        setGpsLoading(false);
+        if (operationIsCurrent()) setGpsLoading(false);
     }, [setGpsLoading, setLat, setLocationName, setLon]);
     // ── Compose (new) ──────────────────────────────────────────
     /** Build a weather snapshot one-liner from current weather data */
@@ -973,6 +1066,12 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
     const handlePhotoSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file) return;
+        const operationScope = getAuthIdentityScope();
+        const composeSession = composeSessionRef.current;
+        const operationIsCurrent = () =>
+            pageActiveRef.current &&
+            isAuthIdentityScopeCurrent(operationScope) &&
+            composeSessionRef.current === composeSession;
         setUploading(true);
         // Harvest EXIF GPS from the ORIGINAL file before upload — the
         // compressor strips it from the stored copy. If the photo knows
@@ -988,6 +1087,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
         // re-attach the original photo, accept the prompt, pin fixed.
         try {
             const exif = await extractPhotoExif(file);
+            if (!operationIsCurrent()) return;
             if (exif && !locationFromPhotoRef.current) {
                 const hasExistingPin = editingId !== null && lat !== null && lon !== null;
                 if (hasExistingPin) {
@@ -1001,19 +1101,31 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                     setLat(exif.lat);
                     setLon(exif.lon);
                     const placeName = await DiaryService.reverseGeocode(exif.lat, exif.lon);
+                    if (!operationIsCurrent()) return;
                     setLocationName(placeName || formatCoord(exif.lat, exif.lon));
                 }
             }
         } catch {
             /* EXIF is best-effort — device fix remains the fallback */
         }
+        if (!operationIsCurrent()) return;
         const url = await DiaryService.uploadPhoto(file);
-        if (url) setPhotos((prev) => [...prev, url]);
-        setUploading(false);
+        if (url) {
+            if (!operationIsCurrent()) {
+                await DiaryService.discardUnsavedPhoto(url);
+            } else {
+                unsavedPhotoRefs.current.add(url);
+                setPhotos((prev) => [...prev, url]);
+            }
+        }
+        if (operationIsCurrent()) setUploading(false);
         if (fileRef.current) fileRef.current.value = '';
     };
     const removePhoto = (idx: number) => {
+        if (saving || composeSaveInFlightRef.current) return;
+        const ref = photos[idx];
         setPhotos((prev) => prev.filter((_, i) => i !== idx));
+        if (ref) discardNewPhoto(ref);
     };
     // ── Gemini polish ──────────────────────────────────────────
     const handlePolish = async () => {
@@ -1030,7 +1142,13 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
     };
     // ── Save (create or update) ────────────────────────────────
     const handleSave = async () => {
-        if (voiceListeningRef.current || voiceFinalizingSessionRef.current !== null) return;
+        if (
+            composeSaveInFlightRef.current ||
+            uploading ||
+            voiceListeningRef.current ||
+            voiceFinalizingSessionRef.current !== null
+        )
+            return;
         if (!body.trim() && !title.trim() && !audioUrl) return;
         const operationScope = getAuthIdentityScope();
         const composeSession = composeSessionRef.current;
@@ -1038,8 +1156,12 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
             pageActiveRef.current &&
             isAuthIdentityScopeCurrent(operationScope) &&
             composeSessionRef.current === composeSession;
+        let mediaAdopted = false;
+        const savePhotoRefs = new Set([...unsavedPhotoRefs.current].filter((ref) => photos.includes(ref)));
         const saveAudioRef = audioUrl?.startsWith('idb-audio:') ? audioUrl : null;
         if (saveAudioRef) savingVoiceAudioRef.current = saveAudioRef;
+        savingPhotoRefsRef.current = savePhotoRefs;
+        composeSaveInFlightRef.current = true;
         setSaving(true);
         triggerHaptic('medium');
 
@@ -1090,6 +1212,14 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                     },
                     { shouldContinue: operationIsCurrent },
                 );
+                if (updateResult.ok) {
+                    mediaAdopted = true;
+                    for (const ref of savePhotoRefs) unsavedPhotoRefs.current.delete(ref);
+                    if (unsavedVoiceAudioRef.current === audioUrl) unsavedVoiceAudioRef.current = null;
+                    if (saveAudioRef && savingVoiceAudioRef.current === saveAudioRef) {
+                        savingVoiceAudioRef.current = null;
+                    }
+                }
                 if (!operationIsCurrent()) return;
                 if (updateResult.ok) {
                     const savedAudioUrl = updateResult.audioUrl ?? audioUrl;
@@ -1108,7 +1238,6 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                           }
                         : null;
                     setEntries((prev) => prev.map((e) => (e.id === editingId && updated ? updated : e)));
-                    if (unsavedVoiceAudioRef.current === audioUrl) unsavedVoiceAudioRef.current = null;
                     setShowCompose(false);
                     setEditingId(null);
                     // Same publish checkpoint as a new entry — lets the skipper
@@ -1143,9 +1272,16 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                     }
                     return;
                 }
+                if (entry) {
+                    mediaAdopted = true;
+                    for (const ref of savePhotoRefs) unsavedPhotoRefs.current.delete(ref);
+                    if (unsavedVoiceAudioRef.current === audioUrl) unsavedVoiceAudioRef.current = null;
+                    if (saveAudioRef && savingVoiceAudioRef.current === saveAudioRef) {
+                        savingVoiceAudioRef.current = null;
+                    }
+                }
                 if (!operationIsCurrent()) return;
                 if (entry) {
-                    if (unsavedVoiceAudioRef.current === audioUrl) unsavedVoiceAudioRef.current = null;
                     setEntries((prev) => [entry, ...prev]);
                     setShowCompose(false);
                     // Offer to publish it to the public Voyage Log.
@@ -1157,7 +1293,13 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                 savingVoiceAudioRef.current = null;
                 if (!operationIsCurrent()) void DiaryService.discardUnsavedAudio(saveAudioRef);
             }
-            if (operationIsCurrent()) setSaving(false);
+            const abandoned = abandonedComposeSessionsRef.current.delete(composeSession);
+            if (!mediaAdopted && (abandoned || !pageActiveRef.current)) {
+                for (const ref of savePhotoRefs) void DiaryService.discardUnsavedPhoto(ref);
+            }
+            if (savingPhotoRefsRef.current === savePhotoRefs) savingPhotoRefsRef.current = null;
+            composeSaveInFlightRef.current = false;
+            if (pageActiveRef.current) setSaving(false);
         }
         // Don't eagerly refresh here — the 8s periodic poll handles it safely.
         // An immediate refreshEntries() can race with the pending queue merge
@@ -1335,7 +1477,10 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                 onSetPolishStyle={setPolishStyle}
                 onSave={handleSave}
                 onCancel={() => {
+                    if (saving || composeSaveInFlightRef.current) return;
+                    discardAllNewPhotos();
                     abortVoiceSession();
+                    setUploading(false);
                     setShowCompose(false);
                     setEditingId(null);
                 }}

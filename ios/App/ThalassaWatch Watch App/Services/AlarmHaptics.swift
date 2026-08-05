@@ -10,10 +10,9 @@ import WatchKit
  *   .success / .failure — short pattern
  *   .retry — long buzz
  *
- * For drag alarm we want something that wakes the user, so we
- * fire .notification + .failure on a 1.5s cadence. Apple won't let
- * us play arbitrary audio in the background, but the haptic engine
- * works regardless of mute state.
+ * While the Anchor screen is visible, a local distance warning uses
+ * .notification + .failure on a 1.5s cadence. No background execution
+ * is implied; the view stops its timer when it disappears.
  */
 enum AlarmHaptics {
 

@@ -120,7 +120,7 @@ export const ServiceLogSheet: React.FC<ServiceLogSheetProps> = ({
                         History
                     </button>
                     <button
-                        aria-label="Edit item details"
+                        aria-label="Edit service details"
                         onClick={onEdit}
                         className="px-4 py-3 bg-sky-500/10 border border-sky-500/20 rounded-xl text-xs font-bold text-sky-400 hover:bg-sky-500/20 transition-colors"
                     >

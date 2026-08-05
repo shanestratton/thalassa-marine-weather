@@ -39,8 +39,10 @@ import { formatDistance, bearingToCardinal, formatElapsed, navStatusColorSimple 
 import { suggestSwingRadius } from '../../anchor-watch/swingRadiusSuggest';
 import { CompassIcon, WindIcon } from '../../Icons';
 import { CoachMark } from '../../ui/CoachMark';
+import { toast } from '../../Toast';
 import { triggerHaptic } from '../../../utils/system';
 import type { HourlyForecast } from '../../../types';
+import { nmeaDepthReferenceLabel } from '../../../services/nmea/nmeaSentence';
 
 interface EssentialAnchorViewProps {
     /** Optional wind speed in kts for the status strip. */
@@ -111,7 +113,7 @@ export const EssentialAnchorView: React.FC<EssentialAnchorViewProps> = ({
         return unsub;
     }, []);
 
-    // Subscribe to NMEA store so depth-under-keel updates in real time.
+    // Subscribe to NMEA store so referenced depth updates in real time.
     // Silently no-ops if no NMEA connection — depth column simply won't
     // render.
     useEffect(() => {
@@ -129,16 +131,19 @@ export const EssentialAnchorView: React.FC<EssentialAnchorViewProps> = ({
     // doesn't keep re-appearing every 30s of polling.
     const suggestion = useMemo(() => suggestSwingRadius(snapshot), [snapshot]);
     const [suggestionDismissedAt, setSuggestionDismissedAt] = useState<number | null>(null);
+    const [suggestionSaving, setSuggestionSaving] = useState(false);
+    const [suggestionError, setSuggestionError] = useState<string | null>(null);
     // When the anchor is re-dropped, watchStartedAt changes — reset the
     // dismissal flag so the new session can surface its own suggestion.
     useEffect(() => {
         setSuggestionDismissedAt(null);
+        setSuggestionError(null);
     }, [snapshot?.watchStartedAt]);
     const showSuggestion =
         !!suggestion && (suggestionDismissedAt === null || snapshot?.watchStartedAt !== suggestionDismissedAt);
 
-    const handleAcceptSuggestion = useCallback(() => {
-        if (!suggestion || !snapshot) return;
+    const handleAcceptSuggestion = useCallback(async () => {
+        if (!suggestion || !snapshot || suggestionSaving) return;
         // Compute the new safetyMargin so that calculateSwingRadius()
         // produces the proposed radius: delta = proposed - current, so
         // new safetyMargin = current safetyMargin + delta. Persists
@@ -147,9 +152,29 @@ export const EssentialAnchorView: React.FC<EssentialAnchorViewProps> = ({
         const delta = suggestion.proposed - snapshot.swingRadius;
         const currentMargin = snapshot.config.safetyMargin;
         const newMargin = Math.max(0, currentMargin + delta);
-        AnchorWatchService.updateConfig({ safetyMargin: newMargin });
-        triggerHaptic('medium');
-    }, [suggestion, snapshot]);
+        setSuggestionSaving(true);
+        setSuggestionError(null);
+        try {
+            const updated = await AnchorWatchService.updateConfig({ safetyMargin: newMargin });
+            if (!updated) {
+                const current = AnchorWatchService.getSnapshot();
+                throw new Error(
+                    current.setupError ||
+                        'The new swing radius could not be confirmed by native monitoring. The previous radius remains active.',
+                );
+            }
+            triggerHaptic('medium');
+        } catch (error) {
+            const message =
+                error instanceof Error
+                    ? error.message
+                    : 'The new swing radius could not be confirmed. The previous radius remains active.';
+            setSuggestionError(message);
+            toast.error(message);
+        } finally {
+            setSuggestionSaving(false);
+        }
+    }, [suggestion, snapshot, suggestionSaving]);
 
     const handleDismissSuggestion = useCallback(() => {
         // Remember the watchStartedAt at dismissal time — on re-drop
@@ -320,12 +345,14 @@ export const EssentialAnchorView: React.FC<EssentialAnchorViewProps> = ({
     const windRounded = typeof windSpeed === 'number' ? Math.round(windSpeed) : '--';
     const gustRounded = typeof windGust === 'number' ? Math.round(windGust) : null;
 
-    // Depth-under-keel — from NMEA if live, else hide the column.
+    // Referenced depth — from NMEA if live, else hide the column. DBT is
+    // below-transducer; DPT may explicitly offset to waterline or keel.
     // `freshness === 'live'` means the depth reading is < 3s old, which is
     // the only state where we should trust the number enough to show it in
     // a safety-critical context.
     const depthLive = nmeaState?.depth?.freshness === 'live' && nmeaState.depth.value !== null;
     const depthValue = depthLive && nmeaState?.depth.value !== null ? nmeaState.depth.value : null;
+    const depthReferenceLabel = nmeaDepthReferenceLabel(nmeaState?.depthReference).toLowerCase();
     // Depth severity: < 2m in a rising tide over a rocky bottom is the
     // scenario this column protects against. Colour bands chosen to read
     // clearly at a glance from the chart table.
@@ -434,15 +461,16 @@ export const EssentialAnchorView: React.FC<EssentialAnchorViewProps> = ({
                         </p>
                     </div>
                     <button
-                        onClick={handleAcceptSuggestion}
+                        onClick={() => void handleAcceptSuggestion()}
+                        disabled={suggestionSaving}
                         aria-label={`Accept suggested swing radius of ${formatDistance(suggestion.proposed)}`}
                         className={`shrink-0 px-2.5 py-1 rounded-lg text-[11px] font-bold uppercase tracking-wider transition-all active:scale-[0.95] ${
                             suggestion.direction === 'larger'
                                 ? 'bg-amber-500/25 border border-amber-400/50 text-amber-100 hover:bg-amber-500/35'
                                 : 'bg-sky-500/25 border border-sky-400/50 text-sky-100 hover:bg-sky-500/35'
-                        }`}
+                        } disabled:cursor-wait disabled:opacity-60`}
                     >
-                        Accept
+                        {suggestionSaving ? 'Applying…' : 'Accept'}
                     </button>
                     <button
                         onClick={handleDismissSuggestion}
@@ -463,6 +491,15 @@ export const EssentialAnchorView: React.FC<EssentialAnchorViewProps> = ({
                             <line x1="18" y1="6" x2="6" y2="18" />
                         </svg>
                     </button>
+                </div>
+            )}
+
+            {suggestionError && (
+                <div
+                    role="alert"
+                    className="shrink-0 border-b border-red-300/40 bg-red-950/90 px-3 py-2 text-xs font-bold leading-snug text-red-100"
+                >
+                    Radius unchanged: {suggestionError}
                 </div>
             )}
 
@@ -575,7 +612,7 @@ export const EssentialAnchorView: React.FC<EssentialAnchorViewProps> = ({
                     </span>
                 </div>
 
-                {/* Depth under keel — only when NMEA is live. Positioned here
+                {/* Referenced depth — only when NMEA is live. Positioned here
                     (between Wind and GPS) so it sits next to the most
                     safety-relevant signals. */}
                 {depthLive && (
@@ -586,7 +623,7 @@ export const EssentialAnchorView: React.FC<EssentialAnchorViewProps> = ({
                         <span className={`text-lg font-mono font-bold tracking-tight leading-none ${depthColor}`}>
                             {depthValue !== null ? depthValue.toFixed(1) : '--'}
                         </span>
-                        <span className="text-[9px] text-white/40 leading-none mt-0.5">m under keel</span>
+                        <span className="text-[9px] text-white/40 leading-none mt-0.5">m · {depthReferenceLabel}</span>
                     </div>
                 )}
 

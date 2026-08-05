@@ -21,7 +21,7 @@
 
 import { createLogger } from '../../utils/createLogger';
 import type { EncCell } from './types';
-import { ENC_METADATA_PREFIX } from './types';
+import { canonicalEncCellId, ENC_CELL_ID_PATTERN, ENC_METADATA_PREFIX, encCellStorageIdentity } from './types';
 
 const log = createLogger('EncCellMetadata');
 
@@ -62,8 +62,39 @@ function readCell(id: string): EncCell | null {
         if (!parsed || typeof parsed !== 'object') return null;
         // Loose validation — refuse obviously malformed records.
         const cell = parsed as Partial<EncCell>;
-        if (!cell.id || !cell.bbox || !cell.geojsonPath) {
+        const canonicalId = typeof cell.id === 'string' ? canonicalEncCellId(cell.id) : '';
+        const bbox = cell.bbox;
+        const usage = cell.usage;
+        if (
+            typeof cell.id !== 'string' ||
+            !ENC_CELL_ID_PATTERN.test(canonicalId) ||
+            !Array.isArray(bbox) ||
+            bbox.length !== 4 ||
+            !bbox.every((coordinate) => typeof coordinate === 'number' && Number.isFinite(coordinate)) ||
+            bbox[0] < -180 ||
+            bbox[2] > 180 ||
+            bbox[1] < -90 ||
+            bbox[3] > 90 ||
+            bbox[0] >= bbox[2] ||
+            bbox[1] >= bbox[3] ||
+            typeof cell.geojsonPath !== 'string' ||
+            !Number.isInteger(cell.edition) ||
+            (cell.edition ?? -1) < 0 ||
+            !Number.isInteger(cell.hazardCount) ||
+            (cell.hazardCount ?? -1) < 0 ||
+            (usage !== undefined &&
+                usage !== 'navigation' &&
+                usage !== 'reference' &&
+                usage !== 'pending' &&
+                usage !== 'demo') ||
+            (cell.cloudManifestVersion !== undefined &&
+                (!Number.isInteger(cell.cloudManifestVersion) || cell.cloudManifestVersion < 0))
+        ) {
             log.warn(`readCell ${id}: malformed record, ignoring`);
+            return null;
+        }
+        if (encCellStorageIdentity(cell.id) !== encCellStorageIdentity(id)) {
+            log.warn(`readCell ${id}: record identity mismatch, ignoring`);
             return null;
         }
         return cell as EncCell;
@@ -89,7 +120,49 @@ function readCell(id: string): EncCell | null {
  * router cell selection) lists cells through here, so the quarantine
  * heals already-synced devices without a delete-sync protocol.
  */
-const QUARANTINED_CELLS = new Set(['au-brisbane-test']);
+const QUARANTINED_CELLS = new Set(['AU-BRISBANE-TEST']);
+
+/** NOAA cell that older Thalassa builds silently bundled as a Savannah demo. */
+export const LEGACY_BUNDLED_DEMO_CELL_IDS = new Set(['US5GA22M']);
+const LEGACY_BUNDLED_DEMO_FLAGS = Array.from({ length: 7 }, (_, index) => `thalassa.enc.samplesImported.v${index + 1}`);
+
+function isLiveNavigationCell(cell: EncCell): boolean {
+    if (cell.usage === 'demo') return false;
+    if (cell.usage === 'reference') return false;
+    if (cell.usage === 'pending') return false;
+    // Upgrade boundary for cloud placeholders written by older builds. A
+    // verified imported cloud cell always has at least one DEPARE/DRGARE
+    // feature, while the manifest-only record was stamped with zero.
+    if (cell.cloudManifestVersion !== undefined && cell.hazardCount === 0) return false;
+    // Upgrade boundary for devices that received the old untagged auto-seed.
+    // A later user/cloud import is written with usage='navigation' by putCell,
+    // so a legitimately acquired current US5GA22M can become live again.
+    if (
+        cell.usage == null &&
+        LEGACY_BUNDLED_DEMO_CELL_IDS.has(canonicalEncCellId(cell.id)) &&
+        LEGACY_BUNDLED_DEMO_FLAGS.some((key) => localStorage.getItem(key) === '1')
+    ) {
+        return false;
+    }
+    return true;
+}
+
+/** Cells that may be painted for reference. Demo/quarantined data stays out;
+ * unsigned user packs can be displayed but never enter `listCells()`, the
+ * safety-authority list used by routing and route verification. */
+function isDisplayCell(cell: EncCell): boolean {
+    if (cell.usage === 'demo') return false;
+    if (cell.usage === 'pending') return false;
+    if (cell.cloudManifestVersion !== undefined && cell.hazardCount === 0) return false;
+    if (
+        cell.usage == null &&
+        LEGACY_BUNDLED_DEMO_CELL_IDS.has(canonicalEncCellId(cell.id)) &&
+        LEGACY_BUNDLED_DEMO_FLAGS.some((key) => localStorage.getItem(key) === '1')
+    ) {
+        return false;
+    }
+    return true;
+}
 
 /** listCells memo — keyed to the version counter. With 172 cloud
  *  cells, every un-memoized call re-parsed ~86 KB of localStorage
@@ -97,6 +170,66 @@ const QUARANTINED_CELLS = new Set(['au-brisbane-test']);
  *  issued it thousands of times (2026-07-12 audit). Callers must
  *  treat the returned array as READ-ONLY (copy before sorting). */
 let listCache: { version: number; cells: EncCell[] } | null = null;
+let displayListCache: { version: number; cells: EncCell[] } | null = null;
+let pendingListCache: { version: number; cells: EncCell[] } | null = null;
+let registeredListCache: { version: number; cells: EncCell[] } | null = null;
+
+/** Read the registry as case-insensitive storage-identity groups. A native
+ * case-insensitive filesystem can only hold ONE blob for each group; if old
+ * metadata contains both navigation and reference/demo aliases, fail closed
+ * to the lower authority instead of guessing which bytes occupy that file. */
+function readIdentityGroups(): Map<string, EncCell[]> {
+    const groups = new Map<string, EncCell[]>();
+    for (const id of readIndex()) {
+        const identity = encCellStorageIdentity(id);
+        if (QUARANTINED_CELLS.has(identity)) continue;
+        const cell = readCell(id);
+        if (!cell) continue;
+        const group = groups.get(identity);
+        if (group) group.push(cell);
+        else groups.set(identity, [cell]);
+    }
+    return groups;
+}
+
+function pickNavigationCell(group: EncCell[]): EncCell | null {
+    if (group.some((cell) => cell.usage === 'reference' || cell.usage === 'pending' || cell.usage === 'demo')) {
+        return null;
+    }
+    return (
+        group.find((cell) => cell.id === canonicalEncCellId(cell.id) && isLiveNavigationCell(cell)) ??
+        group.find(isLiveNavigationCell) ??
+        null
+    );
+}
+
+function pickDisplayCell(group: EncCell[]): EncCell | null {
+    // Demo is the lowest authority: a legacy demo alias makes the shared blob
+    // ineligible even when another stale alias calls it navigation/reference.
+    if (group.some((cell) => cell.usage === 'demo')) return null;
+    const reference = group.find((cell) => cell.usage === 'reference');
+    if (reference) return isDisplayCell(reference) ? reference : null;
+    if (group.some((cell) => cell.usage === 'pending')) return null;
+    return (
+        group.find((cell) => cell.id === canonicalEncCellId(cell.id) && isDisplayCell(cell)) ??
+        group.find(isDisplayCell) ??
+        null
+    );
+}
+
+/** Lowest-authority record for one physical-file identity. This is the only
+ * safe choice for mutation/reconciliation code when a legacy registry has
+ * aliases that disagree about authority. */
+function pickRegisteredCell(group: EncCell[]): EncCell | null {
+    return (
+        group.find((cell) => cell.usage === 'demo') ??
+        group.find((cell) => cell.usage === 'reference') ??
+        group.find((cell) => cell.usage === 'pending') ??
+        group.find((cell) => cell.id === canonicalEncCellId(cell.id)) ??
+        group[0] ??
+        null
+    );
+}
 
 /**
  * List every imported cell. Memoized per registry version — cheap to
@@ -104,14 +237,58 @@ let listCache: { version: number; cells: EncCell[] } | null = null;
  */
 export function listCells(): EncCell[] {
     if (listCache && listCache.version === version) return listCache.cells;
-    const ids = readIndex();
     const out: EncCell[] = [];
-    for (const id of ids) {
-        if (QUARANTINED_CELLS.has(id)) continue;
-        const cell = readCell(id);
+    for (const group of readIdentityGroups().values()) {
+        const cell = pickNavigationCell(group);
         if (cell) out.push(cell);
     }
     listCache = { version, cells: out };
+    return out;
+}
+
+/** List cells that may be painted, including unsigned `reference` packs.
+ * Never use this for routing, hazard clearance, saved-route verification or
+ * Cast Off; those must continue using `listCells()` / `cellsForBBox()`. */
+export function listDisplayCells(): EncCell[] {
+    if (displayListCache && displayListCache.version === version) return displayListCache.cells;
+    const out: EncCell[] = [];
+    for (const group of readIdentityGroups().values()) {
+        const cell = pickDisplayCell(group);
+        if (cell) out.push(cell);
+    }
+    displayListCache = { version, cells: out };
+    return out;
+}
+
+/** Manifest entries whose bytes are absent, stale or not yet validated.
+ * They may trigger hydration, but must never paint or enter a safety query. */
+export function listPendingCells(): EncCell[] {
+    if (pendingListCache && pendingListCache.version === version) return pendingListCache.cells;
+    const out: EncCell[] = [];
+    for (const group of readIdentityGroups().values()) {
+        const cell = pickRegisteredCell(group);
+        if (
+            cell &&
+            (cell.usage === 'pending' ||
+                (cell.cloudManifestVersion !== undefined && cell.hazardCount === 0 && cell.usage !== 'reference'))
+        ) {
+            out.push({ ...cell, usage: 'pending' });
+        }
+    }
+    pendingListCache = { version, cells: out };
+    return out;
+}
+
+/** Every valid registry identity, including pending/demo records. Mutation
+ * and cloud-reconciliation code uses this; render/safety code must not. */
+export function listRegisteredCells(): EncCell[] {
+    if (registeredListCache && registeredListCache.version === version) return registeredListCache.cells;
+    const out: EncCell[] = [];
+    for (const group of readIdentityGroups().values()) {
+        const cell = pickRegisteredCell(group);
+        if (cell) out.push(cell);
+    }
+    registeredListCache = { version, cells: out };
     return out;
 }
 
@@ -119,7 +296,17 @@ export function listCells(): EncCell[] {
  * Get one cell by ID. Null if not imported.
  */
 export function getCell(id: string): EncCell | null {
-    return readCell(id);
+    return pickNavigationCell(readIdentityGroups().get(encCellStorageIdentity(id)) ?? []);
+}
+
+/** Display-only lookup. Safety consumers must use `getCell`. */
+export function getDisplayCell(id: string): EncCell | null {
+    return pickDisplayCell(readIdentityGroups().get(encCellStorageIdentity(id)) ?? []);
+}
+
+/** Lowest-authority raw registry lookup for serialized mutations only. */
+export function getRegisteredCell(id: string): EncCell | null {
+    return pickRegisteredCell(readIdentityGroups().get(encCellStorageIdentity(id)) ?? []);
 }
 
 /**
@@ -127,13 +314,35 @@ export function getCell(id: string): EncCell | null {
  * after a successful S-57 → GeoJSON conversion. Notifies listeners
  * so the map ENC coverage overlay refreshes immediately.
  */
-export function putCell(cell: EncCell): void {
-    localStorage.setItem(recordKey(cell.id), JSON.stringify(cell));
+export function putCell(cell: EncCell, options: { allowAuthorityUpgrade?: boolean } = {}): void {
+    const canonicalId = canonicalEncCellId(cell.id);
+    if (!ENC_CELL_ID_PATTERN.test(canonicalId)) throw new Error(`Invalid ENC cell ID: ${cell.id}`);
+    const identity = encCellStorageIdentity(canonicalId);
     const ids = readIndex();
-    if (!ids.includes(cell.id)) {
-        ids.push(cell.id);
-        writeIndex(ids);
+    const aliases = ids.filter((id) => encCellStorageIdentity(id) === identity);
+    const existingGroup = aliases.map(readCell).filter((stored): stored is EncCell => stored !== null);
+    const existingLowerAuthority = existingGroup.find(
+        (stored) => stored.usage === 'demo' || stored.usage === 'reference' || stored.usage === 'pending',
+    );
+    // Backward compatibility still treats a genuinely new/legacy untagged
+    // record as navigation coverage. It must never, however, turn an existing
+    // explicitly lower-authority record into navigation merely because a
+    // metadata patch omitted `usage` (the cloud manifest path used to do
+    // exactly that before verified bytes arrived).
+    const inheritedLowerAuthority = existingLowerAuthority?.usage;
+    const requestedUsage = cell.usage ?? inheritedLowerAuthority ?? 'navigation';
+    const usage =
+        inheritedLowerAuthority && requestedUsage === 'navigation' && !options.allowAuthorityUpgrade
+            ? inheritedLowerAuthority
+            : requestedUsage;
+    const classified: EncCell = { ...cell, id: canonicalId, usage };
+    localStorage.setItem(recordKey(classified.id), JSON.stringify(classified));
+    for (const alias of aliases) {
+        if (alias !== classified.id) localStorage.removeItem(recordKey(alias));
     }
+    const nextIds = ids.filter((id) => encCellStorageIdentity(id) !== identity);
+    nextIds.push(classified.id);
+    writeIndex(nextIds);
     notify();
 }
 
@@ -143,9 +352,14 @@ export function putCell(cell: EncCell): void {
  * Notifies listeners.
  */
 export function removeCell(id: string): void {
-    localStorage.removeItem(recordKey(id));
-    const ids = readIndex().filter((x) => x !== id);
-    writeIndex(ids);
+    const canonicalId = canonicalEncCellId(id);
+    if (!ENC_CELL_ID_PATTERN.test(canonicalId)) throw new Error(`Invalid ENC cell ID: ${id}`);
+    const identity = encCellStorageIdentity(canonicalId);
+    const ids = readIndex();
+    for (const alias of ids) {
+        if (encCellStorageIdentity(alias) === identity) localStorage.removeItem(recordKey(alias));
+    }
+    writeIndex(ids.filter((alias) => encCellStorageIdentity(alias) !== identity));
     notify();
 }
 
@@ -161,6 +375,15 @@ export function cellsForBBox(bbox: [number, number, number, number]): EncCell[] 
     return listCells().filter((cell) => {
         const [cMinLon, cMinLat, cMaxLon, cMaxLat] = cell.bbox;
         // Standard bbox intersection test.
+        return !(cMaxLon < qMinLon || cMinLon > qMaxLon || cMaxLat < qMinLat || cMinLat > qMaxLat);
+    });
+}
+
+/** Display-only bbox selection. Safety consumers must use `cellsForBBox`. */
+export function displayCellsForBBox(bbox: [number, number, number, number]): EncCell[] {
+    const [qMinLon, qMinLat, qMaxLon, qMaxLat] = bbox;
+    return listDisplayCells().filter((cell) => {
+        const [cMinLon, cMinLat, cMaxLon, cMaxLat] = cell.bbox;
         return !(cMaxLon < qMinLon || cMinLon > qMaxLon || cMaxLat < qMinLat || cMinLat > qMaxLat);
     });
 }
@@ -250,6 +473,21 @@ function notify(): void {
  */
 export function getVersion(): number {
     return version;
+}
+
+/** Stable cross-session identity of the navigation chart library. Unlike the
+ * in-memory version counter, this survives reloads and can be bound into a
+ * saved Route Tracer verification envelope. */
+export function getRegistryFingerprint(): string {
+    return listCells()
+        .map(
+            (cell) =>
+                `${cell.id}@${cell.edition}@${cell.issued}@${cell.sizeBytes ?? 'unknown'}@cloud-${
+                    cell.cloudManifestVersion ?? 'local'
+                }`,
+        )
+        .sort()
+        .join('|');
 }
 
 /**

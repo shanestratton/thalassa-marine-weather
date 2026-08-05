@@ -1,22 +1,7 @@
 FROM node:20-alpine
 
-WORKDIR /app
-
-# Copy package files
-COPY package.json package-lock.json* .npmrc ./
-
-# Install all dependencies (need typescript for build)
-RUN npm install --legacy-peer-deps
-
-# Copy source
-COPY tsconfig.json ./
-COPY src/ ./src/
-
-# Build TypeScript
-RUN npx tsc
-
-# Prune dev dependencies
-RUN npm prune --production 2>/dev/null || true
-
-# Railway cron runs this command
-CMD ["node", "dist/index.js"]
+# RETIRED 2026-04-18. This deliberately valid Dockerfile must never produce a
+# runnable image: Railway may auto-discover a Dockerfile even when an operator
+# overlooks DEPRECATED.md. The replacement is the scheduled Supabase
+# scrape-vessel-metadata Edge Function.
+RUN echo "vessel-scraper is retired; do not deploy this Railway service" >&2; exit 78

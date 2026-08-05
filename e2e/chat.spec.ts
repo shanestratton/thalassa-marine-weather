@@ -13,7 +13,7 @@ test.describe('Chat — Community', () => {
     });
 
     test('chat page loads and shows the Community header', async ({ page }) => {
-        await expect(page.getByText('Community', { exact: true }).first()).toBeVisible({ timeout: 5000 });
+        await expect(page.getByText('Community', { exact: true }).first()).toBeVisible();
     });
 
     test('channel list renders at least one channel', async ({ page }) => {

@@ -39,6 +39,12 @@ describe('buildContourPayload', () => {
         expect(buildContourPayload([line])).toEqual([]);
     });
 
+    it('never derives authoritative-looking contours from reference soundings', () => {
+        const reference = soundg(153.1, -27.4, 3.2);
+        reference.properties = { ...reference.properties, _reference: true };
+        expect(buildContourPayload([reference])).toEqual([]);
+    });
+
     it('coerces a string-quoted depth and preserves a drying (negative) sounding', () => {
         expect(buildContourPayload([soundg(1, 2, '4.5')])[0].d).toBe(4.5);
         expect(buildContourPayload([soundg(1, 2, -0.3)])[0].d).toBe(-0.3);

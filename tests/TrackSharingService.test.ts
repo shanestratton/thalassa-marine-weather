@@ -9,6 +9,10 @@ import { supabase } from '../services/supabase';
 import type { ShipLogEntry } from '../types';
 import { setAuthIdentityScope } from '../services/authIdentityScope';
 
+vi.mock('../utils/featureVisibility', () => ({
+    FEATURE_VISIBILITY: { communityTrackSharing: true },
+}));
+
 // Must import after mocks
 import { TrackSharingService } from '../services/TrackSharingService';
 

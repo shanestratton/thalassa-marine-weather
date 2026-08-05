@@ -5,6 +5,10 @@ const bgGeoMocks = vi.hoisted(() => ({
     getLastPosition: vi.fn().mockReturnValue(null),
 }));
 
+vi.mock('../utils/featureVisibility', () => ({
+    FEATURE_VISIBILITY: { communityTrackSharing: true },
+}));
+
 vi.mock('../services/TrackSharingService', () => ({
     TrackSharingService: {
         browseSharedTracks: vi.fn().mockResolvedValue({ tracks: [], total: 0 }),

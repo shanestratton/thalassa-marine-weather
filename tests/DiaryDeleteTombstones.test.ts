@@ -380,6 +380,41 @@ describe('server-side deletion order and storage cleanup', () => {
         expect(ops).toContain('storage:diary-audio:u1/memo.webm');
         expect(readTombstones().map((t) => t.id)).not.toContain('srv-media');
     });
+
+    it('retains the tombstone on a Storage error, then safely retries after the row and object are absent', async () => {
+        localStorage.setItem(CACHE_KEY, JSON.stringify([makeEntry('srv-retry-media', { photos: [photoUrl] })]));
+        await DiaryService.deleteEntry('srv-retry-media');
+
+        let deleteAttempt = 0;
+        const remove = vi
+            .fn()
+            .mockResolvedValueOnce({ data: null, error: { message: 'storage unavailable' } })
+            // Supabase reports an already-absent object as a successful,
+            // empty removal. That is the idempotent retry end state.
+            .mockResolvedValueOnce({ data: [], error: null });
+        mockSupabase.current = {
+            from: () => ({
+                select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null }) }) }),
+                delete: () => ({
+                    eq: (_column: string, id: string) => ({
+                        select: async () => ({
+                            data: deleteAttempt++ === 0 ? [{ id }] : [],
+                            error: null,
+                        }),
+                    }),
+                }),
+            }),
+            storage: { from: () => ({ remove }) },
+            auth: { getUser: async () => ({ data: { user: { id: 'u1' } } }) },
+        };
+
+        await DiaryService.drainDeletedTombstones();
+        expect(readTombstones().map((t) => t.id)).toContain('srv-retry-media');
+
+        await DiaryService.drainDeletedTombstones();
+        expect(remove).toHaveBeenCalledTimes(2);
+        expect(readTombstones().map((t) => t.id)).not.toContain('srv-retry-media');
+    });
 });
 
 describe('silent RLS no-op (0 rows, no error)', () => {

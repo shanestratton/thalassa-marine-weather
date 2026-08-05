@@ -17,6 +17,7 @@ import {
     isAuthIdentityScopeCurrent,
     subscribeAuthIdentityScope,
 } from '../services/authIdentityScope';
+import { PUBLIC_BETA_ACCESS } from '../services/SubscriptionService';
 
 const log = createLogger('SubscriptionManager');
 
@@ -67,6 +68,7 @@ export function onPaywallTriggered(listener: PaywallListener): () => void {
  * Returns false for logged-out users, expired trials, and free accounts.
  */
 export async function isPremiumUser(): Promise<boolean> {
+    if (PUBLIC_BETA_ACCESS.enabled) return true;
     const info = await getSubscriptionStatus();
     return info.status === 'active' || info.status === 'trial';
 }
@@ -76,6 +78,7 @@ export async function isPremiumUser(): Promise<boolean> {
  * Returns 0 if no trial, trial expired, or user has active subscription.
  */
 export async function getTrialRemainingDays(): Promise<number> {
+    if (PUBLIC_BETA_ACCESS.enabled) return 0;
     const info = await getSubscriptionStatus();
     return info.trialRemainingDays;
 }
@@ -85,6 +88,8 @@ export async function getTrialRemainingDays(): Promise<number> {
  * Uses a 5-minute in-memory cache to avoid hammering Supabase.
  */
 export async function getSubscriptionStatus(): Promise<SubscriptionInfo> {
+    // Do not call the trial-creating entitlement RPC during the free beta.
+    if (PUBLIC_BETA_ACCESS.enabled) return makeFreeInfo();
     // No Supabase → free
     if (!supabase) return makeFreeInfo();
     const operationScope = getAuthIdentityScope();
@@ -158,6 +163,10 @@ export function getCachedSubscriptionStatus(): SubscriptionInfo | null {
  * to and show an upgrade modal / App Store purchase flow.
  */
 export function triggerPaywall(): void {
+    if (PUBLIC_BETA_ACCESS.enabled) {
+        log.info('Paywall suppressed — free public beta access is active');
+        return;
+    }
     const info = cachedInfo ?? makeFreeInfo();
     log.info('Paywall triggered', { status: info.status, remaining: info.trialRemainingDays });
     for (const listener of paywallListeners) {
@@ -173,7 +182,7 @@ export function triggerPaywall(): void {
  * Get the yearly subscription price.
  */
 export function getPrice(): number {
-    return PRICE_YEARLY;
+    return PUBLIC_BETA_ACCESS.enabled ? 0 : PRICE_YEARLY;
 }
 
 /**

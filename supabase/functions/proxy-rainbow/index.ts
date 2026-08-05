@@ -116,8 +116,7 @@ function isValidForecastEntry(value: unknown): boolean {
     const timestampBegin = parseBoundedInteger(value.timestampBegin, 946_684_800, 4_102_444_800);
     const timestampEnd = parseBoundedInteger(value.timestampEnd, 946_684_800, 4_102_444_800);
     const precipRate = parseBoundedNumber(value.precipRate, 0, 1_000);
-    const precipTypeIsValid =
-        value.precipType === undefined ||
+    const precipTypeIsValid = value.precipType === undefined ||
         (typeof value.precipType === 'string' &&
             value.precipType.length <= 64 &&
             !hasControlCharacters(value.precipType));
@@ -176,10 +175,9 @@ Deno.serve(async (req: Request) => {
     if (url.searchParams.getAll('action').length !== 1) {
         return jsonResponse({ error: 'Invalid action' }, 400);
     }
-    const quota =
-        action === 'tile'
-            ? await requireAuthenticatedOrPublicQuota(req, 'rainbow_tile', 4000, 1200, 3600, true)
-            : await requireAuthenticatedOrPublicQuota(req, 'rainbow', 240, 30, 3600, true);
+    const quota = action === 'tile'
+        ? await requireAuthenticatedOrPublicQuota(req, 'rainbow_tile', 4000, 1200, 3600, true)
+        : await requireAuthenticatedOrPublicQuota(req, 'rainbow', 240, 30, 3600, true);
     if (quota instanceof Response) return withCors(quota, CORS);
 
     try {
@@ -300,8 +298,7 @@ Deno.serve(async (req: Request) => {
                 return jsonResponse({ error: 'Rainbow upstream failed' }, 502);
             }
             const body = await readResponseArrayBufferLimited(res, MAX_TILE_BYTES);
-            const signatureIsValid =
-                body !== null &&
+            const signatureIsValid = body !== null &&
                 ((contentType === 'image/png' && hasPngSignature(body)) ||
                     (contentType === 'image/webp' && hasWebpSignature(body)));
             if (!body || !signatureIsValid) {

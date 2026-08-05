@@ -495,7 +495,9 @@ export const RoutePlanner: React.FC<{
     return (
         <div
             className={
-                embedded ? 'relative flex flex-col' : 'relative flex-1 bg-slate-950 overflow-hidden flex flex-col'
+                embedded
+                    ? 'relative flex flex-col'
+                    : 'route-planner-page relative flex-1 bg-slate-950 overflow-hidden flex flex-col'
             }
         >
             {!embedded && <PageHeader title="Route Planner" onBack={onBack} />}
@@ -599,7 +601,7 @@ export const RoutePlanner: React.FC<{
                 the keyboard + accessory bar. When the keyboard closes
                 the padding goes back to its natural value. */}
             <div
-                className="shrink-0 overflow-y-auto px-4"
+                className="route-planner-form shrink-0 overflow-y-auto px-4"
                 style={{
                     maxHeight: '60dvh',
                     paddingBottom: keyboardHeight > 0 ? `${keyboardHeight}px` : '0.75rem',
@@ -739,7 +741,7 @@ export const RoutePlanner: React.FC<{
                                             <button
                                                 type="button"
                                                 onClick={() => openMap('origin')}
-                                                className="p-2 text-gray-400 hover:text-sky-400 transition-colors hover:bg-white/10 rounded-lg"
+                                                className="hit-target-44 p-2 text-gray-400 hover:text-sky-400 transition-colors hover:bg-white/10 rounded-lg"
                                                 title="Select on Map"
                                                 aria-label="Select origin on map"
                                             >
@@ -750,7 +752,7 @@ export const RoutePlanner: React.FC<{
                                                 onClick={(e) =>
                                                     handleOriginLocation(e as React.MouseEvent<HTMLButtonElement>)
                                                 }
-                                                className="p-2 text-gray-400 hover:text-sky-400 transition-colors hover:bg-white/10 rounded-lg"
+                                                className="hit-target-44 p-2 text-gray-400 hover:text-sky-400 transition-colors hover:bg-white/10 rounded-lg"
                                                 title="Use Current Location"
                                                 aria-label="Use Current Location"
                                             >
@@ -780,7 +782,7 @@ export const RoutePlanner: React.FC<{
                                     <button
                                         type="button"
                                         onClick={() => openMap('destination')}
-                                        className="p-2 text-gray-400 hover:text-sky-400 transition-colors hover:bg-white/10 rounded-lg"
+                                        className="hit-target-44 p-2 text-gray-400 hover:text-sky-400 transition-colors hover:bg-white/10 rounded-lg"
                                         title="Select on Map"
                                         aria-label="Select destination on map"
                                     >
@@ -857,7 +859,7 @@ export const RoutePlanner: React.FC<{
             )}
 
             {/* ═══ MAP — fills remaining space ═══ */}
-            <div className="flex-1 min-h-0 relative">
+            <div className="route-planner-map flex-1 min-h-0 relative">
                 {voyagePlan ? (
                     <>
                         {/* Route summary overlay */}
@@ -1006,7 +1008,7 @@ export const RoutePlanner: React.FC<{
             {/* ─── BOTTOM: CTA pinned above nav bar ─── */}
             {
                 <div
-                    className="fixed bottom-0 left-0 right-0 px-4 z-10 pointer-events-none"
+                    className="route-planner-cta fixed bottom-0 left-0 right-0 px-4 z-10 pointer-events-none"
                     style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}
                 >
                     <div className="max-w-xl mx-auto w-full pointer-events-auto">

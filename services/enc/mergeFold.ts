@@ -242,7 +242,9 @@ export async function accumulateCellLayers(
         list
             .map((s) => (depareExtent.has(s.id) ? { id: s.id, bbox: depareExtent.get(s.id)! } : null))
             .filter((s): s is { id: string; bbox: [number, number, number, number] } => s !== null);
-    const shadows = reanchorOnDepare(shadowingCells({ id: cell.id, bbox: cell.bbox }, cellExtents));
+    const authority = cell.usage === 'reference' ? 'reference' : 'navigation';
+    const peerExtents = cellExtents.filter((extent) => (extent.authority ?? 'navigation') === authority);
+    const shadows = reanchorOnDepare(shadowingCells({ id: cell.id, bbox: cell.bbox, authority }, peerExtents));
     // Gap-safe LINE de-dup rects (audit ×2: coarse DEPCNT/COALNE
     // double-painted across finer surveys while the tested
     // clipLineFeatureOutsideBboxes sat unwired). The naive whole-shadow
@@ -263,7 +265,7 @@ export async function accumulateCellLayers(
     // GLAZE_SHADOW_RATIO). Superset of `shadows`; the base-feature
     // DROP above stays at the destructive-safe 16x.
     const glazeShadows = buildGlaze
-        ? reanchorOnDepare(shadowingCells({ id: cell.id, bbox: cell.bbox }, cellExtents, GLAZE_SHADOW_RATIO))
+        ? reanchorOnDepare(shadowingCells({ id: cell.id, bbox: cell.bbox, authority }, peerExtents, GLAZE_SHADOW_RATIO))
         : [];
 
     const tagAndPush = async (
@@ -327,6 +329,7 @@ export async function accumulateCellLayers(
                 _cellId: cell.id,
                 _sourceHO: cell.sourceHO,
                 _ialaRegion: ialaRegion,
+                ...(cell.usage === 'reference' ? { _reference: true } : {}),
             };
             // Fineness rank rides along on DEPARE so the renderer can
             // retire a coarse cell's bands at zooms beyond its survey's
@@ -407,6 +410,7 @@ export async function accumulateCellLayers(
                 if (bearings && feat.geometry?.type === 'Point') {
                     const secProps = {
                         _cellId: cell.id,
+                        ...(cell.usage === 'reference' ? { _reference: true } : {}),
                         _minZoom: typeof props._minZoom === 'number' ? props._minZoom : undefined,
                         OBJNAM: readS57(featProps, 'OBJNAM'),
                         _lightLabel: label ?? undefined,
@@ -504,6 +508,7 @@ export async function accumulateCellLayers(
                     _caution: cls,
                     _cellId: cell.id,
                     _sourceHO: cell.sourceHO,
+                    ...(cell.usage === 'reference' ? { _reference: true } : {}),
                 },
             });
         }
@@ -527,14 +532,17 @@ export async function accumulateCellLayers(
     // stays sync + separately tested; the boundaries give each reduce a fresh
     // 12 ms budget and break the per-cell tail without an async rewrite.
     await yieldIfNeeded();
-    reduceNamedAreas(blob.layers.SEAARE, 'water', seaareByName);
+    const labelProvenance =
+        cell.usage === 'reference' ? { _reference: true, _cellId: cell.id, _sourceHO: cell.sourceHO } : undefined;
+    reduceNamedAreas(blob.layers.SEAARE, 'water', seaareByName, labelProvenance);
     await yieldIfNeeded();
-    reduceNamedAreas(blob.layers.LNDARE, 'land', seaareByName);
+    reduceNamedAreas(blob.layers.LNDARE, 'land', seaareByName, labelProvenance);
     await yieldIfNeeded();
 
     // Soundings: explode each MultiPoint cloud into labelled points via
-    // the pure explodeSoundings (no provenance — the minimal {_d,_minZoom}
-    // bag keeps the merged heap sane). Pushed one at a time (a harbour
+    // the pure explodeSoundings. Navigation cells keep the minimal
+    // {_d,_minZoom} bag; reference soundings also carry the warning tag and
+    // claimed provenance needed by their popup. Pushed one at a time (a harbour
     // cell's thousands of points would overflow a spread-arg push), strided
     // at 1024 (audit #8) — the exploded cloud is the largest per-cell array,
     // and the old unsliced push blew the per-cell tail on a dense harbour cell.
@@ -542,6 +550,14 @@ export async function accumulateCellLayers(
     let soundingPushed = 0;
     for (const p of exploded) {
         if ((++soundingPushed & 1023) === 0) await yieldIfNeeded();
+        if (cell.usage === 'reference') {
+            p.properties = {
+                ...(p.properties ?? {}),
+                _reference: true,
+                _cellId: cell.id,
+                _sourceHO: cell.sourceHO,
+            };
+        }
         merged.SOUNDG.features.push(p);
     }
 }
@@ -575,11 +591,33 @@ export async function applySoundingLod(
     zoom: number | undefined,
     yieldIfNeeded: () => Promise<void>,
 ): Promise<void> {
+    // Reference soundings get their own density grid. Self-asserted shallow
+    // points must never consume a grid slot that would suppress a trusted
+    // navigation sounding at the same zoom.
+    const navigationSoundings: Array<Feature<Point>> = [];
+    const referenceSoundings: Array<Feature<Point>> = [];
+    for (let index = 0; index < merged.SOUNDG.features.length; index += 1) {
+        if ((index & 1023) === 1023) await yieldIfNeeded();
+        const feature = merged.SOUNDG.features[index] as Feature<Point>;
+        if ((feature.properties as { _reference?: unknown } | null)?._reference === true) {
+            referenceSoundings.push(feature);
+        } else {
+            navigationSoundings.push(feature);
+        }
+    }
     await assignSoundingDensityMinZoom(
-        merged.SOUNDG.features as Array<Feature<Point>>,
+        navigationSoundings,
         yieldIfNeeded,
         zoom != null ? Math.round(zoom) + SOUNDING_LOD_LOOKAHEAD : undefined,
     );
+    await assignSoundingDensityMinZoom(
+        referenceSoundings,
+        yieldIfNeeded,
+        zoom != null ? Math.round(zoom) + SOUNDING_LOD_LOOKAHEAD : undefined,
+    );
+    // Reference first, trusted navigation last. Fill/line features follow the
+    // same order, so trusted data visually wins equal-position overlaps.
+    merged.SOUNDG.features = [...referenceSoundings, ...navigationSoundings];
 
     if (zoom != null) {
         // Strided cull (audit #8): the old single .filter() ran unsliced over

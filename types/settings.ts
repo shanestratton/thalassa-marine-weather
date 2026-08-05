@@ -254,15 +254,11 @@ export interface UserSettings {
     calypsoEmailAccount?: string;
 
     /**
-     * Calypso proactive alerts ("speak up" mode) — when ON and the
-     * user is on Skipper tier, the AlertMonitorService runs persistently:
-     * subscribes to NmeaStore, evaluates threshold rules every tick,
-     * and dispatches AlertEvents (chime + voice + voice-page takeover
-     * + history turn) when something looks wrong on the boat.
-     *
-     * Default OFF — the skipper has to opt in. Same model as anchor
-     * watch: a safety feature that's invasive when it triggers, so
-     * we don't enable it by default.
+     * Legacy Calypso proactive-alert opt-in. Public-beta builds retire this
+     * value to false: the current rules engine is foreground JavaScript and
+     * cannot promise monitoring after iOS suspension or termination. Retained
+     * only for settings-envelope compatibility until a separately consented,
+     * native-lifecycle implementation replaces it.
      */
     calypsoAlertsEnabled?: boolean;
 

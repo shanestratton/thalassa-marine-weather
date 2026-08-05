@@ -10,6 +10,7 @@ import { supabase } from './supabase';
 import { getAuthenticatedFunctionHeaders } from './supabaseAuth';
 
 import { createLogger } from '../utils/createLogger';
+import { withDeadline } from '../utils/deadline';
 
 const log = createLogger('AisStreamService');
 
@@ -68,17 +69,21 @@ class AisStreamServiceClass {
             });
 
             const url = `${supabaseUrl}/functions/v1/${EDGE_FN_NAME}?${params}`;
-            const authHeaders = await getAuthenticatedFunctionHeaders();
-            const resp = await fetch(url, {
-                headers: authHeaders,
-                signal: AbortSignal.timeout(10_000),
-            });
+            const authHeaders = await withDeadline(getAuthenticatedFunctionHeaders(), 5_000, 'AIS authentication');
+            const resp = await withDeadline(
+                fetch(url, {
+                    headers: authHeaders,
+                    signal: AbortSignal.timeout(10_000),
+                }),
+                10_000,
+                'AIS vessel request',
+            );
 
             if (!resp.ok) {
                 throw new Error(`HTTP ${resp.status}: ${resp.statusText}`);
             }
 
-            const geojson = await resp.json();
+            const geojson = await withDeadline(resp.json(), 5_000, 'AIS vessel response body');
 
             this.lastFetchAt = now;
             this.lastQuery = query;

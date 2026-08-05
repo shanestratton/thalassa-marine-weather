@@ -614,7 +614,7 @@ export const CrewBrowseBoard: React.FC<CrewBrowseBoardProps> = React.memo(
                                         )}
                                     </div>
                                     <button
-                                        aria-label="Proceed to next step"
+                                        aria-label="Show next crew listing"
                                         onClick={goToNextCard}
                                         className="px-5 py-2.5 rounded-xl text-sm font-semibold text-white/50 bg-white/[0.03] border border-white/[0.06] transition-all active:scale-95"
                                     >

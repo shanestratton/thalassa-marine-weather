@@ -1,10 +1,4 @@
 PODS:
-  - AppAuth (1.7.6):
-    - AppAuth/Core (= 1.7.6)
-    - AppAuth/ExternalUserAgent (= 1.7.6)
-  - AppAuth/Core (1.7.6)
-  - AppAuth/ExternalUserAgent (1.7.6):
-    - AppAuth/Core
   - Capacitor (8.1.0):
     - CapacitorCordova
   - CapacitorApp (8.0.1):
@@ -43,21 +37,6 @@ PODS:
   - CapacitorTcpSocket (7.1.0):
     - Capacitor
     - SwiftSocket
-  - CocoaAsyncSocket (7.6.5)
-  - CodetrixStudioCapacitorGoogleAuth (0.0.1):
-    - Capacitor
-    - GoogleSignIn (~> 6.2.4)
-  - FrontallCapacitorUdp (0.3.4):
-    - Capacitor
-    - CocoaAsyncSocket
-  - GoogleSignIn (6.2.4):
-    - AppAuth (~> 1.5)
-    - GTMAppAuth (~> 1.3)
-    - GTMSessionFetcher/Core (< 3.0, >= 1.1)
-  - GTMAppAuth (1.3.1):
-    - AppAuth/Core (~> 1.6)
-    - GTMSessionFetcher/Core (< 3.0, >= 1.5)
-  - GTMSessionFetcher/Core (2.3.0)
   - IONFilesystemLib (1.1.1)
   - IONGeolocationLib (2.0.0)
   - SwiftSocket (2.0.2)
@@ -90,18 +69,11 @@ DEPENDENCIES:
   - "CapacitorShare (from `../../node_modules/@capacitor/share`)"
   - "CapacitorStatusBar (from `../../node_modules/@capacitor/status-bar`)"
   - CapacitorTcpSocket (from `../../node_modules/capacitor-tcp-socket`)
-  - "CodetrixStudioCapacitorGoogleAuth (from `../../node_modules/@codetrix-studio/capacitor-google-auth`)"
-  - "FrontallCapacitorUdp (from `../../node_modules/@frontall/capacitor-udp`)"
   - "TransistorsoftCapacitorBackgroundFetch (from `../../node_modules/@transistorsoft/capacitor-background-fetch`)"
   - "TransistorsoftCapacitorBackgroundGeolocation (from `../../node_modules/@transistorsoft/capacitor-background-geolocation`)"
 
 SPEC REPOS:
   trunk:
-    - AppAuth
-    - CocoaAsyncSocket
-    - GoogleSignIn
-    - GTMAppAuth
-    - GTMSessionFetcher
     - IONFilesystemLib
     - IONGeolocationLib
     - SwiftSocket
@@ -145,17 +117,12 @@ EXTERNAL SOURCES:
     :path: "../../node_modules/@capacitor/status-bar"
   CapacitorTcpSocket:
     :path: "../../node_modules/capacitor-tcp-socket"
-  CodetrixStudioCapacitorGoogleAuth:
-    :path: "../../node_modules/@codetrix-studio/capacitor-google-auth"
-  FrontallCapacitorUdp:
-    :path: "../../node_modules/@frontall/capacitor-udp"
   TransistorsoftCapacitorBackgroundFetch:
     :path: "../../node_modules/@transistorsoft/capacitor-background-fetch"
   TransistorsoftCapacitorBackgroundGeolocation:
     :path: "../../node_modules/@transistorsoft/capacitor-background-geolocation"
 
 SPEC CHECKSUMS:
-  AppAuth: d4f13a8fe0baf391b2108511793e4b479691fb73
   Capacitor: 47b825120c6b8b6d6f9f053e9350a8960d436710
   CapacitorApp: 942306cd1acf7774a00e89a3986af3a67c8cad7a
   CapacitorBrowser: 76847841b74c11ccac0a1afae18cf06e3bd59044
@@ -174,12 +141,6 @@ SPEC CHECKSUMS:
   CapacitorShare: 0c58305114538568059bfc07111f22dcb9cb2a82
   CapacitorStatusBar: 32206abd53b14f339763da26f71286deaa891e16
   CapacitorTcpSocket: b1bd03b64009cb2c6221cd660ea080f2f835e220
-  CocoaAsyncSocket: 065fd1e645c7abab64f7a6a2007a48038fdc6a99
-  CodetrixStudioCapacitorGoogleAuth: 9dcfabfb7dd804ad6231a1513bc6e81e620cbec6
-  FrontallCapacitorUdp: 898ef3f80b41872f450aea91d55c1cefa6c418be
-  GoogleSignIn: 5651ce3a61e56ca864160e79b484cd9ed3f49b7a
-  GTMAppAuth: 0ff230db599948a9ad7470ca667337803b3fc4dd
-  GTMSessionFetcher: 3a63d75eecd6aa32c2fc79f578064e1214dfdec2
   IONFilesystemLib: dfa8706539ac9ab77ccfd6e5b3830ce9b5e57f6c
   IONGeolocationLib: a5e40b54edc2ee9902036eda5aaa41ddf07bb68d
   SwiftSocket: 6f4c9c63fbc5c1d61188936bb3c599fd546f40ae
@@ -188,6 +149,6 @@ SPEC CHECKSUMS:
   TSBackgroundFetch: 18918b6449a1e3f01eb0f5b44d6d79ce6160a5a5
   TSLocationManager: 3a1a98741387935ee2ef5b48cc8a8cde9762b03a
 
-PODFILE CHECKSUM: a8d4742dfdb72e1d695e26c18ce074eff0bfce91
+PODFILE CHECKSUM: e10f80e72ad629be364cb9669a2b5f78ea2c5275
 
 COCOAPODS: 1.16.2

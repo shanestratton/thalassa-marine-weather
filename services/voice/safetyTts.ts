@@ -48,7 +48,7 @@ const SAFETY_TTS_BUDGET_MS = 4000;
 export interface SafetyUtteranceOptions {
     /** What was actually spoken — useful for logging or transcripts. */
     onPlaybackStart?: (engine: 'calypso' | 'native') => void;
-    /** Fires when playback finishes (or errors). */
+    /** Fires when the selected playback path reports normal completion. */
     onPlaybackEnd?: () => void;
     /** Fires if both engines fail outright. UI can show a banner. */
     onError?: (err: Error) => void;
@@ -251,7 +251,13 @@ export function speakSafetyMessage(text: string, opts: SafetyUtteranceOptions = 
                     resolve();
                 };
                 utt.onerror = () => {
-                    if (!started) opts.onError?.(new Error('Native synth failed'));
+                    // A native utterance can fail after `onstart` (audio-session
+                    // interruption, route loss, synthesis failure). Callers of
+                    // emergency scripts must be told that playback was not
+                    // completed, even if a fragment was already spoken.
+                    opts.onError?.(
+                        new Error(started ? 'Native synth stopped before completion' : 'Native synth failed'),
+                    );
                     resolve();
                 };
                 if (cancelled) {

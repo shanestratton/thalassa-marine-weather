@@ -135,12 +135,12 @@ export const DiaryPublishModal: React.FC<DiaryPublishModalProps> = ({ entry, onC
     let icon = '⚓';
     let heading = 'Share to your Voyage Log?';
     let blurb =
-        'Publish this entry to your public voyage page. Your private diary stays private — only what you publish is shared.';
+        'Publish this entry on the public web. Anyone who has or guesses your public handle can read it; your other diary entries stay private.';
     if (phase === 'done' && result === 'published') {
         icon = '🌍';
         heading = 'Published to your Voyage Log';
         blurb =
-            'Anyone with your log link can now read this entry. It may take up to a minute to appear for a fresh visitor.';
+            'This entry is public to anyone who has or guesses your handle. It may take up to a minute to appear for a fresh visitor.';
     } else if (phase === 'done' && result === 'unpublished') {
         icon = '🔒';
         heading = 'Removed from your Voyage Log';
@@ -148,7 +148,7 @@ export const DiaryPublishModal: React.FC<DiaryPublishModalProps> = ({ entry, onC
     } else if (startsPublic) {
         icon = '🌍';
         heading = 'On your Voyage Log';
-        blurb = 'This entry is live on your public voyage page.';
+        blurb = 'This entry is live on the public web. Unpublish it below to make it private again.';
     }
 
     // Show the share link on the manage screen and after publishing —

@@ -38,12 +38,14 @@ vi.mock('@capacitor/preferences', () => ({
 import { capacitorAuthStorage, migrateAuthSessionToCapacitor } from '../services/supabase';
 
 const SESSION_KEY = 'thalassa-auth-session';
+const CACHE_TEST_KEY = 'thalassa-auth-cache-test';
 
 describe('Supabase native auth storage', () => {
     beforeEach(async () => {
         // Wait for the module's one-shot migration before resetting its mocked
         // backends for an individual race scenario.
         await capacitorAuthStorage.getItem('__queue_barrier__');
+        await capacitorAuthStorage.removeItem(SESSION_KEY);
         localStorage.clear();
         storageMocks.native.clear();
         vi.clearAllMocks();
@@ -107,5 +109,22 @@ describe('Supabase native auth storage', () => {
         expect(storageMocks.native.has(SESSION_KEY)).toBe(false);
         expect(localStorage.getItem(SESSION_KEY)).toBeNull();
         expect(storageMocks.remove).toHaveBeenCalledWith({ key: SESSION_KEY });
+    });
+
+    it('serves repeated session reads from memory while preserving write and logout ordering', async () => {
+        const key = `${CACHE_TEST_KEY}-${crypto.randomUUID()}`;
+        storageMocks.native.set(key, 'session-a');
+
+        await expect(capacitorAuthStorage.getItem(key)).resolves.toBe('session-a');
+        await expect(capacitorAuthStorage.getItem(key)).resolves.toBe('session-a');
+        expect(storageMocks.get).toHaveBeenCalledTimes(1);
+
+        await capacitorAuthStorage.setItem(key, 'session-b');
+        await expect(capacitorAuthStorage.getItem(key)).resolves.toBe('session-b');
+        expect(storageMocks.get).toHaveBeenCalledTimes(1);
+
+        await capacitorAuthStorage.removeItem(key);
+        await expect(capacitorAuthStorage.getItem(key)).resolves.toBeNull();
+        expect(storageMocks.get).toHaveBeenCalledTimes(1);
     });
 });

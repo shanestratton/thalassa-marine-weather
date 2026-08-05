@@ -188,7 +188,7 @@ export async function enhanceVoyagePlanWithIsochrone(
             // ── 3. Bathymetry preload ──
             // Without this the IsochroneRouter falls back to per-step HTTP
             // depth queries (slow and rate-limited). preloadBathymetry pulls
-            // the GEBCO grid for the route bbox once.
+            // the coarse NOAA ETOPO grid for the route bbox once.
             const bathyGrid = await preloadBathymetry(origin, destination);
 
             // ── 4. Short-route shortcut ──
@@ -269,14 +269,14 @@ export async function enhanceVoyagePlanWithIsochrone(
                 log.warn('wave field fetch failed — routing on raw polar:', e);
             }
 
-            // ── 4b. Ocean currents via OSCAR ──
+            // ── 4b. Ocean currents via NOAA CoastWatch ──
             // For ocean passages currents shift ETA by ±20% on routes
             // aligned with major systems (Gulf Stream, Agulhas, Kuroshio,
             // East Australian Current, Antarctic Circumpolar). Fetching
-            // a sparse OSCAR field lets the engine advect each candidate
+            // a sparse provider field lets the engine advect each candidate
             // by set/drift, producing a true SOG-based wavefront.
             //
-            // Non-blocking on failure — if OSCAR / ERDDAP is down, the
+            // Non-blocking on failure — if CoastWatch ERDDAP is down, the
             // engine routes on STW alone (same behaviour as before this
             // upgrade). Better to ship a route without currents than no
             // route at all.
@@ -291,12 +291,10 @@ export async function enhanceVoyagePlanWithIsochrone(
                     ) *
                         180) /
                     Math.PI;
-                // Read user's NRT preference from settingsStore (loaded
+                // Read the user's NRT preference from settingsStore (loaded
                 // separately from the React settings context here because
-                // we're outside React). NRT = OSCAR's near-real-time
-                // 5-day-old data (actual eddies / meanders); when off
-                // we use monthly climatology (steady-state averages,
-                // always-available, good enough for most routes).
+                // we're outside React). The provider and exact dataset are
+                // carried on the returned briefing rather than inferred here.
                 let useNrt = false;
                 try {
                     const { useSettingsStore } = await import('../stores/settingsStore');
@@ -316,11 +314,14 @@ export async function enhanceVoyagePlanWithIsochrone(
                     vessel.cruisingSpeed || 6,
                     useNrt,
                 );
-                currentField = createCurrentFieldFromVectors(briefing.vectors);
-                if (currentField) {
+                currentField =
+                    briefing.availability === 'available' ? createCurrentFieldFromVectors(briefing.vectors) : null;
+                if (currentField && briefing.availability === 'available') {
                     log.info(
-                        `OSCAR currents loaded: ${briefing.vectors.length} vectors, max ${briefing.maxSpeedKts} kts, source=${briefing.source}`,
+                        `NOAA CoastWatch currents loaded: ${briefing.vectors.length} vectors, max ${briefing.maxSpeedKts} kts, dataset=${briefing.providerDataset ?? 'unknown'}`,
                     );
+                } else if (briefing.availability === 'unavailable') {
+                    log.warn(`current provider unavailable — routing on STW only: ${briefing.errorMessage}`);
                 }
             } catch (e) {
                 log.warn('current fetch failed — routing on STW only:', e);
@@ -399,24 +400,24 @@ export async function enhanceVoyagePlanWithIsochrone(
             return null;
         }
 
-        // ── 5b. GEBCO full-resolution island validation ──
+        // ── 5b. Exact ENC + coarse ETOPO route validation ──
         // The IsochroneRouter does multi-pass land avoidance against the
         // local 0.1° bathymetry grid (~6 NM resolution). That catches
         // major coastlines but can miss small islands, reefs, and shoals
         // sitting between waypoints — especially in places like the
         // Coral Sea, Bahamas, or Indonesian archipelago.
         //
-        // validateRouteSegments samples every segment at 0.5 NM intervals
-        // against GEBCO's full-resolution depth data, then inserts
-        // perpendicular detour waypoints around any island/reef/shoal
-        // crossings the coarse grid missed.
+        // validateRouteSegments checks exact ENC feature intersections and
+        // samples NOAA ETOPO global relief as a coarse backstop, then inserts
+        // perpendicular detour waypoints around detected island/reef/shoal
+        // crossings the local grid missed. ETOPO is not chart verification.
         //
         // Same logic the inline-map passage planner already runs — we
         // were just not invoking it from the form pipeline. Without
         // this step, the form-calculated route renders before the
         // user with potentially-island-clipping geometry.
         //
-        // Capped at 15s (matches usePassagePlanner). If GEBCO is slow
+        // Capped at 15s (matches usePassagePlanner). If validation is slow
         // or down, we ship the unvalidated route — better than failing
         // the whole pipeline.
         try {
@@ -450,7 +451,7 @@ export async function enhanceVoyagePlanWithIsochrone(
             }
             if (validated && validated.length !== isoResult.route.length) {
                 const added = validated.length - isoResult.route.length;
-                log.info(`GEBCO island validation: inserted ${added} detour waypoint(s)`);
+                log.info(`Route hazard validation: inserted ${added} detour waypoint(s)`);
                 isoResult = {
                     ...isoResult,
                     route: validated,
@@ -458,7 +459,7 @@ export async function enhanceVoyagePlanWithIsochrone(
                 };
             }
         } catch (e) {
-            log.warn('GEBCO island validation failed — using local-grid-only route:', e);
+            log.warn('Route hazard validation failed — using local-grid-only route:', e);
         }
 
         // ── 6. Map isochrone result back to VoyagePlan ──

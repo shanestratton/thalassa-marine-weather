@@ -5,6 +5,28 @@ const piCache = vi.hoisted(() => ({
     passthroughTileUrl: vi.fn(),
     getStatus: vi.fn(),
 }));
+const nativeRuntime = vi.hoisted(() => ({
+    enabled: false,
+    convertFileSrc: vi.fn((uri: string) => uri.replace('file://', 'capacitor://localhost/_capacitor_file_/')),
+}));
+const filesystem = vi.hoisted(() => ({
+    mkdir: vi.fn().mockResolvedValue(undefined),
+    writeFile: vi.fn().mockResolvedValue(undefined),
+    getUri: vi
+        .fn()
+        .mockImplementation(({ path }: { path: string }) => Promise.resolve({ uri: `file:///documents/${path}` })),
+}));
+
+vi.mock('@capacitor/core', () => ({
+    Capacitor: {
+        isNativePlatform: () => nativeRuntime.enabled,
+        convertFileSrc: nativeRuntime.convertFileSrc,
+    },
+}));
+vi.mock('@capacitor/filesystem', () => ({
+    Directory: { Data: 'DATA' },
+    Filesystem: filesystem,
+}));
 
 vi.mock('../services/PiCacheService', () => ({ piCache }));
 vi.mock('../utils/createLogger', () => ({
@@ -17,6 +39,7 @@ vi.mock('../utils/createLogger', () => ({
 }));
 
 import {
+    BULK_OFFLINE_PREFETCH_CAPABILITY,
     autoDownloadAroundUser,
     boundsAroundPoint,
     distanceNm,
@@ -24,17 +47,22 @@ import {
     enumerateTiles,
     estimateSizeMB,
     estimateTileCount,
+    getOfflineTileTemplates,
 } from '../services/MapOfflineService';
 
 beforeEach(() => {
     localStorage.clear();
-    vi.restoreAllMocks();
+    vi.clearAllMocks();
+    nativeRuntime.enabled = false;
     piCache.isAvailable.mockReturnValue(false);
     piCache.passthroughTileUrl.mockImplementation(
         (url: string) => `http://pi.test/tile?url=${encodeURIComponent(url)}`,
     );
     piCache.getStatus.mockReturnValue({ cacheStats: { dbSizeMB: 0 } });
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true }));
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('tile', { status: 200 })));
+    vi.stubGlobal('caches', {
+        open: vi.fn().mockResolvedValue({ put: vi.fn().mockResolvedValue(undefined) }),
+    });
 });
 
 describe('offline map geometry', () => {
@@ -73,92 +101,73 @@ describe('offline map geometry', () => {
 describe('downloadArea', () => {
     const oneTile = { north: 1, south: -1, west: -1, east: 1 };
 
-    it('downloads both sources directly and reports failed HTTP responses', async () => {
-        vi.mocked(fetch)
-            .mockResolvedValueOnce({ ok: true } as Response)
-            .mockResolvedValueOnce({ ok: false } as Response);
+    it('fails closed before enumerating or fetching public OSM/OpenSeaMap tiles', async () => {
         const progress = vi.fn();
 
         const result = await downloadArea({ bounds: oneTile, minZoom: 0, maxZoom: 0, concurrency: 0 }, progress);
 
-        expect(fetch).toHaveBeenCalledTimes(2);
-        expect(result).toMatchObject({ phase: 'done', current: 2, total: 2, failed: 1, route: 'direct' });
-        expect(progress).toHaveBeenLastCalledWith(expect.objectContaining({ phase: 'done', failed: 1 }));
+        expect(BULK_OFFLINE_PREFETCH_CAPABILITY).toMatchObject({
+            enabled: false,
+            providerId: 'public-osm-openseamap',
+        });
+        expect(result).toMatchObject({
+            phase: 'error',
+            current: 0,
+            total: 0,
+            failed: 0,
+            route: 'direct',
+            message: expect.stringMatching(/not licensed for bulk prefetch/i),
+        });
+        expect(progress).toHaveBeenCalledOnce();
+        expect(progress).toHaveBeenCalledWith(result);
+        expect(fetch).not.toHaveBeenCalled();
+        expect(caches.open).not.toHaveBeenCalled();
+        expect(filesystem.writeFile).not.toHaveBeenCalled();
     });
 
-    it('routes through the Pi with the long offline TTL', async () => {
+    it('does not use a Pi proxy to bypass the upstream provider licence', async () => {
         piCache.isAvailable.mockReturnValue(true);
         const result = await downloadArea({ bounds: oneTile, minZoom: 0, maxZoom: 0, concurrency: 2 }, vi.fn());
 
-        expect(result.route).toBe('pi');
-        expect(piCache.passthroughTileUrl).toHaveBeenCalledTimes(2);
-        expect(piCache.passthroughTileUrl).toHaveBeenCalledWith(
-            expect.stringContaining('openstreetmap'),
-            2_592_000_000,
-        );
-        expect(fetch).toHaveBeenCalledWith(expect.stringMatching(/^http:\/\/pi\.test/), {
-            signal: undefined,
-            cache: 'reload',
-        });
+        expect(result).toMatchObject({ phase: 'error', route: 'pi', current: 0, total: 0 });
+        expect(piCache.passthroughTileUrl).not.toHaveBeenCalled();
+        expect(fetch).not.toHaveBeenCalled();
     });
 
-    it('counts network failures and returns a cancelled outcome', async () => {
-        vi.mocked(fetch)
-            .mockRejectedValueOnce(new Error('offline'))
-            .mockResolvedValue({ ok: true } as Response);
-        const failed = await downloadArea({ bounds: oneTile, minZoom: 0, maxZoom: 0 }, vi.fn());
-        expect(failed.failed).toBe(1);
+    it('preserves native local templates for already imported/licensed offline data', async () => {
+        nativeRuntime.enabled = true;
 
-        const controller = new AbortController();
-        controller.abort();
-        const cancelled = await downloadArea(
-            { bounds: oneTile, minZoom: 0, maxZoom: 0, signal: controller.signal },
-            vi.fn(),
-        );
-        expect(cancelled).toMatchObject({ phase: 'cancelled', current: 0, total: 2 });
+        const templates = await getOfflineTileTemplates();
+        expect(templates).toEqual({
+            osm: 'capacitor://localhost/_capacitor_file_//documents/offline_map_v1/osm/{z}/{x}/{y}.png',
+            openseamap: 'capacitor://localhost/_capacitor_file_//documents/offline_map_v1/openseamap/{z}/{x}/{y}.png',
+            storage: 'native-files',
+        });
+        expect(fetch).not.toHaveBeenCalled();
+        expect(filesystem.writeFile).not.toHaveBeenCalled();
     });
 });
 
 describe('autoDownloadAroundUser', () => {
-    it('rejects invalid centres and skips automatic phone downloads', async () => {
+    it('rejects invalid centres before applying the provider capability policy', async () => {
         await expect(autoDownloadAroundUser({ centerLat: 0, centerLon: 0 })).resolves.toEqual({
             status: 'skipped',
             reason: 'invalid centre',
         });
-        await expect(autoDownloadAroundUser({ centerLat: -27, centerLon: 153 })).resolves.toEqual({
-            status: 'skipped',
-            reason: 'no Pi — auto-cache is Pi-only',
-        });
     });
 
-    it('protects a Pi whose cache is already over the disk ceiling', async () => {
-        piCache.isAvailable.mockReturnValue(true);
-        piCache.getStatus.mockReturnValue({ cacheStats: { dbSizeMB: 10_241 } });
+    it('skips valid automatic downloads before phone or Pi network work', async () => {
         await expect(autoDownloadAroundUser({ centerLat: -27, centerLon: 153 })).resolves.toEqual({
             status: 'skipped',
-            reason: 'Pi cache already 10.0 GB',
+            reason: BULK_OFFLINE_PREFETCH_CAPABILITY.reason,
         });
-    });
-
-    it('downloads tiers, aggregates progress, and skips a nearby repeat', async () => {
         piCache.isAvailable.mockReturnValue(true);
-        const onProgress = vi.fn();
-        const options = {
-            centerLat: -27,
-            centerLon: 153,
-            tiers: [{ radiusNm: 1, minZoom: 0, maxZoom: 0 }],
-            onProgress,
-        };
-
-        await expect(autoDownloadAroundUser(options)).resolves.toEqual({
-            status: 'done',
-            tilesCached: 2,
-            failed: 0,
+        await expect(autoDownloadAroundUser({ centerLat: -27, centerLon: 153 })).resolves.toEqual({
+            status: 'skipped',
+            reason: BULK_OFFLINE_PREFETCH_CAPABILITY.reason,
         });
-        expect(onProgress).toHaveBeenCalledWith(expect.objectContaining({ current: 2, total: 2 }));
-
-        const repeat = await autoDownloadAroundUser(options);
-        expect(repeat.status).toBe('skipped');
-        expect(repeat).toHaveProperty('reason', 'only moved 0 NM since last auto-cache');
+        expect(piCache.getStatus).not.toHaveBeenCalled();
+        expect(piCache.passthroughTileUrl).not.toHaveBeenCalled();
+        expect(fetch).not.toHaveBeenCalled();
     });
 });

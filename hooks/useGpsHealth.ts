@@ -69,6 +69,8 @@ export function useGpsHealth(): GpsHealth | null {
                 if (!cancelled) setHealth(h);
             });
 
+            // Read-only provider query: getGpsHealth deliberately does not
+            // initialize the background/motion engine on screen mount.
             const fresh = await BgGeoManager.getGpsHealth();
             if (!cancelled) setHealth(fresh);
         })();

@@ -62,8 +62,7 @@ function logTokenCost(usage: AnthropicUsage | undefined, ms: number): void {
     //   output       $5 / M tokens
     //   cache write  $1.25 / M tokens
     //   cache read   $0.10 / M tokens
-    const usd =
-        (inTok / 1_000_000) * 1 +
+    const usd = (inTok / 1_000_000) * 1 +
         (outTok / 1_000_000) * 5 +
         (cacheCreate / 1_000_000) * 1.25 +
         (cacheRead / 1_000_000) * 0.1;

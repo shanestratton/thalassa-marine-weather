@@ -16,7 +16,7 @@
  *   – Land mask is REQUIRED (not optional). CMEMS land cells = (0,0) which
  *     would otherwise spawn static "stalled" particles all over the map.
  *   – Currents-tuned constants: 0.005 advection factor for m/s currents,
- *     0.02 kt kill threshold, 50k particles, 20-frame trails.
+ *     0.02 kt kill threshold, up to 80k device-tiered particles, 20-frame trails.
  *   – Color ramp matches the RIP/SLACK legend: blue→cyan→amber→red.
  *
  * Same wire-protocol with the rest of the app — implements
@@ -24,6 +24,14 @@
  */
 import mapboxgl from 'mapbox-gl';
 import { createLogger } from '../../utils/createLogger';
+import {
+    beginWebGlOperation,
+    createWebGlProgram,
+    proveWebGlOperation,
+    requireWebGlAttribute,
+    requireWebGlResource,
+    requireWebGlUniform,
+} from './cmemsWebglSafety';
 
 const log = createLogger('CurrentParticleLayer');
 
@@ -34,7 +42,7 @@ const log = createLogger('CurrentParticleLayer');
 // iPhones get 40% of the default count to keep the frame rate up.
 import { particleScale } from '../../utils/deviceTier';
 const NUM_PARTICLES = Math.round(80000 * particleScale());
-const TRAIL_LENGTH = 28;
+const TRAIL_LENGTH = 20;
 const FLOATS_PER_TRAIL_PT = 4; // x, y, speed (m/s), alpha
 const FLOATS_PER_PARTICLE = TRAIL_LENGTH * FLOATS_PER_TRAIL_PT;
 const TOTAL_POINTS = NUM_PARTICLES * TRAIL_LENGTH;
@@ -97,7 +105,7 @@ void main() {
     // vertex (alpha=1 head) to a pushed-off-screen vertex (alpha=0
     // freshly-reset tail), the GPU rasterises a line from the on-
     // screen position all the way to the clip boundary before
-    // clipping — and with 80k particles all respawning toward the
+    // clipping — and with up to 80k particles all respawning toward the
     // same clip corner you get thousands of stray lines piling up at
     // specific Y-positions = visible horizontal bands. Clamp lat to
     // stay inside Mercator's valid range instead, and rely on
@@ -235,37 +243,6 @@ void main() {
     gl_FragColor = vec4(color, alpha);
 }`;
 
-// ── Helpers ───────────────────────────────────────────────────────────
-
-function compileShader(gl: WebGLRenderingContext, type: number, src: string, label: string): WebGLShader {
-    const shader = gl.createShader(type);
-    if (!shader) throw new Error(`[CurrentParticleLayer] failed to create ${label}`);
-    gl.shaderSource(shader, src);
-    gl.compileShader(shader);
-    if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-        const info = gl.getShaderInfoLog(shader);
-        gl.deleteShader(shader);
-        throw new Error(`[CurrentParticleLayer] ${label}: ${info}`);
-    }
-    return shader;
-}
-
-function linkProgram(gl: WebGLRenderingContext, vs: WebGLShader, fs: WebGLShader): WebGLProgram {
-    const program = gl.createProgram();
-    if (!program) throw new Error('[CurrentParticleLayer] failed to create program');
-    gl.attachShader(program, vs);
-    gl.attachShader(program, fs);
-    gl.linkProgram(program);
-    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-        const info = gl.getProgramInfoLog(program);
-        gl.deleteProgram(program);
-        throw new Error(`[CurrentParticleLayer] link: ${info}`);
-    }
-    gl.deleteShader(vs);
-    gl.deleteShader(fs);
-    return program;
-}
-
 interface Bounds {
     north: number;
     south: number;
@@ -292,7 +269,7 @@ export class CurrentParticleLayer implements mapboxgl.CustomLayerInterface {
     // pair of indices in this buffer connects two adjacent trail points.
     // Built once in onAdd (static — the indices never change; what
     // changes is the trail-point positions in the particle buffer).
-    // 80k particles × 27 segments × 2 indices = 4.32M Uint32 indices
+    // At the high tier: 80k particles × 19 segments × 2 = 3.04M indices.
     // = 16.5 MB of GPU memory, uploaded once.
     private lineIndexBuffer: WebGLBuffer | null = null;
     private lineIndexCount = 0;
@@ -336,6 +313,7 @@ export class CurrentParticleLayer implements mapboxgl.CustomLayerInterface {
     private gridW = 0;
     private gridH = 0;
     private globalMode = false;
+    private dataValid = false;
 
     /** Cumulative-speed array for weighted spawn (size = ocean cells + 1).
      *  spawnCDF[i] = sum of speeds in first i ocean cells. Inverse-CDF
@@ -348,7 +326,7 @@ export class CurrentParticleLayer implements mapboxgl.CustomLayerInterface {
     private _lastRenderTime = 0;
     // Advection runs on a separate timer from render() so camera
     // animations (which call render() at 60fps) don't 4× particle
-    // motion speed and re-upload the 36 MB trail buffer 60 times/s.
+    // motion speed and re-upload the 25.6 MB max-tier trail buffer 60 times/s.
     private _lastAdvectTime = 0;
     // Fallback timer so the layer keeps animating even when Mapbox is
     // idle (no camera motion, no other dirty layers). Cancelled and
@@ -364,146 +342,273 @@ export class CurrentParticleLayer implements mapboxgl.CustomLayerInterface {
         this.id = id;
     }
 
+    /** Recreate large CPU buffers only when a removed layer instance is re-added. */
+    private ensureCpuParticleState(): void {
+        if (this.trailData.length !== NUM_PARTICLES * FLOATS_PER_PARTICLE) {
+            this.trailData = new Float32Array(NUM_PARTICLES * FLOATS_PER_PARTICLE);
+        }
+        if (this.particleAges.length !== NUM_PARTICLES) {
+            this.particleAges = new Int32Array(NUM_PARTICLES);
+        }
+    }
+
+    /** Invalidate the active frame and drop every grid-derived reference. */
+    private clearFrameData(): void {
+        this.dataValid = false;
+        this.gridU = null;
+        this.gridV = null;
+        this.gridSpeed = null;
+        this.landMask = null;
+        this.spawnCDF = null;
+        this.spawnIndexMap = null;
+        this.gridW = 0;
+        this.gridH = 0;
+        this.gridBounds = { north: 0, south: 0, east: 0, west: 0 };
+        this.globalMode = false;
+    }
+
+    /** Drop every strong reference to frame and particle typed arrays. */
+    private releaseCpuOwnership(): void {
+        this.clearFrameData();
+        this.trailData = new Float32Array(0);
+        this.particleAges = new Int32Array(0);
+    }
+
     // ── Mapbox lifecycle ──────────────────────────────────────────────
 
     onAdd(map: mapboxgl.Map, gl: WebGLRenderingContext): void {
         this.map = map;
         this.gl = gl;
+        try {
+            this.clearFrameData();
+            this.ensureCpuParticleState();
+            beginWebGlOperation(gl, 'CurrentParticleLayer', 'initialisation');
+            this.program = createWebGlProgram(gl, 'CurrentParticleLayer', PARTICLE_VERT, PARTICLE_FRAG, 'particle');
 
-        const vs = compileShader(gl, gl.VERTEX_SHADER, PARTICLE_VERT, 'particle vert');
-        const fs = compileShader(gl, gl.FRAGMENT_SHADER, PARTICLE_FRAG, 'particle frag');
-        this.program = linkProgram(gl, vs, fs);
-
-        this.aPosLoc = gl.getAttribLocation(this.program, 'a_particle_pos');
-        this.aSpeedLoc = gl.getAttribLocation(this.program, 'a_particle_speed');
-        this.aAlphaLoc = gl.getAttribLocation(this.program, 'a_particle_alpha');
-        this.uMatrixLoc = gl.getUniformLocation(this.program, 'u_matrix');
-        this.uGridBoundsLoc = gl.getUniformLocation(this.program, 'u_grid_bounds');
-        this.uZoomLoc = gl.getUniformLocation(this.program, 'u_zoom');
-        this.uLonOffsetLoc = gl.getUniformLocation(this.program, 'u_lon_offset');
-        this.uSpeedSlackLoc = gl.getUniformLocation(this.program, 'u_speed_slack');
-        this.uSpeedStrongLoc = gl.getUniformLocation(this.program, 'u_speed_strong');
-
-        this.particleBuffer = gl.createBuffer();
-        gl.bindBuffer(gl.ARRAY_BUFFER, this.particleBuffer);
-        gl.bufferData(gl.ARRAY_BUFFER, this.trailData.byteLength, gl.DYNAMIC_DRAW);
-
-        // VAO for WebGL2 — speeds up state changes during render.
-        const gl2 = gl as WebGL2RenderingContext;
-        if (gl2.createVertexArray) {
-            this.particleVAO = gl2.createVertexArray();
-            gl2.bindVertexArray(this.particleVAO);
-            this.bindAttributes(gl);
-            gl2.bindVertexArray(null);
-        }
-
-        // ── Line index buffer for trail-segment rendering ──
-        // Each particle has (TRAIL_LENGTH - 1) line segments. Each segment
-        // needs 2 indices (start, end). Total: 80k × 27 × 2 = 4.32M idx.
-        // Uint32 needed to address >65k vertices (TOTAL_POINTS = 2.24M).
-        // WebGL2 supports gl.UNSIGNED_INT natively; WebGL1 needs the
-        // OES_element_index_uint extension.
-        const uint32Ext = 'drawElementsInstanced' in gl || gl.getExtension('OES_element_index_uint');
-        if (uint32Ext) {
-            this.lineIndexType = gl.UNSIGNED_INT;
-            const segmentsPerParticle = TRAIL_LENGTH - 1;
-            const indexCount = NUM_PARTICLES * segmentsPerParticle * 2;
-            const idx = new Uint32Array(indexCount);
-            let k = 0;
-            for (let p = 0; p < NUM_PARTICLES; p++) {
-                const base = p * TRAIL_LENGTH;
-                for (let t = 0; t < segmentsPerParticle; t++) {
-                    idx[k++] = base + t;
-                    idx[k++] = base + t + 1;
-                }
-            }
-            this.lineIndexBuffer = gl.createBuffer();
-            gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.lineIndexBuffer);
-            gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, idx, gl.STATIC_DRAW);
-            this.lineIndexCount = indexCount;
-            log.info(
-                `line index buffer: ${indexCount.toLocaleString()} indices (${(idx.byteLength / 1024 / 1024).toFixed(1)} MB)`,
+            this.aPosLoc = requireWebGlAttribute(
+                gl.getAttribLocation(this.program, 'a_particle_pos'),
+                'CurrentParticleLayer',
+                'a_particle_pos',
             );
-        } else {
-            // Very old GPU — fall back to point rendering without lines.
-            log.warn('OES_element_index_uint unavailable — falling back to POINTS rendering');
-            this.lineIndexCount = 0;
-        }
+            this.aSpeedLoc = requireWebGlAttribute(
+                gl.getAttribLocation(this.program, 'a_particle_speed'),
+                'CurrentParticleLayer',
+                'a_particle_speed',
+            );
+            this.aAlphaLoc = requireWebGlAttribute(
+                gl.getAttribLocation(this.program, 'a_particle_alpha'),
+                'CurrentParticleLayer',
+                'a_particle_alpha',
+            );
+            this.uMatrixLoc = requireWebGlUniform(
+                gl.getUniformLocation(this.program, 'u_matrix'),
+                'CurrentParticleLayer',
+                'u_matrix',
+            );
+            this.uGridBoundsLoc = requireWebGlUniform(
+                gl.getUniformLocation(this.program, 'u_grid_bounds'),
+                'CurrentParticleLayer',
+                'u_grid_bounds',
+            );
+            this.uZoomLoc = requireWebGlUniform(
+                gl.getUniformLocation(this.program, 'u_zoom'),
+                'CurrentParticleLayer',
+                'u_zoom',
+            );
+            this.uLonOffsetLoc = requireWebGlUniform(
+                gl.getUniformLocation(this.program, 'u_lon_offset'),
+                'CurrentParticleLayer',
+                'u_lon_offset',
+            );
+            this.uSpeedSlackLoc = requireWebGlUniform(
+                gl.getUniformLocation(this.program, 'u_speed_slack'),
+                'CurrentParticleLayer',
+                'u_speed_slack',
+            );
+            this.uSpeedStrongLoc = requireWebGlUniform(
+                gl.getUniformLocation(this.program, 'u_speed_strong'),
+                'CurrentParticleLayer',
+                'u_speed_strong',
+            );
 
-        // ── Heatmap underlay ─────────────────────────────────────────
-        const hvs = compileShader(gl, gl.VERTEX_SHADER, HEATMAP_VERT, 'heatmap vert');
-        const hfs = compileShader(gl, gl.FRAGMENT_SHADER, HEATMAP_FRAG, 'heatmap frag');
-        this.heatmapProgram = linkProgram(gl, hvs, hfs);
-        this.hAQuadPosLoc = gl.getAttribLocation(this.heatmapProgram, 'a_quad_pos');
-        this.hUMatrixLoc = gl.getUniformLocation(this.heatmapProgram, 'u_matrix');
-        this.hUGridBoundsLoc = gl.getUniformLocation(this.heatmapProgram, 'u_grid_bounds');
-        this.hULonOffsetLoc = gl.getUniformLocation(this.heatmapProgram, 'u_lon_offset');
-        this.hUSpeedTexLoc = gl.getUniformLocation(this.heatmapProgram, 'u_speed_tex');
-        this.hUSpeedStrongLoc = gl.getUniformLocation(this.heatmapProgram, 'u_speed_strong');
-        this.hUOpacityLoc = gl.getUniformLocation(this.heatmapProgram, 'u_opacity');
+            this.particleBuffer = requireWebGlResource(
+                gl.createBuffer(),
+                'CurrentParticleLayer',
+                'particle trail buffer',
+            );
+            gl.bindBuffer(gl.ARRAY_BUFFER, this.particleBuffer);
+            gl.bufferData(gl.ARRAY_BUFFER, this.trailData.byteLength, gl.DYNAMIC_DRAW);
+            proveWebGlOperation(gl, 'CurrentParticleLayer', 'particle trail buffer upload');
 
-        // Subdivided quad covering [0,1]×[0,1] in grid space — a 32×32
-        // mesh (33² = 1089 verts, 2048 tris). Subdivision is critical:
-        // the GPU interpolates v_uv linearly in SCREEN space, but the
-        // quad's geographic coords map to screen via Mercator (non-
-        // linear in latitude). A 4-vertex world-spanning quad produced
-        // catastrophic UV errors in the middle — sampling far-away
-        // texels and bleeding heatmap colours deep over land. With 32
-        // subdivisions each sub-triangle covers ~11° × ~5° at most,
-        // where linear interpolation error is sub-texel.
-        const SUBDIV = 32;
-        const vCount = (SUBDIV + 1) * (SUBDIV + 1);
-        const positions = new Float32Array(vCount * 2);
-        {
-            let p = 0;
-            for (let y = 0; y <= SUBDIV; y++) {
-                for (let x = 0; x <= SUBDIV; x++) {
-                    positions[p++] = x / SUBDIV;
-                    positions[p++] = y / SUBDIV;
+            // VAO for WebGL2 — speeds up state changes during render.
+            const gl2 = gl as WebGL2RenderingContext;
+            if (gl2.createVertexArray) {
+                this.particleVAO = requireWebGlResource(
+                    gl2.createVertexArray(),
+                    'CurrentParticleLayer',
+                    'particle vertex array',
+                );
+                gl2.bindVertexArray(this.particleVAO);
+                this.bindAttributes(gl);
+                gl2.bindVertexArray(null);
+                proveWebGlOperation(gl, 'CurrentParticleLayer', 'particle vertex array setup');
+            }
+
+            // ── Line index buffer for trail-segment rendering ──
+            // Each particle has (TRAIL_LENGTH - 1) line segments. Each segment
+            // needs 2 indices (start, end). Max tier: 80k × 19 × 2 = 3.04M idx.
+            // Uint32 needed to address >65k vertices (TOTAL_POINTS = 2.24M).
+            // WebGL2 supports gl.UNSIGNED_INT natively; WebGL1 needs the
+            // OES_element_index_uint extension.
+            const uint32Ext = 'drawElementsInstanced' in gl || gl.getExtension('OES_element_index_uint');
+            if (uint32Ext) {
+                this.lineIndexType = gl.UNSIGNED_INT;
+                const segmentsPerParticle = TRAIL_LENGTH - 1;
+                const indexCount = NUM_PARTICLES * segmentsPerParticle * 2;
+                const idx = new Uint32Array(indexCount);
+                let k = 0;
+                for (let p = 0; p < NUM_PARTICLES; p++) {
+                    const base = p * TRAIL_LENGTH;
+                    for (let t = 0; t < segmentsPerParticle; t++) {
+                        idx[k++] = base + t;
+                        idx[k++] = base + t + 1;
+                    }
+                }
+                this.lineIndexBuffer = requireWebGlResource(
+                    gl.createBuffer(),
+                    'CurrentParticleLayer',
+                    'particle line index buffer',
+                );
+                gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.lineIndexBuffer);
+                gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, idx, gl.STATIC_DRAW);
+                proveWebGlOperation(gl, 'CurrentParticleLayer', 'particle line index upload');
+                this.lineIndexCount = indexCount;
+                log.info(
+                    `line index buffer: ${indexCount.toLocaleString()} indices (${(idx.byteLength / 1024 / 1024).toFixed(1)} MB)`,
+                );
+            } else {
+                // Very old GPU — fall back to point rendering without lines.
+                log.warn('OES_element_index_uint unavailable — falling back to POINTS rendering');
+                this.lineIndexCount = 0;
+            }
+
+            // ── Heatmap underlay ─────────────────────────────────────────
+            this.heatmapProgram = createWebGlProgram(gl, 'CurrentParticleLayer', HEATMAP_VERT, HEATMAP_FRAG, 'heatmap');
+            this.hAQuadPosLoc = requireWebGlAttribute(
+                gl.getAttribLocation(this.heatmapProgram, 'a_quad_pos'),
+                'CurrentParticleLayer',
+                'a_quad_pos',
+            );
+            this.hUMatrixLoc = requireWebGlUniform(
+                gl.getUniformLocation(this.heatmapProgram, 'u_matrix'),
+                'CurrentParticleLayer',
+                'heatmap u_matrix',
+            );
+            this.hUGridBoundsLoc = requireWebGlUniform(
+                gl.getUniformLocation(this.heatmapProgram, 'u_grid_bounds'),
+                'CurrentParticleLayer',
+                'heatmap u_grid_bounds',
+            );
+            this.hULonOffsetLoc = requireWebGlUniform(
+                gl.getUniformLocation(this.heatmapProgram, 'u_lon_offset'),
+                'CurrentParticleLayer',
+                'heatmap u_lon_offset',
+            );
+            this.hUSpeedTexLoc = requireWebGlUniform(
+                gl.getUniformLocation(this.heatmapProgram, 'u_speed_tex'),
+                'CurrentParticleLayer',
+                'u_speed_tex',
+            );
+            // Declared only for shader parity; drivers may optimise it out.
+            this.hUSpeedStrongLoc = gl.getUniformLocation(this.heatmapProgram, 'u_speed_strong');
+            this.hUOpacityLoc = requireWebGlUniform(
+                gl.getUniformLocation(this.heatmapProgram, 'u_opacity'),
+                'CurrentParticleLayer',
+                'u_opacity',
+            );
+
+            // Subdivided quad covering [0,1]×[0,1] in grid space — a 32×32
+            // mesh (33² = 1089 verts, 2048 tris). Subdivision is critical:
+            // the GPU interpolates v_uv linearly in SCREEN space, but the
+            // quad's geographic coords map to screen via Mercator (non-
+            // linear in latitude). A 4-vertex world-spanning quad produced
+            // catastrophic UV errors in the middle — sampling far-away
+            // texels and bleeding heatmap colours deep over land. With 32
+            // subdivisions each sub-triangle covers ~11° × ~5° at most,
+            // where linear interpolation error is sub-texel.
+            const SUBDIV = 32;
+            const vCount = (SUBDIV + 1) * (SUBDIV + 1);
+            const positions = new Float32Array(vCount * 2);
+            {
+                let p = 0;
+                for (let y = 0; y <= SUBDIV; y++) {
+                    for (let x = 0; x <= SUBDIV; x++) {
+                        positions[p++] = x / SUBDIV;
+                        positions[p++] = y / SUBDIV;
+                    }
                 }
             }
-        }
-        const indexCount = SUBDIV * SUBDIV * 6;
-        const indices = new Uint16Array(indexCount);
-        {
-            let ix = 0;
-            for (let y = 0; y < SUBDIV; y++) {
-                for (let x = 0; x < SUBDIV; x++) {
-                    const v0 = y * (SUBDIV + 1) + x;
-                    const v1 = v0 + 1;
-                    const v2 = v0 + (SUBDIV + 1);
-                    const v3 = v2 + 1;
-                    // Two triangles per quad cell.
-                    indices[ix++] = v0;
-                    indices[ix++] = v1;
-                    indices[ix++] = v2;
-                    indices[ix++] = v1;
-                    indices[ix++] = v3;
-                    indices[ix++] = v2;
+            const indexCount = SUBDIV * SUBDIV * 6;
+            const indices = new Uint16Array(indexCount);
+            {
+                let ix = 0;
+                for (let y = 0; y < SUBDIV; y++) {
+                    for (let x = 0; x < SUBDIV; x++) {
+                        const v0 = y * (SUBDIV + 1) + x;
+                        const v1 = v0 + 1;
+                        const v2 = v0 + (SUBDIV + 1);
+                        const v3 = v2 + 1;
+                        // Two triangles per quad cell.
+                        indices[ix++] = v0;
+                        indices[ix++] = v1;
+                        indices[ix++] = v2;
+                        indices[ix++] = v1;
+                        indices[ix++] = v3;
+                        indices[ix++] = v2;
+                    }
                 }
             }
+
+            this.heatmapQuadBuffer = requireWebGlResource(
+                gl.createBuffer(),
+                'CurrentParticleLayer',
+                'heatmap vertex buffer',
+            );
+            gl.bindBuffer(gl.ARRAY_BUFFER, this.heatmapQuadBuffer);
+            gl.bufferData(gl.ARRAY_BUFFER, positions, gl.STATIC_DRAW);
+            proveWebGlOperation(gl, 'CurrentParticleLayer', 'heatmap vertex upload');
+
+            this.heatmapIndexBuffer = requireWebGlResource(
+                gl.createBuffer(),
+                'CurrentParticleLayer',
+                'heatmap index buffer',
+            );
+            gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.heatmapIndexBuffer);
+            gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indices, gl.STATIC_DRAW);
+            proveWebGlOperation(gl, 'CurrentParticleLayer', 'heatmap index upload');
+            this.heatmapIndexCount = indexCount;
+
+            this.speedTexture = requireWebGlResource(gl.createTexture(), 'CurrentParticleLayer', 'speed texture');
+            proveWebGlOperation(gl, 'CurrentParticleLayer', 'speed texture allocation');
+
+            // Resume render loop when the page becomes visible again — render()
+            // gates triggerRepaint behind !document.hidden so the loop dies on
+            // backgrounding without this hook.
+            this._onVisibilityChange = () => {
+                if (!document.hidden && this.dataValid) this.map?.triggerRepaint();
+            };
+            document.addEventListener('visibilitychange', this._onVisibilityChange);
+
+            log.info(`onAdd — ${NUM_PARTICLES.toLocaleString()} particles × ${TRAIL_LENGTH} trail`);
+        } catch (error) {
+            try {
+                this.onRemove(map, gl);
+            } catch {
+                // Preserve the allocation failure; onRemove is idempotent and
+                // Mapbox may invoke it again when the partial ID is removed.
+            }
+            throw error;
         }
-
-        this.heatmapQuadBuffer = gl.createBuffer();
-        gl.bindBuffer(gl.ARRAY_BUFFER, this.heatmapQuadBuffer);
-        gl.bufferData(gl.ARRAY_BUFFER, positions, gl.STATIC_DRAW);
-
-        this.heatmapIndexBuffer = gl.createBuffer();
-        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.heatmapIndexBuffer);
-        gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indices, gl.STATIC_DRAW);
-        this.heatmapIndexCount = indexCount;
-
-        this.speedTexture = gl.createTexture();
-
-        // Resume render loop when the page becomes visible again — render()
-        // gates triggerRepaint behind !document.hidden so the loop dies on
-        // backgrounding without this hook.
-        this._onVisibilityChange = () => {
-            if (!document.hidden && this.gridU) this.map?.triggerRepaint();
-        };
-        document.addEventListener('visibilitychange', this._onVisibilityChange);
-
-        log.info(`onAdd — ${NUM_PARTICLES.toLocaleString()} particles × ${TRAIL_LENGTH} trail`);
     }
 
     private bindAttributes(gl: WebGLRenderingContext): void {
@@ -532,23 +637,46 @@ export class CurrentParticleLayer implements mapboxgl.CustomLayerInterface {
             clearTimeout(this._keepaliveTimer);
             this._keepaliveTimer = null;
         }
-        if (this.program) gl.deleteProgram(this.program);
-        if (this.heatmapProgram) gl.deleteProgram(this.heatmapProgram);
+        const gl2 = gl as WebGL2RenderingContext;
+        if (this.particleVAO && gl2.deleteVertexArray) gl2.deleteVertexArray(this.particleVAO);
         if (this.particleBuffer) gl.deleteBuffer(this.particleBuffer);
         if (this.heatmapQuadBuffer) gl.deleteBuffer(this.heatmapQuadBuffer);
         if (this.heatmapIndexBuffer) gl.deleteBuffer(this.heatmapIndexBuffer);
         if (this.lineIndexBuffer) gl.deleteBuffer(this.lineIndexBuffer);
         if (this.speedTexture) gl.deleteTexture(this.speedTexture);
-        const gl2 = gl as WebGL2RenderingContext;
-        if (this.particleVAO && gl2.deleteVertexArray) gl2.deleteVertexArray(this.particleVAO);
+        if (this.program) gl.deleteProgram(this.program);
+        if (this.heatmapProgram) gl.deleteProgram(this.heatmapProgram);
         this.heatmapProgram = null;
         this.heatmapQuadBuffer = null;
         this.heatmapIndexBuffer = null;
+        this.heatmapIndexCount = 0;
         this.lineIndexBuffer = null;
+        this.lineIndexCount = 0;
+        this.lineIndexType = 0;
         this.speedTexture = null;
         this.program = null;
         this.particleBuffer = null;
         this.particleVAO = null;
+        this.hAQuadPosLoc = -1;
+        this.hUMatrixLoc = null;
+        this.hUGridBoundsLoc = null;
+        this.hULonOffsetLoc = null;
+        this.hUSpeedTexLoc = null;
+        this.hUSpeedStrongLoc = null;
+        this.hUOpacityLoc = null;
+        this.aPosLoc = -1;
+        this.aSpeedLoc = -1;
+        this.aAlphaLoc = -1;
+        this.uMatrixLoc = null;
+        this.uGridBoundsLoc = null;
+        this.uZoomLoc = null;
+        this.uLonOffsetLoc = null;
+        this.uSpeedSlackLoc = null;
+        this.uSpeedStrongLoc = null;
+        this._lastRenderTime = 0;
+        this._lastAdvectTime = 0;
+        this._debugFrame = 0;
+        this.releaseCpuOwnership();
         this.gl = null;
         this.map = null;
     }
@@ -565,31 +693,56 @@ export class CurrentParticleLayer implements mapboxgl.CustomLayerInterface {
         bounds: Bounds,
         landMask: Uint8Array,
     ): void {
+        if (!Number.isSafeInteger(width) || !Number.isSafeInteger(height) || width <= 0 || height <= 0) {
+            throw new Error('[CurrentParticleLayer] grid dimensions must be positive safe integers');
+        }
         if (u.length !== width * height || v.length !== width * height) {
-            log.warn(`size mismatch: u=${u.length} v=${v.length} expected=${width * height}`);
-            return;
+            throw new Error(
+                `[CurrentParticleLayer] size mismatch: u=${u.length} v=${v.length} expected=${width * height}`,
+            );
         }
         if (landMask.length !== width * height) {
-            log.warn(`land mask size mismatch: ${landMask.length} expected=${width * height}`);
-            return;
+            throw new Error(
+                `[CurrentParticleLayer] land mask size mismatch: ${landMask.length} expected=${width * height}`,
+            );
         }
-        this.gridU = u;
-        this.gridV = v;
-        this.gridW = width;
-        this.gridH = height;
-        this.gridBounds = { ...bounds };
-        this.landMask = landMask;
-        this.globalMode = Math.abs(bounds.east - bounds.west) >= 359;
+        if (
+            !this.map ||
+            !this.gl ||
+            !this.program ||
+            !this.particleBuffer ||
+            !this.heatmapProgram ||
+            !this.heatmapQuadBuffer ||
+            !this.heatmapIndexBuffer ||
+            !this.speedTexture
+        ) {
+            throw new Error('[CurrentParticleLayer] renderer is not fully initialised');
+        }
+        this.clearFrameData();
+        try {
+            this.ensureCpuParticleState();
+            this.gridU = u;
+            this.gridV = v;
+            this.gridW = width;
+            this.gridH = height;
+            this.gridBounds = { ...bounds };
+            this.landMask = landMask;
+            this.globalMode = Math.abs(bounds.east - bounds.west) >= 359;
 
-        // Pre-compute scalar speed for the grid (used by particle alpha + spawn).
-        const size = width * height;
-        const speed = new Float32Array(size);
-        for (let i = 0; i < size; i++) speed[i] = Math.hypot(u[i], v[i]);
-        this.gridSpeed = speed;
+            // Pre-compute scalar speed for the grid (used by particle alpha + spawn).
+            const size = width * height;
+            const speed = new Float32Array(size);
+            for (let i = 0; i < size; i++) speed[i] = Math.hypot(u[i], v[i]);
+            this.gridSpeed = speed;
 
-        this.buildSpawnCDF();
-        this.uploadSpeedTexture();
-        this.respawnAllParticles();
+            this.buildSpawnCDF();
+            this.uploadSpeedTexture();
+            this.respawnAllParticles();
+            this.dataValid = true;
+        } catch (error) {
+            this.releaseCpuOwnership();
+            throw error;
+        }
         this.map?.triggerRepaint();
     }
 
@@ -601,7 +754,9 @@ export class CurrentParticleLayer implements mapboxgl.CustomLayerInterface {
         const tex = this.speedTexture;
         const speed = this.gridSpeed;
         const mask = this.landMask;
-        if (!gl || !tex || !speed || !mask) return;
+        if (!gl || !tex || !speed || !mask) {
+            throw new Error('[CurrentParticleLayer] speed texture upload has incomplete renderer data');
+        }
 
         const w = this.gridW;
         const h = this.gridH;
@@ -620,14 +775,19 @@ export class CurrentParticleLayer implements mapboxgl.CustomLayerInterface {
             rgba[off + 2] = 0;
             rgba[off + 3] = 255;
         }
+        beginWebGlOperation(gl, 'CurrentParticleLayer', 'speed texture upload');
         gl.bindTexture(gl.TEXTURE_2D, tex);
-        // LINEAR filtering smooths out the cell-grid step pattern at zoom.
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, this.globalMode ? gl.REPEAT : gl.CLAMP_TO_EDGE);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, rgba);
-        gl.bindTexture(gl.TEXTURE_2D, null);
+        try {
+            // LINEAR filtering smooths out the cell-grid step pattern at zoom.
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, this.globalMode ? gl.REPEAT : gl.CLAMP_TO_EDGE);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, rgba);
+            proveWebGlOperation(gl, 'CurrentParticleLayer', 'speed texture upload');
+        } finally {
+            gl.bindTexture(gl.TEXTURE_2D, null);
+        }
     }
 
     // ── Speed-weighted spawn ──────────────────────────────────────────
@@ -817,7 +977,7 @@ export class CurrentParticleLayer implements mapboxgl.CustomLayerInterface {
             // x≈0.99 to x≈0.01 (or vice versa). Trail[1] still holds the
             // pre-wrap position. Drawing a line between trail[0] and
             // trail[1] produces a streak that crosses the ENTIRE visible
-            // world at this particle's latitude — with 80k particles,
+            // world at this particle's latitude — with up to 80k particles,
             // this was the origin of the evenly-spaced horizontal stripes
             // the user reported. Reset the whole trail on wrap so the
             // post-wrap position is the only live trail point.
@@ -895,7 +1055,7 @@ export class CurrentParticleLayer implements mapboxgl.CustomLayerInterface {
         const now = performance.now();
         this._lastRenderTime = now;
 
-        if (!this.program || !this.particleBuffer || !this.gridU || !matrixOrOptions) {
+        if (!this.dataValid || !this.program || !this.particleBuffer || !this.gridU || !matrixOrOptions) {
             this._scheduleKeepalive();
             return;
         }
@@ -944,7 +1104,7 @@ export class CurrentParticleLayer implements mapboxgl.CustomLayerInterface {
         // Decouple advection from render cadence. During camera animation
         // Mapbox calls render() at 60fps, but we want particles to advect
         // at ~15fps regardless so motion speed stays constant and we
-        // don't re-upload the 36 MB trail buffer 60×/s. Track whether
+        // don't re-upload the 25.6 MB max-tier trail buffer 60×/s. Track whether
         // we advected this frame so the buffer upload below can be
         // skipped when data hasn't changed.
         let didAdvect = false;
@@ -1038,7 +1198,7 @@ export class CurrentParticleLayer implements mapboxgl.CustomLayerInterface {
         }
 
         // Re-upload particle buffer ONLY on frames where advection ran.
-        // Saves ~35 MB/frame of CPU→GPU bandwidth on camera-animation
+        // Saves ~25.6 MB/frame of CPU→GPU bandwidth on max-tier camera-animation
         // frames where positions haven't changed since the last advect.
         gl.bindBuffer(gl.ARRAY_BUFFER, this.particleBuffer);
         if (didAdvect) {

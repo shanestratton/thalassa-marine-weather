@@ -27,7 +27,7 @@
 
 import { useEffect, useState } from 'react';
 import type mapboxgl from 'mapbox-gl';
-import { listCells as listEncCells } from '../../services/enc/EncCellMetadata';
+import { listCells as listEncCells, listDisplayCells } from '../../services/enc/EncCellMetadata';
 import {
     subscribe as subscribeToEnc,
     subscribeHydration as subscribeToEncHydration,
@@ -43,6 +43,7 @@ const log = createLogger('MapHub');
 
 export interface EncChartInventory {
     encCellCount: number;
+    encReferenceCellCount: number;
     encHydration: ReturnType<typeof getEncHydrationProgress>;
     encNoCoverage: boolean;
 }
@@ -54,7 +55,10 @@ export function useEncChartInventory(
 ): EncChartInventory {
     // Live cell-count so the layer FAB shows the right "N cells imported" caption
     // and surfaces the toggle the moment the first cell lands.
-    const [encCellCount, setEncCellCount] = useState(() => listEncCells().length);
+    const [encCellCount, setEncCellCount] = useState(() => listDisplayCells().length);
+    const [encReferenceCellCount, setEncReferenceCellCount] = useState(
+        () => listDisplayCells().filter((cell) => cell.usage === 'reference').length,
+    );
     // Cloud-chart hydration progress — silent downloads read as "no
     // chart here" (2026-07-12 audit): the punter needs to know dark
     // water is a cell still on its way down, not a gap in coverage.
@@ -73,7 +77,17 @@ export function useEncChartInventory(
         }
         const probe = (): void => {
             try {
-                if (map.getZoom() < 11 || listEncCells().length === 0) {
+                // An empty registry is an inventory fact at every zoom, not a
+                // viewport inference. Hiding it behind the z11 coverage probe
+                // made a fresh production install look charted while the sole
+                // Add Charts route led to the held Pi page.
+                const displayCells = listDisplayCells();
+                const navigationCells = listEncCells();
+                if (displayCells.length === 0 || navigationCells.length === 0) {
+                    setEncNoCoverage(true);
+                    return;
+                }
+                if (map.getZoom() < 11) {
                     setEncNoCoverage(false);
                     return;
                 }
@@ -86,8 +100,10 @@ export function useEncChartInventory(
         };
         probe();
         map.on('moveend', probe);
+        const unsubscribeCells = subscribeToEnc(probe);
         return () => {
             map.off('moveend', probe);
+            unsubscribeCells();
         };
         // mapRef is a stable ref object, so naming it satisfies the linter
         // without changing when this runs — MapHub's original deps were
@@ -95,12 +111,14 @@ export function useEncChartInventory(
     }, [mapRef, mapReady, encVisible]);
     useEffect(() => {
         const refresh = () => {
-            const cells = listEncCells();
+            const cells = listDisplayCells();
+            const references = cells.filter((cell) => cell.usage === 'reference');
             // Diagnostic — count only: joining all 172 cloud-cell ids
             // built a ~2.5 KB string per notify and flooded the console
             // during registration storms (2026-07-12 audit).
             log.info(`encCellCount = ${cells.length}`);
             setEncCellCount(cells.length);
+            setEncReferenceCellCount(references.length);
         };
         refresh();
         // Debounced: a 172-cell cloud registration fires one notify PER
@@ -166,5 +184,5 @@ export function useEncChartInventory(
         return () => unsubAuth?.();
     }, []);
 
-    return { encCellCount, encHydration, encNoCoverage };
+    return { encCellCount, encReferenceCellCount, encHydration, encNoCoverage };
 }

@@ -12,7 +12,10 @@ import type { CrewCard } from '../services/LonelyHeartsService';
  * Keeping this fixture narrow makes the privacy copy and accessibility contract
  * visible without coupling the test to the implementation's reducer internals.
  */
-function profileFormState(profile: Record<string, unknown> = {}): CrewFinderState {
+function profileFormState(
+    profile: Record<string, unknown> = {},
+    overrides: Partial<CrewFinderState> = {},
+): CrewFinderState {
     return {
         editListingType: '',
         editFirstName: '',
@@ -44,6 +47,7 @@ function profileFormState(profile: Record<string, unknown> = {}): CrewFinderStat
         showDeleteConfirm: false,
         deleting: false,
         profile,
+        ...overrides,
         // `as unknown as` — deliberate, and the narrowness is the point (see the
         // doc comment above). A direct cast stopped compiling once CrewFinderState
         // grew the fields this fixture omits: TS refuses a cast between types that
@@ -53,10 +57,10 @@ function profileFormState(profile: Record<string, unknown> = {}): CrewFinderStat
     } as unknown as CrewFinderState;
 }
 
-function renderProfileForm(profile: Record<string, unknown> = {}) {
+function renderProfileForm(profile: Record<string, unknown> = {}, overrides: Partial<CrewFinderState> = {}) {
     return render(
         <CrewProfileForm
-            state={profileFormState(profile)}
+            state={profileFormState(profile, overrides)}
             dispatch={vi.fn()}
             onSaveProfile={vi.fn()}
             onPhotoUpload={vi.fn()}
@@ -144,6 +148,26 @@ describe('The Crew List safety-first profile UI', () => {
         expect(
             screen.getByText(/still needed: crew list intent, first name, clear primary headshot/i),
         ).toBeInTheDocument();
+    });
+
+    it('gives every profile choice a distinct name and selected state', () => {
+        renderProfileForm({}, { editListingType: 'seeking_berth' });
+
+        expect(screen.queryByRole('button', { name: 'Edit item details' })).not.toBeInTheDocument();
+        expect(screen.getAllByRole('button', { name: /Select experience level/i })[0]).toHaveAttribute(
+            'aria-pressed',
+            'false',
+        );
+        expect(screen.getAllByRole('button', { name: /Add skill/i })[0]).toHaveAttribute('aria-pressed', 'false');
+        expect(screen.getAllByRole('button', { name: /Add sailing style/i })[0]).toHaveAttribute(
+            'aria-pressed',
+            'false',
+        );
+        expect(screen.getAllByRole('button', { name: /Add language/i })[0]).toHaveAttribute('aria-pressed', 'false');
+        expect(screen.getAllByRole('button', { name: /Select smoking preference/i })[0]).toHaveAttribute(
+            'aria-pressed',
+            'false',
+        );
     });
 
     it('does not claim approval until both the review and verification statuses have passed', () => {

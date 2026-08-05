@@ -10,7 +10,7 @@ import { exportPassageAsGPX, exportBasicPassageGPX } from '../../services/passag
 import { shareGPXFile } from '../../services/gpxService';
 import { DUPLICATE_PASSAGE_PLAN_ERROR } from '../../services/shiplog/PassagePlanSave';
 import { Share } from '@capacitor/share';
-import type { PassageNotice } from './usePassagePlanner';
+import type { PassageNotice, PassageRouteVerification } from './usePassagePlanner';
 
 const log = createLogger('PassageBanner');
 
@@ -20,6 +20,8 @@ interface PassageBannerProps {
         departure: { lat: number; lon: number; name: string } | null;
         arrival: { lat: number; lon: number; name: string } | null;
         routeAnalysis: { totalDistance: number; estimatedDuration: number } | null;
+        routeVerification: PassageRouteVerification;
+        routeActionsAvailable: boolean;
         departureTime: string | null;
         setShowPassage: (v: boolean) => void;
         clearRoute: () => void;
@@ -53,6 +55,7 @@ export const PassageBanner: React.FC<PassageBannerProps> = ({
     deviceMode: _deviceMode,
 }) => {
     const [passageToast, setPassageToast] = useState<{ text: string; tone: 'ok' | 'err' } | null>(null);
+    const currentRouteVerified = passage.routeActionsAvailable && passage.routeVerification.status === 'verified';
     // Route-profile chips REMOVED (Shane 2026-07-02: "we should just double
     // down on safest every time — don't give the punter an option"). The
     // engine's tideAssist profile survives for tests/expert surfaces; the
@@ -62,6 +65,10 @@ export const PassageBanner: React.FC<PassageBannerProps> = ({
 
     // ── GPX Export ──
     const handleExportGPX = async () => {
+        if (!currentRouteVerified) {
+            setPassageToast({ text: 'Route not verified — export unavailable', tone: 'err' });
+            return;
+        }
         triggerHaptic('light');
         try {
             let gpx: string;
@@ -92,6 +99,10 @@ export const PassageBanner: React.FC<PassageBannerProps> = ({
 
     // ── Save to Logbook ──
     const handleSaveToLog = async () => {
+        if (!currentRouteVerified) {
+            setPassageToast({ text: 'Route not verified — save unavailable', tone: 'err' });
+            return;
+        }
         triggerHaptic('light');
         try {
             const { ShipLogService } = await import('../../services/ShipLogService');
@@ -160,6 +171,10 @@ export const PassageBanner: React.FC<PassageBannerProps> = ({
 
     // ── Share Passage Brief ──
     const handleShareBrief = async () => {
+        if (!currentRouteVerified) {
+            setPassageToast({ text: 'Route not verified — sharing unavailable', tone: 'err' });
+            return;
+        }
         try {
             triggerHaptic('light');
             const { generatePassageBrief } = await import('../../services/PassageBriefService');
@@ -222,7 +237,9 @@ export const PassageBanner: React.FC<PassageBannerProps> = ({
             ? 'Loading wind data…'
             : isoProgress.phase === 'loading-bathy'
               ? 'Loading depth data…'
-              : `Routing… ${isoProgress.closestNM} NM to go`
+              : isoProgress.phase === 'validating-route'
+                ? 'Verifying final route…'
+                : `Routing… ${isoProgress.closestNM} NM to go`
         : null;
 
     return (
@@ -382,76 +399,100 @@ export const PassageBanner: React.FC<PassageBannerProps> = ({
                     </div>
                 )}
 
+                {passage.routeAnalysis && !isoProgress && !currentRouteVerified && (
+                    <div
+                        className="border-t border-amber-500/25 bg-amber-500/[0.08] px-3.5 py-2.5"
+                        role="status"
+                        aria-live="polite"
+                        data-testid="passage-route-unverified"
+                    >
+                        <div className="text-[13px] font-bold text-amber-200">
+                            {passage.routeVerification.status === 'pending'
+                                ? 'Verification in progress'
+                                : 'Route not verified'}
+                        </div>
+                        <p className="mt-0.5 text-[11px] leading-snug text-amber-100/80">
+                            {passage.routeVerification.reason ??
+                                'Final chart and depth verification has not completed.'}{' '}
+                            Save, GPX export and Brief sharing stay unavailable until this exact line passes.
+                        </p>
+                    </div>
+                )}
+
                 {/* ── Action buttons row ──
                     44pt minimum hit area (Apple HIG) — was 24pt
                     before, almost impossible to land a thumb on. Icon
                     bumped from w-3 to w-4 too. */}
-                {passage.routeAnalysis && passage.departure && passage.arrival && !isoProgress && (
-                    <div className="flex border-t border-white/[0.06]">
-                        <button
-                            aria-label="Export GPX"
-                            onClick={handleExportGPX}
-                            className="flex-1 flex items-center justify-center gap-2 py-3.5 text-sky-300 text-[13px] font-bold uppercase tracking-wider hover:bg-sky-500/5 active:bg-sky-500/10 transition-colors"
-                        >
-                            <svg
-                                className="w-4 h-4"
-                                fill="none"
-                                viewBox="0 0 24 24"
-                                stroke="currentColor"
-                                strokeWidth={2.5}
+                {passage.routeAnalysis &&
+                    passage.departure &&
+                    passage.arrival &&
+                    !isoProgress &&
+                    currentRouteVerified && (
+                        <div className="flex border-t border-white/[0.06]">
+                            <button
+                                aria-label="Export GPX"
+                                onClick={handleExportGPX}
+                                className="flex-1 flex items-center justify-center gap-2 py-3.5 text-sky-300 text-[13px] font-bold uppercase tracking-wider hover:bg-sky-500/5 active:bg-sky-500/10 transition-colors"
                             >
-                                <path
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-                                />
-                            </svg>
-                            GPX
-                        </button>
-                        <div className="w-px bg-white/[0.06]" />
-                        <button
-                            aria-label="Share Brief"
-                            onClick={handleShareBrief}
-                            className="flex-1 flex items-center justify-center gap-2 py-3.5 text-amber-300 text-[13px] font-bold uppercase tracking-wider hover:bg-amber-500/5 active:bg-amber-500/10 transition-colors"
-                        >
-                            <svg
-                                className="w-4 h-4"
-                                fill="none"
-                                viewBox="0 0 24 24"
-                                stroke="currentColor"
-                                strokeWidth={2.5}
+                                <svg
+                                    className="w-4 h-4"
+                                    fill="none"
+                                    viewBox="0 0 24 24"
+                                    stroke="currentColor"
+                                    strokeWidth={2.5}
+                                >
+                                    <path
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                        d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                                    />
+                                </svg>
+                                GPX
+                            </button>
+                            <div className="w-px bg-white/[0.06]" />
+                            <button
+                                aria-label="Share Brief"
+                                onClick={handleShareBrief}
+                                className="flex-1 flex items-center justify-center gap-2 py-3.5 text-amber-300 text-[13px] font-bold uppercase tracking-wider hover:bg-amber-500/5 active:bg-amber-500/10 transition-colors"
                             >
-                                <path
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    d="M7.217 10.907a2.25 2.25 0 100 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186l9.566-5.314m-9.566 7.5l9.566 5.314m0 0a2.25 2.25 0 103.935 2.186 2.25 2.25 0 00-3.935-2.186zm0-12.814a2.25 2.25 0 103.933-2.185 2.25 2.25 0 00-3.933 2.185z"
-                                />
-                            </svg>
-                            Brief
-                        </button>
-                        <div className="w-px bg-white/[0.06]" />
-                        <button
-                            aria-label="Save to Log"
-                            onClick={handleSaveToLog}
-                            className="flex-1 flex items-center justify-center gap-2 py-3.5 text-emerald-300 text-[13px] font-bold uppercase tracking-wider hover:bg-emerald-500/5 active:bg-emerald-500/10 transition-colors"
-                        >
-                            <svg
-                                className="w-4 h-4"
-                                fill="none"
-                                viewBox="0 0 24 24"
-                                stroke="currentColor"
-                                strokeWidth={2.5}
+                                <svg
+                                    className="w-4 h-4"
+                                    fill="none"
+                                    viewBox="0 0 24 24"
+                                    stroke="currentColor"
+                                    strokeWidth={2.5}
+                                >
+                                    <path
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                        d="M7.217 10.907a2.25 2.25 0 100 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186l9.566-5.314m-9.566 7.5l9.566 5.314m0 0a2.25 2.25 0 103.935 2.186 2.25 2.25 0 00-3.935-2.186zm0-12.814a2.25 2.25 0 103.933-2.185 2.25 2.25 0 00-3.933 2.185z"
+                                    />
+                                </svg>
+                                Brief
+                            </button>
+                            <div className="w-px bg-white/[0.06]" />
+                            <button
+                                aria-label="Save to Log"
+                                onClick={handleSaveToLog}
+                                className="flex-1 flex items-center justify-center gap-2 py-3.5 text-emerald-300 text-[13px] font-bold uppercase tracking-wider hover:bg-emerald-500/5 active:bg-emerald-500/10 transition-colors"
                             >
-                                <path
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"
-                                />
-                            </svg>
-                            Save
-                        </button>
-                    </div>
-                )}
+                                <svg
+                                    className="w-4 h-4"
+                                    fill="none"
+                                    viewBox="0 0 24 24"
+                                    stroke="currentColor"
+                                    strokeWidth={2.5}
+                                >
+                                    <path
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                        d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"
+                                    />
+                                </svg>
+                                Save
+                            </button>
+                        </div>
+                    )}
 
                 {/* ── Pilotage / depth disclaimer ──
                     A suggestion, not a survey — the skipper owns

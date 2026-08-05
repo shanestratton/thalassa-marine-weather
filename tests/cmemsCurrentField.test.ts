@@ -4,14 +4,9 @@
  * loader's null-clean degradation over a mocked currentsGrid cache.
  */
 
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { currentFieldFromGrid, getCurrentField } from '../services/routing/env/CmemsCurrentField';
-import { fetchCurrentsGrid } from '../services/weather/api/currentsGrid';
 import type { WindGrid } from '../services/weather/windField';
-
-vi.mock('../services/weather/api/currentsGrid', () => ({
-    fetchCurrentsGrid: vi.fn(),
-}));
 
 const HOUR = 3_600_000;
 // Step-0 reference moment — arbitrary but fixed so offsets are hand-checkable.
@@ -42,6 +37,7 @@ function makeGrid(overrides: Partial<WindGrid> = {}): WindGrid {
         west: 100,
         east: 101,
         totalHours: 2,
+        landMask: new Uint8Array(4),
         ...overrides,
     };
 }
@@ -103,6 +99,23 @@ describe('currentFieldFromGrid — sampling', () => {
         expect(f.currentAt(10, 100, T0)).toBeNull();
         expect(f.currentAt(9, 101, T0)).toEqual({ u: 4, v: 40 }); // SE corner untouched
     });
+
+    it('fails closed without an exact-size verified land mask', () => {
+        expect(currentFieldFromGrid(makeGrid({ landMask: undefined }), T0).currentAt(9.5, 100.5, T0)).toBeNull();
+        expect(
+            currentFieldFromGrid(makeGrid({ landMask: new Uint8Array(3) }), T0).currentAt(9.5, 100.5, T0),
+        ).toBeNull();
+    });
+
+    it('rejects masked nonzero-weight coast corners but preserves exact ocean corners', () => {
+        const mask = new Uint8Array([1, 0, 0, 0]); // NW is land; other three are ocean.
+        const coastal = currentFieldFromGrid(makeGrid({ landMask: mask }), T0);
+        expect(coastal.currentAt(10, 100, T0)).toBeNull();
+        expect(coastal.currentAt(9.5, 100.5, T0)).toBeNull();
+        // The masked NW cell has exactly zero interpolation weight here.
+        expect(coastal.currentAt(10, 101, T0)).toEqual({ u: 2, v: 20 });
+        expect(coastal.currentAt(9, 101, T0 + HOUR)).toEqual({ u: 8, v: 80 });
+    });
 });
 
 describe('currentFieldFromGrid — honest step indexing', () => {
@@ -123,52 +136,27 @@ describe('currentFieldFromGrid — honest step indexing', () => {
     });
 });
 
-describe('getCurrentField — loader over the existing cache path', () => {
-    const mockFetch = vi.mocked(fetchCurrentsGrid);
-    const refTime = new Date(T0).toISOString();
+describe('getCurrentField — public-beta global-download hold', () => {
     const point = { lat: 9.5, lon: 100.5 };
     const range = { startMs: T0, endMs: T0 + HOUR };
 
-    beforeEach(() => {
-        mockFetch.mockReset();
+    afterEach(() => {
+        vi.unstubAllGlobals();
     });
 
-    it('returns a working field when the grid is available', async () => {
-        mockFetch.mockResolvedValue(makeGrid({ refTime }));
-        const field = await getCurrentField(point, range);
-        expect(field).not.toBeNull();
-        expect(field?.provenance).toBe('CMEMS_HOURLY');
-        expect(field?.currentAt(9.5, 100.5, T0)?.u).toBeCloseTo(2.5, 6);
-        expect(mockFetch).toHaveBeenCalledTimes(1);
-    });
-
-    it('returns null cleanly when the fetch path has no data (offline)', async () => {
-        mockFetch.mockResolvedValue(null);
+    it('returns null without performing any network request', async () => {
+        const fetchSpy = vi.fn();
+        vi.stubGlobal('fetch', fetchSpy);
         expect(await getCurrentField(point, range)).toBeNull();
+        expect(fetchSpy).not.toHaveBeenCalled();
     });
 
-    it('returns null when the grid lacks a parseable refTime (no guessed origin)', async () => {
-        mockFetch.mockResolvedValue(makeGrid()); // no refTime
-        expect(await getCurrentField(point, range)).toBeNull();
-    });
-
-    it('returns null when the requested time range is entirely outside coverage', async () => {
-        mockFetch.mockResolvedValue(makeGrid({ refTime }));
-        expect(await getCurrentField(point, { startMs: T0 + 2 * HOUR, endMs: T0 + 3 * HOUR })).toBeNull();
-        expect(await getCurrentField(point, { startMs: T0 - 2 * HOUR, endMs: T0 - HOUR })).toBeNull();
-    });
-
-    it('returns null when the requested area is entirely outside the grid', async () => {
-        mockFetch.mockResolvedValue(makeGrid({ refTime }));
-        expect(await getCurrentField({ lat: 20, lon: 100.5 }, range)).toBeNull();
-        expect(await getCurrentField({ north: 8, south: 7, west: 100, east: 101 }, range)).toBeNull();
-    });
-
-    it('returns a field for partial overlap (per-point nulls handle the edges)', async () => {
-        mockFetch.mockResolvedValue(makeGrid({ refTime }));
-        const field = await getCurrentField({ north: 12, south: 9.5, west: 100, east: 101 }, range);
-        expect(field).not.toBeNull();
-        expect(field?.currentAt(11, 100.5, T0)).toBeNull(); // outside grid
-        expect(field?.currentAt(9.8, 100.5, T0)).not.toBeNull(); // inside
+    it('also resolves null immediately for an already-aborted caller', async () => {
+        const fetchSpy = vi.fn();
+        vi.stubGlobal('fetch', fetchSpy);
+        const controller = new AbortController();
+        controller.abort();
+        expect(await getCurrentField(point, range, controller.signal)).toBeNull();
+        expect(fetchSpy).not.toHaveBeenCalled();
     });
 });

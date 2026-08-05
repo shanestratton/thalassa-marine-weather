@@ -1,46 +1,64 @@
 import SwiftUI
 
 /**
- * CockpitGlanceView — quick-read wind / heading / SOG screen.
+ * CockpitGlanceView — age-gated phone snapshot for wind / heading / SOG.
  *
- * The "I'm trimming sail and want to see the gust without pulling out
- * my phone" view. Big numbers, minimal chrome, one-glance read.
- *
- * Layout:
- *   ┌─────────────────────────┐
- *   │     12 kt    045°       │   wind speed     wind dir
- *   │   gust 18    NE         │
- *   │                         │
- *   │   HDG 270°    SOG 6.4   │   heading        speed-over-ground
- *   └─────────────────────────┘
+ * WatchConnectivity application context is durable, so a value can remain
+ * present long after the phone stops updating. This view refreshes its age
+ * clock and completely hides numeric instruments after two minutes; an old
+ * heading or SOG is never presented as live navigation data.
  */
 struct CockpitGlanceView: View {
 
     @EnvironmentObject var session: WatchSession
 
+    private let staleAfter: TimeInterval = 120
+
     var body: some View {
-        VStack(spacing: 8) {
-            if let w = session.weather {
-                windRow(w: w)
-                Divider().background(Color.gray.opacity(0.3))
-                sailRow(w: w)
-                Spacer()
-                ageFooter(generatedAt: w.generatedAt)
-            } else {
-                noDataView
+        TimelineView(.periodic(from: .now, by: 5)) { timeline in
+            VStack(spacing: 5) {
+                if let snapshot = session.weather {
+                    let age = snapshotAge(snapshot, now: timeline.date)
+                    if age <= staleAfter {
+                        liveSnapshot(snapshot, age: age)
+                    } else {
+                        staleDataView(age: age)
+                    }
+                } else {
+                    noDataView
+                }
             }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
     }
 
-    // MARK: - Subviews
+    // MARK: - Fresh snapshot
+
+    @ViewBuilder
+    private func liveSnapshot(_ snapshot: WeatherSnapshot, age: TimeInterval) -> some View {
+        if !session.isReachable {
+            statusBanner("PHONE LIVE LINK OFFLINE", color: .orange)
+        }
+        windRow(w: snapshot)
+        Divider().background(Color.gray.opacity(0.3))
+        sailRow(w: snapshot)
+        Spacer(minLength: 0)
+        HStack(spacing: 4) {
+            Circle()
+                .fill(session.isReachable ? Color.green : Color.orange)
+                .frame(width: 5, height: 5)
+            Text("Phone snapshot · \(ageLabel(age))")
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundColor(session.isReachable ? .secondary : .orange)
+        }
+    }
 
     private func windRow(w: WeatherSnapshot) -> some View {
         HStack(alignment: .firstTextBaseline) {
             VStack(alignment: .leading, spacing: 0) {
                 Text("\(Int(w.windKts))")
-                    .font(.system(size: 36, weight: .bold, design: .rounded))
+                    .font(.system(size: 34, weight: .bold, design: .rounded))
                     .foregroundColor(windColor(w.windKts))
                 Text("kt wind")
                     .font(.caption2)
@@ -73,9 +91,7 @@ struct CockpitGlanceView: View {
                     Text("\(Int(hdg))°")
                         .font(.system(size: 18, weight: .semibold, design: .rounded))
                 } else {
-                    Text("--")
-                        .font(.system(size: 18, weight: .semibold, design: .rounded))
-                        .foregroundColor(.gray)
+                    unavailableInstrument
                 }
             }
             Spacer()
@@ -87,10 +103,41 @@ struct CockpitGlanceView: View {
                     Text(String(format: "%.1f kt", sog))
                         .font(.system(size: 18, weight: .semibold, design: .rounded))
                 } else {
-                    Text("--")
-                        .font(.system(size: 18, weight: .semibold, design: .rounded))
-                        .foregroundColor(.gray)
+                    unavailableInstrument
                 }
+            }
+        }
+    }
+
+    private var unavailableInstrument: some View {
+        Text("--")
+            .font(.system(size: 18, weight: .semibold, design: .rounded))
+            .foregroundColor(.gray)
+    }
+
+    // MARK: - Fail-closed states
+
+    private func staleDataView(age: TimeInterval) -> some View {
+        VStack(spacing: 7) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 28))
+                .foregroundColor(.orange)
+            Text("COCKPIT DATA STALE")
+                .font(.caption.bold())
+                .foregroundColor(.orange)
+            Text("Old wind, HDG and SOG hidden")
+                .font(.caption2)
+                .multilineTextAlignment(.center)
+                .foregroundColor(.white)
+            Text("Last phone update \(ageLabel(age))")
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundColor(.orange)
+            if !session.isReachable {
+                statusBanner("PHONE LIVE LINK OFFLINE", color: .red)
+            } else {
+                Text("Open Thalassa on phone to refresh")
+                    .font(.system(size: 9))
+                    .foregroundColor(.secondary)
             }
         }
     }
@@ -100,27 +147,41 @@ struct CockpitGlanceView: View {
             Image(systemName: "wind")
                 .font(.system(size: 28))
                 .foregroundColor(.gray)
-            Text("Waiting for\nweather sync…")
-                .font(.caption)
-                .multilineTextAlignment(.center)
+            Text("NO LIVE COCKPIT DATA")
+                .font(.caption.bold())
+                .foregroundColor(.orange)
+            Text("Open Thalassa on phone")
+                .font(.caption2)
                 .foregroundColor(.gray)
             if !session.isReachable {
-                Text("Phone unreachable")
-                    .font(.caption2)
-                    .foregroundColor(.orange)
+                statusBanner("PHONE LIVE LINK OFFLINE", color: .red)
             }
         }
     }
 
-    private func ageFooter(generatedAt: Double) -> some View {
-        let age = Int((Date().timeIntervalSince1970 * 1000 - generatedAt) / 60_000)
-        let label = age <= 1 ? "now" : "\(age) min ago"
-        return Text(label)
-            .font(.system(size: 9))
-            .foregroundColor(.gray)
+    private func statusBanner(_ text: String, color: Color) -> some View {
+        Text(text)
+            .font(.system(size: 8, weight: .bold))
+            .foregroundColor(color)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(color.opacity(0.16))
+            .clipShape(Capsule())
     }
 
     // MARK: - Helpers
+
+    private func snapshotAge(_ snapshot: WeatherSnapshot, now: Date) -> TimeInterval {
+        let age = now.timeIntervalSince1970 - snapshot.generatedAt / 1000
+        // A substantially future timestamp is invalid rather than "fresh".
+        return age < -30 ? .greatestFiniteMagnitude : max(0, age)
+    }
+
+    private func ageLabel(_ age: TimeInterval) -> String {
+        guard age.isFinite else { return "unknown" }
+        if age < 60 { return "\(Int(age))s ago" }
+        return "\(Int(age / 60))m ago"
+    }
 
     private func windColor(_ kts: Double) -> Color {
         switch kts {

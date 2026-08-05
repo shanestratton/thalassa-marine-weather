@@ -6,7 +6,7 @@ const mocks = vi.hoisted(() => ({
     fetchNearby: vi.fn(),
     batchLookup: vi.fn().mockResolvedValue(undefined),
     getVesselIntel: vi.fn(),
-    isFeatureLockedSync: vi.fn(),
+    canAccess: vi.fn(),
 }));
 
 vi.mock('mapbox-gl', () => {
@@ -60,7 +60,12 @@ vi.mock('../services/VesselMetadataService', () => ({
         onDemandLookup: vi.fn(),
     },
 }));
-vi.mock('../managers/FeatureGate', () => ({ isFeatureLockedSync: mocks.isFeatureLockedSync }));
+vi.mock('../services/SubscriptionService', () => ({ canAccess: mocks.canAccess }));
+vi.mock('../stores/settingsStore', () => ({
+    useSettingsStore: {
+        getState: () => ({ settings: { subscriptionTier: 'owner', vessel: {} } }),
+    },
+}));
 // Spread the real module: the guard-zone path now reads the vessel MMSI from
 // the settings store, and stores/settingsStore calls getSystemUnits() at MODULE
 // scope — so a triggerHaptic-only mock throws on import.
@@ -121,7 +126,7 @@ describe('useAisStreamLayer request lifecycle', () => {
         mocks.fetchNearby.mockReset();
         mocks.batchLookup.mockClear();
         mocks.getVesselIntel.mockReset();
-        mocks.isFeatureLockedSync.mockReset();
+        mocks.canAccess.mockReset();
         document.getElementById('vessel-detail-modal')?.remove();
     });
 
@@ -161,7 +166,7 @@ describe('useAisStreamLayer request lifecycle', () => {
 
     it('removes its body-mounted vessel detail modal when AIS is disabled', () => {
         mocks.fetchNearby.mockResolvedValue({ type: 'FeatureCollection', features: [] });
-        mocks.isFeatureLockedSync.mockReturnValue(false);
+        mocks.canAccess.mockReturnValue(true);
         mocks.getVesselIntel.mockReturnValue({
             name: 'Lifecycle',
             flag: '🏳️',
@@ -205,7 +210,7 @@ describe('useAisStreamLayer request lifecycle', () => {
 
     it('removes its body-mounted vessel detail modal when the hook unmounts', () => {
         mocks.fetchNearby.mockResolvedValue({ type: 'FeatureCollection', features: [] });
-        mocks.isFeatureLockedSync.mockReturnValue(false);
+        mocks.canAccess.mockReturnValue(true);
         mocks.getVesselIntel.mockReturnValue({
             name: 'Lifecycle',
             flag: '🏳️',

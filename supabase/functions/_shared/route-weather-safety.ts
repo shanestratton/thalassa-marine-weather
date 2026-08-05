@@ -84,8 +84,8 @@ function numberInRange(value: unknown, min: number, max: number, label: string):
 function haversineNM(lat1: number, lon1: number, lat2: number, lon2: number): number {
     const dLat = (lat2 - lat1) * DEG_TO_RAD;
     const dLon = (lon2 - lon1) * DEG_TO_RAD;
-    const a =
-        Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * DEG_TO_RAD) * Math.cos(lat2 * DEG_TO_RAD) * Math.sin(dLon / 2) ** 2;
+    const a = Math.sin(dLat / 2) ** 2 +
+        Math.cos(lat1 * DEG_TO_RAD) * Math.cos(lat2 * DEG_TO_RAD) * Math.sin(dLon / 2) ** 2;
     return 2 * EARTH_RADIUS_NM * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
@@ -149,10 +149,9 @@ export function densifyCenterlineForMesh(
         const steps = Math.max(1, Math.ceil(segmentDistance / spacingNM));
         for (let step = 1; step < steps; step++) {
             const fraction = step / steps;
-            const interpolatedDepth =
-                previous.depth_m === undefined || current.depth_m === undefined
-                    ? undefined
-                    : previous.depth_m + (current.depth_m - previous.depth_m) * fraction;
+            const interpolatedDepth = previous.depth_m === undefined || current.depth_m === undefined
+                ? undefined
+                : previous.depth_m + (current.depth_m - previous.depth_m) * fraction;
             dense.push({
                 lat: previous.lat + (current.lat - previous.lat) * fraction,
                 lon: previous.lon + (current.lon - previous.lon) * fraction,
@@ -189,10 +188,10 @@ function validatePolarData(value: unknown): ValidatedPolarData | null {
     }
 
     const windSpeeds = value.windSpeeds.map((speed, index) =>
-        numberInRange(speed, 0.1, 150, `vessel.polar_data.windSpeeds[${index}]`),
+        numberInRange(speed, 0.1, 150, `vessel.polar_data.windSpeeds[${index}]`)
     );
     const angles = value.angles.map((angle, index) =>
-        numberInRange(angle, 0, 180, `vessel.polar_data.angles[${index}]`),
+        numberInRange(angle, 0, 180, `vessel.polar_data.angles[${index}]`)
     );
     for (let index = 1; index < windSpeeds.length; index++) {
         if (windSpeeds[index] <= windSpeeds[index - 1]) {
@@ -213,7 +212,7 @@ function validatePolarData(value: unknown): ValidatedPolarData | null {
             throw new RouteWeatherSafetyError(`vessel.polar_data.matrix[${rowIndex}] has the wrong column count`);
         }
         return row.map((speed, columnIndex) =>
-            numberInRange(speed, 0, 80, `vessel.polar_data.matrix[${rowIndex}][${columnIndex}]`),
+            numberInRange(speed, 0, 80, `vessel.polar_data.matrix[${rowIndex}][${columnIndex}]`)
         );
     });
     return { windSpeeds, angles, matrix };
@@ -236,18 +235,16 @@ export function validateWeatherRouteRequest(value: unknown, nowMs: number = Date
         }
         const lat = numberInRange(waypoint.lat, -85, 85, `centerline[${index}].lat`);
         const lon = numberInRange(waypoint.lon, -180, 180, `centerline[${index}].lon`);
-        const depth =
-            waypoint.depth_m === undefined
-                ? undefined
-                : numberInRange(waypoint.depth_m, -12_000, 9_000, `centerline[${index}].depth_m`);
-        const name =
-            waypoint.name === undefined
-                ? undefined
-                : typeof waypoint.name === 'string' && waypoint.name.length <= 120
-                  ? waypoint.name
-                  : (() => {
-                        throw new RouteWeatherSafetyError(`centerline[${index}].name must be at most 120 characters`);
-                    })();
+        const depth = waypoint.depth_m === undefined
+            ? undefined
+            : numberInRange(waypoint.depth_m, -12_000, 9_000, `centerline[${index}].depth_m`);
+        const name = waypoint.name === undefined
+            ? undefined
+            : typeof waypoint.name === 'string' && waypoint.name.length <= 120
+            ? waypoint.name
+            : (() => {
+                throw new RouteWeatherSafetyError(`centerline[${index}].name must be at most 120 characters`);
+            })();
         return {
             lat,
             lon,
@@ -312,15 +309,15 @@ export function validateWeatherRouteRequest(value: unknown, nowMs: number = Date
         max_wave_m: numberInRange(value.vessel.max_wave_m, 0.1, 30, 'vessel.max_wave_m'),
         // Older callers did not send draft. A conservative 2.5 m default
         // preserves compatibility without silently dropping depth gating.
-        draft_m:
-            value.vessel.draft_m === undefined ? 2.5 : numberInRange(value.vessel.draft_m, 0.1, 30, 'vessel.draft_m'),
+        draft_m: value.vessel.draft_m === undefined
+            ? 2.5
+            : numberInRange(value.vessel.draft_m, 0.1, 30, 'vessel.draft_m'),
         polar_data: validatePolarData(value.vessel.polar_data),
     };
 
-    const corridorWidth =
-        value.corridor_width_nm === undefined
-            ? undefined
-            : numberInRange(value.corridor_width_nm, 1, MAX_CORRIDOR_WIDTH_NM, 'corridor_width_nm');
+    const corridorWidth = value.corridor_width_nm === undefined
+        ? undefined
+        : numberInRange(value.corridor_width_nm, 1, MAX_CORRIDOR_WIDTH_NM, 'corridor_width_nm');
     let lateralSteps: number | undefined;
     if (value.lateral_steps !== undefined) {
         lateralSteps = numberInRange(value.lateral_steps, 1, MAX_LATERAL_STEPS, 'lateral_steps');

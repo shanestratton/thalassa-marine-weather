@@ -39,6 +39,14 @@ export interface WindGrid {
     hourOffsets?: number[];
     /** Forecast-hour offset of each time step — authoritative for sampling. */
     stepHours?: number[];
+    /** Immutable publisher generation, when this is a verified marine bundle. */
+    sourceGeneration?: string;
+    /** The sole decoded CMEMS map frame when u/v are sparse frame-on-demand arrays. */
+    sourceStep?: number;
+    /** Inclusive source-time coverage boundary. Consumers must hide after this instant. */
+    validUntil?: string;
+    /** Last successful manifest verification time for bounded client refresh. */
+    verifiedAt?: string;
 }
 
 /**

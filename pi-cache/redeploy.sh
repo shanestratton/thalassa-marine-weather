@@ -16,9 +16,8 @@
 #
 #   cd ~/thalassa-marine-weather/pi-cache && ./redeploy.sh
 #
-# Skips the npm install step if package-lock.json is unchanged —
-# rebuilds always run because TypeScript output depends on every
-# source file.
+# Every redeploy performs a clean lockfile install before compiling, then
+# removes development dependencies before restarting the production service.
 # ═══════════════════════════════════════════════════════════════
 
 set -e
@@ -61,12 +60,6 @@ if [[ ! -f "$SOURCE_DIR/package.json" ]]; then
     exit 1
 fi
 
-# Detect whether deps changed so we can skip a redundant npm install.
-LOCK_BEFORE=""
-if [[ -f "$INSTALL_DIR/package-lock.json" ]]; then
-    LOCK_BEFORE=$(sha256sum "$INSTALL_DIR/package-lock.json" | awk '{print $1}')
-fi
-
 # ── Sync source ────────────────────────────────────────────────
 echo -e "  ${CYAN}1/5${NC} Syncing source → ${INSTALL_DIR}..."
 sudo rsync -a --delete \
@@ -85,16 +78,11 @@ REAL_USER="${SUDO_USER:-$USER}"
 sudo chown -R "${REAL_USER}:${REAL_USER}" "$INSTALL_DIR"
 echo -e "      ${GREEN}✓${NC} source copied"
 
-# ── npm install (only if package-lock changed) ─────────────────
-LOCK_AFTER=$(sha256sum "$INSTALL_DIR/package-lock.json" | awk '{print $1}')
-if [[ "$LOCK_BEFORE" != "$LOCK_AFTER" ]] || [[ ! -d "$INSTALL_DIR/node_modules" ]]; then
-    echo -e "  ${CYAN}2/5${NC} package-lock changed — running npm install..."
-    cd "$INSTALL_DIR"
-    npm install --silent
-    echo -e "      ${GREEN}✓${NC} deps installed"
-else
-    echo -e "  ${CYAN}2/5${NC} package-lock unchanged — skipping npm install"
-fi
+# ── Clean locked install ───────────────────────────────────────────────
+echo -e "  ${CYAN}2/5${NC} Installing the exact locked dependency tree..."
+cd "$INSTALL_DIR"
+npm ci --silent --no-audit --no-fund
+echo -e "      ${GREEN}✓${NC} deps installed"
 
 # ── Build ──────────────────────────────────────────────────────
 echo -e "  ${CYAN}3/5${NC} Compiling TypeScript..."
@@ -102,6 +90,11 @@ cd "$INSTALL_DIR"
 rm -rf dist
 npm run build --silent
 echo -e "      ${GREEN}✓${NC} dist/ rebuilt"
+
+# TypeScript and test tooling are build-only. The long-running service keeps
+# only its production dependency closure.
+npm prune --omit=dev --silent --no-audit
+echo -e "      ${GREEN}✓${NC} development deps pruned"
 
 # ── Restart ────────────────────────────────────────────────────
 echo -e "  ${CYAN}4/5${NC} Restarting ${SERVICE_NAME}..."
@@ -125,14 +118,16 @@ else
     echo -e "${YELLOW}      ⚠ /health → HTTP ${HEALTH_CODE}${NC}"
 fi
 
-# Cloud-routing endpoint — 400 (empty-body rejection) means the route
-# is wired up correctly. 404 means dist is somehow stale.
+# Private route — 503 is the public-beta safe default. An explicitly unsafe
+# development server returns 400 for this intentionally empty body.
 PROBE_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
     -X POST "$PROBE_URL" \
     -H "Content-Type: application/json" \
     -d '{}')
-if [[ "$PROBE_CODE" == "400" ]]; then
-    echo -e "      ${GREEN}✓${NC} /api/enc/route-prepped → HTTP 400 (live, rejecting empty body — expected)"
+if [[ "$PROBE_CODE" == "503" ]]; then
+    echo -e "      ${GREEN}✓${NC} /api/enc/route-prepped → HTTP 503 (private API disabled — safe default)"
+elif [[ "$PROBE_CODE" == "400" ]]; then
+    echo -e "      ${YELLOW}⚠${NC} /api/enc/route-prepped → HTTP 400 (unsafe development API enabled)"
 elif [[ "$PROBE_CODE" == "404" ]]; then
     echo -e "${RED}      ✗ /api/enc/route-prepped → HTTP 404 — dist may be stale${NC}"
     exit 1

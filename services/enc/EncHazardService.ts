@@ -61,11 +61,70 @@ import {
 } from './encHazardParse';
 import type { EncCautionArea } from './EncSpatialIndex';
 import { mergeHazardResults, grazeOutranks } from './hazardSeverity';
-import { ENC_HAZARD_DEPTH_M } from './types';
+import { canonicalEncCellId, ENC_CELL_ID_PATTERN, ENC_HAZARD_DEPTH_M, encCellStorageIdentity } from './types';
 import type { EncAreaGraze, EncCatzoc, EncCell, EncConversionResult, EncHazardResult } from './types';
 import { crumb } from '../../utils/flightRecorder';
 
 const log = createLogger('EncHazardService');
+
+/**
+ * Imports that target the same cell ID must be serialized. The blob filename
+ * is cell-ID based, so a preflight check outside this lock is not sufficient:
+ * an unsigned reference import and a trusted cloud import could otherwise
+ * interleave their filesystem write and metadata write, leaving trusted
+ * metadata pointing at unsigned bytes.
+ */
+const cellImportTails = new Map<string, Promise<void>>();
+const cellMutationGenerations = new Map<string, number>();
+
+function bumpCellMutationGeneration(lockKey: string): void {
+    cellMutationGenerations.set(lockKey, (cellMutationGenerations.get(lockKey) ?? 0) + 1);
+}
+
+function cellMutationGeneration(cellId: string): number {
+    return cellMutationGenerations.get(encCellStorageIdentity(cellId)) ?? 0;
+}
+
+async function waitForCellMutations(cellId: string): Promise<void> {
+    const lockKey = encCellStorageIdentity(cellId);
+    // A completion handler may enqueue the next operation before our awaiter
+    // resumes. Loop until the tail is genuinely absent.
+    while (cellImportTails.has(lockKey)) {
+        await cellImportTails.get(lockKey);
+    }
+}
+
+function serializeCellMutation<T>(cellId: string, mutation: () => Promise<T>): Promise<T> {
+    const canonicalId = canonicalEncCellId(cellId);
+    if (!ENC_CELL_ID_PATTERN.test(canonicalId)) {
+        return Promise.reject(new Error(`Invalid ENC cell ID: ${cellId || '(missing)'}`));
+    }
+    const lockKey = encCellStorageIdentity(canonicalId);
+    const previous = cellImportTails.get(lockKey) ?? Promise.resolve();
+    const run = async (): Promise<T> => {
+        // Start + finish generations let in-flight readers detect both a
+        // mutation that overtook them and one already underway when they
+        // began. This closes the old-index-after-drop race without holding the
+        // import lock across loadCellGeoJSON's remote fallback (which may
+        // itself import this cell and would deadlock).
+        bumpCellMutationGeneration(lockKey);
+        try {
+            return await mutation();
+        } finally {
+            bumpCellMutationGeneration(lockKey);
+        }
+    };
+    const operation = previous.then(run, run);
+    const tail = operation.then(
+        () => undefined,
+        () => undefined,
+    );
+    cellImportTails.set(lockKey, tail);
+    void tail.then(() => {
+        if (cellImportTails.get(lockKey) === tail) cellImportTails.delete(lockKey);
+    });
+    return operation;
+}
 
 // Macrotask yield WITHOUT the timer clamp: iOS/WebKit clamps setTimeout(0) to
 // ~1–4 ms, and the merge's time-slicer yields ~40 times per merge — 40–160 ms
@@ -118,7 +177,9 @@ function macroYield(): Promise<void> {
  * the cell metadata is missing, the blob is missing/corrupt, or
  * the cell has no hazards.
  */
-async function getOrBuildIndex(cellId: string): Promise<EncSpatialIndex | null> {
+async function getOrBuildIndex(cellId: string, mutationRetries = 2): Promise<EncSpatialIndex | null> {
+    await waitForCellMutations(cellId);
+    const generation = cellMutationGeneration(cellId);
     const cached = touchIndex(cellId);
     if (cached) return cached;
     if (isIndexFailed(cellId)) return null;
@@ -132,6 +193,14 @@ async function getOrBuildIndex(cellId: string): Promise<EncSpatialIndex | null> 
 
     const blob = await cellStore.loadCellGeoJSON(cellId);
     if (!blob) {
+        if (
+            mutationRetries > 0 &&
+            (cellMutationGeneration(cellId) !== generation || cellImportTails.has(encCellStorageIdentity(cellId)))
+        ) {
+            await waitForCellMutations(cellId);
+            dropIndex(cellId);
+            return getOrBuildIndex(cellId, mutationRetries - 1);
+        }
         log.warn(`getOrBuildIndex ${cellId}: GeoJSON missing or corrupt — user will need to re-import`);
         markIndexFailed(cellId);
         return null;
@@ -148,6 +217,11 @@ async function getOrBuildIndex(cellId: string): Promise<EncSpatialIndex | null> 
     await macroYield();
     const cautionAreas = buildCautionAreas(blob);
     const index = new EncSpatialIndex(cellId, hazards, catzocZones, coastlines, cautionAreas);
+    if (cellMutationGeneration(cellId) !== generation || cellImportTails.has(encCellStorageIdentity(cellId))) {
+        await waitForCellMutations(cellId);
+        dropIndex(cellId);
+        return mutationRetries > 0 ? getOrBuildIndex(cellId, mutationRetries - 1) : null;
+    }
     cacheIndex(cellId, index);
     log.info(
         `built spatial index for cell ${cellId}: ${hazards.length} hazards, ` +
@@ -167,12 +241,25 @@ export function hasAnyCells(): boolean {
     return cellMeta.listCells().length > 0;
 }
 
+/** Painting authority only. Includes unsigned reference packs that are
+ * deliberately excluded from every safety query via `hasAnyCells`. */
+export function hasAnyDisplayCells(): boolean {
+    // Pending cloud manifest entries are deliberately not paintable, but the
+    // render hook must still mount once so its window can trigger hydration.
+    return cellMeta.listDisplayCells().length > 0 || cellMeta.listPendingCells().length > 0;
+}
+
 /**
  * List every imported cell (metadata only — does not touch the
  * filesystem). Used by the chart locker UI.
  */
 export function getCoverage(): EncCell[] {
     return cellMeta.listCells();
+}
+
+/** Display/inventory list, including unsigned reference packs. */
+export function getDisplayCoverage(): EncCell[] {
+    return cellMeta.listDisplayCells();
 }
 
 /**
@@ -407,29 +494,123 @@ export async function querySegmentCautions(
  *
  * Used by the ChartLocker import flow once Pi conversion succeeds.
  */
-export async function importCell(
+async function importCellSerialized(
     blob: EncConversionResult,
-    options: { usage?: 'navigation' | 'demo' } = {},
+    options: { usage?: 'navigation' | 'reference' | 'demo'; cloudManifestVersion?: number } = {},
 ): Promise<EncCell> {
+    const canonicalId = canonicalEncCellId(blob.cellId);
+    if (!ENC_CELL_ID_PATTERN.test(canonicalId)) {
+        throw new Error('ENC cell ID is invalid; bytes were not written.');
+    }
+    const sourceHO = typeof blob.sourceHO === 'string' ? blob.sourceHO.trim().toUpperCase() : '';
+    const issued = typeof blob.issued === 'string' ? blob.issued.trim() : '';
+    const issuedDate = new Date(`${issued}T00:00:00Z`);
+    if (!/^[A-Z]{2}$/.test(sourceHO) || sourceHO !== canonicalId.slice(0, 2)) {
+        throw new Error(`${canonicalId} source office does not match its cell ID; bytes were not written.`);
+    }
+    if (!Number.isInteger(blob.edition) || blob.edition < 0 || blob.edition > 9999) {
+        throw new Error(`${canonicalId} edition is invalid; bytes were not written.`);
+    }
+    if (
+        !/^\d{4}-\d{2}-\d{2}$/.test(issued) ||
+        Number.isNaN(issuedDate.getTime()) ||
+        issuedDate.toISOString().slice(0, 10) !== issued
+    ) {
+        throw new Error(`${canonicalId} issue date is invalid; bytes were not written.`);
+    }
+    if (
+        !Array.isArray(blob.bbox) ||
+        blob.bbox.length !== 4 ||
+        !blob.bbox.every((coordinate) => typeof coordinate === 'number' && Number.isFinite(coordinate)) ||
+        blob.bbox[0] < -180 ||
+        blob.bbox[2] > 180 ||
+        blob.bbox[1] < -90 ||
+        blob.bbox[3] > 90 ||
+        blob.bbox[0] >= blob.bbox[2] ||
+        blob.bbox[1] >= blob.bbox[3] ||
+        !blob.layers ||
+        typeof blob.layers !== 'object' ||
+        Array.isArray(blob.layers)
+    ) {
+        throw new Error(`${canonicalId} chart extent/layers are invalid; bytes were not written.`);
+    }
+    const normalizedBlob =
+        canonicalId === blob.cellId && sourceHO === blob.sourceHO && issued === blob.issued
+            ? blob
+            : { ...blob, cellId: canonicalId, sourceHO, issued };
+    const requestedUsage = options.usage ?? 'navigation';
+    if (requestedUsage !== 'navigation' && requestedUsage !== 'reference' && requestedUsage !== 'demo') {
+        throw new Error(`${canonicalId} import authority is invalid; bytes were not written.`);
+    }
+    if (
+        options.cloudManifestVersion !== undefined &&
+        (!Number.isInteger(options.cloudManifestVersion) || options.cloudManifestVersion < 0)
+    ) {
+        throw new Error(`${canonicalId} cloud manifest version is invalid; bytes were not written.`);
+    }
+    const storageIdentity = encCellStorageIdentity(canonicalId);
+    const installedDisplayCell =
+        cellMeta.getRegisteredCell(canonicalId) ??
+        cellMeta.listRegisteredCells().find((cell) => encCellStorageIdentity(cell.id) === storageIdentity) ??
+        null;
+    const authorityRank = (usage: EncCell['usage']): number => {
+        if (usage === 'demo') return 0;
+        if (usage === 'reference') return 1;
+        if (usage === 'pending') return 2;
+        return 3; // explicit or legacy navigation
+    };
+    const installedRank = installedDisplayCell ? authorityRank(installedDisplayCell.usage) : -1;
+    const requestedRank = authorityRank(requestedUsage);
+    if (installedDisplayCell && requestedRank < installedRank) {
+        const authority = installedRank === 3 ? 'trusted navigation coverage' : 'a pending trusted chart refresh';
+        throw new Error(`${canonicalId} is already installed as ${authority}; lower-authority bytes were not written.`);
+    }
+    // A self-asserted reference edition is not authority over a verified
+    // source and may claim 9999 without pinning out a cloud/Pi import. Within
+    // one authority tier, however, edition/date rollback is rejected. A
+    // pending cloud refresh also retains the last trusted edition/date, so a
+    // manifest bump cannot quietly replace ed.6 with ed.5.
+    const enforceMonotonic =
+        installedDisplayCell !== null &&
+        (installedRank === requestedRank ||
+            (installedDisplayCell.usage === 'pending' && requestedUsage === 'navigation'));
+    if (enforceMonotonic && installedDisplayCell.edition > normalizedBlob.edition) {
+        throw new Error(
+            `${canonicalId} edition ${normalizedBlob.edition} is older than installed edition ${installedDisplayCell.edition}; ` +
+                'older bytes were not written.',
+        );
+    }
+    if (
+        enforceMonotonic &&
+        installedDisplayCell.edition === normalizedBlob.edition &&
+        installedDisplayCell.issued &&
+        normalizedBlob.issued < installedDisplayCell.issued
+    ) {
+        throw new Error(
+            `${canonicalId} issue date ${normalizedBlob.issued} is older than installed ${installedDisplayCell.issued}; ` +
+                'older bytes were not written.',
+        );
+    }
+
     // sizeBytes rides back from the save — it used to be re-measured
     // with a SECOND full JSON.stringify of the multi-MB blob right
     // after the save's own (2026-07-12 audit: ~2× CPU + a transient
     // twin allocation per imported cell, on the UI thread).
-    const { path, sizeBytes } = await cellStore.saveCellGeoJSON(blob.cellId, blob);
+    const { path, sizeBytes } = await cellStore.saveCellGeoJSON(canonicalId, normalizedBlob);
 
     // Rough hazard count for the metadata record (without parsing
     // every feature). Small inaccuracy is fine — UI stat only.
     // We exclude M_QUAL from this count because it's coverage
     // info, not a hazard.
     let hazardCount = 0;
-    for (const [layer, fc] of Object.entries(blob.layers)) {
+    for (const [layer, fc] of Object.entries(normalizedBlob.layers)) {
         if (layer === 'M_QUAL') continue;
         if (fc && Array.isArray(fc.features)) hazardCount += fc.features.length;
     }
 
     // Compute the cell's CATZOC range up front so the UI can show
     // it without forcing a spatial-index build.
-    const zones = buildCatzocZones(blob);
+    const zones = buildCatzocZones(normalizedBlob);
     let catzocRange: [EncCatzoc, EncCatzoc] | null = null;
     if (zones.length > 0) {
         let best: EncCatzoc = zones[0].catzoc;
@@ -446,28 +627,43 @@ export async function importCell(
     // senc-extractor's rogue-triangle filter improves). Stringify length
     // matches the bytes the Pi reported in its installed-cells index.
     const cell: EncCell = {
-        id: blob.cellId,
-        sourceHO: blob.sourceHO,
-        edition: blob.edition,
-        issued: blob.issued,
+        id: canonicalId,
+        sourceHO: normalizedBlob.sourceHO,
+        edition: normalizedBlob.edition,
+        issued: normalizedBlob.issued,
         importedAt: new Date().toISOString(),
-        bbox: blob.bbox,
+        bbox: normalizedBlob.bbox,
         geojsonPath: path,
         hazardCount,
-        usage: options.usage ?? 'navigation',
+        usage: requestedUsage,
         catzocRange,
         sizeBytes,
+        ...(Number.isInteger(options.cloudManifestVersion)
+            ? { cloudManifestVersion: options.cloudManifestVersion }
+            : {}),
     };
-    cellMeta.putCell(cell);
+    // Only the validated byte-import transaction may raise metadata authority.
+    // putCell otherwise preserves any existing reference/demo classification,
+    // including case-variant aliases that share one native filename.
+    cellMeta.putCell(cell, { allowAuthorityUpgrade: requestedUsage === 'navigation' });
 
     // Drop any stale index — next query rebuilds.
     dropIndex(cell.id);
 
     const catzocStr = catzocRange ? ` CATZOC ${catzocRange[0]}..${catzocRange[1]}` : '';
     log.info(
-        `imported ${cell.usage === 'demo' ? 'demo ' : ''}cell ${cell.id} (${cell.sourceHO} ed.${cell.edition}): ${hazardCount} features${catzocStr}`,
+        `imported ${cell.usage === 'demo' ? 'demo ' : cell.usage === 'reference' ? 'reference ' : ''}cell ${cell.id} (${cell.sourceHO} ed.${cell.edition}): ${hazardCount} features${catzocStr}`,
     );
     return cell;
+}
+
+export function importCell(
+    blob: EncConversionResult,
+    options: { usage?: 'navigation' | 'reference' | 'demo'; cloudManifestVersion?: number } = {},
+): Promise<EncCell> {
+    return serializeCellMutation(typeof blob?.cellId === 'string' ? blob.cellId : '', () =>
+        importCellSerialized(blob, options),
+    );
 }
 
 /**
@@ -475,10 +671,67 @@ export async function importCell(
  * spatial index. Idempotent.
  */
 export async function removeCell(cellId: string): Promise<void> {
-    cellMeta.removeCell(cellId);
-    await cellStore.deleteCellGeoJSON(cellId);
-    dropIndex(cellId);
-    log.info(`removed cell ${cellId}`);
+    await serializeCellMutation(cellId, async () => {
+        const stored = cellMeta.getRegisteredCell(cellId);
+        const storedId = stored?.id ?? canonicalEncCellId(cellId);
+        cellMeta.removeCell(storedId);
+        await cellStore.deleteCellGeoJSON(storedId);
+        dropIndex(storedId);
+        log.info(`removed cell ${storedId}`);
+    });
+}
+
+/**
+ * Delete the bytes of a cloud-managed cell while retaining its manifest
+ * metadata for re-hydration. Shares the exact import lock so a manifest bump
+ * cannot delete a freshly imported cell after its metadata has committed.
+ */
+export function invalidateCloudCellBlob(
+    cellId: string,
+    currentManifestVersion: number,
+    force = false,
+    expectedStoredManifestVersion?: number,
+    expectedImportedAt?: string,
+): Promise<boolean> {
+    return serializeCellMutation(cellId, async () => {
+        const stored = cellMeta.getRegisteredCell(cellId);
+        if (
+            !stored ||
+            stored.cloudManifestVersion === undefined ||
+            (expectedStoredManifestVersion !== undefined &&
+                stored.cloudManifestVersion !== expectedStoredManifestVersion) ||
+            (expectedImportedAt !== undefined && stored.importedAt !== expectedImportedAt) ||
+            (!force &&
+                stored.cloudManifestVersion === currentManifestVersion &&
+                !(stored.usage !== 'reference' && stored.usage !== 'demo' && stored.hazardCount === 0))
+        ) {
+            return false;
+        }
+        // Quarantine metadata BEFORE deleting. Even if the filesystem refuses
+        // the delete, stale bytes cannot paint or answer a safety query.
+        cellMeta.putCell({
+            ...stored,
+            usage: 'pending',
+            cloudManifestVersion: currentManifestVersion,
+        });
+        await cellStore.deleteCellGeoJSON(stored.id);
+        dropIndex(stored.id);
+        return true;
+    });
+}
+
+/** Remove a cloud-managed identity that disappeared from the authoritative
+ * manifest. The in-lock provenance recheck prevents a concurrent local/Pi
+ * import from being deleted by a stale manifest walk. */
+export function retireCloudCell(cellId: string): Promise<boolean> {
+    return serializeCellMutation(cellId, async () => {
+        const stored = cellMeta.getRegisteredCell(cellId);
+        if (!stored || stored.cloudManifestVersion === undefined) return false;
+        cellMeta.removeCell(stored.id);
+        await cellStore.deleteCellGeoJSON(stored.id);
+        dropIndex(stored.id);
+        return true;
+    });
 }
 
 /**
@@ -695,10 +948,19 @@ export async function getMergedVectorData(
      * derived contours.
      */
     zoom?: number,
+    /** Safety default is navigation-only. The chart renderer must opt in to
+     * unsigned `reference` cells explicitly; whole-library routing/seaway
+     * consumers therefore cannot inherit them by accident. */
+    options: { includeReferences?: boolean } = {},
 ): Promise<EncMergedVectorData | null> {
-    const allCells = cellMeta.listCells();
-    if (allCells.length === 0) {
-        clearMergedData();
+    const includeReferences = options.includeReferences === true;
+    const allCells = includeReferences ? cellMeta.listDisplayCells() : cellMeta.listCells();
+    const allPendingCells = includeReferences ? cellMeta.listPendingCells() : [];
+    if (allCells.length === 0 && allPendingCells.length === 0) {
+        // A navigation-only consumer may run while a reference overlay is on
+        // the map. Do not evict that display merge merely because there are no
+        // authoritative cells; clear only when the display registry is empty.
+        if (cellMeta.listDisplayCells().length === 0) clearMergedData();
         return null;
     }
     // Stricter cell-selection floor at wide passage zoom (see the ratio
@@ -728,14 +990,22 @@ export async function getMergedVectorData(
         return 0; // nav: legibility ratio below decides
     };
     const floorDeg = minCellDiag();
-    const cells = window
-        ? allCells.filter((c) => {
-              if (!bboxIntersects(c.bbox, window)) return false;
-              const d = bboxDiag(c.bbox);
-              if (floorDeg > 0) return d >= floorDeg;
-              return d >= bboxDiag(window) * WINDOW_MIN_DIAG_RATIO;
-          })
-        : allCells;
+    const selectForWindow = (c: EncCell): boolean => {
+        if (!window) return true;
+        if (!bboxIntersects(c.bbox, window)) return false;
+        const d = bboxDiag(c.bbox);
+        if (floorDeg > 0) return d >= floorDeg;
+        return d >= bboxDiag(window) * WINDOW_MIN_DIAG_RATIO;
+    };
+    const cells = allCells.filter(selectForWindow);
+    const pendingCells = allPendingCells.filter(selectForWindow);
+    // Pending entries exist solely to bootstrap an authenticated cloud fetch.
+    // They never enter the merge, so stale/partial bytes under their filename
+    // cannot paint. Hydration promotes them only after exact manifest-bound
+    // validation and the serialized trusted import transaction.
+    if (pendingCells.length > 0 && !hydrationPaused) {
+        void hydrateMissingCells(pendingCells.map((cell) => cell.id));
+    }
     if (cells.length === 0) return null;
     const densify = zoom != null && zoom >= DERIVED_CONTOUR_MIN_ZOOM;
     // Build the heavy satellite glaze (2nd depth-geometry copy) only when
@@ -756,7 +1026,7 @@ export async function getMergedVectorData(
     // contours were computed + whether the glaze was built (so a wide
     // no-glaze merge and a zoomed-in with-glaze merge over the same cell
     // set don't collide).
-    const cacheKey = `v${cellMeta.getVersion()}:${densify ? 'd1' : 'd0'}:${buildGlaze ? 'g1' : 'g0'}:s${soundBucket}:${cells
+    const cacheKey = `v${cellMeta.getVersion()}:${includeReferences ? 'r1' : 'r0'}:${densify ? 'd1' : 'd0'}:${buildGlaze ? 'g1' : 'g0'}:s${soundBucket}:${cells
         .map((c) => c.id)
         .sort()
         .join(',')}`;
@@ -1112,14 +1382,26 @@ async function buildMergedVectorData(
     // Coarse-cell area geometry fully inside a much-finer cell's bbox is dropped
     // — the finer cell owns that ground. Applies to the chart-geometry classes
     // (land, depth areas, coastline, contours); point marks are untouched.
-    const cellExtents = cells.map((c) => ({ id: c.id, bbox: c.bbox }));
+    const cellExtents = cells.map((c) => ({
+        id: c.id,
+        bbox: c.bbox,
+        authority: c.usage === 'reference' ? ('reference' as const) : ('navigation' as const),
+    }));
     // COARSE → FINE merge order: overlapping near-opaque fills paint in
     // source order, so the finer survey's bands must come LAST to draw on
     // top. Whole-bbox shadowing alone can't stop a huge coarse polygon
     // that pokes outside finer coverage from painting over it (the
     // Newport-approach "dries 2 m over a surveyed 2–5 m band" conflict,
     // 2026-07-11) — order is what resolves the partial overlaps here.
-    const cellsCoarseToFine = [...cells].sort((a, b) => cellScaleRank(a.bbox) - cellScaleRank(b.bbox));
+    const cellsCoarseToFine = [...cells].sort((a, b) => {
+        const aReference = a.usage === 'reference';
+        const bReference = b.usage === 'reference';
+        // Trusted navigation geometry always paints after unsigned reference
+        // overlays, irrespective of scale. References can never visually win
+        // an overlap against an authoritative installed cell.
+        if (aReference !== bReference) return aReference ? -1 : 1;
+        return cellScaleRank(a.bbox) - cellScaleRank(b.bbox);
+    });
     // Glaze-LRU invariant (closing audit): the cache must hold this whole
     // merge's glaze cells or the all-or-nothing upgrade self-defeats.
     if (buildGlaze) ensureGlazeCapacity(cellsCoarseToFine.length);
@@ -1360,6 +1642,7 @@ async function hydrateMissingCells(cellIds: string[]): Promise<void> {
     cellMeta.suspendNotifications();
     let flushedAt = Date.now();
     let flushedCount = 0;
+    const supersededIds: string[] = [];
     try {
         const { downloadCloudCell } = await import('./cloudCellSync');
         // PARALLEL, pool of 3 (z10-boot audit #5): one-at-a-time downloads
@@ -1370,6 +1653,7 @@ async function hydrateMissingCells(cellIds: string[]): Promise<void> {
         // notify max-wait upstream paints in waves as cells land.
         let done = 0;
         const runOne = async (id: string): Promise<void> => {
+            const manifestVersionAtStart = cellMeta.getRegisteredCell(id)?.cloudManifestVersion;
             const ok = await downloadCloudCell(id);
             if (ok) {
                 hydrationCooldownUntil.delete(id);
@@ -1379,7 +1663,15 @@ async function hydrateMissingCells(cellIds: string[]): Promise<void> {
                 const rec = cellMeta.getCell(id);
                 if (rec) cellMeta.putCell(rec);
             } else {
-                hydrationCooldownUntil.set(id, Date.now() + HYDRATION_RETRY_COOLDOWN_MS);
+                const current = cellMeta.getRegisteredCell(id);
+                // A manifest refresh can intentionally supersede this exact
+                // request. That is not a network failure: retry the new
+                // pending version immediately instead of hiding it behind the
+                // generic failure cooldown.
+                if (current?.cloudManifestVersion !== manifestVersionAtStart) {
+                    hydrationCooldownUntil.delete(id);
+                    supersededIds.push(id);
+                } else hydrationCooldownUntil.set(id, Date.now() + HYDRATION_RETRY_COOLDOWN_MS);
             }
             done++;
             setHydrationProgress({ remaining: walk.length - done, total: walk.length });
@@ -1419,6 +1711,10 @@ async function hydrateMissingCells(cellIds: string[]): Promise<void> {
         // Outermost resume flushes the tail so the last cells to land
         // always paint, walk completed or aborted.
         cellMeta.resumeNotifications();
+        if (supersededIds.length > 0 && !hydrationPaused) {
+            const retry = [...new Set(supersededIds)];
+            void Promise.resolve().then(() => hydrateMissingCells(retry));
+        }
     }
 }
 

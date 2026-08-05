@@ -7,9 +7,21 @@ const photoMocks = vi.hoisted(() => ({
     moderatePhoto: vi.fn(),
 }));
 
+const cleanupMocks = vi.hoisted(() => ({
+    capture: vi.fn(),
+    retain: vi.fn(),
+    retire: vi.fn(),
+}));
+
 vi.mock('../services/ProfilePhotoService', () => ({
     compressImage: photoMocks.compressImage,
     moderatePhoto: photoMocks.moderatePhoto,
+}));
+
+vi.mock('../services/OwnedMediaCleanupService', () => ({
+    captureOwnedMediaAuthorization: cleanupMocks.capture,
+    retainUncertainOwnedMedia: cleanupMocks.retain,
+    retireOwnedMedia: cleanupMocks.retire,
 }));
 
 import { LonelyHeartsService } from '../services/LonelyHeartsService';
@@ -72,6 +84,9 @@ describe('LonelyHeartsService identity isolation', () => {
         });
         photoMocks.compressImage.mockReset().mockResolvedValue(new Blob(['photo'], { type: 'image/jpeg' }));
         photoMocks.moderatePhoto.mockReset().mockResolvedValue({ verdict: 'approved' });
+        cleanupMocks.capture.mockReset().mockResolvedValue({ ownerId: 'account-a', accessToken: 'token-a' });
+        cleanupMocks.retain.mockReset().mockReturnValue(true);
+        cleanupMocks.retire.mockReset().mockResolvedValue(true);
     });
 
     it('makes deferred init stateless and never falls back to a cached session', async () => {
@@ -330,13 +345,63 @@ describe('LonelyHeartsService identity isolation', () => {
         expect(from).not.toHaveBeenCalled();
     });
 
+    it('retires the exact private Crew List object when identity changes after upload', async () => {
+        const profileQuery = queryFor({
+            data: {
+                user_id: 'account-a',
+                crew_photo_path: null,
+                crew_photo_paths: [],
+                photos: [],
+                skills: [],
+                vibe: [],
+                languages: [],
+                interests: [],
+            },
+            error: null,
+        });
+        from.mockReturnValue(profileQuery);
+        const uploaded = deferred<{ error: null }>();
+        const upload = vi.fn().mockReturnValue(uploaded.promise);
+        const remove = vi.fn().mockResolvedValue({ error: null });
+        storageFrom.mockReturnValue({ upload, remove });
+
+        const pending = LonelyHeartsService.uploadCrewPhoto(new File(['raw'], 'crew.jpg', { type: 'image/jpeg' }));
+        await vi.waitFor(() => expect(upload).toHaveBeenCalledOnce());
+        const uploadedPath = upload.mock.calls[0][0] as string;
+
+        setAuthIdentityScope('account-b');
+        uploaded.resolve({ error: null });
+
+        await expect(pending).resolves.toEqual({ success: false, error: 'Account changed' });
+        expect(cleanupMocks.retire).toHaveBeenCalledWith(
+            expect.objectContaining({ userId: 'account-a' }),
+            { ownerId: 'account-a', accessToken: 'token-a' },
+            'crew-list-photos',
+            uploadedPath,
+        );
+        expect(remove).not.toHaveBeenCalled();
+        expect(uploadedPath).toMatch(/^account-a\/.+[.]jpg$/);
+        expect(profileQuery.upsert).not.toHaveBeenCalled();
+    });
+
     it('halts an account-A dating photo chain after upload without reading or writing B profile', async () => {
         const uploaded = deferred<{ error: null }>();
         const upload = vi.fn().mockReturnValue(uploaded.promise);
+        const remove = vi.fn().mockResolvedValue({ error: null });
         storageFrom.mockReturnValue({
             upload,
+            remove,
             getPublicUrl: vi.fn().mockReturnValue({ data: { publicUrl: 'https://example.test/a.jpg' } }),
         });
+        const profileQuery = queryFor({
+            data: {
+                user_id: 'account-a',
+                photos: [],
+                interests: [],
+            },
+            error: null,
+        });
+        from.mockReturnValue(profileQuery);
         const file = new File(['raw'], 'dating.jpg', { type: 'image/jpeg' });
 
         const pending = LonelyHeartsService.uploadDatingPhoto(file, 2);
@@ -347,7 +412,231 @@ describe('LonelyHeartsService identity isolation', () => {
         uploaded.resolve({ error: null });
 
         await expect(pending).resolves.toEqual({ success: false, error: 'Account changed' });
-        expect(from).not.toHaveBeenCalled();
+        expect(cleanupMocks.retire).toHaveBeenCalledWith(
+            expect.objectContaining({ userId: 'account-a' }),
+            { ownerId: 'account-a', accessToken: 'token-a' },
+            'chat-avatars',
+            upload.mock.calls[0][0],
+        );
+        expect(remove).not.toHaveBeenCalled();
+        expect(from).toHaveBeenCalledTimes(1);
+        expect(profileQuery.upsert).not.toHaveBeenCalled();
+    });
+
+    it('retires the old Crew List primary only after the exact owner row adopts its replacement', async () => {
+        const oldPrimary = 'account-a/old-primary.jpg';
+        const profileQuery = queryFor({
+            data: {
+                user_id: 'account-a',
+                crew_photo_path: oldPrimary,
+                crew_photo_paths: [oldPrimary, 'account-a/extra.jpg'],
+                skills: [],
+                vibe: [],
+                languages: [],
+                interests: [],
+            },
+            error: null,
+        });
+        const upsert = vi.fn((payload: Record<string, unknown>) =>
+            queryFor({
+                data: {
+                    user_id: 'account-a',
+                    crew_photo_path: payload.crew_photo_path,
+                    crew_photo_paths: payload.crew_photo_paths,
+                },
+                error: null,
+            }),
+        );
+        let tableCall = 0;
+        from.mockImplementation(() => {
+            tableCall += 1;
+            return tableCall === 1 ? profileQuery : { upsert };
+        });
+        const upload = vi.fn().mockResolvedValue({ error: null });
+        const createSignedUrls = vi.fn((paths: string[]) =>
+            Promise.resolve({ data: [{ path: paths[0], signedUrl: 'https://signed.test/new' }], error: null }),
+        );
+        storageFrom.mockReturnValue({ upload, createSignedUrls });
+
+        const result = await LonelyHeartsService.uploadCrewPhoto(new File(['raw'], 'crew.jpg'), {
+            persistPrimary: true,
+        });
+
+        expect(result).toMatchObject({ success: true, url: 'https://signed.test/new' });
+        const freshPath = upload.mock.calls[0][0] as string;
+        expect(upsert).toHaveBeenCalledWith(
+            expect.objectContaining({
+                user_id: 'account-a',
+                crew_photo_path: freshPath,
+                crew_photo_paths: [freshPath, 'account-a/extra.jpg'],
+            }),
+            { onConflict: 'user_id' },
+        );
+        expect(cleanupMocks.retire).toHaveBeenCalledWith(
+            expect.objectContaining({ userId: 'account-a' }),
+            { ownerId: 'account-a', accessToken: 'token-a' },
+            'crew-list-photos',
+            oldPrimary,
+        );
+        expect(cleanupMocks.retire).not.toHaveBeenCalledWith(
+            expect.anything(),
+            expect.anything(),
+            'crew-list-photos',
+            freshPath,
+        );
+    });
+
+    it('retains Crew List reference reconciliation when the adoption response is lost', async () => {
+        const oldPrimary = 'account-a/old-primary.jpg';
+        const profileQuery = queryFor({
+            data: {
+                user_id: 'account-a',
+                crew_photo_path: oldPrimary,
+                crew_photo_paths: [oldPrimary],
+                skills: [],
+                vibe: [],
+                languages: [],
+                interests: [],
+            },
+            error: null,
+        });
+        const upsert = vi.fn().mockReturnValue({
+            select: vi.fn().mockReturnValue({
+                maybeSingle: vi.fn().mockRejectedValue(new Error('response lost after commit')),
+            }),
+        });
+        let tableCall = 0;
+        from.mockImplementation(() => {
+            tableCall += 1;
+            return tableCall === 1 ? profileQuery : { upsert };
+        });
+        const upload = vi.fn().mockResolvedValue({ error: null });
+        storageFrom.mockReturnValue({
+            upload,
+            createSignedUrls: vi.fn().mockResolvedValue({
+                data: [{ path: oldPrimary, signedUrl: 'https://signed.test/old' }],
+                error: null,
+            }),
+        });
+
+        await expect(LonelyHeartsService.uploadCrewPhoto(new File(['raw'], 'crew.jpg'))).resolves.toEqual({
+            success: false,
+            error: 'response lost after commit',
+        });
+
+        const freshPath = upload.mock.calls[0][0] as string;
+        expect(cleanupMocks.retain).toHaveBeenCalledWith(
+            expect.objectContaining({ userId: 'account-a' }),
+            'crew-list-photos',
+            freshPath,
+            { kind: 'crew-photo' },
+        );
+        expect(cleanupMocks.retain).toHaveBeenCalledWith(
+            expect.objectContaining({ userId: 'account-a' }),
+            'crew-list-photos',
+            oldPrimary,
+            { kind: 'crew-photo' },
+        );
+        expect(cleanupMocks.retire).not.toHaveBeenCalled();
+    });
+
+    it('retires old minus new dating objects after an exact owner-row replacement', async () => {
+        const oldUrl = 'https://example.supabase.co/storage/v1/object/public/chat-avatars/dating/account-a/0_old.jpg';
+        const newUrl = 'https://example.supabase.co/storage/v1/object/public/chat-avatars/dating/account-a/0_new.jpg';
+        const profileQuery = queryFor({
+            data: { user_id: 'account-a', photos: [oldUrl], interests: [] },
+            error: null,
+        });
+        const upsert = vi.fn((payload: Record<string, unknown>) =>
+            queryFor({ data: { user_id: 'account-a', photos: payload.photos }, error: null }),
+        );
+        let tableCall = 0;
+        from.mockImplementation(() => {
+            tableCall += 1;
+            return tableCall === 1 ? profileQuery : { upsert };
+        });
+        const upload = vi.fn().mockResolvedValue({ error: null });
+        storageFrom.mockReturnValue({
+            upload,
+            getPublicUrl: vi.fn().mockReturnValue({ data: { publicUrl: newUrl } }),
+        });
+
+        await expect(LonelyHeartsService.uploadDatingPhoto(new File(['raw'], 'dating.jpg'), 0)).resolves.toEqual({
+            success: true,
+            url: newUrl,
+        });
+
+        expect(cleanupMocks.retire).toHaveBeenCalledWith(
+            expect.objectContaining({ userId: 'account-a' }),
+            { ownerId: 'account-a', accessToken: 'token-a' },
+            'chat-avatars',
+            'dating/account-a/0_old.jpg',
+        );
+        expect(cleanupMocks.retain).not.toHaveBeenCalled();
+    });
+
+    it('commits and reads back dating removal before retiring the removed public object', async () => {
+        const removedUrl =
+            'https://example.supabase.co/storage/v1/object/public/chat-avatars/dating/account-a/0_old.jpg';
+        const retainedUrl =
+            'https://example.supabase.co/storage/v1/object/public/chat-avatars/dating/account-a/1_keep.jpg';
+        const profileQuery = queryFor({
+            data: { user_id: 'account-a', photos: [removedUrl, retainedUrl], interests: [] },
+            error: null,
+        });
+        const maybeSingle = vi.fn().mockResolvedValue({
+            data: { user_id: 'account-a', photos: [retainedUrl] },
+            error: null,
+        });
+        const select = vi.fn().mockReturnValue({ maybeSingle });
+        const eq = vi.fn().mockReturnValue({ select });
+        const update = vi.fn().mockReturnValue({ eq });
+        let tableCall = 0;
+        from.mockImplementation(() => {
+            tableCall += 1;
+            return tableCall === 1 ? profileQuery : { update };
+        });
+
+        await expect(LonelyHeartsService.removeDatingPhoto(0)).resolves.toBe(true);
+
+        expect(update).toHaveBeenCalledWith(expect.objectContaining({ photos: [retainedUrl] }));
+        expect(eq).toHaveBeenCalledWith('user_id', 'account-a');
+        expect(cleanupMocks.retire).toHaveBeenCalledWith(
+            expect.objectContaining({ userId: 'account-a' }),
+            { ownerId: 'account-a', accessToken: 'token-a' },
+            'chat-avatars',
+            'dating/account-a/0_old.jpg',
+        );
+        expect(maybeSingle.mock.invocationCallOrder[0]).toBeLessThan(cleanupMocks.retire.mock.invocationCallOrder[0]);
+    });
+
+    it('rejects an affected-row mismatch and reconciles rather than deleting dating media', async () => {
+        const removedUrl =
+            'https://example.supabase.co/storage/v1/object/public/chat-avatars/dating/account-a/0_old.jpg';
+        const profileQuery = queryFor({
+            data: { user_id: 'account-a', photos: [removedUrl], interests: [] },
+            error: null,
+        });
+        const update = vi.fn().mockReturnValue(
+            queryFor({
+                data: { user_id: 'account-b', photos: [] },
+                error: null,
+            }),
+        );
+        let tableCall = 0;
+        from.mockImplementation(() => {
+            tableCall += 1;
+            return tableCall === 1 ? profileQuery : { update };
+        });
+
+        await expect(LonelyHeartsService.removeDatingPhoto(0)).resolves.toBe(false);
+        expect(cleanupMocks.retire).not.toHaveBeenCalled();
+        expect(cleanupMocks.retain).toHaveBeenCalledWith(
+            expect.objectContaining({ userId: 'account-a' }),
+            'chat-avatars',
+            'dating/account-a/0_old.jpg',
+            { kind: 'dating-photo' },
+        );
     });
 
     it('does not let a stale account-A accepted-introduction lookup reach its Crew List conversation', async () => {

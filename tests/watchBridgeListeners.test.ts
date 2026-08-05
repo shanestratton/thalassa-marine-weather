@@ -4,6 +4,12 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+const harness = vi.hoisted(() => ({
+    preferences: {} as Record<string, string>,
+    toastInfo: vi.fn(),
+    toastPersistentError: vi.fn(),
+}));
+
 // ── Capacitor stub: pretend we're on iOS so the listeners actually wire up.
 vi.mock('@capacitor/core', () => ({
     Capacitor: {
@@ -12,12 +18,28 @@ vi.mock('@capacitor/core', () => ({
     },
 }));
 
+vi.mock('@capacitor/preferences', () => ({
+    Preferences: {
+        get: vi.fn(async ({ key }: { key: string }) => ({ value: harness.preferences[key] ?? null })),
+        set: vi.fn(async ({ key, value }: { key: string; value: string }) => {
+            harness.preferences[key] = value;
+        }),
+    },
+}));
+
+vi.mock('../components/Toast', () => ({
+    toast: {
+        info: harness.toastInfo,
+        persistentError: harness.toastPersistentError,
+    },
+}));
+
 // ── watchBridge stubs that capture handler refs we can fire manually.
 // vi.mock factories are hoisted, so we can't close over locals — instead
 // stash handler refs on globalThis and look them up from inside the
 // factory.
 vi.mock('../services/native/watchBridge', () => ({
-    onMobTriggered: vi.fn(async (h: () => void) => {
+    onMobTriggered: vi.fn(async (h: (event: Record<string, unknown>) => Promise<void>) => {
         (globalThis as Record<string, unknown>).__mobHandler = h;
         return { remove: async () => undefined };
     }),
@@ -47,15 +69,39 @@ const anchorSvc = await import('../services/AnchorWatchService');
 const pushWeather = watchBridge.pushWeatherSnapshot as ReturnType<typeof vi.fn>;
 const mobActivate = mobSvc.MobService.activate as ReturnType<typeof vi.fn>;
 const ackAlarm = anchorSvc.AnchorWatchService.acknowledgeAlarm as ReturnType<typeof vi.fn>;
-function getMobHandler(): () => void {
-    return (globalThis as Record<string, unknown>).__mobHandler as () => void;
+function getMobHandler(): (event: Record<string, unknown>) => Promise<void> {
+    return (globalThis as Record<string, unknown>).__mobHandler as (event: Record<string, unknown>) => Promise<void>;
 }
 function getAlarmHandler(): () => void {
     return (globalThis as Record<string, unknown>).__alarmHandler as () => void;
 }
 
 import { useWeatherStore } from '../stores/weatherStore';
-import { _resetForTests, initWatchBridgeListeners } from '../services/native/watchBridgeListeners';
+import {
+    _pushWeatherHeartbeatForTests,
+    _resetForTests,
+    initWatchBridgeListeners,
+} from '../services/native/watchBridgeListeners';
+import {
+    _resetWatchMobRequestSafetyForTests,
+    WATCH_MOB_REQUEST_TTL_MS,
+} from '../services/native/watchMobRequestSafety';
+
+const REQUEST_A = '123e4567-e89b-42d3-a456-426614174000';
+const REQUEST_B = '223e4567-e89b-42d3-a456-426614174000';
+
+function makeMobRequest(overrides: Record<string, unknown> = {}, requestedAtMs = Date.now()): Record<string, unknown> {
+    return {
+        type: 'mob',
+        mobRequestVersion: 1,
+        mobRequestId: REQUEST_A,
+        mobRequestedAtMs: requestedAtMs,
+        mobRequestTtlMs: WATCH_MOB_REQUEST_TTL_MS,
+        mobRequestExpiresAtMs: requestedAtMs + WATCH_MOB_REQUEST_TTL_MS,
+        deliveryChannel: 'immediate',
+        ...overrides,
+    };
+}
 
 function makeWeather(overrides: Record<string, unknown> = {}) {
     // Cast through unknown — we only populate the fields the listener
@@ -73,7 +119,7 @@ function makeWeather(overrides: Record<string, unknown> = {}) {
         hourly: [],
         tides: [],
         boatingAdvice: '',
-        generatedAt: '2026-05-02T06:00:00Z',
+        generatedAt: new Date().toISOString(),
         modelUsed: 'test',
     } as unknown as NonNullable<ReturnType<typeof useWeatherStore.getState>['weatherData']>;
 }
@@ -81,16 +127,22 @@ function makeWeather(overrides: Record<string, unknown> = {}) {
 describe('watchBridgeListeners', () => {
     beforeEach(async () => {
         _resetForTests();
+        await _resetWatchMobRequestSafetyForTests();
+        for (const key of Object.keys(harness.preferences)) delete harness.preferences[key];
         (globalThis as Record<string, unknown>).__mobHandler = null;
         (globalThis as Record<string, unknown>).__alarmHandler = null;
         pushWeather.mockClear();
-        mobActivate.mockClear();
+        mobActivate.mockReset();
+        mobActivate.mockResolvedValue({ fixLat: -27, fixLon: 153, fixAccuracy: 12, activatedAt: Date.now() });
         ackAlarm.mockClear();
+        harness.toastInfo.mockClear();
+        harness.toastPersistentError.mockClear();
         useWeatherStore.setState({ weatherData: null });
         await initWatchBridgeListeners();
     });
 
     afterEach(() => {
+        _resetForTests();
         useWeatherStore.setState({ weatherData: null });
     });
 
@@ -104,15 +156,68 @@ describe('watchBridgeListeners', () => {
     });
 
     describe('watch → MOB', () => {
-        it('routes mobTriggered through MobService.activate', async () => {
+        it('routes a fresh versioned request through MobService.activate', async () => {
             expect(getMobHandler()).not.toBeNull();
-            await getMobHandler()();
+            await getMobHandler()(makeMobRequest());
             expect(mobActivate).toHaveBeenCalledTimes(1);
+            expect(harness.toastInfo).toHaveBeenCalledWith(expect.stringContaining('confirm the active marker'), 8_000);
         });
 
         it('survives MobService.activate throwing (does not crash the listener)', async () => {
             mobActivate.mockRejectedValueOnce(new Error('boom'));
-            await expect(getMobHandler()()).resolves.not.toThrow();
+            await expect(getMobHandler()(makeMobRequest())).resolves.not.toThrow();
+            expect(harness.toastPersistentError).toHaveBeenCalledWith(
+                expect.stringContaining('could not create a phone marker'),
+            );
+        });
+
+        it('never marks the phone current position for an expired queued request', async () => {
+            const oldRequest = makeMobRequest({ deliveryChannel: 'queued' }, Date.now() - WATCH_MOB_REQUEST_TTL_MS - 1);
+
+            await getMobHandler()(oldRequest);
+
+            expect(mobActivate).not.toHaveBeenCalled();
+            expect(harness.toastPersistentError).toHaveBeenCalledWith(
+                expect.stringContaining('expired and was NOT marked'),
+            );
+        });
+
+        it.each([
+            ['missing request ID', { mobRequestId: undefined }],
+            ['wrong TTL', { mobRequestTtlMs: WATCH_MOB_REQUEST_TTL_MS * 10 }],
+            ['future-dated', null],
+        ])('rejects an invalid %s envelope visibly', async (_label, override) => {
+            const event =
+                override === null
+                    ? makeMobRequest({}, Date.now() + 60_000)
+                    : makeMobRequest(override as Record<string, unknown>);
+
+            await getMobHandler()(event);
+
+            expect(mobActivate).not.toHaveBeenCalled();
+            expect(harness.toastPersistentError).toHaveBeenCalledWith(
+                expect.stringContaining('could not be verified and was NOT marked'),
+            );
+        });
+
+        it('deduplicates the same stable ID across immediate and queued delivery', async () => {
+            const requestedAtMs = Date.now();
+            await getMobHandler()(makeMobRequest({ deliveryChannel: 'immediate' }, requestedAtMs));
+            await getMobHandler()(makeMobRequest({ deliveryChannel: 'queued' }, requestedAtMs));
+
+            expect(mobActivate).toHaveBeenCalledTimes(1);
+            expect(harness.toastInfo).toHaveBeenCalledTimes(1);
+        });
+
+        it('keeps the ID reservation across a bridge listener re-init', async () => {
+            const event = makeMobRequest({ mobRequestId: REQUEST_B });
+            await getMobHandler()(event);
+            _resetForTests();
+            await initWatchBridgeListeners();
+
+            await getMobHandler()({ ...event, deliveryChannel: 'queued' });
+
+            expect(mobActivate).toHaveBeenCalledTimes(1);
         });
     });
 
@@ -151,6 +256,17 @@ describe('watchBridgeListeners', () => {
             expect(pushWeather.mock.calls.length).toBe(callsAfterFirst);
         });
 
+        it('heartbeats unchanged values so durable Watch context cannot look live forever', async () => {
+            useWeatherStore.setState({ weatherData: makeWeather() });
+            await vi.waitFor(() => expect(pushWeather).toHaveBeenCalledTimes(1));
+            const firstGeneratedAt = pushWeather.mock.calls[0][0].generatedAt;
+
+            await _pushWeatherHeartbeatForTests();
+
+            expect(pushWeather).toHaveBeenCalledTimes(2);
+            expect(pushWeather.mock.calls[1][0].generatedAt).toBeGreaterThanOrEqual(firstGeneratedAt);
+        });
+
         it('does push when wind speed changes', async () => {
             useWeatherStore.setState({ weatherData: makeWeather({ windSpeed: 12 }) });
             await vi.waitFor(() => expect(pushWeather).toHaveBeenCalledTimes(1));
@@ -163,6 +279,14 @@ describe('watchBridgeListeners', () => {
                 weatherData: makeWeather({ windSpeed: null, windDegree: null }),
             });
             await new Promise((r) => setTimeout(r, 50));
+            expect(pushWeather).toHaveBeenCalledTimes(0);
+        });
+
+        it('does not heartbeat a stale phone forecast into fresh-looking Watch wind', async () => {
+            useWeatherStore.setState({
+                weatherData: { ...makeWeather(), _stale: true },
+            });
+            await new Promise((resolve) => setTimeout(resolve, 50));
             expect(pushWeather).toHaveBeenCalledTimes(0);
         });
     });

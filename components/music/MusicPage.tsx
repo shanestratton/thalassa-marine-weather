@@ -2061,7 +2061,7 @@ const NowPlayingBar: React.FC<NowPlayingBarProps> = ({ nowPlaying, onPause, onRe
                 <div className="flex items-center gap-1 shrink-0">
                     <button
                         onClick={onPrevious}
-                        className="flex h-9 w-9 items-center justify-center rounded-xl text-slate-300 transition-all hover:bg-sky-500/[0.1] hover:text-sky-200 active:scale-90"
+                        className="flex h-11 w-11 items-center justify-center rounded-xl text-slate-300 transition-all hover:bg-sky-500/[0.1] hover:text-sky-200 active:scale-90"
                         aria-label="Previous"
                     >
                         <SkipPrevIcon className="w-5 h-5" />
@@ -2085,7 +2085,7 @@ const NowPlayingBar: React.FC<NowPlayingBarProps> = ({ nowPlaying, onPause, onRe
                     )}
                     <button
                         onClick={onNext}
-                        className="flex h-9 w-9 items-center justify-center rounded-xl text-slate-300 transition-all hover:bg-sky-500/[0.1] hover:text-sky-200 active:scale-90"
+                        className="flex h-11 w-11 items-center justify-center rounded-xl text-slate-300 transition-all hover:bg-sky-500/[0.1] hover:text-sky-200 active:scale-90"
                         aria-label="Next"
                     >
                         <SkipNextIcon className="w-5 h-5" />

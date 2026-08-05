@@ -3,16 +3,16 @@ import type { AlertEvent } from '../types/alerts';
 import { setAuthIdentityScope } from '../services/authIdentityScope';
 
 const alertMocks = vi.hoisted(() => ({
-    startAlarm: vi.fn(() => Promise.resolve()),
-    stopAlarm: vi.fn(() => Promise.resolve()),
+    acquire: vi.fn(() => Promise.resolve('calypso-lease')),
+    release: vi.fn(() => Promise.resolve()),
     synthesise: vi.fn(),
     addTurn: vi.fn(),
 }));
 
 vi.mock('../services/AlarmAudioService', () => ({
     AlarmAudioService: {
-        startAlarm: alertMocks.startAlarm,
-        stopAlarm: alertMocks.stopAlarm,
+        acquire: alertMocks.acquire,
+        release: alertMocks.release,
     },
 }));
 
@@ -95,20 +95,34 @@ describe('AlertNotifier identity and concurrency fences', () => {
     });
 
     it('abandons a critical alert if identity changes while the chime starts', async () => {
-        let resolveChime!: () => void;
-        alertMocks.startAlarm.mockReturnValueOnce(
-            new Promise<void>((resolve) => {
+        let resolveChime!: (token: string) => void;
+        alertMocks.acquire.mockReturnValueOnce(
+            new Promise<string>((resolve) => {
                 resolveChime = resolve;
             }),
         );
 
         const dispatching = dispatchAlert(event('critical', 3_000, 'critical'));
         setAuthIdentityScope('account-b');
-        resolveChime();
+        resolveChime('stale-calypso-lease');
         await dispatching;
 
-        expect(alertMocks.stopAlarm).toHaveBeenCalled();
+        expect(alertMocks.release).toHaveBeenCalledWith('stale-calypso-lease');
         expect(alertMocks.synthesise).not.toHaveBeenCalled();
         expect(alertMocks.addTurn).not.toHaveBeenCalled();
+    });
+
+    it('releases only the Calypso lease when its short chime expires', async () => {
+        vi.useFakeTimers();
+        try {
+            await dispatchAlert(event('critical-chime', 4_000, 'critical'));
+            expect(alertMocks.acquire).toHaveBeenCalledWith(expect.stringMatching(/^calypso-alert-/));
+            expect(alertMocks.release).not.toHaveBeenCalled();
+
+            await vi.advanceTimersByTimeAsync(500);
+            expect(alertMocks.release).toHaveBeenCalledWith('calypso-lease');
+        } finally {
+            vi.useRealTimers();
+        }
     });
 });

@@ -8,6 +8,7 @@ const weatherMocks = vi.hoisted(() => ({
     reverseGeocode: vi.fn(),
     fetchWeatherKitRealtime: vi.fn(),
     getCurrentPosition: vi.fn(),
+    getCurrentPositionIfGranted: vi.fn(),
     isPremiumUser: vi.fn(),
     saveLargeData: vi.fn(),
     saveLargeDataImmediate: vi.fn(),
@@ -16,6 +17,7 @@ const weatherMocks = vi.hoisted(() => ({
     deleteLargeData: vi.fn(),
     readCacheVersion: vi.fn(),
     writeCacheVersion: vi.fn(),
+    stormglassKeyPresent: false,
 }));
 
 vi.mock('../services/weatherService', () => ({
@@ -30,11 +32,14 @@ vi.mock('../services/weather/api/weatherkit', () => ({
 }));
 
 vi.mock('../services/weather/keys', () => ({
-    isStormglassKeyPresent: () => false,
+    isStormglassKeyPresent: () => weatherMocks.stormglassKeyPresent,
 }));
 
 vi.mock('../services/GpsService', () => ({
-    GpsService: { getCurrentPosition: weatherMocks.getCurrentPosition },
+    GpsService: {
+        getCurrentPosition: weatherMocks.getCurrentPosition,
+        getCurrentPositionIfGranted: weatherMocks.getCurrentPositionIfGranted,
+    },
 }));
 
 vi.mock('../managers/SubscriptionManager', () => ({
@@ -117,6 +122,7 @@ function callbackHarness(settings: Record<string, unknown> = {}) {
         versionChecked: false,
         quota: 0,
         isFetching: false,
+        isOffline: false,
         locationMode: 'selected' as 'gps' | 'selected',
         settings,
     };
@@ -155,6 +161,7 @@ function callbackHarness(settings: Record<string, unknown> = {}) {
         getSettings: () => state.settings,
         getHistoryCache: () => state.history,
         getLocationMode: () => state.locationMode,
+        getIsOffline: () => state.isOffline,
         getIsFetching: () => state.isFetching,
         setIsFetching: (value) => {
             state.isFetching = value;
@@ -170,6 +177,10 @@ async function flushPromises(): Promise<void> {
 
 beforeEach(() => {
     vi.clearAllMocks();
+    weatherMocks.getCurrentPosition.mockReset();
+    weatherMocks.getCurrentPositionIfGranted.mockReset();
+    weatherMocks.getCurrentPosition.mockResolvedValue(null);
+    weatherMocks.getCurrentPositionIfGranted.mockResolvedValue(null);
     localStorage.clear();
     Object.defineProperty(navigator, 'onLine', { configurable: true, value: true });
     setAuthIdentityScope('account-a');
@@ -181,6 +192,7 @@ beforeEach(() => {
     weatherMocks.deleteLargeData.mockResolvedValue(undefined);
     weatherMocks.readCacheVersion.mockResolvedValue(null);
     weatherMocks.writeCacheVersion.mockResolvedValue(undefined);
+    weatherMocks.stormglassKeyPresent = false;
 });
 
 afterEach(() => {
@@ -189,6 +201,136 @@ afterEach(() => {
 });
 
 describe('WeatherOrchestrator identity fences', () => {
+    it('uses the reachability probe as the offline authority even when navigator reports a network interface', async () => {
+        const { state, callbacks } = callbackHarness({ satelliteMode: false });
+        state.isOffline = true;
+        state.history['Cached port'] = makeReport('Cached port');
+        const orchestrator = new WeatherOrchestrator(callbacks, getAuthIdentityScope());
+
+        await orchestrator.fetchWeather('Cached port', {
+            force: true,
+            coords: { lat: -27.4, lon: 153.1 },
+        });
+
+        expect(navigator.onLine).toBe(true);
+        expect(weatherMocks.fetchWeatherByStrategy).not.toHaveBeenCalled();
+        expect(weatherMocks.fetchPrecisionWeather).not.toHaveBeenCalled();
+        expect(state.weatherData?.locationName).toBe('Cached port');
+        expect(state.isFetching).toBe(false);
+    });
+
+    it('does not start a WeatherKit live patch while the reachability probe says offline', async () => {
+        const { state, callbacks } = callbackHarness();
+        state.weatherData = makeReport('Cached port');
+        state.isOffline = true;
+        const orchestrator = new WeatherOrchestrator(callbacks, getAuthIdentityScope());
+
+        await orchestrator.patchLiveMetrics();
+
+        expect(weatherMocks.fetchWeatherKitRealtime).not.toHaveBeenCalled();
+        expect(state.weatherData.current.airTemperature).toBeUndefined();
+    });
+
+    it('drops a live patch when the reachability probe turns offline during the request', async () => {
+        const liveResult = deferred<{
+            temperature: number;
+            temperatureApparent: null;
+            humidity: null;
+            windSpeed: null;
+            windDirection: null;
+            windGust: null;
+            pressure: null;
+            visibility: null;
+            cloudCover: null;
+            dewPoint: null;
+            uvIndex: null;
+            precipitationIntensity: null;
+            weatherCode: null;
+            condition: string;
+            observationTime: string;
+        }>();
+        weatherMocks.fetchWeatherKitRealtime.mockReturnValueOnce(liveResult.promise);
+        const { state, callbacks } = callbackHarness();
+        state.weatherData = makeReport('Cached port');
+        const original = state.weatherData;
+        const orchestrator = new WeatherOrchestrator(callbacks, getAuthIdentityScope());
+
+        const patching = orchestrator.patchLiveMetrics();
+        await flushPromises();
+        state.isOffline = true;
+        liveResult.resolve({
+            temperature: 29,
+            temperatureApparent: null,
+            humidity: null,
+            windSpeed: null,
+            windDirection: null,
+            windGust: null,
+            pressure: null,
+            visibility: null,
+            cloudCover: null,
+            dewPoint: null,
+            uvIndex: null,
+            precipitationIntensity: null,
+            weatherCode: null,
+            condition: 'Clear',
+            observationTime: new Date().toISOString(),
+        });
+        await patching;
+
+        expect(state.weatherData).toBe(original);
+        expect(state.weatherData.current.airTemperature).toBeUndefined();
+    });
+
+    it('does not advertise a future refresh if connectivity is lost during a provider request', async () => {
+        const weatherResult = deferred<MarineWeatherReport | null>();
+        weatherMocks.fetchWeatherByStrategy.mockReturnValueOnce(weatherResult.promise);
+        const { state, callbacks } = callbackHarness({ satelliteMode: false });
+        const scope = getAuthIdentityScope();
+        const orchestrator = new WeatherOrchestrator(callbacks, scope);
+
+        const fetching = orchestrator.fetchWeather('Moreton Bay', {
+            coords: { lat: -27.4, lon: 153.1 },
+        });
+        await flushPromises();
+        state.isOffline = true;
+        weatherResult.resolve(makeReport('Moreton Bay'));
+        await fetching;
+        await flushPromises();
+
+        expect(state.nextUpdate).toBeNull();
+        expect(localStorage.getItem(weatherCacheKeysForScope(scope).nextUpdate)).toBeNull();
+    });
+
+    it('does not refetch a fresh current report for a duplicate non-forced bootstrap request', async () => {
+        const { state, callbacks } = callbackHarness({ satelliteMode: false });
+        state.weatherData = makeReport('Sydney, NSW', -33.8688, 151.2093);
+        state.loading = true;
+        state.backgroundUpdating = true;
+        const orchestrator = new WeatherOrchestrator(callbacks, getAuthIdentityScope());
+
+        await orchestrator.fetchWeather('Sydney, NSW', {
+            coords: { lat: -33.8688, lon: 151.2093 },
+        });
+
+        expect(weatherMocks.fetchWeatherByStrategy).not.toHaveBeenCalled();
+        expect(weatherMocks.fetchPrecisionWeather).not.toHaveBeenCalled();
+        expect(state.loading).toBe(false);
+        expect(state.backgroundUpdating).toBe(false);
+    });
+
+    it('does not unlock the paid weather fallback when entitlement verification fails', async () => {
+        weatherMocks.stormglassKeyPresent = true;
+        weatherMocks.isPremiumUser.mockRejectedValueOnce(new Error('entitlement unavailable'));
+        weatherMocks.fetchWeatherByStrategy.mockRejectedValueOnce(new Error('standard provider unavailable'));
+        weatherMocks.fetchPrecisionWeather.mockResolvedValue(makeReport('Paid fallback'));
+        const { callbacks } = callbackHarness({ satelliteMode: false });
+        const orchestrator = new WeatherOrchestrator(callbacks, getAuthIdentityScope());
+
+        await orchestrator.fetchWeather('Moreton Bay', { coords: { lat: -27.4, lon: 153.1 } });
+
+        expect(weatherMocks.fetchPrecisionWeather).not.toHaveBeenCalled();
+    });
+
     it('does not let an A fetch result or finally clear B while B is fetching', async () => {
         const aResult = deferred<MarineWeatherReport | null>();
         const bResult = deferred<MarineWeatherReport | null>();
@@ -266,12 +408,13 @@ describe('WeatherOrchestrator identity fences', () => {
 
     it('drops a late A GPS fix before it can start a fetch for B', async () => {
         const gpsResult = deferred<{ latitude: number; longitude: number } | null>();
-        weatherMocks.getCurrentPosition.mockReturnValue(gpsResult.promise);
+        weatherMocks.getCurrentPositionIfGranted.mockReturnValue(gpsResult.promise);
         const { callbacks } = callbackHarness({ defaultLocation: 'Current Location' });
         const orchestrator = new WeatherOrchestrator(callbacks, getAuthIdentityScope());
 
         await orchestrator.loadCacheAndInit();
-        expect(weatherMocks.getCurrentPosition).toHaveBeenCalledOnce();
+        expect(weatherMocks.getCurrentPositionIfGranted).toHaveBeenCalledOnce();
+        expect(weatherMocks.getCurrentPosition).not.toHaveBeenCalled();
 
         setAuthIdentityScope('account-b');
         gpsResult.resolve({ latitude: -27.4, longitude: 153.1 });

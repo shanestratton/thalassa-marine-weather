@@ -70,4 +70,34 @@ describe('DiaryComposeForm voice entry', () => {
         expect(screen.getByRole('button', { name: 'Save changes' })).toBeDisabled();
         expect(screen.getByRole('button', { name: 'Stop recording' })).toBeEnabled();
     });
+
+    it('locks cancel and photo mutation while a save is adopting compose media', () => {
+        const onCancel = vi.fn();
+        const onPhotoRemove = vi.fn();
+        render(
+            <DiaryComposeForm
+                {...makeProps({
+                    saving: true,
+                    photos: ['storage:diary-photos:skipper/new.jpg'],
+                    onCancel,
+                    onPhotoRemove,
+                })}
+            />,
+        );
+
+        const cancelButtons = screen.getAllByRole('button', { name: 'Cancel this action' });
+        expect(cancelButtons).toHaveLength(2);
+        cancelButtons.forEach((button) => expect(button).toBeDisabled());
+        expect(screen.getByRole('button', { name: 'Remove this item' })).toBeDisabled();
+        expect(
+            screen
+                .getAllByRole('button', { name: /Add diary photo/ })
+                .every((button) => button.hasAttribute('disabled')),
+        ).toBe(true);
+
+        cancelButtons.forEach((button) => fireEvent.click(button));
+        fireEvent.click(screen.getByRole('button', { name: 'Remove this item' }));
+        expect(onCancel).not.toHaveBeenCalled();
+        expect(onPhotoRemove).not.toHaveBeenCalled();
+    });
 });

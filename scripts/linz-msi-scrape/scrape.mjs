@@ -28,8 +28,9 @@
 import { chromium } from 'playwright';
 import { createClient } from '@supabase/supabase-js';
 import { writeFile, mkdir } from 'node:fs/promises';
+import { pathToFileURL } from 'node:url';
 
-const LINZ_URL = 'https://www.maritimenz.govt.nz/navigational-warnings/';
+export const LINZ_URL = 'https://www.maritimenz.govt.nz/navigational-warnings/';
 
 // Cloudflare's challenge usually clears within ~5 seconds. 60s upper
 // bound accounts for occasional CF tightening + the CMS rendering the
@@ -39,6 +40,82 @@ const CHALLENGE_TIMEOUT_MS = 60_000;
 // On failure, dump page state here so the GH Actions step can upload
 // it as an artifact for diagnosis (screenshot + raw HTML + body text).
 const DEBUG_DIR = '/tmp/linz-debug';
+
+export const SCRAPE_SAFETY_LIMITS = Object.freeze({
+    minWarnings: 2,
+    maxWarnings: 500,
+    maxPageBytes: 2_000_000,
+    maxWarningTextChars: 20_000,
+    maxTotalWarningTextChars: 2_000_000,
+    maxInforceAgeMs: 72 * 60 * 60 * 1000,
+    maxFutureSkewMs: 6 * 60 * 60 * 1000,
+    maxCountDropFraction: 0.5,
+});
+
+const BROWSER_ENV_ALLOWLIST = Object.freeze([
+    'CI',
+    'HOME',
+    'LANG',
+    'LC_ALL',
+    'PATH',
+    'PLAYWRIGHT_BROWSERS_PATH',
+    'TEMP',
+    'TMP',
+    'TMPDIR',
+    'TZ',
+]);
+
+export function buildBrowserEnvironment(env = process.env) {
+    const browserEnv = {};
+    for (const key of BROWSER_ENV_ALLOWLIST) {
+        if (typeof env[key] === 'string' && env[key]) browserEnv[key] = env[key];
+    }
+    return browserEnv;
+}
+
+function decodeJwtPayload(value) {
+    if (!value.startsWith('eyJ')) return null;
+    try {
+        const payload = value.split('.')[1];
+        if (!payload) return null;
+        return JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
+    } catch {
+        return null;
+    }
+}
+
+export function validateWriteEnvironment(env = process.env) {
+    const supabaseUrl = env.SUPABASE_URL?.trim();
+    const serviceKey = env.SUPABASE_SERVICE_ROLE_KEY?.trim();
+    if (!supabaseUrl || !serviceKey) {
+        throw new Error('SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY env vars are required');
+    }
+
+    let parsedUrl;
+    try {
+        parsedUrl = new URL(supabaseUrl);
+    } catch {
+        throw new Error('SUPABASE_URL must be a valid HTTPS URL');
+    }
+    if (parsedUrl.protocol !== 'https:') {
+        throw new Error('SUPABASE_URL must be a valid HTTPS URL');
+    }
+
+    const jwtPayload = decodeJwtPayload(serviceKey);
+    const isModernSecret = serviceKey.startsWith('sb_secret_');
+    if ((!isModernSecret && jwtPayload?.role !== 'service_role') || serviceKey.startsWith('sb_publishable_')) {
+        throw new Error('SUPABASE_SERVICE_ROLE_KEY must be a service-role credential');
+    }
+
+    return { supabaseUrl: parsedUrl.toString().replace(/\/$/, ''), serviceKey };
+}
+
+function dryRunEnabled(env) {
+    const value = env.DRY_RUN;
+    if (value === undefined || value === '') return false;
+    if (value === '1') return true;
+    throw new Error('DRY_RUN must be exactly "1" when set');
+}
 
 // ── Date / reference parsing ───────────────────────────────────────────
 //
@@ -65,15 +142,33 @@ const MONTHS = {
 
 // "Warnings In-Force at: 150500 UTC MAY 26"
 const INFORCE_RE = /Warnings\s+In-Force\s+at:\s*(\d{6})\s+UTC\s+([A-Za-z]{3,})\s+(\d{2,4})/i;
+const WARNING_HEADER_RE = /(?:NAVAREA\s+XIV|NEW\s+ZEALAND\s+COASTAL\s+NAVIGATION)\s+WARNING\s+\d+\/\d{2,4}/i;
 
-function parseInforceDate(bodyText) {
+export function parseInforceDate(bodyText) {
     const m = bodyText.match(INFORCE_RE);
     if (!m) return '';
     const ddhhmm = m[1];
     const mon = MONTHS[m[2].slice(0, 3).toLowerCase()];
     let year = Number(m[3]);
     if (year < 100) year = 2000 + year;
-    if (!mon) return '';
+    const day = Number(ddhhmm.slice(0, 2));
+    const hour = Number(ddhhmm.slice(2, 4));
+    const minute = Number(ddhhmm.slice(4, 6));
+    const monthIndex = Object.values(MONTHS).indexOf(mon);
+    const parsedMs = Date.UTC(year, monthIndex, day, hour, minute);
+    const parsed = new Date(parsedMs);
+    if (
+        !mon ||
+        year < 2000 ||
+        year > 2100 ||
+        parsed.getUTCFullYear() !== year ||
+        parsed.getUTCMonth() !== monthIndex ||
+        parsed.getUTCDate() !== day ||
+        parsed.getUTCHours() !== hour ||
+        parsed.getUTCMinutes() !== minute
+    ) {
+        return '';
+    }
     // "150500Z MAY 2026" — matches the NGA / AMSA / UKHO shape that
     // services/NoticeToMarinersService.ts::parseIssueDate understands.
     return `${ddhhmm}Z ${mon} ${year}`;
@@ -84,12 +179,21 @@ function parseInforceDate(bodyText) {
 //   "NEW ZEALAND COASTAL NAVIGATION WARNING  — NZ coastal warnings
 //                                     136/26"  (broadcast on MF / VHF)
 // Each maps to a stable navArea code we can filter on client-side.
-function parseReferenceMatch(match) {
+export function parseReferenceMatch(match) {
     const kind = match[1].toUpperCase();
     const msgNumber = Number(match[2]);
     let msgYear = Number(match[3]);
     if (msgYear < 100) msgYear = 2000 + msgYear;
-    if (!Number.isFinite(msgNumber) || !Number.isFinite(msgYear)) return null;
+    if (
+        !Number.isSafeInteger(msgNumber) ||
+        msgNumber < 1 ||
+        msgNumber > 99_999 ||
+        !Number.isSafeInteger(msgYear) ||
+        msgYear < 2000 ||
+        msgYear > 2100
+    ) {
+        return null;
+    }
     const navArea = kind.includes('COASTAL') ? 'NZC' : 'XIV';
     return { navArea, msgNumber, msgYear };
 }
@@ -119,12 +223,47 @@ async function dumpDebug(page, label) {
     }
 }
 
-async function scrape() {
+export async function navigateToWarningPage(page, { url = LINZ_URL, timeoutMs = CHALLENGE_TIMEOUT_MS } = {}) {
+    const expectedUrl = new URL(url);
+
+    // The site deliberately keeps analytics, search and Cloudflare
+    // telemetry requests alive after its warning content is ready, so
+    // network-idle is not a reliable completion signal. DOM readiness
+    // lets a Cloudflare interstitial execute, then the semantic wait
+    // below admits only the canonical warning page with both its
+    // in-force timestamp and at least one real warning header present.
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: timeoutMs });
+    await page.waitForFunction(
+        ({ expectedOrigin, expectedPathname, inforcePattern, warningPattern }) => {
+            const currentUrl = new URL(window.location.href);
+            const bodyText = document.body?.innerText ?? '';
+            return (
+                currentUrl.origin === expectedOrigin &&
+                currentUrl.pathname === expectedPathname &&
+                new RegExp(inforcePattern, 'i').test(bodyText) &&
+                new RegExp(warningPattern, 'i').test(bodyText)
+            );
+        },
+        {
+            expectedOrigin: expectedUrl.origin,
+            expectedPathname: expectedUrl.pathname,
+            inforcePattern: INFORCE_RE.source,
+            warningPattern: WARNING_HEADER_RE.source,
+        },
+        { timeout: timeoutMs },
+    );
+}
+
+export async function scrape({ browserEnv = buildBrowserEnvironment(process.env) } = {}) {
     const browser = await chromium.launch({
         // GitHub-hosted runners ship with the necessary deps; locally
         // you may need `npx playwright install chromium --with-deps`.
         headless: true,
-        args: ['--no-sandbox', '--disable-blink-features=AutomationControlled'],
+        chromiumSandbox: true,
+        // Keep Chromium sandboxed and pass an explicit allowlist so the
+        // upstream-controlled page cannot inherit database credentials.
+        env: browserEnv,
+        args: ['--disable-blink-features=AutomationControlled'],
     });
     let page;
     try {
@@ -148,23 +287,10 @@ async function scrape() {
         });
 
         console.log(`[linz-msi] navigating to ${LINZ_URL}`);
-        // networkidle waits until there's been ≤ 2 concurrent requests
-        // for 500ms — this catches CMS-rendered pages that hydrate
-        // warnings via XHR after domcontentloaded.
-        await page.goto(LINZ_URL, { waitUntil: 'networkidle', timeout: CHALLENGE_TIMEOUT_MS });
-
-        // After network is idle, scan the body for any "WARNING NNN/YY"
-        // — matches both "NAVAREA XIV WARNING 130/26" and
-        // "NEW ZEALAND COASTAL NAVIGATION WARNING 136/26" formats.
-        const FOUND_RE = /WARNING\s+\d+\/\d{2,4}/i;
-        await page
-            .waitForFunction((re) => new RegExp(re, 'i').test(document.body.innerText), FOUND_RE.source, {
-                timeout: CHALLENGE_TIMEOUT_MS,
-            })
-            .catch(async (err) => {
-                await dumpDebug(page, 'waitfn-timeout');
-                throw err;
-            });
+        await navigateToWarningPage(page).catch(async (err) => {
+            await dumpDebug(page, 'readiness-timeout');
+            throw err;
+        });
 
         // Always snapshot a "success" dump too — useful when parsing
         // returns zero warnings, we can inspect what the page looked
@@ -194,7 +320,7 @@ async function scrape() {
 
 const REF_RE = /(NAVAREA\s+XIV|NEW\s+ZEALAND\s+COASTAL\s+NAVIGATION)\s+WARNING\s+(\d+)\/(\d+)/gi;
 
-function splitWarnings(bodyText) {
+export function splitWarnings(bodyText) {
     // First pass: filter out cancel sub-references. A line like
     //   "3. CANCEL NAVAREA XIV WARNING 119/26"
     // appears inside the body of warning 125 and would otherwise
@@ -225,7 +351,7 @@ function splitWarnings(bodyText) {
     return blocks;
 }
 
-function buildWarning(block, issueDate, runTimestamp) {
+export function buildWarning(block, issueDate, runTimestamp) {
     const parsed = parseReferenceMatch(block.match);
     if (!parsed) return null;
     const id = `${parsed.navArea}-${parsed.msgYear}/${parsed.msgNumber}`;
@@ -247,21 +373,135 @@ function buildWarning(block, issueDate, runTimestamp) {
     };
 }
 
+const NORMALIZED_ISSUE_DATE_RE = /^(\d{2})(\d{2})(\d{2})Z\s+([A-Z]{3})\s+(\d{4})$/;
+
+function normalizedIssueDateMs(issueDate) {
+    const match = issueDate.match(NORMALIZED_ISSUE_DATE_RE);
+    if (!match) return Number.NaN;
+    const monthIndex = Object.values(MONTHS).indexOf(match[4]);
+    if (monthIndex < 0) return Number.NaN;
+    const year = Number(match[5]);
+    const day = Number(match[1]);
+    const hour = Number(match[2]);
+    const minute = Number(match[3]);
+    const value = Date.UTC(year, monthIndex, day, hour, minute);
+    const parsed = new Date(value);
+    return parsed.getUTCFullYear() === year &&
+        parsed.getUTCMonth() === monthIndex &&
+        parsed.getUTCDate() === day &&
+        parsed.getUTCHours() === hour &&
+        parsed.getUTCMinutes() === minute
+        ? value
+        : Number.NaN;
+}
+
+export function validateScrapeResult({ warnings, issueDate, runTimestamp, duplicateIds = [] }) {
+    const runMs = Date.parse(runTimestamp);
+    const issueMs = normalizedIssueDateMs(issueDate);
+    if (!Number.isFinite(runMs)) throw new Error('invalid canonical run timestamp');
+    if (!Number.isFinite(issueMs)) throw new Error('missing or invalid page in-force timestamp');
+    if (runMs - issueMs > SCRAPE_SAFETY_LIMITS.maxInforceAgeMs) {
+        throw new Error('page in-force timestamp is stale; refusing database changes');
+    }
+    if (issueMs - runMs > SCRAPE_SAFETY_LIMITS.maxFutureSkewMs) {
+        throw new Error('page in-force timestamp is implausibly in the future');
+    }
+    if (warnings.length < SCRAPE_SAFETY_LIMITS.minWarnings) {
+        throw new Error(
+            `parsed ${warnings.length} warnings; minimum safe count is ${SCRAPE_SAFETY_LIMITS.minWarnings}`,
+        );
+    }
+    if (warnings.length > SCRAPE_SAFETY_LIMITS.maxWarnings) {
+        throw new Error(
+            `parsed ${warnings.length} warnings; maximum safe count is ${SCRAPE_SAFETY_LIMITS.maxWarnings}`,
+        );
+    }
+    if (duplicateIds.length > 0) {
+        throw new Error(`duplicate warning IDs found: ${[...new Set(duplicateIds)].slice(0, 5).join(', ')}`);
+    }
+
+    let totalTextChars = 0;
+    const ids = new Set();
+    for (const warning of warnings) {
+        const expectedId = `${warning.nav_area}-${warning.msg_year}/${warning.msg_number}`;
+        if (warning.id !== expectedId || !/^(?:XIV|NZC)-\d{4}\/\d{1,5}$/.test(warning.id)) {
+            throw new Error(`invalid warning identity: ${String(warning.id)}`);
+        }
+        if (ids.has(warning.id)) throw new Error(`duplicate warning ID found: ${warning.id}`);
+        ids.add(warning.id);
+        if (warning.issue_date !== issueDate || warning.fetched_at !== runTimestamp) {
+            throw new Error(`warning timestamp mismatch: ${warning.id}`);
+        }
+        if (warning.status !== 'A' || warning.authority !== 'MARITIME NZ') {
+            throw new Error(`warning authority/status mismatch: ${warning.id}`);
+        }
+        if (
+            typeof warning.text !== 'string' ||
+            warning.text.trim().length < 20 ||
+            warning.text.length > SCRAPE_SAFETY_LIMITS.maxWarningTextChars
+        ) {
+            throw new Error(`warning text outside safe bounds: ${warning.id}`);
+        }
+        totalTextChars += warning.text.length;
+    }
+    if (totalTextChars > SCRAPE_SAFETY_LIMITS.maxTotalWarningTextChars) {
+        throw new Error('total warning text exceeds safe bound');
+    }
+}
+
+export function normalizeWarnings(bodyText, runTimestamp) {
+    if (typeof bodyText !== 'string' || Buffer.byteLength(bodyText, 'utf8') > SCRAPE_SAFETY_LIMITS.maxPageBytes) {
+        throw new Error('page text is missing or exceeds the safe byte bound');
+    }
+    const issueDate = parseInforceDate(bodyText);
+    const blocks = splitWarnings(bodyText);
+    const warnings = [];
+    const duplicateIds = [];
+    const seen = new Set();
+    for (const block of blocks) {
+        const warning = buildWarning(block, issueDate, runTimestamp);
+        if (!warning) continue;
+        if (seen.has(warning.id)) {
+            duplicateIds.push(warning.id);
+            continue;
+        }
+        seen.add(warning.id);
+        warnings.push(warning);
+    }
+    validateScrapeResult({ warnings, issueDate, runTimestamp, duplicateIds });
+    return { warnings, issueDate, blockCount: blocks.length };
+}
+
 // ── Supabase upsert + cleanup ──────────────────────────────────────────
 //
 // Strategy: upsert the freshly-scraped rows on (id), then delete any
 // row whose fetched_at didn't get touched this run — that's how a
 // withdrawn / cancelled warning disappears from the served list.
 
-async function persist(warnings, runTimestamp) {
-    const supabaseUrl = process.env.SUPABASE_URL;
-    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    if (!supabaseUrl || !serviceKey) {
-        throw new Error('SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY env vars are required');
+export async function persist(warnings, runTimestamp, credentials, createClientFn = createClient) {
+    if (!credentials?.supabaseUrl || !credentials?.serviceKey) {
+        throw new Error('validated service-role credentials are required for persistence');
     }
-    const client = createClient(supabaseUrl, serviceKey, {
+    const client = createClientFn(credentials.supabaseUrl, credentials.serviceKey, {
         auth: { persistSession: false, autoRefreshToken: false },
     });
+
+    // Verify the credential/table path and compare against the currently
+    // served set before executing a mutation. A sudden >50% count drop is
+    // much more likely to be parser drift than a legitimate withdrawal.
+    const { error: preflightError, count: existingCount } = await client
+        .from('linz_warnings')
+        .select('id', { count: 'exact', head: true });
+    if (preflightError) {
+        throw new Error(`write preflight failed: ${preflightError.message}`);
+    }
+    const minimumRelativeCount = Math.ceil((existingCount ?? 0) * (1 - SCRAPE_SAFETY_LIMITS.maxCountDropFraction));
+    if ((existingCount ?? 0) > 0 && warnings.length < minimumRelativeCount) {
+        throw new Error(
+            `parsed count ${warnings.length} is below the safe baseline ${minimumRelativeCount} ` +
+                `(existing count ${existingCount}); refusing database changes`,
+        );
+    }
 
     const { error: upsertError } = await client
         .from('linz_warnings')
@@ -287,46 +527,47 @@ async function persist(warnings, runTimestamp) {
 
 // ── Main ───────────────────────────────────────────────────────────────
 
-async function main() {
+export async function runScraper({
+    env = process.env,
+    now = () => new Date(),
+    scrapePage = scrape,
+    persistWarnings = persist,
+    logger = console,
+} = {}) {
+    const dryRun = dryRunEnabled(env);
+    // Validate the privileged write boundary before launching an
+    // upstream-controlled browser. Dry runs never read the secret.
+    const writeCredentials = dryRun ? null : validateWriteEnvironment(env);
+
     // Canonical timestamp for this run. Used as both the rows'
     // fetched_at AND the cleanup cutoff — see persist() for why.
-    const runTimestamp = new Date().toISOString();
-
-    const bodyText = await scrape();
-    const issueDate = parseInforceDate(bodyText);
-    console.log(`[linz-msi] page in-force timestamp: ${issueDate || '(not found)'}`);
-    const blocks = splitWarnings(bodyText);
-    console.log(`[linz-msi] parsed ${blocks.length} warning block(s) from page text`);
-
-    const warnings = [];
-    const seen = new Set();
-    for (const block of blocks) {
-        const w = buildWarning(block, issueDate, runTimestamp);
-        if (!w) continue;
-        if (seen.has(w.id)) continue;
-        seen.add(w.id);
-        warnings.push(w);
+    const runDate = now();
+    if (!(runDate instanceof Date) || !Number.isFinite(runDate.getTime())) {
+        throw new Error('clock returned an invalid run timestamp');
     }
-    console.log(`[linz-msi] normalised ${warnings.length} unique warning(s)`);
+    const runTimestamp = runDate.toISOString();
 
-    if (process.env.DRY_RUN) {
-        console.log(JSON.stringify(warnings.slice(0, 5), null, 2));
-        console.log(`[linz-msi] DRY_RUN=1 — skipping DB write`);
-        return;
+    const bodyText = await scrapePage({ browserEnv: buildBrowserEnvironment(env) });
+    const { warnings, issueDate, blockCount } = normalizeWarnings(bodyText, runTimestamp);
+    logger.log(`[linz-msi] page in-force timestamp: ${issueDate}`);
+    logger.log(`[linz-msi] parsed ${blockCount} warning block(s) from page text`);
+    logger.log(`[linz-msi] normalised ${warnings.length} unique warning(s)`);
+
+    if (dryRun) {
+        logger.log(JSON.stringify(warnings.slice(0, 5), null, 2));
+        logger.log(`[linz-msi] DRY_RUN=1 — skipping DB write`);
+        return { dryRun: true, warnings, issueDate, upserted: 0, deleted: 0 };
     }
 
-    if (warnings.length === 0) {
-        // Don't wipe the table on a parse failure — better to serve
-        // stale than empty. The GH Actions step will exit non-zero so
-        // we see the failure.
-        throw new Error('parsed zero warnings — selector drift or page change?');
-    }
-
-    const { upserted, deleted } = await persist(warnings, runTimestamp);
-    console.log(`[linz-msi] upserted=${upserted} deleted=${deleted}`);
+    const { upserted, deleted } = await persistWarnings(warnings, runTimestamp, writeCredentials);
+    logger.log(`[linz-msi] upserted=${upserted} deleted=${deleted}`);
+    return { dryRun: false, warnings, issueDate, upserted, deleted };
 }
 
-main().catch((err) => {
-    console.error(`[linz-msi] FAILED: ${err.message}`);
-    process.exit(1);
-});
+const isDirectInvocation = Boolean(process.argv[1]) && import.meta.url === pathToFileURL(process.argv[1]).href;
+if (isDirectInvocation) {
+    runScraper().catch((err) => {
+        console.error(`[linz-msi] FAILED: ${err.message}`);
+        process.exitCode = 1;
+    });
+}

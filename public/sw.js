@@ -522,14 +522,39 @@
 // v197: install only stable app-shell URLs. Vite fingerprints index.css and
 // manifest.json into /assets, so pre-caching their source paths either failed
 // SW installation or cached an HTML fallback under the wrong URL.
-const CACHE_NAME = 'thalassa-v197-core';
-const TILE_CACHE = 'thalassa-v195-tiles';
+// v198: separate tiles encountered during ordinary chart browsing from tiles
+// deliberately downloaded through Offline Areas. The browsing cache is FIFO
+// bounded; the explicit offline-area cache remains durable and user-directed.
+const CACHE_NAME = 'thalassa-v198-core';
+const RUNTIME_TILE_CACHE = 'thalassa-v198-runtime-tiles';
+// MapOfflineService writes explicit web downloads here. Do not prune it from
+// the service worker: doing so would silently punch holes in an offline area.
+const OFFLINE_TILE_CACHE = 'thalassa-v195-tiles';
 const DATA_CACHE = 'thalassa-v196-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
+
+const RUNTIME_TILE_LIMIT = 2000;
+const RUNTIME_TILE_PRUNE_EVERY = 64;
+let runtimeTileWritesSincePrune = RUNTIME_TILE_PRUNE_EVERY - 1;
 
 const ASSETS = ['/', '/index.html'];
 
 const isHostOrSubdomain = (hostname, domain) => hostname === domain || hostname.endsWith(`.${domain}`);
+
+const pruneCacheToLimit = async (cache, limit) => {
+    const keys = await cache.keys();
+    if (keys.length <= limit) return;
+    const excess = keys.length - limit;
+    await Promise.all(keys.slice(0, excess).map((key) => cache.delete(key)));
+};
+
+const putRuntimeTile = async (cache, request, response) => {
+    await cache.put(request, response);
+    runtimeTileWritesSincePrune += 1;
+    if (runtimeTileWritesSincePrune < RUNTIME_TILE_PRUNE_EVERY) return;
+    runtimeTileWritesSincePrune = 0;
+    await pruneCacheToLimit(cache, RUNTIME_TILE_LIMIT);
+};
 
 self.addEventListener('install', (event) => {
     event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(ASSETS)));
@@ -541,11 +566,13 @@ self.addEventListener('activate', (event) => {
         caches.keys().then((keys) =>
             Promise.all(
                 keys.map((key) => {
-                    if (![CACHE_NAME, TILE_CACHE, DATA_CACHE, LAN_TILE_CACHE].includes(key)) {
+                    if (
+                        ![CACHE_NAME, RUNTIME_TILE_CACHE, OFFLINE_TILE_CACHE, DATA_CACHE, LAN_TILE_CACHE].includes(key)
+                    ) {
                         return caches.delete(key);
                     }
                 }),
-            ),
+            ).then(() => caches.open(RUNTIME_TILE_CACHE).then((cache) => pruneCacheToLimit(cache, RUNTIME_TILE_LIMIT))),
         ),
     );
     self.clients.claim();
@@ -624,8 +651,10 @@ self.addEventListener('fetch', (event) => {
         return;
     }
 
-    // 1. CHART TILES - CACHE FIRST (The Offline "Holy Grail")
-    // We want tiles to stick around for a long time (e.g., 30 days) to support offshore usage.
+    // 1. CHART TILES — CACHE FIRST
+    // Explicit Offline Area downloads live in OFFLINE_TILE_CACHE and are never
+    // evicted here. Tiles picked up during ordinary browsing use the bounded
+    // runtime cache so panning around the world cannot consume storage forever.
     if (
         isHostOrSubdomain(url.hostname, 'cartocdn.com') ||
         isHostOrSubdomain(url.hostname, 'openstreetmap.org') ||
@@ -633,31 +662,31 @@ self.addEventListener('fetch', (event) => {
         isHostOrSubdomain(url.hostname, 'mapbox.com')
     ) {
         event.respondWith(
-            caches.open(TILE_CACHE).then((cache) => {
-                return cache.match(event.request).then((cachedResponse) => {
-                    // Return valid cache
-                    if (cachedResponse) {
-                        return cachedResponse;
-                    }
-                    // Fetch and Cache
-                    return fetch(event.request)
-                        .then((networkResponse) => {
-                            // Only cache valid responses
-                            if (networkResponse.ok) {
-                                event.waitUntil(
-                                    cache
-                                        .put(event.request, networkResponse.clone())
-                                        .catch((error) => console.warn('[SW] chart tile cache write failed', error)),
-                                );
+            Promise.all([caches.open(RUNTIME_TILE_CACHE), caches.open(OFFLINE_TILE_CACHE)]).then(
+                ([runtimeCache, offlineCache]) =>
+                    Promise.all([runtimeCache.match(event.request), offlineCache.match(event.request)]).then(
+                        ([runtimeResponse, offlineResponse]) => {
+                            const cachedResponse = runtimeResponse || offlineResponse;
+                            // Return any normal-browsing or explicitly downloaded tile.
+                            if (cachedResponse) {
+                                return cachedResponse;
                             }
-                            return networkResponse;
-                        })
-                        .catch(() => {
-                            // Fallback for tiles? usually just return nothing or a placeholder
-                            return new Response('', { status: 404 });
-                        });
-                });
-            }),
+                            // Fetch and cache ordinary browsing tiles separately.
+                            return fetch(event.request)
+                                .then((networkResponse) => {
+                                    if (networkResponse.ok) {
+                                        event.waitUntil(
+                                            putRuntimeTile(runtimeCache, event.request, networkResponse.clone()).catch(
+                                                (error) => console.warn('[SW] chart tile cache write failed', error),
+                                            ),
+                                        );
+                                    }
+                                    return networkResponse;
+                                })
+                                .catch(() => new Response('', { status: 404 }));
+                        },
+                    ),
+            ),
         );
         return;
     }

@@ -11,15 +11,25 @@
  * is on AND the active subscription tier permits, App.tsx calls
  * `start()`; turning off (or losing tier eligibility) calls `stop()`.
  *
- * Why this lives in services/ rather than hooks/: alerts must keep
- * firing regardless of which page is mounted. Anchor watch follows
- * the same singleton-service pattern, and we want the alert system
- * to feel just as battle-hardened.
+ * This implementation is intentionally dormant in public-beta builds. It is
+ * foreground JavaScript, not a native/background safety authority: iOS can
+ * suspend or terminate it. The visibility guard below is a second fail-closed
+ * boundary in addition to the unavailable settings UI.
  */
 import { NmeaStore, type NmeaStoreState } from './NmeaStore';
 import type { AlertEvent, AlertRule, AlertThresholds } from '../types/alerts';
 import { DEFAULT_ALERT_THRESHOLDS } from '../types/alerts';
 import { dispatchAlert } from './AlertNotifier';
+import { FEATURE_VISIBILITY } from '../utils/featureVisibility';
+
+const SILENCE_WATCHDOG_INTERVAL_MS = 1000;
+
+/** Tests exercise the dormant rules engine without opening the production
+ * beta boundary. Shipping builds can only start it after the visibility flag
+ * is deliberately reviewed and enabled. */
+function alertMonitorRuntimeEnabled(): boolean {
+    return FEATURE_VISIBILITY.calypsoAlerts || import.meta.env.MODE === 'test';
+}
 
 class AlertMonitorClass {
     private rules: AlertRule[] = [];
@@ -27,6 +37,7 @@ class AlertMonitorClass {
     private firstViolatingAt = new Map<string, number>();
     private lastFiredAt = new Map<string, number>();
     private unsubNmea: (() => void) | null = null;
+    private silenceWatchdogTimer: ReturnType<typeof setInterval> | null = null;
     private running = false;
     private currentThresholds: Required<AlertThresholds> = { ...DEFAULT_ALERT_THRESHOLDS };
 
@@ -39,6 +50,10 @@ class AlertMonitorClass {
      * reasons can't be relied on to keep it running.
      */
     start(thresholds?: AlertThresholds): void {
+        if (!alertMonitorRuntimeEnabled()) {
+            this.stop();
+            return;
+        }
         if (this.running) {
             // Update thresholds in place — the skipper can dial them
             // without restarting the monitor.
@@ -55,6 +70,16 @@ class AlertMonitorClass {
         this.unsubNmea = NmeaStore.subscribe((state) => this.evaluate(state));
         // Run an initial evaluation in case NmeaStore already had data.
         this.evaluate(NmeaStore.getState());
+
+        // NmeaStore only notifies on a sample or freshness transition. After
+        // all metrics become dead (~10 s), there may be no further callback,
+        // so a >60 s backbone-silence rule cannot depend on subscriptions
+        // alone. Evaluate that one clock-based rule independently while the
+        // foreground monitor is alive.
+        this.silenceWatchdogTimer = setInterval(
+            () => this.evaluate(NmeaStore.getState(), 'nmea-backbone-dead'),
+            SILENCE_WATCHDOG_INTERVAL_MS,
+        );
     }
 
     /** Stop monitoring. Doesn't stop NmeaStore — other pages may need it. */
@@ -64,6 +89,10 @@ class AlertMonitorClass {
         if (this.unsubNmea) {
             this.unsubNmea();
             this.unsubNmea = null;
+        }
+        if (this.silenceWatchdogTimer) {
+            clearInterval(this.silenceWatchdogTimer);
+            this.silenceWatchdogTimer = null;
         }
         this.violationCounts.clear();
         this.firstViolatingAt.clear();
@@ -81,6 +110,7 @@ class AlertMonitorClass {
      * before they're actually in danger.
      */
     fireTestAlert(): void {
+        if (!alertMonitorRuntimeEnabled()) return;
         const now = Date.now();
         const event: AlertEvent = {
             ruleId: 'test-alert',
@@ -101,9 +131,10 @@ class AlertMonitorClass {
         this.rules = buildRules(this.currentThresholds);
     }
 
-    private evaluate(state: NmeaStoreState): void {
+    private evaluate(state: NmeaStoreState, onlyRuleId?: string): void {
         const now = Date.now();
         for (const rule of this.rules) {
+            if (onlyRuleId && rule.id !== onlyRuleId) continue;
             const violating = safeEvaluate(rule, state);
 
             if (violating) {

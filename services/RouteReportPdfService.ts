@@ -14,6 +14,7 @@
 import { jsPDF } from 'jspdf';
 import type { TraceLegVerdict, TracePoint } from './routeTracer';
 import { traceHealth } from './routeTracer';
+import { traceVerificationSummary, type TraceVerification } from './traceVerification';
 import { windCompass, type WaypointWeather } from './routeReportWeather';
 
 type RGB = [number, number, number];
@@ -85,6 +86,9 @@ export interface RouteReportPdfData {
     /** Epoch ms for the "generated" stamp (passed in — Date.now() is banned in
      *  some contexts and keeps this pure/testable). */
     nowMs: number;
+    /** Geometry-bound release proof. UI export refuses to call this service
+     * without it; optional here keeps direct/legacy callers visibly honest. */
+    verification?: TraceVerification;
 }
 
 /** "+3h20 14:30" arrival label; the start pin reads "now"/"dep". */
@@ -159,6 +163,24 @@ export function generateRouteReportPdf(data: RouteReportPdfData): Blob {
         doc.text(`Departing ${nowLabel(data.departureMs)}`, W - margin - 6, y + 15, { align: 'right' });
     }
     y += 27 + 5;
+
+    // ── Geometry-bound safety status ──
+    const verificationText = data.verification
+        ? traceVerificationSummary(data.verification)
+        : 'UNVERIFIED ROUTE - DO NOT USE FOR NAVIGATION';
+    ensure(13);
+    doc.setFillColor(...COLORS.cardBg);
+    doc.roundedRect(margin, y, contentW, 12, 3, 3, 'F');
+    doc.setFontSize(9);
+    doc.setTextColor(
+        ...(data.verification?.result === 'verified'
+            ? data.verification.legGrades.includes('caution')
+                ? COLORS.amber
+                : COLORS.green
+            : COLORS.red),
+    );
+    doc.text(pdfSafe(verificationText), margin + 6, y + 7.8);
+    y += 12 + 5;
 
     // ── Health tally ──
     const h = traceHealth(data.verdicts);

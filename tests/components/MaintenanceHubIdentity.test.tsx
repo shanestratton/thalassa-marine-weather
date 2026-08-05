@@ -285,7 +285,7 @@ describe('MaintenanceHub identity isolation', () => {
         await screen.findByText('Private A maintenance');
 
         fireEvent.click(screen.getByRole('button', { name: 'More options' }));
-        fireEvent.click(screen.getAllByRole('button', { name: 'Export data' })[0]);
+        fireEvent.click(screen.getByRole('button', { name: 'Export blank maintenance checklist PDF' }));
         await waitFor(() => expect(mocks.exportChecklist).toHaveBeenCalledWith(111, 'Account A Vessel'));
 
         const accountBLoad = deferred<MaintenanceTask[]>();

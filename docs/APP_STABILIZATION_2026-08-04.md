@@ -1,0 +1,184 @@
+# Thalassa stabilization dossier — updated 2026-08-06
+
+- Candidate: **1.2.0 (101)**
+- Release target: **TestFlight public beta**
+- Current decision: **NO-GO for external public beta — the local candidate is refrozen and green; backend deployment, hosted, distribution, legal, and device gates remain**
+
+## Current outcome
+
+The working tree was refrozen on 2026-08-06 after CMEMS/MPA lifecycle, GPU-memory, proxy, and release-profile hardening, then passed the complete sequential local release matrix recorded below. Public beta remains a no-go: reviewed backend migrations and function tombstones are undeployed, account deletion is held in the production UI/service and still requires an approved durable write fence and survivor cleanup before it can be enabled, the four enabled CMEMS/MPA overlays require their hosted two-phase publication cutover, the candidate is not an immutable hosted-CI commit, the revised policy is not live, and no Distribution-signed/TestFlight or physical iPhone/Watch evidence exists.
+
+The ledger below records the final 2026-08-06 local candidate matrix. Local evidence must not be promoted into backend-deployment, hosted, App Store, TestFlight, legal, or physical-device evidence.
+
+## Source-controlled stabilization
+
+### Passage planning and sharing
+
+- Float plans have distinct email, WhatsApp, SMS/text, and generic-share layouts rather than one unstructured payload.
+- Float-plan validation now blocks both copy and share when required safety details are missing, exposes the validation result, and requires the vessel name.
+- Short-landscape Route Planner layout is vertically scrollable, keeps the plotting control in normal flow, and avoids covering departure fields.
+- The phone header keeps the full Thalassa wordmark at 375–390 px widths by using a compact beta badge, while tablet and desktop retain the full `Public Beta · Free` badge.
+- Anonymous local planning and signed-in account planning remain separate scopes; authenticated saved routes feed the private Passage Planning and Float Plan workflow.
+- Fresh manual Storybook QA covered the full safety plan at 1280 px desktop, 414 × 896 portrait, and 896 × 414 short landscape. It found no horizontal overflow, confirmed 44 px visible actions and correct Email/WhatsApp/Text/More payloads, verified crew changes update POB, and proved copy/handoffs stay disabled until a rescue contact exists.
+
+### Safety and operational truth
+
+- Guardian and community precise-track sharing are held and expose unavailable boundaries instead of arming, broadcasting, browsing, importing, or sharing. Voyage logging, Cast Off, NMEA/Glass, chart/AIS layers, and delayed realtime work retain explicit unresolved, unavailable, stale, timeout, and recovery states.
+- Cast Off's traced-route verification is server-authoritative in reviewed local migration source, but that authority is not a live release boundary until the migration is deployed and smoked.
+- Anchor Watch uses a retained native looping player rather than timer-driven bursts, observes audio interruptions and media-service resets, and requires the real audible path to be checked before arming.
+- The native alarm is ordinary application audio. It does not alter system volume and is not a Critical Alert.
+- The Time Sensitive Notifications entitlement is present. That capability, user permission, Focus behaviour, current audio route, Always location access, and locked/background survival still require evidence from the signed physical build.
+- The iPhone owns safety state. The Watch companion is foreground-only and must not be described as an independent background monitor.
+- MPA categories are labelled as protection classes inferred from CAPAD metadata, never as activity permission. A feature-gated, neutral `MPAs` control makes the overlay reachable from the map's route/chart tools without presenting it as a tactical danger. Every popup directs the skipper to verify current fishing and anchoring rules with the managing authority, states that the overlay is neither legal advice nor navigation, and has a 44 px dismiss target.
+- The canonical profile selects CMEMS currents, sea-surface temperature, chlorophyll, and the MPA overlay. Those four flags may remain true only if the frozen producers and clients pass immutable-generation, inactive-slot publication with two valid v2 discovery slots, bounded-read, SHA-256, schema, time-coverage/freshness, dimensional, finite-value, attribution, and hosted-publication checks. Waves, sea ice, and mixed-layer depth remain parked, false, and unreachable for this beta; their future-facing pipelines do not make them release features.
+
+### Accounts and Apple authentication boundary
+
+- Email one-time code is the only authentication door enabled for candidate 1.2.0 (101).
+- Native Sign in with Apple code is compile-time default-off through `VITE_APPLE_SIGN_IN_ENABLED`; the release environment must keep it false.
+- Source now contains authorization-code exchange, encrypted refresh-token storage, pre-deletion revocation, native credential-revocation monitoring, and a signature-verifying Apple server-notification receiver.
+- The receiver durably queues a pending account-lifecycle action; it does not yet constitute the full production processor required to complete that action. Apple sign-in must remain disabled until the queue processor, endpoint registration, TN3194 operating procedure, credentials, revocation, account-deletion, and failure recovery are deployed and exercised end to end.
+- Enabling Apple requires owner-provided `APPLE_SIGN_IN_CLIENT_ID`, `APPLE_SIGN_IN_TEAM_ID`, `APPLE_SIGN_IN_KEY_ID`, `APPLE_SIGN_IN_PRIVATE_KEY`, and a securely generated `APPLE_REFRESH_TOKEN_ENCRYPTION_KEY`. None may be placed in the client bundle.
+- The complete in-app deletion UI and reviewed cleanup source remain behind `VITE_ACCOUNT_DELETION_ENABLED=false`. Production Settings shows a temporary-unavailable boundary and `privacy@thalassa.app`; the service rejects before its Edge invocation. This is a safety hold, not release completion: account-creating distribution remains blocked pending owner approval for a durable deletion tombstone, write fences, survivor/direct-identifier scrubs, exact backend deployment, storage verification, explicit profile enablement, and an authenticated live smoke including concurrent-write and re-authentication attempts.
+- [Apple's account-deletion rule](https://developer.apple.com/support/offering-account-deletion-in-your-app/) requires an in-app deletion path for this account-creating app; the privacy email is a temporary safety contact, not an App Store-compliant substitute.
+
+### Public-beta product boundaries
+
+| Capability                  | Candidate state                                                                                                                      |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| Access and subscriptions    | Free public beta; billing, purchase, Restore, and paid entitlements are disabled/deferred.                                           |
+| Raspberry Pi / Boat Network | Disabled in production; no discovery, pairing, provisioning, token relay, chart sync, or Pi-hosted Signal K/AVNav/N2K claim.         |
+| Gmail                       | Disabled; no Gmail token or inbox content is used by the beta.                                                                       |
+| Apple Music                 | Client and local server source fail closed; no route, player, Calypso tools, or entitlement. The server hold is undeployed.          |
+| AISHub contribution         | Disabled; native NMEA/AIS reception remains separate, but the beta does not offer the incompatible UDP contribution uplink.          |
+| Commercial charts           | Unverified and redistribution-restricted ENC/S-57/S-63 packages are excluded; users must supply charts they may lawfully use.        |
+| Private recipe photos       | Disabled until a private bucket and signed-URL flow exist; Community Galley photos are public.                                       |
+| Critical Alerts             | Not entitled and not claimed; ordinary audio plus user-controllable Time Sensitive notifications are the current boundary.           |
+| Calypso proactive alerts    | Disabled; foreground JavaScript is not presented as background, terminated-app, or independent vessel monitoring.                    |
+| Guardian                    | UI held; no server hold is yet approved/prepared, so live RPCs remain active and release stays blocked.                              |
+| Community precise tracks    | Browse/import/share held; owner-only migration is reviewed locally but undeployed. Local voyage recording remains available.         |
+| Public Voyage Log           | Separate from community track sharing; opt-in and off by default, and public content must not be presented as private.               |
+| Apple sign-in               | Implemented foundation, default-off; email OTP is the only enabled door.                                                             |
+| CMEMS and MPA overlays      | Currents, SST, chlorophyll, and MPA selected; waves, sea ice, and MLD parked. Final local and hosted trust gates control enablement. |
+| LINZ navigational warnings  | Locked/sandboxed writer is hardened locally; real Cloudflare, GitHub-secret, table, and reconciliation evidence is pending.          |
+
+### Privacy inventory
+
+The main iOS privacy manifest contains exactly 21 collected-data types, each marked linked to the user, not used for tracking, and collected for App Functionality:
+
+1. Name
+2. Email Address
+3. Phone Number
+4. Other User Contact Info
+5. Health
+6. Precise Location
+7. Coarse Location
+8. Sensitive Info
+9. Contacts
+10. Emails or Text Messages
+11. Photos or Videos
+12. Audio Data
+13. Other User Content
+14. User ID
+15. Device ID
+16. Product Interaction
+17. Purchase History
+18. Crash Data
+19. Performance Data
+20. Other Diagnostic Data
+21. Other Data Types
+
+This exact inventory in `ios/App/App/PrivacyInfo.xcprivacy` is the source for the final App Store Connect review; it does not replace owner/provider verification of the questionnaire or live privacy policy.
+
+### Reproducible artifact and release parity
+
+- The production build removes ignored local `public/enc-samples` content and Finder `.DS_Store` metadata from generated release output without deleting the developer's local source samples.
+- Artifact checks require those inputs to be absent from both `dist` and `ios/App/App/public`.
+- After Capacitor sync, the iOS web bundle must contain a byte-identical copy of every regular production web file, with no missing, extra, or hash-mismatched artifact.
+- Client-secret checks run before and after the build and against copied artifacts.
+- Dependency installation is strict: there is no repository `legacy-peer-deps` override, CI uses `npm ci`, the complete peer tree must pass `npm ls --all`, and high/critical audit findings fail CI.
+- AIS ingest, Deepgram proxy, and Pi cache install from their own lockfiles on their production runtime floors. Each nested job audits high/critical vulnerabilities and the complete dependency tree before its available build, type, and test gates.
+- AIS deployment uses a multi-stage Node 22 image that compiles from the lockfile, prunes development dependencies, and runs `dist/index.js` as non-root; Railway uses that Dockerfile and compiled start command. Pi install and redeploy likewise use clean lockfile installs, compile, then prune.
+- The retired Railway `vessel-scraper` has no runnable source path: its Docker build and package start exit 78, its manifest has no cron/start/build command, and its watch pattern is inert. External Railway disablement/removal still needs verification.
+- The obsolete CMEMS Mapbox tile-probe and tileset-status workflows are retained only as exit-78 tombstones with empty permissions and no actions, secrets, environment injection, or network calls. The immutable release-asset workflows are the sole current publisher path.
+- The LINZ/Maritime NZ MSI writer is non-cancelling and lockfile-installed on Node 22; audit/tree/tests exercise its credential-free no-write path before the only secret-bearing workflow step. Sandboxed Chromium receives an allowlisted environment, and stale/future/count-collapse/duplicate/size/identity failures prevent writes.
+- Lighthouse runs directly through the lockfile-pinned Puppeteer and Lighthouse packages. It seeds the legal-disclaimer acceptance state, independently asserts that the application shell was measured, retains reports as workflow artifacts, and does not publish them to temporary public storage.
+- Every GitHub Action reference is a reviewed full commit SHA with a version comment, all hosted runners are fixed to Ubuntu 24.04, and each workflow declares token permissions. Deno is pinned to the locally validated 2.9.4 patch; supported Node LTS majors intentionally track security patches within their selected major.
+- Marine publisher fixture steps run before secret-bearing generation with uppercase/lowercase HTTP(S)/ALL proxies pointed at a closed localhost port and loopback-only `NO_PROXY`/`no_proxy`; the source gate rejects a wildcard bypass.
+- Node 24, dependency hygiene, bundle budgets, formatting, source contracts, and artifact contracts are release gates. `npm run ship:beta` is necessary packaging evidence, not a complete readiness decision.
+
+## Final verification ledger
+
+The stable candidate's local passes close only their named repository or local-artifact gates; pending backend, hosted, legal, Apple-account, and physical-device rows still control the public-beta decision.
+
+| Verification gate                                                   | Status       | Current evidence / remaining requirement                                                                                                                                                                                                                                                                                                                                                                  |
+| ------------------------------------------------------------------- | ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Immutable candidate commit and hosted CI                            | Pending      | Local diff hygiene passes, but there is no immutable reviewed commit with a clean hosted CI run.                                                                                                                                                                                                                                                                                                          |
+| Root Node 24 dependency gates                                       | Passed local | Fresh install, complete tree, dependency hygiene for all 50 production dependencies, and high/critical audit passed with 0 vulnerabilities.                                                                                                                                                                                                                                                               |
+| Nested production-package gates                                     | Passed local | AIS Node 22 audit/tree/build passed with 3 files/61 tests; Deepgram Node 22 audit/tree/type-check passed; Pi Node 20 audit/tree/build passed with 19/19 tests; LINZ Node 22 audit/tree passed with 8/8 tests.                                                                                                                                                                                             |
+| ESLint, TypeScript, routes, and migration audit                     | Passed local | Full ESLint, TypeScript with an 8 GiB heap, formatting, and the 119-file migration audit passed. Route audit: 28 registered, 27 directly reachable, with `glass` intentionally indirect.                                                                                                                                                                                                                  |
+| Public-beta readiness contracts                                     | Passed local | The stable candidate passed 121 source contracts, 128 complete local release contracts before packaging, and 136 post-sync artifact contracts.                                                                                                                                                                                                                                                            |
+| Full unit/integration coverage run                                  | Passed local | Final full rerun: 753 Vitest files, 6,760 passing assertions plus 3 expected diagnostic failures, and no unexpected failures. The immediately preceding coverage run exceeded every threshold at 48.48% statements, 42.03% branches, 48.67% functions, and 50.56% lines; its sole stale static assertion was corrected before the all-green rerun.                                                        |
+| Supabase migration and Edge-function deployment parity              | **Blocked**  | Community precise-track and Cast Off authority migrations are local-only. No explicit Guardian server hold has been approved or prepared, so live Guardian RPCs remain active. Remote MusicKit, Float Plan, and delete-account versions predate local boundaries; legacy Marketplace functions remain remote-only.                                                                                        |
+| Production build, web release, scans, and bundle budget             | Passed local | Node 24 transformed 2,160 modules; local web release and secret scans passed. Bundle: 10.91 MB total, 8.85 MB JavaScript under the 9 MB cap, 16.3 KB raw / 7.1 KB gzip entry.                                                                                                                                                                                                                             |
+| Capacitor sync and web-to-iOS artifact parity                       | Passed local | Sync completed with 18 plugins; ignored inputs were absent, byte parity passed, and all 136 post-sync artifact contracts passed.                                                                                                                                                                                                                                                                          |
+| Chromium and mobile-WebKit E2E                                      | Passed local | 75 checks passed; 7 hosted-preview-only checks were intentionally skipped locally and remain part of the hosted gate.                                                                                                                                                                                                                                                                                     |
+| Seeded application-shell Lighthouse audit                           | Passed local | Performance 77 and accessibility, best practices, and SEO 100; the independent assertion confirmed the 617 KiB report measured the real app.                                                                                                                                                                                                                                                              |
+| Fresh manual browser visual QA                                      | Pending      | The prior Storybook pass covered desktop, portrait, short landscape, and every float-plan handoff. The final post-refreeze manual pass was blocked when the controlled browser rejected the localhost Storybook URL; automated browser gates passed but do not replace this check.                                                                                                                        |
+| Production deployment-manifest contracts                            | Passed local | AIS/Pi packaging, retired services/workflows, immutable Action pins/runners/permissions, Deno 2.9.4, and offline fixture proxy fences passed local source gates. No remote deployment state is inferred.                                                                                                                                                                                                  |
+| Enabled CMEMS/MPA producer, client, and hosted data trust           | Local passed | Local publisher/client/proxy/verifier gates passed, including dual slots, immutable weekly assets, exact integrity/schema/freshness/geometry checks, bounded ownership, playback lifecycle, full legacy-path enumeration, and no-network routing. Hosted cutover has not started: v2 currents returned 400 and legacy v1 returned 200. Phase A/Phase B publication and retirement proof remain mandatory. |
+| LINZ/Maritime NZ MSI live writer                                    | Local passed | Lockfile, sandbox, secret isolation, and 8/8 tests passed. A credential-free live dry run parsed and normalized 15/15 notices from Cloudflare without writing. The master-branch table write, served-feed smoke, and reconciliation decision remain.                                                                                                                                                      |
+| Retired Railway vessel-scraper remote state                         | Pending      | Local Docker/start/cron paths fail closed, but the external Railway service must be verified disabled or deleted.                                                                                                                                                                                                                                                                                         |
+| Hosted preview routes, redirects, headers, and preview-only tests   | Pending      | GitHub authentication/variables and a hosted candidate remain unavailable; no hosted headers or preview-only browser evidence exists.                                                                                                                                                                                                                                                                     |
+| Stable-Xcode unsigned Release archive                               | Passed local | A fresh Xcode 26.6 archive succeeded at 2026-08-06 07:10 AEST with the iPhone and embedded Watch bundle IDs, version 1.2.0 (101), iOS 17 / watchOS 10 minimums, and both binaries confirmed unsigned. It is compile/package evidence, not Distribution signing, upload, installation, or runtime proof.                                                                                                   |
+| Account-deletion durability, deployment, and live smoke             | **Blocked**  | Production UI/service are held fail-closed with a privacy contact. Account-creating distribution still requires owner approval for a durable tombstone, write fences, and survivor/direct-identifier scrubs; then exact function/migration deployment, storage verification, profile enablement, and authenticated concurrent-write/re-authentication smoke.                                              |
+| Physical iPhone install/update/auth/deletion and Anchor Watch smoke | Pending      | Requires a Distribution-signed physical-device run and the complete safety matrix.                                                                                                                                                                                                                                                                                                                        |
+| Physical Watch install/foreground companion smoke                   | Pending      | Requires a physical watchOS 10+ device.                                                                                                                                                                                                                                                                                                                                                                   |
+| Internal TestFlight install/update smoke                            | Pending      | Requires Apple Distribution signing, App Store Connect, upload, processing, and internal tester evidence.                                                                                                                                                                                                                                                                                                 |
+| App Store metadata, ENC rights, privacy, and legal completion       | Pending      | Requires chart provenance/redistribution rights, owner/legal sign-off, and App Store Connect completion.                                                                                                                                                                                                                                                                                                  |
+
+## Irreducible external and owner-controlled gates
+
+1. **Account-deletion design approval:** explicitly approve preparation of the durable deletion tombstone/write fences and survivor/direct-identifier scrubs. After review, deploy the exact migration and function and pass authenticated deletion, concurrent-write, storage-cleanup, and re-authentication smoke tests.
+2. **Backend migration parity:** deploy the community precise-track hold and server-authoritative Cast Off migration. Separately authorize, prepare, review, and deploy an explicit Guardian server hold; current live Guardian RPCs remain callable until that happens.
+3. **Edge-function parity:** deploy the local MusicKit hold and retired public Float Plan tombstone, deploy the final `delete-account`, retire the three legacy Marketplace functions, and reconcile the 47 local/48 remote inventories. Apple token functions remain local-only while Apple sign-in is held.
+4. **Storage cleanup authorization:** 35 verified unreferenced Supabase Storage objects totalling 27,459,047 bytes have an exact encrypted-backup/delete plan. No deletion is authorized until the owner explicitly approves it and references are checked again immediately before execution.
+5. **Apple release identity:** the local archive is unsigned. Current Apple Distribution identities and App Store profiles for both bundle IDs are required; they must preserve Watch embedding, Time Sensitive notifications, and WeatherKit without adding Sign in with Apple or MusicKit while those features remain disabled.
+6. **Apple sign-in hold:** keep the feature flag off. A future enablement requires production Apple credentials, encryption-key custody, the full server-notification lifecycle processor, registered endpoint, token exchange/revocation, account deletion, and failure-path evidence.
+7. **Enabled live-data publication:** use the mandatory two-phase cutover for currents, SST, chlorophyll, and MPA. In Phase A, keep the Vercel production alias on the previous deployment, run the exact master-branch publishers manually, and prove two valid v2 discovery slots per feed backed by immutable, integrity-checked, fresh source-time assets. In Phase B only, deploy the dual-slot proxy and v2 clients, purge the CDN, run manifest/asset/proxy/client smokes, and prove that bare and cache-busted legacy manifest and stable-asset paths return `410`. Also verify one selected CMEMS frame with two-frame / 32 MiB and one-product ownership, load-aware playback, no-network CMEMS routing, and fail-closed MPA generation replacement. The CMEMS v1 bridge is exact opt-in, default-off, hard-sunset, and emergency-only; it cannot substitute for Phase A. Any enabled pipeline that cannot pass must be false in `config/public-beta-features.json`. Waves, sea ice, and MLD remain false regardless of their local pipeline-test result for this beta.
+8. **LINZ live writer:** run the frozen master-branch workflow against the real Cloudflare page with scoped secrets and the intended table, confirm the served feed, and explicitly accept the residual non-atomic reconciliation or replace it with a reviewed transactional least-privilege RPC.
+9. **Retired Railway service:** verify the external `vessel-scraper` service is disabled or deleted. The local exit-78 tombstone is not remote-state evidence.
+10. **Hosted preview:** restore GitHub authentication, configure `VITE_SUPABASE_URL`, `VITE_SUPABASE_KEY`, `VITE_MAPBOX_ACCESS_TOKEN`, `VITE_OWM_API_KEY`, `VITE_SENTRY_DSN`, and `VITE_APP_VERSION`, obtain clean hosted CI for the immutable commit, then deploy it to a non-production preview and verify live routing, redirects, security headers, and preview-only tests.
+11. **App Store and legal record:** confirm ENC/chart provenance and redistribution rights; deploy the revised terms and byte-verify the candidate URL; confirm `privacy@thalassa.app` is provisioned and monitored (MX records alone do not prove that); complete App Privacy, age rating, export compliance, content rights, review contact, support, and review notes.
+12. **Distribution:** produce and export a Distribution-signed archive, confirm build 101 is unused or increment phone and Watch together, pass Organizer validation, upload internally, then pass physical install/update/deletion and safety smoke before external Beta App Review.
+13. **Physical safety evidence:** run Anchor Watch with verified Always location, signed Time Sensitive notifications, an audible pre-arm check, Ring/Silent and Focus combinations, locked/background operation, calls/Siri/media interruptions, output-route changes, long suspension, and overnight operation. No simulator or source test substitutes for this.
+14. **Physical Watch evidence:** install and test the embedded companion on a real watchOS 10+ device; the absence of a physical Watch keeps this row pending.
+
+## Deferred beyond this public beta
+
+- Apple/Google billing products, native billing, receipts, subscription webhooks, and paid entitlement rollout.
+- Commercial chart redistribution until supplier rights, editions, updates, licences, permits, and provenance are complete.
+- Pi/Boat Network transport until authenticated encrypted LAN operation is reviewed.
+- Gmail until credentials use the intended secure storage and provider-grant revocation is verified.
+- Apple Music until the production MusicKit capability/profile and signed-device authorization and playback are verified.
+- Guardian until an explicit server hold is approved and deployed, followed by a reviewed consent, identity, and location-privacy design before any later enablement.
+- Community precise-track sharing until an explicit audience/consent contract and privacy review replace the owner-only beta hold.
+- AISHub contribution until a maintained Capacitor 8-compatible transport replaces the retired UDP bridge and passes native-device testing.
+- Private recipe photos until private storage and signed delivery exist.
+- Critical Alerts unless Apple grants the entitlement and the signed product, server payloads, copy, and hardware behaviour are reworked and verified.
+- Calypso proactive vessel alerts until a verified native lifecycle owns monitoring and signed-device background/termination behaviour is proven.
+
+## Sign-off record
+
+Leave these blank until every gate is green:
+
+- Final commit: **Pending**
+- CI run: **Pending**
+- Hosted preview: **Pending**
+- Signed archive: **Unsigned local archive passed; Apple Distribution archive/export pending**
+- Internal TestFlight build: **Pending**
+- Physical iPhone tester/date: **Pending**
+- Physical Watch tester/date: **Pending**
+- Owner release approval: **Pending**
+
+Until that record is complete, candidate 1.2.0 (101) remains **NO-GO for public beta**.

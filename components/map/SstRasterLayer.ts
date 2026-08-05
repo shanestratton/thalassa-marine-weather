@@ -10,8 +10,8 @@
  * land-flag discard. Tuning differences:
  *   – Colour ramp is THERMAL (deep indigo → blue → cyan → green →
  *     yellow → orange → red) instead of the currents RIP/SLACK ramp.
- *   – Encode range is [0, 32°C] (covers polar to equatorial surface
- *     water), no 1.5× slack headroom.
+ *   – Signed display range is [-3, 40°C], so legitimate polar water is
+ *     distinct from 0°C and tropical extremes do not saturate early.
  *   – Scalar-packed input: the pipeline writes temperature °C into
  *     the u-channel of the v2 THCU binary, v-channel is zero. The
  *     hook extracts u[] and passes it here as the sole data plane.
@@ -22,15 +22,17 @@
  */
 import mapboxgl from 'mapbox-gl';
 import { createLogger } from '../../utils/createLogger';
+import {
+    beginWebGlOperation,
+    createWebGlProgram,
+    proveWebGlOperation,
+    requireWebGlAttribute,
+    requireWebGlResource,
+    requireWebGlUniform,
+} from './cmemsWebglSafety';
+import { encodeSstTemperatureByte, SST_DISPLAY_MAX_C, SST_DISPLAY_MIN_C } from './marineLayerRamps';
 
 const log = createLogger('SstRasterLayer');
-
-// Encode range. Setting this to 32 means texture u8 values map linearly
-// to [0, 32°C]. Values above saturate (and then the ramp clamps to
-// deepest red). Below 0°C is effectively unreachable for SST in the
-// open ocean (freezing seawater is -1.8°C), but -3°C is possible at
-// ice-edge — encoded as 0.
-const ENCODE_RANGE_C = 32.0;
 
 // ── Shaders ────────────────────────────────────────────────────────────
 
@@ -62,7 +64,7 @@ void main() {
 
 const HEATMAP_FRAG = `
 precision highp float;
-uniform sampler2D u_data_tex;   // R = temp encoded u8 [0, ENCODE_RANGE_C], G = land flag
+uniform sampler2D u_data_tex;   // R = normalized SST over [-3, 40]°C, G = land flag
 uniform float u_opacity;
 uniform vec4 u_grid_bounds;     // [south, north, west, east]
 varying float v_lon;
@@ -93,19 +95,19 @@ void main() {
     vec4 sample = texture2D(u_data_tex, vec2(u, v));
     if (sample.g > 0.2) discard;        // land — same 0.2 threshold as currents
     float vRaw = sample.r;
-    if (vRaw < 0.005) discard;          // 0.16°C — skip unrealistic sub-freezing (but some polar cells legitimately come in near 0)
 
-    // Decode temperature as fraction of ENCODE_RANGE_C.
+    // Texture bytes already carry the signed [-3, 40]°C domain as [0, 1].
+    // Do not discard zero: it represents legitimate -3°C polar water.
     float t = clamp(vRaw, 0.0, 1.0);
 
     // 7-stop thermal ramp. Tuned so:
-    //   0°C   (t=0.00) deep indigo — ice-edge polar
-    //   4°C   (t=0.125) blue
-    //   10°C  (t=0.31) cyan — subpolar
-    //   16°C  (t=0.50) green — temperate
-    //   22°C  (t=0.69) yellow
-    //   26°C  (t=0.81) orange
-    //   32°C  (t=1.00) deep red — tropical
+    //   -3°C  (t=0.000) deep indigo — ice-edge polar
+    //    2°C  (t=0.116) blue
+    //    8°C  (t=0.256) cyan — subpolar
+    //   15°C  (t=0.419) green — temperate
+    //   22°C  (t=0.581) yellow
+    //   29°C  (t=0.744) orange
+    //   40°C  (t=1.000) deep red — extreme upper bound
     vec3 c0 = vec3(0.12, 0.08, 0.40);   // deep indigo
     vec3 c1 = vec3(0.15, 0.35, 0.75);   // blue
     vec3 c2 = vec3(0.25, 0.70, 0.85);   // cyan
@@ -115,49 +117,18 @@ void main() {
     vec3 c6 = vec3(0.85, 0.20, 0.20);   // red
 
     vec3 color;
-    if      (t < 0.125) color = mix(c0, c1, t / 0.125);
-    else if (t < 0.31)  color = mix(c1, c2, (t - 0.125) / 0.185);
-    else if (t < 0.50)  color = mix(c2, c3, (t - 0.31) / 0.19);
-    else if (t < 0.69)  color = mix(c3, c4, (t - 0.50) / 0.19);
-    else if (t < 0.81)  color = mix(c4, c5, (t - 0.69) / 0.12);
-    else                color = mix(c5, c6, (t - 0.81) / 0.19);
+    if      (t < 0.116) color = mix(c0, c1, t / 0.116);
+    else if (t < 0.256) color = mix(c1, c2, (t - 0.116) / 0.140);
+    else if (t < 0.419) color = mix(c2, c3, (t - 0.256) / 0.163);
+    else if (t < 0.581) color = mix(c3, c4, (t - 0.419) / 0.162);
+    else if (t < 0.744) color = mix(c4, c5, (t - 0.581) / 0.163);
+    else                color = mix(c5, c6, (t - 0.744) / 0.256);
 
     // Slight alpha grading so extreme-temp regions pop more than
     // neutral mid-latitude ocean. Tuned to stay out of overwhelming.
     float alpha = u_opacity * mix(0.55, 0.85, abs(t - 0.5) * 2.0);
     gl_FragColor = vec4(color, alpha);
 }`;
-
-// ── Helpers ────────────────────────────────────────────────────────────
-
-function compileShader(gl: WebGLRenderingContext, type: number, src: string, label: string): WebGLShader {
-    const shader = gl.createShader(type);
-    if (!shader) throw new Error(`[SstRasterLayer] failed to create ${label}`);
-    gl.shaderSource(shader, src);
-    gl.compileShader(shader);
-    if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-        const info = gl.getShaderInfoLog(shader);
-        gl.deleteShader(shader);
-        throw new Error(`[SstRasterLayer] ${label}: ${info}`);
-    }
-    return shader;
-}
-
-function linkProgram(gl: WebGLRenderingContext, vs: WebGLShader, fs: WebGLShader): WebGLProgram {
-    const program = gl.createProgram();
-    if (!program) throw new Error('[SstRasterLayer] failed to create program');
-    gl.attachShader(program, vs);
-    gl.attachShader(program, fs);
-    gl.linkProgram(program);
-    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-        const info = gl.getProgramInfoLog(program);
-        gl.deleteProgram(program);
-        throw new Error(`[SstRasterLayer] link: ${info}`);
-    }
-    gl.deleteShader(vs);
-    gl.deleteShader(fs);
-    return program;
-}
 
 interface Bounds {
     north: number;
@@ -193,6 +164,7 @@ export class SstRasterLayer implements mapboxgl.CustomLayerInterface {
     private gridW = 0;
     private gridH = 0;
     private globalMode = false;
+    private dataValid = false;
 
     private _keepaliveTimer: ReturnType<typeof setTimeout> | null = null;
     private _onVisibilityChange: (() => void) | null = null;
@@ -204,69 +176,104 @@ export class SstRasterLayer implements mapboxgl.CustomLayerInterface {
     onAdd(map: mapboxgl.Map, gl: WebGLRenderingContext): void {
         this.map = map;
         this.gl = gl;
+        this.dataValid = false;
+        try {
+            beginWebGlOperation(gl, 'SstRasterLayer', 'initialisation');
+            this.program = createWebGlProgram(gl, 'SstRasterLayer', HEATMAP_VERT, HEATMAP_FRAG, 'heatmap');
 
-        const vs = compileShader(gl, gl.VERTEX_SHADER, HEATMAP_VERT, 'sst vert');
-        const fs = compileShader(gl, gl.FRAGMENT_SHADER, HEATMAP_FRAG, 'sst frag');
-        this.program = linkProgram(gl, vs, fs);
+            this.aQuadPosLoc = requireWebGlAttribute(
+                gl.getAttribLocation(this.program, 'a_quad_pos'),
+                'SstRasterLayer',
+                'a_quad_pos',
+            );
+            this.uMatrixLoc = requireWebGlUniform(
+                gl.getUniformLocation(this.program, 'u_matrix'),
+                'SstRasterLayer',
+                'u_matrix',
+            );
+            this.uGridBoundsLoc = requireWebGlUniform(
+                gl.getUniformLocation(this.program, 'u_grid_bounds'),
+                'SstRasterLayer',
+                'u_grid_bounds',
+            );
+            this.uLonOffsetLoc = requireWebGlUniform(
+                gl.getUniformLocation(this.program, 'u_lon_offset'),
+                'SstRasterLayer',
+                'u_lon_offset',
+            );
+            this.uDataTexLoc = requireWebGlUniform(
+                gl.getUniformLocation(this.program, 'u_data_tex'),
+                'SstRasterLayer',
+                'u_data_tex',
+            );
+            this.uOpacityLoc = requireWebGlUniform(
+                gl.getUniformLocation(this.program, 'u_opacity'),
+                'SstRasterLayer',
+                'u_opacity',
+            );
 
-        this.aQuadPosLoc = gl.getAttribLocation(this.program, 'a_quad_pos');
-        this.uMatrixLoc = gl.getUniformLocation(this.program, 'u_matrix');
-        this.uGridBoundsLoc = gl.getUniformLocation(this.program, 'u_grid_bounds');
-        this.uLonOffsetLoc = gl.getUniformLocation(this.program, 'u_lon_offset');
-        this.uDataTexLoc = gl.getUniformLocation(this.program, 'u_data_tex');
-        this.uOpacityLoc = gl.getUniformLocation(this.program, 'u_opacity');
-
-        // Subdivided quad — see CurrentParticleLayer for the full
-        // reasoning (Mercator interpolation seams without subdivision).
-        const SUBDIV = 32;
-        const vCount = (SUBDIV + 1) * (SUBDIV + 1);
-        const positions = new Float32Array(vCount * 2);
-        {
-            let p = 0;
-            for (let y = 0; y <= SUBDIV; y++) {
-                for (let x = 0; x <= SUBDIV; x++) {
-                    positions[p++] = x / SUBDIV;
-                    positions[p++] = y / SUBDIV;
+            // Subdivided quad — see CurrentParticleLayer for the full
+            // reasoning (Mercator interpolation seams without subdivision).
+            const SUBDIV = 32;
+            const vCount = (SUBDIV + 1) * (SUBDIV + 1);
+            const positions = new Float32Array(vCount * 2);
+            {
+                let p = 0;
+                for (let y = 0; y <= SUBDIV; y++) {
+                    for (let x = 0; x <= SUBDIV; x++) {
+                        positions[p++] = x / SUBDIV;
+                        positions[p++] = y / SUBDIV;
+                    }
                 }
             }
-        }
-        const indexCount = SUBDIV * SUBDIV * 6;
-        const indices = new Uint16Array(indexCount);
-        {
-            let ix = 0;
-            for (let y = 0; y < SUBDIV; y++) {
-                for (let x = 0; x < SUBDIV; x++) {
-                    const v0 = y * (SUBDIV + 1) + x;
-                    const v1 = v0 + 1;
-                    const v2 = v0 + (SUBDIV + 1);
-                    const v3 = v2 + 1;
-                    indices[ix++] = v0;
-                    indices[ix++] = v1;
-                    indices[ix++] = v2;
-                    indices[ix++] = v1;
-                    indices[ix++] = v3;
-                    indices[ix++] = v2;
+            const indexCount = SUBDIV * SUBDIV * 6;
+            const indices = new Uint16Array(indexCount);
+            {
+                let ix = 0;
+                for (let y = 0; y < SUBDIV; y++) {
+                    for (let x = 0; x < SUBDIV; x++) {
+                        const v0 = y * (SUBDIV + 1) + x;
+                        const v1 = v0 + 1;
+                        const v2 = v0 + (SUBDIV + 1);
+                        const v3 = v2 + 1;
+                        indices[ix++] = v0;
+                        indices[ix++] = v1;
+                        indices[ix++] = v2;
+                        indices[ix++] = v1;
+                        indices[ix++] = v3;
+                        indices[ix++] = v2;
+                    }
                 }
             }
+
+            this.quadBuffer = requireWebGlResource(gl.createBuffer(), 'SstRasterLayer', 'heatmap vertex buffer');
+            gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer);
+            gl.bufferData(gl.ARRAY_BUFFER, positions, gl.STATIC_DRAW);
+            proveWebGlOperation(gl, 'SstRasterLayer', 'heatmap vertex upload');
+
+            this.indexBuffer = requireWebGlResource(gl.createBuffer(), 'SstRasterLayer', 'heatmap index buffer');
+            gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.indexBuffer);
+            gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indices, gl.STATIC_DRAW);
+            proveWebGlOperation(gl, 'SstRasterLayer', 'heatmap index upload');
+            this.indexCount = indexCount;
+
+            this.dataTexture = requireWebGlResource(gl.createTexture(), 'SstRasterLayer', 'temperature texture');
+            proveWebGlOperation(gl, 'SstRasterLayer', 'temperature texture allocation');
+
+            this._onVisibilityChange = () => {
+                if (!document.hidden && this.dataValid) this.map?.triggerRepaint();
+            };
+            document.addEventListener('visibilitychange', this._onVisibilityChange);
+
+            log.info(`onAdd — ${SUBDIV}×${SUBDIV} heatmap mesh`);
+        } catch (error) {
+            try {
+                this.onRemove(map, gl);
+            } catch {
+                // Preserve the allocation failure; cleanup is idempotent.
+            }
+            throw error;
         }
-
-        this.quadBuffer = gl.createBuffer();
-        gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer);
-        gl.bufferData(gl.ARRAY_BUFFER, positions, gl.STATIC_DRAW);
-
-        this.indexBuffer = gl.createBuffer();
-        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.indexBuffer);
-        gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indices, gl.STATIC_DRAW);
-        this.indexCount = indexCount;
-
-        this.dataTexture = gl.createTexture();
-
-        this._onVisibilityChange = () => {
-            if (!document.hidden && this.gridW > 0) this.map?.triggerRepaint();
-        };
-        document.addEventListener('visibilitychange', this._onVisibilityChange);
-
-        log.info(`onAdd — ${SUBDIV}×${SUBDIV} heatmap mesh`);
     }
 
     onRemove(_map: mapboxgl.Map, gl: WebGLRenderingContext): void {
@@ -286,6 +293,7 @@ export class SstRasterLayer implements mapboxgl.CustomLayerInterface {
         this.quadBuffer = null;
         this.indexBuffer = null;
         this.dataTexture = null;
+        this.dataValid = false;
         this.gl = null;
         this.map = null;
     }
@@ -295,50 +303,74 @@ export class SstRasterLayer implements mapboxgl.CustomLayerInterface {
      *  in degrees Celsius; land cells can be anything since the mask
      *  discards them. */
     setData(tempCelsius: Float32Array, width: number, height: number, bounds: Bounds, landMask: Uint8Array): void {
+        if (!Number.isSafeInteger(width) || !Number.isSafeInteger(height) || width <= 0 || height <= 0) {
+            throw new Error('[SstRasterLayer] grid dimensions must be positive safe integers');
+        }
         if (tempCelsius.length !== width * height) {
-            log.warn(`temp length mismatch: ${tempCelsius.length} expected=${width * height}`);
-            return;
+            throw new Error(`[SstRasterLayer] temp length mismatch: ${tempCelsius.length} expected=${width * height}`);
         }
         if (landMask.length !== width * height) {
-            log.warn(`mask length mismatch: ${landMask.length} expected=${width * height}`);
-            return;
+            throw new Error(`[SstRasterLayer] mask length mismatch: ${landMask.length} expected=${width * height}`);
         }
+        if (!this.map || !this.gl || !this.program || !this.quadBuffer || !this.indexBuffer || !this.dataTexture) {
+            throw new Error('[SstRasterLayer] renderer is not fully initialised');
+        }
+        const globalMode = Math.abs(bounds.east - bounds.west) >= 359;
+        this.dataValid = false;
+        this.uploadDataTexture(tempCelsius, landMask, width, height, globalMode);
         this.gridW = width;
         this.gridH = height;
         this.gridBounds = { ...bounds };
-        this.globalMode = Math.abs(bounds.east - bounds.west) >= 359;
-        this.uploadDataTexture(tempCelsius, landMask);
+        this.globalMode = globalMode;
+        this.dataValid = true;
         this.map?.triggerRepaint();
     }
 
-    private uploadDataTexture(temp: Float32Array, mask: Uint8Array): void {
+    private uploadDataTexture(
+        temp: Float32Array,
+        mask: Uint8Array,
+        width: number,
+        height: number,
+        globalMode: boolean,
+    ): void {
         const gl = this.gl;
         const tex = this.dataTexture;
-        if (!gl || !tex) return;
-        const w = this.gridW;
-        const h = this.gridH;
+        if (!gl || !tex) throw new Error('[SstRasterLayer] temperature texture upload is not initialised');
+        const w = width;
+        const h = height;
         const size = w * h;
         const rgba = new Uint8Array(size * 4);
-        const inv = 255.0 / ENCODE_RANGE_C;
         for (let i = 0; i < size; i++) {
             const off = i * 4;
-            const s = Math.min(255, Math.max(0, Math.round(temp[i] * inv)));
-            rgba[off] = s;
+            rgba[off] = encodeSstTemperatureByte(temp[i]);
             rgba[off + 1] = mask[i] === 1 ? 255 : 0;
             rgba[off + 2] = 0;
             rgba[off + 3] = 255;
         }
+        beginWebGlOperation(gl, 'SstRasterLayer', 'temperature texture upload');
         gl.bindTexture(gl.TEXTURE_2D, tex);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, this.globalMode ? gl.REPEAT : gl.CLAMP_TO_EDGE);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, rgba);
-        gl.bindTexture(gl.TEXTURE_2D, null);
+        try {
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, globalMode ? gl.REPEAT : gl.CLAMP_TO_EDGE);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, rgba);
+            proveWebGlOperation(gl, 'SstRasterLayer', 'temperature texture upload');
+        } finally {
+            gl.bindTexture(gl.TEXTURE_2D, null);
+        }
+        log.debug(`uploaded signed SST texture (${SST_DISPLAY_MIN_C}..${SST_DISPLAY_MAX_C}°C)`);
     }
 
     render(gl: WebGLRenderingContext, matrixOrOptions: unknown): void {
-        if (!this.program || !this.quadBuffer || !this.indexBuffer || !this.dataTexture || !matrixOrOptions) {
+        if (
+            !this.dataValid ||
+            !this.program ||
+            !this.quadBuffer ||
+            !this.indexBuffer ||
+            !this.dataTexture ||
+            !matrixOrOptions
+        ) {
             this._scheduleKeepalive();
             return;
         }

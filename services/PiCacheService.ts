@@ -17,6 +17,11 @@ import { resolveHostnameIpv4 } from '../utils/resolveHostnameIpv4';
 import { withDeadline } from '../utils/deadline';
 import { createLogger } from '../utils/createLogger';
 import {
+    PI_DISABLED_BASE_URL,
+    PI_INTEGRATION_ENABLED,
+    PI_PUBLIC_BETA_UNAVAILABLE_MESSAGE,
+} from './piPublicBetaBoundary';
+import {
     getPairing,
     fetchPairInfo,
     verifyPairedPi,
@@ -188,6 +193,7 @@ class PiCacheServiceImpl {
      * keeping the cold-start latency tight for everyone else).
      */
     async awaitReady(maxMs: number = 500): Promise<void> {
+        if (!PI_INTEGRATION_ENABLED) return;
         if (!this.config.enabled) return;
         if (this.status.reachable) {
             this._consecutiveMisses = 0; // reset on success
@@ -246,6 +252,11 @@ class PiCacheServiceImpl {
      * without needing the PiCacheTab UI to be mounted.
      */
     boot(settings: { piCacheEnabled?: boolean; piCacheHost?: string; piCachePort?: number }): void {
+        if (!PI_INTEGRATION_ENABLED) {
+            this.configure({ enabled: false, host: '', port: 3001 });
+            log.info(PI_PUBLIC_BETA_UNAVAILABLE_MESSAGE);
+            return;
+        }
         let enabled =
             settings.piCacheEnabled ??
             (typeof localStorage !== 'undefined' && localStorage.getItem('thalassa_pi_cache_enabled') === 'true');
@@ -369,6 +380,15 @@ class PiCacheServiceImpl {
 
     /** Update config from UserSettings. Called when settings change. */
     configure(config: Partial<PiCacheConfig>): void {
+        if (!PI_INTEGRATION_ENABLED) {
+            const wasEnabled = this.config.enabled;
+            this.config = { enabled: false, host: '', port: 3001 };
+            if (wasEnabled) this.stopHealthChecks();
+            this.status = { reachable: false, lastCheck: 0, latencyMs: 0 };
+            this.resolveReady();
+            this._firstCheckDone = null;
+            return;
+        }
         const wasEnabled = this.config.enabled;
         this.config = { ...this.config, ...config };
 
@@ -390,6 +410,7 @@ class PiCacheServiceImpl {
      * discovery cycle.
      */
     adoptPairing(host: string): void {
+        if (!PI_INTEGRATION_ENABLED) return;
         this.configure({ enabled: true, host });
         void this.ping();
     }
@@ -401,7 +422,7 @@ class PiCacheServiceImpl {
 
     /** Is the Pi Cache enabled AND reachable right now? */
     isAvailable(): boolean {
-        return this.config.enabled && this.status.reachable;
+        return PI_INTEGRATION_ENABLED && this.config.enabled && this.status.reachable;
     }
 
     /**
@@ -422,6 +443,7 @@ class PiCacheServiceImpl {
 
     /** Base URL for the Pi Cache server. */
     get baseUrl(): string {
+        if (!PI_INTEGRATION_ENABLED) return PI_DISABLED_BASE_URL;
         return `http://${this.config.host}:${this.config.port}`;
     }
 
@@ -499,6 +521,11 @@ class PiCacheServiceImpl {
      * Called automatically when enabled with no host configured.
      */
     async discover(): Promise<PiCacheStatus> {
+        if (!PI_INTEGRATION_ENABLED) {
+            this.status = { reachable: false, lastCheck: Date.now(), latencyMs: 0 };
+            this.resolveReady();
+            return this.status;
+        }
         const candidates = [...DISCOVERY_HOSTS];
 
         // If the user already set a host, try that first
@@ -668,6 +695,10 @@ class PiCacheServiceImpl {
     // ── Health Check ──
 
     private async checkHealth(): Promise<boolean> {
+        if (!PI_INTEGRATION_ENABLED) {
+            this.resolveReady();
+            return false;
+        }
         if (!this.config.enabled || !this.config.host) {
             this.resolveReady();
             return false;
@@ -688,7 +719,7 @@ class PiCacheServiceImpl {
             };
             try {
                 const res = await CapacitorHttp.get({
-                    url: `${this.baseUrl}/status`,
+                    url: `${this.baseUrl}/api/admin/status`,
                     connectTimeout: 2000,
                     readTimeout: 2000,
                 });
@@ -698,9 +729,9 @@ class PiCacheServiceImpl {
                 // (see utils/deadline.ts) — bound the awaiter too, or a
                 // black-holed Pi pins checkHealth for the native 600 s default.
                 const res = await withDeadline(
-                    fetch(`${this.baseUrl}/status`, { signal: AbortSignal.timeout(2000) }),
+                    fetch(`${this.baseUrl}/api/admin/status`, { signal: AbortSignal.timeout(2000) }),
                     2500,
-                    'pi-cache /status',
+                    'pi-cache /api/admin/status',
                 );
                 data = await res.json();
             }
@@ -1023,6 +1054,7 @@ class PiCacheServiceImpl {
      * user moved between networks (home WiFi → marina WiFi).
      */
     async ping(): Promise<PiCacheStatus> {
+        if (!PI_INTEGRATION_ENABLED) return this.getStatus();
         if (!this.config.host) {
             return this.discover();
         }

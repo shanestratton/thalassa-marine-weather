@@ -8,7 +8,7 @@
  * Default interval: every 15 minutes.
  */
 
-import cron from 'node-cron';
+import cron, { type ScheduledTask } from 'node-cron';
 import { Cache } from './cache.js';
 import {
     ProxyConfig,
@@ -35,7 +35,7 @@ export const TTL = {
     SEAMARK: 24 * 60 * 60 * 1000, // 24 hours — rarely change
 };
 
-let scheduledTask: cron.ScheduledTask | null = null;
+let scheduledTask: ScheduledTask | null = null;
 
 interface PrefetchConfig {
     lat: number;

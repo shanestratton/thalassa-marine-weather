@@ -1,58 +1,19 @@
-name: CMEMS Currents — Tileset Status
+name: CMEMS Currents — Tileset Status (Retired)
 
-# Poll Mapbox MTS for processing status of every thalassa-currents-h## tileset.
-# Loops until every job has reached a terminal state (success/failed) or
-# the 25-minute budget is up.
+# Retained as an explicit tombstone so the obsolete secret-bearing Mapbox
+# status poller cannot be dispatched while old integrations are removed.
 on:
     workflow_dispatch:
 
+permissions: {}
+
 jobs:
-    status:
-        runs-on: ubuntu-latest
-        timeout-minutes: 30
+    retired:
+        runs-on: ubuntu-24.04
+        timeout-minutes: 1
+        permissions: {}
         steps:
-            - name: Poll tileset statuses
-              env:
-                  MAPBOX_UPLOAD_TOKEN: ${{ secrets.MAPBOX_UPLOAD_TOKEN }}
-                  MAPBOX_USERNAME: ${{ secrets.MAPBOX_USERNAME }}
+            - name: Refuse retired Mapbox tileset status poll
               run: |
-                  set -euo pipefail
-                  DEADLINE=$(( $(date +%s) + 1500 ))  # 25 min
-
-                  while [ $(date +%s) -lt $DEADLINE ]; do
-                      queued=0
-                      processing=0
-                      success=0
-                      failed=0
-                      unknown=0
-                      for i in $(seq -w 0 48); do
-                          ts="${MAPBOX_USERNAME}.thalassa-currents-h${i}"
-                          jobs_json=$(curl -s "https://api.mapbox.com/tilesets/v1/${ts}/jobs?limit=1&access_token=${MAPBOX_UPLOAD_TOKEN}")
-                          stage=$(echo "$jobs_json" | python3 -c "import sys,json; j=json.load(sys.stdin); print(j[0].get('stage','?')) if j else print('no-job')" 2>/dev/null || echo '?')
-                          case "$stage" in
-                              queued)     queued=$((queued+1)) ;;
-                              processing) processing=$((processing+1)) ;;
-                              success)    success=$((success+1)) ;;
-                              failed)     failed=$((failed+1)) ;;
-                              *)          unknown=$((unknown+1)) ;;
-                          esac
-                      done
-                      echo "$(date -u +%H:%M:%S) queued=$queued processing=$processing success=$success failed=$failed unknown=$unknown"
-                      if [ $((queued + processing)) -eq 0 ]; then
-                          break
-                      fi
-                      sleep 60
-                  done
-
-                  echo
-                  echo "== Final per-hour status =="
-                  for i in $(seq -w 0 48); do
-                      ts="${MAPBOX_USERNAME}.thalassa-currents-h${i}"
-                      jobs_json=$(curl -s "https://api.mapbox.com/tilesets/v1/${ts}/jobs?limit=1&access_token=${MAPBOX_UPLOAD_TOKEN}")
-                      stage=$(echo "$jobs_json" | python3 -c "import sys,json; j=json.load(sys.stdin); print(j[0].get('stage','?')) if j else print('no-job')" 2>/dev/null || echo '?')
-                      printf "h%s %s\n" "$i" "$stage"
-                  done
-
-                  echo
-                  echo "== FULL JSON for h00 (latest job) =="
-                  curl -s "https://api.mapbox.com/tilesets/v1/${MAPBOX_USERNAME}.thalassa-currents-h00/jobs?limit=1&access_token=${MAPBOX_UPLOAD_TOKEN}" | python3 -m json.tool
+                  echo "::notice::Retired: CMEMS no longer publishes or polls Mapbox tilesets."
+                  exit 78

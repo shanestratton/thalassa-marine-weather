@@ -32,6 +32,7 @@ import {
 import { createLogger } from '../utils/createLogger';
 import { decideFollowAction, haversineNM, GPS_FOLLOW_POLL_MS } from '../utils/gpsFollow';
 import { useWeatherStore } from '../stores/weatherStore';
+import { useUIStore } from '../stores/uiStore';
 import {
     getAuthIdentityScope,
     isAuthIdentityScopeCurrent,
@@ -143,6 +144,10 @@ const ScopedWeatherProvider: React.FC<{ children: React.ReactNode; identityScope
     identityScope,
 }) => {
     const { settings, updateSettings, loading: settingsLoading } = useSettings();
+    // One reactive subscription drives timer lifecycle. Async callbacks still
+    // read getState() so a probe transition is observed even before React has
+    // committed the corresponding render.
+    const isOffline = useUIStore((state) => state.isOffline);
     const cacheKeys = React.useMemo(() => weatherCacheKeysForScope(identityScope), [identityScope]);
     const isCurrentScope = useCallback(() => isAuthIdentityScopeCurrent(identityScope), [identityScope]);
 
@@ -194,6 +199,7 @@ const ScopedWeatherProvider: React.FC<{ children: React.ReactNode; identityScope
     const nextUpdateRef = useRef<number | null>(null);
     const locationModeRef = useRef(locationMode);
     const pendingDisposeRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const previousOfflineRef = useRef(isOffline);
 
     // Wrapper: every weather update also feeds the environment detection service
     const setWeatherData = useCallback(
@@ -285,6 +291,7 @@ const ScopedWeatherProvider: React.FC<{ children: React.ReactNode; identityScope
             getSettings: () => settingsRef.current,
             getHistoryCache: () => historyCacheRef.current,
             getLocationMode: () => locationModeRef.current,
+            getIsOffline: () => useUIStore.getState().isOffline,
             getIsFetching: () => isFetchingRef.current,
             setIsFetching: (v) => {
                 isFetchingRef.current = v;
@@ -459,11 +466,11 @@ const ScopedWeatherProvider: React.FC<{ children: React.ReactNode; identityScope
             if (!isCurrentScope()) return;
             const data = weatherDataRef.current;
             const loc = data?.locationName || settingsRef.current.defaultLocation || '';
-            if (!navigator.onLine) {
-                // Still attempt — SW may serve cached API responses
+            if (useUIStore.getState().isOffline) {
                 if (!silent) toast.info('Offline — showing cached data');
+                return;
             }
-            fetchWeather(loc, true, data?.coordinates, false, silent);
+            void fetchWeather(loc, true, data?.coordinates, false, silent);
         },
         [fetchWeather, isCurrentScope],
     );
@@ -622,7 +629,7 @@ const ScopedWeatherProvider: React.FC<{ children: React.ReactNode; identityScope
 
     // ── WATCHDOG: Ensure nextUpdate is set if data exists ───
     useEffect(() => {
-        if (isCurrentScope() && weatherData && !nextUpdate) {
+        if (isCurrentScope() && !isOffline && weatherData && !nextUpdate) {
             const lt = weatherData.locationType || 'coastal';
             const isCurrentLoc = locationMode === 'gps';
             const interval = getUpdateInterval(lt, weatherData, isCurrentLoc, settingsRef.current.satelliteMode);
@@ -634,10 +641,73 @@ const ScopedWeatherProvider: React.FC<{ children: React.ReactNode; identityScope
                 setNextUpdateForScope(alignToNextInterval(interval));
             }
         }
-    }, [isCurrentScope, locationMode, nextUpdate, setNextUpdateForScope, weatherData]);
+    }, [isCurrentScope, isOffline, locationMode, nextUpdate, setNextUpdateForScope, weatherData]);
+
+    // A scheduled timestamp means "the app intends to make a network
+    // refresh at this time". Keep that promise honest: while the WAN probe
+    // says offline there is no pending refresh, and an old timestamp must not
+    // leave consumers showing "Updating" or "Overdue" indefinitely.
+    //
+    // Reconnect is keyed to the probe transition, not window.online. The
+    // latter only says a link interface returned (often the boat LAN); the
+    // internet probe is what proves that weather providers are reachable.
+    useEffect(() => {
+        const wasOffline = previousOfflineRef.current;
+        previousOfflineRef.current = isOffline;
+        if (!isCurrentScope()) return;
+
+        if (isOffline) {
+            setNextUpdateForScope(null);
+            localStorage.removeItem(cacheKeys.nextUpdate);
+            setStaleRefresh(false);
+            return;
+        }
+
+        if (!wasOffline) return;
+
+        const data = weatherDataRef.current;
+        const dataAge = data?.generatedAt ? Date.now() - new Date(data.generatedAt).getTime() : Infinity;
+        const STALE_ON_RECONNECT_MS = 5 * 60 * 1000;
+        if (dataAge < STALE_ON_RECONNECT_MS) return;
+
+        log.info(`[WeatherContext] WAN restored — data ${Math.round(dataAge / 60000)}m old, refreshing`);
+        if (dataAge >= 2 * 60 * 60 * 1000) setStaleRefresh(true);
+
+        const reconnectTimer = setTimeout(() => {
+            if (!isCurrentScope() || useUIStore.getState().isOffline || isFetchingRef.current) return;
+            const current = weatherDataRef.current;
+            const loc = current?.locationName || settingsRef.current.defaultLocation;
+            if (!loc) return;
+
+            if (locationMode === 'gps') {
+                void GpsService.getCurrentPositionIfGranted({ staleLimitMs: 60_000, timeoutSec: 10 }).then((pos) => {
+                    if (!isCurrentScope() || useUIStore.getState().isOffline) return;
+                    if (pos) {
+                        void fetchWeather(
+                            'Current Location',
+                            true,
+                            { lat: pos.latitude, lon: pos.longitude },
+                            false,
+                            true,
+                        );
+                    } else {
+                        void fetchWeather(loc, true, current?.coordinates, false, true);
+                    }
+                });
+            } else {
+                void fetchWeather(loc, true, current?.coordinates, false, true);
+            }
+        }, 1500);
+
+        return () => clearTimeout(reconnectTimer);
+    }, [cacheKeys.nextUpdate, fetchWeather, isCurrentScope, isOffline, locationMode, setNextUpdateForScope]);
 
     // ── SMART REFRESH TIMER ─────────────────────────────────
     useEffect(() => {
+        // Do not create polling or wake timers that can only fail. The
+        // probe-driven reconnect effect above restarts this scheduler.
+        if (isOffline) return;
+
         const deferredTimers = new Set<ReturnType<typeof setTimeout>>();
         const scheduleDeferred = (callback: () => void, delayMs: number) => {
             const timer = setTimeout(() => {
@@ -650,7 +720,7 @@ const ScopedWeatherProvider: React.FC<{ children: React.ReactNode; identityScope
         const checkInterval = setInterval(() => {
             if (!isCurrentScope()) return;
             if (document.hidden) return;
-            if (!navigator.onLine) return;
+            if (useUIStore.getState().isOffline) return;
             if (isFetchingRef.current) return;
 
             const data = weatherDataRef.current;
@@ -668,8 +738,8 @@ const ScopedWeatherProvider: React.FC<{ children: React.ReactNode; identityScope
                 setNextUpdateForScope(tempNext);
 
                 if (locationMode === 'gps') {
-                    GpsService.getCurrentPosition({ staleLimitMs: 30_000 }).then((pos) => {
-                        if (!isCurrentScope()) return;
+                    GpsService.getCurrentPositionIfGranted({ staleLimitMs: 30_000 }).then((pos) => {
+                        if (!isCurrentScope() || useUIStore.getState().isOffline) return;
                         if (pos) {
                             // Refresh AT the boat's position, labelled with
                             // the current friendly name. Passing the literal
@@ -706,6 +776,7 @@ const ScopedWeatherProvider: React.FC<{ children: React.ReactNode; identityScope
         const handleVisibilityChange = () => {
             if (!isCurrentScope()) return;
             if (document.visibilityState !== 'visible') return;
+            if (useUIStore.getState().isOffline) return;
             if (isFetchingRef.current) return;
 
             const data = weatherDataRef.current;
@@ -715,13 +786,14 @@ const ScopedWeatherProvider: React.FC<{ children: React.ReactNode; identityScope
                 log.info(`[WeatherContext] Wake: data is ${Math.round(dataAge / 60000)}m old — refreshing`);
                 setStaleRefresh(true);
                 scheduleDeferred(() => {
+                    if (useUIStore.getState().isOffline) return;
                     if (isFetchingRef.current) return;
                     const loc = data?.locationName || settingsRef.current.defaultLocation;
                     if (!loc) return;
 
                     if (locationMode === 'gps') {
-                        GpsService.getCurrentPosition({ staleLimitMs: 60_000, timeoutSec: 10 }).then((pos) => {
-                            if (!isCurrentScope()) return;
+                        GpsService.getCurrentPositionIfGranted({ staleLimitMs: 60_000, timeoutSec: 10 }).then((pos) => {
+                            if (!isCurrentScope() || useUIStore.getState().isOffline) return;
                             if (pos) {
                                 void fetchWeather(
                                     'Current Location',
@@ -749,65 +821,13 @@ const ScopedWeatherProvider: React.FC<{ children: React.ReactNode; identityScope
         };
         document.addEventListener('visibilitychange', handleVisibilityChange);
 
-        // Reconnect handler — fires the moment the device comes back
-        // online (airplane-mode toggle, wifi drop, 4G hand-off back to
-        // signal). Previously the user had to either wait for the next
-        // scheduled refresh (could be minutes) or pull-to-refresh
-        // manually; now a fresh fetch kicks off within ~1s of the
-        // connection returning. Mirrors the wake-from-sleep logic.
-        const handleOnline = () => {
-            if (!isCurrentScope()) return;
-            if (isFetchingRef.current) return;
-            const data = weatherDataRef.current;
-            const dataAge = data?.generatedAt ? Date.now() - new Date(data.generatedAt).getTime() : Infinity;
-            // Only refresh if the cached data is actually stale (5+ min)
-            // — if the user just dipped offline for a few seconds while
-            // scrolling, we don't need to burn a fetch on reconnect.
-            const STALE_ON_RECONNECT_MS = 5 * 60 * 1000;
-            if (dataAge < STALE_ON_RECONNECT_MS) return;
-
-            log.info(`[WeatherContext] Reconnected — data ${Math.round(dataAge / 60000)}m old, refreshing`);
-            // Only show the full blur for very-stale data (2h+). Below
-            // that, the sync badge at the bottom communicates the refresh
-            // without yanking the user out of the data they're reading.
-            if (dataAge >= 2 * 60 * 60 * 1000) setStaleRefresh(true);
-            // Small delay gives the device a chance to fully settle the
-            // connection (especially noticeable on cellular hand-offs).
-            scheduleDeferred(() => {
-                if (isFetchingRef.current) return;
-                const loc = data?.locationName || settingsRef.current.defaultLocation;
-                if (!loc) return;
-
-                if (locationMode === 'gps') {
-                    GpsService.getCurrentPosition({ staleLimitMs: 60_000, timeoutSec: 10 }).then((pos) => {
-                        if (!isCurrentScope()) return;
-                        if (pos) {
-                            void fetchWeather(
-                                'Current Location',
-                                true,
-                                { lat: pos.latitude, lon: pos.longitude },
-                                false,
-                                true,
-                            );
-                        } else {
-                            void fetchWeather(loc, true, data?.coordinates, false, true);
-                        }
-                    });
-                } else {
-                    void fetchWeather(loc, true, data?.coordinates, false, true);
-                }
-            }, 1500);
-        };
-        window.addEventListener('online', handleOnline);
-
         return () => {
             clearInterval(checkInterval);
             for (const timer of deferredTimers) clearTimeout(timer);
             deferredTimers.clear();
             document.removeEventListener('visibilitychange', handleVisibilityChange);
-            window.removeEventListener('online', handleOnline);
         };
-    }, [fetchWeather, isCurrentScope, locationMode, setNextUpdateForScope]);
+    }, [fetchWeather, isCurrentScope, isOffline, locationMode, setNextUpdateForScope]);
 
     // ── BLUR WATCHDOG ──────────────────────────────────────────
     // The blur is only ever cleared by the orchestrator's `finally`, which
@@ -893,7 +913,7 @@ const ScopedWeatherProvider: React.FC<{ children: React.ReactNode; identityScope
             if (!displayed || !weatherPoint) return;
             const generation = ++tickGeneration;
 
-            GpsService.getCurrentPosition({ staleLimitMs: 10_000 }).then(async (pos) => {
+            GpsService.getCurrentPositionIfGranted({ staleLimitMs: 10_000 }).then(async (pos) => {
                 if (!isCurrentScope() || cancelled || generation !== tickGeneration) return;
                 if (!pos) return;
                 const { latitude, longitude } = pos;
@@ -909,18 +929,23 @@ const ScopedWeatherProvider: React.FC<{ children: React.ReactNode; identityScope
                 if (action === 'none') return;
 
                 let name = cardinalName(latitude, longitude);
-                try {
-                    const geo = await reverseGeocode(latitude, longitude);
-                    if (!isCurrentScope() || cancelled || generation !== tickGeneration) return;
-                    if (geo) name = geo;
-                } catch {
-                    /* offshore — cardinal coords are an honest label */
+                // A cardinal coordinate is an honest offline label. Do not
+                // send a reverse-geocode request until the WAN probe says it
+                // can succeed.
+                if (!useUIStore.getState().isOffline) {
+                    try {
+                        const geo = await reverseGeocode(latitude, longitude);
+                        if (!isCurrentScope() || cancelled || generation !== tickGeneration) return;
+                        if (geo) name = geo;
+                    } catch {
+                        /* offshore — cardinal coords are an honest label */
+                    }
                 }
                 if (!isCurrentScope() || cancelled || generation !== tickGeneration) return;
                 if (weatherPointRef.current?.generatedAt !== weatherPoint.generatedAt) return;
 
                 if (action === 'refetch') {
-                    if (!navigator.onLine) return; // retry next tick when the link returns
+                    if (useUIStore.getState().isOffline) return; // retry after the reachability probe recovers
                     const dist = haversineNM(weatherPoint.lat, weatherPoint.lon, latitude, longitude);
                     log.warn(
                         `[WeatherContext] GPS follow: ${dist.toFixed(1)} NM from forecast point — refetching for ${name}`,
@@ -955,16 +980,18 @@ const ScopedWeatherProvider: React.FC<{ children: React.ReactNode; identityScope
 
     // ── LIVE OVERLAY (delegates to orchestrator) ────────────
     useEffect(() => {
+        if (isOffline) return;
+
         const liveTimer = setInterval(() => {
             if (!isCurrentScope()) return;
             if (document.hidden) return;
-            if (!navigator.onLine) return;
+            if (useUIStore.getState().isOffline) return;
             if (isFetchingRef.current) return;
             void orchestrator.patchLiveMetrics();
         }, LIVE_OVERLAY_INTERVAL);
 
         return () => clearInterval(liveTimer);
-    }, [isCurrentScope, orchestrator]);
+    }, [isCurrentScope, isOffline, orchestrator]);
 
     // ── Model Change Effect ─────────────────────────────────
     // Watches the Glass forecast-model picker (settings.forecastModel).

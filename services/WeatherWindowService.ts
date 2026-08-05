@@ -1,7 +1,7 @@
 /**
  * WeatherWindowService — Departure window scoring for cruisers.
  *
- * Analyses the next 7 days of forecast data for a given route
+ * Analyses the next 16 days of forecast data for a given route
  * and scores 6-hour departure windows as Go / Marginal / Wait.
  * Uses the comfort profile thresholds to determine scoring.
  *
@@ -15,6 +15,7 @@ import { fetchOpenMeteoProxy } from './weather/openMeteoProxy';
 import { createLogger } from '../utils/createLogger';
 import { vesselMaxWaveHeightMetres } from './units';
 import { circularMean } from '../utils/circularStats';
+import { passageDataFingerprint } from './passageEnvironmentReadiness';
 
 /**
  * Internal scoring shape — what scoreWindow() actually consumes.
@@ -24,7 +25,7 @@ import { circularMean } from '../utils/circularStats';
  * fields are undefined so the scorer always has concrete numbers to
  * compare against.
  */
-interface ScoringComfort {
+export interface WeatherWindowScoringComfort {
     maxWindKts: number;
     maxWaveM: number;
     preferredAngles: PreferredAngle[];
@@ -54,16 +55,92 @@ export interface DepartureWindow {
     description: string;
 }
 
-export interface WeatherWindowResult {
+interface WeatherWindowResultBase {
     windows: DepartureWindow[];
     bestWindowIndex: number;
     analysisTime: string;
-    source: 'live' | 'cached';
+    provider: typeof WEATHER_WINDOW_PROVIDER;
 }
 
+export interface AvailableWeatherWindowResult extends WeatherWindowResultBase {
+    availability: 'available';
+    source: 'live' | 'cached';
+    cacheVersion: 2;
+    forecastStart: string | null;
+    forecastEnd: string | null;
+    dataFingerprint: string;
+    analysisContextFingerprint: string;
+}
+
+export interface UnavailableWeatherWindowResult extends WeatherWindowResultBase {
+    availability: 'unavailable';
+    source: 'unavailable';
+    forecastStart: null;
+    forecastEnd: null;
+    dataFingerprint: null;
+    analysisContextFingerprint: string;
+    failureReason: string;
+}
+
+export type WeatherWindowResult = AvailableWeatherWindowResult | UnavailableWeatherWindowResult;
+
 const CACHE_KEY = 'thalassa_weather_windows';
-const CACHE_TTL = 3 * 60 * 60 * 1000; // 3 hours
+export const WEATHER_WINDOW_PROVIDER = 'Open-Meteo Commercial marine + forecast' as const;
+export const WEATHER_WINDOW_CACHE_TTL_MS = 3 * 60 * 60 * 1000;
+/** Hard ceiling for fallback/acceptance. Older forecasts are context only, never readiness. */
+export const WEATHER_WINDOW_MAX_FALLBACK_AGE_MS = 6 * 60 * 60 * 1000;
 const WEATHER_WINDOW_TIMEOUT_MS = 20_000;
+
+function analysisAgeMs(analysisTime: string, nowMs = Date.now()): number {
+    const analysedAt = Date.parse(analysisTime);
+    return Number.isFinite(analysedAt) ? nowMs - analysedAt : Number.POSITIVE_INFINITY;
+}
+
+export function isWeatherWindowResultAcceptable(
+    result: WeatherWindowResult | null | undefined,
+    nowMs = Date.now(),
+): result is AvailableWeatherWindowResult {
+    if (result?.availability !== 'available' || result.windows.length === 0) return false;
+    const ageMs = analysisAgeMs(result.analysisTime, nowMs);
+    return ageMs >= -5 * 60 * 1000 && ageMs <= WEATHER_WINDOW_MAX_FALLBACK_AGE_MS;
+}
+
+function unavailableResult(contextFingerprint: string, reason: string): UnavailableWeatherWindowResult {
+    return {
+        availability: 'unavailable',
+        windows: [],
+        bestWindowIndex: -1,
+        analysisTime: new Date().toISOString(),
+        source: 'unavailable',
+        provider: WEATHER_WINDOW_PROVIDER,
+        forecastStart: null,
+        forecastEnd: null,
+        dataFingerprint: null,
+        analysisContextFingerprint: contextFingerprint,
+        failureReason: reason,
+    };
+}
+
+function parseCachedResult(raw: string | null): AvailableWeatherWindowResult | null {
+    if (!raw) return null;
+    try {
+        const value = JSON.parse(raw) as Partial<AvailableWeatherWindowResult>;
+        if (
+            value.availability !== 'available' ||
+            value.cacheVersion !== 2 ||
+            value.provider !== WEATHER_WINDOW_PROVIDER ||
+            !Array.isArray(value.windows) ||
+            typeof value.analysisTime !== 'string' ||
+            typeof value.dataFingerprint !== 'string' ||
+            typeof value.analysisContextFingerprint !== 'string'
+        ) {
+            return null;
+        }
+        return value as AvailableWeatherWindowResult;
+    } catch {
+        return null;
+    }
+}
 
 /** Wind direction labels */
 const DIRS = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
@@ -90,7 +167,7 @@ function scoreWindow(
     hourlyWind: number[],
     hourlyWave: number[],
     hourlyWindDir: number[],
-    comfort: ScoringComfort,
+    comfort: WeatherWindowScoringComfort,
     courseBearing?: number,
 ): { score: number; rating: 'go' | 'marginal' | 'wait' } {
     let score = 100;
@@ -152,7 +229,7 @@ function scoreWindow(
  * would make the maxWind > comfort.maxWindKts comparison evaluate to
  * `> undefined` = false, masking real wind penalties).
  */
-function loadScoringComfort(): ScoringComfort {
+function loadScoringComfort(): WeatherWindowScoringComfort {
     try {
         const settings = useSettingsStore.getState().settings;
         const v = settings.vessel;
@@ -203,7 +280,7 @@ function describeWindow(summary: DepartureWindow['summary']): string {
 
 export const WeatherWindowService = {
     /**
-     * Analyse departure windows for the next 7 days.
+     * Analyse departure windows for the next 16 days.
      * @param lat — Departure latitude
      * @param lon — Departure longitude
      * @param voyageId — Active voyage ID (kept on the signature for
@@ -214,36 +291,38 @@ export const WeatherWindowService = {
      */
     async analyse(lat: number, lon: number, _voyageId?: string, courseBearing?: number): Promise<WeatherWindowResult> {
         const comfort = loadScoringComfort();
+        const analysisContextFingerprint = passageDataFingerprint('weather-window-context', {
+            lat,
+            lon,
+            courseBearing,
+            comfort,
+        });
 
         // Coordinates are normally supplied by a selected map point, but this
         // service is also called from forms and restored voyage data. Refuse
         // malformed values before they can create a bogus cache key or request.
         if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) {
             log.warn('Ignoring weather-window request with invalid coordinates');
-            return {
-                windows: [],
-                bestWindowIndex: -1,
-                analysisTime: new Date().toISOString(),
-                source: 'live',
-            };
+            return unavailableResult(analysisContextFingerprint, 'Departure coordinates are invalid.');
         }
 
-        // Cache key includes lat/lon (rounded to 0.1°, ~6 NM resolution)
-        // so two voyages from different ports don't share the same
-        // cache entry. The old single-key cache leaked between voyages
-        // — opening the WW card on voyage A then voyage B would briefly
-        // show A's data until B's fetch landed.
-        const cacheKey = `${CACHE_KEY}:${lat.toFixed(1)},${lon.toFixed(1)}`;
+        // The scored result is not just location data: course and the effective
+        // vessel/comfort thresholds alter every rating. Key the cache by all of
+        // those inputs so changing a limit can never revive an old Go result.
+        const cacheKey = `${CACHE_KEY}:${analysisContextFingerprint}`;
+        let fallbackCache: AvailableWeatherWindowResult | null = null;
 
         // Check cache
         try {
-            const cached = localStorage.getItem(cacheKey);
-            if (cached) {
-                const data = JSON.parse(cached);
-                if (Date.now() - new Date(data.analysisTime).getTime() < CACHE_TTL) {
+            const data = parseCachedResult(localStorage.getItem(cacheKey));
+            if (data) {
+                const ageMs = analysisAgeMs(data.analysisTime);
+                if (ageMs >= 0 && ageMs <= WEATHER_WINDOW_MAX_FALLBACK_AGE_MS) fallbackCache = data;
+                if (ageMs >= 0 && ageMs < WEATHER_WINDOW_CACHE_TTL_MS) {
                     log.info('Using cached weather windows');
                     return { ...data, source: 'cached' };
                 }
+                if (ageMs > WEATHER_WINDOW_MAX_FALLBACK_AGE_MS) localStorage.removeItem(cacheKey);
             }
         } catch {
             /* ignore */
@@ -316,6 +395,17 @@ export const WeatherWindowService = {
                 waveHeight.length,
                 precip.length,
             );
+            for (let index = 0; index < forecastLength; index += 1) {
+                if (
+                    typeof times[index] !== 'string' ||
+                    !Number.isFinite(Date.parse(times[index])) ||
+                    ![windSpeed[index], windDir[index], waveHeight[index], precip[index]].every(
+                        (value) => typeof value === 'number' && Number.isFinite(value),
+                    )
+                ) {
+                    throw new Error(`Forecast response has invalid hourly data at index ${index}`);
+                }
+            }
 
             // Build 6-hour windows
             const windows: DepartureWindow[] = [];
@@ -370,11 +460,25 @@ export const WeatherWindowService = {
                 ? windows.reduce((best, w, i) => (w.score > windows[best].score ? i : best), 0)
                 : -1;
 
-            const result: WeatherWindowResult = {
+            const dataFingerprint = passageDataFingerprint('weather-window-provider-data', {
+                times: times.slice(0, forecastLength),
+                windSpeed: windSpeed.slice(0, forecastLength),
+                windDir: windDir.slice(0, forecastLength),
+                waveHeight: waveHeight.slice(0, forecastLength),
+                precip: precip.slice(0, forecastLength),
+            });
+            const result: AvailableWeatherWindowResult = {
+                availability: 'available',
                 windows,
                 bestWindowIndex: bestIdx,
                 analysisTime: new Date().toISOString(),
                 source: 'live',
+                provider: WEATHER_WINDOW_PROVIDER,
+                cacheVersion: 2,
+                forecastStart: times[0] ?? null,
+                forecastEnd: forecastLength > 0 ? (times[forecastLength - 1] ?? null) : null,
+                dataFingerprint,
+                analysisContextFingerprint,
             };
 
             // Cache
@@ -388,31 +492,25 @@ export const WeatherWindowService = {
         } catch (err) {
             log.error('Weather window analysis failed:', err);
 
-            // Return cached if available
-            try {
-                const cached = localStorage.getItem(cacheKey);
-                if (cached) return { ...JSON.parse(cached), source: 'cached' };
-            } catch {
-                /* ignore */
+            // Only a bounded, structurally verified cache can stand in for a
+            // failed live request. Anything older is contextually obsolete and
+            // cannot be accepted as departure readiness.
+            if (fallbackCache && analysisAgeMs(fallbackCache.analysisTime) <= WEATHER_WINDOW_MAX_FALLBACK_AGE_MS) {
+                return { ...fallbackCache, source: 'cached' };
             }
 
-            // Return empty
-            return {
-                windows: [],
-                bestWindowIndex: -1,
-                analysisTime: new Date().toISOString(),
-                source: 'live',
-            };
+            return unavailableResult(
+                analysisContextFingerprint,
+                'Live weather-window data is unavailable and no sufficiently fresh cached analysis exists.',
+            );
         }
     },
 
     /** Clear cached analysis */
     clearCache(): void {
         try {
-            // Analyses are keyed by rounded departure coordinates. Removing
-            // only the old bare CACHE_KEY left every real cached result in
-            // place, so a user pressing refresh after changing safety limits
-            // could still be shown a stale rating for up to three hours.
+            // Analyses are keyed by a fingerprint of coordinates, course and
+            // effective limits. Remove both current and legacy variants.
             const keys: string[] = [];
             for (let i = 0; i < localStorage.length; i++) {
                 const key = localStorage.key(i);

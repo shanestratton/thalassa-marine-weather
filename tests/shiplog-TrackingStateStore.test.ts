@@ -11,6 +11,7 @@ import {
     getLastPosition,
     saveLastPosition,
     clearVoyageState,
+    suspendTrackingStateForIdentityChange,
     type TrackingState,
     type StoredPosition,
 } from '../services/shiplog/TrackingStateStore';
@@ -206,6 +207,35 @@ describe('TrackingStateStore', () => {
                 scopeA,
             );
             await expect(loadTrackingState()).resolves.toMatchObject({ currentVoyageId: 'voyage-a' });
+        });
+
+        it('does not let a delayed A transition overwrite newer state after A returns', async () => {
+            const oldScopeA = getAuthIdentityScope();
+            setAuthIdentityScope('tracking-owner-b');
+            setAuthIdentityScope('tracking-owner');
+            await saveTrackingState({
+                isTracking: true,
+                isPaused: false,
+                isRapidMode: false,
+                currentVoyageId: 'new-generation-voyage-a',
+            });
+
+            await suspendTrackingStateForIdentityChange(
+                {
+                    isTracking: true,
+                    isPaused: false,
+                    isRapidMode: false,
+                    nativeTeardownPending: 'release-only',
+                    currentVoyageId: 'stale-transition-voyage-a',
+                },
+                oldScopeA,
+            );
+
+            await expect(loadTrackingState()).resolves.toMatchObject({
+                isTracking: true,
+                isPaused: false,
+                currentVoyageId: 'new-generation-voyage-a',
+            });
         });
 
         it('ignores unattributed global legacy values (fail closed)', async () => {

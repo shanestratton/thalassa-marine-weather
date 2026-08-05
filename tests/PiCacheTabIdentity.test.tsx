@@ -26,13 +26,28 @@ vi.mock('../services/PiCacheService', () => ({
     piCache: {
         configure: vi.fn(),
         onStatusChange: vi.fn(() => vi.fn()),
+        onPairingEvent: vi.fn(() => vi.fn()),
         getStatus: vi.fn(() => mocks.status),
         fetch: mocks.fetch,
         purgeCache: mocks.purgeCache,
         ping: vi.fn(async () => mocks.status),
         discover: vi.fn(async () => mocks.status),
         pushConfig: vi.fn(async () => true),
+        adoptPairing: vi.fn(),
     },
+}));
+
+vi.mock('../services/PiPairingService', () => ({
+    getPairing: vi.fn(() => ({
+        deviceId: 'test-pi',
+        boatName: 'Test Boat',
+        publicKeySpki: 'test-public-key',
+        fingerprint: 'AA:BB:CC:DD',
+        host: 'calypso.local',
+        pairedAt: '2026-08-04T00:00:00.000Z',
+    })),
+    pairWithPi: vi.fn(),
+    forgetPairing: vi.fn(),
 }));
 
 vi.mock('../services/SubscriptionService', () => ({

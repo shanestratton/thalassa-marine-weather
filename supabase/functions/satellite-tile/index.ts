@@ -147,8 +147,8 @@ Deno.serve(async (req: Request) => {
 
             const toMerc = (lonDeg: number, latDeg: number) => {
                 const mx = (lonDeg * 20037508.34) / 180;
-                const my =
-                    ((Math.log(Math.tan(((90 + latDeg) * Math.PI) / 360)) / (Math.PI / 180)) * 20037508.34) / 180;
+                const my = ((Math.log(Math.tan(((90 + latDeg) * Math.PI) / 360)) / (Math.PI / 180)) * 20037508.34) /
+                    180;
                 return { x: mx, y: my };
             };
             const bl = toMerc(lon1, lat1);

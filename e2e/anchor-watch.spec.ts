@@ -4,6 +4,7 @@ import { ONBOARDED_STORAGE } from './helpers/storageState';
 interface WarmLaunchTelemetry {
     consoleErrors: string[];
     weatherProviderRequests: string[];
+    weatherLifecycle: string[];
 }
 
 const warmLaunchTelemetry = new WeakMap<Page, WarmLaunchTelemetry>();
@@ -15,10 +16,14 @@ test.describe('Anchor Watch', () => {
         // Capture startup failures before navigation. A warm-launch fixture
         // should use its scoped weather/rain caches rather than calling a
         // live provider during an unrelated Vessel journey.
-        const telemetry: WarmLaunchTelemetry = { consoleErrors: [], weatherProviderRequests: [] };
+        const telemetry: WarmLaunchTelemetry = { consoleErrors: [], weatherProviderRequests: [], weatherLifecycle: [] };
         warmLaunchTelemetry.set(page, telemetry);
         page.on('console', (msg) => {
-            if (msg.type() === 'error') telemetry.consoleErrors.push(msg.text());
+            const text = msg.text();
+            if (msg.type() === 'error') telemetry.consoleErrors.push(text);
+            if (/\[(?:WxOrch|WeatherContext|AppController|WeatherKit)\]/.test(text)) {
+                telemetry.weatherLifecycle.push(text);
+            }
         });
         page.on('request', (request) => {
             const url = request.url();
@@ -54,10 +59,13 @@ test.describe('Anchor Watch', () => {
         expect(telemetry).toBeDefined();
         // Filter out expected React dev warnings.
         const realErrors = telemetry!.consoleErrors.filter((e) => !e.includes('Warning:') && !e.includes('DevTools'));
-        expect(realErrors, `Unexpected browser console errors:\n${realErrors.join('\n')}`).toHaveLength(0);
+        expect(
+            realErrors,
+            `Unexpected browser console errors:\n${realErrors.join('\n')}\n\nWeather lifecycle:\n${telemetry!.weatherLifecycle.join('\n')}`,
+        ).toHaveLength(0);
         expect(
             telemetry!.weatherProviderRequests,
-            `A warm launch should use its cached weather data:\n${telemetry!.weatherProviderRequests.join('\n')}`,
+            `A warm launch should use its cached weather data:\n${telemetry!.weatherProviderRequests.join('\n')}\n\nWeather lifecycle:\n${telemetry!.weatherLifecycle.join('\n')}`,
         ).toHaveLength(0);
     });
 });

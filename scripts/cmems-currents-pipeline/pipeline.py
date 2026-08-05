@@ -26,18 +26,24 @@ Binary file format (little-endian):
     f32[width*height] v           (north velocity, m/s)
     u8 [width*height] land_mask   (1=land, 0=ocean) — v2+ only
 
-One file per forecast hour, named `h00.bin` through `h<H-1>.bin`.
+Each forecast hour is packaged under an immutable generation filename.
 """
 from __future__ import annotations
 
 import logging
 import os
 import struct
-import subprocess
 import sys
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
+SCRIPTS_DIR = Path(__file__).resolve().parents[1]
+if str(SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS_DIR))
+
+from cmems_contract import validate_cmems_source, validate_thcu_payloads
+from publisher_contract import build_cmems_bundle, producer_provenance
 
 log = logging.getLogger("cmems-pipeline")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -62,6 +68,7 @@ RELEASE_TAG = "cmems-currents-latest"
 
 OUT_DIR = Path(os.environ.get("CMEMS_OUT_DIR", "/tmp/cmems-currents"))
 OUT_DIR.mkdir(parents=True, exist_ok=True)
+BUNDLE_DIR = OUT_DIR / "bundle"
 
 BINARY_MAGIC = b"THCU"
 BINARY_VERSION = 2  # v1 = no land-mask plane; v2 adds u8[w*h] mask after v
@@ -165,6 +172,8 @@ def encode_hourly_binaries(nc_path: Path) -> list[Path]:
     for i, t in enumerate(ds.time.values):
         u = ds["uo"].isel(time=i).fillna(0.0).astype(np.float32).values
         v = ds["vo"].isel(time=i).fillna(0.0).astype(np.float32).values
+        u = np.where(land_mask == 1, 0.0, u).astype(np.float32)
+        v = np.where(land_mask == 1, 0.0, v).astype(np.float32)
 
         bin_path = OUT_DIR / f"h{i:02d}.bin"
         header = struct.pack(
@@ -191,58 +200,6 @@ def encode_hourly_binaries(nc_path: Path) -> list[Path]:
     return out_paths
 
 
-def upload_to_github_release(paths: list[Path]) -> None:
-    """Attach binary files to the rolling `cmems-currents-latest` release.
-
-    Requires `GH_TOKEN` or `GITHUB_TOKEN` in env (automatic in Actions).
-    Uses `gh release upload --clobber` to replace files in place so the
-    URL stays stable day-over-day.
-    """
-    repo = require_env("GITHUB_REPOSITORY")  # e.g. shanestratton/thalassa-marine-weather
-    token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
-    if not token:
-        log.error("Neither GH_TOKEN nor GITHUB_TOKEN set — cannot upload release assets")
-        sys.exit(2)
-    env = {**os.environ, "GH_TOKEN": token}
-
-    # Ensure the release exists — create with a placeholder note if missing.
-    create = subprocess.run(
-        ["gh", "release", "view", RELEASE_TAG, "--repo", repo],
-        env=env, capture_output=True, text=True,
-    )
-    if create.returncode != 0:
-        log.info("Release %s missing — creating", RELEASE_TAG)
-        subprocess.run(
-            ["gh", "release", "create", RELEASE_TAG,
-             "--repo", repo,
-             "--title", "CMEMS currents (rolling latest)",
-             "--notes", "Updated daily. Binary u/v current fields for the WebGL client."],
-            env=env, check=True,
-        )
-
-    # Write a manifest that lists the files + their forecast hours
-    # so the client can discover them without a directory listing.
-    manifest_path = OUT_DIR / "manifest.json"
-    manifest = {
-        "version": 1,
-        "generated_at": datetime.now(timezone.utc).isoformat(),
-        "hours": [
-            {"hour": i, "file": p.name, "bytes": p.stat().st_size}
-            for i, p in enumerate(paths)
-        ],
-    }
-    import json as _json
-    manifest_path.write_text(_json.dumps(manifest, indent=2))
-
-    # Upload all .bin files + manifest in one CLI call (faster, fewer 429 risks)
-    cmd = ["gh", "release", "upload", RELEASE_TAG,
-           "--repo", repo,
-           "--clobber"] + [str(p) for p in paths] + [str(manifest_path)]
-    log.info("$ %s", " ".join(cmd[:5] + ["<%d files>" % (len(paths) + 1)]))
-    subprocess.run(cmd, env=env, check=True)
-    log.info("✓ Uploaded %d binaries + manifest to %s release", len(paths), RELEASE_TAG)
-
-
 def require_env(name: str) -> str:
     val = os.environ.get(name)
     if not val:
@@ -257,13 +214,30 @@ def main() -> int:
 
     try:
         nc_path = fetch_cmems(now, end)
+        data_times = validate_cmems_source(
+            nc_path,
+            dataset_key="currents",
+            variables=VARIABLES,
+            expected_steps=13,
+            cadence_hours=1,
+            native_resolution=1 / 12,
+        )
         bins = encode_hourly_binaries(nc_path)
-        upload_to_github_release(bins)
+        validate_thcu_payloads(bins)
+        build_cmems_bundle(
+            dataset_key="currents",
+            source_paths=bins,
+            offsets_hours=list(range(13)),
+            data_times=data_times,
+            bundle_dir=BUNDLE_DIR,
+            provenance=producer_provenance(),
+            metadata={"attribution": "Copernicus Marine Service"},
+        )
     except Exception:  # noqa: BLE001
         log.exception("Pipeline failed")
         return 1
 
-    log.info("✓ Pipeline complete — %d hourly binaries on %s", len(bins), RELEASE_TAG)
+    log.info("✓ Generated and validated %d immutable hourly binaries in %s", len(bins), BUNDLE_DIR)
     return 0
 
 

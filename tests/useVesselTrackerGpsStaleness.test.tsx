@@ -215,9 +215,9 @@ describe('useVesselTracker GPS-staleness clock', () => {
 
     it('keeps the chip hidden and the vessel live while fixes are under 60s old (locked)', () => {
         const t = mountTracker();
-        // ensureRunning is the regression fix for the frozen native marker —
-        // the tracker must start the engine, not just listen to it.
-        expect(mocks.watchPosition).toHaveBeenCalledWith(expect.any(Function), { ensureRunning: true });
+        // Restoring the map is passive: consume an existing foreground grant,
+        // but never start background/motion tracking merely to paint a marker.
+        expect(mocks.watchPosition).toHaveBeenCalledWith(expect.any(Function));
 
         t.emit();
         expectLocked(t);

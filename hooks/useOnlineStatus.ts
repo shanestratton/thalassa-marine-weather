@@ -1,24 +1,13 @@
 /**
  * useOnlineStatus — Reactive online/offline status hook.
  *
- * Listens to browser 'online'/'offline' events and returns
- * a boolean that re-renders when connectivity changes.
+ * Uses the app's probe-verified WAN state. `navigator.onLine` only proves a
+ * network interface exists; on a boat it is commonly true while connected to
+ * a Pi/router with no internet. uiStore reacts immediately to the authoritative
+ * `offline` event and only clears it after internetProbe reaches the WAN.
  */
-import { useState, useEffect } from 'react';
+import { useUIStore } from '../stores/uiStore';
 
 export function useOnlineStatus(): boolean {
-    const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
-
-    useEffect(() => {
-        const goOnline = () => setIsOnline(true);
-        const goOffline = () => setIsOnline(false);
-        window.addEventListener('online', goOnline);
-        window.addEventListener('offline', goOffline);
-        return () => {
-            window.removeEventListener('online', goOnline);
-            window.removeEventListener('offline', goOffline);
-        };
-    }, []);
-
-    return isOnline;
+    return !useUIStore((state) => state.isOffline);
 }

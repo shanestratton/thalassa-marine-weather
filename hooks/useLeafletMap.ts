@@ -32,7 +32,7 @@ export const useLeafletMap = (
             dragging: true,
             boxZoom: enableZoom,
             keyboard: enableZoom,
-            attributionControl: false,
+            attributionControl: true,
             preferCanvas: true,
             inertia: true,
             zoomSnap: 0.5,
@@ -57,7 +57,8 @@ export const useLeafletMap = (
                 {
                     tileSize: 512,
                     zoomOffset: -1,
-                    attribution: '© Mapbox',
+                    attribution:
+                        '&copy; <a href="https://www.mapbox.com/about/maps/" target="_blank" rel="noopener noreferrer">Mapbox</a> &copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap contributors</a>',
                     maxZoom: 20,
                     noWrap: true,
                     bounds: [
@@ -70,7 +71,8 @@ export const useLeafletMap = (
             // Fallback to dark CartoDB for consistent dark theme
             L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
                 maxZoom: 20,
-                attribution: '© OpenStreetMap, © CartoDB',
+                attribution:
+                    '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap contributors</a> &copy; <a href="https://carto.com/attributions" target="_blank" rel="noopener noreferrer">CARTO</a>',
                 noWrap: true,
                 bounds: [
                     [-90, -180],
@@ -82,7 +84,8 @@ export const useLeafletMap = (
         // OpenSeaMap Overlay (always on top)
         L.tileLayer('https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png', {
             maxZoom: 18,
-            attribution: 'Map data: © OpenSeaMap contributors',
+            attribution:
+                'Map data: &copy; <a href="https://www.openseamap.org" target="_blank" rel="noopener noreferrer">OpenSeaMap contributors</a>',
         }).addTo(map);
 
         map.setView([lat, lon], 10);

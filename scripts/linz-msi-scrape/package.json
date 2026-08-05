@@ -3,11 +3,15 @@
     "version": "1.0.0",
     "private": true,
     "type": "module",
+    "engines": {
+        "node": "22.x"
+    },
     "description": "Headless-browser scraper for Maritime NZ / LINZ NAVAREA XIV warnings. Workaround for the Cloudflare JS challenge that blocks Deno fetch — runs on GitHub Actions and pushes parsed warnings to the linz_warnings Supabase table.",
     "main": "scrape.mjs",
     "scripts": {
         "scrape": "node scrape.mjs",
-        "scrape:dry": "DRY_RUN=1 node scrape.mjs"
+        "scrape:dry": "DRY_RUN=1 node scrape.mjs",
+        "test": "node --test"
     },
     "dependencies": {
         "@supabase/supabase-js": "^2.39.0",

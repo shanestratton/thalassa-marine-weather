@@ -6,13 +6,12 @@ on:
 permissions:
     contents: read
     deployments: read
-    statuses: write
 
 jobs:
     smoke:
         name: Smoke Test Preview
-        runs-on: ubuntu-latest
-        timeout-minutes: 10
+        runs-on: ubuntu-24.04
+        timeout-minutes: 15
         # Only run on successful Vercel preview deployments. Must match
         # 'Preview' EXACTLY: the old `!= 'production'` guard also matched the
         # Railway worker env ('Thalassa Worker / production'), whose
@@ -24,16 +23,16 @@ jobs:
             github.event.deployment_status.environment == 'Preview'
 
         steps:
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
             - name: Setup Node.js
-              uses: actions/setup-node@v4
+              uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
               with:
-                  node-version: 20
+                  node-version: 24
                   cache: 'npm'
 
             - name: Install dependencies
-              run: npm ci --legacy-peer-deps
+              run: npm ci
 
             - name: Install Playwright
               run: npx playwright install chromium --with-deps
@@ -41,14 +40,18 @@ jobs:
             - name: Run smoke tests against preview
               env:
                   PREVIEW_URL: ${{ github.event.deployment_status.target_url }}
+                  REQUIRE_HOSTED_PREVIEW: 'true'
               run: |
                   echo "Smoke testing: $PREVIEW_URL"
-                  npx playwright test e2e/smoke.spec.ts --project=chromium --reporter=list
-              timeout-minutes: 5
+                  npm run check:web-release -- --hosted "$PREVIEW_URL"
+                  npx playwright test e2e/smoke.spec.ts --project=chromium
+              # Two independently validated generations can be several hundred
+              # megabytes; verifier concurrency remains fixed at two.
+              timeout-minutes: 12
 
             - name: Upload smoke test artifacts on failure
               if: failure()
-              uses: actions/upload-artifact@v4
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
               with:
                   name: smoke-test-report
                   path: |

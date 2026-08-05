@@ -6,7 +6,15 @@ const DEFAULT_MAX_NMEA_AGE_MS = 15_000;
 const DEFAULT_MAX_GPS_AGE_MS = 60_000;
 const MAX_FUTURE_SKEW_MS = 5_000;
 const METRES_PER_SECOND_TO_KNOTS = 1.9438444924;
-let gpsRequestInFlight: Promise<GpsPosition | null> | null = null;
+
+/**
+ * The same ownship resolver serves three materially different privacy
+ * boundaries. Keeping the access intent explicit prevents a passive timer or
+ * restored screen from accidentally borrowing the prompt/background-capable
+ * path used by Cast Off.
+ */
+export type OwnshipLocationAccess = 'already-granted' | 'foreground-request' | 'background-safety';
+const gpsRequestsInFlight = new Map<OwnshipLocationAccess, Promise<GpsPosition | null>>();
 
 interface OwnshipMetric {
     value: number | null;
@@ -41,6 +49,17 @@ export interface OwnshipPositionOptions {
     maxNmeaAgeMs?: number;
     maxGpsAgeMs?: number;
     now?: number;
+}
+
+export interface AcquireOwnshipPositionOptions extends OwnshipPositionOptions {
+    timeoutSec?: number;
+    /**
+     * `already-granted` is the fail-closed default for mounts and timers.
+     * `foreground-request` is reserved for an ordinary direct user action.
+     * `background-safety` may initialize the safety engine and is reserved for
+     * MOB, Anchor Watch, or the explicit voyage-logging preflight.
+     */
+    locationAccess?: OwnshipLocationAccess;
 }
 
 function validCoordinates(lat: number, lon: number): boolean {
@@ -145,21 +164,30 @@ export function getCachedOwnshipPosition(options: OwnshipPositionOptions = {}): 
 }
 
 export async function acquireFreshOwnshipPosition(
-    options: OwnshipPositionOptions & { timeoutSec?: number } = {},
+    options: AcquireOwnshipPositionOptions = {},
 ): Promise<OwnshipPosition | null> {
     const now = options.now ?? Date.now();
     const maxGpsAgeMs = options.maxGpsAgeMs ?? 30_000;
     const cached = getCachedOwnshipPosition({ ...options, now, maxGpsAgeMs });
     if (cached) return cached;
 
+    const locationAccess = options.locationAccess ?? 'already-granted';
+    let gpsRequestInFlight = gpsRequestsInFlight.get(locationAccess);
     if (!gpsRequestInFlight) {
-        const request = GpsService.getCurrentPosition({
+        const requestOptions = {
             staleLimitMs: maxGpsAgeMs,
             timeoutSec: options.timeoutSec ?? 10,
-        });
+        };
+        const request =
+            locationAccess === 'background-safety'
+                ? GpsService.getCurrentPosition(requestOptions)
+                : locationAccess === 'foreground-request'
+                  ? GpsService.requestCurrentForegroundPosition(requestOptions)
+                  : GpsService.getCurrentPositionIfGranted(requestOptions);
         const tracked = request.finally(() => {
-            if (gpsRequestInFlight === tracked) gpsRequestInFlight = null;
+            if (gpsRequestsInFlight.get(locationAccess) === tracked) gpsRequestsInFlight.delete(locationAccess);
         });
+        gpsRequestsInFlight.set(locationAccess, tracked);
         gpsRequestInFlight = tracked;
     }
     try {

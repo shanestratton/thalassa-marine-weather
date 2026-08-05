@@ -23,7 +23,12 @@ import BackgroundGeolocation, {
 // not, so importing them from there type-checks and then dies at bundle time
 // with "DesiredAccuracy is not exported". The types package ships real runtime
 // JS for each enum, so this is the import that actually exists in both worlds.
-import { ActivityType, DesiredAccuracy, LogLevel } from '@transistorsoft/background-geolocation-types';
+import {
+    ActivityType,
+    AuthorizationStatus,
+    DesiredAccuracy,
+    LogLevel,
+} from '@transistorsoft/background-geolocation-types';
 import { Capacitor } from '@capacitor/core';
 import { createLogger } from '../utils/createLogger';
 
@@ -61,10 +66,21 @@ export interface GpsHealth {
     actionable: boolean;
 }
 
+/**
+ * Observable result of a lease transition. Callers that promise background
+ * capture must check `active` instead of assuming that a resolved bridge call
+ * means the native engine actually enabled itself.
+ */
+export interface BgGeoLeaseState {
+    supported: boolean;
+    activeLeaseCount: number;
+    nativeTrackingEnabled: boolean;
+    active: boolean;
+}
+
 export type LocationCallback = (pos: CachedPosition) => void;
 export type GeofenceCallback = (event: { identifier: string; action: string; location: Location }) => void;
 export type HeartbeatCallback = (event: { location: Location }) => void;
-export type ActivityCallback = (event: { activity: string; confidence: number }) => void;
 
 // ---------- CONSTANTS ----------
 
@@ -74,6 +90,12 @@ class BgGeoManagerClass {
     private ready = false;
     private readyPromise: Promise<void> | null = null; // Prevent duplicate ready() calls
     private startCount = 0; // Ref-count for start/stop balancing
+    /**
+     * Native start/stop calls are state transitions, not independent bridge
+     * requests. Chaining them through one tail means every later acquirer or
+     * releaser observes the completed result of every earlier transition.
+     */
+    private leaseTransitionTail: Promise<void> = Promise.resolve();
     /** Bumped on every sampling-mode change; see setSamplingMode's token. */
     private samplingModeGeneration = 0;
 
@@ -85,7 +107,6 @@ class BgGeoManagerClass {
     private locationListeners = new Set<LocationCallback>();
     private geofenceListeners = new Set<GeofenceCallback>();
     private heartbeatListeners = new Set<HeartbeatCallback>();
-    private activityListeners = new Set<ActivityCallback>();
     private healthListeners = new Set<(h: GpsHealth) => void>();
     /** Last known provider health, seeded at ready() and kept current by
      *  onProviderChange. Null until the first read. */
@@ -131,11 +152,107 @@ class BgGeoManagerClass {
      */
     async isNativeTrackingEnabled(): Promise<boolean> {
         if (!this.isNativeSupported()) return false;
+        await this.leaseTransitionTail;
+        return this.readNativeTrackingEnabled();
+    }
+
+    /**
+     * Return only a bridge-verified native enabled state. Unlike the tolerant
+     * UI probe above, this is serialized with lease transitions and propagates
+     * an unavailable/malformed getState result so safety teardown can never
+     * mistake "unknown" for "off".
+     */
+    getNativeTrackingEnabledStrict(): Promise<boolean> {
+        return this.withLeaseTransition(async () => {
+            if (!this.isNativeSupported()) return false;
+            return this.readNativeTrackingEnabledStrict();
+        });
+    }
+
+    /** Wait for in-flight transitions and return a bridge-verified snapshot. */
+    async getLeaseState(): Promise<BgGeoLeaseState> {
+        await this.leaseTransitionTail;
+        return this.readLeaseState();
+    }
+
+    private async readNativeTrackingEnabled(): Promise<boolean> {
         try {
-            const state = await BackgroundGeolocation.getState();
-            return state?.enabled === true;
+            return await this.readNativeTrackingEnabledStrict();
         } catch {
             return false;
+        }
+    }
+
+    private async readNativeTrackingEnabledStrict(): Promise<boolean> {
+        const state = await BackgroundGeolocation.getState();
+        if (typeof state?.enabled !== 'boolean') {
+            throw new Error('Background location returned an unverifiable native engine state.');
+        }
+        return state.enabled;
+    }
+
+    /**
+     * User-armed Anchor Watch and active voyage logging both promise a real
+     * locked-screen location path. iOS When-In-Use authorization is therefore
+     * not a usable degraded mode for either feature. Explicitly request Always,
+     * then read the provider state back and accept only authorizedAlways
+     * (Transistorsoft/Core Location status 3).
+     *
+     * This is feature preflight, not ensureReady() behaviour, so opening a
+     * weather/dashboard screen never raises an Always prompt on its own.
+     */
+    async requireAlwaysLocationAuthorization(feature: 'anchor-watch' | 'voyage-log'): Promise<void> {
+        if (Capacitor.getPlatform() !== 'ios') return;
+        await this.ensureReady();
+
+        const featureName = feature === 'anchor-watch' ? 'Anchor Watch' : 'Voyage logging';
+        const action = feature === 'anchor-watch' ? 'dropping anchor' : 'casting off';
+
+        const current = await BackgroundGeolocation.getProviderState();
+        if (!current.enabled) {
+            throw new Error(
+                `Location Services are off. Enable Location Services and Always Location access for Thalassa before ${action}.`,
+            );
+        }
+        if (current.status === AuthorizationStatus.Always) return;
+        if (current.status === AuthorizationStatus.Denied || current.status === AuthorizationStatus.Restricted) {
+            throw new Error(
+                `Location access is denied. Open iOS Settings > Privacy & Security > Location Services > Thalassa and choose Always before ${action}.`,
+            );
+        }
+
+        // The shared default stays WhenInUse so weather/dashboard startup does
+        // not over-request. Only an explicit safety/logging action upgrades the
+        // live manager to the background authorization it needs.
+        await BackgroundGeolocation.setConfig({
+            geolocation: { locationAuthorizationRequest: 'Always' },
+        });
+        let verified: Awaited<ReturnType<typeof BackgroundGeolocation.getProviderState>>;
+        try {
+            try {
+                await BackgroundGeolocation.requestPermission();
+            } catch (status) {
+                log.warn('Always Location request was not granted:', status);
+            }
+            verified = await BackgroundGeolocation.getProviderState();
+        } finally {
+            // The OS grant remains Always. Restore the shared manager's prompt
+            // policy so a later dashboard warm-up cannot re-request Always
+            // merely because Anchor Watch or voyage logging once preflighted.
+            await BackgroundGeolocation.setConfig({
+                geolocation: { locationAuthorizationRequest: 'WhenInUse' },
+            });
+        }
+
+        if (verified.status !== AuthorizationStatus.Always) {
+            if (verified.status === AuthorizationStatus.WhenInUse) {
+                throw new Error(
+                    `${featureName} needs Always Location access for locked-screen operation. Open iOS Settings > Privacy & Security > Location Services > Thalassa, choose Always, then try again.`,
+                );
+            }
+            throw new Error(
+                `Always Location access could not be verified for ${featureName}. Check iOS Location Services settings for Thalassa before ${action}.`,
+            );
         }
     }
 
@@ -143,67 +260,166 @@ class BgGeoManagerClass {
      * Ref-counted start. Multiple callers can request start; the engine only
      * stops when ALL callers have called `requestStop()`.
      */
-    async requestStart(): Promise<void> {
-        if (!this.isNativeSupported()) return;
-        await this.ensureReady();
-        this.startCount++;
-        if (this.startCount === 1) {
-            try {
+    requestStart(): Promise<BgGeoLeaseState> {
+        return this.withLeaseTransition(async () => {
+            if (!this.isNativeSupported()) return this.readLeaseState();
+            await this.ensureReady();
+
+            // Do not publish a normal new lease until the bridge has completed
+            // start() and reported enabled. If a compensating stop cannot be
+            // verified, the exceptional path below publishes one explicit
+            // retry lease instead of hiding a possibly-live native effect.
+            let enabled = await this.readNativeTrackingEnabled();
+            if (!enabled) {
                 await BackgroundGeolocation.start();
-            } catch (e) {
-                // GIVE THE LEASE BACK. The count is incremented before this
-                // await, so a rejection here — permission revoked between a
-                // caller's check and its start, or the OS refusing — used to
-                // leave the count permanently at 1. Every later requestStop()
-                // then clamped at 1 and stop() was NEVER reached, so the engine
-                // and the iOS location indicator stayed on for the rest of the
-                // session after the skipper had explicitly stopped recording.
-                // The caller still sees the rejection and decides what to say.
-                this.startCount = Math.max(0, this.startCount - 1);
-                throw e;
+                try {
+                    enabled = await this.readNativeTrackingEnabledStrict();
+                } catch (error) {
+                    return this.cleanupUnverifiedStartOrRetainLease(error);
+                }
+                if (!enabled) {
+                    // start() may have partially succeeded even though state
+                    // verification failed. Cleanup must either be confirmed or
+                    // return a retained lease for the caller to own and retry.
+                    return this.cleanupUnverifiedStartOrRetainLease(
+                        new Error('Background location did not report an active native engine after start.'),
+                    );
+                }
             }
+
             // REPLACES v8's `isMoving: true` in ready(). v9 removed isMoving
             // from Config and made it runtime state (State.isMoving), so
             // without this the engine starts STATIONARY and waits for motion
             // detection before delivering fixes — precisely the cold-start
             // stall the fast-lock work exists to avoid, and it would have
             // regressed silently since nothing type-checks a missing default.
-            try {
-                await BackgroundGeolocation.changePace(true);
-            } catch (e) {
-                // Non-fatal: motion detection still promotes to moving on its
-                // own, just later. Never let it block a track starting.
-                log.warn('changePace(true) failed on start; engine will detect motion itself:', e);
+            if (this.startCount === 0) {
+                try {
+                    await BackgroundGeolocation.changePace(true);
+                } catch (e) {
+                    // Motion activity updates are deliberately disabled so the
+                    // safety engine never asks for a second privacy permission.
+                    // There is therefore no automatic promotion to rescue this
+                    // failure: compensate the start or retain one explicitly
+                    // inactive retry lease for the caller to tear down.
+                    return this.cleanupUnverifiedStartOrRetainLease(
+                        new Error(
+                            `Background location could not enter continuous marine tracking: ${e instanceof Error ? e.message : String(e)}`,
+                        ),
+                    );
+                }
             }
-        }
+
+            this.startCount += 1;
+            return this.leaseState(enabled);
+        });
+    }
+
+    /**
+     * Re-enable the native engine for a lease the caller already owns without
+     * incrementing the logical count. This is the recovery path after a final
+     * stop failed (ownership was retained) but iOS subsequently disabled the
+     * engine before the caller retried its feature.
+     */
+    revalidateExistingLease(): Promise<BgGeoLeaseState> {
+        return this.withLeaseTransition(async () => {
+            if (!this.isNativeSupported()) return this.readLeaseState();
+            if (this.startCount < 1) {
+                throw new Error('Cannot revalidate background location without an existing lease.');
+            }
+
+            let enabled = await this.readNativeTrackingEnabled();
+            if (!enabled) {
+                await BackgroundGeolocation.start();
+                try {
+                    enabled = await this.readNativeTrackingEnabledStrict();
+                } catch (error) {
+                    await BackgroundGeolocation.stop().catch((stopError) => {
+                        log.warn('failed to clean up a GPS lease revalidation with unverifiable state:', stopError);
+                    });
+                    throw error;
+                }
+                if (!enabled) {
+                    await BackgroundGeolocation.stop().catch((error) => {
+                        log.warn('failed to clean up an unverified GPS lease revalidation:', error);
+                    });
+                    throw new Error('Background location did not become active while revalidating its lease.');
+                }
+            }
+
+            try {
+                // Always re-prove moving pace, including a retained inactive
+                // lease whose native engine is enabled after failed cleanup.
+                await BackgroundGeolocation.changePace(true);
+            } catch (error) {
+                // Retain the existing lease, but never report it active: with
+                // motion updates disabled a failed manual pace change cannot
+                // produce the promised continuous safety stream.
+                throw new Error(
+                    `Background location could not resume continuous marine tracking: ${error instanceof Error ? error.message : String(error)}`,
+                );
+            }
+
+            return this.leaseState(enabled);
+        });
     }
 
     /**
      * Ref-counted stop. Only actually stops the engine when no consumers remain.
      */
-    async requestStop(): Promise<void> {
-        if (!this.isNativeSupported()) return;
-        this.startCount = Math.max(0, this.startCount - 1);
-        if (this.startCount === 0) {
+    requestStop(): Promise<BgGeoLeaseState> {
+        return this.withLeaseTransition(async () => {
+            if (!this.isNativeSupported()) return this.readLeaseState();
+            if (this.startCount === 0) return this.readLeaseState();
+
+            if (this.startCount > 1) {
+                this.startCount -= 1;
+                // Crucially, never call native stop while another lease
+                // remains. The ordered transition tail makes that decision
+                // atomic with respect to every concurrent requestStart().
+                return this.readLeaseState();
+            }
+
             try {
                 await BackgroundGeolocation.stop();
+                const enabled = await this.readNativeTrackingEnabledStrict();
+                if (enabled) {
+                    throw new Error('Background location remained enabled after its final lease requested stop.');
+                }
             } catch (e) {
-                log.warn('may not be running:', e);
+                // Keep the final owner. Claiming zero here would strand an
+                // enabled native engine with nobody able to release it.
+                this.startCount = 1;
+                throw e;
             }
-        }
+            this.startCount = 0;
+            return this.leaseState(false);
+        });
     }
 
     /**
      * Force-stop regardless of ref count (e.g., app shutdown).
      */
-    async forceStop(): Promise<void> {
-        this.startCount = 0;
-        if (!this.isNativeSupported()) return;
-        try {
-            await BackgroundGeolocation.stop();
-        } catch (e) {
-            log.warn('ok:', e);
-        }
+    forceStop(): Promise<BgGeoLeaseState> {
+        return this.withLeaseTransition(async () => {
+            const previousCount = this.startCount;
+            if (!this.isNativeSupported()) {
+                this.startCount = 0;
+                return this.readLeaseState();
+            }
+            try {
+                await BackgroundGeolocation.stop();
+                const enabled = await this.readNativeTrackingEnabledStrict();
+                if (enabled) {
+                    throw new Error('Background location remained enabled after force-stop.');
+                }
+            } catch (e) {
+                this.startCount = previousCount;
+                throw e;
+            }
+            this.startCount = 0;
+            return this.leaseState(false);
+        });
     }
 
     /**
@@ -262,7 +478,11 @@ class BgGeoManagerClass {
     async getGpsHealth(): Promise<GpsHealth> {
         if (!this.isNativeSupported()) return { usable: false, reason: 'unknown', actionable: false };
         try {
-            await this.ensureReady();
+            // Provider state is a read-only OS query. Do not call ensureReady
+            // here: health badges mount passively, while ready() configures
+            // the background/motion engine and may surface privacy UI on a
+            // first run. Explicit safety owners initialize the manager before
+            // they subscribe to live provider-change events.
             const health = this._healthFromProviderState(await BackgroundGeolocation.getProviderState());
             this._lastHealth = health;
             return health;
@@ -313,8 +533,16 @@ class BgGeoManagerClass {
     async setSamplingMode(mode: 'default' | 'precision' | 'fastlock'): Promise<number> {
         const token = ++this.samplingModeGeneration;
         if (!this.isNativeSupported()) return token;
+        // Sampling is a mutation of an explicitly armed safety engine, never
+        // an initialization path. This fail-closed guard means an account
+        // transition or passive cleanup cannot make ready() initialize native
+        // background/motion machinery if its caller loses a higher-level
+        // ownership check in the future.
+        if (!this.ready) {
+            log.warn(`GPS sampling ${mode.toUpperCase()} ignored before the safety engine is initialized`);
+            return token;
+        }
         try {
-            await this.ensureReady();
             await BackgroundGeolocation.setConfig({
                 geolocation: {
                     distanceFilter: mode === 'fastlock' ? 0 : 1,
@@ -355,11 +583,6 @@ class BgGeoManagerClass {
     subscribeHeartbeat(cb: HeartbeatCallback): () => void {
         this.heartbeatListeners.add(cb);
         return () => this.heartbeatListeners.delete(cb);
-    }
-
-    subscribeActivity(cb: ActivityCallback): () => void {
-        this.activityListeners.add(cb);
-        return () => this.activityListeners.delete(cb);
     }
 
     /** The cache, but ONLY if it is inside the caller's freshness bound. */
@@ -447,11 +670,82 @@ class BgGeoManagerClass {
 
     async removeGeofence(id: string): Promise<void> {
         if (!this.isNativeSupported()) return;
-        try {
-            await BackgroundGeolocation.removeGeofence(id);
-        } catch (e) {
-            log.warn('may not exist:', e);
+        await this.ensureReady();
+        await BackgroundGeolocation.removeGeofence(id);
+
+        // A resolved bridge mutation is not enough for a safety teardown. Read
+        // the fixed identifier back so Anchor Watch can retain retry ownership
+        // when the native SDK failed to remove it without rejecting the call.
+        const stillExists = await BackgroundGeolocation.geofenceExists(id);
+        if (stillExists) {
+            throw new Error(`Native geofence ${id} remained registered after removal.`);
         }
+    }
+
+    private withLeaseTransition<T>(transition: () => Promise<T>): Promise<T> {
+        const result = this.leaseTransitionTail.then(transition, transition);
+        this.leaseTransitionTail = result.then(
+            () => undefined,
+            () => undefined,
+        );
+        return result;
+    }
+
+    /**
+     * Compensate a native start whose enabled state could not be established.
+     * If stop + readback prove the engine is off, preserve the original start
+     * failure. Otherwise publish one logical lease (including an inactive,
+     * unverified one) so the caller can retain ownership and retry requestStop.
+     */
+    private async cleanupUnverifiedStartOrRetainLease(verificationError: unknown): Promise<BgGeoLeaseState> {
+        let cleanupFailure: unknown = null;
+        let enabledAfterCleanup = false;
+
+        try {
+            await BackgroundGeolocation.stop();
+            enabledAfterCleanup = await this.readNativeTrackingEnabledStrict();
+            if (enabledAfterCleanup) {
+                cleanupFailure = new Error('Background location remained enabled after unverified start cleanup.');
+            }
+        } catch (error) {
+            cleanupFailure = error;
+            enabledAfterCleanup = await this.readNativeTrackingEnabled();
+        }
+
+        if (!cleanupFailure && !enabledAfterCleanup) throw verificationError;
+
+        // The caller initiated this start and must receive exactly one claim to
+        // the possibly-live native effect. Consumers already reject `active:
+        // false` and roll this retained lease through requestStop; if readback
+        // now proves active, they may safely proceed with the owned engine.
+        this.startCount += 1;
+        let movingPaceVerified = false;
+        if (enabledAfterCleanup) {
+            try {
+                await BackgroundGeolocation.changePace(true);
+                movingPaceVerified = true;
+            } catch (error) {
+                log.warn('changePace(true) failed while retaining an unverified start lease:', error);
+            }
+        }
+        log.error('unverified native GPS start cleanup retained a retryable lease:', cleanupFailure);
+        const retained = this.leaseState(enabledAfterCleanup);
+        return { ...retained, active: retained.active && movingPaceVerified };
+    }
+
+    private leaseState(nativeTrackingEnabled: boolean): BgGeoLeaseState {
+        const supported = this.isNativeSupported();
+        return {
+            supported,
+            activeLeaseCount: this.startCount,
+            nativeTrackingEnabled,
+            active: supported && this.startCount > 0 && nativeTrackingEnabled,
+        };
+    }
+
+    private async readLeaseState(): Promise<BgGeoLeaseState> {
+        const enabled = this.isNativeSupported() ? await this.readNativeTrackingEnabled() : false;
+        return this.leaseState(enabled);
     }
 
     // ---- INTERNAL ----
@@ -497,11 +791,15 @@ class BgGeoManagerClass {
                     // iOS-specific — CRITICAL for background GPS
                     activityType: ActivityType.OtherNavigation,
                     showsBackgroundLocationIndicator: true,
-                    // iOS: Request 'WhenInUse' first — iOS will auto-promote to
-                    // 'Always' via its provisional flow when background tracking
-                    // starts. Requesting 'Always' directly in ready() blocks the
-                    // main thread with a synchronous
-                    // CLLocationManager.authorizationStatus check.
+                    // The shared engine is used only while a ref-counted
+                    // marine tracking lease is active. Do not let iOS pause
+                    // fixes merely because a vessel or phone appears still;
+                    // explicit requestStop() remains the battery boundary.
+                    pausesLocationUpdatesAutomatically: false,
+                    // Shared initialization asks only for foreground access.
+                    // Anchor Watch and active voyage logging explicitly call
+                    // requireAlwaysLocationAuthorization() before committing
+                    // their background-capable state.
                     locationAuthorizationRequest: 'WhenInUse',
                 },
 
@@ -525,6 +823,14 @@ class BgGeoManagerClass {
                     // undefined key — so the never-auto-stop fix was
                     // silently not applied on iOS.
                     disableStopDetection: true,
+                    // Every genuine owner starts explicitly and immediately
+                    // calls changePace(true); leases also stop explicitly and
+                    // disableStopDetection prevents automatic stationary
+                    // shutdown. Motion classification therefore contributes
+                    // no control signal here. Disable it so arming a safety
+                    // feature never asks for the unrelated Motion & Fitness /
+                    // Physical Activity permission.
+                    disableMotionActivityUpdates: true,
                 },
 
                 app: {
@@ -607,18 +913,6 @@ class BgGeoManagerClass {
             });
         });
         this.coreSubscriptions.push(hbSub);
-
-        // Activity change → fan-out (moving ↔ stationary transitions)
-        const actSub = BackgroundGeolocation.onActivityChange((event) => {
-            this.activityListeners.forEach((cb) => {
-                try {
-                    cb(event);
-                } catch (e) {
-                    log.warn('listener error:', e);
-                }
-            });
-        });
-        this.coreSubscriptions.push(actSub);
 
         // Provider/authorization changes — the ONLY way the app learns that
         // permission was revoked or Location Services switched off while it was

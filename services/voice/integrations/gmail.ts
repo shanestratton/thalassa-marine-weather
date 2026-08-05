@@ -73,6 +73,14 @@ const GOOGLE_OAUTH_CLIENT_ID =
     (typeof import.meta !== 'undefined' && import.meta.env?.VITE_GOOGLE_OAUTH_CLIENT_ID) || '';
 
 /**
+ * Gmail bearer tokens currently live in native Preferences rather than the
+ * Keychain. Keep the integration available to local development/tests, but
+ * fail closed in the production public-beta build until secure credential
+ * storage and provider-grant revocation are implemented.
+ */
+export const GMAIL_PUBLIC_BETA_ENABLED = import.meta.env.DEV;
+
+/**
  * Reversed-client-ID URL scheme for the OAuth redirect. Google's iOS
  * client docs prescribe this exact format: take the client ID, strip
  * the `.apps.googleusercontent.com` suffix, and prepend
@@ -185,6 +193,7 @@ function epochFor(map: Map<string, number>, scope: AuthIdentityScope): number {
 }
 
 function makeCredentialContext(): OperationContext | null {
+    if (!GMAIL_PUBLIC_BETA_ENABLED) return null;
     const scope = getAuthIdentityScope();
     if (!scope.userId) return null;
     return {
@@ -448,6 +457,10 @@ export async function clearGmailTokens(): Promise<boolean> {
 }
 
 export async function getConnectedEmail(): Promise<string | null> {
+    if (!GMAIL_PUBLIC_BETA_ENABLED) {
+        await clearGmailTokens();
+        return null;
+    }
     const context = makeCredentialContext();
     if (!context) {
         await scrubUnownedLegacyState();
@@ -459,10 +472,14 @@ export async function getConnectedEmail(): Promise<string | null> {
 }
 
 export async function isGmailConfigured(): Promise<boolean> {
-    return GOOGLE_OAUTH_CLIENT_ID.length > 0;
+    return GMAIL_PUBLIC_BETA_ENABLED && GOOGLE_OAUTH_CLIENT_ID.length > 0;
 }
 
 export async function isGmailConnected(): Promise<boolean> {
+    if (!GMAIL_PUBLIC_BETA_ENABLED) {
+        await clearGmailTokens();
+        return false;
+    }
     const context = makeCredentialContext();
     if (!context) {
         await scrubUnownedLegacyState();
@@ -598,7 +615,7 @@ function base64UrlEncode(bytes: Uint8Array): string {
  * .env). Caller should show a setup-instructions message in that case.
  */
 export async function beginAuthorization(): Promise<string | null> {
-    if (!GOOGLE_OAUTH_CLIENT_ID) return null;
+    if (!GMAIL_PUBLIC_BETA_ENABLED || !GOOGLE_OAUTH_CLIENT_ID) return null;
     const scope = getAuthIdentityScope();
     if (!scope.userId) {
         await scrubUnownedLegacyState();
@@ -679,7 +696,7 @@ export async function getAuthorizationUrl(): Promise<string | null> {
  * the later exchange fails. A state mismatch leaves the valid flow untouched.
  */
 export async function completeAuthorization(code: string, state: string): Promise<string | null> {
-    if (!GOOGLE_OAUTH_CLIENT_ID || !code || !state) return null;
+    if (!GMAIL_PUBLIC_BETA_ENABLED || !GOOGLE_OAUTH_CLIENT_ID || !code || !state) return null;
     const scope = getAuthIdentityScope();
     if (!scope.userId) {
         await scrubUnownedLegacyState();

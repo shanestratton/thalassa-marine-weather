@@ -6,6 +6,7 @@ import React, { useCallback, useId, useRef } from 'react';
 import { type ClientFilterResult } from '../../services/ContentModerationService';
 import { MAX_CHAT_MESSAGE_CHARS } from '../../services/chat/messagePolicy';
 import { useMenuNavigation } from '../../hooks/useMenuNavigation';
+import { FEATURE_VISIBILITY } from '../../utils/featureVisibility';
 
 export interface ChatComposerProps {
     messageText: string;
@@ -183,25 +184,29 @@ export const ChatComposer: React.FC<ChatComposerProps> = React.memo(
                                                     </span>
                                                 </span>
                                             </button>
-                                            <div role="separator" className="h-px bg-white/[0.06]" />
-                                            <button
-                                                role="menuitem"
-                                                onClick={() => chooseAttachment(onOpenTrackPicker)}
-                                                aria-label="Share a voyage track"
-                                                className="w-full flex items-center gap-3 px-4 py-3 hover:bg-white/[0.06] transition-colors text-left min-h-[64px]"
-                                            >
-                                                <span className="w-10 h-10 rounded-xl bg-violet-400/10 border border-violet-300/20 flex items-center justify-center text-lg flex-shrink-0">
-                                                    🗺️
-                                                </span>
-                                                <span className="min-w-0">
-                                                    <span className="block text-sm text-white/90 font-semibold">
-                                                        Share voyage track
-                                                    </span>
-                                                    <span className="block text-[11px] text-white/50 mt-0.5">
-                                                        Choose a track from your ship's log
-                                                    </span>
-                                                </span>
-                                            </button>
+                                            {FEATURE_VISIBILITY.communityTrackSharing && (
+                                                <>
+                                                    <div role="separator" className="h-px bg-white/[0.06]" />
+                                                    <button
+                                                        role="menuitem"
+                                                        onClick={() => chooseAttachment(onOpenTrackPicker)}
+                                                        aria-label="Share a voyage track"
+                                                        className="w-full flex items-center gap-3 px-4 py-3 hover:bg-white/[0.06] transition-colors text-left min-h-[64px]"
+                                                    >
+                                                        <span className="w-10 h-10 rounded-xl bg-violet-400/10 border border-violet-300/20 flex items-center justify-center text-lg flex-shrink-0">
+                                                            🗺️
+                                                        </span>
+                                                        <span className="min-w-0">
+                                                            <span className="block text-sm text-white/90 font-semibold">
+                                                                Share voyage track
+                                                            </span>
+                                                            <span className="block text-[11px] text-white/50 mt-0.5">
+                                                                Choose a track from your ship's log
+                                                            </span>
+                                                        </span>
+                                                    </button>
+                                                </>
+                                            )}
                                         </div>
                                     </>
                                 )}

@@ -4,12 +4,13 @@ import { useSettings } from '../context/SettingsContext';
 import { useUI } from '../context/UIContext';
 import { generateTacticalAdvice, getSkipperLockerItems } from '../utils/advisory';
 import { toast } from '../components/Toast';
+import { PUBLIC_BETA_ACCESS } from '../services/SubscriptionService';
 
 export const useDashboardController = (viewMode: 'overview' | 'details' = 'overview') => {
     const { weatherData: data, refreshData, loading: _loading, staleRefresh, error } = useWeather();
     const { settings } = useSettings();
     const { setPage } = useUI();
-    const { isPro } = settings;
+    const isPro = PUBLIC_BETA_ACCESS.enabled || settings.isPro;
 
     // View State
     const [chartView, setChartView] = useState<'hourly' | 'tide'>('hourly');

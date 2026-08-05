@@ -1,7 +1,7 @@
+# RETIRED 2026-04-18. The referenced Dockerfile intentionally fails closed.
+# This file remains only so an old Railway service cannot silently fall back to
+# an auto-detected runtime while external service deletion is being verified.
 [build]
 builder = "DOCKERFILE"
 dockerfilePath = "Dockerfile"
-watchPatterns = ["src/**", "package.json", "tsconfig.json", "Dockerfile"]
-
-[deploy]
-cronSchedule = "*/15 * * * *"
+watchPatterns = ["RETIRED_DO_NOT_DEPLOY"]

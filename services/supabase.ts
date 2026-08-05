@@ -25,6 +25,7 @@ const log = createLogger('supabase');
  * the swap.
  */
 let authStorageQueue: Promise<void> = Promise.resolve();
+const authStorageCache = new Map<string, string | null>();
 
 function enqueueAuthStorageMutation(operation: () => Promise<void>): Promise<void> {
     const result = authStorageQueue.then(operation, operation);
@@ -46,14 +47,20 @@ export const capacitorAuthStorage = {
         // observable order. Otherwise a delayed legacy migration can restore
         // a session after sign-out has already removed it.
         await authStorageQueue;
+        if (authStorageCache.has(key)) return authStorageCache.get(key) ?? null;
         try {
             const { value } = await Preferences.get({ key });
-            return value ?? null;
+            const resolved = value ?? null;
+            authStorageCache.set(key, resolved);
+            return resolved;
         } catch {
             // Web / Preferences plugin missing — fall back to localStorage.
             try {
-                return typeof localStorage !== 'undefined' ? localStorage.getItem(key) : null;
+                const resolved = typeof localStorage !== 'undefined' ? localStorage.getItem(key) : null;
+                authStorageCache.set(key, resolved);
+                return resolved;
             } catch {
+                authStorageCache.set(key, null);
                 return null;
             }
         }
@@ -72,6 +79,11 @@ export const capacitorAuthStorage = {
                     /* storage full or unavailable */
                 }
             }
+            // Supabase can ask for the current session repeatedly during one
+            // action. Keep the authoritative in-process value after the
+            // serialized persistence attempt so those reads do not cross the
+            // Capacitor bridge every time.
+            authStorageCache.set(key, value);
         });
     },
     async removeItem(key: string): Promise<void> {
@@ -84,6 +96,7 @@ export const capacitorAuthStorage = {
             // Always delete both stores. Removing only the currently available
             // backend leaves a bearer session ready for the next fallback.
             removeLocalAuthShadow(key);
+            authStorageCache.set(key, null);
         });
     },
 };
@@ -175,11 +188,16 @@ export function migrateAuthSessionToCapacitor(): Promise<void> {
                 // A prior copy may have succeeded just before a crash. Native
                 // storage is authoritative; purge the stale bearer duplicate.
                 if (local) removeLocalAuthShadow(SESSION_KEY);
+                authStorageCache.set(SESSION_KEY, existing);
                 return;
             }
-            if (!local) return;
+            if (!local) {
+                authStorageCache.set(SESSION_KEY, null);
+                return;
+            }
             await Preferences.set({ key: SESSION_KEY, value: local });
             removeLocalAuthShadow(SESSION_KEY);
+            authStorageCache.set(SESSION_KEY, local);
             log.info('migrated auth session: localStorage → Capacitor Preferences');
         } catch (e) {
             log.warn('auth session migration failed (one-time)', e);

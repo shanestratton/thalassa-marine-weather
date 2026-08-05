@@ -13,6 +13,10 @@ import { fetchOpenMeteoProxy } from './openMeteoProxy';
 export interface PointWeatherData {
     lat: number;
     lon: number;
+    /** Device time when both point requests settled. Used to make age explicit. */
+    fetchedAt: number;
+    /** Distinguishes dry land from a failed marine source. */
+    marineStatus: 'available' | 'land' | 'unavailable';
     // Atmospheric
     windSpeedKmh: number;
     windDirectionDeg: number;
@@ -52,6 +56,8 @@ export async function fetchPointWeather(lat: number, lon: number): Promise<Point
     return {
         lat,
         lon,
+        fetchedAt: Date.now(),
+        marineStatus: marine.status === 'rejected' ? 'unavailable' : sea ? 'available' : 'land',
         windSpeedKmh: wx.windSpeedKmh,
         windDirectionDeg: wx.windDirectionDeg,
         windGustsKmh: wx.windGustsKmh,

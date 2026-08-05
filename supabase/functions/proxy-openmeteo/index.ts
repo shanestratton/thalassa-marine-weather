@@ -241,11 +241,13 @@ function validateRequest(operation: Operation, params: Record<string, unknown>):
     };
 
     let selectorCount = 0;
-    for (const [name, allowed, max] of [
-        ['current', currentAllowed, 24],
-        ['hourly', hourlyAllowed, 32],
-        ['daily', dailyAllowed, 24],
-    ] as const) {
+    for (
+        const [name, allowed, max] of [
+            ['current', currentAllowed, 24],
+            ['hourly', hourlyAllowed, 32],
+            ['daily', dailyAllowed, 24],
+        ] as const
+    ) {
         if (params[name] === undefined) continue;
         const parsed = parseCsv(params[name], allowed, max);
         if (!parsed) return null;
@@ -260,11 +262,13 @@ function validateRequest(operation: Operation, params: Record<string, unknown>):
         output.models = models;
     }
 
-    for (const [name, min, max] of [
-        ['forecast_days', 1, 16],
-        ['forecast_hours', 1, 384],
-        ['past_days', 0, 5],
-    ] as const) {
+    for (
+        const [name, min, max] of [
+            ['forecast_days', 1, 16],
+            ['forecast_hours', 1, 384],
+            ['past_days', 0, 5],
+        ] as const
+    ) {
         if (params[name] === undefined) continue;
         const parsed = parseBoundedInteger(params[name], min, max);
         if (parsed === null) return null;

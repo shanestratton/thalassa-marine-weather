@@ -22,6 +22,9 @@ import type { Feature } from 'geojson';
 export interface CellExtent {
     id: string;
     bbox: [number, number, number, number]; // [minLon, minLat, maxLon, maxLat]
+    /** Keeps unsigned reference overlays from clipping/shadowing trusted
+     * navigation geometry (and vice versa) in a shared display merge. */
+    authority?: 'navigation' | 'reference';
 }
 
 /** Coarse-to-fine bbox-area ratio before a cell is shadowed by a finer one. */

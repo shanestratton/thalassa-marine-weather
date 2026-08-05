@@ -36,6 +36,7 @@ import {
     type PassageEnhancementToken,
 } from '../services/passageEnhancementEvents';
 import { departureOnLocalDate, derivePassageSummarySchedule } from '../services/passageSummarySchedule';
+import { PUBLIC_BETA_ACCESS } from '../services/SubscriptionService';
 
 /**
  * Voyage-plan session counter — MODULE-scoped on purpose.
@@ -184,7 +185,10 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
     const identityScope = useSyncExternalStore(subscribeIdentitySnapshot, getAuthIdentityScope, getAuthIdentityScope);
     const { settings } = useSettings();
     const { weatherData, voyagePlan, saveVoyagePlan } = useWeather();
-    const { vessel: configuredVessel, vesselUnits, units: generalUnits, isPro, mapboxToken } = settings;
+    const { vessel: configuredVessel, vesselUnits, units: generalUnits, isPro: storedIsPro, mapboxToken } = settings;
+    // Keep the future verified-entitlement path intact while making the
+    // current public beta genuinely open at both render and action guards.
+    const isPro = PUBLIC_BETA_ACCESS.enabled || storedIsPro;
     // Routing pipeline always sees a vessel — either the user's
     // configured one or DEFAULT_VESSEL (generic 35ft sloop). This
     // lets a fresh-install punter plan their first route without
@@ -753,23 +757,27 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
                                 // water, so a chart-coverage gap mid-corridor can
                                 // yield a confident polyline straight across an
                                 // island. Validate the final geometry against GEBCO
-                                // before accepting; fails OPEN when GEBCO is
-                                // unreachable (the backstop must not break offline
-                                // routing the chart layer validated properly).
+                                // before accepting. Missing GEBCO coverage is an
+                                // explicit unverified verdict, never permission to
+                                // present this geometry as checked.
                                 const { inshoreRouteCrossesLand } = await import('../services/routing/landBackstop');
                                 if (!operationIsCurrent()) return;
                                 const backstop = await inshoreRouteCrossesLand(inshoreRes.polyline);
                                 if (!operationIsCurrent()) return;
-                                if (backstop.crossesLand) {
+                                if (backstop.status !== 'verified' || backstop.crossesLand) {
+                                    const unavailable = backstop.status === 'unavailable';
                                     console.warn(
-                                        `[useVoyageForm] inshore route REJECTED by land backstop (${backstop.runs.length} land run(s)) — falling back to offshore pipeline`,
+                                        `[useVoyageForm] inshore route ${unavailable ? 'UNVERIFIED' : 'REJECTED'} by land backstop ` +
+                                            `(${unavailable ? `${backstop.samplesChecked}/${backstop.samplesRequested} samples` : `${backstop.runs.length} land run(s)`}) — falling back to offshore pipeline`,
                                     );
                                     enhancedPlan = {
                                         ...enhancedPlan,
                                         __inshoreRouting: {
                                             status: 'failed',
-                                            error: 'Inshore charts do not cover the full passage — route fell back to offshore planning.',
-                                            errorCode: 'land-backstop',
+                                            error: unavailable
+                                                ? 'Satellite land verification is unavailable — the inshore route was not accepted as checked.'
+                                                : 'Inshore charts do not cover the full passage — route fell back to offshore planning.',
+                                            errorCode: unavailable ? 'land-backstop-unavailable' : 'land-backstop',
                                             cellsUsed: inshoreRes.cellsUsed,
                                         },
                                     };
@@ -957,9 +965,11 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
                     // Steps 3 & 4 can run in parallel (both read from enhancedPlan, write to separate fields)
                     const step3 = (async () => {
                         try {
-                            const { enhanceRouteWithDepth } = await import('../services/WeatherRoutingService');
-                            if (!operationIsCurrent()) return;
-                            const { computeRoute: computeRt } = await import('../services/WeatherRoutingService');
+                            const {
+                                computeRoute: computeRt,
+                                computeRouteFromPolyline,
+                                enhanceRouteWithDepth,
+                            } = await import('../services/WeatherRoutingService');
                             if (!operationIsCurrent()) return;
 
                             const depthWaypoints = [];
@@ -994,17 +1004,48 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
                                 // computeRt/enhanceRouteWithDepth expect METRES;
                                 // vessel.draft is FEET (see services/units.ts).
                                 const draftM = vesselDraftMetres(vessel);
-                                const routeAnalysis = computeRt(depthWaypoints, {
+                                const displayedCoordinates = enhancedPlan.routeGeoJSON?.geometry?.coordinates as
+                                    | Array<[number, number]>
+                                    | undefined;
+                                const routeSource =
+                                    displayedCoordinates && displayedCoordinates.length >= 2 ? 'displayed' : 'fallback';
+                                const routingConfig = {
                                     speed: vessel.cruisingSpeed || 6,
                                     vesselDraft: draftM,
-                                });
+                                    // A 10 NM midpoint cadence can skip a
+                                    // coastal shoal. Build half-mile candidate
+                                    // segments; the depth service then samples
+                                    // at most 200 of them evenly and reports
+                                    // sparse coverage as partial, never clear.
+                                    segmentLength: 0.5,
+                                };
+                                const routeAnalysis =
+                                    routeSource === 'displayed'
+                                        ? computeRouteFromPolyline(displayedCoordinates!, routingConfig)
+                                        : computeRt(depthWaypoints, routingConfig);
                                 if (!operationIsCurrent()) return;
                                 const depthEnhanced = await enhanceRouteWithDepth(routeAnalysis, draftM);
                                 if (!operationIsCurrent()) return;
+                                const totalSegments = depthEnhanced.segments.length;
+                                const knownSegments = depthEnhanced.depthSamplesKnown;
+                                const sampleSpacingNm = depthEnhanced.depthSampleSpacingNm;
+                                const coverage =
+                                    knownSegments === 0
+                                        ? 'unavailable'
+                                        : routeSource === 'displayed' &&
+                                            knownSegments === totalSegments &&
+                                            sampleSpacingNm !== null &&
+                                            sampleSpacingNm <= 1
+                                          ? 'complete'
+                                          : 'partial';
                                 enhancedPlan.__depthSummary = {
                                     minDepth: depthEnhanced.minDepth,
                                     shallowSegments: depthEnhanced.shallowSegments,
-                                    totalSegments: depthEnhanced.segments.length,
+                                    totalSegments,
+                                    knownSegments,
+                                    coverage,
+                                    sampleSpacingNm,
+                                    routeSource,
                                     segments: depthEnhanced.segments.map((s) => ({
                                         depth_m: s.depth_m ?? null,
                                         safety: s.depthSafety ?? 'unknown',
@@ -1274,7 +1315,9 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
                     settings.currentNrtEnabled === true,
                 );
                 if (!operationIsCurrent()) return;
-                currentField = createCurrentFieldFromVectors(briefing.vectors);
+                if (briefing.availability === 'available') {
+                    currentField = createCurrentFieldFromVectors(briefing.vectors);
+                }
             } catch (_) {
                 if (!operationIsCurrent()) return;
                 /* non-critical */
@@ -1477,7 +1520,7 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
             isAuthIdentityScopeCurrent(operationScope);
         if (!operationIsCurrent()) return;
         try {
-            const pos = await GpsService.getCurrentPosition({ staleLimitMs: 30_000 });
+            const pos = await GpsService.requestCurrentForegroundPosition({ staleLimitMs: 30_000 });
             if (!operationIsCurrent() || !pos) return;
             const { latitude, longitude } = pos;
             let name = '';

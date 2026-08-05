@@ -36,7 +36,7 @@ declare const Deno: {
     env: { get(key: string): string | undefined };
 };
 
-import { SignJWT, importPKCS8 } from 'npm:jose@5';
+import { importPKCS8, SignJWT } from 'npm:jose@5';
 import { requireAuthenticatedOrPublicQuota, withCors } from '../_shared/auth-rate-limit.ts';
 
 const CORS: Record<string, string> = {
@@ -44,6 +44,12 @@ const CORS: Record<string, string> = {
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization, apikey',
 };
+
+// Public beta boundary. The client surface and MusicKit entitlement are held,
+// so the server must not keep minting reusable Apple developer tokens for old
+// clients or direct callers. Re-enable only with the matching signed-device,
+// capability/profile, privacy and App Review evidence.
+const MUSICKIT_PUBLIC_BETA_ENABLED = false;
 
 /** Module-level cache. Edge functions run as long-lived workers in
  *  Supabase; the cache survives across requests on the same warm
@@ -63,6 +69,13 @@ Deno.serve(async (req: Request) => {
         return new Response(JSON.stringify({ error: 'GET required' }), {
             status: 405,
             headers: { ...CORS, 'Content-Type': 'application/json', Allow: 'GET' },
+        });
+    }
+
+    if (!MUSICKIT_PUBLIC_BETA_ENABLED) {
+        return new Response(JSON.stringify({ error: 'Apple Music is unavailable in this public beta' }), {
+            status: 503,
+            headers: { ...CORS, 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
         });
     }
 

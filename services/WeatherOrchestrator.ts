@@ -140,6 +140,9 @@ export interface OrchestratorCallbacks {
     getSettings: () => any;
     getHistoryCache: () => Record<string, MarineWeatherReport>;
     getLocationMode: () => 'gps' | 'selected';
+    /** Authoritative internet-reachability state maintained by the active
+     *  probe. `navigator.onLine` only proves a network interface exists. */
+    getIsOffline: () => boolean;
     getIsFetching: () => boolean;
     setIsFetching: (v: boolean) => void;
 }
@@ -199,12 +202,19 @@ export class WeatherOrchestrator {
     }
 
     private schedule(callback: () => void, delayMs: number): void {
-        if (!this.isCurrentIdentity()) return;
+        if (!this.isCurrentIdentity() || this.cb.getIsOffline()) return;
         const timer = setTimeout(() => {
             this.timers.delete(timer);
-            if (this.isCurrentIdentity()) callback();
+            if (this.isCurrentIdentity() && !this.cb.getIsOffline()) callback();
         }, delayMs);
         this.timers.add(timer);
+    }
+
+    /** An offline app has no truthful provider-refresh appointment. */
+    private clearOfflineSchedule(): void {
+        if (!this.isCurrentIdentity()) return;
+        this.cb.setNextUpdate(null);
+        localStorage.removeItem(this.cacheKeys.nextUpdate);
     }
 
     private async loadScopedCache<T>(scopedKey: string, legacyKey: string): Promise<T | null> {
@@ -276,7 +286,9 @@ export class WeatherOrchestrator {
                     this.assertCurrent();
                 }
                 const cachedNextUpdate = localStorage.getItem(this.cacheKeys.nextUpdate);
-                if (cachedNextUpdate) {
+                if (this.cb.getIsOffline()) {
+                    this.clearOfflineSchedule();
+                } else if (cachedNextUpdate) {
                     const nu = Number.parseInt(cachedNextUpdate, 10);
                     if (nu > Date.now()) this.cb.setNextUpdate(nu);
                 }
@@ -303,7 +315,7 @@ export class WeatherOrchestrator {
             log.info(`Instant display: ${syncCached.locationName}`);
             addBreadcrumb({
                 category: 'weather',
-                message: `Instant cache hit: ${syncCached.locationName}`,
+                message: 'Instant cache hit',
                 level: 'info',
             });
             return syncCached;
@@ -346,7 +358,7 @@ export class WeatherOrchestrator {
                 log.info(`[WeatherOrchestrator] Cache HIT: ${cached.locationName} (generated: ${cached.generatedAt})`);
                 addBreadcrumb({
                     category: 'weather',
-                    message: `Cache HIT: ${cached.locationName}`,
+                    message: 'Weather cache hit',
                     level: 'info',
                     data: { generatedAt: cached.generatedAt },
                 });
@@ -405,13 +417,26 @@ export class WeatherOrchestrator {
 
         const loc = settings.defaultLocation;
         log.info(`Default location: "${loc}"`);
-        addBreadcrumb({ category: 'weather', message: `Default location: "${loc}"`, level: 'info' });
+        addBreadcrumb({ category: 'weather', message: 'Default location configured', level: 'info' });
 
         // Staleness check
         const currentData = this.cb.getWeatherData();
         const cachedAge = currentData?.generatedAt
             ? Date.now() - new Date(currentData.generatedAt).getTime()
             : Infinity;
+
+        // Cached readings remain useful offline, but GPS/geocoding/provider
+        // startup work and a future-refresh timestamp would both be false
+        // promises until the reachability probe recovers.
+        if (this.cb.getIsOffline()) {
+            this.clearOfflineSchedule();
+            this.cb.setBackgroundUpdating(false);
+            this.cb.setStaleRefresh(false);
+            if (!hasCachedData && !currentData) this.cb.setError('Offline Mode: No Data');
+            this.cb.setLoading(false);
+            addBreadcrumb({ category: 'weather', message: 'Offline startup using cache only', level: 'warning' });
+            return;
+        }
 
         if (hasCachedData && cachedAge < STALE_THRESHOLD_MS) {
             log.info(`Cache fresh (${Math.round(cachedAge / 60000)}m old) — skipping fetch`);
@@ -448,7 +473,7 @@ export class WeatherOrchestrator {
             if (!hasCachedData) this.cb.setLoadingMessage('Getting GPS Location...');
             log.info('Requesting GPS position...');
             addBreadcrumb({ category: 'weather', message: 'Requesting GPS position', level: 'info' });
-            GpsService.getCurrentPosition({ staleLimitMs: 60_000, timeoutSec: 10 }).then((pos) => {
+            GpsService.getCurrentPositionIfGranted({ staleLimitMs: 60_000, timeoutSec: 10 }).then((pos) => {
                 if (!this.isCurrentIdentity()) return;
                 if (pos) {
                     log.info(`GPS: ${pos.latitude.toFixed(4)}, ${pos.longitude.toFixed(4)}`);
@@ -456,7 +481,7 @@ export class WeatherOrchestrator {
                         category: 'weather',
                         message: 'GPS position received',
                         level: 'info',
-                        data: { lat: pos.latitude, lon: pos.longitude },
+                        data: { source: 'device-gps' },
                     });
                     this.fetchWeather(loc, {
                         force: !hasCachedData,
@@ -501,7 +526,7 @@ export class WeatherOrchestrator {
             log.info(`Named location: "${loc}" — scheduling fetch`);
             addBreadcrumb({
                 category: 'weather',
-                message: `Named location: "${loc}" — scheduling fetch`,
+                message: 'Named location configured — scheduling fetch',
                 level: 'info',
             });
             this.cb.setLoading(false);
@@ -530,9 +555,9 @@ export class WeatherOrchestrator {
         this.assertCurrent(fetchEpoch);
         addBreadcrumb({
             category: 'location',
-            message: `Resolving location: ${location}`,
+            message: 'Resolving requested location',
             level: 'info',
-            data: { initialCoords: coords },
+            data: { hasInitialCoordinates: !!coords },
         });
         let resolvedLocation = location;
         let resolvedCoords = coords;
@@ -542,14 +567,14 @@ export class WeatherOrchestrator {
         if (!resolvedCoords) {
             if (location === 'Current Location') {
                 this.cb.setLoadingMessage('Getting GPS Location...');
-                const pos = await GpsService.getCurrentPosition({ staleLimitMs: 60_000, timeoutSec: 15 });
+                const pos = await GpsService.getCurrentPositionIfGranted({ staleLimitMs: 60_000, timeoutSec: 15 });
                 this.assertCurrent(fetchEpoch);
                 if (pos) {
                     addBreadcrumb({
                         category: 'location',
                         message: 'Resolved "Current Location" via GPS',
                         level: 'info',
-                        data: { lat: pos.latitude, lon: pos.longitude },
+                        data: { source: 'device-gps' },
                     });
                     return {
                         name: location,
@@ -591,16 +616,16 @@ export class WeatherOrchestrator {
                     if (parsed.timezone) resolvedTimezone = parsed.timezone;
                     addBreadcrumb({
                         category: 'location',
-                        message: `Parsed location name: ${location}`,
+                        message: 'Parsed requested location name',
                         level: 'info',
-                        data: { parsedName: parsed.name, lat: parsed.lat, lon: parsed.lon },
+                        data: { parseSucceeded: true },
                     });
                 }
             } catch (e) {
                 if (this.isStaleOperation(e)) throw e;
                 addBreadcrumb({
                     category: 'location',
-                    message: `Failed to parse location name: ${location}`,
+                    message: 'Failed to parse requested location name',
                     level: 'warning',
                     data: { error: getErrorMessage(e) },
                 });
@@ -624,9 +649,9 @@ export class WeatherOrchestrator {
                     resolvedLocation = name;
                     addBreadcrumb({
                         category: 'location',
-                        message: `Reverse geocoded coords to: ${name}`,
+                        message: 'Reverse geocoded requested coordinates',
                         level: 'info',
-                        data: { lat: resolvedCoords.lat, lon: resolvedCoords.lon },
+                        data: { reverseGeocodeSucceeded: true },
                     });
                 } else {
                     resolvedLocation = this.formatCoords(resolvedCoords);
@@ -634,7 +659,7 @@ export class WeatherOrchestrator {
                         category: 'location',
                         message: 'Reverse geocode returned no name, formatting coords',
                         level: 'info',
-                        data: { lat: resolvedCoords.lat, lon: resolvedCoords.lon },
+                        data: { reverseGeocodeSucceeded: false },
                     });
                 }
             } catch (e) {
@@ -644,15 +669,15 @@ export class WeatherOrchestrator {
                     category: 'location',
                     message: 'Reverse geocode failed, formatting coords',
                     level: 'warning',
-                    data: { lat: resolvedCoords.lat, lon: resolvedCoords.lon, error: getErrorMessage(e) },
+                    data: { error: getErrorMessage(e) },
                 });
             }
         }
         addBreadcrumb({
             category: 'location',
-            message: `Location resolved to: ${resolvedLocation}`,
+            message: 'Requested location resolved',
             level: 'info',
-            data: { finalCoords: resolvedCoords, timezone: resolvedTimezone },
+            data: { hasCoordinates: !!resolvedCoords, hasTimezone: !!resolvedTimezone },
         });
         this.assertCurrent(fetchEpoch);
         return { name: resolvedLocation, coords: resolvedCoords, timezone: resolvedTimezone };
@@ -671,9 +696,46 @@ export class WeatherOrchestrator {
 
         if (!location || !this.isCurrentIdentity()) return;
 
+        const currentAtRequest = this.cb.getWeatherData();
+        log.info(
+            `fetchWeather request "${location}" force=${force} current="${currentAtRequest?.locationName ?? 'none'}" coords=${coords ? 'yes' : 'no'}`,
+        );
+
+        // Several boot paths can converge here while settings, auth, and the
+        // async native cache are settling. A non-forced request for the same
+        // place must not burn a live provider call when a real, fresh report
+        // is already on screen. Manual refreshes and explicit location picks
+        // use force=true, so they continue to bypass this guard.
+        if (!force) {
+            const current = currentAtRequest;
+            const generatedAt = current?.generatedAt ? Date.parse(current.generatedAt) : Number.NaN;
+            const ageMs = Number.isFinite(generatedAt) ? Date.now() - generatedAt : Infinity;
+            const sameName = current?.locationName.trim().toLowerCase() === location.trim().toLowerCase();
+            const sameCoords =
+                !!coords &&
+                !!current?.coordinates &&
+                Math.abs(current.coordinates.lat - coords.lat) < 0.01 &&
+                Math.abs(current.coordinates.lon - coords.lon) < 0.01;
+            const currentState = current as (MarineWeatherReport & { loading?: boolean; isEstimated?: boolean }) | null;
+            const usableCurrent = currentState && !currentState.loading && !currentState.isEstimated;
+
+            if (usableCurrent && ageMs >= 0 && ageMs < STALE_THRESHOLD_MS && (sameName || sameCoords)) {
+                log.info(`Fresh current report for "${location}" — skipping duplicate fetch`);
+                addBreadcrumb({
+                    category: 'weather',
+                    message: 'Fresh current report, skipping duplicate fetch',
+                    level: 'info',
+                    data: { ageMinutes: Math.round(ageMs / 60000) },
+                });
+                this.cb.setLoading(false);
+                this.cb.setBackgroundUpdating(false);
+                return;
+            }
+        }
+
         addBreadcrumb({
             category: 'weather',
-            message: `fetchWeather: ${location}`,
+            message: 'Weather fetch requested',
             level: 'info',
             data: { force, silent, hasCoords: !!coords },
         });
@@ -684,7 +746,7 @@ export class WeatherOrchestrator {
                 category: 'weather',
                 message: 'Preventing concurrent fetch',
                 level: 'info',
-                data: { location, force },
+                data: { force },
             });
             return;
         }
@@ -696,7 +758,8 @@ export class WeatherOrchestrator {
         this.cb.setIsFetching(true);
 
         // Offline check
-        if (!navigator.onLine) {
+        if (this.cb.getIsOffline()) {
+            this.clearOfflineSchedule();
             addBreadcrumb({ category: 'weather', message: 'Offline mode detected', level: 'warning' });
             const historyCache = this.cb.getHistoryCache();
             const currentData = this.cb.getWeatherData();
@@ -706,7 +769,7 @@ export class WeatherOrchestrator {
                     category: 'weather',
                     message: 'Serving from history cache in offline mode',
                     level: 'info',
-                    data: { location },
+                    data: { cached: true },
                 });
             } else if (!currentData) {
                 this.cb.setError('Offline Mode: No Data');
@@ -714,7 +777,7 @@ export class WeatherOrchestrator {
                     category: 'weather',
                     message: 'No data available in offline mode',
                     level: 'error',
-                    data: { location },
+                    data: { cached: false },
                 });
             }
             if (this.isFetchCurrent(fetchEpoch)) {
@@ -735,7 +798,7 @@ export class WeatherOrchestrator {
             isServingFromCache = true;
             addBreadcrumb({
                 category: 'weather',
-                message: `Serving from history cache for ${location}`,
+                message: 'Serving requested location from history cache',
                 level: 'info',
             });
         }
@@ -761,7 +824,7 @@ export class WeatherOrchestrator {
                     category: 'weather',
                     message: 'Resolved location using provided GPS coords for Current Location',
                     level: 'info',
-                    data: { location, coords },
+                    data: { source: 'device-gps' },
                 });
             } else if (coords) {
                 resolved = { name: location, coords };
@@ -769,7 +832,7 @@ export class WeatherOrchestrator {
                     category: 'weather',
                     message: 'Resolved location using provided explicit coords',
                     level: 'info',
-                    data: { location, coords },
+                    data: { source: 'explicit-coordinates' },
                 });
             } else {
                 resolved = await this.resolveLocation(location, undefined, fetchEpoch);
@@ -777,7 +840,7 @@ export class WeatherOrchestrator {
                     category: 'weather',
                     message: 'Resolved location from name',
                     level: 'info',
-                    data: { location },
+                    data: { source: 'location-name' },
                 });
             }
             this.assertCurrent(fetchEpoch);
@@ -785,7 +848,7 @@ export class WeatherOrchestrator {
             if (!resolved.coords) {
                 addBreadcrumb({
                     category: 'weather',
-                    message: `Missing coordinates for ${resolved.name}`,
+                    message: 'Requested location has no coordinates',
                     level: 'error',
                 });
                 throw new Error(`Cannot fetch weather for ${resolved.name}: Missing Coordinates`);
@@ -804,9 +867,6 @@ export class WeatherOrchestrator {
                 message: 'Fetched weather from strategy',
                 level: 'info',
                 data: {
-                    lat: resolved.coords.lat,
-                    lon: resolved.coords.lon,
-                    name: resolved.name,
                     reportPresent: !!currentReport,
                 },
             });
@@ -818,7 +878,7 @@ export class WeatherOrchestrator {
                     category: 'weather',
                     message: 'Locked report coordinates to explicit input',
                     level: 'info',
-                    data: { lat: coords.lat, lon: coords.lon },
+                    data: { coordinatesLocked: true },
                 });
             }
 
@@ -830,7 +890,7 @@ export class WeatherOrchestrator {
                     category: 'weather',
                     message: 'Weather data updated and cached',
                     level: 'info',
-                    data: { location: currentReport.locationName, generatedAt: currentReport.generatedAt },
+                    data: { generatedAt: currentReport.generatedAt },
                 });
                 if (!isBackground) this.cb.setLoading(false);
             }
@@ -855,7 +915,7 @@ export class WeatherOrchestrator {
             if (!this.isFetchCurrent(fetchEpoch) || this.isStaleOperation(err)) return;
             const currentData2 = this.cb.getWeatherData();
             const historyCache2 = this.cb.getHistoryCache();
-            if (!navigator.onLine && (currentData2 || historyCache2[location])) {
+            if (this.cb.getIsOffline() && (currentData2 || historyCache2[location])) {
                 // Offline fallback — OK
                 addBreadcrumb({
                     category: 'weather',
@@ -884,21 +944,26 @@ export class WeatherOrchestrator {
             this.cb.setLoading(false);
 
             // Report fetch failures to Sentry
-            if (err instanceof Error) {
+            if (err instanceof Error && !this.cb.getIsOffline()) {
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                captureException(err, { tags: { operation: 'fetchWeather', location } } as any);
+                captureException(err, { tags: { operation: 'fetchWeather' } } as any);
             }
 
-            // Reschedule on failure
-            const retryTs = Date.now() + 2 * 60 * 1000;
-            this.cb.setNextUpdate(retryTs);
-            localStorage.setItem(this.cacheKeys.nextUpdate, retryTs.toString());
-            addBreadcrumb({
-                category: 'weather',
-                message: `Rescheduling fetch due to error for ${location}`,
-                level: 'info',
-                data: { retryTime: new Date(retryTs).toISOString() },
-            });
+            if (this.cb.getIsOffline()) {
+                this.clearOfflineSchedule();
+            } else {
+                // Only advertise a retry when the WAN probe says a provider
+                // request has a chance of running.
+                const retryTs = Date.now() + 2 * 60 * 1000;
+                this.cb.setNextUpdate(retryTs);
+                localStorage.setItem(this.cacheKeys.nextUpdate, retryTs.toString());
+                addBreadcrumb({
+                    category: 'weather',
+                    message: 'Rescheduling weather fetch after error',
+                    level: 'info',
+                    data: { retryTime: new Date(retryTs).toISOString() },
+                });
+            }
         } finally {
             if (this.isFetchCurrent(fetchEpoch)) {
                 this.cb.setIsFetching(false);
@@ -918,14 +983,16 @@ export class WeatherOrchestrator {
         // --- SUBSCRIPTION TIER ROUTING ---
         // Premium users get the full multi-source pipeline (WeatherKit + StormGlass + GRIB).
         // Free/expired users get standard resolution only (OpenMeteo GFS).
-        let premium = true; // default to full pipeline if check fails
+        let premium = false; // entitlement failures must never unlock paid providers
         try {
             premium = await isPremiumUser();
         } catch {
-            // If subscription check fails, don't block weather — give full pipeline
-            log.warn('Subscription check failed, defaulting to premium pipeline');
+            // Basic weather remains available; only the paid-provider fallback
+            // stays locked until this identity is verified.
+            log.warn('Subscription check failed, keeping standard weather pipeline');
         }
         this.assertCurrent(fetchEpoch);
+        if (this.cb.getIsOffline()) throw new Error('Offline mode detected before weather provider request');
 
         try {
             const report = await fetchWeatherByStrategy(lat, lon, name, undefined);
@@ -935,6 +1002,7 @@ export class WeatherOrchestrator {
         } catch (e: unknown) {
             this.assertCurrent(fetchEpoch);
             if (this.isStaleOperation(e)) throw e;
+            if (this.cb.getIsOffline()) throw e;
             // Premium fallback: try StormGlass high-res if available
             if (premium && isStormglassKeyPresent()) {
                 try {
@@ -961,6 +1029,10 @@ export class WeatherOrchestrator {
         fetchEpoch: number,
     ): Promise<void> {
         this.assertCurrent(fetchEpoch);
+        if (this.cb.getIsOffline()) {
+            this.clearOfflineSchedule();
+            return;
+        }
         const locationType = report.locationType || 'coastal';
         const isCurrentLoc = this.cb.getLocationMode() === 'gps';
         const interval = getUpdateInterval(
@@ -983,6 +1055,10 @@ export class WeatherOrchestrator {
             try {
                 const { enrichMarineWeather } = await import('./geminiService');
                 this.assertCurrent(fetchEpoch);
+                if (this.cb.getIsOffline()) {
+                    this.clearOfflineSchedule();
+                    return;
+                }
                 const enriched = await enrichMarineWeather(
                     report,
                     settings.vessel as VesselProfile | undefined,
@@ -991,6 +1067,10 @@ export class WeatherOrchestrator {
                     settings.aiPersona as number | undefined,
                 );
                 this.assertCurrent(fetchEpoch);
+                if (this.cb.getIsOffline()) {
+                    this.clearOfflineSchedule();
+                    return;
+                }
                 this.cb.setWeatherData(enriched);
                 this.cb.setHistoryCache((prev) => ({ ...prev, [location]: enriched }));
                 void saveLargeDataImmediate(this.cacheKeys.data, enriched);
@@ -1016,7 +1096,7 @@ export class WeatherOrchestrator {
     // ── Live Metrics Patch (WeatherKit Realtime) ───────────────
 
     async patchLiveMetrics(): Promise<void> {
-        if (!this.isCurrentIdentity()) return;
+        if (!this.isCurrentIdentity() || this.cb.getIsOffline()) return;
         const liveMetricsEpoch = ++this.liveMetricsEpoch;
         const report = this.cb.getWeatherData();
         if (!report?.coordinates) return;
@@ -1025,7 +1105,8 @@ export class WeatherOrchestrator {
         const { lat, lon } = report.coordinates;
         try {
             const obs = await fetchWeatherKitRealtime(lat, lon);
-            if (!this.isCurrentIdentity() || liveMetricsEpoch !== this.liveMetricsEpoch) return;
+            if (!this.isCurrentIdentity() || this.cb.getIsOffline() || liveMetricsEpoch !== this.liveMetricsEpoch)
+                return;
             if (!obs || obs.temperature === null) return;
 
             const current = this.cb.getWeatherData();
@@ -1106,7 +1187,7 @@ export class WeatherOrchestrator {
             }
 
             patched.sources = sources;
-            if (this.isCurrentIdentity() && liveMetricsEpoch === this.liveMetricsEpoch) {
+            if (this.isCurrentIdentity() && !this.cb.getIsOffline() && liveMetricsEpoch === this.liveMetricsEpoch) {
                 this.cb.setWeatherData({ ...current, current: patched });
             }
         } catch (e) {
@@ -1119,7 +1200,7 @@ export class WeatherOrchestrator {
     // ── AI Enrichment ──────────────────────────────────────────
 
     async regenerateAdvice(): Promise<void> {
-        if (!this.isCurrentIdentity()) return;
+        if (!this.isCurrentIdentity() || this.cb.getIsOffline()) return;
         const adviceEpoch = ++this.adviceEpoch;
         const currentData = this.cb.getWeatherData();
         const settings = this.cb.getSettings();
@@ -1128,7 +1209,7 @@ export class WeatherOrchestrator {
         this.cb.setBackgroundUpdating(true);
         try {
             const { enrichMarineWeather } = await import('./geminiService');
-            if (!this.isCurrentIdentity() || adviceEpoch !== this.adviceEpoch) return;
+            if (!this.isCurrentIdentity() || this.cb.getIsOffline() || adviceEpoch !== this.adviceEpoch) return;
             const enriched = await enrichMarineWeather(
                 currentData,
                 settings.vessel,
@@ -1136,7 +1217,7 @@ export class WeatherOrchestrator {
                 settings.vesselUnits,
                 settings.aiPersona,
             );
-            if (!this.isCurrentIdentity() || adviceEpoch !== this.adviceEpoch) return;
+            if (!this.isCurrentIdentity() || this.cb.getIsOffline() || adviceEpoch !== this.adviceEpoch) return;
             const stillCurrent = this.cb.getWeatherData();
             if (
                 stillCurrent?.generatedAt !== currentData.generatedAt ||

@@ -12,7 +12,7 @@ import { useAppBootstrap } from './hooks/useAppBootstrap';
 import { Dashboard } from './components/Dashboard';
 import { SearchIcon, MapIcon, RouteIcon, ClipboardIcon, SailBoatIcon } from './components/Icons';
 import { LocationStarMenu } from './components/LocationStarMenu';
-import { SkeletonDashboard } from './components/SkeletonLoader';
+import { SkeletonDashboard, SkeletonPage } from './components/SkeletonLoader';
 import { NotificationManager } from './components/NotificationManager';
 import { ProcessOverlay } from './components/ProcessOverlay';
 import { PaywallGate } from './components/PaywallGate';
@@ -21,8 +21,7 @@ import { NavButton } from './components/NavButton';
 import { isBuilderDeepLink } from './services/deepLink';
 import { StormGlassNavIcon } from './components/icons/StormGlassNavIcon';
 import { ErrorBoundary } from './components/ErrorBoundary';
-import { SystemStatusButton } from './components/SystemStatusButton';
-import { canAccess } from './services/SubscriptionService';
+import { canAccess, PUBLIC_BETA_ACCESS, TIER_INFO } from './services/SubscriptionService';
 import { AlertMonitorService } from './services/AlertMonitorService';
 import { ToastPortal, toast } from './components/Toast';
 import { GlobalAnchorAlarmGate } from './components/anchor-watch/GlobalAnchorAlarmGate';
@@ -34,13 +33,13 @@ import { PlanSignOutButton } from './components/PlanSignOutButton';
 import { useAuthStore } from './stores/authStore';
 import { lazyRetry } from './utils/lazyRetry';
 import { VIEW_REGISTRY, VESSEL_VIEWS, PULL_REFRESH_DISABLED_VIEWS, type ViewContext } from './viewRegistry';
-import { TIER_INFO } from './services/SubscriptionService';
 import { SafeImage } from './components/ui/SafeImage';
 import {
     GLASS_BRAND_ROW_HEIGHT_PX,
     GLASS_TOP_CARD_GAP_PX,
     getGlassTopLayout,
 } from './components/dashboard/glassLayout';
+import { FEATURE_VISIBILITY } from './utils/featureVisibility';
 
 // Only components NOT in the registry are lazy-loaded here
 const ForecastSheet = lazyRetry(() => import('./components/ForecastSheet').then((m) => ({ default: m.ForecastSheet })));
@@ -61,6 +60,10 @@ const SettingsRestoredModal = lazyRetry(
     () => import('./components/SettingsRestoredModal').then((m) => ({ default: m.SettingsRestoredModal })),
     'SettingsRestoredModal',
 );
+const SystemStatusButton = lazyRetry(
+    () => import('./components/SystemStatusButton').then((module) => ({ default: module.SystemStatusButton })),
+    'SystemStatusButton',
+);
 const OnboardingOverlay = lazyRetry(
     () => import('./components/ui/OnboardingOverlay').then((m) => ({ default: m.OnboardingOverlay })),
     'OnboardingOverlay',
@@ -76,20 +79,20 @@ const DeparturePrompts = lazyRetry(
 // SignInScreen is no longer lazy-imported here — it's rendered by
 // the save-point sheets and the Settings → Account entry in their
 // own modules where each can lazy-load it on demand.
-// Global now-playing bar — floats above the bottom nav on every
-// page while music is playing. Lazy because the vast majority of
-// app time has nothing in the queue and the bar's polling shouldn't
-// even start on the dashboard.
-const GlobalNowPlayingBar = lazyRetry(
-    () => import('./components/music/GlobalNowPlayingBar').then((m) => ({ default: m.GlobalNowPlayingBar })),
-    'GlobalNowPlayingBar',
+const SystemStatusFallback: React.FC = () => (
+    <div
+        className="flex h-12 w-12 items-center justify-center rounded-full border border-white/10 bg-slate-900/40 text-sm font-bold text-white/45"
+        role="status"
+        aria-label="Loading system status"
+    >
+        <span aria-hidden="true">i</span>
+    </div>
 );
 
 const App: React.FC = () => {
     // 1. DATA STATE
     const { weatherData, loading, loadingMessage, error, fetchWeather, refreshData } = useWeather();
-    const { settings, togglePro, updateSettings, loading: settingsLoading } = useSettings();
-    const { setTier } = useSettings();
+    const { settings, updateSettings, loading: settingsLoading } = useSettings();
     const { currentView, previousView, setPage, isOffline, transitionDirection } = useUI();
     const isVesselView = VESSEL_VIEWS.has(currentView);
 
@@ -203,66 +206,6 @@ const App: React.FC = () => {
         return () => document.documentElement.classList.remove('display-light');
     }, [isLight]);
 
-    // ── Warm the GPS plugin ONCE, off every critical path ──
-    //
-    // BackgroundGeolocation.ready() is expensive and, per Xcode's CoreLocation
-    // runtime warning, blocks the MAIN THREAD: the plugin dispatches to main and
-    // calls locationServicesEnabled(), a synchronous hop to locationd
-    // (BackgroundGeolocationPlugin.swift:238). The Log page already knew the
-    // price — "saves 1-2s when user taps Start" — and pre-warmed on its own
-    // mount. But a passage is cast off from the HELM, and nothing warmed it
-    // there, so casting off without having opened the Log page first paid that
-    // 1-2 s inside startTracking, before GPS had even been asked to start.
-    //
-    // ON IDLE, not on mount: warming during boot would just move a main-thread
-    // stall into app startup, where it is more visible, not less. requestIdleCallback
-    // waits for a gap; the 2.5 s timeout is the fallback for WebKit builds that
-    // lack it, and idle's own `timeout` stops it being deferred forever on a busy
-    // boot.
-    //
-    // Safe this early: ready() only CONFIGURES (startOnBoot:false). It requests
-    // no permission and starts no tracking — that is start()'s job.
-    // ensureReady() is latched, so the Log page's call becomes a no-op.
-    useEffect(() => {
-        let cancelled = false;
-        const warm = () => {
-            if (cancelled) return;
-            void import('./services/BgGeoManager')
-                .then(({ BgGeoManager }) => BgGeoManager.ensureReady())
-                .then(() => {
-                    if (cancelled) return;
-                    // Then actually GO AND GET A FIX (Shane 2026-08-02: "most
-                    // apps don't even need to wait... maybe we could do the
-                    // warm up as soon as we kick the app off"). ensureReady
-                    // only configures — it starts no tracking — so before this
-                    // every cold start began its satellite hunt at the moment
-                    // of need, and the first thing that started GPS at all was
-                    // the Glass's own lease, itself behind a weather fetch.
-                    // warmUpGps bails without prompting when permission is not
-                    // already granted, so a first-ever launch is unaffected.
-                    return import('./services/gpsWarmUp').then(({ warmUpGps }) => warmUpGps());
-                })
-                .catch(() => {
-                    /* no native plugin (web), or engine unavailable — startTracking retries */
-                });
-        };
-        const ric = (window as unknown as { requestIdleCallback?: typeof requestIdleCallback }).requestIdleCallback;
-        if (typeof ric === 'function') {
-            const handle = ric(warm, { timeout: 4000 });
-            return () => {
-                cancelled = true;
-                (window as unknown as { cancelIdleCallback?: (h: number) => void }).cancelIdleCallback?.(
-                    handle as unknown as number,
-                );
-            };
-        }
-        const timer = setTimeout(warm, 2500);
-        return () => {
-            cancelled = true;
-            clearTimeout(timer);
-        };
-    }, []);
-
     // Global navigation event listener — used by components that can't thread setPage via props
     useEffect(() => {
         const handler = (e: Event) => {
@@ -372,15 +315,23 @@ const App: React.FC = () => {
         })();
     }, []);
 
-    // Calypso "speak up" alerts — singleton AlertMonitorService runs as
-    // long as the toggle is on AND the user has Skipper-tier access.
-    // The service subscribes to NmeaStore and dispatches AlertEvents
-    // through AlertNotifier (chime + voice + page takeover + history).
-    // Tearing down on tier loss (subscription expiry) stops the alerts
-    // immediately — no waiting for the user to flip the toggle off.
-    const alertsToggle = settings.calypsoAlertsEnabled ?? false;
-    const alertsAllowed = canAccess(settings.subscriptionTier, 'calypsoAlerts');
+    // Calypso proactive vessel alerts are held for public beta. The current
+    // monitor lives in foreground JavaScript and cannot promise monitoring
+    // after iOS suspends or terminates the app. Keep the dormant implementation
+    // fail-closed even when an older settings envelope still says it was on.
+    const alertsToggle = FEATURE_VISIBILITY.calypsoAlerts && (settings.calypsoAlertsEnabled ?? false);
+    const alertsAllowed = FEATURE_VISIBILITY.calypsoAlerts && canAccess(settings.subscriptionTier, 'calypsoAlerts');
     useEffect(() => {
+        if (!FEATURE_VISIBILITY.calypsoAlerts) {
+            AlertMonitorService.stop();
+            // Retire the old opt-in. A later, genuinely native implementation
+            // must ask again instead of silently reactivating a safety feature
+            // whose behaviour and guarantees have changed.
+            if (settings.calypsoAlertsEnabled) {
+                void updateSettings({ calypsoAlertsEnabled: false });
+            }
+            return undefined;
+        }
         if (alertsToggle && alertsAllowed) {
             AlertMonitorService.start();
             return () => AlertMonitorService.stop();
@@ -388,7 +339,7 @@ const App: React.FC = () => {
         // If we're not running, ensure any prior session is torn down.
         AlertMonitorService.stop();
         return undefined;
-    }, [alertsToggle, alertsAllowed]);
+    }, [alertsToggle, alertsAllowed, settings.calypsoAlertsEnabled, updateSettings]);
 
     // Live GPS-derived location name — subscribed here (above the
     // conditional early return) so React's rules-of-hooks are happy.
@@ -503,14 +454,7 @@ const App: React.FC = () => {
             <PlanSignOutButton />
             <Suspense fallback={null}>
                 {showOnboarding && <OnboardingWizard onComplete={handleOnboardingComplete} />}
-                <UpgradeModal
-                    isOpen={isUpgradeOpen}
-                    onClose={() => setIsUpgradeOpen(false)}
-                    onUpgrade={(tier) => {
-                        if (tier) setTier(tier);
-                        else togglePro();
-                    }}
-                />
+                <UpgradeModal isOpen={isUpgradeOpen} onClose={() => setIsUpgradeOpen(false)} />
             </Suspense>
 
             <Suspense fallback={null}>
@@ -615,7 +559,7 @@ const App: React.FC = () => {
                             case 'drag_warning':
                             case 'geofence_alert':
                             case 'hail':
-                                setPage('guardian');
+                                setPage(FEATURE_VISIBILITY.guardian ? 'guardian' : 'dashboard');
                                 break;
                             default:
                                 setPage('dashboard');
@@ -649,11 +593,16 @@ const App: React.FC = () => {
                                     className="w-[64px] h-[64px] rounded-lg"
                                 />
                                 <div className="min-w-0">
-                                    <div className="flex items-center gap-1">
-                                        <h2 className="truncate text-xl font-bold tracking-wider uppercase shadow-black drop-shadow-lg">
+                                    <div className="flex min-w-0 items-center gap-1">
+                                        <h2 className="min-w-0 flex-1 truncate text-xl font-bold tracking-wider uppercase shadow-black drop-shadow-lg">
                                             Thalassa
                                         </h2>
-                                        {settings.subscriptionTier && settings.subscriptionTier !== 'free' && (
+                                        {PUBLIC_BETA_ACCESS.enabled ? (
+                                            <span className="shrink-0 whitespace-nowrap rounded border border-cyan-300/30 bg-cyan-400/15 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-cyan-100 shadow-lg">
+                                                <span className="sm:hidden">Beta · Free</span>
+                                                <span className="hidden sm:inline">Public Beta · Free</span>
+                                            </span>
+                                        ) : settings.subscriptionTier && settings.subscriptionTier !== 'free' ? (
                                             <span
                                                 className={`px-1.5 py-0.5 rounded text-[11px] font-bold text-white uppercase tracking-wider shadow-lg ${
                                                     settings.subscriptionTier === 'owner'
@@ -663,7 +612,7 @@ const App: React.FC = () => {
                                             >
                                                 {TIER_INFO[settings.subscriptionTier].badge}
                                             </span>
-                                        )}
+                                        ) : null}
                                     </div>
                                     <p className="flex min-w-0 items-center gap-1.5 whitespace-nowrap text-[11px] uppercase tracking-widest text-sky-200 shadow-black drop-shadow-md">
                                         <span className="min-w-0 flex-1 truncate">The Sailor&apos;s Assistant</span>
@@ -700,14 +649,14 @@ const App: React.FC = () => {
                                 </div>
                             </div>
 
-                            {/* Bosun mic (Skipper-tier) + System status ℹ — paired top-right */}
+                            {/* Calypso mic (Skipper-tier) + System status ℹ — paired top-right */}
                             <div className="flex shrink-0 items-center gap-2 pointer-events-auto">
                                 {canUseBosunVoice && (
                                     <button
                                         onClick={() => setPage('voice')}
                                         className="w-12 h-12 rounded-full bg-sky-500/15 hover:bg-sky-500/25 border border-sky-500/30 flex items-center justify-center text-sky-400 transition-colors backdrop-blur-md"
-                                        aria-label="Open Bosun voice console"
-                                        title="Talk to Bosun"
+                                        aria-label="Open Calypso voice console"
+                                        title="Talk to Calypso"
                                     >
                                         <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
                                             <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z" />
@@ -716,10 +665,12 @@ const App: React.FC = () => {
                                     </button>
                                 )}
                                 <div className="flex flex-col items-end gap-1">
-                                    <SystemStatusButton
-                                        currentView={currentView}
-                                        onNavigateAnchor={() => setPage('compass')}
-                                    />
+                                    <Suspense fallback={<SystemStatusFallback />}>
+                                        <SystemStatusButton
+                                            currentView={currentView}
+                                            onNavigateAnchor={() => setPage('compass')}
+                                        />
+                                    </Suspense>
                                 </div>
                             </div>
                         </div>
@@ -808,7 +759,9 @@ const App: React.FC = () => {
                             className={`flex-grow relative flex flex-col ${isLight ? 'bg-slate-200' : 'bg-slate-950'} ${!showHeader ? 'pt-[max(2rem,env(safe-area-inset-top))]' : 'pt-0'} ${['settings', 'warnings'].includes(currentView) ? 'overflow-y-auto' : 'overflow-hidden'}`}
                         >
                             <ErrorBoundary boundaryName="MainContent">
-                                <Suspense fallback={<SkeletonDashboard />}>
+                                <Suspense
+                                    fallback={currentView === 'dashboard' ? <SkeletonDashboard /> : <SkeletonPage />}
+                                >
                                     <div className="relative flex-1 overflow-hidden">
                                         <PageTransition
                                             pageKey={currentView}
@@ -873,8 +826,7 @@ const App: React.FC = () => {
                                                                         <button
                                                                             type="button"
                                                                             onClick={handleLocateLite}
-                                                                            disabled={isOffline}
-                                                                            className="w-full h-12 rounded-xl bg-sky-500 hover:bg-sky-400 disabled:bg-slate-700 disabled:text-slate-500 text-white font-semibold text-sm transition-colors shadow-lg flex items-center justify-center gap-2"
+                                                                            className="w-full h-12 rounded-xl bg-sky-500 hover:bg-sky-400 text-white font-semibold text-sm transition-colors shadow-lg flex items-center justify-center gap-2"
                                                                         >
                                                                             <svg
                                                                                 className="w-4 h-4"
@@ -889,7 +841,7 @@ const App: React.FC = () => {
                                                                                 <path d="M12 1v6m0 6v6M1 12h6m6 0h6" />
                                                                             </svg>
                                                                             {isOffline
-                                                                                ? 'Offline — needs network'
+                                                                                ? 'Use GPS offline'
                                                                                 : 'Use my location'}
                                                                         </button>
                                                                         <button
@@ -906,20 +858,50 @@ const App: React.FC = () => {
                                                                         </button>
                                                                     </div>
                                                                     <p className="text-[11px] text-center text-slate-500 mt-4 leading-relaxed">
-                                                                        Your location stays on this device until you
-                                                                        sign in to sync it across boats.
+                                                                        GPS works offline. Forecasts and place names
+                                                                        update when connected, and coordinates are sent
+                                                                        to the provider needed for that request.
                                                                     </p>
                                                                 </div>
                                                             </div>
                                                         ) : !weatherData && !loading ? (
-                                                            <div
-                                                                className="flex-1 w-full h-full bg-slate-950 flex items-center justify-center px-6 text-center"
-                                                                role="status"
-                                                            >
-                                                                <p className="max-w-sm text-sm text-slate-400">
-                                                                    Weather data is not available yet. Please choose a
-                                                                    location or try again shortly.
-                                                                </p>
+                                                            <div className="flex-1 w-full h-full bg-slate-950 flex items-center justify-center px-6 text-center">
+                                                                <div className="max-w-sm space-y-4" role="status">
+                                                                    <p className="text-sm text-slate-400">
+                                                                        {isOffline
+                                                                            ? 'Your location is saved, but no offline forecast is available yet.'
+                                                                            : 'Weather data is not available for this location yet.'}
+                                                                    </p>
+                                                                    <div className="flex flex-col gap-2 sm:flex-row sm:justify-center">
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() =>
+                                                                                fetchWeather(
+                                                                                    query ||
+                                                                                        settings.defaultLocation ||
+                                                                                        '',
+                                                                                )
+                                                                            }
+                                                                            disabled={isOffline}
+                                                                            className="rounded-xl bg-sky-500 px-5 py-2.5 text-sm font-bold text-white disabled:bg-slate-700 disabled:text-slate-400"
+                                                                        >
+                                                                            {isOffline
+                                                                                ? 'Waiting for network'
+                                                                                : 'Retry forecast'}
+                                                                        </button>
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => {
+                                                                                mapFromWxRef.current = true;
+                                                                                setMapPickerActive(true);
+                                                                                setPage('map');
+                                                                            }}
+                                                                            className="rounded-xl border border-white/10 bg-slate-800 px-5 py-2.5 text-sm font-bold text-white"
+                                                                        >
+                                                                            Choose another location
+                                                                        </button>
+                                                                    </div>
+                                                                </div>
                                                             </div>
                                                         ) : (
                                                             weatherData && (
@@ -954,6 +936,7 @@ const App: React.FC = () => {
                                                         const ViewComponent = activeViewConfig.component;
                                                         const viewCtx: ViewContext = {
                                                             setPage,
+                                                            previousView,
                                                             setIsUpgradeOpen,
                                                             settings: settings as unknown as Record<string, unknown>,
                                                             updateSettings: updateSettings as unknown as (
@@ -1006,6 +989,7 @@ const App: React.FC = () => {
                                     mapboxToken={settings.mapboxToken}
                                     homePort={settings.defaultLocation}
                                     pickerMode={mapPickerActive}
+                                    pickerLabel="Tap the chart to choose your weather location"
                                     onLocationSelect={(lat: number, lon: number, name?: string) => {
                                         if (mapFromWxRef.current) {
                                             mapFromWxRef.current = false;
@@ -1056,7 +1040,7 @@ const App: React.FC = () => {
                                 </svg>
                             </div>
                         )}
-                        {/* Bosun mic (Skipper-tier) + System status ℹ — paired top-right on map view.
+                        {/* Calypso mic (Skipper-tier) + System status ℹ — paired top-right on map view.
                             The mic steps aside while the Route Tracer is open (declutter 2026-07-17). */}
                         <div
                             className="absolute z-[601] pointer-events-auto flex items-center gap-2"
@@ -1069,8 +1053,8 @@ const App: React.FC = () => {
                                 <button
                                     onClick={() => setPage('voice')}
                                     className="w-12 h-12 rounded-full bg-sky-500/15 hover:bg-sky-500/25 border border-sky-500/30 flex items-center justify-center text-sky-400 transition-colors backdrop-blur-md shadow-lg"
-                                    aria-label="Open Bosun voice console"
-                                    title="Talk to Bosun"
+                                    aria-label="Open Calypso voice console"
+                                    title="Talk to Calypso"
                                 >
                                     <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
                                         <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z" />
@@ -1078,7 +1062,12 @@ const App: React.FC = () => {
                                     </svg>
                                 </button>
                             )}
-                            <SystemStatusButton currentView={currentView} onNavigateAnchor={() => setPage('compass')} />
+                            <Suspense fallback={<SystemStatusFallback />}>
+                                <SystemStatusButton
+                                    currentView={currentView}
+                                    onNavigateAnchor={() => setPage('compass')}
+                                />
+                            </Suspense>
                         </div>
                         {/* Back chevron — middle-left of screen */}
                         <div className="absolute z-[601] px-3" style={{ top: '50%', transform: 'translateY(-50%)' }}>
@@ -1133,10 +1122,6 @@ const App: React.FC = () => {
                     pause/dismiss without going back to the Music page.
                     Auto-hides on the music page itself (in-page bar
                     handles it) and when nothing's queued. */}
-                <Suspense fallback={null}>
-                    <GlobalNowPlayingBar />
-                </Suspense>
-
                 {/* The escape hatch for landscape. Deliberately small and
                     bottom-left so it stays clear of the chart FABs, and z-ordered
                     ABOVE the nav so it doubles as the close control once open. */}

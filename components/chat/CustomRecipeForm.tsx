@@ -10,6 +10,8 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import {
     saveCustomRecipe,
+    PrivateRecipePhotoUnavailableError,
+    RecipePhotoUploadError,
     NAUTICAL_TAG_DEFS,
     deriveNauticalTags,
     type RecipeIngredient,
@@ -97,6 +99,7 @@ export const CustomRecipeForm: React.FC<CustomRecipeFormProps> = ({ onSaved, onC
 
     // Step 4: Save
     const [visibility, setVisibility] = useState<'private' | 'community'>('private');
+    const privatePhotoBlocked = visibility === 'private' && photoFile !== null;
 
     // Nautical tags (selectable in Basics step)
     const [selectedTags, setSelectedTags] = useState<Set<NauticalTag>>(new Set());
@@ -164,6 +167,12 @@ export const CustomRecipeForm: React.FC<CustomRecipeFormProps> = ({ onSaved, onC
     };
 
     const handleSave = async () => {
+        if (privatePhotoBlocked) {
+            triggerHaptic('heavy');
+            toast.error('Private recipe photos are unavailable in this beta. Remove the photo or choose Community.');
+            return;
+        }
+
         setSaving(true);
         triggerHaptic('medium');
 
@@ -196,19 +205,21 @@ export const CustomRecipeForm: React.FC<CustomRecipeFormProps> = ({ onSaved, onC
             const result = await saveCustomRecipe(input);
             if (result) {
                 triggerHaptic('light');
+                onSaved();
             } else {
-                // Service returned null — likely saved locally only (offline / no auth).
-                // Tell the user so they're not surprised when it doesn't show in community.
                 triggerHaptic('heavy');
-                toast.info('Saved locally — will sync when you reconnect');
+                toast.error('Recipe was not saved. Sign in or reconnect, then try again.');
             }
         } catch (e) {
             log.error('Failed to save recipe:', e);
             triggerHaptic('heavy');
-            toast.error('Could not save recipe — please try again');
+            if (e instanceof PrivateRecipePhotoUnavailableError || e instanceof RecipePhotoUploadError) {
+                toast.error(e.message);
+            } else {
+                toast.error('Could not save recipe — please try again');
+            }
         } finally {
             setSaving(false);
-            onSaved();
         }
     };
 
@@ -491,6 +502,31 @@ export const CustomRecipeForm: React.FC<CustomRecipeFormProps> = ({ onSaved, onC
                         )}
                     </button>
                 </div>
+
+                {privatePhotoBlocked && (
+                    <div
+                        id="private-recipe-photo-notice"
+                        role="alert"
+                        className="mt-3 rounded-xl border border-amber-500/30 bg-amber-500/[0.08] p-3"
+                    >
+                        <p className="text-xs font-bold text-amber-200">Private photos are not available in beta</p>
+                        <p className="mt-1 text-[11px] leading-relaxed text-amber-100/70">
+                            Recipe photo storage is public for Community Galley. Remove this photo to keep the recipe
+                            private, or share the recipe with the community.
+                        </p>
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setPhotoFile(null);
+                                setPhotoPreview(null);
+                                if (fileInputRef.current) fileInputRef.current.value = '';
+                            }}
+                            className="mt-2 min-h-[36px] rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 text-[11px] font-bold text-amber-200 hover:bg-amber-400/20"
+                        >
+                            Remove photo and keep private
+                        </button>
+                    </div>
+                )}
             </div>
         </div>
     );
@@ -594,7 +630,8 @@ export const CustomRecipeForm: React.FC<CustomRecipeFormProps> = ({ onSaved, onC
                     ) : (
                         <button
                             onClick={handleSave}
-                            disabled={saving || !canAdvance()}
+                            disabled={saving || !canAdvance() || privatePhotoBlocked}
+                            aria-describedby={privatePhotoBlocked ? 'private-recipe-photo-notice' : undefined}
                             className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 text-xs font-bold text-black shadow-lg shadow-amber-500/20 disabled:opacity-30 transition-all active:scale-95 flex items-center gap-2"
                         >
                             {saving ? <>⏳ Saving...</> : <>✨ Save Recipe</>}

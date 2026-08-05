@@ -17,6 +17,7 @@
 
 import { piCache } from '../PiCacheService';
 import { fetchVerifiedFromPi } from '../PiPairingService';
+import { canonicalEncCellId, ENC_CELL_BLOB_MAX_BYTES, ENC_CELL_ID_PATTERN, encCellStorageIdentity } from './types';
 import type { EncConversionBatch } from './types';
 import { createLogger } from '../../utils/createLogger';
 import { withTimeout } from '../../utils/deadline';
@@ -37,7 +38,10 @@ const inflight = new Map<string, Promise<boolean>>();
  */
 export async function downloadPiCell(cellId: string): Promise<boolean> {
     if (!PI_INTEGRATION_ENABLED || !piCache.isAvailable()) return false;
-    const existing = inflight.get(cellId);
+    const canonicalId = canonicalEncCellId(cellId);
+    if (!ENC_CELL_ID_PATTERN.test(canonicalId)) return false;
+    const identity = encCellStorageIdentity(canonicalId);
+    const existing = inflight.get(identity);
     if (existing) return existing;
     const p = (async () => {
         try {
@@ -47,27 +51,32 @@ export async function downloadPiCell(cellId: string): Promise<boolean> {
             // can relay it and still tamper — so per-payload verification is
             // the defence. See PiPairingService.fetchVerifiedFromPi.
             const blob = await fetchVerifiedFromPi<EncConversionBatch>({
-                url: `${piCache.baseUrl}/api/enc/installed/${encodeURIComponent(cellId)}/data`,
+                url: `${piCache.baseUrl}/api/enc/installed/${encodeURIComponent(canonicalId)}/data`,
                 connectTimeout: 5_000,
                 readTimeout: PI_PULL_DEADLINE_MS,
+                maxResponseBytes: ENC_CELL_BLOB_MAX_BYTES + 1024 * 1024,
             });
-            if (!blob || !Array.isArray(blob.cells) || blob.cells.length === 0) return false;
+            if (!blob || !Array.isArray(blob.cells) || blob.cells.length !== 1) return false;
+            const { validateLocalEncPack } = await import('./localEncPackImport');
+            const validated = validateLocalEncPack(blob).cells;
+            if (validated.length !== 1 || encCellStorageIdentity(validated[0].cellId) !== identity) {
+                log.warn(`pi cell ${canonicalId}: response identity did not match the requested path`);
+                return false;
+            }
             // Dynamic import breaks the would-be cycle EncCellStore → piCellSync
             // → EncHazardService → EncCellStore (same pattern as the cloud rung).
             const { importCell } = await import('./EncHazardService');
-            for (const conversion of blob.cells) {
-                await importCell(conversion);
-            }
-            log.warn(`pi cell ${cellId} pulled on demand (${blob.cells.length} conversion(s))`);
+            await importCell(validated[0]);
+            log.warn(`pi cell ${canonicalId} pulled on demand`);
             return true;
         } catch (err) {
-            log.warn(`pi cell ${cellId} pull failed: ${err instanceof Error ? err.message : String(err)}`);
+            log.warn(`pi cell ${canonicalId} pull failed: ${err instanceof Error ? err.message : String(err)}`);
             return false;
         } finally {
-            inflight.delete(cellId);
+            inflight.delete(identity);
         }
     })();
     const bounded = withTimeout(p, false, PI_PULL_DEADLINE_MS + 5_000);
-    inflight.set(cellId, bounded);
+    inflight.set(identity, bounded);
     return bounded;
 }

@@ -3,6 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const { getState } = vi.hoisted(() => ({ getState: vi.fn() }));
 
 vi.mock('../services/NmeaStore', () => ({
+    NMEA_LIVE_MAX_AGE_MS: 6_500,
+    NMEA_USABLE_MAX_AGE_MS: 13_000,
     NmeaStore: {
         getState,
         subscribe: vi.fn(() => () => {}),
@@ -37,15 +39,15 @@ describe('NmeaGpsProvider feed freshness', () => {
         vi.restoreAllMocks();
     });
 
-    it('keeps a normal 5-second NMEA cadence usable after the 3-second visual-live tier', () => {
+    it('keeps a normal 5-second NMEA cadence live through scheduler jitter', () => {
         getState.mockReturnValue(state(6_000));
 
-        expect(NmeaGpsProvider.getFeedStatus(NOW)).toBe('stale');
+        expect(NmeaGpsProvider.getFeedStatus(NOW)).toBe('live');
         expect(NmeaGpsProvider.isActive()).toBe(true);
     });
 
     it('stops accepting a vessel position after two missed sample windows', () => {
-        getState.mockReturnValue(state(12_001));
+        getState.mockReturnValue(state(13_001));
 
         expect(NmeaGpsProvider.getFeedStatus(NOW)).toBe('unavailable');
     });

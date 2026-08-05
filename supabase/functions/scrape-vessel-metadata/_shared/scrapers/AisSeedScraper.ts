@@ -5,7 +5,7 @@
  * plus the MMSI MID decoder to give every tracked vessel a baseline row.
  * No external API calls, no failure modes — guaranteed coverage.
  */
-import { supabase, VesselMetadataRow, upsertMetadata } from '../supabase.ts';
+import { supabase, upsertMetadata, VesselMetadataRow } from '../supabase.ts';
 import { getMid } from '../MmsiDecoder.ts';
 
 // MID → [country name, flag emoji]

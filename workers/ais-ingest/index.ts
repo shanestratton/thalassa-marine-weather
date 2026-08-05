@@ -21,7 +21,7 @@ import http from 'node:http';
 import WebSocket from 'ws';
 import { MAX_AIS_MESSAGE_CHARS, parseAisStreamMessage } from './parser.js';
 import { VesselDB } from './db.js';
-import { startWatchdog } from './watchdog.js';
+import { isGuardianWatchdogEnabled, startWatchdog } from './watchdog.js';
 
 // ── Config ──
 const AISSTREAM_URL = 'wss://stream.aisstream.io/v0/stream';
@@ -39,6 +39,7 @@ const STATS_INTERVAL_MS = 30_000;
 const STALE_THRESHOLD_MS = parseInt(process.env.STALE_THRESHOLD_MS || '300000', 10); // 5 min
 const STALE_CHECK_INTERVAL_MS = 60_000; // Check every 60s
 const HEALTH_PORT = parseInt(process.env.PORT || '3001', 10);
+const GUARDIAN_WATCHDOG_ENABLED = isGuardianWatchdogEnabled(process.env.GUARDIAN_WATCHDOG_ENABLED);
 
 if (!API_KEY) {
     console.error('[FATAL] AISSTREAM_KEY not set. Copy .env.example to .env and fill in your key.');
@@ -53,6 +54,7 @@ let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let messageCount = 0;
 let parsedCount = 0;
 let isShuttingDown = false;
+let guardianWatchdogStarted = false;
 
 // Dead man's switch state
 let lastMessageAt = Date.now();
@@ -184,6 +186,7 @@ const healthServer = http.createServer((req, res) => {
             errors: dbStats.totalErrors,
             staleReconnects,
             staleThresholdMs: STALE_THRESHOLD_MS,
+            guardianWatchdogEnabled: guardianWatchdogStarted,
         });
 
         res.writeHead(isStale ? 503 : 200, {
@@ -260,6 +263,8 @@ console.log(`  Health check: http://0.0.0.0:${HEALTH_PORT}/health`);
 
 console.log(`  Stale threshold: ${STALE_THRESHOLD_MS / 1000}s`);
 
+console.log(`  Guardian watchdog: ${GUARDIAN_WATCHDOG_ENABLED ? 'enabled' : 'held (default off)'}`);
+
 console.log('═══════════════════════════════════════════════');
 
 db.start();
@@ -270,12 +275,15 @@ setInterval(checkStaleConnection, STALE_CHECK_INTERVAL_MS);
 // ── Guardian Watchdog: BOLO + Geofence monitor ──
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY;
-if (SUPABASE_URL && SUPABASE_KEY) {
+if (!GUARDIAN_WATCHDOG_ENABLED) {
+    console.warn('[GUARDIAN] Watchdog held — GUARDIAN_WATCHDOG_ENABLED must be exactly "true" to opt in');
+} else if (SUPABASE_URL && SUPABASE_KEY) {
     startWatchdog(SUPABASE_URL, SUPABASE_KEY);
+    guardianWatchdogStarted = true;
 
     console.log('[GUARDIAN] Watchdog started — monitoring armed vessels + geofences');
 } else {
-    console.warn('[GUARDIAN] Watchdog disabled — missing SUPABASE_URL or SUPABASE_SERVICE_KEY');
+    console.error('[GUARDIAN] Watchdog requested but disabled — missing SUPABASE_URL or SUPABASE_SERVICE_KEY');
 }
 
 healthServer.listen(HEALTH_PORT, '0.0.0.0', () => {

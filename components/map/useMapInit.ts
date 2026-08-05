@@ -16,6 +16,7 @@ import { AvNavService, encryptOchartsUrl } from '../../services/AvNavService';
 import { MBTilesService } from '../../services/MBTilesService';
 import { piCache } from '../../services/PiCacheService';
 import { isAuthIdentityScopeCurrent, type AuthIdentityScope } from '../../services/authIdentityScope';
+import { existingMapLayerIds } from './mapLayerQueries';
 
 /**
  * Show/hide the OpenSeaMap raster seamark overlays in one call. Two layers
@@ -278,7 +279,10 @@ export function useMapInit(opts: UseMapInitOptions) {
             style: mapStyle,
             center: startCenter,
             zoom: startZoom,
-            attributionControl: false,
+            // Provider attribution and the Mapbox logo are mandatory map
+            // chrome, not optional decoration. Keep the native control so it
+            // automatically follows whichever style/source is visible.
+            attributionControl: true,
             // Deep zoom-in stays available; zoom-OUT floors at z3 (Shane
             // 2026-08-04: "prevent the zoom from going past level 3"). The
             // min() keeps the AU+NZ opening frame reachable on portrait
@@ -554,7 +558,8 @@ export function useMapInit(opts: UseMapInitOptions) {
                     ],
                     tileSize: 512,
                     maxzoom: 22,
-                    attribution: '© Mapbox © Maxar',
+                    attribution:
+                        '&copy; <a href="https://www.mapbox.com/about/maps/" target="_blank" rel="noopener noreferrer">Mapbox</a> &copy; Maxar',
                 });
                 // "Added FIRST so everything renders above it" only holds on
                 // the very first pass — a chart-mode swap re-runs this block
@@ -607,7 +612,8 @@ export function useMapInit(opts: UseMapInitOptions) {
                     ],
                     tileSize: 512,
                     maxzoom: 22,
-                    attribution: '© Mapbox © Maxar © OpenStreetMap',
+                    attribution:
+                        '&copy; <a href="https://www.mapbox.com/about/maps/" target="_blank" rel="noopener noreferrer">Mapbox</a> &copy; Maxar &copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap contributors</a>',
                 });
                 const encBottomForHybrid = map.getStyle()?.layers?.find((l) => l.id.startsWith('enc-vec-'))?.id;
                 map.addLayer(
@@ -633,7 +639,8 @@ export function useMapInit(opts: UseMapInitOptions) {
                     tiles: ['https://api.maptiler.com/maps/ocean/{z}/{x}/{y}.png?key=3misfI2jeOYbJqgl5a6e'],
                     tileSize: 512,
                     maxzoom: 16,
-                    attribution: '',
+                    attribution:
+                        '&copy; <a href="https://www.maptiler.com/copyright/" target="_blank" rel="noopener noreferrer">MapTiler</a> &copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap contributors</a>',
                 });
 
                 // Find the first symbol layer to insert ocean tiles below labels
@@ -684,6 +691,8 @@ export function useMapInit(opts: UseMapInitOptions) {
                     tiles: ['https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png'],
                     tileSize: 256,
                     maxzoom: 18,
+                    attribution:
+                        'Map data: &copy; <a href="https://www.openseamap.org" target="_blank" rel="noopener noreferrer">OpenSeaMap contributors</a>',
                 });
                 map.addLayer(
                     {
@@ -734,6 +743,8 @@ export function useMapInit(opts: UseMapInitOptions) {
                         '#ff9100',
                         'danger',
                         '#ff1744',
+                        'unverified',
+                        '#f59e0b',
                         'channel',
                         '#facc15',
                         'harbour',
@@ -766,6 +777,8 @@ export function useMapInit(opts: UseMapInitOptions) {
                         '#ff9100',
                         'danger',
                         '#ff1744',
+                        'unverified',
+                        '#f59e0b',
                         'channel',
                         '#facc15',
                         'harbour',
@@ -797,6 +810,8 @@ export function useMapInit(opts: UseMapInitOptions) {
                         '#ffe0b2',
                         'danger',
                         '#ffcdd2',
+                        'unverified',
+                        '#cbd5e1',
                         'channel',
                         '#fcd34d',
                         'harbour',
@@ -938,10 +953,10 @@ export function useMapInit(opts: UseMapInitOptions) {
                 filter: ['==', ['get', 'dashed'], true],
                 layout: { 'line-join': 'round', 'line-cap': 'round' },
                 paint: {
-                    'line-color': '#38bdf8',
-                    'line-width': 2.5,
-                    'line-opacity': 0.85,
-                    'line-dasharray': [6, 6],
+                    'line-color': ['match', ['get', 'safety'], 'unverified', '#f59e0b', '#38bdf8'],
+                    'line-width': ['match', ['get', 'safety'], 'unverified', 3.5, 2.5],
+                    'line-opacity': ['match', ['get', 'safety'], 'unverified', 0.95, 0.85],
+                    'line-dasharray': [4, 4],
                 },
             });
 
@@ -1338,7 +1353,8 @@ export function useMapInit(opts: UseMapInitOptions) {
             // Coordinate capture needs taps to land even with a route shown.
             if (!coordCaptureRef.current && (opts.settingPoint || opts.showPassage)) return;
             // Don't fire weather popup if user tapped an AIS vessel
-            const aisHits = map.queryRenderedFeatures(e.point, { layers: ['ais-targets-circle'] });
+            const aisLayers = existingMapLayerIds(map, ['ais-targets-circle']);
+            const aisHits = aisLayers.length > 0 ? map.queryRenderedFeatures(e.point, { layers: aisLayers }) : [];
             if (aisHits.length > 0) return;
             onMapTapRef.current?.(e.lngLat.lat, e.lngLat.lng);
         });

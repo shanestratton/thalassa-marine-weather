@@ -27,6 +27,7 @@ import {
     getWindColor,
     isParkedLayer,
     LAYER_FRAME_ZOOM,
+    SEA_STATE_LAYERS,
 } from './mapConstants';
 import { createWindLabelMarker } from '../../utils/createMarkerEl';
 import {
@@ -43,6 +44,8 @@ import {
 } from '../../services/weather/api/rainviewerTiles';
 import { windForecastHoursForGrid } from './windTimeAxis';
 import { RAIN_FRAME_OPACITY, RainFrameTransitionController, type RainFrameMap } from './rainFrameTransition';
+import { CMEMS_DATASETS } from '../../services/weather/api/cmemsGridTrust';
+import { isWeatherLayerAvailable } from './cmemsFeatureAvailability';
 // PrecipHeatmapResult removed — replaced by Rainbow.ai XYZ tiles
 
 /** Remove every RainViewer/Rainbow frame from a map before a fresh session. */
@@ -165,6 +168,21 @@ function pressureFrameForValidAt(grid: any, validAt: number | null): number | nu
  */
 export const DEFAULT_LAYERS: WeatherLayer[] = ['wind'];
 
+/** Keep decoded CMEMS ownership to one visible marine product at a time. */
+export function enforceCmemsMarineExclusivity(
+    layers: ReadonlySet<WeatherLayer>,
+    preferred?: WeatherLayer,
+): Set<WeatherLayer> {
+    const next = new Set(layers);
+    const activeMarine = SEA_STATE_LAYERS.filter((layer) => next.has(layer));
+    if (activeMarine.length <= 1) return next;
+    const keep = preferred && activeMarine.includes(preferred) ? preferred : activeMarine[activeMarine.length - 1];
+    for (const layer of activeMarine) {
+        if (layer !== keep) next.delete(layer);
+    }
+    return next;
+}
+
 /**
  * Which layers a stored preference should restore.
  *
@@ -178,12 +196,17 @@ export const DEFAULT_LAYERS: WeatherLayer[] = ['wind'];
  * off (Shane 2026-07-18). Wind is NOT filtered — it has a picker, and
  * discarding the user's own choice every launch was the bug.
  */
-export function restoreActiveLayers(stored: string | null): Set<WeatherLayer> {
+export function restoreActiveLayers(
+    stored: string | null,
+    layerAvailable: (layer: WeatherLayer) => boolean = isWeatherLayerAvailable,
+): Set<WeatherLayer> {
     if (stored === null) return new Set(DEFAULT_LAYERS);
     try {
         const arr = JSON.parse(stored) as WeatherLayer[];
         if (!Array.isArray(arr)) return new Set(DEFAULT_LAYERS);
-        return new Set(arr.filter((l) => !isParkedLayer(l)));
+        return enforceCmemsMarineExclusivity(
+            new Set(arr.filter((layer) => !isParkedLayer(layer) && layerAvailable(layer))),
+        );
     } catch {
         return new Set(DEFAULT_LAYERS);
     }
@@ -283,7 +306,26 @@ export function useWeatherLayers(
                 }
                 next.add(layer);
             }
-            return next;
+            return enforceCmemsMarineExclusivity(next, layer);
+        });
+    }, []);
+
+    /** Explicit visibility setter used by fail-closed async layer boundaries. */
+    const setLayerVisibility = useCallback((layer: WeatherLayer, visible: boolean) => {
+        setUserLayers((prev) => {
+            const next = new Set(prev);
+            if (!visible) {
+                next.delete(layer);
+                return next;
+            }
+            next.add(layer);
+            const exclusive = enforceCmemsMarineExclusivity(next, layer);
+            while (exclusive.size > MAX_LAYERS) {
+                const oldestOther = [...exclusive].find((candidate) => candidate !== layer);
+                if (!oldestOther) break;
+                exclusive.delete(oldestOther);
+            }
+            return exclusive;
         });
     }, []);
 
@@ -299,7 +341,7 @@ export function useWeatherLayers(
             // Toggle the selected layer (tap again to deselect)
             if (next.has(layer)) next.delete(layer);
             else next.add(layer);
-            return next;
+            return enforceCmemsMarineExclusivity(next, layer);
         });
     }, []);
 
@@ -411,7 +453,9 @@ export function useWeatherLayers(
     // Currents scrubber (CMEMS hourly forecast, h00..h12)
     const [currentsHour, setCurrentsHour] = useState(0);
     const [currentsPlaying, setCurrentsPlaying] = useState(false);
-    const currentsTotalHours = 12;
+    // This value is a frame count, despite the retained public field name:
+    // the inclusive h000..h012 forecast contains 13 selectable frames.
+    const currentsTotalHours = CMEMS_DATASETS.currents.steps;
     /** Sub-frame index corresponding to wall-clock "Now". Updated on load
      *  and every minute while the layer is active so the Now marker creeps
      *  forward as real time marches on. */
@@ -421,35 +465,35 @@ export function useWeatherLayers(
     // wavesHour is a STEP index (0..16); each step is +3h of forecast.
     const [wavesHour, setWavesHour] = useState(0);
     const [wavesPlaying, setWavesPlaying] = useState(false);
-    const wavesTotalHours = 17;
+    const wavesTotalHours = CMEMS_DATASETS.waves.steps;
     const wavesNowIdxRef = useRef(0);
 
     // SST scrubber (CMEMS daily-mean, today + 5 forecast days = 6 frames
     // because the pipeline's start→end range is inclusive on both ends).
     const [sstStep, setSstStep] = useState(0);
     const [sstPlaying, setSstPlaying] = useState(false);
-    const sstTotalSteps = 6;
+    const sstTotalSteps = CMEMS_DATASETS.sst.steps;
     const sstNowIdxRef = useRef(0);
 
     // Chlorophyll scrubber (CMEMS BGC daily, today + 5d = 6 frames).
     const [chlStep, setChlStep] = useState(0);
     const [chlPlaying, setChlPlaying] = useState(false);
-    const chlTotalSteps = 6;
+    const chlTotalSteps = CMEMS_DATASETS.chl.steps;
     const chlNowIdxRef = useRef(0);
 
     // Sea-ice scrubber (CMEMS physics daily, today + 5d = 6 frames).
     const [seaiceStep, setSeaiceStep] = useState(0);
     const [seaicePlaying, setSeaicePlaying] = useState(false);
-    const seaiceTotalSteps = 6;
+    const seaiceTotalSteps = CMEMS_DATASETS.seaice.steps;
     const seaiceNowIdxRef = useRef(0);
 
     // Mixed-layer depth scrubber (CMEMS physics daily, today + 5d = 6 frames).
     const [mldStep, setMldStep] = useState(0);
     const [mldPlaying, setMldPlaying] = useState(false);
-    const mldTotalSteps = 6;
+    const mldTotalSteps = CMEMS_DATASETS.mld.steps;
     const mldNowIdxRef = useRef(0);
 
-    // Marine Protected Areas (CAPAD vector tiles). Static overlay —
+    // Marine Protected Areas (verified CAPAD-derived GeoJSON). Static overlay —
     // not time-scrubbed, can co-exist with any weather layer (a user
     // wants to see currents AND know where they can fish). Persisted
     // separately from the WeatherLayer set since it isn't mutually
@@ -988,107 +1032,10 @@ export function useWeatherLayers(
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [windPlaying, activeKey, windTotalHours]);
 
-    // ── Currents play/pause auto-advance (one tileset per forecast hour) ──
-    useEffect(() => {
-        if (!currentsPlaying || !activeLayers.has('currents')) return;
-        const timer = setInterval(() => {
-            setCurrentsHour((prev) => {
-                const next = prev + 1;
-                if (next >= currentsTotalHours) {
-                    setCurrentsPlaying(false);
-                    return 0;
-                }
-                return next;
-            });
-        }, 800);
-        return () => clearInterval(timer);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [currentsPlaying, activeKey, currentsTotalHours]);
-
-    // ── Waves play/pause auto-advance (mirrors currents) ──
-    useEffect(() => {
-        if (!wavesPlaying || !activeLayers.has('waves')) return;
-        const timer = setInterval(() => {
-            setWavesHour((prev) => {
-                const next = prev + 1;
-                if (next >= wavesTotalHours) {
-                    setWavesPlaying(false);
-                    return 0;
-                }
-                return next;
-            });
-        }, 800);
-        return () => clearInterval(timer);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [wavesPlaying, activeKey, wavesTotalHours]);
-
-    // ── SST play/pause auto-advance (daily cadence, 5 frames) ──
-    useEffect(() => {
-        if (!sstPlaying || !activeLayers.has('sst')) return;
-        const timer = setInterval(() => {
-            setSstStep((prev) => {
-                const next = prev + 1;
-                if (next >= sstTotalSteps) {
-                    setSstPlaying(false);
-                    return 0;
-                }
-                return next;
-            });
-        }, 1200);
-        return () => clearInterval(timer);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [sstPlaying, activeKey, sstTotalSteps]);
-
-    // ── Chlorophyll play/pause auto-advance (daily, 5 frames) ──
-    useEffect(() => {
-        if (!chlPlaying || !activeLayers.has('chl')) return;
-        const timer = setInterval(() => {
-            setChlStep((prev) => {
-                const next = prev + 1;
-                if (next >= chlTotalSteps) {
-                    setChlPlaying(false);
-                    return 0;
-                }
-                return next;
-            });
-        }, 1200);
-        return () => clearInterval(timer);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [chlPlaying, activeKey, chlTotalSteps]);
-
-    // ── Sea-ice play/pause auto-advance (daily, 5 frames) ──
-    useEffect(() => {
-        if (!seaicePlaying || !activeLayers.has('seaice')) return;
-        const timer = setInterval(() => {
-            setSeaiceStep((prev) => {
-                const next = prev + 1;
-                if (next >= seaiceTotalSteps) {
-                    setSeaicePlaying(false);
-                    return 0;
-                }
-                return next;
-            });
-        }, 1200);
-        return () => clearInterval(timer);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [seaicePlaying, activeKey, seaiceTotalSteps]);
-
-    // ── Mixed-layer depth play/pause auto-advance (daily, 6 frames) ──
-    useEffect(() => {
-        if (!mldPlaying || !activeLayers.has('mld')) return;
-        const timer = setInterval(() => {
-            setMldStep((prev) => {
-                const next = prev + 1;
-                if (next >= mldTotalSteps) {
-                    setMldPlaying(false);
-                    return 0;
-                }
-                return next;
-            });
-        }, 1200);
-        return () => clearInterval(timer);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [mldPlaying, activeKey, mldTotalSteps]);
+    // CMEMS autoplay is coordinated in MapHub after each hook reports that
+    // the exact requested frame has been verified and handed to its renderer.
+    // A fixed interval here would advance the scrubber while slow downloads
+    // are still in flight, causing the next effect cleanup to abort them.
 
     // ── Wind forecast data loading (for scrubber — rendering handled by MapboxVelocityOverlay) ──
     useEffect(() => {
@@ -1154,8 +1101,8 @@ export function useWeatherLayers(
 
     // ── CMEMS Now-alignment helpers ───────────────────────────────────
     // Shared by the six CMEMS layers (currents, waves, sst, chl, seaice,
-    // mld). Each layer's grid loader attaches `refTime` (= manifest
-    // generated_at = when step 0 represents in wall-clock). We turn the
+    // mld). Each layer's verified loader attaches `refTime` (= manifest
+    // data_start, the actual source time for step 0). We turn the
     // age-since-refTime into a step index using the layer's cadence.
     //
     // For hourly data (currents, 1h step), nowIdx = ageHours rounded.
@@ -1163,18 +1110,19 @@ export function useWeatherLayers(
     // For daily (sst/chl/seaice/mld), nowIdx = ageDays floored — "today"
     // is whatever day the wall clock is currently inside.
     //
-    // All return a safely clamped index — if the CMEMS data is way stale
-    // we show the last available frame rather than falling off the end.
+    // Null means the verified source does not cover wall-clock now. We never
+    // clamp stale/future data to an endpoint and label that endpoint "Now".
     const computeCmemsNowIndex = useCallback(
-        (refTime: string | undefined, stepHours: number, totalSteps: number): number => {
-            if (!refTime || totalSteps <= 0) return 0;
+        (refTime: string | undefined, stepHours: number, totalSteps: number): number | null => {
+            if (!refTime || totalSteps <= 0) return null;
             const ageMs = Date.now() - new Date(refTime).getTime();
             const ageHours = ageMs / (60 * 60 * 1000);
+            if (!Number.isFinite(ageHours)) return null;
             // Daily data (stepHours === 24) uses floor so "today" stays on
             // day 0 until wall-clock crosses into tomorrow. Sub-day data
             // uses round so we snap to the closest step.
             const raw = stepHours >= 24 ? Math.floor(ageHours / stepHours) : Math.round(ageHours / stepHours);
-            return Math.max(0, Math.min(raw, totalSteps - 1));
+            return raw >= 0 && raw < totalSteps ? raw : null;
         },
         [],
     );
@@ -1199,11 +1147,16 @@ export function useWeatherLayers(
         if (!activeLayers.has('currents')) return;
         let cancelled = false;
         const align = async () => {
-            const { fetchCurrentsGrid } = await import('../../services/weather/api/currentsGrid');
-            const grid = await fetchCurrentsGrid();
+            const { fetchCurrentsManifest } = await import('../../services/weather/api/currentsGrid');
+            const manifest = await fetchCurrentsManifest();
             if (cancelled) return;
-            const idx = computeCmemsNowIndex(grid?.refTime, 1, currentsTotalHours);
-            currentsNowIdxRef.current = idx;
+            const idx = computeCmemsNowIndex(
+                manifest?.data_start,
+                manifest?.cadence_hours ?? 1,
+                manifest?.files.length ?? currentsTotalHours,
+            );
+            currentsNowIdxRef.current = idx ?? -1;
+            if (idx === null) return;
             const s = cmemsUserScrubbedRefs.current.currents;
             if (s.scrubbed && Date.now() - s.at < CMEMS_MANUAL_COOLDOWN_MS) return;
             s.scrubbed = false;
@@ -1223,12 +1176,16 @@ export function useWeatherLayers(
         if (!activeLayers.has('waves')) return;
         let cancelled = false;
         const align = async () => {
-            const { fetchWavesGrid } = await import('../../services/weather/api/wavesGrid');
-            const grid = await fetchWavesGrid();
+            const { fetchWavesManifest } = await import('../../services/weather/api/wavesGrid');
+            const manifest = await fetchWavesManifest();
             if (cancelled) return;
-            // Waves are 3-hourly
-            const idx = computeCmemsNowIndex(grid?.refTime, 3, wavesTotalHours);
-            wavesNowIdxRef.current = idx;
+            const idx = computeCmemsNowIndex(
+                manifest?.data_start,
+                manifest?.cadence_hours ?? 3,
+                manifest?.files.length ?? wavesTotalHours,
+            );
+            wavesNowIdxRef.current = idx ?? -1;
+            if (idx === null) return;
             const s = cmemsUserScrubbedRefs.current.waves;
             if (s.scrubbed && Date.now() - s.at < CMEMS_MANUAL_COOLDOWN_MS) return;
             s.scrubbed = false;
@@ -1244,17 +1201,22 @@ export function useWeatherLayers(
     }, [activeKey, computeCmemsNowIndex]);
 
     // ── SST / Chl / Seaice / MLD: daily cadence ───────────────────────
-    // All four use the same shape: 6-step scrubber, 24h per step. Factored
-    // into a single effect per layer since each calls its own grid loader.
+    // All four use manifest-only metadata for their 6-step, 24-hour axes.
+    // Scrubber alignment must never download a full-resolution THCU frame.
     useEffect(() => {
         if (!activeLayers.has('sst')) return;
         let cancelled = false;
         const align = async () => {
-            const { fetchSstGrid } = await import('../../services/weather/api/sstGrid');
-            const grid = await fetchSstGrid();
+            const { fetchSstManifest } = await import('../../services/weather/api/sstGrid');
+            const manifest = await fetchSstManifest();
             if (cancelled) return;
-            const idx = computeCmemsNowIndex(grid?.refTime, 24, sstTotalSteps);
-            sstNowIdxRef.current = idx;
+            const idx = computeCmemsNowIndex(
+                manifest?.data_start,
+                manifest?.cadence_hours ?? 24,
+                manifest?.files.length ?? sstTotalSteps,
+            );
+            sstNowIdxRef.current = idx ?? -1;
+            if (idx === null) return;
             const s = cmemsUserScrubbedRefs.current.sst;
             if (s.scrubbed && Date.now() - s.at < CMEMS_MANUAL_COOLDOWN_MS) return;
             s.scrubbed = false;
@@ -1274,11 +1236,16 @@ export function useWeatherLayers(
         if (!activeLayers.has('chl')) return;
         let cancelled = false;
         const align = async () => {
-            const { fetchChlGrid } = await import('../../services/weather/api/chlGrid');
-            const grid = await fetchChlGrid();
+            const { fetchChlManifest } = await import('../../services/weather/api/chlGrid');
+            const manifest = await fetchChlManifest();
             if (cancelled) return;
-            const idx = computeCmemsNowIndex(grid?.refTime, 24, chlTotalSteps);
-            chlNowIdxRef.current = idx;
+            const idx = computeCmemsNowIndex(
+                manifest?.data_start,
+                manifest?.cadence_hours ?? 24,
+                manifest?.files.length ?? chlTotalSteps,
+            );
+            chlNowIdxRef.current = idx ?? -1;
+            if (idx === null) return;
             const s = cmemsUserScrubbedRefs.current.chl;
             if (s.scrubbed && Date.now() - s.at < CMEMS_MANUAL_COOLDOWN_MS) return;
             s.scrubbed = false;
@@ -1297,11 +1264,16 @@ export function useWeatherLayers(
         if (!activeLayers.has('seaice')) return;
         let cancelled = false;
         const align = async () => {
-            const { fetchSeaIceGrid } = await import('../../services/weather/api/seaiceGrid');
-            const grid = await fetchSeaIceGrid();
+            const { fetchSeaIceManifest } = await import('../../services/weather/api/seaiceGrid');
+            const manifest = await fetchSeaIceManifest();
             if (cancelled) return;
-            const idx = computeCmemsNowIndex(grid?.refTime, 24, seaiceTotalSteps);
-            seaiceNowIdxRef.current = idx;
+            const idx = computeCmemsNowIndex(
+                manifest?.data_start,
+                manifest?.cadence_hours ?? 24,
+                manifest?.files.length ?? seaiceTotalSteps,
+            );
+            seaiceNowIdxRef.current = idx ?? -1;
+            if (idx === null) return;
             const s = cmemsUserScrubbedRefs.current.seaice;
             if (s.scrubbed && Date.now() - s.at < CMEMS_MANUAL_COOLDOWN_MS) return;
             s.scrubbed = false;
@@ -1320,11 +1292,16 @@ export function useWeatherLayers(
         if (!activeLayers.has('mld')) return;
         let cancelled = false;
         const align = async () => {
-            const { fetchMldGrid } = await import('../../services/weather/api/mldGrid');
-            const grid = await fetchMldGrid();
+            const { fetchMldManifest } = await import('../../services/weather/api/mldGrid');
+            const manifest = await fetchMldManifest();
             if (cancelled) return;
-            const idx = computeCmemsNowIndex(grid?.refTime, 24, mldTotalSteps);
-            mldNowIdxRef.current = idx;
+            const idx = computeCmemsNowIndex(
+                manifest?.data_start,
+                manifest?.cadence_hours ?? 24,
+                manifest?.files.length ?? mldTotalSteps,
+            );
+            mldNowIdxRef.current = idx ?? -1;
+            if (idx === null) return;
             const s = cmemsUserScrubbedRefs.current.mld;
             if (s.scrubbed && Date.now() - s.at < CMEMS_MANUAL_COOLDOWN_MS) return;
             s.scrubbed = false;
@@ -2337,6 +2314,7 @@ export function useWeatherLayers(
          */
         userLayers,
         toggleLayer,
+        setLayerVisibility,
         selectInGroup,
         // Wind
         windEngineRef,

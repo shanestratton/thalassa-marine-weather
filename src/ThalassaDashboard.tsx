@@ -13,12 +13,14 @@ import {
     type VoyageLogEntry,
     type PublicVoyageTrip,
 } from './voyageLogApi';
+import { PUBLIC_POSITION_FRESH_MS } from './publicVoyageFreshness';
 
 // The latest view should notice a newly trickled track on the next cache
 // turn. A deliberately selected historical trip has no live motion to chase,
 // so it refreshes less often while retaining its stable selection.
 const LATEST_REFRESH_MS = 60 * 1000;
 const HISTORY_REFRESH_MS = 2 * 60 * 1000;
+const DASHBOARD_CLOCK_MS = 30 * 1000;
 
 type LoadState =
     | { status: 'loading' }
@@ -60,6 +62,9 @@ export default function ThalassaDashboard() {
     // an id below freezes that historical view through background refreshes.
     const [requestedTrip, setRequestedTrip] = useState('latest');
     const [isTripLoading, setIsTripLoading] = useState(false);
+    const [lastSuccessfulAt, setLastSuccessfulAt] = useState<number | null>(null);
+    const [pollFailed, setPollFailed] = useState(false);
+    const [nowMs, setNowMs] = useState(() => Date.now());
     const requestSequence = useRef(0);
     // The entry currently in focus — drives the map fly-to AND the
     // sidebar's master/detail mode (null = show the full feed).
@@ -99,13 +104,18 @@ export default function ThalassaDashboard() {
         try {
             const data = await fetchVoyageLog(handle, trip);
             if (requestId !== requestSequence.current) return;
+            const receivedAt = Date.now();
             setState({ status: 'ready', data });
+            setLastSuccessfulAt(receivedAt);
+            setNowMs(receivedAt);
+            setPollFailed(false);
         } catch (e) {
             if (requestId !== requestSequence.current) return;
             if (e instanceof VoyageLogError && e.status === 404 && trip !== 'latest') {
                 // A specifically selected trip may be deleted while the page
                 // is open. Return gracefully to the auto-following newest
                 // trip instead of leaving a stranded public link in error.
+                setPollFailed(false);
                 setRequestedTrip('latest');
                 return;
             }
@@ -117,12 +127,21 @@ export default function ThalassaDashboard() {
             // a "quota exceeded" error card while the boat is at sea
             // (audit 2026-08-02).
             const isQuota = e instanceof VoyageLogError && e.status === 429;
+            setPollFailed(true);
             setState((prev) =>
                 prev.status === 'ready' && (!showSpinner || isQuota) ? prev : { status: 'error', message },
             );
         } finally {
             if (requestId === requestSequence.current) setIsTripLoading(false);
         }
+    }, []);
+
+    // Poll results can stop arriving while the last successful payload remains
+    // mounted. Re-render independently so relative ages and freshness labels
+    // continue advancing even when neither fetch nor telemetry changes.
+    useEffect(() => {
+        const id = setInterval(() => setNowMs(Date.now()), DASHBOARD_CLOCK_MS);
+        return () => clearInterval(id);
     }, []);
 
     useEffect(() => {
@@ -218,6 +237,11 @@ export default function ThalassaDashboard() {
         !isAllDiaryView &&
         (selectedTrip ? selectedTrip.kind === 'track' && selectedTrip.active : requestedTrip === 'latest');
     const scopedTelemetry = isActiveTrackView ? telemetry : null;
+    const expectedRefreshMs = requestedTrip === 'latest' ? LATEST_REFRESH_MS : HISTORY_REFRESH_MS;
+    const responseOverdue =
+        lastSuccessfulAt === null ||
+        nowMs - lastSuccessfulAt >= Math.max(expectedRefreshMs * 2, PUBLIC_POSITION_FRESH_MS);
+    const connectionLost = pollFailed || responseOverdue;
     const selectedTripLabel = selectedTrip?.label ?? null;
     const diaryTitle = isAllDiaryView ? 'All diary entries' : (selectedTripLabel ?? 'Voyage Log');
     const diaryContext = isAllDiaryView
@@ -255,6 +279,9 @@ export default function ThalassaDashboard() {
                 vessel={vessel}
                 telemetry={scopedTelemetry}
                 entryCount={entries.length}
+                nowMs={nowMs}
+                connectionLost={connectionLost}
+                lastSuccessfulAt={lastSuccessfulAt}
                 viewStatus={
                     isAllDiaryView
                         ? 'All diary entries'
@@ -372,6 +399,7 @@ export default function ThalassaDashboard() {
                         // Fold/unfold changes the map's box — kick an
                         // explicit canvas resize so it fills the void.
                         resizeSignal={diaryHidden ? 1 : 0}
+                        connectionLost={connectionLost}
                     />
                 </main>
 
@@ -418,6 +446,9 @@ export default function ThalassaDashboard() {
                                 onSelectEntry={handleSelect}
                                 onClearSelection={handleClear}
                                 onPhotoClick={handlePhoto}
+                                nowMs={nowMs}
+                                connectionLost={connectionLost}
+                                lastSuccessfulAt={lastSuccessfulAt}
                             />
                         </div>
                     )}

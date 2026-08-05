@@ -406,7 +406,7 @@ export const AddEntryModal: React.FC<AddEntryModalProps> = ({ isOpen, onClose, o
                                 if (!actionScope || !isAuthIdentityScopeCurrent(actionScope)) return;
                                 setFetchingPos(true);
                                 try {
-                                    const pos = await GpsService.getCurrentPosition({
+                                    const pos = await GpsService.requestCurrentForegroundPosition({
                                         staleLimitMs: 30_000,
                                         timeoutSec: 10,
                                     });

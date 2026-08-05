@@ -193,7 +193,7 @@ export function usePinDrop(options: UsePinDropOptions) {
     const requestCurrentLocation = useCallback(
         async (identity = getAuthIdentityScope(), { preserveSelectionOnFailure = false } = {}) => {
             try {
-                const position = await GpsService.getCurrentPosition({
+                const position = await GpsService.requestCurrentForegroundPosition({
                     staleLimitMs: CURRENT_LOCATION_MAX_AGE_MS,
                     timeoutSec: 10,
                 });
@@ -442,7 +442,7 @@ export function usePinDrop(options: UsePinDropOptions) {
                     style: 'mapbox://styles/mapbox/navigation-night-v1',
                     center: hasSelection ? [pinLng, pinLat] : [0, 20],
                     zoom: hasSelection ? 12 : 1.75,
-                    attributionControl: false,
+                    attributionControl: true,
                 });
                 map.addControl(new mapboxgl.default.NavigationControl({ showCompass: false }), 'top-right');
 

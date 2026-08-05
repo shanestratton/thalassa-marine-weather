@@ -46,6 +46,7 @@ import {
     isAuthIdentityScopeCurrent,
     type AuthIdentityScope,
 } from './authIdentityScope';
+import { normaliseTraceVerification, traceVerificationSummary, type TraceVerification } from './traceVerification';
 
 const log = createLogger('routeTracer');
 
@@ -1368,6 +1369,9 @@ export interface SavedTrace {
     plannedRouteId?: string;
     /** Exact Passage Planning record backing this saved trace. */
     passageVoyageId?: string;
+    /** Safety verdict for this exact geometry. Missing/invalid means the
+     * route must be checked again before export, follow or Cast Off. */
+    verification?: TraceVerification;
 }
 
 const TRACES_KEY = 'thalassa_traced_routes_v1';
@@ -1717,6 +1721,7 @@ function sameTraceContent(left: SavedTrace, right: SavedTrace): boolean {
         left.destName === right.destName &&
         left.plannedRouteId === right.plannedRouteId &&
         left.passageVoyageId === right.passageVoyageId &&
+        JSON.stringify(left.verification ?? null) === JSON.stringify(right.verification ?? null) &&
         left.points.length === right.points.length &&
         left.points.every(
             (point, index) => point.lat === right.points[index]?.lat && point.lon === right.points[index]?.lon,
@@ -2031,14 +2036,21 @@ export function loadSavedTraces(scope: AuthIdentityScope = getAuthIdentityScope(
         const arr = JSON.parse(raw) as SavedTrace[];
         if (!Array.isArray(arr)) return [];
         const tombstones = getSavedTraceTombstones(scope);
-        const visible = arr.filter(
-            (t) =>
-                t &&
-                typeof t.id === 'string' &&
-                !Object.prototype.hasOwnProperty.call(tombstones, t.id) &&
-                Array.isArray(t.points) &&
-                t.points.length >= 2,
-        );
+        const visible = arr
+            .filter(
+                (t) =>
+                    t &&
+                    typeof t.id === 'string' &&
+                    !Object.prototype.hasOwnProperty.call(tombstones, t.id) &&
+                    Array.isArray(t.points) &&
+                    t.points.length >= 2,
+            )
+            .map((trace) => {
+                const verification = normaliseTraceVerification(trace.verification, trace.points);
+                if (verification) return { ...trace, verification };
+                const { verification: _invalid, ...safe } = trace;
+                return safe;
+            });
         return repairOrphanedSavedTraceChains(visible).traces;
     } catch {
         return [];
@@ -2064,6 +2076,7 @@ export function saveTrace(
         destName?: string;
         plannedRouteId?: string;
         passageVoyageId?: string;
+        verification?: TraceVerification;
     } = {},
 ): { trace: SavedTrace; persisted: boolean; cloud: Promise<import('./savedRoutesSync').PushResult> } {
     const identity = getAuthIdentityScope();
@@ -2078,6 +2091,10 @@ export function saveTrace(
     const destName = opts.destName ?? existing?.destName;
     const plannedRouteId = opts.plannedRouteId ?? existing?.plannedRouteId;
     const passageVoyageId = opts.passageVoyageId ?? existing?.passageVoyageId;
+    // Preserve a prior check only while it still proves the exact geometry.
+    // A moved waypoint silently drops it; MapHub supplies the freshly-earned
+    // envelope after the replacement line has finished grading.
+    const verification = normaliseTraceVerification(opts.verification ?? existing?.verification, points);
     const trace: SavedTrace = {
         // Random suffix: two saves in the same millisecond used to mint the
         // SAME id, and the by-id dedupe silently swallowed the first route
@@ -2092,6 +2109,7 @@ export function saveTrace(
         ...(destName ? { destName } : {}),
         ...(plannedRouteId ? { plannedRouteId } : {}),
         ...(passageVoyageId ? { passageVoyageId } : {}),
+        ...(verification ? { verification } : {}),
     };
     const all = capSavedTracesPreservingTrips([trace, ...loadSavedTraces(identity).filter((t) => t.id !== trace.id)]);
     let persisted = false;
@@ -2258,8 +2276,13 @@ export function traceToGpx(
     name: string,
     points: readonly TracePoint[],
     nowIso: string = new Date().toISOString(),
+    verification?: TraceVerification,
 ): string {
     const routeName = name.trim() || 'Thalassa route';
+    const verified = normaliseTraceVerification(verification, points);
+    const safetyDescription = verified
+        ? traceVerificationSummary(verified)
+        : 'UNVERIFIED ROUTE - CHECK AGAINST CURRENT OFFICIAL CHARTS BEFORE USE';
     const rtepts = points
         .map(
             (p, i) =>
@@ -2274,7 +2297,8 @@ export function traceToGpx(
         `xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" ` +
         `xsi:schemaLocation="http://www.topografix.com/GPX/1/1 http://www.topografix.com/GPX/1/1/gpx.xsd">\n` +
         `  <metadata>\n    <name>${escapeGpxXml(routeName)}</name>\n    <time>${nowIso}</time>\n  </metadata>\n` +
-        `  <rte>\n    <name>${escapeGpxXml(routeName)}</name>\n${rtepts}\n  </rte>\n` +
+        `  <rte>\n    <name>${escapeGpxXml(routeName)}</name>\n` +
+        `    <desc>${escapeGpxXml(safetyDescription)}</desc>\n${rtepts}\n  </rte>\n` +
         `</gpx>\n`
     );
 }
@@ -2297,15 +2321,18 @@ export function traceAsVoyagePlan(
     /** Per-leg grades (length = points-1) — carried on routeGeoJSON.properties
      *  so follow mode renders the validated colours, not a plain blue line. */
     legGrades?: readonly TraceGrade[],
+    verification?: TraceVerification,
 ): VoyagePlan {
     let nm = 0;
     for (let i = 1; i < points.length; i++) nm += distM(points[i - 1], points[i]) / 1852;
     const hours = Math.max(0.25, nm / 5.5); // conservative 5.5 kn passage speed
+    const verified = normaliseTraceVerification(verification, points);
     const geo: Feature<LineString> = {
         type: 'Feature',
         properties: {
             _source: 'route-tracer',
             ...(legGrades && legGrades.length === points.length - 1 ? { legGrades: [...legGrades] } : {}),
+            ...(verified ? { traceVerification: verified } : {}),
         },
         geometry: { type: 'LineString', coordinates: points.map((p) => [p.lon, p.lat]) },
     };
@@ -2326,14 +2353,16 @@ export function traceAsVoyagePlan(
     return {
         origin: originHalf ?? `${label} — start`,
         destination: destHalf ?? `${label} — end`,
-        departureDate: new Date().toISOString(),
+        departureDate: new Date(verified?.departureMs ?? Date.now()).toISOString(),
         originCoordinates: { lat: points[0].lat, lon: points[0].lon },
         destinationCoordinates: { lat: points[points.length - 1].lat, lon: points[points.length - 1].lon },
         distanceApprox: `${nm.toFixed(1)} NM`,
         // Fractional hours — every existing parser handles "0.5 hours";
         // "NN minutes" parsed to NULL and defaulted to a 12-hour spread.
         durationApprox: `${hours.toFixed(1)} hours`,
-        overview: `Hand-traced route (${points.length} pins), graded leg-by-leg by the Route Tracer.`,
+        overview: verified
+            ? `Hand-traced route (${points.length} pins). ${traceVerificationSummary(verified)}.`
+            : `Hand-traced route (${points.length} pins); Route Tracer verification was not recorded.`,
         // Interior pins only — origin/destinationCoordinates already carry the
         // endpoints; duplicating them made 32 log rows for 30 pins with two
         // zero-length legs.

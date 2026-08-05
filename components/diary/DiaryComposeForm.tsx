@@ -92,7 +92,8 @@ export const DiaryComposeForm: React.FC<DiaryComposeFormProps> = React.memo(
                         <button
                             aria-label="Cancel this action"
                             onClick={onCancel}
-                            className="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-colors"
+                            disabled={saving}
+                            className="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-colors disabled:opacity-40"
                         >
                             <svg
                                 className="w-5 h-5 text-gray-400"
@@ -137,7 +138,7 @@ export const DiaryComposeForm: React.FC<DiaryComposeFormProps> = React.memo(
                             const cfg = MOOD_CONFIG[key];
                             return (
                                 <button
-                                    aria-label="Set Mood"
+                                    aria-label={`Set mood to ${cfg.label}`}
                                     key={key}
                                     onClick={() => {
                                         onSetMood(key);
@@ -335,7 +336,8 @@ export const DiaryComposeForm: React.FC<DiaryComposeFormProps> = React.memo(
                                     <button
                                         aria-label="Remove this item"
                                         onClick={() => onPhotoRemove(i)}
-                                        className="absolute top-1 right-1 w-5 h-5 bg-black/60 rounded-full flex items-center justify-center text-white text-[11px] opacity-0 group-hover:opacity-100 transition-opacity"
+                                        disabled={saving}
+                                        className="absolute top-1 right-1 w-5 h-5 bg-black/60 rounded-full flex items-center justify-center text-white text-[11px] opacity-0 group-hover:opacity-100 transition-opacity disabled:cursor-not-allowed"
                                     >
                                         ✕
                                     </button>
@@ -343,10 +345,10 @@ export const DiaryComposeForm: React.FC<DiaryComposeFormProps> = React.memo(
                             ))}
                             {Array.from({ length: Math.max(1, 6 - photos.length) }).map((_, i) => (
                                 <button
-                                    aria-label="View reference"
+                                    aria-label={`Add diary photo ${photos.length + i + 1}`}
                                     key={`add-${i}`}
                                     onClick={() => fileRef.current?.click()}
-                                    disabled={uploading || photos.length >= 6}
+                                    disabled={saving || uploading || photos.length >= 6}
                                     className="aspect-square rounded-xl border-2 border-dashed border-white/10 hover:border-sky-500/30 flex flex-col items-center justify-center gap-0.5 text-gray-400 hover:text-sky-400 transition-colors disabled:opacity-30"
                                 >
                                     {uploading && i === 0 ? (
@@ -376,7 +378,8 @@ export const DiaryComposeForm: React.FC<DiaryComposeFormProps> = React.memo(
                         <button
                             aria-label="Cancel this action"
                             onClick={onCancel}
-                            className="flex-1 py-3 rounded-xl bg-white/5 border border-white/[0.08] text-gray-400 font-bold text-sm hover:bg-white/10 transition-colors active:scale-[0.98]"
+                            disabled={saving}
+                            className="flex-1 py-3 rounded-xl bg-white/5 border border-white/[0.08] text-gray-400 font-bold text-sm hover:bg-white/10 transition-colors active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed"
                         >
                             Cancel
                         </button>

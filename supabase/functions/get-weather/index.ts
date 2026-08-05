@@ -360,8 +360,9 @@ function isOpenMeteoPayload(value: Record<string, unknown>): value is OpenMeteoP
     const daily = value.daily;
     if (!isBoundedStringArray(hourly.time, 192) || !isBoundedStringArray(daily.time, 10)) return false;
     if (hourly.time.length === 0 || daily.time.length === 0) return false;
-    if (value.timezone !== undefined && (typeof value.timezone !== 'string' || value.timezone.length > 100))
+    if (value.timezone !== undefined && (typeof value.timezone !== 'string' || value.timezone.length > 100)) {
         return false;
+    }
 
     const currentKeys = [
         'temperature_2m',
@@ -581,8 +582,7 @@ async function fetchPremium(lat: number, lon: number): Promise<StandardWeatherRe
     const omKey = Deno.env.get('OPEN_METEO_API_KEY') || '';
 
     // ── Parallel: Open-Meteo atmosphere + Rainbow.ai nowcast ──
-    const omUrl =
-        `https://customer-api.open-meteo.com/v1/forecast` +
+    const omUrl = `https://customer-api.open-meteo.com/v1/forecast` +
         `?latitude=${lat}&longitude=${lon}` +
         `&current=temperature_2m,relative_humidity_2m,apparent_temperature,is_day,precipitation,weather_code,cloud_cover,pressure_msl,wind_speed_10m,wind_direction_10m,wind_gusts_10m,dew_point_2m` +
         `&hourly=temperature_2m,relative_humidity_2m,precipitation_probability,precipitation,weather_code,pressure_msl,cloud_cover,wind_speed_10m,wind_direction_10m,wind_gusts_10m` +
@@ -744,10 +744,9 @@ async function fetchRainbowNowcast(lat: number, lon: number, apiKey: string): Pr
                     summary = `${precipLabel} continuing`;
                 }
             } else {
-                summary =
-                    minsUntil <= 60
-                        ? `${precipLabel} in ${minsUntil} min`
-                        : `${precipLabel} in ~${Math.round(minsUntil / 60)}h`;
+                summary = minsUntil <= 60
+                    ? `${precipLabel} in ${minsUntil} min`
+                    : `${precipLabel} in ~${Math.round(minsUntil / 60)}h`;
             }
         }
 
@@ -781,8 +780,7 @@ async function fetchFree(lat: number, lon: number): Promise<StandardWeatherRespo
     const p8Key = Deno.env.get('APPLE_WEATHERKIT_P8_KEY') || Deno.env.get('WEATHERKIT_PRIVATE_KEY') || '';
     const keyId = Deno.env.get('APPLE_WEATHERKIT_KEY_ID') || Deno.env.get('WEATHERKIT_KEY_ID') || '';
     const teamId = Deno.env.get('APPLE_WEATHERKIT_TEAM_ID') || Deno.env.get('WEATHERKIT_TEAM_ID') || '';
-    const serviceId =
-        Deno.env.get('APPLE_WEATHERKIT_SERVICE_ID') ||
+    const serviceId = Deno.env.get('APPLE_WEATHERKIT_SERVICE_ID') ||
         Deno.env.get('WEATHERKIT_SERVICE_ID') ||
         'com.thalassa.weatherkit';
 
@@ -793,8 +791,7 @@ async function fetchFree(lat: number, lon: number): Promise<StandardWeatherRespo
     const privateKey = await importP8Key(p8Key);
     const jwt = await getAppleJWT(privateKey, keyId, teamId, serviceId);
 
-    const url =
-        `https://weatherkit.apple.com/api/v1/weather/en/${lat}/${lon}` +
+    const url = `https://weatherkit.apple.com/api/v1/weather/en/${lat}/${lon}` +
         `?dataSets=currentWeather,forecastHourly,forecastDaily,forecastNextHour`;
 
     const res = await fetchWithTimeout(url, { headers: { Authorization: `Bearer ${jwt}` } }, 12_000);
@@ -1038,15 +1035,13 @@ Deno.serve(async (req: Request) => {
                     const subscriptionExpiry = entitlement.subscription_expiry
                         ? new Date(entitlement.subscription_expiry).getTime()
                         : Number.NaN;
-                    const paidSubscriptionIsCurrent =
-                        entitlement.subscription_status === 'active' &&
+                    const paidSubscriptionIsCurrent = entitlement.subscription_status === 'active' &&
                         (!entitlement.subscription_expiry ||
                             (Number.isFinite(subscriptionExpiry) && subscriptionExpiry > now));
                     const trialStartedAt = entitlement.trial_start_date
                         ? new Date(entitlement.trial_start_date).getTime()
                         : Number.NaN;
-                    const trialIsCurrent =
-                        entitlement.subscription_status === 'trial' &&
+                    const trialIsCurrent = entitlement.subscription_status === 'trial' &&
                         Number.isFinite(trialStartedAt) &&
                         trialStartedAt <= now &&
                         trialStartedAt + 14 * 24 * 60 * 60 * 1000 > now;

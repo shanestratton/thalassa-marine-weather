@@ -260,7 +260,7 @@ const ThalassaMap: React.FC<ThalassaMapProps> = ({
             renderWorldCopies={false}
             minZoom={2}
             style={{ width: '100%', height: '100%' }}
-            attributionControl={false}
+            attributionControl
             transformRequest={(url: string, resourceType?: string) => {
                 if (
                     resourceType === 'Tile' &&

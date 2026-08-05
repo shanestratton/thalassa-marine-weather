@@ -2,9 +2,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const nativeAuth = vi.hoisted(() => ({
     appleAuthorize: vi.fn(),
-    googleInitialize: vi.fn(),
-    googleSignIn: vi.fn(),
-    googleSignOut: vi.fn(),
 }));
 
 const auth = vi.hoisted(() => ({
@@ -12,18 +9,19 @@ const auth = vi.hoisted(() => ({
     updateUser: vi.fn(),
     signOut: vi.fn(),
 }));
+const functions = vi.hoisted(() => ({
+    invoke: vi.fn(),
+}));
+const nativeCredentialState = vi.hoisted(() => ({
+    bindAppleCredentialUser: vi.fn(),
+    clearBoundAppleCredential: vi.fn(),
+}));
 
 vi.mock('@capacitor-community/apple-sign-in', () => ({
     SignInWithApple: { authorize: nativeAuth.appleAuthorize },
 }));
-vi.mock('@codetrix-studio/capacitor-google-auth', () => ({
-    GoogleAuth: {
-        initialize: nativeAuth.googleInitialize,
-        signIn: nativeAuth.googleSignIn,
-        signOut: nativeAuth.googleSignOut,
-    },
-}));
-vi.mock('../services/supabase', () => ({ supabase: { auth } }));
+vi.mock('../services/supabase', () => ({ supabase: { auth, functions } }));
+vi.mock('../services/auth/appleCredentialState', () => nativeCredentialState);
 vi.mock('../utils/createLogger', () => ({
     createLogger: () => ({
         info: vi.fn(),
@@ -33,7 +31,7 @@ vi.mock('../utils/createLogger', () => ({
     }),
 }));
 
-import { signInWithApple, signInWithGoogle, signOut } from '../services/auth/SocialAuthService';
+import { signInWithApple, signOut } from '../services/auth/SocialAuthService';
 
 function session(firstName?: string) {
     return {
@@ -54,10 +52,11 @@ function session(firstName?: string) {
 
 beforeEach(() => {
     vi.clearAllMocks();
-    nativeAuth.googleInitialize.mockResolvedValue(undefined);
-    nativeAuth.googleSignOut.mockResolvedValue(undefined);
     auth.updateUser.mockResolvedValue({ data: {}, error: null });
     auth.signOut.mockResolvedValue({ error: null });
+    functions.invoke.mockResolvedValue({ data: { registered: true }, error: null });
+    nativeCredentialState.bindAppleCredentialUser.mockResolvedValue(undefined);
+    nativeCredentialState.clearBoundAppleCredential.mockResolvedValue(undefined);
 });
 
 describe('signInWithApple', () => {
@@ -65,6 +64,8 @@ describe('signInWithApple', () => {
         nativeAuth.appleAuthorize.mockResolvedValue({
             response: {
                 identityToken: 'apple-id-token',
+                authorizationCode: 'one-time-apple-code',
+                user: 'apple-user-1',
                 givenName: 'Ada',
                 familyName: 'Lovelace',
             },
@@ -89,6 +90,16 @@ describe('signInWithApple', () => {
             nonce: expect.stringMatching(/^[a-f0-9]{64}$/),
         });
         expect(supabaseArgs.nonce).not.toBe(nativeNonce);
+        expect(functions.invoke).toHaveBeenCalledWith('register-apple-token', {
+            body: { authorizationCode: 'one-time-apple-code' },
+        });
+        expect(auth.signInWithIdToken.mock.invocationCallOrder[0]).toBeLessThan(
+            functions.invoke.mock.invocationCallOrder[0],
+        );
+        expect(nativeCredentialState.bindAppleCredentialUser).toHaveBeenCalledWith('apple-user-1');
+        expect(nativeCredentialState.bindAppleCredentialUser.mock.invocationCallOrder[0]).toBeLessThan(
+            functions.invoke.mock.invocationCallOrder[0],
+        );
         expect(auth.updateUser).toHaveBeenCalledWith({
             data: { first_name: 'Ada', last_name: 'Lovelace' },
         });
@@ -108,9 +119,59 @@ describe('signInWithApple', () => {
         await expect(signInWithApple()).rejects.toThrow('Apple returned no identity token');
     });
 
+    it('rejects a response with no authorization code before creating a Supabase session', async () => {
+        nativeAuth.appleAuthorize.mockResolvedValue({ response: { identityToken: 'apple-id-token' } });
+
+        await expect(signInWithApple()).rejects.toThrow('Apple returned no authorization code');
+        expect(auth.signInWithIdToken).not.toHaveBeenCalled();
+        expect(functions.invoke).not.toHaveBeenCalled();
+    });
+
+    it('fails closed and discards the local session when server-side token registration fails', async () => {
+        nativeAuth.appleAuthorize.mockResolvedValue({
+            response: {
+                identityToken: 'apple-id-token',
+                authorizationCode: 'one-time-apple-code',
+                user: 'apple-user-1',
+                givenName: 'Not persisted',
+            },
+        });
+        auth.signInWithIdToken.mockResolvedValue({ data: { session: session() }, error: null });
+        functions.invoke.mockResolvedValue({ data: null, error: { message: 'Edge unavailable' } });
+
+        await expect(signInWithApple()).rejects.toThrow("couldn't finish securely");
+
+        expect(auth.signOut).toHaveBeenCalledWith({ scope: 'local' });
+        expect(nativeCredentialState.clearBoundAppleCredential).toHaveBeenCalledOnce();
+        expect(auth.updateUser).not.toHaveBeenCalled();
+    });
+
+    it('fails closed when the native credential-state binding cannot be secured', async () => {
+        nativeAuth.appleAuthorize.mockResolvedValue({
+            response: {
+                identityToken: 'apple-id-token',
+                authorizationCode: 'one-time-apple-code',
+                user: 'apple-user-1',
+            },
+        });
+        auth.signInWithIdToken.mockResolvedValue({ data: { session: session() }, error: null });
+        nativeCredentialState.bindAppleCredentialUser.mockRejectedValue(new Error('Keychain unavailable'));
+
+        await expect(signInWithApple()).rejects.toThrow("couldn't finish securely");
+
+        expect(functions.invoke).not.toHaveBeenCalled();
+        expect(nativeCredentialState.clearBoundAppleCredential).toHaveBeenCalledOnce();
+        expect(auth.signOut).toHaveBeenCalledWith({ scope: 'local' });
+    });
+
     it('surfaces Supabase errors and preserves an existing profile name', async () => {
         nativeAuth.appleAuthorize.mockResolvedValue({
-            response: { identityToken: 'token', givenName: 'Ignored' },
+            response: {
+                identityToken: 'token',
+                authorizationCode: 'apple-code',
+                user: 'apple-user-1',
+                givenName: 'Ignored',
+            },
         });
         auth.signInWithIdToken.mockResolvedValueOnce({
             data: { session: null },
@@ -125,66 +186,9 @@ describe('signInWithApple', () => {
     });
 });
 
-describe('signInWithGoogle', () => {
-    it('initializes once, signs in twice, and never overwrites an existing friendly name', async () => {
-        nativeAuth.googleSignIn.mockResolvedValue({
-            authentication: { idToken: 'google-id-token' },
-            givenName: 'Grace',
-            familyName: 'Hopper',
-        });
-        const first = session();
-        const named = session('Captain');
-        auth.signInWithIdToken
-            .mockResolvedValueOnce({ data: { session: first }, error: null })
-            .mockResolvedValueOnce({ data: { session: named }, error: null });
-
-        await expect(signInWithGoogle()).resolves.toBe(first);
-        await expect(signInWithGoogle()).resolves.toBe(named);
-
-        expect(nativeAuth.googleInitialize).toHaveBeenCalledOnce();
-        expect(nativeAuth.googleSignIn).toHaveBeenCalledTimes(2);
-        expect(auth.signInWithIdToken).toHaveBeenCalledWith({
-            provider: 'google',
-            token: 'google-id-token',
-        });
-        expect(auth.updateUser).toHaveBeenCalledOnce();
-        expect(auth.updateUser).toHaveBeenCalledWith({
-            data: { first_name: 'Grace', last_name: 'Hopper' },
-        });
-    });
-
-    it.each([new Error('user_cancel'), new Error('popup_closed_by_user')])(
-        'normalises native cancellation',
-        async (error) => {
-            nativeAuth.googleSignIn.mockRejectedValue(error);
-            await expect(signInWithGoogle()).rejects.toThrow('CANCELLED');
-        },
-    );
-
-    it('handles native failures, missing tokens, and Supabase rejection', async () => {
-        nativeAuth.googleSignIn.mockRejectedValueOnce('native failure');
-        await expect(signInWithGoogle()).rejects.toThrow("Google Sign-In didn't complete");
-
-        nativeAuth.googleSignIn.mockResolvedValueOnce({ authentication: {} });
-        await expect(signInWithGoogle()).rejects.toThrow('Google returned no identity token');
-
-        nativeAuth.googleSignIn.mockResolvedValueOnce({ authentication: { idToken: 'bad-token' } });
-        auth.signInWithIdToken.mockResolvedValueOnce({
-            data: { session: null },
-            error: { message: 'Google token rejected' },
-        });
-        await expect(signInWithGoogle()).rejects.toThrow('Google token rejected');
-    });
-});
-
 describe('signOut', () => {
-    it('signs out of both providers and tolerates an uninitialized Google plugin', async () => {
+    it('signs out of Supabase', async () => {
         await expect(signOut()).resolves.toBeUndefined();
-        expect(nativeAuth.googleSignOut).toHaveBeenCalledOnce();
         expect(auth.signOut).toHaveBeenCalledOnce();
-
-        nativeAuth.googleSignOut.mockRejectedValueOnce(new Error('not initialized'));
-        await expect(signOut()).resolves.toBeUndefined();
-        expect(auth.signOut).toHaveBeenCalledTimes(2);
     });
 });

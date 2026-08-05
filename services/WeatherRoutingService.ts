@@ -40,7 +40,7 @@ export interface RouteSegment {
     // Weather at segment midpoint (populated by forecast lookup)
     weather?: SegmentWeather;
 
-    // Depth at segment midpoint (populated by GEBCO query)
+    // Depth at segment midpoint (populated by coarse NOAA ETOPO query)
     depth_m?: number | null;
     depthSafety?: 'safe' | 'caution' | 'danger' | 'land' | null;
     depthCostMultiplier?: number; // 1.0 = no penalty, higher = avoid
@@ -74,6 +74,8 @@ export interface RouteAnalysis {
     // Depth summary along route (populated by enhanceRouteWithDepth)
     minDepth: number | null; // shallowest point (negative = below sea level)
     shallowSegments: number; // count of segments with depth caution/danger
+    depthSamplesKnown: number;
+    depthSampleSpacingNm: number | null;
 
     // Coordinates for polyline rendering
     routeCoordinates: [number, number][];
@@ -197,16 +199,38 @@ export function computeRoute(waypoints: RouteWaypoint[], config: Partial<Routing
         favorablePercentage,
         minDepth: null, // Populated by enhanceRouteWithDepth()
         shallowSegments: 0,
+        depthSamplesKnown: 0,
+        depthSampleSpacingNm: null,
         routeCoordinates,
     };
+}
+
+/**
+ * Build an analysis from the exact polyline displayed to the skipper.
+ * GeoJSON uses [longitude, latitude]; invalid and consecutive duplicate
+ * positions are discarded before the normal segment engine runs.
+ */
+export function computeRouteFromPolyline(
+    coordinates: Array<[number, number]>,
+    config: Partial<RoutingConfig> = {},
+): RouteAnalysis {
+    const waypoints: RouteWaypoint[] = [];
+    for (const coordinate of coordinates) {
+        const [lon, lat] = coordinate;
+        if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) continue;
+        const previous = waypoints[waypoints.length - 1];
+        if (previous && previous.lat === lat && previous.lon === lon) continue;
+        waypoints.push({ id: `route-${waypoints.length}`, lat, lon, name: `Route point ${waypoints.length + 1}` });
+    }
+    return computeRoute(waypoints, config);
 }
 
 // ── Depth Enhancement ──────────────────────────────────────────
 
 /**
- * Enhance a RouteAnalysis with GEBCO depth data.
+ * Enhance a RouteAnalysis with coarse NOAA ETOPO depth data.
  *
- * Queries the GEBCO depth service for the midpoint of each segment,
+ * Queries the legacy-named depth service for the midpoint of each segment,
  * then tags segments with depth_m, depthSafety, and depthCostMultiplier.
  *
  * Also updates minDepth and shallowSegments on the RouteAnalysis.
@@ -217,46 +241,78 @@ export async function enhanceRouteWithDepth(
     analysis: RouteAnalysis,
     vesselDraft: number = 2.5,
 ): Promise<RouteAnalysis> {
+    // One edge request is capped at 200 points. Select evenly across the
+    // *actual* route and keep only those selected segments in the returned
+    // depth analysis. The previous implementation let queryRouteDepths
+    // decimate internally and then assigned result 2 to original segment 2,
+    // even when result 2 had actually sampled segment 40.
+    const maxSamples = 200;
+    const sourceSegments = analysis.segments;
+    const sampleSegments =
+        sourceSegments.length <= maxSamples
+            ? sourceSegments.map((segment) => ({ ...segment }))
+            : Array.from({ length: maxSamples }, (_, index) => {
+                  const sourceIndex = Math.round((index * (sourceSegments.length - 1)) / (maxSamples - 1));
+                  return { ...sourceSegments[sourceIndex] };
+              });
+    const sampledAnalysis: RouteAnalysis = {
+        ...analysis,
+        segments: sampleSegments,
+        minDepth: null,
+        shallowSegments: 0,
+        depthSamplesKnown: 0,
+        depthSampleSpacingNm: sampleSegments.length > 0 ? analysis.totalDistance / sampleSegments.length : null,
+    };
+
     try {
         const { GebcoDepthService } = await import('./GebcoDepthService');
 
         // Build midpoints for each segment
-        const midpoints = analysis.segments.map((seg) => ({
+        const midpoints = sampledAnalysis.segments.map((seg) => ({
             lat: (seg.startLat + seg.endLat) / 2,
             lon: (seg.startLon + seg.endLon) / 2,
         }));
 
-        const depthResults = await GebcoDepthService.queryRouteDepths(midpoints);
+        const depthResults = await GebcoDepthService.queryDepths(midpoints);
 
         // Tag each segment with depth data
         let minDepth: number | null = null;
         let shallowCount = 0;
 
-        for (let i = 0; i < analysis.segments.length && i < depthResults.length; i++) {
-            const depth = depthResults[i].depth_m;
-            analysis.segments[i].depth_m = depth;
-            analysis.segments[i].depthSafety = GebcoDepthService.classifyDepth(depth, vesselDraft);
-            analysis.segments[i].depthCostMultiplier = GebcoDepthService.depthCostPenalty(depth, vesselDraft);
+        let knownCount = 0;
+        for (let i = 0; i < sampledAnalysis.segments.length; i++) {
+            const result = depthResults[i];
+            const depth = result?.depth_m ?? null;
+            sampledAnalysis.segments[i].depth_m = depth;
+            sampledAnalysis.segments[i].depthSafety = GebcoDepthService.classifyDepth(depth, vesselDraft);
+            sampledAnalysis.segments[i].depthCostMultiplier = GebcoDepthService.depthCostPenalty(depth, vesselDraft);
 
-            if (depth !== null && depth < 0) {
-                if (minDepth === null || depth > minDepth) {
+            if (depth !== null) {
+                knownCount++;
+                if (depth < 0 && (minDepth === null || depth > minDepth)) {
                     minDepth = depth; // Less negative = shallower
                 }
             }
 
-            const safety = analysis.segments[i].depthSafety;
-            if (safety === 'caution' || safety === 'danger') {
+            const safety = sampledAnalysis.segments[i].depthSafety;
+            if (safety === 'caution' || safety === 'danger' || safety === 'land') {
                 shallowCount++;
             }
         }
 
-        analysis.minDepth = minDepth;
-        analysis.shallowSegments = shallowCount;
+        sampledAnalysis.minDepth = minDepth;
+        sampledAnalysis.shallowSegments = shallowCount;
+        sampledAnalysis.depthSamplesKnown = knownCount;
 
-        return analysis;
+        return sampledAnalysis;
     } catch (err) {
-        log.warn('[WeatherRouting] Depth enhancement failed (non-critical):', err);
-        return analysis;
+        log.warn('[WeatherRouting] Depth enhancement unavailable — returning explicit unknown samples:', err);
+        for (const segment of sampledAnalysis.segments) {
+            segment.depth_m = null;
+            segment.depthSafety = null;
+            segment.depthCostMultiplier = 1.2;
+        }
+        return sampledAnalysis;
     }
 }
 
@@ -401,6 +457,8 @@ function emptyAnalysis(waypoints: RouteWaypoint[], cfg: RoutingConfig): RouteAna
         favorablePercentage: 0,
         minDepth: null,
         shallowSegments: 0,
+        depthSamplesKnown: 0,
+        depthSampleSpacingNm: null,
         routeCoordinates: [],
     };
 }

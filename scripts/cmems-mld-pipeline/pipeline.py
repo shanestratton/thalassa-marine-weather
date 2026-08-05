@@ -37,11 +37,17 @@ from __future__ import annotations
 import logging
 import os
 import struct
-import subprocess
 import sys
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
+SCRIPTS_DIR = Path(__file__).resolve().parents[1]
+if str(SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS_DIR))
+
+from cmems_contract import validate_cmems_source, validate_thcu_payloads
+from publisher_contract import build_cmems_bundle, producer_provenance
 
 log = logging.getLogger("cmems-mld-pipeline")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -70,6 +76,7 @@ RELEASE_TAG = "cmems-mld-latest"
 
 OUT_DIR = Path(os.environ.get("CMEMS_OUT_DIR", "/tmp/cmems-mld"))
 OUT_DIR.mkdir(parents=True, exist_ok=True)
+BUNDLE_DIR = OUT_DIR / "bundle"
 
 BINARY_MAGIC = b"THCU"
 BINARY_VERSION = 2
@@ -177,7 +184,7 @@ def encode_daily_binaries(nc_path: Path) -> list[tuple[Path, int]]:
         log_mld = np.log10(np.maximum(mld_raw, 1.0)).astype(np.float32)
         t_norm = np.clip((log_mld - MLD_LOG_MIN) / MLD_LOG_RANGE, 0.0, 1.0).astype(np.float32)
 
-        u = t_norm                              # pre-normalised [0,1]
+        u = np.where(land_mask == 1, 0.0, t_norm).astype(np.float32)
         v = np.zeros_like(t_norm, dtype=np.float32)
 
         hour_offset = int(round(float((t - t0).astype("timedelta64[s]").astype(float)) / 3600.0))
@@ -211,50 +218,6 @@ def encode_daily_binaries(nc_path: Path) -> list[tuple[Path, int]]:
     return out
 
 
-def upload_to_github_release(entries: list[tuple[Path, int]]) -> None:
-    """Attach binary files to the rolling `cmems-mld-latest` release."""
-    repo = require_env("GITHUB_REPOSITORY")
-    token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
-    if not token:
-        log.error("Neither GH_TOKEN nor GITHUB_TOKEN set — cannot upload release assets")
-        sys.exit(2)
-    env = {**os.environ, "GH_TOKEN": token}
-
-    create = subprocess.run(
-        ["gh", "release", "view", RELEASE_TAG, "--repo", repo],
-        env=env, capture_output=True, text=True,
-    )
-    if create.returncode != 0:
-        log.info("Release %s missing — creating", RELEASE_TAG)
-        subprocess.run(
-            ["gh", "release", "create", RELEASE_TAG,
-             "--repo", repo,
-             "--title", "CMEMS mixed-layer depth (rolling latest)",
-             "--notes", "Updated daily. MLD log10-normalised over [1m, 1000m] for the WebGL client."],
-            env=env, check=True,
-        )
-
-    manifest_path = OUT_DIR / "manifest.json"
-    manifest = {
-        "version": 1,
-        "generated_at": datetime.now(timezone.utc).isoformat(),
-        "hours": [
-            {"hour": hr, "file": p.name, "bytes": p.stat().st_size}
-            for (p, hr) in entries
-        ],
-    }
-    import json as _json
-    manifest_path.write_text(_json.dumps(manifest, indent=2))
-
-    paths = [p for (p, _) in entries]
-    cmd = ["gh", "release", "upload", RELEASE_TAG,
-           "--repo", repo,
-           "--clobber"] + [str(p) for p in paths] + [str(manifest_path)]
-    log.info("$ %s", " ".join(cmd[:5] + ["<%d files>" % (len(paths) + 1)]))
-    subprocess.run(cmd, env=env, check=True)
-    log.info("✓ Uploaded %d binaries + manifest to %s release", len(paths), RELEASE_TAG)
-
-
 def require_env(name: str) -> str:
     val = os.environ.get(name)
     if not val:
@@ -269,13 +232,32 @@ def main() -> int:
 
     try:
         nc_path = fetch_cmems(now, end)
+        data_times = validate_cmems_source(
+            nc_path,
+            dataset_key="mld",
+            variables=VARIABLES,
+            expected_steps=6,
+            cadence_hours=24,
+            native_resolution=1 / 12,
+        )
         entries = encode_daily_binaries(nc_path)
-        upload_to_github_release(entries)
+        paths = [path for path, _ in entries]
+        offsets = [offset for _, offset in entries]
+        validate_thcu_payloads(paths)
+        build_cmems_bundle(
+            dataset_key="mld",
+            source_paths=paths,
+            offsets_hours=offsets,
+            data_times=data_times,
+            bundle_dir=BUNDLE_DIR,
+            provenance=producer_provenance(),
+            metadata={"attribution": "Copernicus Marine Service", "encoding": "mixed-layer depth log-normalised to [0,1] in u; v=0"},
+        )
     except Exception:  # noqa: BLE001
         log.exception("Pipeline failed")
         return 1
 
-    log.info("✓ Pipeline complete — %d daily snapshots on %s", len(entries), RELEASE_TAG)
+    log.info("✓ Generated and validated %d immutable daily snapshots in %s", len(entries), BUNDLE_DIR)
     return 0
 
 

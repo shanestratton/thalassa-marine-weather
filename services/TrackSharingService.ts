@@ -1,9 +1,10 @@
 /**
- * Track Sharing Service
- * Community track sharing via Supabase — "Strava for Sailors"
+ * Legacy Track Sharing Service
  *
- * Users can share voyage tracks (stripped of personal data) for other
- * sailors to discover and download. Pro tier required for downloads.
+ * The original community model stores complete recorded geometry and has no
+ * explicit audience contract. Public-beta publishing, browsing, and downloads
+ * are therefore held at the service boundary. Owner-scoped listing/deletion
+ * remains available solely so legacy rows can be cleaned up.
  *
  * Categories: anchorage, port_entry, marina_exit, harbour_entry,
  *   walking, reef_passage, bar_crossing, coastal, offshore,
@@ -15,9 +16,19 @@ import { ShipLogEntry } from '../types';
 import { exportVoyageAsGPX } from './gpxService';
 
 import { createLogger } from '../utils/createLogger';
+import { FEATURE_VISIBILITY } from '../utils/featureVisibility';
 import { getAuthIdentityScope, isAuthIdentityScopeCurrent, type AuthIdentityScope } from './authIdentityScope';
 
 const log = createLogger('TrackSharingService');
+
+export const COMMUNITY_TRACK_SHARING_BETA_HOLD_MESSAGE =
+    'Community voyage-track sharing is unavailable during the public beta.';
+
+function assertCommunityTrackSharingAvailable(): void {
+    if (!FEATURE_VISIBILITY.communityTrackSharing) {
+        throw new Error(COMMUNITY_TRACK_SHARING_BETA_HOLD_MESSAGE);
+    }
+}
 
 // --- TYPES ---
 
@@ -112,10 +123,10 @@ class TrackSharingServiceClass {
 
     /**
      * Share a voyage track with the community.
-     * Strips personal data (userId, vessel name, exact timestamps).
-     * Converts entries to GPX and stores in Supabase.
+     * Held for public beta before any auth or network work begins.
      */
     async shareTrack(entries: ShipLogEntry[], metadata: SharedTrackInput): Promise<SharedTrack | null> {
+        assertCommunityTrackSharingAvailable();
         if (!supabase) {
             return null;
         }
@@ -215,6 +226,9 @@ class TrackSharingServiceClass {
      * GPX data is NOT included in browse results (saves bandwidth).
      */
     async browseSharedTracks(filters: BrowseFilters = {}): Promise<{ tracks: SharedTrack[]; total: number }> {
+        if (!FEATURE_VISIBILITY.communityTrackSharing) {
+            return { tracks: [], total: 0 };
+        }
         if (!supabase) {
             return { tracks: [], total: 0 };
         }
@@ -260,6 +274,7 @@ class TrackSharingServiceClass {
      * Increments the download counter.
      */
     async downloadTrack(trackId: string, isProUser: boolean): Promise<string | null> {
+        assertCommunityTrackSharingAvailable();
         if (!supabase) return null;
 
         if (!isProUser) {
@@ -357,6 +372,7 @@ class TrackSharingServiceClass {
     }
 
     async getTrackById(trackId: string, includeGPX: boolean = false): Promise<SharedTrack | null> {
+        if (!FEATURE_VISIBILITY.communityTrackSharing) return null;
         if (!supabase) return null;
         // Kept for source compatibility. GPX access must go through
         // downloadTrack so Pro and self-import checks cannot be bypassed.
@@ -383,6 +399,7 @@ class TrackSharingServiceClass {
      * Used to populate the region filter dropdown in the browse UI.
      */
     async getDistinctRegions(): Promise<string[]> {
+        if (!FEATURE_VISIBILITY.communityTrackSharing) return [];
         if (!supabase) return [];
         const scope = getAuthIdentityScope();
 

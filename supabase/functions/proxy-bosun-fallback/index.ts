@@ -46,7 +46,8 @@ const DEFAULT_VOICE_ID = 'Wq15xSaY3gWvazBRaGEU';
 // total round-trip well under the iOS 90s client timeout.
 const MAX_TOOL_ITERATIONS = 2;
 
-const SYSTEM_PROMPT = `You are Calypso, AI first mate aboard "Serene Summer", a 55-foot Tayana cutter skippered by Shane Stratton. (You may have answered to "Bosun" in earlier conversations — that was the old name; you are Calypso now. If the skipper calls you Bosun, gently let them know you go by Calypso these days, but never make a fuss of it.) You are the primary cloud brain — you reason about weather, marine knowledge, and general sailing topics, calling tools when they help.
+const SYSTEM_PROMPT =
+    `You are Calypso, AI first mate aboard "Serene Summer", a 55-foot Tayana cutter skippered by Shane Stratton. (You may have answered to "Bosun" in earlier conversations — that was the old name; you are Calypso now. If the skipper calls you Bosun, gently let them know you go by Calypso these days, but never make a fuss of it.) You are the primary cloud brain — you reason about weather, marine knowledge, and general sailing topics, calling tools when they help.
 
 A snapshot of what the skipper currently sees in the Thalassa app — selected location, the weather on their Glass page, any active passage plan — is appended to your context as "CURRENT THALASSA STATE" before each query. Read it. Answer against it when relevant. You do NOT have access to live boat instruments (battery SOC, depth, fuel, NMEA), and that snapshot does not contain them.
 
@@ -113,8 +114,7 @@ const TOOLS = [
     // Custom Thalassa weather tool — Open-Meteo geocode + marine forecast
     {
         name: 'thalassa_weather',
-        description:
-            'Get current weather + 2-day marine forecast for a location. ' +
+        description: 'Get current weather + 2-day marine forecast for a location. ' +
             'Returns wind speed/direction/gusts, temperature, precipitation, ' +
             'wave height/direction/period, and weather summary. ' +
             "Provide either lat/lng OR a location string (e.g. 'Newport Qld', " +
@@ -262,8 +262,7 @@ async function callHaikuWithTools(
         //   output       $5 / M tokens
         //   cache write  $1.25 / M tokens
         //   cache read   $0.10 / M tokens
-        const usdEstimate =
-            (totalInput / 1_000_000) * 1 +
+        const usdEstimate = (totalInput / 1_000_000) * 1 +
             (totalOutput / 1_000_000) * 5 +
             (totalCacheCreate / 1_000_000) * 1.25 +
             (totalCacheRead / 1_000_000) * 0.1;
@@ -344,9 +343,11 @@ interface GeocodeResult {
 }
 
 async function geocode(query: string): Promise<GeocodeResult | null> {
-    const url = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(
-        query,
-    )}&count=1&language=en&format=json`;
+    const url = `https://geocoding-api.open-meteo.com/v1/search?name=${
+        encodeURIComponent(
+            query,
+        )
+    }&count=1&language=en&format=json`;
     try {
         const r = await fetchWithTimeout(url, {}, 10_000);
         if (!r.ok) return null;
@@ -368,8 +369,7 @@ async function geocode(query: string): Promise<GeocodeResult | null> {
 }
 
 async function fetchOpenMeteo(lat: number, lng: number): Promise<unknown> {
-    const url =
-        `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}` +
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}` +
         `&current=temperature_2m,relative_humidity_2m,wind_speed_10m,wind_direction_10m,wind_gusts_10m,weather_code,precipitation,pressure_msl` +
         `&hourly=temperature_2m,wind_speed_10m,wind_direction_10m,wind_gusts_10m,precipitation_probability,weather_code` +
         `&daily=temperature_2m_max,temperature_2m_min,wind_speed_10m_max,wind_gusts_10m_max,wind_direction_10m_dominant,precipitation_sum` +
@@ -382,8 +382,7 @@ async function fetchOpenMeteo(lat: number, lng: number): Promise<unknown> {
 }
 
 async function fetchOpenMeteoMarine(lat: number, lng: number): Promise<unknown | null> {
-    const url =
-        `https://marine-api.open-meteo.com/v1/marine?latitude=${lat}&longitude=${lng}` +
+    const url = `https://marine-api.open-meteo.com/v1/marine?latitude=${lat}&longitude=${lng}` +
         `&current=wave_height,wave_direction,wave_period,wind_wave_height,wind_wave_direction,swell_wave_height,swell_wave_direction,swell_wave_period` +
         `&daily=wave_height_max,wind_wave_height_max,swell_wave_height_max&forecast_days=2&timezone=auto`;
     try {
@@ -422,8 +421,7 @@ async function runThalassaWeather(args: Record<string, unknown>): Promise<string
             location: { name: displayName, lat, lng },
             atmospheric: weather,
             marine: marine ?? null,
-            note:
-                'Wind speeds are in knots. Times are local to the location. ' +
+            note: 'Wind speeds are in knots. Times are local to the location. ' +
                 'Marine fields may be null if the location is inland or outside coverage.',
         });
     } catch (err) {
@@ -569,10 +567,10 @@ async function elevenlabsScribe(audioB64: string, mimeType: string): Promise<{ t
     const extension = mimeType.includes('webm')
         ? 'webm'
         : mimeType.includes('ogg')
-          ? 'ogg'
-          : mimeType.includes('mpeg')
-            ? 'mp3'
-            : 'm4a';
+        ? 'ogg'
+        : mimeType.includes('mpeg')
+        ? 'mp3'
+        : 'm4a';
 
     const formData = new FormData();
     formData.append('file', new Blob([bytes], { type: mimeType }), `audio.${extension}`);
@@ -731,19 +729,20 @@ function formatStateBlock(ctx: ThalassaContext): string {
 
     if (ctx.location) {
         const { lat, lon, name, source, ageSec } = ctx.location;
-        const sourceLabel =
-            source === 'gps'
-                ? 'GPS'
-                : source === 'map_pin'
-                  ? 'a long-press pin on the map'
-                  : source === 'search'
-                    ? 'a search'
-                    : source === 'favorite'
-                      ? 'a saved favorite'
-                      : 'app default';
+        const sourceLabel = source === 'gps'
+            ? 'GPS'
+            : source === 'map_pin'
+            ? 'a long-press pin on the map'
+            : source === 'search'
+            ? 'a search'
+            : source === 'favorite'
+            ? 'a saved favorite'
+            : 'app default';
         lines.push('');
         lines.push(
-            `Selected location: ${name} (${lat.toFixed(4)}, ${lon.toFixed(4)}), set from ${sourceLabel} ${formatAge(ageSec)}.`,
+            `Selected location: ${name} (${lat.toFixed(4)}, ${lon.toFixed(4)}), set from ${sourceLabel} ${
+                formatAge(ageSec)
+            }.`,
         );
     }
 
@@ -876,12 +875,11 @@ Deno.serve(async (req: Request) => {
             // different faults — oversize, bad padding, non-base64, unsupported
             // type — and told the caller none of them, which is why this cost a
             // debugging session rather than a glance at a log line.
-            const why =
-                body.audio_b64.length > 10_000_000
-                    ? 'too large'
-                    : body.audio_b64.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(body.audio_b64)
-                      ? 'not valid base64'
-                      : `unsupported mime_type "${mimeType}"`;
+            const why = body.audio_b64.length > 10_000_000
+                ? 'too large'
+                : body.audio_b64.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(body.audio_b64)
+                ? 'not valid base64'
+                : `unsupported mime_type "${mimeType}"`;
             console.error(`[bosun-fallback] rejected audio: ${why}`);
             return new Response(JSON.stringify({ error: `invalid audio payload: ${why}` }), {
                 status: 400,
