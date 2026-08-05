@@ -54,7 +54,8 @@ test.describe('Settings & Preferences', () => {
 
         // All font requests should come from allowed CSP origins
         for (const url of fontRequests) {
-            const isAllowed = url.includes('fonts.gstatic.com') || url.startsWith('/') || url.includes('localhost');
+            const parsed = new URL(url);
+            const isAllowed = parsed.hostname === 'fonts.gstatic.com' || parsed.hostname === 'localhost';
             expect(isAllowed).toBe(true);
         }
     });

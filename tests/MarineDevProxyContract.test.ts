@@ -13,7 +13,7 @@ describe('local marine publisher proxy', () => {
         expect(marineProxyBoundary).toContain("target: 'https://thalassawx.vercel.app'");
         expect(marineProxyBoundary).toContain('changeOrigin: true');
         expect(marineProxyBoundary).not.toContain('rewrite');
-        expect(marineProxyBoundary).not.toContain('github.com');
+        expect(marineProxyBoundary.match(/\btarget:\s*/g) ?? []).toHaveLength(1);
         expect(viteConfig).toContain('...canonicalMarineDevProxy');
     });
 });

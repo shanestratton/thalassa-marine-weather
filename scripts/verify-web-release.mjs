@@ -30,6 +30,7 @@ import {
     marineAssetShardTag,
     validateMarineManifest,
 } from '../services/weather/api/marineManifestContract.ts';
+import { isTrustedThalassaVercelPreviewOrigin } from '../utils/vercelPreviewTrust.ts';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DIST = path.join(ROOT, 'dist');
@@ -43,6 +44,7 @@ const RELEASE_OWNER_REPO = 'shanestratton/thalassa-marine-weather';
 const RELEASE_REDIRECT_LIMIT = 2;
 const TRUSTED_RELEASE_HOSTS = new Set(['github.com', 'release-assets.githubusercontent.com']);
 const HOSTED_ASSET_CONCURRENCY = 2;
+const VERCEL_AUTOMATION_BYPASS_HEADER = 'x-vercel-protection-bypass';
 const publicBetaFeatureProfile = readPublicBetaFeatureProfile(ROOT);
 const expectedPublicBetaCredentialPresence = Object.fromEntries(
     publicBetaFeatureProfile.requiredCredentialPresence.map((name) => [name, true]),
@@ -138,6 +140,17 @@ const SURFACE_MARKERS = Object.freeze({
 
 function sha256(value) {
     return createHash('sha256').update(value).digest('hex');
+}
+
+/**
+ * Add Vercel's automation credential only to a caller-controlled same-origin
+ * request. Callers must never use this for redirected or third-party asset
+ * requests because the bypass value is a repository secret.
+ */
+export function sameOriginVercelRequestHeaders(headers, rawSecret = process.env.VERCEL_AUTOMATION_BYPASS_SECRET) {
+    const secret = rawSecret?.trim();
+    if (!secret) return { ...headers };
+    return { ...headers, [VERCEL_AUTOMATION_BYPASS_HEADER]: secret };
 }
 
 /** Validate the live discovery contract that a released client will consume. */
@@ -381,15 +394,24 @@ async function readBoundedResponse(response, label, maxBytes) {
     return { bytes, text: bytes.toString('utf8') };
 }
 
-async function getResponse(origin, pathname, redirect = 'manual', maxBytes = DEFAULT_RESPONSE_MAX_BYTES) {
+async function getResponse(
+    origin,
+    pathname,
+    redirect = 'manual',
+    maxBytes = DEFAULT_RESPONSE_MAX_BYTES,
+    protectionBypassSecret,
+) {
     const url = new URL(pathname, origin);
     const response = await fetch(url, {
         redirect,
-        headers: {
-            accept: 'text/html,application/xhtml+xml,application/javascript;q=0.9,*/*;q=0.8',
-            'accept-encoding': 'identity',
-            'user-agent': 'ThalassaReleaseVerifier/1.0',
-        },
+        headers: sameOriginVercelRequestHeaders(
+            {
+                accept: 'text/html,application/xhtml+xml,application/javascript;q=0.9,*/*;q=0.8',
+                'accept-encoding': 'identity',
+                'user-agent': 'ThalassaReleaseVerifier/1.0',
+            },
+            protectionBypassSecret,
+        ),
         signal: globalThis.AbortSignal.timeout(20_000),
     });
     const { bytes, text: bodyText } = await readBoundedResponse(response, pathname, maxBytes);
@@ -426,15 +448,18 @@ async function getTrustedReleaseResponse(rawUrl, maxBytes) {
     throw new Error('too many release redirects');
 }
 
-async function getResponseHeaders(origin, pathname) {
+async function getResponseHeaders(origin, pathname, protectionBypassSecret) {
     const url = new URL(pathname, origin);
     const response = await fetch(url, {
         redirect: 'manual',
-        headers: {
-            accept: 'text/plain,*/*;q=0.5',
-            'accept-encoding': 'identity',
-            'user-agent': 'ThalassaReleaseVerifier/1.0',
-        },
+        headers: sameOriginVercelRequestHeaders(
+            {
+                accept: 'text/plain,*/*;q=0.5',
+                'accept-encoding': 'identity',
+                'user-agent': 'ThalassaReleaseVerifier/1.0',
+            },
+            protectionBypassSecret,
+        ),
         signal: globalThis.AbortSignal.timeout(20_000),
     });
     await response.body?.cancel().catch(() => undefined);
@@ -699,14 +724,14 @@ async function mapWithConcurrency(items, concurrency, operation) {
     return results;
 }
 
-async function verifyHostedMarineAsset(origin, dataset, asset) {
+async function verifyHostedMarineAsset(origin, dataset, asset, protectionBypassSecret) {
     const failures = [];
     const spec = MARINE_DATASET_CONTRACTS[dataset];
     const file = asset.file;
     const assetPath = `/api/${dataset}/${encodeURIComponent(file.filename)}`;
     let result;
     try {
-        result = await getResponse(origin, assetPath, 'manual', MARINE_ASSET_MAX_BYTES);
+        result = await getResponse(origin, assetPath, 'manual', MARINE_ASSET_MAX_BYTES, protectionBypassSecret);
     } catch (error) {
         return [
             `${assetPath}: immutable asset fetch failed for ${asset.slots.join(', ')} (${error instanceof Error ? error.message : error})`,
@@ -737,7 +762,7 @@ async function verifyHostedMarineAsset(origin, dataset, asset) {
     return failures;
 }
 
-export async function verifyHostedMarineDataset(origin, dataset, nowMs = Date.now()) {
+export async function verifyHostedMarineDataset(origin, dataset, nowMs = Date.now(), protectionBypassSecret) {
     const failures = [];
     const spec = MARINE_DATASET_CONTRACTS[dataset];
     if (!spec) return [`unknown hosted marine dataset: ${dataset}`];
@@ -769,7 +794,13 @@ export async function verifyHostedMarineDataset(origin, dataset, nowMs = Date.no
     const manifestPath = `/api/${dataset}/manifest-v2.json?release-verifier=${nowMs}`;
     let manifestResult;
     try {
-        manifestResult = await getResponse(origin, manifestPath, 'manual', MARINE_MANIFEST_MAX_BYTES);
+        manifestResult = await getResponse(
+            origin,
+            manifestPath,
+            'manual',
+            MARINE_MANIFEST_MAX_BYTES,
+            protectionBypassSecret,
+        );
     } catch (error) {
         failures.push(
             `${manifestPath}: virtual manifest fetch failed (${error instanceof Error ? error.message : error})`,
@@ -853,7 +884,7 @@ export async function verifyHostedMarineDataset(origin, dataset, nowMs = Date.no
         }
     }
     const assetFailureSets = await mapWithConcurrency([...distinctAssets.values()], HOSTED_ASSET_CONCURRENCY, (asset) =>
-        verifyHostedMarineAsset(origin, dataset, asset),
+        verifyHostedMarineAsset(origin, dataset, asset, protectionBypassSecret),
     );
     failures.push(...assetFailureSets.flat());
     return failures;
@@ -861,6 +892,10 @@ export async function verifyHostedMarineDataset(origin, dataset, nowMs = Date.no
 
 async function verifyHostedDeployment(rawOrigin) {
     const origin = normalizeHostedOrigin(rawOrigin);
+    const protectionBypassSecret = process.env.VERCEL_AUTOMATION_BYPASS_SECRET?.trim();
+    if (protectionBypassSecret && !isTrustedThalassaVercelPreviewOrigin(origin)) {
+        throw new Error('refusing to send the Vercel automation bypass secret to an untrusted preview origin');
+    }
     const failures = [];
     const documentSpecs = [
         ['/', 'main'],
@@ -874,12 +909,32 @@ async function verifyHostedDeployment(rawOrigin) {
     const results = new Map();
 
     for (const [pathname, surface] of documentSpecs) {
-        const result = await getResponse(origin, pathname);
+        const result = await getResponse(
+            origin,
+            pathname,
+            'manual',
+            DEFAULT_RESPONSE_MAX_BYTES,
+            protectionBypassSecret,
+        );
         results.set(pathname, result);
         failures.push(...documentResponseFailures(result, surface, `hosted ${pathname}`, { hosted: true }));
     }
 
-    const rootHash = results.has('/') ? sha256(results.get('/').bytes) : null;
+    const root = results.get('/');
+    const rootLocation = root?.response.headers.get('location');
+    const rootRedirect = rootLocation ? new URL(rootLocation, root.url) : null;
+    if (
+        root &&
+        [301, 302, 303, 307, 308].includes(root.response.status) &&
+        rootRedirect?.hostname === 'vercel.com' &&
+        rootRedirect.pathname.startsWith('/sso-api')
+    ) {
+        throw new Error(
+            'hosted deployment is protected by Vercel Authentication; configure the repository VERCEL_AUTOMATION_BYPASS_SECRET before release smoke',
+        );
+    }
+
+    const rootHash = root ? sha256(root.bytes) : null;
     for (const pathname of ['/plan', '/plan/release-verification', '/release-verification/deep-route']) {
         if (rootHash && results.has(pathname) && sha256(results.get(pathname).bytes) !== rootHash) {
             failures.push(`hosted ${pathname}: SPA fallback does not serve the same application shell as /`);
@@ -887,7 +942,13 @@ async function verifyHostedDeployment(rawOrigin) {
     }
 
     for (const pathname of ['/float', '/float/release-verification']) {
-        const result = await getResponse(origin, pathname);
+        const result = await getResponse(
+            origin,
+            pathname,
+            'manual',
+            DEFAULT_RESPONSE_MAX_BYTES,
+            protectionBypassSecret,
+        );
         const location = result.response.headers.get('location');
         const destination = new URL(location ?? '/', result.url);
         if (result.response.status !== 307 || destination.pathname !== '/logs') {
@@ -897,11 +958,16 @@ async function verifyHostedDeployment(rawOrigin) {
         }
     }
 
-    const root = results.get('/');
     const scriptAsset = root ? extractAssetPaths(root.text).find((asset) => asset.endsWith('.js')) : undefined;
     if (!scriptAsset) failures.push('hosted application shell exposes no hashed JavaScript asset');
     else {
-        const asset = await getResponse(origin, scriptAsset);
+        const asset = await getResponse(
+            origin,
+            scriptAsset,
+            'manual',
+            DEFAULT_RESPONSE_MAX_BYTES,
+            protectionBypassSecret,
+        );
         if (asset.response.status !== 200 || asset.bytes.length < 100) {
             failures.push(`hosted ${scriptAsset}: JavaScript asset was not served successfully`);
         }
@@ -918,7 +984,13 @@ async function verifyHostedDeployment(rawOrigin) {
         failures.push(...responseSecurityFailures(asset.response, `hosted ${scriptAsset}`));
     }
 
-    const serviceWorker = await getResponse(origin, '/sw.js');
+    const serviceWorker = await getResponse(
+        origin,
+        '/sw.js',
+        'manual',
+        DEFAULT_RESPONSE_MAX_BYTES,
+        protectionBypassSecret,
+    );
     if (serviceWorker.response.status !== 200 || !serviceWorker.text.includes('CACHE_NAME')) {
         failures.push('hosted /sw.js: real Thalassa service worker was not served');
     }
@@ -927,7 +999,13 @@ async function verifyHostedDeployment(rawOrigin) {
     }
     failures.push(...responseSecurityFailures(serviceWorker.response, 'hosted /sw.js'));
 
-    const featureManifest = await getResponse(origin, `/${PUBLIC_BETA_FEATURE_ARTIFACT_FILE}`);
+    const featureManifest = await getResponse(
+        origin,
+        `/${PUBLIC_BETA_FEATURE_ARTIFACT_FILE}`,
+        'manual',
+        DEFAULT_RESPONSE_MAX_BYTES,
+        protectionBypassSecret,
+    );
     if (featureManifest.response.status !== 200) {
         failures.push(`hosted /${PUBLIC_BETA_FEATURE_ARTIFACT_FILE}: HTTP ${featureManifest.response.status}`);
     } else {
@@ -955,7 +1033,7 @@ async function verifyHostedDeployment(rawOrigin) {
 
     for (const dataset of ENABLED_HOSTED_MARINE_DATASETS) {
         try {
-            failures.push(...(await verifyHostedMarineDataset(origin, dataset)));
+            failures.push(...(await verifyHostedMarineDataset(origin, dataset, Date.now(), protectionBypassSecret)));
         } catch (error) {
             failures.push(
                 `/api/${dataset}: hosted manifest/asset probe failed (${error instanceof Error ? error.message : error})`,
@@ -967,7 +1045,7 @@ async function verifyHostedDeployment(rawOrigin) {
     for (const pathname of RETIRED_LEGACY_MARINE_PATHS) {
         for (const candidate of [pathname, `${pathname}?release-verifier=${retirementProbe}`]) {
             try {
-                const result = await getResponseHeaders(origin, candidate);
+                const result = await getResponseHeaders(origin, candidate, protectionBypassSecret);
                 failures.push(...legacyMarineRetirementFailures(result, `hosted ${candidate}`));
             } catch (error) {
                 failures.push(

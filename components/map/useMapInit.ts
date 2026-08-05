@@ -17,6 +17,7 @@ import { MBTilesService } from '../../services/MBTilesService';
 import { piCache } from '../../services/PiCacheService';
 import { isAuthIdentityScopeCurrent, type AuthIdentityScope } from '../../services/authIdentityScope';
 import { existingMapLayerIds } from './mapLayerQueries';
+import { isHttpUrlOnDomain, isLocalNetworkHostname, parseExternalHttpUrl } from '../../utils/safeUrl';
 
 /**
  * Show/hide the OpenSeaMap raster seamark overlays in one call. Two layers
@@ -338,11 +339,14 @@ export function useMapInit(opts: UseMapInitOptions) {
             // 1. Local MBTiles: mbtiles.local URLs → blob URLs from sql.js (synchronous)
             // 2. ocharts DRM: encrypted URLs for AvNav DRM tile requests
             transformRequest: (url: string, resourceType?: string) => {
+                const parsedTileUrl = parseExternalHttpUrl(url);
+                const tileHostname = parsedTileUrl?.hostname.toLowerCase() ?? '';
+                const isMbTilesUrl = tileHostname === 'mbtiles.local';
                 // ── Local MBTiles tiles ──
                 // Fake mbtiles.local URLs are created by useLocalCharts. We intercept
                 // them here and return blob URLs from the in-memory SQLite database.
                 // sql.js queries are synchronous, so this adds zero async overhead.
-                if (resourceType === 'Tile' && url.includes('mbtiles.local/')) {
+                if (resourceType === 'Tile' && isMbTilesUrl) {
                     const match = url.match(/mbtiles\.local\/([^/]+)\/(\d+)\/(\d+)\/(\d+)/);
                     if (match) {
                         const chartName = decodeURIComponent(match[1]);
@@ -362,11 +366,7 @@ export function useMapInit(opts: UseMapInitOptions) {
 
                 // ── ocharts DRM ──
                 // Match any private/local network tile (192.168.*, 10.*, 172.16-31.*, .local)
-                const isLocalTile =
-                    url.includes('192.168.') ||
-                    url.match(/\/\/10\.\d/) ||
-                    url.match(/\/\/172\.(1[6-9]|2\d|3[01])\./) ||
-                    url.includes('.local');
+                const isLocalTile = parsedTileUrl !== null && isLocalNetworkHostname(tileHostname);
                 if (resourceType === 'Tile' && isLocalTile) {
                     const charts = AvNavService.getCharts();
                     for (const chart of charts) {
@@ -389,10 +389,10 @@ export function useMapInit(opts: UseMapInitOptions) {
                 if (
                     resourceType === 'Tile' &&
                     piCache.isAvailable() &&
-                    url.startsWith('http') &&
-                    !url.includes('mbtiles.local/') &&
+                    parsedTileUrl !== null &&
+                    !isMbTilesUrl &&
                     !isLocalTile &&
-                    !url.includes('api.mapbox.com')
+                    !isHttpUrlOnDomain(url, 'mapbox.com')
                 ) {
                     const piUrl = piCache.passthroughTileUrl(url);
                     if (piUrl) return { url: piUrl };

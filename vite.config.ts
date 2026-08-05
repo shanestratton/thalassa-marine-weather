@@ -329,12 +329,15 @@ export default defineConfig(({ mode }) => {
                             res.writeHead(proxyRes.statusCode || 502, responseHeaders);
                             proxyRes.pipe(res, { end: true });
                         });
-                        proxyReq.on('error', (err) => {
-                            console.error(`[chart-proxy] Error → ${decodedHost}:${port}${targetPath}: ${err.message}`);
+                        proxyReq.on('error', () => {
+                            // The host/path originate in the development request. Keep
+                            // them out of terminal logs and browser responses so control
+                            // characters or upstream diagnostics cannot forge log lines.
+                            console.error('[chart-proxy] LAN chart request failed');
                             if (!res.headersSent) {
                                 res.writeHead(502, { 'Content-Type': 'text/plain' });
                             }
-                            res.end(`Chart proxy error: ${err.message}`);
+                            res.end('Chart proxy request failed');
                         });
                         proxyReq.end();
                     });

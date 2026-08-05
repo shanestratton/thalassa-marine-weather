@@ -62,3 +62,72 @@ verify_jwt = false
 # small per-IP public buckets (30/hr snapshots — exhausting THAT is what
 # killed the old dashboard radar, which fetched its snapshot with no auth).
 verify_jwt = false
+
+# ── Credentialed functions reconciled from the live gateway ───────────────
+#
+# Each caller below already supplies a user or anon JWT. Pinning `true` adds
+# the gateway check without removing the function's own identity/quota guard.
+
+[functions.elevenlabs-tts]
+# Signed-in voice client; the function also enforces an authenticated quota.
+verify_jwt = true
+
+[functions.fetch-wind-grid]
+# App and Pi-cache callers supply a user or anon JWT before quota selection.
+verify_jwt = true
+
+[functions.fetch-wind-velocity]
+# Credentialed app callers supply a user or anon JWT before quota selection.
+verify_jwt = true
+
+[functions.gebco-depth]
+# App callers supply a user or anon JWT before the bathymetry quota check.
+verify_jwt = true
+
+[functions.get-weather]
+# App and Pi-cache callers supply a user or anon JWT before weather quota selection.
+verify_jwt = true
+
+[functions.lookup-vessel]
+# Signed-in vessel client; the function also enforces an authenticated quota.
+verify_jwt = true
+
+[functions.maritime-intel]
+# Public-news client supplies the anon JWT; the function enforces its public quota.
+verify_jwt = true
+
+[functions.proxy-amsa-msi]
+# Web notice client supplies a user or anon JWT before public-data quota selection.
+verify_jwt = true
+
+[functions.proxy-gemini]
+# Signed-in AI client; the function also enforces an authenticated paid-provider quota.
+verify_jwt = true
+
+[functions.proxy-nga-msi]
+# Web notice client supplies a user or anon JWT before public-data quota selection.
+verify_jwt = true
+
+[functions.proxy-openmeteo]
+# App and Pi-cache callers supply a user or anon JWT before weather quota selection.
+verify_jwt = true
+
+[functions.proxy-spoonacular]
+# Held beta client uses credentialed functions.invoke; provider access remains disabled.
+verify_jwt = true
+
+[functions.proxy-stormglass]
+# Signed-in weather client; the function also enforces an authenticated provider quota.
+verify_jwt = true
+
+[functions.proxy-tides]
+# App and Pi-cache callers supply a user or anon JWT before tides quota selection.
+verify_jwt = true
+
+[functions.route-bathymetric]
+# Credentialed route caller supplies a user or anon JWT before route quota selection.
+verify_jwt = true
+
+[functions.route-weather]
+# Credentialed route caller supplies a user or anon JWT before route quota selection.
+verify_jwt = true

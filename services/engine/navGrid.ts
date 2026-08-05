@@ -410,8 +410,11 @@ export function buildNavGrid(
         const props = f.properties as Record<string, unknown> | null;
         const drval1 = props?.['DRVAL1'];
         // S-57 DRVAL1 is positive depth in meters.
-        const drval1Num = typeof drval1 === 'number' ? drval1 : null;
-        if (drval1Num == null) continue; // no depth → nothing to do
+        // A malformed/missing depth is not evidence of safe water. Treat the
+        // polygon as chart-datum caution (0 m) so attacker-controlled or
+        // corrupt feature metadata cannot bypass the conservative route
+        // verdict by making this DEPARE disappear from the grid entirely.
+        const drval1Num = typeof drval1 === 'number' && Number.isFinite(drval1) ? drval1 : 0;
         // Chart-source DEPARE (acronym='DEPARE' from senc-extractor) is
         // hydrographic-survey data. With the Eulerian ring fix (2026-05-19)
         // these polygons now have proper outer rings — they no longer

@@ -6,6 +6,7 @@ declare const Deno: {
 };
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { classifyDeepgramFrame } from './safety.ts';
 
 /**
  * deepgram-ws-proxy — bridge a client WebSocket to Deepgram's
@@ -212,8 +213,8 @@ Deno.serve(async (req: Request) => {
         // bidirectional WS is broken in the iOS direction.
         try {
             clientSocket.send(JSON.stringify({ type: 'ProxyHello', ts: Date.now() }));
-        } catch (err) {
-            console.warn('[dg-proxy] hello send failed:', (err as Error).message);
+        } catch {
+            console.warn('[dg-proxy] hello send failed');
         }
     });
 
@@ -229,8 +230,8 @@ Deno.serve(async (req: Request) => {
             () => closeBoth(1011, 'upstream handshake timed out'),
             UPSTREAM_HANDSHAKE_MS,
         );
-    } catch (err) {
-        console.error('[dg-proxy] upstream ctor failed:', (err as Error).message);
+    } catch {
+        console.error('[dg-proxy] upstream constructor failed');
         try {
             clientSocket.close(1011, 'upstream ctor failed');
         } catch {
@@ -255,8 +256,8 @@ Deno.serve(async (req: Request) => {
         for (const chunk of earlyBuffer) {
             try {
                 upstreamSocket?.send(chunk);
-            } catch (err) {
-                console.warn('[dg-proxy] flush send failed:', (err as Error).message);
+            } catch {
+                console.warn('[dg-proxy] buffered frame send failed');
             }
         }
         earlyBuffer.length = 0;
@@ -277,15 +278,7 @@ Deno.serve(async (req: Request) => {
         // Sample only transport metadata. Deepgram JSON frames contain exact
         // speech transcripts and must never enter Edge logs.
         if (upstreamMessagesReceived <= 5 || upstreamMessagesReceived % 50 === 0) {
-            let messageType = typeof ev.data === 'string' ? 'json' : 'binary';
-            if (typeof ev.data === 'string') {
-                try {
-                    const parsed = JSON.parse(ev.data) as { type?: unknown };
-                    if (typeof parsed.type === 'string') messageType = parsed.type;
-                } catch {
-                    messageType = 'text';
-                }
-            }
+            const messageType = classifyDeepgramFrame(ev.data);
             console.log(
                 `[dg-proxy] upstream msg #${upstreamMessagesReceived} type=${messageType} bytes=${upstreamSize}`,
             );
@@ -296,8 +289,8 @@ Deno.serve(async (req: Request) => {
         if (clientSocket.readyState === WebSocket.OPEN) {
             try {
                 clientSocket.send(ev.data);
-            } catch (err) {
-                console.warn('[dg-proxy] client send failed:', (err as Error).message);
+            } catch {
+                console.warn('[dg-proxy] client frame send failed');
             }
         }
     });
@@ -306,7 +299,7 @@ Deno.serve(async (req: Request) => {
         if (upstreamHandshakeTimer) clearTimeout(upstreamHandshakeTimer);
         upstreamHandshakeTimer = null;
         clearTimeout(sessionTimer);
-        console.log(`[dg-proxy] upstream closed code=${ev.code} reason="${ev.reason}" ready=${upstreamReady}`);
+        console.log(`[dg-proxy] upstream closed code=${ev.code} ready=${upstreamReady}`);
         // Tell the client the upstream just closed. Send BEFORE we
         // close the client socket so the iOS debug strip sees the
         // signal. Critical diagnostic when upstream silently dies.
@@ -315,7 +308,7 @@ Deno.serve(async (req: Request) => {
                 JSON.stringify({
                     type: 'UpstreamClose',
                     code: ev.code,
-                    reason: ev.reason || '',
+                    reason: 'Speech upstream closed',
                     everOpened: upstreamReady,
                     ts: Date.now(),
                 }),
@@ -330,10 +323,10 @@ Deno.serve(async (req: Request) => {
                 // 1011 (server error) so the client gets a real signal
                 // instead of a silent TCP-RST.
                 const safeCode = ev.code < 1000 || ev.code === 1005 || ev.code === 1006 ? 1011 : ev.code;
-                const safeReason = ev.reason || `upstream closed ${ev.code}`;
+                const safeReason = 'speech upstream closed';
                 clientSocket.close(safeCode, safeReason);
-            } catch (err) {
-                console.warn('[dg-proxy] client close failed:', (err as Error).message);
+            } catch {
+                console.warn('[dg-proxy] client close failed');
             }
         }
     });
@@ -383,11 +376,7 @@ Deno.serve(async (req: Request) => {
         // upstreamMessagesReceived stays low (just the Metadata frame)
         // we know Deepgram is receiving audio but can't decode it.
         if (clientChunksReceived === 1 || clientChunksReceived % 100 === 0) {
-            const dataType = typeof ev.data === 'string'
-                ? `text:"${(ev.data as string).slice(0, 60)}"`
-                : ev.data instanceof ArrayBuffer
-                ? `binary:${ev.data.byteLength}B`
-                : `unknown:${typeof ev.data}`;
+            const dataType = typeof ev.data === 'string' ? 'control' : 'binary';
             console.log(`[dg-proxy] client chunk #${clientChunksReceived} ${dataType} (total ${clientBytesReceived}B)`);
         }
         if (!upstreamReady) {
@@ -402,8 +391,8 @@ Deno.serve(async (req: Request) => {
         if (upstreamSocket && upstreamSocket.readyState === WebSocket.OPEN) {
             try {
                 upstreamSocket.send(ev.data);
-            } catch (err) {
-                console.warn('[dg-proxy] upstream send failed:', (err as Error).message);
+            } catch {
+                console.warn('[dg-proxy] upstream frame send failed');
             }
         }
     });
@@ -419,7 +408,7 @@ Deno.serve(async (req: Request) => {
         );
         if (upstreamSocket && upstreamSocket.readyState === WebSocket.OPEN) {
             try {
-                upstreamSocket.close(ev.code, ev.reason);
+                upstreamSocket.close(ev.code, 'client closed');
             } catch {
                 /* ignore */
             }

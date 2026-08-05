@@ -61,7 +61,9 @@ describe('Open-Meteo commercial secret boundary', () => {
         // no Supabase/auth dependency and uses only Open-Meteo's keyless API.
         // Keep that exception singular; the installed app uses the proxy.
         const freeForecastConsumers = files
-            .filter((file) => /https:\/\/(?:api|marine-api)\.open-meteo\.com/.test(fs.readFileSync(file, 'utf8')))
+            .filter((file) =>
+                /https:\/\/(?:api|marine-api)\.open-meteo\.com(?:\/|$)/.test(fs.readFileSync(file, 'utf8')),
+            )
             .map((file) => path.relative(cwd, file));
         expect(freeForecastConsumers).toEqual(['src/windField.ts']);
     });

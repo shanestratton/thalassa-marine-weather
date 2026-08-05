@@ -31,6 +31,22 @@ describe('sanitizeText', () => {
         expect(sanitizeText('<script>alert("xss")</script>Hello')).toBe('Hello');
     });
 
+    it('strips scripts with whitespace and mixed-case tag variants', () => {
+        expect(sanitizeText('<script >alert(1)</script >Safe')).toBe('Safe');
+        expect(sanitizeText('<ScRiPt\nsrc=x>ignored</sCrIpT\t>Harbour')).toBe('Harbour');
+        expect(sanitizeText('<<script>alert(1)</script>Safe')).toBe('Safe');
+    });
+
+    it('returns plain text for encoded and malformed markup', () => {
+        const normalized = sanitizeText('&lt;img src=x onerror=javascript:alert(1)&gt;<div><b>Safe</div>');
+
+        expect(normalized).not.toContain('<');
+        expect(normalized).not.toContain('>');
+        expect(normalized.toLowerCase()).not.toContain('onerror=');
+        expect(normalized.toLowerCase()).not.toContain('javascript:');
+        expect(normalized).toContain('Safe');
+    });
+
     it('strips event handlers', () => {
         expect(sanitizeText('text onload=alert(1) more')).toBe('text alert(1) more');
         expect(sanitizeText('text onclick=bad() more')).toBe('text bad() more');
@@ -49,6 +65,9 @@ describe('sanitizeText', () => {
     it('preserves normal text', () => {
         expect(sanitizeText('Hello World')).toBe('Hello World');
         expect(sanitizeText("Captain's Log - Day 5")).toBe("Captain's Log - Day 5");
+        expect(sanitizeText('Cannon on deck; JavaScript is a language')).toBe(
+            'Cannon on deck; JavaScript is a language',
+        );
     });
 
     it('trims whitespace', () => {

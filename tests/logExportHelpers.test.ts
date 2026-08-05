@@ -111,4 +111,22 @@ describe('decodeHtmlEntities', () => {
     it('handles combined entities', () => {
         expect(decodeHtmlEntities('Tom &amp; Jerry said &quot;hello&quot;')).toBe('Tom & Jerry said "hello"');
     });
+
+    it('decodes nested entities only once', () => {
+        expect(decodeHtmlEntities('&amp;lt;tag&amp;gt; &amp;#34;quoted&amp;#34;')).toBe('&lt;tag&gt; &#34;quoted&#34;');
+    });
+
+    it('preserves unknown entities', () => {
+        expect(decodeHtmlEntities('Copyright &copy;, custom &ship;, and &toString;')).toBe(
+            'Copyright &copy;, custom &ship;, and &toString;',
+        );
+    });
+
+    it('normalizes unicode separators and control characters', () => {
+        expect(decodeHtmlEntities('Port\u2003\u2028\tStarboard')).toBe('Port Starboard');
+    });
+
+    it('normalizes malformed legacy quote entities deterministically', () => {
+        expect(decodeHtmlEntities('A&"B A&\'B')).toBe("AB A'B");
+    });
 });

@@ -134,7 +134,7 @@ export function looksLikeNmea(sample: string): boolean {
 
 /** Clearly NOT a gateway — an HTTP server answering on a scanned port. */
 export function looksLikeHttp(sample: string): boolean {
-    return /^HTTP\/\d|<html|<!doctype/i.test(sample.trim());
+    return /HTTP\/\d|<html|<!doctype/i.test(sample.trim());
 }
 
 /** '192.168.50.159' → '192.168.50.' ; null when not a dotted IPv4. */

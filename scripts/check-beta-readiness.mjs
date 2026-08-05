@@ -285,6 +285,7 @@ const pkg = JSON.parse(read('package.json') || '{}');
 const ciWorkflow = read('.github/workflows/ci.yml');
 const lighthouseWorkflow = read('.github/workflows/lighthouse.yml');
 const previewSmokeWorkflow = read('.github/workflows/preview-smoke.yml');
+const vercelPreviewTrust = read('utils/vercelPreviewTrust.ts');
 const primaryCiJob = workflowJobSource(ciWorkflow, 'check');
 const releaseWorkflowSources = `${ciWorkflow}\n${lighthouseWorkflow}\n${previewSmokeWorkflow}`;
 const workflowEntries = regularFilesRecursively(absolute('.github/workflows'))
@@ -1513,12 +1514,12 @@ check(
         'changeOrigin: true',
     ]) &&
         !marineDevProxyBoundary.includes('rewrite') &&
-        !marineDevProxyBoundary.includes('github.com') &&
+        (marineDevProxyBoundary.match(/\btarget:\s*/g) ?? []).length === 1 &&
         viteConfig.includes('...canonicalMarineDevProxy') &&
         includesAll(marineDevProxyContractTest, [
             'preserves every API path through the canonical shard-aware production boundary',
             "expect(marineProxyBoundary).not.toContain('rewrite')",
-            "expect(marineProxyBoundary).not.toContain('github.com')",
+            "expect(marineProxyBoundary.match(/\\btarget:\\s*/g) ?? []).toHaveLength(1)",
         ]),
 );
 const intendedPublicBetaFeatureFlags = {
@@ -1656,7 +1657,34 @@ check(
         "const DISCLAIMER_STORAGE_KEY = 'thalassa_disclaimer_v1.0'",
         "page.addInitScript((key) => localStorage.setItem(key, 'accepted')",
         "getByRole('tablist', { name: 'Main navigation' })",
+        'new URL(request.url()).origin !== PREVIEW_ORIGIN',
+        "'x-vercel-protection-bypass': VERCEL_AUTOMATION_BYPASS_SECRET",
     ]) && !read('e2e/smoke.spec.ts').includes("e.includes('Failed to fetch')"),
+);
+check(
+    'hosted preview admits only the exact default-branch candidate before using the Vercel bypass secret',
+    includesAll(previewSmokeWorkflow, [
+        'ref: ${{ github.event.repository.default_branch }}',
+        'DEPLOYMENT_SHA: ${{ github.event.deployment.sha }}',
+        'candidate_sha="$(git rev-parse HEAD)"',
+        "if: needs.authorize.outputs.eligible == 'true'",
+        "github.actor == 'vercel[bot]'",
+        "github.event.deployment.creator.login == 'vercel[bot]'",
+        'environment: Preview',
+        'VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}',
+    ]) &&
+        includesAll(webReleaseVerifier, [
+            'sameOriginVercelRequestHeaders',
+            'x-vercel-protection-bypass',
+            'isTrustedThalassaVercelPreviewOrigin(origin)',
+            'refusing to send the Vercel automation bypass secret to an untrusted preview origin',
+            'configure the repository VERCEL_AUTOMATION_BYPASS_SECRET before release smoke',
+        ]) &&
+        includesAll(vercelPreviewTrust, [
+            "url.protocol === 'https:'",
+            'THALASSA_VERCEL_PREVIEW_HOST.test(url.hostname.toLowerCase())',
+            "url.pathname === '/'",
+        ]),
 );
 check(
     'browser E2E audits the production artifact and isolates hosted-preview smoke',
@@ -1694,7 +1722,7 @@ check(
             'fetchRawManifestSlot(dataset, slot, nowMs)',
             'RAW_MANIFEST_SLOTS.map((slot) => fetchRawManifestSlot(dataset, slot, nowMs))',
             'HOSTED_ASSET_CONCURRENCY = 2',
-            'verifyHostedMarineAsset(origin, dataset, asset)',
+            'verifyHostedMarineAsset(origin, dataset, asset, protectionBypassSecret)',
             'same-generation discovery slots disagree on immutable manifest content',
             'virtual discovery manifest must use Cache-Control: no-store',
             "headers.get('x-thalassa-valid-manifest-slots') !== '2'",

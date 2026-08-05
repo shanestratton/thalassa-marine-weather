@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { isTrustedThalassaVercelPreviewOrigin } from '../utils/vercelPreviewTrust';
 
 test.describe('App Smoke Tests', () => {
     test.use({ storageState: { cookies: [], origins: [] } });
@@ -27,7 +28,34 @@ test.describe('App Smoke Tests', () => {
 // PREVIEW_URL is set by the GitHub Actions workflow.
 
 const PREVIEW_URL = process.env.PREVIEW_URL;
+const PREVIEW_ORIGIN = PREVIEW_URL ? new URL(PREVIEW_URL).origin : undefined;
+const VERCEL_AUTOMATION_BYPASS_SECRET = process.env.VERCEL_AUTOMATION_BYPASS_SECRET?.trim();
 const DISCLAIMER_STORAGE_KEY = 'thalassa_disclaimer_v1.0';
+
+if (
+    VERCEL_AUTOMATION_BYPASS_SECRET &&
+    (!PREVIEW_URL || !isTrustedThalassaVercelPreviewOrigin(new URL(PREVIEW_URL).origin))
+) {
+    throw new Error('Refusing to send the Vercel automation bypass secret to an untrusted preview origin.');
+}
+
+test.beforeEach(async ({ page }) => {
+    if (!PREVIEW_ORIGIN || !VERCEL_AUTOMATION_BYPASS_SECRET) return;
+    await page.route('**/*', async (route) => {
+        const request = route.request();
+        if (new URL(request.url()).origin !== PREVIEW_ORIGIN) {
+            await route.continue();
+            return;
+        }
+        await route.continue({
+            headers: {
+                ...request.headers(),
+                'x-vercel-protection-bypass': VERCEL_AUTOMATION_BYPASS_SECRET,
+                'x-vercel-set-bypass-cookie': 'true',
+            },
+        });
+    });
+});
 
 test.describe('Preview Deploy Smoke Tests', () => {
     test.skip(!PREVIEW_URL, 'PREVIEW_URL not set — skipping preview tests');

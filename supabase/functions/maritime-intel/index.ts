@@ -8,6 +8,8 @@
  */
 
 import { safeRssHttpsUrl } from './urlSecurity.ts';
+import { readResponseTextLimited } from '../_shared/http-security.ts';
+import { plainTextFromMarkup } from '../_shared/plain-text.ts';
 
 const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
@@ -29,25 +31,12 @@ interface Article {
     publishedAt: string;
 }
 
-/** Strip HTML tags and decode entities */
-function stripHtml(html: string): string {
-    return html
-        .replace(/<!\[CDATA\[(.*?)\]\]>/gs, '$1')
-        .replace(/<[^>]*>/g, '')
-        .replace(/&amp;/g, '&')
-        .replace(/&lt;/g, '<')
-        .replace(/&gt;/g, '>')
-        .replace(/&quot;/g, '"')
-        .replace(/&#39;/g, "'")
-        .replace(/&#8217;/g, "'")
-        .replace(/&#8216;/g, "'")
-        .replace(/&#8220;/g, '"')
-        .replace(/&#8221;/g, '"')
-        .replace(/&#8211;/g, '–')
-        .replace(/&#8212;/g, '—')
-        .replace(/&nbsp;/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim();
+function feedPlainText(fragment: string, maxOutputChars = 20_000): string {
+    return plainTextFromMarkup(fragment, {
+        maxInputChars: 100_000,
+        maxOutputChars,
+        preserveLineBreaks: false,
+    });
 }
 
 /** Extract tag content from XML string */
@@ -86,7 +75,7 @@ function extractImage(itemXml: string): string | null {
 
 /** Truncate to ~3-4 sentences */
 function toSnippet(text: string, maxLen = 280): string {
-    const clean = stripHtml(text);
+    const clean = feedPlainText(text, maxLen + 1);
     if (clean.length <= maxLen) return clean;
 
     const truncated = clean.substring(0, maxLen);
@@ -113,7 +102,11 @@ async function fetchFeed(feed: { url: string; source: string; icon: string }): P
             return [];
         }
 
-        const xml = await resp.text();
+        const xml = await readResponseTextLimited(resp, 2_000_000);
+        if (xml === null) {
+            console.warn(`[RSS] ${feed.source} response exceeded limit`);
+            return [];
+        }
         console.log(`[RSS] ${feed.source}: got ${xml.length} bytes`);
 
         // Extract all <item> blocks with regex
@@ -125,15 +118,16 @@ async function fetchFeed(feed: { url: string; source: string; icon: string }): P
             if (articles.length >= 8) break;
 
             const itemXml = match[1];
-            const title = stripHtml(getTag(itemXml, 'title'));
-            const link = safeRssHttpsUrl(stripHtml(getTag(itemXml, 'link')));
+            const title = feedPlainText(getTag(itemXml, 'title'), 500);
+            const link = safeRssHttpsUrl(feedPlainText(getTag(itemXml, 'link'), 2_048));
             const description = getTag(itemXml, 'description');
             const contentEncoded = getTag(itemXml, 'content:encoded');
-            const pubDate = stripHtml(getTag(itemXml, 'pubDate'));
+            const pubDate = feedPlainText(getTag(itemXml, 'pubDate'), 200);
 
             if (!title || !link) continue;
 
-            const image = safeRssHttpsUrl(extractImage(itemXml));
+            const imageCandidate = extractImage(itemXml);
+            const image = safeRssHttpsUrl(imageCandidate ? feedPlainText(imageCandidate, 2_048) : null);
             const snippet = toSnippet(description || contentEncoded);
             const publishedMs = pubDate ? Date.parse(pubDate) : Number.NaN;
 
@@ -152,8 +146,8 @@ async function fetchFeed(feed: { url: string; source: string; icon: string }): P
 
         console.log(`[RSS] ${feed.source}: parsed ${articles.length} articles`);
         return articles;
-    } catch (e) {
-        console.warn(`[RSS] ${feed.source} fetch failed:`, e);
+    } catch {
+        console.warn(`[RSS] ${feed.source} fetch failed`);
         return [];
     }
 }
@@ -189,8 +183,8 @@ Deno.serve(async (req: Request) => {
                 'Cache-Control': 'public, max-age=1800',
             },
         });
-    } catch (e) {
-        console.error('[maritime-intel] error:', e);
+    } catch {
+        console.error('[maritime-intel] request failed');
         return new Response(JSON.stringify({ error: 'Internal server error', articles: [] }), {
             status: 500,
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },

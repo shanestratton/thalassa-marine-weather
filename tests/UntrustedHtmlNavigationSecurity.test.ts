@@ -12,7 +12,13 @@ import { buildMpaPopupHtml } from '../components/map/useMpaLayer';
 import { localNoticePopupHtml, qldNoticeGroupPopupHtml } from '../components/map/useNoticeLayer';
 import { normaliseMaritimeArticle } from '../services/MaritimeIntelService';
 import { safeRssHttpsUrl } from '../supabase/functions/maritime-intel/urlSecurity';
-import { safeDocumentNavigationUrl, safeExternalHttpUrl, safeImageUrl } from '../utils/safeUrl';
+import {
+    isHttpUrlOnDomain,
+    parseExternalHttpUrl,
+    safeDocumentNavigationUrl,
+    safeExternalHttpUrl,
+    safeImageUrl,
+} from '../utils/safeUrl';
 
 const ATTACK = `<img data-pwn src=x onerror="globalThis.pwned=1"><style>body{display:none}</style>`;
 
@@ -186,6 +192,10 @@ describe('data-driven navigation and RSS URLs', () => {
         expect(safeExternalHttpUrl('http://example.test/path', true)).toBeNull();
         expect(safeExternalHttpUrl('https://example.test@evil.test/path', true)).toBeNull();
         expect(safeExternalHttpUrl('java\nscript:alert(1)')).toBeNull();
+        expect(parseExternalHttpUrl('https://api.mapbox.com/styles')?.hostname).toBe('api.mapbox.com');
+        expect(isHttpUrlOnDomain('https://api.mapbox.com/styles', 'mapbox.com')).toBe(true);
+        expect(isHttpUrlOnDomain('https://mapbox.com.evil.test/styles', 'mapbox.com')).toBe(false);
+        expect(isHttpUrlOnDomain('https://evilmapbox.com/styles', 'mapbox.com')).toBe(false);
 
         expect(safeImageUrl('data:image/png;base64,AA==')).toBe('data:image/png;base64,AA==');
         const offlineImage = `data:image/jpeg;base64,${'A'.repeat(5000)}`;
