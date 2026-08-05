@@ -26,14 +26,15 @@ jobs:
             - name: Run offline publisher contract fixtures
               env:
                   NO_PROXY: '127.0.0.1,localhost,::1'
-                  no_proxy: '127.0.0.1,localhost,::1'
                   HTTPS_PROXY: 'http://127.0.0.1:9'
                   HTTP_PROXY: 'http://127.0.0.1:9'
-                  https_proxy: 'http://127.0.0.1:9'
-                  http_proxy: 'http://127.0.0.1:9'
                   ALL_PROXY: 'http://127.0.0.1:9'
-                  all_proxy: 'http://127.0.0.1:9'
-              run: python -m unittest discover -s scripts/publisher-tests -p 'test_*.py'
+              run: |
+                  export no_proxy="$NO_PROXY"
+                  export https_proxy="$HTTPS_PROXY"
+                  export http_proxy="$HTTP_PROXY"
+                  export all_proxy="$ALL_PROXY"
+                  python -m unittest discover -s scripts/publisher-tests -p 'test_*.py'
             - name: Generate and validate immutable bundle
               env:
                   COPERNICUS_MARINE_USERNAME: ${{ secrets.COPERNICUS_MARINE_USERNAME }}
