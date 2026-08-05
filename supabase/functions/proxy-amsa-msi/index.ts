@@ -35,6 +35,7 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { requireAuthenticatedOrPublicQuota, withCors } from '../_shared/auth-rate-limit.ts';
 import { fetchWithTimeout, jsonResponse, readResponseTextLimited } from '../_shared/http-security.ts';
+import { plainTextFromMarkup } from '../_shared/plain-text.ts';
 
 const CORS_HEADERS = {
     'Access-Control-Allow-Origin': '*',
@@ -60,26 +61,6 @@ interface RawBroadcastWarn {
     status: string;
     issueDate: string;
     authority: string;
-}
-
-// Strip HTML tags + decode the common entities. We don't need a full
-// HTML parser because the AMSA bulletin is wrapped in <pre>-style
-// content — the warning text is already preformatted plain text.
-function htmlToText(html: string): string {
-    return html
-        .replace(/<script[\s\S]*?<\/script>/gi, '')
-        .replace(/<style[\s\S]*?<\/style>/gi, '')
-        .replace(/<br\s*\/?>/gi, '\n')
-        .replace(/<\/p>/gi, '\n')
-        .replace(/<\/li>/gi, '\n')
-        .replace(/<\/div>/gi, '\n')
-        .replace(/<[^>]+>/g, '')
-        .replace(/&nbsp;/g, ' ')
-        .replace(/&amp;/g, '&')
-        .replace(/&lt;/g, '<')
-        .replace(/&gt;/g, '>')
-        .replace(/&quot;/g, '"')
-        .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)));
 }
 
 // Warning blocks start with "SECURITE" and end with "NNNN". A single
@@ -174,7 +155,11 @@ async function fetchAndParse(): Promise<{ 'broadcast-warn': RawBroadcastWarn[] }
     }
     const html = await readResponseTextLimited(res, 5_000_000);
     if (html === null) throw new Error('AMSA MSI response exceeded the safety limit');
-    const text = htmlToText(html);
+    const text = plainTextFromMarkup(html, {
+        maxInputChars: 5_000_000,
+        maxOutputChars: 5_000_000,
+        preserveLineBreaks: true,
+    });
     const blocks = splitWarnings(text);
     const warns: RawBroadcastWarn[] = [];
     const seen = new Set<string>();
@@ -226,8 +211,8 @@ serve(async (req) => {
                 'X-Content-Type-Options': 'nosniff',
             },
         });
-    } catch (err) {
-        console.error('[proxy-amsa-msi] Refresh failed:', err);
+    } catch {
+        console.error('[proxy-amsa-msi] refresh failed');
         // If we have stale cache, serve it on error rather than failing
         // — bulletin downtime shouldn't break the client's notice page.
         if (cache) {

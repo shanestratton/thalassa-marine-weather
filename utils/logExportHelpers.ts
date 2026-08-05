@@ -41,24 +41,104 @@ export function degreesToCardinal16(deg: number): string {
     return cardinals[index];
 }
 
-// Helper to decode HTML entities (fixes &amp; &#34; etc in notes)
+function decodeKnownEntity(name: string): string | undefined {
+    switch (name) {
+        case 'quot':
+        case '#34':
+        case '#x22':
+            return '"';
+        case 'amp':
+            return '&';
+        case 'lt':
+            return '<';
+        case 'gt':
+            return '>';
+        case '#39':
+        case '#x27':
+            return "'";
+        case 'nbsp':
+            return ' ';
+        default:
+            return undefined;
+    }
+}
+
+function decodeKnownEntitiesOnce(text: string): string {
+    let decoded = '';
+
+    for (let index = 0; index < text.length; ) {
+        if (text[index] !== '&') {
+            decoded += text[index];
+            index += 1;
+            continue;
+        }
+
+        // Preserve the two malformed legacy sequences handled by the former
+        // export normalizer without letting replacements cascade into each other.
+        if (text[index + 1] === '"') {
+            index += 2;
+            continue;
+        }
+        if (text[index + 1] === "'") {
+            decoded += "'";
+            index += 2;
+            continue;
+        }
+
+        let semicolon = -1;
+        const searchLimit = Math.min(text.length - 1, index + 12);
+        for (let cursor = index + 1; cursor <= searchLimit; cursor += 1) {
+            if (text[cursor] === ';') {
+                semicolon = cursor;
+                break;
+            }
+        }
+
+        if (semicolon !== -1) {
+            const entityName = text.slice(index + 1, semicolon);
+            const replacement = decodeKnownEntity(entityName);
+            if (replacement !== undefined) {
+                decoded += replacement;
+                index = semicolon + 1;
+                continue;
+            }
+        }
+
+        decoded += '&';
+        index += 1;
+    }
+
+    return decoded;
+}
+
+function normalizeExportWhitespace(text: string): string {
+    let normalized = '';
+    let pendingSpace = false;
+
+    for (const character of text) {
+        const codePoint = character.codePointAt(0) ?? 0;
+        const replacement =
+            character === '\u2693' ? '>>' : codePoint >= 0x2000 && codePoint <= 0x206f ? ' ' : character;
+
+        if (replacement.trim() === '') {
+            pendingSpace = normalized.length > 0;
+            continue;
+        }
+
+        if (pendingSpace) normalized += ' ';
+        normalized += replacement;
+        pendingSpace = false;
+    }
+
+    return normalized;
+}
+
+/**
+ * Decode the small legacy entity set used in ship-log exports exactly once,
+ * then normalize export whitespace. This is text cleanup, not HTML sanitizing.
+ */
 export function decodeHtmlEntities(text: string): string {
-    return text
-        .replace(/&quot;/g, '"')
-        .replace(/&amp;/g, '&')
-        .replace(/&lt;/g, '<')
-        .replace(/&gt;/g, '>')
-        .replace(/&#34;/g, '"')
-        .replace(/&#39;/g, "'")
-        .replace(/&nbsp;/g, ' ')
-        .replace(/&"/g, '') // Broken entity
-        .replace(/&'/g, "'") // Broken entity
-        .replace(/&#x27;/g, "'") // Hex apostrophe
-        .replace(/&#x22;/g, '"') // Hex quote
-        .replace(/\u2693/g, '>>') // anchor emoji
-        .replace(/[\u2000-\u206F]/g, ' ') // unicode spaces/control
-        .replace(/\s+/g, ' ') // collapse multiple spaces
-        .trim();
+    return normalizeExportWhitespace(decodeKnownEntitiesOnce(text));
 }
 
 /**

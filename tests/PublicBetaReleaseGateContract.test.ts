@@ -16,6 +16,35 @@ describe('public-beta release gate contract', () => {
         expect(previewSmoke).toContain('node-version: 24');
     });
 
+    it('keeps protected preview credentials scoped to the exact default-branch candidate and origin', () => {
+        const gate = read('scripts/check-beta-readiness.mjs');
+        const previewSmoke = read('.github/workflows/preview-smoke.yml');
+        const verifier = read('scripts/verify-web-release.mjs');
+        const smoke = read('e2e/smoke.spec.ts');
+        const trust = read('utils/vercelPreviewTrust.ts');
+
+        expect(previewSmoke).toContain('ref: ${{ github.event.repository.default_branch }}');
+        expect(previewSmoke).toContain('DEPLOYMENT_SHA: ${{ github.event.deployment.sha }}');
+        expect(previewSmoke).toContain('candidate_sha="$(git rev-parse HEAD)"');
+        expect(previewSmoke).toContain("if: needs.authorize.outputs.eligible == 'true'");
+        expect(previewSmoke).toContain("github.actor == 'vercel[bot]'");
+        expect(previewSmoke).toContain("github.event.deployment.creator.login == 'vercel[bot]'");
+        expect(previewSmoke).toContain('environment: Preview');
+        expect(previewSmoke).toContain(
+            'VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}',
+        );
+        expect(verifier).toContain('sameOriginVercelRequestHeaders');
+        expect(verifier).toContain('isTrustedThalassaVercelPreviewOrigin(origin)');
+        expect(verifier).toContain('configure the repository VERCEL_AUTOMATION_BYPASS_SECRET before release smoke');
+        expect(smoke).toContain('new URL(request.url()).origin !== PREVIEW_ORIGIN');
+        expect(smoke).toContain("'x-vercel-protection-bypass': VERCEL_AUTOMATION_BYPASS_SECRET");
+        expect(smoke).toContain('isTrustedThalassaVercelPreviewOrigin(new URL(PREVIEW_URL).origin)');
+        expect(trust).toContain('THALASSA_VERCEL_PREVIEW_HOST.test(url.hostname.toLowerCase())');
+        expect(gate).toContain(
+            'hosted preview admits only the exact default-branch candidate before using the Vercel bypass secret',
+        );
+    });
+
     it('keeps enough CI headroom for the complete verification corpus', () => {
         const gate = read('scripts/check-beta-readiness.mjs');
         const workflow = read('.github/workflows/ci.yml');

@@ -4,6 +4,7 @@ import { crumb, startFlightRecorder } from './utils/flightRecorder';
 import { Capacitor } from '@capacitor/core';
 import { getAuthIdentityScope } from './services/authIdentityScope';
 import { writeScopedNativeDiagnostic } from './services/nativeDiagnostic';
+import { safeConsoleArgument } from './utils/consoleSafety';
 
 // JS BUILD-MARKER — landed via Preferences so it appears in Xcode
 // console (console.warn from WKWebView is invisible to Xcode's
@@ -180,28 +181,14 @@ console.warn = (...args: unknown[]) => {
     ) {
         return; // Silently suppress
     }
-    _origWarn.apply(console, args);
+    _origWarn.apply(console, args.map(safeConsoleArgument));
 };
 
 // Diagnostic: intercept console.error to expose Error objects that serialize as {}
 // This helps identify the source of "[error] - {}" messages in Capacitor logs
 const _origError = console.error;
 console.error = (...args: unknown[]) => {
-    const enrichedArgs = args.map((arg) => {
-        if (arg instanceof Error) {
-            return `[Error: ${arg.message}] ${arg.stack || ''}`;
-        }
-        if (typeof arg === 'object' && arg !== null && Object.keys(arg).length === 0 && !(arg instanceof Array)) {
-            // Empty object — try to extract more info
-            try {
-                return `[EmptyObj: ${arg.constructor?.name || 'Object'}] ${String(arg)}`;
-            } catch (e) {
-                console.warn('[index]', e);
-                return arg;
-            }
-        }
-        return arg;
-    });
+    const enrichedArgs = args.map(safeConsoleArgument);
     _origError.apply(console, enrichedArgs);
 };
 

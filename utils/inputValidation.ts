@@ -2,28 +2,80 @@
  * Input Validation — Centralized validation for all user-facing forms.
  *
  * Used by onboarding, vessel details, crew finder, marketplace, and diary forms
- * to prevent XSS, injection, and invalid data reaching the backend.
+ * to normalize markup and keep invalid data from reaching the backend.
  */
 
-// ── XSS Prevention ──────────────────────────────────────────────
+// ── Plain-text normalization ────────────────────────────────────
 
-const HTML_TAG_RE = /<[^>]*>/g;
-const SCRIPT_RE = /<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi;
-const EVENT_HANDLER_RE = /\bon\w+\s*=/gi;
-const JAVASCRIPT_URI_RE = /javascript\s*:/gi;
+function isAsciiWordCharacter(character: string | undefined): boolean {
+    if (!character) return false;
+    const code = character.charCodeAt(0);
+    return (code >= 48 && code <= 57) || (code >= 65 && code <= 90) || code === 95 || (code >= 97 && code <= 122);
+}
+
+function startsWithAsciiCaseInsensitive(value: string, index: number, expected: string): boolean {
+    if (index + expected.length > value.length) return false;
+    for (let offset = 0; offset < expected.length; offset += 1) {
+        if (value[index + offset].toLowerCase() !== expected[offset]) return false;
+    }
+    return true;
+}
+
+function normalizeLegacyPlainText(value: string): string {
+    let normalized = '';
+
+    for (let index = 0; index < value.length; ) {
+        const character = value[index];
+
+        // DOM textContent can legitimately contain encoded angle brackets. Drop
+        // them so this function's result remains plain text if it is stored and
+        // later passed through an HTML-oriented transport.
+        if (character === '<' || character === '>') {
+            index += 1;
+            continue;
+        }
+
+        if (startsWithAsciiCaseInsensitive(value, index, 'javascript')) {
+            let end = index + 'javascript'.length;
+            while (end < value.length && value[end].trim() === '') end += 1;
+            if (value[end] === ':') {
+                index = end + 1;
+                continue;
+            }
+        }
+
+        const startsAtWordBoundary = index === 0 || !isAsciiWordCharacter(value[index - 1]);
+        if (startsAtWordBoundary && character.toLowerCase() === 'o' && value[index + 1]?.toLowerCase() === 'n') {
+            let end = index + 2;
+            const handlerNameStart = end;
+            while (end < value.length && isAsciiWordCharacter(value[end])) end += 1;
+            if (end > handlerNameStart) {
+                while (end < value.length && value[end].trim() === '') end += 1;
+                if (value[end] === '=') {
+                    index = end + 1;
+                    continue;
+                }
+            }
+        }
+
+        normalized += character;
+        index += 1;
+    }
+
+    return normalized.trim();
+}
 
 /**
- * Strip HTML tags and dangerous patterns from user input.
- * Safe for display names, vessel names, descriptions, etc.
+ * Convert user input into inert plain text for names, descriptions, and search
+ * fields. This is not contextual HTML escaping: callers must still render the
+ * result through text APIs/JSX rather than assigning it to innerHTML.
  */
 export function sanitizeText(input: string): string {
     if (!input || typeof input !== 'string') return '';
-    return input
-        .replace(SCRIPT_RE, '')
-        .replace(EVENT_HANDLER_RE, '')
-        .replace(JAVASCRIPT_URI_RE, '')
-        .replace(HTML_TAG_RE, '')
-        .trim();
+    const parsed = new DOMParser().parseFromString(input, 'text/html');
+    parsed.querySelectorAll('script, style, template, noscript').forEach((element) => element.remove());
+
+    return normalizeLegacyPlainText(parsed.body?.textContent ?? '');
 }
 
 // ── Field Validators ────────────────────────────────────────────

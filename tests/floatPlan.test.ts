@@ -213,13 +213,13 @@ describe('channel-specific float plans', () => {
         const whatsapp = createFloatPlanSharePayload(
             {
                 ...base,
-                vessel: { ...VESSEL, name: 'Sea*Star_\nOne' },
+                vessel: { ...VESSEL, name: 'Sea*Star_\\One\nTwo' },
                 route: { ...base.route, from: '~Home~', to: '`Harbour`' },
             },
             'whatsapp',
         );
         expect(whatsapp.text).toContain('🚨 *RAISE THE ALARM*');
-        expect(whatsapp.text).toContain('Sea\\*Star\\_ One');
+        expect(whatsapp.text).toContain('Sea\\*Star\\_\\\\One Two');
         expect(whatsapp.text).toContain('\\~Home\\~');
         expect(whatsapp.text).toContain('\\`Harbour\\`');
     });

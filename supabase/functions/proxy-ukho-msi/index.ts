@@ -24,6 +24,7 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { requireAuthenticatedOrPublicQuota, withCors } from '../_shared/auth-rate-limit.ts';
 import { fetchWithTimeout, jsonResponse, readResponseTextLimited } from '../_shared/http-security.ts';
+import { plainTextFromMarkup } from '../_shared/plain-text.ts';
 
 const CORS_HEADERS = {
     'Access-Control-Allow-Origin': '*',
@@ -47,26 +48,12 @@ interface RawBroadcastWarn {
     authority: string;
 }
 
-// Decode common HTML entities. UKHO's <pre> bodies use &#xA; for the
-// internal line breaks, plus standard &amp; / &lt; / &gt; / &quot;.
-function decodeEntities(s: string): string {
-    return s
-        .replace(/&#xA;/gi, '\n')
-        .replace(/&#x([0-9A-Fa-f]+);/g, (_, h) => String.fromCharCode(parseInt(h, 16)))
-        .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)))
-        .replace(/&nbsp;/g, ' ')
-        .replace(/&amp;/g, '&')
-        .replace(/&lt;/g, '<')
-        .replace(/&gt;/g, '>')
-        .replace(/&quot;/g, '"')
-        .replace(/&apos;/g, "'");
-}
-
-// Strip any leftover tags (we ran on a <pre> block already, but defend
-// against stray <span> wrappers etc. that UKHO sometimes adds for
-// hyperlinking chart references).
-function stripTags(s: string): string {
-    return s.replace(/<[^>]+>/g, '');
+function warningPlainText(fragment: string, maxOutputChars = 20_000): string {
+    return plainTextFromMarkup(fragment, {
+        maxInputChars: 100_000,
+        maxOutputChars,
+        preserveLineBreaks: true,
+    });
 }
 
 // Normalise a UKHO datetime string like "122320 UTC May 26" into the
@@ -138,14 +125,14 @@ async function fetchAndParse(): Promise<{ 'broadcast-warn': RawBroadcastWarn[] }
     let m: RegExpExecArray | null;
     while ((m = refRe.exec(html))) {
         const idx = m[1];
-        const refText = stripTags(decodeEntities(m[2])).trim();
+        const refText = warningPlainText(m[2], 200);
         const parsed = parseReference(refText);
         if (!parsed) continue;
 
         // DateTime cell
         const dtRe = new RegExp(`<td\\s+id=["']DateTimeGroupRnwFormat_${idx}["'][^>]*>([\\s\\S]*?)<\\/td>`, 'i');
         const dtMatch = html.match(dtRe);
-        const issueDate = dtMatch ? normaliseDate(stripTags(decodeEntities(dtMatch[1]))) : '';
+        const issueDate = dtMatch ? normaliseDate(warningPlainText(dtMatch[1], 100)) : '';
 
         // Full description from the collapse <pre>. Falls back to the
         // short Description_N cell if the <pre> isn't present.
@@ -153,11 +140,11 @@ async function fetchAndParse(): Promise<{ 'broadcast-warn': RawBroadcastWarn[] }
         const preRe = new RegExp(`<pre\\s+id=["']Details_Description_${idx}["'][^>]*>([\\s\\S]*?)<\\/pre>`, 'i');
         const preMatch = html.match(preRe);
         if (preMatch) {
-            body = stripTags(decodeEntities(preMatch[1])).trim();
+            body = warningPlainText(preMatch[1]);
         } else {
             const descRe = new RegExp(`<td\\s+id=["']Description_${idx}["'][^>]*>([\\s\\S]*?)<\\/td>`, 'i');
             const descMatch = html.match(descRe);
-            body = descMatch ? stripTags(decodeEntities(descMatch[1])).trim() : '';
+            body = descMatch ? warningPlainText(descMatch[1]) : '';
         }
 
         // Prepend the reference as the first body line so the iOS-side
@@ -219,8 +206,8 @@ serve(async (req) => {
                 'X-Content-Type-Options': 'nosniff',
             },
         });
-    } catch (err) {
-        console.error('[proxy-ukho-msi] Refresh failed:', err);
+    } catch {
+        console.error('[proxy-ukho-msi] refresh failed');
         if (cache) {
             return new Response(JSON.stringify({ ...(cache.payload as object), _stale: true }), {
                 headers: {

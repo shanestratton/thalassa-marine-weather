@@ -17,6 +17,7 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { encode as base64url } from 'https://deno.land/std@0.177.0/encoding/base64url.ts';
+import { internalServerErrorResponse } from '../_shared/public-errors.ts';
 
 // ---------- APNs JWT SIGNING ----------
 
@@ -172,7 +173,7 @@ serve(async (req: Request) => {
             .eq('session_code', session_code);
 
         if (error) {
-            await releaseClaim(`Token lookup failed: ${error.message}`);
+            await releaseClaim('Token lookup failed');
             return new Response(JSON.stringify({ error: 'Token lookup failed' }), {
                 status: 500,
             });
@@ -227,9 +228,8 @@ serve(async (req: Request) => {
             status: 200,
             headers: { 'Content-Type': 'application/json' },
         });
-    } catch (error) {
-        return new Response(JSON.stringify({ error: String(error) }), {
-            status: 500,
-        });
+    } catch {
+        console.error('[send-anchor-alarm] unhandled request failure');
+        return internalServerErrorResponse();
     }
 });

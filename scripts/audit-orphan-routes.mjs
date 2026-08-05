@@ -46,7 +46,15 @@
  * a hidden orphan we forgot to fix.
  */
 
-import { readFileSync, readdirSync, statSync } from 'node:fs';
+import {
+    closeSync,
+    constants as fsConstants,
+    fstatSync,
+    lstatSync,
+    openSync,
+    readFileSync,
+    readdirSync,
+} from 'node:fs';
 import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -174,10 +182,14 @@ function walkRepo(dir, hits, routeSet) {
         const full = join(dir, name);
         let st;
         try {
-            st = statSync(full);
+            // Do not follow repository symlinks. Apart from keeping the walk
+            // inside the checked-out tree, this prevents a file from being
+            // redirected between metadata inspection and opening.
+            st = lstatSync(full);
         } catch {
             continue;
         }
+        if (st.isSymbolicLink()) continue;
         if (st.isDirectory()) {
             walkRepo(full, hits, routeSet);
             continue;
@@ -190,10 +202,19 @@ function walkRepo(dir, hits, routeSet) {
 
         // Read + scan.
         let src;
+        let fd;
         try {
-            src = readFileSync(full, 'utf8');
+            // Open without following a last-moment symlink swap, then verify
+            // the opened descriptor itself before reading it. Using the same
+            // descriptor for fstat + read closes the stat/read race flagged by
+            // CodeQL.
+            fd = openSync(full, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0));
+            if (!fstatSync(fd).isFile()) continue;
+            src = readFileSync(fd, 'utf8');
         } catch {
             continue;
+        } finally {
+            if (fd !== undefined) closeSync(fd);
         }
         // Build the regex once per file. Looks for any audited entry point:
         //   setPage('key')   setPage("key")

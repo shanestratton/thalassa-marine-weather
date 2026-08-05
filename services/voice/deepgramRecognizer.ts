@@ -177,7 +177,6 @@ export function setDeepgramEventTap(tap: ((message: string) => void) | null): vo
     eventTap = tap;
 }
 function emitEvent(message: string): void {
-    if (import.meta.env.DEV) console.log(message);
     eventTap?.(message);
 }
 

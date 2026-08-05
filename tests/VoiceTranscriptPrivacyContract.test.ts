@@ -15,7 +15,9 @@ describe('voice transcript privacy contract', () => {
         expect(edge).toContain('type=${messageType} bytes=${upstreamSize}');
         expect(deepgram).not.toMatch(/text=\\?"\$\{preview/);
         expect(deepgram).not.toContain('transcript.slice(0, 40)');
+        expect(deepgram).not.toContain('console.log(message)');
         expect(deepgram).toContain('chars=${trimmed.length}');
+        expect(deepgram).toContain('eventTap?.(message)');
         expect(apple).not.toMatch(/text=\\?"\$\{preview/);
         expect(apple).toContain('chars=${trimmed.length}');
     });

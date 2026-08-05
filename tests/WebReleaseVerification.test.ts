@@ -14,12 +14,14 @@ import {
     validatePublicBetaFeatureManifest,
     validateHtmlSurface,
     validateVercelConfig,
+    sameOriginVercelRequestHeaders,
 } from '../scripts/verify-web-release.mjs';
 import {
     createPublicBetaFeatureArtifact,
     readPublicBetaFeatureProfile,
 } from '../scripts/public-beta-feature-profile.mjs';
 import { MARINE_DATASET_CONTRACTS, canonicalMarineGeneration } from '../services/weather/api/marineManifestContract';
+import { isTrustedThalassaVercelPreviewOrigin } from '../utils/vercelPreviewTrust';
 
 const read = (relative: string) => readFileSync(resolve(process.cwd(), relative), 'utf8');
 
@@ -134,6 +136,22 @@ function hostedMarineFetchMock({
 
 describe('web release verification', () => {
     afterEach(() => vi.restoreAllMocks());
+    it('adds a trimmed Vercel bypass only to explicitly same-origin request headers', () => {
+        expect(sameOriginVercelRequestHeaders({ accept: 'text/html' }, '  release-token  ')).toEqual({
+            accept: 'text/html',
+            'x-vercel-protection-bypass': 'release-token',
+        });
+        expect(sameOriginVercelRequestHeaders({ accept: 'text/html' }, '   ')).toEqual({ accept: 'text/html' });
+    });
+    it('pins a Vercel automation bypass to the Thalassa preview host family', () => {
+        expect(isTrustedThalassaVercelPreviewOrigin('https://thalassa-2qzyf82kr-serene-summer.vercel.app')).toBe(true);
+        expect(isTrustedThalassaVercelPreviewOrigin('https://thalassa-git-beta-serene-summer.vercel.app')).toBe(true);
+        expect(isTrustedThalassaVercelPreviewOrigin('https://thalassa.example.com')).toBe(false);
+        expect(isTrustedThalassaVercelPreviewOrigin('https://thalassa-a-serene-summer.vercel.app.evil.test')).toBe(
+            false,
+        );
+        expect(isTrustedThalassaVercelPreviewOrigin('https://thalassa-a-serene-summer.vercel.app/path')).toBe(false);
+    });
     it('accepts only the canonical, credential-complete public-beta feature manifest', () => {
         const profile = readPublicBetaFeatureProfile(process.cwd());
         const presence = Object.fromEntries(profile.requiredCredentialPresence.map((name: string) => [name, true]));
@@ -349,11 +367,13 @@ describe('web release verification', () => {
         expect(preview).toContain('npm run check:web-release -- --hosted "$PREVIEW_URL"');
         expect(preview.indexOf('npm run check:web-release')).toBeLessThan(preview.indexOf('npx playwright test'));
         expect(verifier).toContain('for (const dataset of ENABLED_HOSTED_MARINE_DATASETS)');
-        expect(verifier).toContain('await verifyHostedMarineDataset(origin, dataset)');
+        expect(verifier).toContain(
+            'await verifyHostedMarineDataset(origin, dataset, Date.now(), protectionBypassSecret)',
+        );
         expect(verifier).toContain('fetchRawManifestSlot(dataset, slot, nowMs)');
         expect(verifier).toContain('RAW_MANIFEST_SLOTS.map((slot) => fetchRawManifestSlot(dataset, slot, nowMs))');
         expect(verifier).toContain('HOSTED_ASSET_CONCURRENCY = 2');
-        expect(verifier).toContain('verifyHostedMarineAsset(origin, dataset, asset)');
+        expect(verifier).toContain('verifyHostedMarineAsset(origin, dataset, asset, protectionBypassSecret)');
         expect(verifier).toContain('same-generation discovery slots disagree on immutable manifest content');
         expect(verifier).toContain('/manifest-v2.json?release-verifier=${nowMs}');
         expect(verifier).toContain('virtual discovery manifest must use Cache-Control: no-store');

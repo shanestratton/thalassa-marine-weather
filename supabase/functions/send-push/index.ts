@@ -40,6 +40,7 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { encode as base64urlEncode } from 'https://deno.land/std@0.177.0/encoding/base64url.ts';
+import { internalServerErrorResponse } from '../_shared/public-errors.ts';
 
 // std@0.177 declares this encoder as taking `ArrayBuffer | string`, but at runtime it
 // forwards a Uint8Array straight through (its base64 helper branches on
@@ -258,18 +259,20 @@ async function sendApnsPush(deviceToken: string, payload: PushPayload): Promise<
             }
 
             const statusCode = response.status;
-            const errorBody = await response.text();
-
+            // The APNs body is diagnostic data we intentionally never expose
+            // or log. Cancel it explicitly so the runtime can release the
+            // response stream without buffering sensitive upstream details.
+            await response.body?.cancel().catch(() => undefined);
             // 410 Gone = token is no longer valid — DON'T retry, prune it
             if (statusCode === 410) {
-                console.warn(`APNs 410 Gone — token expired: ${deviceToken.slice(0, 8)}…`);
+                console.warn('APNs 410 Gone — token expired');
                 return { success: false, tokenInvalid: true, statusCode };
             }
 
             // 400 Bad Request = malformed, don't retry
             if (statusCode === 400) {
-                console.error(`APNs 400 Bad Request:`, errorBody);
-                return { success: false, statusCode, error: errorBody };
+                console.error('APNs 400 Bad Request');
+                return { success: false, statusCode, error: 'APNs rejected payload' };
             }
 
             // 403 = JWT issue, invalidate cache and retry
@@ -288,15 +291,15 @@ async function sendApnsPush(deviceToken: string, payload: PushPayload): Promise<
                 }
             }
 
-            return { success: false, statusCode, error: errorBody };
-        } catch (error) {
-            console.error(`APNs send error (attempt ${attempt + 1}):`, error);
+            return { success: false, statusCode, error: `APNs request failed (${statusCode})` };
+        } catch {
+            console.error(`APNs send failed on attempt ${attempt + 1}`);
             if (attempt < MAX_RETRIES - 1) {
                 const delay = RETRY_BASE_MS * Math.pow(2, attempt);
                 await new Promise((r) => setTimeout(r, delay));
                 continue;
             }
-            return { success: false, error: String(error) };
+            return { success: false, error: 'APNs request failed' };
         }
     }
 
@@ -366,8 +369,8 @@ serve(async (req: Request) => {
             .eq('user_id', recipient_user_id);
 
         if (error) {
-            console.error('Token lookup failed:', error);
-            await releaseClaim(`Token lookup failed: ${error.message}`);
+            console.error('Token lookup failed');
+            await releaseClaim('Token lookup failed');
             return new Response(JSON.stringify({ error: 'Token lookup failed' }), {
                 status: 500,
                 headers: { 'Content-Type': 'application/json' },
@@ -414,7 +417,7 @@ serve(async (req: Request) => {
 
                 // Prune invalid tokens automatically
                 if (result.tokenInvalid) {
-                    console.log(`Pruning invalid token ${t.device_token.slice(0, 8)}… (id: ${t.id})`);
+                    console.log('Pruning invalid APNs token');
                     await supabase.from('push_device_tokens').delete().eq('id', t.id);
                 }
 
@@ -444,11 +447,8 @@ serve(async (req: Request) => {
             status: 200,
             headers: { 'Content-Type': 'application/json' },
         });
-    } catch (error) {
-        console.error('Edge function error:', error);
-        return new Response(JSON.stringify({ error: String(error) }), {
-            status: 500,
-            headers: { 'Content-Type': 'application/json' },
-        });
+    } catch {
+        console.error('[send-push] unhandled request failure');
+        return internalServerErrorResponse();
     }
 });

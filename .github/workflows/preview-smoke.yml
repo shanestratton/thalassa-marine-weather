@@ -8,10 +8,13 @@ permissions:
     deployments: read
 
 jobs:
-    smoke:
-        name: Smoke Test Preview
+    authorize:
+        name: Authorize Preview Candidate
         runs-on: ubuntu-24.04
-        timeout-minutes: 15
+        timeout-minutes: 3
+        outputs:
+            eligible: ${{ steps.candidate.outputs.eligible }}
+            candidate_sha: ${{ steps.candidate.outputs.candidate_sha }}
         # Only run on successful Vercel preview deployments. Must match
         # 'Preview' EXACTLY: the old `!= 'production'` guard also matched the
         # Railway worker env ('Thalassa Worker / production'), whose
@@ -20,10 +23,46 @@ jobs:
         # This check had never passed (13 failures / 0 successes).
         if: >
             github.event.deployment_status.state == 'success' &&
-            github.event.deployment_status.environment == 'Preview'
+            github.event.deployment_status.environment == 'Preview' &&
+            github.actor == 'vercel[bot]' &&
+            github.event.deployment.creator.login == 'vercel[bot]'
+
+        steps:
+            # Deployment-status events can originate from any preview branch.
+            # Always load the trusted default-branch workflow/test code first,
+            # then admit only a preview of the exact current default-branch SHA
+            # before any secret-bearing step is allowed to run.
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  ref: ${{ github.event.repository.default_branch }}
+
+            - name: Authorize current default-branch candidate
+              id: candidate
+              env:
+                  DEPLOYMENT_SHA: ${{ github.event.deployment.sha }}
+              run: |
+                  candidate_sha="$(git rev-parse HEAD)"
+                  echo "candidate_sha=$candidate_sha" >> "$GITHUB_OUTPUT"
+                  if [[ "$DEPLOYMENT_SHA" == "$candidate_sha" ]]; then
+                      echo "eligible=true" >> "$GITHUB_OUTPUT"
+                      echo "Preview matches the current default-branch candidate."
+                  else
+                      echo "eligible=false" >> "$GITHUB_OUTPUT"
+                      echo "Skipping preview for non-candidate SHA $DEPLOYMENT_SHA."
+                  fi
+
+    smoke:
+        name: Smoke Test Preview
+        needs: authorize
+        if: needs.authorize.outputs.eligible == 'true'
+        runs-on: ubuntu-24.04
+        timeout-minutes: 15
+        environment: Preview
 
         steps:
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  ref: ${{ needs.authorize.outputs.candidate_sha }}
 
             - name: Setup Node.js
               uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -41,6 +80,7 @@ jobs:
               env:
                   PREVIEW_URL: ${{ github.event.deployment_status.target_url }}
                   REQUIRE_HOSTED_PREVIEW: 'true'
+                  VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
               run: |
                   echo "Smoke testing: $PREVIEW_URL"
                   npm run check:web-release -- --hosted "$PREVIEW_URL"

@@ -20,15 +20,31 @@ function isCleanUrlText(value: unknown, maxLength = MAX_NAVIGATION_URL_LENGTH): 
  * URL parser correctly treats evil.test as the host.
  */
 export function safeExternalHttpUrl(value: unknown, httpsOnly = false): string | null {
+    return parseExternalHttpUrl(value, httpsOnly)?.href ?? null;
+}
+
+export function parseExternalHttpUrl(value: unknown, httpsOnly = false): URL | null {
     if (!isCleanUrlText(value)) return null;
     try {
         const parsed = new URL(value);
         if (parsed.username || parsed.password) return null;
         if (parsed.protocol !== 'https:' && (httpsOnly || parsed.protocol !== 'http:')) return null;
-        return parsed.href;
+        return parsed;
     } catch {
         return null;
     }
+}
+
+/** Exact-or-subdomain comparison with a mandatory dot boundary. */
+export function isHttpUrlOnDomain(value: unknown, expectedDomain: string): boolean {
+    const parsed = parseExternalHttpUrl(value);
+    const domain = expectedDomain
+        .trim()
+        .replace(/^\.+|\.+$/g, '')
+        .toLowerCase();
+    if (!parsed || !domain) return false;
+    const hostname = parsed.hostname.toLowerCase().replace(/\.$/, '');
+    return hostname === domain || hostname.endsWith(`.${domain}`);
 }
 
 const SAFE_INLINE_DOCUMENT =
@@ -57,7 +73,7 @@ export interface SafeUrlOptions {
     allowLocalNetworkHttp?: boolean;
 }
 
-function isLocalNetworkHostname(hostname: string): boolean {
+export function isLocalNetworkHostname(hostname: string): boolean {
     const host = hostname.toLowerCase().replace(/^\[|\]$/g, '');
     if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local')) return true;
     if (host === '::1' || host.startsWith('fc') || host.startsWith('fd') || /^fe[89ab]/.test(host)) return true;

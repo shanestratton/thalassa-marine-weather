@@ -10,6 +10,7 @@ import { piCache } from '../../services/PiCacheService';
 import { WindStore } from '../../stores/WindStore';
 import { LocationStore } from '../../stores/LocationStore';
 import type { LocationState } from '../../stores/LocationStore';
+import { isHttpUrlOnDomain, parseExternalHttpUrl } from '../../utils/safeUrl';
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -265,8 +266,8 @@ const ThalassaMap: React.FC<ThalassaMapProps> = ({
                 if (
                     resourceType === 'Tile' &&
                     piCache.isAvailable() &&
-                    url.startsWith('http') &&
-                    !url.includes('api.mapbox.com')
+                    parseExternalHttpUrl(url) !== null &&
+                    !isHttpUrlOnDomain(url, 'mapbox.com')
                 ) {
                     const piUrl = piCache.passthroughTileUrl(url);
                     if (piUrl) return { url: piUrl };

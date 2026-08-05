@@ -301,7 +301,9 @@ function trackLines(
 }
 
 function whatsappSafe(value: string): string {
-    return oneLine(value).replace(/([*_~`])/g, '\\$1');
+    return oneLine(value)
+        .replace(/\\/g, '\\\\')
+        .replace(/([*_~`])/g, '\\$1');
 }
 
 function emailHeaderSafe(value: string): string {

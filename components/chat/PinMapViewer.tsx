@@ -17,6 +17,7 @@ import { useWeather } from '../../context/WeatherContext';
 import { useUI } from '../../context/UIContext';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { triggerHaptic } from '../../utils/system';
+import { isHttpUrlOnDomain, parseExternalHttpUrl } from '../../utils/safeUrl';
 
 interface PinMapViewerProps {
     lat: number;
@@ -95,8 +96,8 @@ export const PinMapViewer: React.FC<PinMapViewerProps> = React.memo(({ lat, lng,
                 if (
                     resourceType === 'Tile' &&
                     piCache.isAvailable() &&
-                    url.startsWith('http') &&
-                    !url.includes('api.mapbox.com')
+                    parseExternalHttpUrl(url) !== null &&
+                    !isHttpUrlOnDomain(url, 'mapbox.com')
                 ) {
                     const piUrl = piCache.passthroughTileUrl(url);
                     if (piUrl) return { url: piUrl };
