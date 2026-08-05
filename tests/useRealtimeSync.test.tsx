@@ -59,7 +59,7 @@ vi.mock('../services/vessel/SyncService', () => ({
 }));
 
 import { getAuthIdentityScope, setAuthIdentityScope } from '../services/authIdentityScope';
-import { useRealtimeSync } from '../hooks/useRealtimeSync';
+import { useRealtimeSync, useRealtimeSyncMulti } from '../hooks/useRealtimeSync';
 
 describe('useRealtimeSync', () => {
     beforeEach(() => {
@@ -119,6 +119,59 @@ describe('useRealtimeSync', () => {
         expect(realtime.channels.has(names[1])).toBe(true);
         second.unmount();
         expect(realtime.removeChannel).toHaveBeenCalledTimes(2);
+    });
+
+    it('cancels a delayed subscription when its component unmounts', () => {
+        const subscription = renderHook(() => useRealtimeSync('shopping_list', vi.fn()));
+
+        subscription.unmount();
+        act(() => {
+            vi.advanceTimersByTime(300);
+        });
+
+        expect(realtime.channel).not.toHaveBeenCalled();
+        expect(realtime.removeChannel).not.toHaveBeenCalled();
+    });
+
+    it('cancels pending multi-table subscriptions when their component unmounts', () => {
+        const subscription = renderHook(() =>
+            useRealtimeSyncMulti(['maintenance_tasks', 'maintenance_history'], vi.fn()),
+        );
+
+        subscription.unmount();
+        act(() => {
+            vi.advanceTimersByTime(300);
+        });
+
+        expect(realtime.channel).not.toHaveBeenCalled();
+        expect(realtime.removeChannel).not.toHaveBeenCalled();
+    });
+
+    it('starts only the current account subscription when identity changes during the delay', () => {
+        setAuthIdentityScope('account-a');
+        realtime.database.identity = 'account-a';
+        const subscription = renderHook(() => useRealtimeSync('shopping_list', vi.fn()));
+
+        act(() => {
+            vi.advanceTimersByTime(150);
+        });
+        act(() => {
+            setAuthIdentityScope('account-b');
+            realtime.database.identity = 'account-b';
+            realtime.database.generation += 1;
+        });
+        act(() => {
+            vi.advanceTimersByTime(150);
+        });
+        expect(realtime.channel).not.toHaveBeenCalled();
+
+        act(() => {
+            vi.advanceTimersByTime(150);
+        });
+        expect(realtime.channel).toHaveBeenCalledOnce();
+        expect(realtime.channel.mock.calls[0][0]).toMatch(new RegExp(`-${getAuthIdentityScope().generation}$`));
+
+        subscription.unmount();
     });
 
     it('applies DELETE payloads so removed rows do not wait for an impossible timestamp pull', async () => {
@@ -239,6 +292,39 @@ describe('useRealtimeSync', () => {
             realtime.database.identity = 'account-b';
             realtime.database.generation += 1;
         });
+        await act(async () => {
+            resolveApply(true);
+            await Promise.resolve();
+        });
+
+        expect(onSync).not.toHaveBeenCalled();
+    });
+
+    it('does not refresh an unmounted component after a database apply resolves late', async () => {
+        let resolveApply!: (value: boolean) => void;
+        realtime.applyRealtimeChange.mockReturnValueOnce(
+            new Promise<boolean>((resolve) => {
+                resolveApply = resolve;
+            }),
+        );
+        const onSync = vi.fn();
+        const subscription = renderHook(() => useRealtimeSync('shopping_list', onSync));
+        act(() => {
+            vi.advanceTimersByTime(300);
+        });
+        const callback = [...realtime.callbacks.values()][0];
+
+        await act(async () => {
+            callback?.({
+                eventType: 'UPDATE',
+                new: { id: 'late-row', purchased: true },
+                old: {},
+            });
+            await Promise.resolve();
+        });
+        expect(realtime.applyRealtimeChange).toHaveBeenCalledOnce();
+
+        subscription.unmount();
         await act(async () => {
             resolveApply(true);
             await Promise.resolve();

@@ -21,6 +21,7 @@
  *     a red error.
  */
 import { BoatNetworkService } from './BoatNetworkService';
+import { PI_INTEGRATION_ENABLED } from './piPublicBetaBoundary';
 
 const BOSUN_WEB_PORT = 5000;
 const POLL_INTERVAL_MS = 30_000;
@@ -130,6 +131,7 @@ class N2kStatusServiceClass {
      * the backoff schedule above.
      */
     start(): void {
+        if (!PI_INTEGRATION_ENABLED) return;
         if (this.timer) return;
         // Fire one off immediately so consumers get a value before the
         // first delay.
@@ -174,6 +176,10 @@ class N2kStatusServiceClass {
      *  Resets the backoff counter on a successful fetch so an N2K bridge
      *  that's just been started picks up immediately. */
     async refresh(): Promise<void> {
+        if (!PI_INTEGRATION_ENABLED) {
+            this.publish(INITIAL);
+            return;
+        }
         const piHost = BoatNetworkService.getState().piHost;
         if (!piHost) {
             this.publish(INITIAL);

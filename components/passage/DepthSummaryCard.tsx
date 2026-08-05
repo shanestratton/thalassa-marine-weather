@@ -1,5 +1,5 @@
 /**
- * DepthSummaryCard — GEBCO Depth Analysis Summary for passage routes.
+ * DepthSummaryCard — coarse NOAA ETOPO depth analysis for passage routes.
  *
  * Shows minimum depth along the route, number of shallow segments,
  * and a visual depth profile bar with safety-classified segments.
@@ -17,6 +17,10 @@ interface DepthSummaryData {
     minDepth: number | null;
     shallowSegments: number;
     totalSegments: number;
+    knownSegments?: number;
+    coverage?: 'complete' | 'partial' | 'unavailable';
+    sampleSpacingNm?: number | null;
+    routeSource?: 'displayed' | 'fallback';
     segments: DepthSegment[];
 }
 
@@ -36,14 +40,22 @@ const SAFETY_COLORS = {
 export const DepthSummaryCard: React.FC<DepthSummaryCardProps> = ({ data, vesselDraft = 2.5 }) => {
     const hasDanger = data.segments.some((s) => s.safety === 'danger' || s.safety === 'land');
     const hasCaution = data.segments.some((s) => s.safety === 'caution');
+    const inferredKnown = data.segments.filter((segment) => segment.depth_m !== null).length;
+    const knownSegments = data.knownSegments ?? inferredKnown;
+    const hasUnknown =
+        data.totalSegments === 0 ||
+        data.coverage === 'unavailable' ||
+        data.coverage === 'partial' ||
+        knownSegments < data.totalSegments ||
+        data.segments.some((segment) => segment.safety === 'unknown' || segment.depth_m === null);
 
-    const overallStatus = hasDanger ? 'danger' : hasCaution ? 'caution' : 'safe';
+    const overallStatus = hasDanger ? 'danger' : hasCaution ? 'caution' : hasUnknown ? 'unknown' : 'safe';
     const statusStyle = {
         safe: {
             bg: 'bg-emerald-500/10',
             border: 'border-emerald-500/30',
             text: 'text-emerald-400',
-            label: 'DEPTH CLEAR',
+            label: 'NO HAZARDS IN SAMPLES',
             icon: '✅',
         },
         caution: {
@@ -59,6 +71,13 @@ export const DepthSummaryCard: React.FC<DepthSummaryCardProps> = ({ data, vessel
             text: 'text-red-400',
             label: 'DEPTH HAZARD',
             icon: '🔴',
+        },
+        unknown: {
+            bg: 'bg-slate-500/10',
+            border: 'border-slate-400/30',
+            text: 'text-slate-200',
+            label: data.coverage === 'unavailable' ? 'DEPTH NOT VERIFIED' : 'DEPTH COVERAGE PARTIAL',
+            icon: '❔',
         },
     }[overallStatus];
 
@@ -83,7 +102,9 @@ export const DepthSummaryCard: React.FC<DepthSummaryCardProps> = ({ data, vessel
                         {statusStyle.label}
                     </div>
                     <div className="text-xs text-gray-400 mt-0.5">
-                        {data.shallowSegments} of {data.totalSegments} segments flagged • Draft: {vesselDraft}m
+                        {knownSegments} of {data.totalSegments} route samples returned
+                        {data.sampleSpacingNm != null ? ` • ≈${data.sampleSpacingNm.toFixed(1)} NM spacing` : ''} •
+                        Draft: {vesselDraft}m
                     </div>
                 </div>
                 <div className="text-right shrink-0">
@@ -92,6 +113,18 @@ export const DepthSummaryCard: React.FC<DepthSummaryCardProps> = ({ data, vessel
                     </div>
                     <div className="text-[11px] text-gray-400 uppercase tracking-widest font-bold">Min Depth</div>
                 </div>
+            </div>
+
+            <div className="rounded-xl border border-amber-400/20 bg-amber-500/[0.08] px-3 py-2 text-xs leading-relaxed text-amber-100/80">
+                NOAA ETOPO global relief is roughly 1.8 km resolution here: coarse planning guidance, not a navigation
+                clearance. Shoals and islands smaller than a grid cell may be absent. Verify the displayed route against
+                current official charts, notices, tides, and observed depth before departure.
+                {data.routeSource === 'fallback' && (
+                    <span className="mt-1 block font-bold text-amber-200">
+                        The displayed route geometry was unavailable, so these samples follow the fallback waypoint line
+                        only.
+                    </span>
+                )}
             </div>
 
             {/* Visual Depth Profile Bar */}

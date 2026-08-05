@@ -46,4 +46,13 @@ describe('native browser dialog removal contract', () => {
         expect(enc).toContain('role="alert"');
         expect(enc).toContain('urlInstallInFlight.current');
     });
+
+    it('uses only the supported app-settings route and gives the manual Music path', () => {
+        const calypso = source('components/settings/CalypsoIntegrationsTab.tsx');
+
+        expect(calypso).toContain("window.location.href = 'app-settings:'");
+        expect(calypso).not.toContain('App-Prefs:');
+        expect(calypso).toContain('iOS does not offer apps a supported direct link');
+        expect(calypso).toContain('iOS Settings → Apps → Music → Audio');
+    });
 });

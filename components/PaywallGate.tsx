@@ -17,7 +17,7 @@
 
 import React from 'react';
 import { useEntitlement } from '../hooks/useEntitlement';
-import { TIER_INFO, requiredTier, type Feature } from '../services/SubscriptionService';
+import { PUBLIC_BETA_ACCESS, TIER_INFO, requiredTier, type Feature } from '../services/SubscriptionService';
 import { DiamondIcon, LockIcon } from './Icons';
 
 interface PaywallGateProps {
@@ -47,7 +47,7 @@ const DEFAULT_COPY: Partial<Record<Feature, { title: string; subtitle: string }>
 
 export const PaywallGate: React.FC<PaywallGateProps> = ({ feature, onUpgrade, title, subtitle, onBack, children }) => {
     const entitled = useEntitlement(feature);
-    if (entitled) return <>{children}</>;
+    if (PUBLIC_BETA_ACCESS.enabled || entitled) return <>{children}</>;
 
     const copy = DEFAULT_COPY[feature] ?? {
         title: 'Premium Feature',
@@ -107,7 +107,7 @@ export const PaywallGate: React.FC<PaywallGateProps> = ({ feature, onUpgrade, ti
                 </button>
             )}
 
-            <p className="text-[11px] text-gray-400 mt-8">7-day free trial · cancel anytime</p>
+            <p className="text-[11px] text-gray-400 mt-8">Access requires a verified store entitlement.</p>
         </div>
     );
 };

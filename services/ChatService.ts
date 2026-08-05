@@ -18,6 +18,7 @@
  */
 
 import { createLogger } from '../utils/createLogger';
+import { boundedLocalQuarantine } from '../utils/localPrivacyRetention';
 import { supabase } from './supabase';
 import { Preferences } from '@capacitor/preferences';
 import { isAuthRetryableFetchError, type RealtimeChannel, type User } from '@supabase/supabase-js';
@@ -1805,21 +1806,27 @@ class ChatServiceClass {
         if (value) {
             try {
                 const parsed = JSON.parse(value) as unknown;
-                if (Array.isArray(parsed)) existing = parsed;
+                existing = Array.isArray(parsed) ? parsed : [parsed];
             } catch {
-                existing = [{ unreadable_legacy_payload: value }];
+                existing = [
+                    {
+                        quarantined_at: new Date().toISOString(),
+                        reason: 'unreadable prior chat quarantine',
+                        unreadable_legacy_payload: value,
+                    },
+                ];
             }
         }
+        const retained = boundedLocalQuarantine(existing, [
+            {
+                quarantined_at: new Date().toISOString(),
+                reason: 'missing or ambiguous queue ownership',
+                values,
+            },
+        ]);
         await Preferences.set({
             key: OFFLINE_QUEUE_QUARANTINE_KEY,
-            value: JSON.stringify([
-                ...existing,
-                {
-                    quarantined_at: new Date().toISOString(),
-                    reason: 'missing or ambiguous queue ownership',
-                    values,
-                },
-            ]),
+            value: JSON.stringify(retained),
         });
     }
 

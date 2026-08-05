@@ -5,6 +5,9 @@ import { TelemetryPanel } from './TelemetryPanel';
 interface DiarySidebarProps {
     entries: VoyageLogEntry[];
     telemetry: VoyageLogTelemetry | null;
+    nowMs: number;
+    connectionLost: boolean;
+    lastSuccessfulAt: number | null;
     /** Historical/all-diary views deliberately omit present-tense instruments. */
     showTelemetry?: boolean;
     /** The selected trip's public-facing name. */
@@ -223,6 +226,9 @@ const EntryList: React.FC<{
 export default function DiarySidebar({
     entries,
     telemetry,
+    nowMs,
+    connectionLost,
+    lastSuccessfulAt,
     showTelemetry = true,
     title,
     context,
@@ -237,7 +243,14 @@ export default function DiarySidebar({
             {/* Present-tense instruments only belong beside an active trip.
                 A historical passage and the catch-all diary view must not
                 imply that those readings describe the selected record. */}
-            {showTelemetry && <TelemetryPanel telemetry={telemetry} />}
+            {showTelemetry && (
+                <TelemetryPanel
+                    telemetry={telemetry}
+                    nowMs={nowMs}
+                    connectionLost={connectionLost}
+                    lastSuccessfulAt={lastSuccessfulAt}
+                />
+            )}
             {selectedEntry ? (
                 <EntryDetail entry={selectedEntry} onBack={onClearSelection} onPhotoClick={onPhotoClick} />
             ) : (

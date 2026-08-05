@@ -36,6 +36,7 @@ import { triggerHaptic } from '../../utils/system';
 import { PassageBanner } from './PassageBanner';
 import { CompassRoseOverlay } from './CompassRoseOverlay';
 import { ZoomLevelFab } from './ZoomLevelFab';
+import { MapBaseSelector, mapBaseVisibility, type MapBaseKind } from './MapBaseSelector';
 import { ObsLayerLoadingPill } from './ObsLayerLoadingPill';
 import { RouteEnhancementChip } from '../passage/RouteEnhancementChip';
 import { GpsService } from '../../services/GpsService';
@@ -76,13 +77,24 @@ import { useMapHubLayerVisibility } from './useMapHubLayerVisibility';
 import { useAnchorageLayer } from './useAnchorageLayer';
 import { useNoticeLayer } from './useNoticeLayer';
 import { useLightningLayer } from './useLightningLayer';
-import { useOceanCurrentParticleLayer, isCmemsCurrentsEnabled } from './useOceanCurrentParticleLayer';
+import { useOceanCurrentParticleLayer } from './useOceanCurrentParticleLayer';
 import { useOceanWaveParticleLayer } from './useOceanWaveParticleLayer';
 import { useSstRasterLayer } from './useSstRasterLayer';
 import { useChlRasterLayer } from './useChlRasterLayer';
 import { useSeaIceRasterLayer } from './useSeaIceRasterLayer';
 import { useMldRasterLayer } from './useMldRasterLayer';
-import { useMpaLayer } from './useMpaLayer';
+import { isCmemsFeatureEnabled } from './cmemsFeatureAvailability';
+import type { CmemsLayerId } from './CmemsAttribution';
+import {
+    CMEMS_SCALAR_DWELL_MS,
+    CMEMS_VECTOR_DWELL_MS,
+    isCmemsStepPresented,
+    type CmemsPlaybackConfig,
+    useCmemsAutoplay,
+    useCmemsFailureBoundary,
+} from './useCmemsPlayback';
+import type { CmemsLayerLoadState } from './useCmemsGridRefresh';
+import { isMpaEnabled, useMpaLayer } from './useMpaLayer';
 import { useEncVectorLayer } from './useEncVectorLayer';
 // Aliased: MapHub's own `setEncChartDetail` is the persisted-state setter.
 import {
@@ -152,6 +164,11 @@ import {
     type AuthIdentityScope,
 } from '../../services/authIdentityScope';
 import { setEncHydrationPaused } from '../../services/enc/EncHazardService';
+import {
+    getRegistryFingerprint as getEncRegistryFingerprint,
+    getVersion as getEncRegistryVersion,
+} from '../../services/enc/EncCellMetadata';
+import { evaluateTraceRelease } from '../../services/traceVerification';
 import { useEncChartInventory } from './useEncChartInventory';
 import { DETAIL_SCRUB_MAX, applyChartDetailLevel, isScrubHidden } from './encDetailScrubber';
 import { PinDirectionsCta } from './PinDirectionsCta';
@@ -305,6 +322,7 @@ export const MapHub: React.FC<MapHubProps> = ({
     cleanPlanningMap = false,
     center,
     pickerMode = false,
+    pickerLabel,
     hideTracer = false,
 }) => {
     // ── Foundations ──
@@ -988,8 +1006,30 @@ export const MapHub: React.FC<MapHubProps> = ({
         );
     }, [legSplitPoints, splitPointCount, clearTraceSelection, flashTraceFeedback, setCapturedCoords]);
 
+    const getTraceReleaseGate = useCallback(
+        () =>
+            evaluateTraceRelease(capturedCoords, tracerStatus, legVerdicts, ackedLegs, {
+                draftM: vesselDraftMetres(settings.vessel),
+                draftAssumed: vesselDraftIsAssumed(settings.vessel),
+                encRegistryVersion: getEncRegistryVersion(),
+                encRegistryFingerprint: getEncRegistryFingerprint(),
+                departureMs: departureMs ?? Date.now(),
+                tideWindowLabel: departureLabel,
+            }),
+        [capturedCoords, tracerStatus, legVerdicts, ackedLegs, settings.vessel, departureMs, departureLabel],
+    );
+    const traceReleaseGate = getTraceReleaseGate();
+
     const saveCurrentTrace = useCallback(() => {
         if (capturedCoords.length < 2) return;
+        const release = getTraceReleaseGate();
+        if (!release.allowed || !release.verification) {
+            triggerHaptic('heavy');
+            flashTraceFeedback(release.reason || 'Check the route again before saving');
+            if (traceHealth(legVerdicts).danger > 0) setShowReport(true);
+            return;
+        }
+        const verification = release.verification;
         // No name, no save (Shane 2026-07-15) — the date-stamped fallback
         // bred anonymous "Trace 15/07/2026" rows nobody could tell apart.
         // Prompt and put the cursor in the box instead.
@@ -1030,6 +1070,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                       destName: destNameFromRouteName(finalName) ?? undefined,
                   }
                 : {}),
+            verification,
         });
         // The trip becomes REAL at leg 2's save: leg 1 retro-earns its
         // "(1st Leg)" badge + chain fields (Shane's call: retro, not
@@ -1083,14 +1124,12 @@ export const MapHub: React.FC<MapHubProps> = ({
                         import('../../services/shiplog/PassagePlanSave'),
                         import('../../utils/deadline'),
                     ]);
-                    const plan = traceAsVoyagePlan(
-                        finalName,
-                        capturedCoords,
-                        legVerdicts.length === capturedCoords.length - 1 && legVerdicts.every((v) => v !== null)
-                            ? legVerdicts.map((v) => v!.grade)
-                            : undefined,
-                    );
-                    const mirrorSave = savePassagePlanToLogbookWithLinks(plan, { savedRouteId: trace.id });
+                    const plan = traceAsVoyagePlan(finalName, capturedCoords, verification.legGrades, verification);
+                    const mirrorSave = savePassagePlanToLogbookWithLinks(plan, {
+                        savedRouteId: trace.id,
+                        ...(trace.passageVoyageId ? { existingPassageVoyageId: trace.passageVoyageId } : {}),
+                        ...(trace.plannedRouteId ? { existingPlannedRouteId: trace.plannedRouteId } : {}),
+                    });
                     const reconcileMirror = async (saved: Awaited<typeof mirrorSave>): Promise<void> => {
                         if (!isAuthIdentityScopeCurrent(saveScope) || !saved) return;
                         // The mirror has now returned immutable ids. Attach
@@ -1140,6 +1179,7 @@ export const MapHub: React.FC<MapHubProps> = ({
         savedTraces,
         overwriteArm,
         legVerdicts,
+        getTraceReleaseGate,
         flashTraceFeedback,
         resetTraceHistory,
         setTraceName,
@@ -1190,15 +1230,21 @@ export const MapHub: React.FC<MapHubProps> = ({
     }, [capturedCoords, traceName, flashTraceFeedback]);
     const sailTrace = useCallback(async () => {
         if (capturedCoords.length < 2 || sailBusyRef.current) return;
+        const release = getTraceReleaseGate();
+        if (!release.allowed || !release.verification) {
+            triggerHaptic('heavy');
+            flashTraceFeedback(release.reason || 'Check the route again before sailing');
+            if (traceHealth(legVerdicts).danger > 0) setShowReport(true);
+            return;
+        }
+        if (release.verification.draftAssumed) {
+            triggerHaptic('heavy');
+            flashTraceFeedback('Set and confirm your vessel draft before following this route');
+            return;
+        }
         sailBusyRef.current = true;
         triggerHaptic('medium');
-        const plan = traceAsVoyagePlan(
-            traceName,
-            capturedCoords,
-            legVerdicts.length === capturedCoords.length - 1 && legVerdicts.every((v) => v !== null)
-                ? legVerdicts.map((v) => v!.grade)
-                : undefined,
-        );
+        const plan = traceAsVoyagePlan(traceName, capturedCoords, release.verification.legGrades, release.verification);
         // FOLLOW FIRST — it's synchronous/local and it's the thing the skipper
         // actually needs. The logbook save used to run ahead of it: four
         // sequential network awaits with no visible feedback, and CapacitorHttp
@@ -1242,7 +1288,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                 sailBusyRef.current = false;
             }
         })();
-    }, [capturedCoords, traceName, legVerdicts, flashTraceFeedback]);
+    }, [capturedCoords, traceName, legVerdicts, flashTraceFeedback, getTraceReleaseGate]);
     // ── Route report: Fix-this-leg + Acknowledge (Phase 3) ──
     // The splice half lives in components/map/useTracerLegFixes.ts.
     const { onFixLeg, onFixAll } = useTracerLegFixes({
@@ -1711,7 +1757,11 @@ export const MapHub: React.FC<MapHubProps> = ({
     // was the safe pilot for breaking this file up. Called exactly where the
     // state used to be declared: below mapReady, above chokepointVisible, so
     // hook order is unchanged.
-    const { encCellCount, encHydration, encNoCoverage } = useEncChartInventory(mapRef, mapReady, encVisible);
+    const { encCellCount, encReferenceCellCount, encHydration, encNoCoverage } = useEncChartInventory(
+        mapRef,
+        mapReady,
+        encVisible,
+    );
     // Satellite BASE imagery (Esri World Imagery raster under every custom
     // layer — routes/seamarks/weather render on top). Owner ask 2026-07-03:
     // "satellite overlay instead of the enc overlay when running a route".
@@ -1748,33 +1798,28 @@ export const MapHub: React.FC<MapHubProps> = ({
     // Session-only, never persisted, so this is a default and not a setting
     // that can haunt a later boot.
     //
-    // PINNED 2026-07-22 with the removal of the ChartModes dropdown, which
-    // held the ONLY base switcher. These three can no longer change, so they
-    // are constants rather than state nothing can write — the same call made
-    // for encVisible and encChartDetail above.
-    //
-    // CONSEQUENCE, stated plainly: plain satellite and the MapTiler ocean
-    // base are now unreachable. Only hybrid renders. Restoring a switcher is
-    // small — put these three back as useState and give them a control in the
-    // same commit — but until then do not add code that reads them expecting
-    // either to be true.
-    const satelliteVisible = false;
+    // The old ChartModes dropdown was removed in July and accidentally took
+    // the only base-map writer with it, leaving Satellite and Ocean as dead
+    // constants. Keep this choice session-only (no stale base haunting a later
+    // boot), but make all three supported rasters reachable through the small
+    // MapBaseSelector on the browsing chart.
+    const [mapBase, setMapBase] = useState<MapBaseKind>('hybrid');
+    const baseVisibility = mapBaseVisibility(mapBase);
+    const satelliteVisible = baseVisibility.satellite;
     // Chart-declutter scrubber (Shane 2026-07-14): 0 = full chart, 6 =
     // near-bare. Session-only; encDetailScrubber owns which furniture
     // each step removes (safety layers are untouchable there).
     const [declutter, setDeclutter] = useState(0);
     // Hybrid base (Shane 2026-07-15): the PUBLIC voyage-page look —
     // satellite-streets, imagery with roads + names. Session-only,
-    // mutually exclusive with satellite via the ChartModes setters, and
+    // mutually exclusive with satellite via MapBaseSelector, and
     // it gets the FULL satellite ENC treatment (glaze, hidden land
     // fills, bathy tint) via imageryOn below.
     // HYBRID BOOTS ON as of 2026-07-22 — this is the boot base (see the
     // satelliteVisible declaration above for the full history). The two
-    // imagery bases are mutually exclusive via the ChartModes setters, so
-    // satellite starting false is what lets hybrid be the one that shows;
-    // these two initialisers must always disagree. Plain satellite stays one
-    // tap away on the base toggle. Session-only.
-    const hybridVisibleRaw = true;
+    // The visibility projection keeps all three bases mutually exclusive.
+    // Plain satellite and bathymetric Ocean stay one tap away. Session-only.
+    const hybridVisibleRaw = baseVisibility.hybrid;
     // OCEAN BASE (Shane 2026-07-19: "we used to have one that had a bit of
     // bathymetry with it" → make it its own base). The MapTiler Ocean raster has
     // always existed, but only as a 0.45 tint ON TOP of satellite. As a BASE it
@@ -1785,7 +1830,7 @@ export const MapHub: React.FC<MapHubProps> = ({
     // the opaque land fills stand down. Without that the 0.95-opaque DEPARE ramp
     // would paint straight over the bathymetry and the base would be invisible,
     // which is the whole reason for choosing it. Session-only, like the others.
-    const oceanBaseVisible = false;
+    const oceanBaseVisible = baseVisibility.ocean;
     // PER-SURFACE base (Shane 2026-07-17: "changing the layer on the chart page
     // also changed the planning page — I've lost all my zoom 10 whites in the
     // water"). The browsing chart and the plotting surface are the SAME map, so
@@ -2276,7 +2321,7 @@ export const MapHub: React.FC<MapHubProps> = ({
         setShowReport(false);
         setShowTideAck(false);
         setShowConsensus(false);
-    }, [pickerMode, setShowTideAck]);
+    }, [pickerMode, setShowConsensus, setShowTideAck, setStormPickerOpen]);
 
     /** Active Voyage Mode flag — mirrored from the voyages cache. When
      *  true, the chart auto-displays the boat's GPS position, the live
@@ -2627,7 +2672,7 @@ export const MapHub: React.FC<MapHubProps> = ({
         vesselSearchMarkerRef.current?.remove();
         vesselSearchMarkerRef.current = null;
         closeWeatherInspect();
-    }, [planningSurface, setShowTideAck, closeWeatherInspect]);
+    }, [planningSurface, setShowConsensus, setShowTideAck, setStormPickerOpen, closeWeatherInspect]);
 
     // ── Map Init ──
     const { dropPin } = useMapInit({
@@ -3141,7 +3186,7 @@ export const MapHub: React.FC<MapHubProps> = ({
     // no-ops and the existing Xweather raster-currents tile layer renders
     // instead (managed by useWeatherLayers via the 'currents' WeatherLayer).
     const currentsVisible = weather.activeLayers.has('currents');
-    useOceanCurrentParticleLayer(mapRef, mapReady, currentsVisible, weather.currentsHour);
+    const currentsLoadState = useOceanCurrentParticleLayer(mapRef, mapReady, currentsVisible, weather.currentsHour);
 
     // ── Ocean Waves (CMEMS WAM forecast via the particle-layer engine) ──
     // Same pattern as currents: gated by VITE_CMEMS_WAVES_ENABLED, pulls
@@ -3149,39 +3194,159 @@ export const MapHub: React.FC<MapHubProps> = ({
     // flag is on. Waves use their own scrubber step (3-hourly, 17 frames)
     // separate from currents' 13-hourly.
     const wavesVisible = weather.activeLayers.has('waves');
-    useOceanWaveParticleLayer(mapRef, mapReady, wavesVisible, weather.wavesHour);
+    const wavesLoadState = useOceanWaveParticleLayer(mapRef, mapReady, wavesVisible, weather.wavesHour);
 
     // ── Sea-surface temperature (CMEMS daily P1D-m raster heatmap) ──
     // Scalar field — no particles. Gated by VITE_CMEMS_SST_ENABLED.
     // 5-day forecast, daily cadence = 5 scrubber steps.
     const sstVisible = weather.activeLayers.has('sst');
-    useSstRasterLayer(mapRef, mapReady, sstVisible, weather.sstStep);
+    const sstLoadState = useSstRasterLayer(mapRef, mapReady, sstVisible, weather.sstStep);
 
     // ── Chlorophyll (CMEMS BGC daily raster heatmap) ──
     // Scalar field like SST. Net-new — no Xweather fallback. Gated by
     // VITE_CMEMS_CHL_ENABLED. Daily cadence, 5-day forecast.
     const chlVisible = weather.activeLayers.has('chl');
-    useChlRasterLayer(mapRef, mapReady, chlVisible, weather.chlStep);
+    const chlLoadState = useChlRasterLayer(mapRef, mapReady, chlVisible, weather.chlStep);
 
     // ── Sea-ice concentration (CMEMS physics daily raster heatmap) ──
     // Scalar field. Polar-only by definition (shader discards <15%).
     // Net-new — unlocks high-latitude routing (Baltic winter, Alaska,
     // Svalbard, Antarctic). Gated by VITE_CMEMS_SEAICE_ENABLED.
     const seaiceVisible = weather.activeLayers.has('seaice');
-    useSeaIceRasterLayer(mapRef, mapReady, seaiceVisible, weather.seaiceStep);
+    const seaiceLoadState = useSeaIceRasterLayer(mapRef, mapReady, seaiceVisible, weather.seaiceStep);
 
     // ── Mixed-layer depth (CMEMS physics daily raster heatmap) ──
     // Scalar field log-encoded over [1m, 1000m]. Plasma ramp.
     // Niche — relevant to thermocline-tracking deep-sea fishers and
     // ocean modellers. Gated by VITE_CMEMS_MLD_ENABLED.
     const mldVisible = weather.activeLayers.has('mld');
-    useMldRasterLayer(mapRef, mapReady, mldVisible, weather.mldStep);
+    const mldLoadState = useMldRasterLayer(mapRef, mapReady, mldVisible, weather.mldStep);
+
+    const cmemsLayerStates: Record<CmemsLayerId, CmemsLayerLoadState> = {
+        currents: currentsLoadState,
+        waves: wavesLoadState,
+        sst: sstLoadState,
+        chl: chlLoadState,
+        seaice: seaiceLoadState,
+        mld: mldLoadState,
+    };
+    let activeCmemsPlayback: CmemsPlaybackConfig | null = null;
+    if (currentsVisible && isCmemsFeatureEnabled('currents')) {
+        activeCmemsPlayback = {
+            layer: 'currents',
+            label: 'Currents',
+            visible: true,
+            playing: weather.currentsPlaying,
+            step: weather.currentsHour,
+            totalSteps: weather.currentsTotalHours,
+            dwellMs: CMEMS_VECTOR_DWELL_MS,
+            status: currentsLoadState,
+            setStep: weather.setCurrentsHour,
+            setPlaying: weather.setCurrentsPlaying,
+            setLayerVisibility: weather.setLayerVisibility,
+        };
+    } else if (wavesVisible && isCmemsFeatureEnabled('waves')) {
+        activeCmemsPlayback = {
+            layer: 'waves',
+            label: 'Waves',
+            visible: true,
+            playing: weather.wavesPlaying,
+            step: weather.wavesHour,
+            totalSteps: weather.wavesTotalHours,
+            dwellMs: CMEMS_VECTOR_DWELL_MS,
+            status: wavesLoadState,
+            setStep: weather.setWavesHour,
+            setPlaying: weather.setWavesPlaying,
+            setLayerVisibility: weather.setLayerVisibility,
+        };
+    } else if (sstVisible && isCmemsFeatureEnabled('sst')) {
+        activeCmemsPlayback = {
+            layer: 'sst',
+            label: 'Sea temperature',
+            visible: true,
+            playing: weather.sstPlaying,
+            step: weather.sstStep,
+            totalSteps: weather.sstTotalSteps,
+            dwellMs: CMEMS_SCALAR_DWELL_MS,
+            status: sstLoadState,
+            setStep: weather.setSstStep,
+            setPlaying: weather.setSstPlaying,
+            setLayerVisibility: weather.setLayerVisibility,
+        };
+    } else if (chlVisible && isCmemsFeatureEnabled('chl')) {
+        activeCmemsPlayback = {
+            layer: 'chl',
+            label: 'Chlorophyll',
+            visible: true,
+            playing: weather.chlPlaying,
+            step: weather.chlStep,
+            totalSteps: weather.chlTotalSteps,
+            dwellMs: CMEMS_SCALAR_DWELL_MS,
+            status: chlLoadState,
+            setStep: weather.setChlStep,
+            setPlaying: weather.setChlPlaying,
+            setLayerVisibility: weather.setLayerVisibility,
+        };
+    } else if (seaiceVisible && isCmemsFeatureEnabled('seaice')) {
+        activeCmemsPlayback = {
+            layer: 'seaice',
+            label: 'Sea ice',
+            visible: true,
+            playing: weather.seaicePlaying,
+            step: weather.seaiceStep,
+            totalSteps: weather.seaiceTotalSteps,
+            dwellMs: CMEMS_SCALAR_DWELL_MS,
+            status: seaiceLoadState,
+            setStep: weather.setSeaiceStep,
+            setPlaying: weather.setSeaicePlaying,
+            setLayerVisibility: weather.setLayerVisibility,
+        };
+    } else if (mldVisible && isCmemsFeatureEnabled('mld')) {
+        activeCmemsPlayback = {
+            layer: 'mld',
+            label: 'Mixed-layer depth',
+            visible: true,
+            playing: weather.mldPlaying,
+            step: weather.mldStep,
+            totalSteps: weather.mldTotalSteps,
+            dwellMs: CMEMS_SCALAR_DWELL_MS,
+            status: mldLoadState,
+            setStep: weather.setMldStep,
+            setPlaying: weather.setMldPlaying,
+            setLayerVisibility: weather.setLayerVisibility,
+        };
+    }
+    useCmemsAutoplay(activeCmemsPlayback);
+    useCmemsFailureBoundary(activeCmemsPlayback);
+
+    // Attribute the CMEMS products that are actually rendering. The feature
+    // helpers mirror each layer hook's own gate, so a legacy fallback never
+    // gets incorrectly labelled as Copernicus Marine data.
+    const cmemsAttributionLayers: CmemsLayerId[] = [];
+    if (isCmemsStepPresented(currentsLoadState)) {
+        cmemsAttributionLayers.push('currents');
+    }
+    if (isCmemsStepPresented(wavesLoadState)) {
+        cmemsAttributionLayers.push('waves');
+    }
+    if (isCmemsStepPresented(sstLoadState)) {
+        cmemsAttributionLayers.push('sst');
+    }
+    if (isCmemsStepPresented(chlLoadState)) {
+        cmemsAttributionLayers.push('chl');
+    }
+    if (isCmemsStepPresented(seaiceLoadState)) {
+        cmemsAttributionLayers.push('seaice');
+    }
+    if (isCmemsStepPresented(mldLoadState)) {
+        cmemsAttributionLayers.push('mld');
+    }
 
     // ── Marine Protected Areas (CAPAD GeoJSON overlay) ──
-    // Independent toggle — co-exists with any weather layer because
-    // "where can I fish?" is orthogonal to "what's the weather doing?".
+    // Independent protected-area context toggle. CAPAD boundaries do not
+    // determine whether entry, anchoring, fishing or another activity is legal.
     // Gated by VITE_MPA_ENABLED.
-    useMpaLayer(mapRef, mapReady, weather.mpaVisible && !planningSurface);
+    useMpaLayer(mapRef, mapReady, weather.mpaVisible && !planningSurface, weather.setMpaVisible);
 
     // ── ENC Chart Coverage (dashed bbox overview) ──
     // ENC coverage overlay RETIRED from auto-mount (Shane 2026-07-12:
@@ -3411,6 +3576,21 @@ export const MapHub: React.FC<MapHubProps> = ({
             <div className={`relative ${isHelmSplit ? 'flex-[7] h-full' : 'w-full h-full'}`}>
                 <div ref={containerRef} className="w-full h-full" />
 
+                {pickerMode && (
+                    <div
+                        role="status"
+                        aria-live="polite"
+                        className="pointer-events-none absolute left-1/2 top-[max(12px,env(safe-area-inset-top))] z-[720] w-[min(420px,calc(100%-112px))] -translate-x-1/2 rounded-2xl border border-sky-400/30 bg-slate-950/92 px-4 py-3 text-center shadow-2xl backdrop-blur-xl"
+                    >
+                        <p className="text-sm font-black text-white">
+                            {pickerLabel || 'Tap the chart to choose a location'}
+                        </p>
+                        <p className="mt-1 text-xs text-sky-200/80">
+                            Your tap is marked and saved immediately. Use Back to cancel.
+                        </p>
+                    </div>
+                )}
+
                 {/* Pin bounce + location pulse animations moved to index.css */}
 
                 {/* PIN VIEW BACK BUTTON removed — there's already a
@@ -3445,6 +3625,15 @@ export const MapHub: React.FC<MapHubProps> = ({
                     FAB top-right position (top:56px right:16px in
                     App.tsx). Visible in pin-view too. */}
                 {!pickerMode && <ZoomLevelFab mapRef={mapRef} mapReady={mapReady} />}
+
+                {/* Visual raster beneath the ENC stack. Satellite and Ocean
+                    used to be wired map layers with no remaining control;
+                    this restores an explicit, session-only way to reach them. */}
+                <MapBaseSelector
+                    visible={!planningSurface && !embedded && !pickerMode && !isPinView}
+                    value={mapBase}
+                    onChange={setMapBase}
+                />
 
                 {/* ═══ VELOCITY WIND OVERLAY ═══ */}
                 {/* Hidden while plotting: wind particles animate straight over
@@ -3542,9 +3731,9 @@ export const MapHub: React.FC<MapHubProps> = ({
                             setPage,
                         })}
                         chartsState={{
-                            // Compose chart sources from AvNav (o-charts) + free chart
-                            // catalog + local MBTiles + Routes + Tracks so all chart
-                            // toggles live in the radial menu's 4th category.
+                            // Compose optional chart sources plus Routes + Tracks in
+                            // the radial menu's fourth category. RadialHelmMenu names
+                            // that category from what is actually present.
                             // RE-THOUGHT 2026-08-03 (Shane, hours after the always-on
                             // follow-route line left OBS: "maybe we should have a toggle
                             // switch layer for routes… so a punter could select a track
@@ -3556,9 +3745,25 @@ export const MapHub: React.FC<MapHubProps> = ({
                             // NOAA / ECDIS / local) stays PARKED behind
                             // CHARTS_FAB_CATEGORY_VISIBLE (Shane 2026-07-17: the boat's
                             // own ENC/o-charts load automatically by zoom; those pickers
-                            // are niche). Non-empty sources ⇒ the "Charts" button is
-                            // back on the radial fan.
+                            // are niche). Without optional overlays the fan says
+                            // "Routes"; with feature-gated MPA context the mixed
+                            // category says "Map", never "Charts".
                             sources: [
+                                // CAPAD protected-area context belongs with map
+                                // overlays, not the tactical danger menu. Its
+                                // popup remains explicitly indicative and
+                                // requires users to verify current rules.
+                                ...(isMpaEnabled()
+                                    ? [
+                                          {
+                                              id: 'mpa',
+                                              label: 'MPAs',
+                                              iconKind: 'generic' as const,
+                                              enabled: weather.mpaVisible,
+                                              onToggle: () => weather.setMpaVisible(!weather.mpaVisible),
+                                          },
+                                      ]
+                                    : []),
                                 // Routes — picker for saved planned passages from
                                 // the ships log. Tap opens a sheet listing them;
                                 // selection draws the route as a violet dashed line
@@ -3725,7 +3930,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                         // left to clear the Locate FAB, a centred card sat off-axis
                         // from it. Same left-3, same w-72 — card directly above
                         // scrubber, one column, nothing near the corner FABs.
-                        className="absolute left-3 z-[9995]"
+                        className="map-tracer-panel absolute left-3 z-[9995]"
                         // OPEN card sits ABOVE the detail scrubber (bottom 5.4rem,
                         // ~2.2rem tall) — it used to overlap it by ~24 px (Shane
                         // 2026-07-17). MINIMISED it lifts a further 2rem so the
@@ -3798,7 +4003,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                             // scrolling while Save/Report/Depart stay pinned. FOLDED:
                             // no height — the card collapses to its header strip.
                             <div
-                                className={`flex w-72 flex-col overflow-hidden rounded-2xl border border-amber-500/30 bg-slate-900/95 shadow-2xl ${
+                                className={`map-tracer-card flex w-72 flex-col overflow-hidden rounded-2xl border border-amber-500/30 bg-slate-900/95 shadow-2xl ${
                                     panelFolded ? '' : 'h-full'
                                 }`}
                             >
@@ -3901,9 +4106,10 @@ export const MapHub: React.FC<MapHubProps> = ({
                                 bug 2026-07-09: a 12.0 m keel turned every leg
                                 into "needs +12.5 m tide" in deep water — draft
                                 had been saved through the wrong unit toggle). */}
-                                        {!(Number(settings.vessel?.draft) > 0) ? (
+                                        {vesselDraftIsAssumed(settings.vessel) ? (
                                             <div className="border-b border-white/10 px-3 py-1.5 text-[10px] font-bold text-amber-400">
-                                                ⚠ Default 2.5 m draft — set your vessel for real depth checks.
+                                                ⚠ Assumed {vesselDraftMetres(settings.vessel).toFixed(1)} m draft —
+                                                confirm Draft in Settings → Vessel before following or Cast Off.
                                             </div>
                                         ) : vesselDraftMetres(settings.vessel) > 6 ? (
                                             <div className="border-b border-white/10 px-3 py-1.5 text-[10px] font-bold text-amber-400">
@@ -4259,7 +4465,12 @@ export const MapHub: React.FC<MapHubProps> = ({
                                             <div className="flex gap-1.5">
                                                 <button
                                                     onClick={saveCurrentTrace}
-                                                    disabled={capturedCoords.length < 2}
+                                                    disabled={capturedCoords.length < 2 || !traceReleaseGate.allowed}
+                                                    title={
+                                                        traceReleaseGate.allowed
+                                                            ? 'Save this checked route'
+                                                            : traceReleaseGate.reason
+                                                    }
                                                     className={`flex-1 rounded-lg py-1.5 text-[11px] font-black uppercase tracking-wide active:scale-95 disabled:opacity-40 ${
                                                         overwriteArm
                                                             ? 'bg-red-500/25 text-red-300'
@@ -4302,7 +4513,10 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                                     setSailArmed(false);
                                                                     void sailTrace();
                                                                 }}
-                                                                disabled={capturedCoords.length < 2}
+                                                                disabled={
+                                                                    capturedCoords.length < 2 ||
+                                                                    traceReleaseGate.verification?.draftAssumed === true
+                                                                }
                                                                 className={`flex-1 rounded-lg py-1.5 text-[11px] font-black uppercase tracking-wide active:scale-95 disabled:opacity-40 ${
                                                                     hasDanger
                                                                         ? 'bg-red-500/25 text-red-300'
@@ -4318,6 +4532,20 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                         );
                                                     })()}
                                             </div>
+                                            {capturedCoords.length >= 2 && !traceReleaseGate.allowed && (
+                                                <div
+                                                    role="status"
+                                                    className="rounded-lg border border-amber-500/20 bg-amber-500/10 px-2 py-1.5 text-[10px] font-bold leading-snug text-amber-200"
+                                                >
+                                                    Route not ready to save, export or sail: {traceReleaseGate.reason}
+                                                </div>
+                                            )}
+                                            {traceReleaseGate.verification?.result === 'danger-acknowledged' && (
+                                                <div className="rounded-lg border border-red-500/20 bg-red-500/10 px-2 py-1.5 text-[10px] font-black leading-snug text-red-200">
+                                                    Checked route includes explicitly acknowledged no-go legs. That
+                                                    warning travels with the saved/exported route.
+                                                </div>
+                                            )}
                                             {TRACER_CARD_LIBRARY_VISIBLE && (
                                                 <button
                                                     onClick={() => void pasteTrace()}
@@ -4516,6 +4744,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                             tideLabels={tideLabels}
                             departureLabel={departureLabel}
                             ackedLegs={ackedLegs}
+                            releaseGate={traceReleaseGate}
                             fixBusy={fixBusyLeg}
                             vesselName={settings.vessel?.name}
                             draftM={vesselDraftMetres(settings.vessel)}
@@ -4558,12 +4787,15 @@ export const MapHub: React.FC<MapHubProps> = ({
                     onTideScrubChange={setTideScrubQ}
                     onToggleTideDepth={onToggleTideDepth}
                     encCellCount={encCellCount}
+                    encReferenceCellCount={encReferenceCellCount}
                     encVisible={encVisible}
                     encHydration={encHydration}
                     encNoCoverage={encNoCoverage}
+                    referenceNoticeVisible={!embedded && !pickerMode && !isPinView}
                     nightDim={nightDim}
                     onNightDimChange={setNightDim}
                     onToggleChartKey={() => setChartKeyOpen((open) => !open)}
+                    onOpenEncLibrary={() => setPage('encLibrary')}
                 />
                 <Suspense fallback={null}>
                     <ChartKeyPanel
@@ -4793,9 +5025,9 @@ export const MapHub: React.FC<MapHubProps> = ({
                     {!planningSurface && !embedded && !pickerMode && !isPinView && (
                         <AisLegend visible={browseAisVisible} />
                     )}
-                    {isCmemsCurrentsEnabled() && (
+                    {cmemsAttributionLayers.length > 0 && (
                         <React.Suspense fallback={null}>
-                            <CmemsAttribution visible={!pickerMode && currentsVisible} />
+                            <CmemsAttribution layers={cmemsAttributionLayers} embedded={embedded} />
                         </React.Suspense>
                     )}
 
@@ -4877,55 +5109,53 @@ export const MapHub: React.FC<MapHubProps> = ({
                 </Suspense>
 
                 {/* ═══ OFFLINE AREA DOWNLOAD — FAB + MODAL ═══
-                    The FAB is parked behind OFFLINE_AREA_FAB_VISIBLE while
-                    the modal remains wired for the offline recovery card.
-                    Flip the flag to restore the Chart-page entry point. */}
+                    Parked behind OFFLINE_AREA_FAB_VISIBLE until the selected
+                    provider has an explicit bulk/offline-download licence. */}
                 {!embedded && !pickerMode && !isPinView && !planningSurface && (
                     <>
                         {OFFLINE_AREA_FAB_VISIBLE && (
-                            <button
-                                onClick={() => {
-                                    triggerHaptic('light');
-                                    setShowOfflineArea(true);
-                                }}
-                                // Right-rail column — sits at top-[128px], directly below the
-                                // SysStatus button. Above the Radial Helm FAB (top-[192px]) so
-                                // opening the radial menu doesn't fan upward into the top-center
-                                // mode chip.
-                                className="absolute z-[700] top-[128px] right-[16px] w-12 h-12 rounded-2xl bg-slate-900/90 border border-white/[0.08] flex items-center justify-center shadow-2xl hover:bg-slate-800/90 transition-all active:scale-95"
-                                aria-label="Download offline map area"
-                                title="Download offline area"
-                            >
-                                <svg
-                                    className="w-5 h-5 text-sky-400"
-                                    fill="none"
-                                    viewBox="0 0 24 24"
-                                    stroke="currentColor"
-                                    strokeWidth={1.8}
+                            <>
+                                <button
+                                    onClick={() => {
+                                        triggerHaptic('light');
+                                        setShowOfflineArea(true);
+                                    }}
+                                    // Right-rail column — sits directly below SysStatus and
+                                    // above the Radial Helm FAB.
+                                    className="absolute z-[700] top-[128px] right-[16px] w-12 h-12 rounded-2xl bg-slate-900/90 border border-white/[0.08] flex items-center justify-center shadow-2xl hover:bg-slate-800/90 transition-all active:scale-95"
+                                    aria-label="Download offline map area"
+                                    title="Download offline area"
                                 >
-                                    <path
-                                        strokeLinecap="round"
-                                        strokeLinejoin="round"
-                                        d="M12 3v12m0 0l-4-4m4 4l4-4M4.5 17.25V19.5A1.5 1.5 0 006 21h12a1.5 1.5 0 001.5-1.5v-2.25"
+                                    <svg
+                                        className="w-5 h-5 text-sky-400"
+                                        fill="none"
+                                        viewBox="0 0 24 24"
+                                        stroke="currentColor"
+                                        strokeWidth={1.8}
+                                    >
+                                        <path
+                                            strokeLinecap="round"
+                                            strokeLinejoin="round"
+                                            d="M12 3v12m0 0l-4-4m4 4l4-4M4.5 17.25V19.5A1.5 1.5 0 006 21h12a1.5 1.5 0 001.5-1.5v-2.25"
+                                        />
+                                    </svg>
+                                </button>
+                                <Suspense fallback={null}>
+                                    <OfflineAreaModal
+                                        isOpen={showOfflineArea}
+                                        onClose={() => setShowOfflineArea(false)}
+                                        map={mapRef.current}
                                     />
-                                </svg>
-                            </button>
+                                </Suspense>
+                            </>
                         )}
-                        <Suspense fallback={null}>
-                            <OfflineAreaModal
-                                isOpen={showOfflineArea}
-                                onClose={() => setShowOfflineArea(false)}
-                                map={mapRef.current}
-                            />
-                        </Suspense>
                     </>
                 )}
 
                 {/* ═══ OFFLINE — NO CACHED TILES CARD ═══
                     Shown when the device is offline. Explains why the map
-                    might look blank and offers a one-tap route into the
-                    offline-area download modal (useful if the boat Pi has
-                    internet even when the phone doesn't). */}
+                    might look blank while preserving truthful access to
+                    imported MBTiles, licensed charts and viewed tile cache. */}
                 {!isOnline && !offlineCardDismissed && !embedded && !pickerMode && !isPinView && !planningSurface && (
                     <div className="absolute z-[550] left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[min(320px,calc(100vw-32px))] p-4 rounded-2xl bg-slate-900/95 backdrop-blur-xl border border-white/[0.08] shadow-2xl pointer-events-auto">
                         <div className="flex items-start gap-3">
@@ -4942,7 +5172,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                             <button
                                 onClick={() => setOfflineCardDismissed(true)}
                                 aria-label="Dismiss offline notice"
-                                className="shrink-0 w-6 h-6 rounded-full text-gray-500 hover:text-gray-300 hover:bg-white/[0.06] flex items-center justify-center transition-colors"
+                                className="hit-target-44 shrink-0 w-6 h-6 rounded-full text-gray-500 hover:text-gray-300 hover:bg-white/[0.06] flex items-center justify-center transition-colors"
                             >
                                 <svg
                                     className="w-4 h-4"
@@ -4955,15 +5185,10 @@ export const MapHub: React.FC<MapHubProps> = ({
                                 </svg>
                             </button>
                         </div>
-                        <button
-                            onClick={() => {
-                                setOfflineCardDismissed(true);
-                                setShowOfflineArea(true);
-                            }}
-                            className="mt-3 w-full py-2 rounded-xl text-[11px] font-black uppercase tracking-widest bg-sky-500/15 border border-sky-500/30 text-sky-400 hover:bg-sky-500/25 transition-all active:scale-95"
-                        >
-                            Download This Area
-                        </button>
+                        <p className="mt-3 rounded-xl border border-sky-500/20 bg-sky-500/[0.08] px-3 py-2 text-[11px] leading-relaxed text-sky-200/80">
+                            Offline-area tile downloads are unavailable for this public map source. Imported MBTiles,
+                            licensed charts and previously viewed cached tiles remain available offline.
+                        </p>
                     </div>
                 )}
 
@@ -4972,6 +5197,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                     <RouteLegend
                         visible={passage.showPassage && !!passage.routeAnalysis && !pickerMode && !isPinView}
                         embedded={embedded}
+                        verificationStatus={passage.routeVerification.status}
                     />
                 </Suspense>
 
@@ -5018,18 +5244,20 @@ export const MapHub: React.FC<MapHubProps> = ({
                             // Exit full-screen overlay layers so user returns to base map
                             if (squallVisible) setSquallVisible(false);
                             if (cycloneVisible) setCycloneVisible(false);
-                            GpsService.getCurrentPosition({ staleLimitMs: 30_000, timeoutSec: 10 }).then((pos) => {
-                                if (!pos) return;
-                                const { latitude, longitude } = pos;
-                                const map = mapRef.current;
-                                if (map) {
-                                    map.flyTo({ center: [longitude, latitude], zoom: 12, duration: 1200 });
-                                }
-                                LocationStore.setFromGPS(latitude, longitude);
-                                if (pickerMode) {
-                                    onLocationSelect?.(latitude, longitude);
-                                }
-                            });
+                            GpsService.requestCurrentForegroundPosition({ staleLimitMs: 30_000, timeoutSec: 10 }).then(
+                                (pos) => {
+                                    if (!pos) return;
+                                    const { latitude, longitude } = pos;
+                                    const map = mapRef.current;
+                                    if (map) {
+                                        map.flyTo({ center: [longitude, latitude], zoom: 12, duration: 1200 });
+                                    }
+                                    LocationStore.setFromGPS(latitude, longitude);
+                                    if (pickerMode) {
+                                        onLocationSelect?.(latitude, longitude);
+                                    }
+                                },
+                            );
                         }}
                         onRecenter={() => {
                             if (mapRef.current && weatherCoords) {
@@ -5062,6 +5290,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                     <Suspense fallback={null}>
                         <MapWeatherControls
                             weather={weather}
+                            cmemsLayerStates={cmemsLayerStates}
                             visible
                             embedded={embedded}
                             controlsHidden={chartControlsHidden}

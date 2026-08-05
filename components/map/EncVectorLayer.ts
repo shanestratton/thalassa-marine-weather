@@ -69,6 +69,7 @@ import {
 } from './encPopup';
 import { GebcoDepthService } from '../../services/GebcoDepthService';
 import { mountCautionAreaLayers } from './encCautionMounts';
+import { existingMapLayerIds } from './mapLayerQueries';
 
 export { ENC_VEC_LAYERS, ENC_VEC_SRC } from './encLayerIds';
 import {
@@ -538,7 +539,11 @@ function mountSoundingLabelLayers(
                     'text-padding': ['interpolate', ['linear'], ['zoom'], 12, 2, 14, 1, 16, 0.5],
                     // Shallowest wins collision placement — those are the
                     // numbers a keel actually cares about.
-                    'symbol-sort-key': ['get', '_d'],
+                    'symbol-sort-key': [
+                        '+',
+                        ['case', ['boolean', ['get', '_reference'], false], 100_000, 0],
+                        ['get', '_d'],
+                    ],
                 },
                 paint: {
                     // Drying = khaki ink (pairs with the drying band and the
@@ -586,6 +591,7 @@ function mountSoundingLabelLayers(
                     'text-letter-spacing': 0.18,
                     'text-allow-overlap': false,
                     'text-padding': 6,
+                    'symbol-sort-key': ['case', ['boolean', ['get', '_reference'], false], 1000, 0],
                     // Long names ("North East Channel") wrap rather than
                     // sprawl across half the bay.
                     'text-max-width': 8,
@@ -625,6 +631,7 @@ function mountSoundingLabelLayers(
                     'text-letter-spacing': 0.12,
                     'text-allow-overlap': false,
                     'text-padding': 6,
+                    'symbol-sort-key': ['case', ['boolean', ['get', '_reference'], false], 1000, 0],
                     'text-max-width': 8,
                 },
                 paint: {
@@ -858,9 +865,9 @@ function mountTrackAidLayers(
                     // topmark (2026-07-12 audit). Icon offset is in PIXELS.
                     'icon-offset': [14, -14],
                     'symbol-sort-key': [
-                        '-',
-                        0,
-                        ['coalesce', ['to-number', ['get', 'VALNMR']], ['to-number', ['get', 'valnmr']], 0],
+                        '+',
+                        ['case', ['boolean', ['get', '_reference'], false], 100_000, 0],
+                        ['-', 0, ['coalesce', ['to-number', ['get', 'VALNMR']], ['to-number', ['get', 'valnmr']], 0]],
                     ],
                 },
                 paint: {
@@ -901,6 +908,7 @@ function mountTrackAidLayers(
                     'text-anchor': 'top',
                     'text-max-width': 9,
                     'text-allow-overlap': false,
+                    'symbol-sort-key': ['case', ['boolean', ['get', '_reference'], false], 1000, 0],
                 },
                 paint: {
                     'text-color': '#13242e',
@@ -1919,13 +1927,12 @@ export function encHasClickableFeatureAt(map: mapboxgl.Map, lngLat: { lat: numbe
             [p.x - TAP_PAD_PX, p.y - TAP_PAD_PX],
             [p.x + TAP_PAD_PX, p.y + TAP_PAD_PX],
         ];
-        if (
-            CLICKABLE_POINT_LAYER_IDS.length > 0 &&
-            map.queryRenderedFeatures(box, { layers: CLICKABLE_POINT_LAYER_IDS }).length > 0
-        ) {
+        const pointLayers = existingMapLayerIds(map, CLICKABLE_POINT_LAYER_IDS);
+        if (pointLayers.length > 0 && map.queryRenderedFeatures(box, { layers: pointLayers }).length > 0) {
             return true;
         }
-        return map.queryRenderedFeatures(p, { layers: CLICKABLE_LAYER_IDS }).length > 0;
+        const areaLayers = existingMapLayerIds(map, CLICKABLE_LAYER_IDS);
+        return areaLayers.length > 0 && map.queryRenderedFeatures(p, { layers: areaLayers }).length > 0;
     } catch {
         return false; // style mid-swap — treat as no feature
     }
@@ -2009,10 +2016,8 @@ export function attachEncFeatureClickHandlers(map: mapboxgl.Map): void {
             [e.point.x - TAP_PAD_PX, e.point.y - TAP_PAD_PX],
             [e.point.x + TAP_PAD_PX, e.point.y + TAP_PAD_PX],
         ];
-        const pointHits =
-            CLICKABLE_POINT_LAYER_IDS.length > 0
-                ? map.queryRenderedFeatures(box, { layers: CLICKABLE_POINT_LAYER_IDS })
-                : [];
+        const pointLayers = existingMapLayerIds(map, CLICKABLE_POINT_LAYER_IDS);
+        const pointHits = pointLayers.length > 0 ? map.queryRenderedFeatures(box, { layers: pointLayers }) : [];
         let feat: mapboxgl.GeoJSONFeature | undefined;
         let colocatedLight: Record<string, unknown> | undefined;
         // Caution-area props riding under a water tap — folded into the
@@ -2065,7 +2070,8 @@ export function attachEncFeatureClickHandlers(map: mapboxgl.Map): void {
             }
         } else {
             // Area fills (water, land) answer only an exact-point tap.
-            const areaHits = map.queryRenderedFeatures(e.point, { layers: CLICKABLE_LAYER_IDS });
+            const areaLayers = existingMapLayerIds(map, CLICKABLE_LAYER_IDS);
+            const areaHits = areaLayers.length > 0 ? map.queryRenderedFeatures(e.point, { layers: areaLayers }) : [];
             // A caution wash must never REPLACE the tap-the-water depth/keel
             // read (audit: over its whole footprint at z11+ the caution popup
             // stole the flagship answer). When charted water lies beneath,

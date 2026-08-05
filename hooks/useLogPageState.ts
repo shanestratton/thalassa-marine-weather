@@ -31,8 +31,6 @@ import {
 } from '../services/shiplog/VoyageTrackCache';
 import { supabase } from '../services/supabase';
 import { voyageHasRecordedFix } from '../services/shiplog/helpers';
-import { BgGeoManager } from '../services/BgGeoManager';
-
 import { useToast } from '../components/Toast';
 import { useSettings } from '../context/SettingsContext';
 import { groupEntriesByDate, filterEntriesByType, searchEntries, mergeRecentEntries } from '../utils/voyageData';
@@ -690,10 +688,6 @@ export function useLogPageState() {
             /* Safety: dismiss spinner after 5s if init hangs (web/no Capacitor) */
             if (mounted) dispatch({ type: 'DONE_LOADING' });
         }, 5000);
-        // Pre-warm GPS plugin on mount — saves 1-2s when user taps Start
-        BgGeoManager.ensureReady().catch((e) => {
-            console.warn(`[useLogPageState]`, e);
-        });
         // ── INSTANT PAINT ───────────────────────────────────────────────
         // Boot the list from the LOCAL summary cache before any network
         // call — the Log appears immediately (online, offline, cold start),
@@ -913,10 +907,20 @@ export function useLogPageState() {
     const handlePauseTracking = useCallback(async () => {
         const actionScope = identityScope;
         if (!isAuthIdentityScopeCurrent(actionScope)) return;
-        await ShipLogService.pauseTracking();
-        if (!isAuthIdentityScopeCurrent(actionScope)) return;
-        dispatch({ type: 'SET_TRACKING', isTracking: false, isPaused: true });
-    }, [dispatch, identityScope]);
+        try {
+            await ShipLogService.pauseTracking();
+            if (!isAuthIdentityScopeCurrent(actionScope)) return;
+            dispatch({ type: 'SET_TRACKING', isTracking: false, isPaused: true });
+        } catch (error) {
+            if (!isAuthIdentityScopeCurrent(actionScope)) return;
+            const status = ShipLogService.getTrackingStatus();
+            dispatch({ type: 'SET_TRACKING', isTracking: status.isTracking, isPaused: status.isPaused });
+            toast.error(
+                getErrorMessage(error) ||
+                    'Voyage is paused, but background GPS is still active. Resume and pause again to retry.',
+            );
+        }
+    }, [dispatch, identityScope, toast]);
 
     const handleToggleRapidMode = useCallback(async () => {
         const actionScope = identityScope;
@@ -960,9 +964,13 @@ export function useLogPageState() {
         } catch (e) {
             if (!isAuthIdentityScopeCurrent(actionScope)) return;
             log.warn('stopTracking failed:', e);
-            // Surface it — stopping a voyage that silently fails leaves
-            // the user unsure whether tracking is still running.
-            toast.error('Could not stop tracking cleanly — check the voyage status.');
+            stoppingRef.current = false;
+            const status = ShipLogService.getTrackingStatus();
+            dispatch({ type: 'SET_TRACKING', isTracking: status.isTracking, isPaused: status.isPaused });
+            // Do not prune/delete/reload as though stop completed. The service
+            // retains a pending-stop lease and the same action retries it.
+            toast.error(getErrorMessage(e) || 'Background GPS is still active. Retry End Voyage.');
+            return;
         }
         if (!isAuthIdentityScopeCurrent(actionScope)) return;
         // Clear the guard

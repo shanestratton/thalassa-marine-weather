@@ -265,21 +265,30 @@ Deno.serve(async (req: Request) => {
 
     upstreamSocket.addEventListener('message', (ev: MessageEvent) => {
         upstreamMessagesReceived++;
-        const upstreamSize =
-            typeof ev.data === 'string'
-                ? new TextEncoder().encode(ev.data).byteLength
-                : ev.data instanceof ArrayBuffer
-                  ? ev.data.byteLength
-                  : MAX_FRAME_BYTES + 1;
+        const upstreamSize = typeof ev.data === 'string'
+            ? new TextEncoder().encode(ev.data).byteLength
+            : ev.data instanceof ArrayBuffer
+            ? ev.data.byteLength
+            : MAX_FRAME_BYTES + 1;
         if (upstreamSize > MAX_FRAME_BYTES) {
             closeBoth(1009, 'upstream frame too large');
             return;
         }
-        // Sample-log first 5 messages (so we can see the metadata frame
-        // and the first transcript) plus every 50th after that.
+        // Sample only transport metadata. Deepgram JSON frames contain exact
+        // speech transcripts and must never enter Edge logs.
         if (upstreamMessagesReceived <= 5 || upstreamMessagesReceived % 50 === 0) {
-            const preview = typeof ev.data === 'string' ? ev.data.slice(0, 200) : `<binary ${ev.data.byteLength}B>`;
-            console.log(`[dg-proxy] upstream msg #${upstreamMessagesReceived}: ${preview}`);
+            let messageType = typeof ev.data === 'string' ? 'json' : 'binary';
+            if (typeof ev.data === 'string') {
+                try {
+                    const parsed = JSON.parse(ev.data) as { type?: unknown };
+                    if (typeof parsed.type === 'string') messageType = parsed.type;
+                } catch {
+                    messageType = 'text';
+                }
+            }
+            console.log(
+                `[dg-proxy] upstream msg #${upstreamMessagesReceived} type=${messageType} bytes=${upstreamSize}`,
+            );
         }
         // Pass Deepgram → client. Deepgram only sends JSON text frames
         // (transcript results, metadata, errors) but we forward the
@@ -342,12 +351,11 @@ Deno.serve(async (req: Request) => {
         // Pass client → Deepgram. ev.data is ArrayBuffer (audio) or
         // string (control messages like CloseStream).
         clientChunksReceived++;
-        const frameBytes =
-            typeof ev.data === 'string'
-                ? new TextEncoder().encode(ev.data).byteLength
-                : ev.data instanceof ArrayBuffer
-                  ? ev.data.byteLength
-                  : MAX_FRAME_BYTES + 1;
+        const frameBytes = typeof ev.data === 'string'
+            ? new TextEncoder().encode(ev.data).byteLength
+            : ev.data instanceof ArrayBuffer
+            ? ev.data.byteLength
+            : MAX_FRAME_BYTES + 1;
         if (frameBytes > MAX_FRAME_BYTES || clientBytesReceived + frameBytes > MAX_CLIENT_BYTES) {
             closeBoth(1009, 'audio limit exceeded');
             return;
@@ -375,12 +383,11 @@ Deno.serve(async (req: Request) => {
         // upstreamMessagesReceived stays low (just the Metadata frame)
         // we know Deepgram is receiving audio but can't decode it.
         if (clientChunksReceived === 1 || clientChunksReceived % 100 === 0) {
-            const dataType =
-                typeof ev.data === 'string'
-                    ? `text:"${(ev.data as string).slice(0, 60)}"`
-                    : ev.data instanceof ArrayBuffer
-                      ? `binary:${ev.data.byteLength}B`
-                      : `unknown:${typeof ev.data}`;
+            const dataType = typeof ev.data === 'string'
+                ? `text:"${(ev.data as string).slice(0, 60)}"`
+                : ev.data instanceof ArrayBuffer
+                ? `binary:${ev.data.byteLength}B`
+                : `unknown:${typeof ev.data}`;
             console.log(`[dg-proxy] client chunk #${clientChunksReceived} ${dataType} (total ${clientBytesReceived}B)`);
         }
         if (!upstreamReady) {

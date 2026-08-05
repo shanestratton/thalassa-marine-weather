@@ -10,18 +10,26 @@ import type { useWeatherLayers } from './useWeatherLayers';
 import type { WeatherLayer } from './mapConstants';
 import { ThalassaHelixControl, LegendDock, type HelixLayer } from './ThalassaHelixControl';
 import { WindModelFieldSelector } from './WindModelFieldSelector';
-import { isCmemsCurrentsEnabled } from './useOceanCurrentParticleLayer';
-import { isCmemsWavesEnabled } from './useOceanWaveParticleLayer';
-import { isCmemsSstEnabled } from './useSstRasterLayer';
-import { isCmemsChlEnabled } from './useChlRasterLayer';
-import { isCmemsSeaIceEnabled } from './useSeaIceRasterLayer';
-import { isCmemsMldEnabled } from './useMldRasterLayer';
+import { isCmemsFeatureEnabled } from './cmemsFeatureAvailability';
 import { isUsableWindGrid, windHoursFromNow } from './windTimeAxis';
+import type { CmemsLayerId } from './CmemsAttribution';
+import type { CmemsLayerLoadState } from './useCmemsGridRefresh';
+import { isCmemsRenderedStepReady } from './useCmemsPlayback';
 
 type WeatherControlsWeather = ReturnType<typeof useWeatherLayers>;
 
+const CMEMS_STATUS_LABELS: Record<CmemsLayerId, string> = {
+    currents: 'Currents',
+    waves: 'Waves',
+    sst: 'Sea temperature',
+    chl: 'Chlorophyll',
+    seaice: 'Sea ice',
+    mld: 'Mixed-layer depth',
+};
+
 interface MapWeatherControlsProps {
     weather: WeatherControlsWeather;
+    cmemsLayerStates?: Partial<Record<CmemsLayerId, CmemsLayerLoadState>>;
     /** False while plotting, in an embed, or in pin view. */
     visible: boolean;
     embedded: boolean;
@@ -37,6 +45,7 @@ interface MapWeatherControlsProps {
  */
 export function MapWeatherControls({
     weather,
+    cmemsLayerStates = {},
     visible,
     embedded,
     controlsHidden,
@@ -53,12 +62,12 @@ export function MapWeatherControls({
         'clouds',
         // Currents + waves + SST + chl only get the scrubber when their CMEMS
         // pipeline is on. Under a raster fallback the tiles are static heatmaps.
-        ...(isCmemsCurrentsEnabled() ? (['currents'] as HelixLayer[]) : []),
-        ...(isCmemsWavesEnabled() ? (['waves'] as HelixLayer[]) : []),
-        ...(isCmemsSstEnabled() ? (['sst'] as HelixLayer[]) : []),
-        ...(isCmemsChlEnabled() ? (['chl'] as HelixLayer[]) : []),
-        ...(isCmemsSeaIceEnabled() ? (['seaice'] as HelixLayer[]) : []),
-        ...(isCmemsMldEnabled() ? (['mld'] as HelixLayer[]) : []),
+        ...(isCmemsFeatureEnabled('currents') ? (['currents'] as HelixLayer[]) : []),
+        ...(isCmemsFeatureEnabled('waves') ? (['waves'] as HelixLayer[]) : []),
+        ...(isCmemsFeatureEnabled('sst') ? (['sst'] as HelixLayer[]) : []),
+        ...(isCmemsFeatureEnabled('chl') ? (['chl'] as HelixLayer[]) : []),
+        ...(isCmemsFeatureEnabled('seaice') ? (['seaice'] as HelixLayer[]) : []),
+        ...(isCmemsFeatureEnabled('mld') ? (['mld'] as HelixLayer[]) : []),
     ];
     const activeWeatherLayers = weatherKeys.filter((key) =>
         key === 'wind'
@@ -97,10 +106,53 @@ export function MapWeatherControls({
     const showRainViewerAttribution =
         weather.activeLayers.has('rain') && weather.rainReady && currentRainFrame?.type === 'radar';
     const rainIsLoading = Boolean(weather.rainLoading || weather.rainImageLoading);
+    const cmemsRequestedSteps: Record<CmemsLayerId, number> = {
+        currents: Math.round(weather.currentsHour),
+        waves: Math.round(weather.wavesHour),
+        sst: Math.round(weather.sstStep),
+        chl: Math.round(weather.chlStep),
+        seaice: Math.round(weather.seaiceStep),
+        mld: Math.round(weather.mldStep),
+    };
+    const isCmemsLayer = (layer: HelixLayer): layer is CmemsLayerId =>
+        layer !== null && Object.prototype.hasOwnProperty.call(cmemsRequestedSteps, layer);
+    const legendWeatherLayers = activeWeatherLayers.filter((layer) => {
+        if (!isCmemsLayer(layer)) return true;
+        const state = cmemsLayerStates[layer];
+        return Boolean(state && isCmemsRenderedStepReady(state, cmemsRequestedSteps[layer]));
+    });
+    const stackedCmemsStatuses = activeWeatherLayers.filter(isCmemsLayer).flatMap((layer) => {
+        const state = cmemsLayerStates[layer];
+        return state && isCmemsRenderedStepReady(state, cmemsRequestedSteps[layer])
+            ? []
+            : [{ layer, phase: state?.phase === 'error' ? ('error' as const) : ('loading' as const) }];
+    });
 
     let content: React.ReactNode = null;
     if (showTimeline && activeWeatherLayers.length >= 2 && !isWindRainCombo && !isWindPressureCombo) {
-        content = <LegendDock layers={activeWeatherLayers} embedded={embedded} />;
+        // A requested CMEMS layer is not necessarily on the map yet. Keep its
+        // legend out of the stacked dock until that exact step and generation
+        // have passed verification and rendering.
+        content = (
+            <>
+                <LegendDock layers={legendWeatherLayers} embedded={embedded} />
+                {stackedCmemsStatuses.length > 0 && (
+                    <div
+                        className="absolute z-[501] min-w-44 rounded-xl border border-white/10 bg-slate-950/85 px-3 py-2 text-white shadow-lg backdrop-blur-xl"
+                        style={{ left: 12, bottom: embedded ? 64 : 'calc(132px + env(safe-area-inset-bottom))' }}
+                        role={stackedCmemsStatuses.some(({ phase }) => phase === 'error') ? 'alert' : 'status'}
+                        aria-live="polite"
+                    >
+                        {stackedCmemsStatuses.map(({ layer, phase }) => (
+                            <p key={layer} className="text-[11px] font-semibold">
+                                <span className="font-black">{CMEMS_STATUS_LABELS[layer]}</span>
+                                {phase === 'error' ? ' · Unavailable — Retry from alert' : ' · Loading…'}
+                            </p>
+                        ))}
+                    </div>
+                )}
+            </>
+        );
     } else if (showTimeline && isWindRainCombo) {
         if (weather.rainReady && !rainIsLoading && weather.rainFrameCount > 1) {
             const rainNow = weather.rainNowIdxRef.current;
@@ -162,6 +214,7 @@ export function MapWeatherControls({
             let sublabel = 'Live';
             let isPlaying = false;
             let isLoading = false;
+            let showInlineLoading = false;
             let framesReady: number | undefined;
             let nowIndex: number | undefined;
             let dualColor = false;
@@ -236,80 +289,162 @@ export function MapWeatherControls({
                     onPlayToggle = () => weather.setWindPlaying(!weather.windPlaying);
                     onScrubStart = () => weather.setWindPlaying(false);
                 }
-            } else if (activeLayer === 'currents' && isCmemsCurrentsEnabled()) {
+            } else if (activeLayer === 'currents' && isCmemsFeatureEnabled('currents')) {
                 frameIndex = weather.currentsHour;
                 totalFrames = weather.currentsTotalHours;
-                const currentNowIndex = weather.currentsNowIdx;
-                nowIndex = currentNowIndex;
-                const relativeHours = Math.round(frameIndex) - currentNowIndex;
-                frameLabel =
-                    relativeHours === 0 ? 'Now' : relativeHours > 0 ? `+${relativeHours}h` : `${relativeHours}h`;
-                sublabel = relativeHours === 0 ? 'Nowcast' : relativeHours > 0 ? 'Forecast' : 'Past';
-                isPlaying = weather.currentsPlaying;
-                onScrub = (frame: number) => weather.setCurrentsHour(Math.round(frame));
-                onPlayToggle = () => weather.setCurrentsPlaying(!weather.currentsPlaying);
-                onScrubStart = () => weather.setCurrentsPlaying(false);
-            } else if (activeLayer === 'waves' && isCmemsWavesEnabled()) {
+                const selectedStep = Math.round(frameIndex);
+                const state = cmemsLayerStates.currents;
+                if (!state || !isCmemsRenderedStepReady(state, selectedStep)) {
+                    frameLabel = state?.phase === 'error' ? 'Unavailable' : 'Loading…';
+                    sublabel = state?.phase === 'error' ? 'Retry from alert' : 'Verifying currents';
+                    isLoading = state?.phase !== 'error';
+                    showInlineLoading = true;
+                    if (state?.phase === 'error') {
+                        frameIndex = 0;
+                        totalFrames = 1;
+                    }
+                } else {
+                    const currentNowIndex = weather.currentsNowIdx;
+                    nowIndex = currentNowIndex;
+                    const relativeHours = selectedStep - currentNowIndex;
+                    frameLabel =
+                        relativeHours === 0 ? 'Now' : relativeHours > 0 ? `+${relativeHours}h` : `${relativeHours}h`;
+                    sublabel = relativeHours === 0 ? 'Nowcast' : relativeHours > 0 ? 'Forecast' : 'Past';
+                    isPlaying = weather.currentsPlaying;
+                    onScrub = (frame: number) => weather.setCurrentsHour(Math.round(frame));
+                    onPlayToggle = () => weather.setCurrentsPlaying(!weather.currentsPlaying);
+                    onScrubStart = () => weather.setCurrentsPlaying(false);
+                }
+            } else if (activeLayer === 'waves' && isCmemsFeatureEnabled('waves')) {
                 frameIndex = weather.wavesHour;
                 totalFrames = weather.wavesTotalHours;
-                const wavesNowIndex = weather.wavesNowIdx;
-                nowIndex = wavesNowIndex;
-                const relativeHours = (Math.round(frameIndex) - wavesNowIndex) * 3;
-                frameLabel =
-                    relativeHours === 0 ? 'Now' : relativeHours > 0 ? `+${relativeHours}h` : `${relativeHours}h`;
-                sublabel = relativeHours === 0 ? 'Nowcast' : relativeHours > 0 ? 'Forecast' : 'Past';
-                isPlaying = weather.wavesPlaying;
-                onScrub = (frame: number) => weather.setWavesHour(Math.round(frame));
-                onPlayToggle = () => weather.setWavesPlaying(!weather.wavesPlaying);
-                onScrubStart = () => weather.setWavesPlaying(false);
-            } else if (activeLayer === 'sst' && isCmemsSstEnabled()) {
+                const selectedStep = Math.round(frameIndex);
+                const state = cmemsLayerStates.waves;
+                if (!state || !isCmemsRenderedStepReady(state, selectedStep)) {
+                    frameLabel = state?.phase === 'error' ? 'Unavailable' : 'Loading…';
+                    sublabel = state?.phase === 'error' ? 'Retry from alert' : 'Verifying waves';
+                    isLoading = state?.phase !== 'error';
+                    showInlineLoading = true;
+                    if (state?.phase === 'error') {
+                        frameIndex = 0;
+                        totalFrames = 1;
+                    }
+                } else {
+                    const wavesNowIndex = weather.wavesNowIdx;
+                    nowIndex = wavesNowIndex;
+                    const relativeHours = (selectedStep - wavesNowIndex) * 3;
+                    frameLabel =
+                        relativeHours === 0 ? 'Now' : relativeHours > 0 ? `+${relativeHours}h` : `${relativeHours}h`;
+                    sublabel = relativeHours === 0 ? 'Nowcast' : relativeHours > 0 ? 'Forecast' : 'Past';
+                    isPlaying = weather.wavesPlaying;
+                    onScrub = (frame: number) => weather.setWavesHour(Math.round(frame));
+                    onPlayToggle = () => weather.setWavesPlaying(!weather.wavesPlaying);
+                    onScrubStart = () => weather.setWavesPlaying(false);
+                }
+            } else if (activeLayer === 'sst' && isCmemsFeatureEnabled('sst')) {
                 frameIndex = weather.sstStep;
                 totalFrames = weather.sstTotalSteps;
-                const sstNowIndex = weather.sstNowIdx;
-                nowIndex = sstNowIndex;
-                const relativeDays = Math.round(frameIndex) - sstNowIndex;
-                frameLabel = relativeDays === 0 ? 'Today' : relativeDays > 0 ? `+${relativeDays}d` : `${relativeDays}d`;
-                sublabel = relativeDays === 0 ? 'Daily mean' : relativeDays > 0 ? 'Forecast' : 'Past';
-                isPlaying = weather.sstPlaying;
-                onScrub = (frame: number) => weather.setSstStep(Math.round(frame));
-                onPlayToggle = () => weather.setSstPlaying(!weather.sstPlaying);
-                onScrubStart = () => weather.setSstPlaying(false);
-            } else if (activeLayer === 'chl' && isCmemsChlEnabled()) {
+                const selectedStep = Math.round(frameIndex);
+                const state = cmemsLayerStates.sst;
+                if (!state || !isCmemsRenderedStepReady(state, selectedStep)) {
+                    frameLabel = state?.phase === 'error' ? 'Unavailable' : 'Loading…';
+                    sublabel = state?.phase === 'error' ? 'Retry from alert' : 'Verifying sea temperature';
+                    isLoading = state?.phase !== 'error';
+                    showInlineLoading = true;
+                    if (state?.phase === 'error') {
+                        frameIndex = 0;
+                        totalFrames = 1;
+                    }
+                } else {
+                    const sstNowIndex = weather.sstNowIdx;
+                    nowIndex = sstNowIndex;
+                    const relativeDays = selectedStep - sstNowIndex;
+                    frameLabel =
+                        relativeDays === 0 ? 'Today' : relativeDays > 0 ? `+${relativeDays}d` : `${relativeDays}d`;
+                    sublabel = relativeDays === 0 ? 'Daily mean' : relativeDays > 0 ? 'Forecast' : 'Past';
+                    isPlaying = weather.sstPlaying;
+                    onScrub = (frame: number) => weather.setSstStep(Math.round(frame));
+                    onPlayToggle = () => weather.setSstPlaying(!weather.sstPlaying);
+                    onScrubStart = () => weather.setSstPlaying(false);
+                }
+            } else if (activeLayer === 'chl' && isCmemsFeatureEnabled('chl')) {
                 frameIndex = weather.chlStep;
                 totalFrames = weather.chlTotalSteps;
-                const chlNowIndex = weather.chlNowIdx;
-                nowIndex = chlNowIndex;
-                const relativeDays = Math.round(frameIndex) - chlNowIndex;
-                frameLabel = relativeDays === 0 ? 'Today' : relativeDays > 0 ? `+${relativeDays}d` : `${relativeDays}d`;
-                sublabel = relativeDays === 0 ? 'Daily mean' : relativeDays > 0 ? 'Forecast' : 'Past';
-                isPlaying = weather.chlPlaying;
-                onScrub = (frame: number) => weather.setChlStep(Math.round(frame));
-                onPlayToggle = () => weather.setChlPlaying(!weather.chlPlaying);
-                onScrubStart = () => weather.setChlPlaying(false);
-            } else if (activeLayer === 'seaice' && isCmemsSeaIceEnabled()) {
+                const selectedStep = Math.round(frameIndex);
+                const state = cmemsLayerStates.chl;
+                if (!state || !isCmemsRenderedStepReady(state, selectedStep)) {
+                    frameLabel = state?.phase === 'error' ? 'Unavailable' : 'Loading…';
+                    sublabel = state?.phase === 'error' ? 'Retry from alert' : 'Verifying chlorophyll';
+                    isLoading = state?.phase !== 'error';
+                    showInlineLoading = true;
+                    if (state?.phase === 'error') {
+                        frameIndex = 0;
+                        totalFrames = 1;
+                    }
+                } else {
+                    const chlNowIndex = weather.chlNowIdx;
+                    nowIndex = chlNowIndex;
+                    const relativeDays = selectedStep - chlNowIndex;
+                    frameLabel =
+                        relativeDays === 0 ? 'Today' : relativeDays > 0 ? `+${relativeDays}d` : `${relativeDays}d`;
+                    sublabel = relativeDays === 0 ? 'Daily mean' : relativeDays > 0 ? 'Forecast' : 'Past';
+                    isPlaying = weather.chlPlaying;
+                    onScrub = (frame: number) => weather.setChlStep(Math.round(frame));
+                    onPlayToggle = () => weather.setChlPlaying(!weather.chlPlaying);
+                    onScrubStart = () => weather.setChlPlaying(false);
+                }
+            } else if (activeLayer === 'seaice' && isCmemsFeatureEnabled('seaice')) {
                 frameIndex = weather.seaiceStep;
                 totalFrames = weather.seaiceTotalSteps;
-                const seaIceNowIndex = weather.seaiceNowIdx;
-                nowIndex = seaIceNowIndex;
-                const relativeDays = Math.round(frameIndex) - seaIceNowIndex;
-                frameLabel = relativeDays === 0 ? 'Today' : relativeDays > 0 ? `+${relativeDays}d` : `${relativeDays}d`;
-                sublabel = relativeDays === 0 ? 'Daily mean' : relativeDays > 0 ? 'Forecast' : 'Past';
-                isPlaying = weather.seaicePlaying;
-                onScrub = (frame: number) => weather.setSeaiceStep(Math.round(frame));
-                onPlayToggle = () => weather.setSeaicePlaying(!weather.seaicePlaying);
-                onScrubStart = () => weather.setSeaicePlaying(false);
-            } else if (activeLayer === 'mld' && isCmemsMldEnabled()) {
+                const selectedStep = Math.round(frameIndex);
+                const state = cmemsLayerStates.seaice;
+                if (!state || !isCmemsRenderedStepReady(state, selectedStep)) {
+                    frameLabel = state?.phase === 'error' ? 'Unavailable' : 'Loading…';
+                    sublabel = state?.phase === 'error' ? 'Retry from alert' : 'Verifying sea ice';
+                    isLoading = state?.phase !== 'error';
+                    showInlineLoading = true;
+                    if (state?.phase === 'error') {
+                        frameIndex = 0;
+                        totalFrames = 1;
+                    }
+                } else {
+                    const seaIceNowIndex = weather.seaiceNowIdx;
+                    nowIndex = seaIceNowIndex;
+                    const relativeDays = selectedStep - seaIceNowIndex;
+                    frameLabel =
+                        relativeDays === 0 ? 'Today' : relativeDays > 0 ? `+${relativeDays}d` : `${relativeDays}d`;
+                    sublabel = relativeDays === 0 ? 'Daily mean' : relativeDays > 0 ? 'Forecast' : 'Past';
+                    isPlaying = weather.seaicePlaying;
+                    onScrub = (frame: number) => weather.setSeaiceStep(Math.round(frame));
+                    onPlayToggle = () => weather.setSeaicePlaying(!weather.seaicePlaying);
+                    onScrubStart = () => weather.setSeaicePlaying(false);
+                }
+            } else if (activeLayer === 'mld' && isCmemsFeatureEnabled('mld')) {
                 frameIndex = weather.mldStep;
                 totalFrames = weather.mldTotalSteps;
-                const mldNowIndex = weather.mldNowIdx;
-                nowIndex = mldNowIndex;
-                const relativeDays = Math.round(frameIndex) - mldNowIndex;
-                frameLabel = relativeDays === 0 ? 'Today' : relativeDays > 0 ? `+${relativeDays}d` : `${relativeDays}d`;
-                sublabel = relativeDays === 0 ? 'Daily mean' : relativeDays > 0 ? 'Forecast' : 'Past';
-                isPlaying = weather.mldPlaying;
-                onScrub = (frame: number) => weather.setMldStep(Math.round(frame));
-                onPlayToggle = () => weather.setMldPlaying(!weather.mldPlaying);
-                onScrubStart = () => weather.setMldPlaying(false);
+                const selectedStep = Math.round(frameIndex);
+                const state = cmemsLayerStates.mld;
+                if (!state || !isCmemsRenderedStepReady(state, selectedStep)) {
+                    frameLabel = state?.phase === 'error' ? 'Unavailable' : 'Loading…';
+                    sublabel = state?.phase === 'error' ? 'Retry from alert' : 'Verifying mixed layer depth';
+                    isLoading = state?.phase !== 'error';
+                    showInlineLoading = true;
+                    if (state?.phase === 'error') {
+                        frameIndex = 0;
+                        totalFrames = 1;
+                    }
+                } else {
+                    const mldNowIndex = weather.mldNowIdx;
+                    nowIndex = mldNowIndex;
+                    const relativeDays = selectedStep - mldNowIndex;
+                    frameLabel =
+                        relativeDays === 0 ? 'Today' : relativeDays > 0 ? `+${relativeDays}d` : `${relativeDays}d`;
+                    sublabel = relativeDays === 0 ? 'Daily mean' : relativeDays > 0 ? 'Forecast' : 'Past';
+                    isPlaying = weather.mldPlaying;
+                    onScrub = (frame: number) => weather.setMldStep(Math.round(frame));
+                    onPlayToggle = () => weather.setMldPlaying(!weather.mldPlaying);
+                    onScrubStart = () => weather.setMldPlaying(false);
+                }
             } else if (activeLayer === 'rain') {
                 if (rainIsLoading) {
                     isLoading = true;
@@ -331,29 +466,43 @@ export function MapWeatherControls({
                 }
             }
 
-            content = (
-                <>
-                    {!isLoading && (
-                        <ThalassaHelixControl
-                            activeLayer={activeLayer}
-                            frameIndex={frameIndex}
-                            totalFrames={totalFrames}
-                            frameLabel={frameLabel}
-                            sublabel={sublabel}
-                            isPlaying={isPlaying}
-                            framesReady={framesReady}
-                            embedded={embedded}
-                            onScrub={onScrub}
-                            onScrubStart={onScrubStart}
-                            onPlayToggle={onPlayToggle}
-                            applyFrame={applyFrame}
-                            nowIndex={nowIndex}
-                            dualColor={dualColor}
-                            forecastAccent={forecastAccent}
+            content = showInlineLoading ? (
+                <div
+                    className="absolute z-[500] flex min-h-12 min-w-40 items-center gap-2 rounded-2xl border border-white/10 bg-slate-950/80 px-4 py-2 text-white shadow-lg backdrop-blur-xl"
+                    style={{ left: 12, bottom: embedded ? 12 : 'calc(80px + env(safe-area-inset-bottom))' }}
+                    role={isLoading ? 'status' : 'alert'}
+                    aria-live="polite"
+                >
+                    {isLoading && (
+                        <span
+                            className="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-cyan-300/30 border-t-cyan-300"
+                            aria-hidden="true"
                         />
                     )}
-                </>
-            );
+                    <span>
+                        <span className="block text-xs font-black">{frameLabel}</span>
+                        <span className="block text-[11px] font-semibold text-slate-300">{sublabel}</span>
+                    </span>
+                </div>
+            ) : !isLoading ? (
+                <ThalassaHelixControl
+                    activeLayer={activeLayer}
+                    frameIndex={frameIndex}
+                    totalFrames={totalFrames}
+                    frameLabel={frameLabel}
+                    sublabel={sublabel}
+                    isPlaying={isPlaying}
+                    framesReady={framesReady}
+                    embedded={embedded}
+                    onScrub={onScrub}
+                    onScrubStart={onScrubStart}
+                    onPlayToggle={onPlayToggle}
+                    applyFrame={applyFrame}
+                    nowIndex={nowIndex}
+                    dualColor={dualColor}
+                    forecastAccent={forecastAccent}
+                />
+            ) : null;
         }
     }
 

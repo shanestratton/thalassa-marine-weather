@@ -2,15 +2,14 @@
  * Edge Middleware — wildcard-subdomain router for the public vessel
  * surfaces.
  *
- * Pattern: <handle>.thalassawx.app/plan[/…]  → /index.html  (the planner SPA)
- *          <handle>.thalassawx.app/float[/…] → /plan.html   (float plan)
- *          <handle>.thalassawx.app/*         → /logs.html   (voyage log)
+ * Pattern: <handle>.thalassawx.app/plan[/…] → /index.html (the planner SPA)
+ *          <handle>.thalassawx.app/*        → /logs.html  (voyage log)
  *
  * /plan serves the INTERACTIVE planner (Shane 2026-07-17: "the planning
  * page… serene-summer.thalassawx.app/plan — i will not be the only person
  * using the app"): every vessel gets its own bookmarkable planner address,
- * same SPA, deepLink boots it straight into the tracer. The read-only
- * shore-crew float plan that used to hold /plan moved to /float.
+ * same SPA, deepLink boots it straight into the tracer. The old public float
+ * plan was removed; legacy /float links now land on the backward-looking log.
  *
  * Why this exists as middleware and not as a vercel.json rewrite:
  * Vercel's `has.value` field in vercel.json (which would normally let
@@ -35,7 +34,7 @@ export const config = {
     matcher: '/((?!_next|api|assets|favicon|.*\\..*).*)',
 };
 
-export default function middleware(request: Request) {
+export default async function middleware(request: Request) {
     const host = request.headers.get('host') ?? '';
 
     // <handle>.thalassawx.app — exactly one label before the apex.
@@ -67,5 +66,15 @@ export default function middleware(request: Request) {
         p === '/plan' || p.startsWith('/plan/')
             ? '/index.html' // the interactive planner (Shane 2026-07-17)
             : '/logs.html';
-    return fetch(url, request);
+    const upstream = await fetch(url, request);
+    const headers = new Headers(upstream.headers);
+    // Voyage logs can contain a vessel's exact live position and history.
+    // Sharing is link-scoped; search engines must not turn that link into a
+    // discoverable public directory. The HTML meta tag is defence in depth.
+    headers.set('X-Robots-Tag', 'noindex, nofollow, noarchive');
+    return new Response(upstream.body, {
+        status: upstream.status,
+        statusText: upstream.statusText,
+        headers,
+    });
 }

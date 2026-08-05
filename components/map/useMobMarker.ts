@@ -19,8 +19,73 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import mapboxgl from 'mapbox-gl';
-import { MobService, type MobState } from '../../services/MobService';
-import { GPS_STALE_LIMIT_MS } from '../../services/shiplog/PositionResolver';
+import { MOB_PRECISE_FIX_ACCURACY_M, MobService, type MobSnapshot, type MobState } from '../../services/MobService';
+
+const MOB_ACCURACY_SOURCE = 'mob-accuracy-search-area';
+const MOB_ACCURACY_FILL = 'mob-accuracy-search-area-fill';
+const MOB_ACCURACY_LINE = 'mob-accuracy-search-area-line';
+
+/** Build a geodesic uncertainty/search circle around an approximate MOB fix. */
+export function buildMobAccuracyCircle(snapshot: MobSnapshot, points = 72): GeoJSON.Feature<GeoJSON.Polygon> {
+    const earthRadiusM = 6_371_000;
+    const angularDistance = snapshot.fixAccuracy / earthRadiusM;
+    const lat1 = (snapshot.fixLat * Math.PI) / 180;
+    const lon1 = (snapshot.fixLon * Math.PI) / 180;
+    const ring: [number, number][] = [];
+
+    for (let index = 0; index <= points; index++) {
+        const bearing = (index / points) * Math.PI * 2;
+        const lat2 = Math.asin(
+            Math.sin(lat1) * Math.cos(angularDistance) + Math.cos(lat1) * Math.sin(angularDistance) * Math.cos(bearing),
+        );
+        const lon2 =
+            lon1 +
+            Math.atan2(
+                Math.sin(bearing) * Math.sin(angularDistance) * Math.cos(lat1),
+                Math.cos(angularDistance) - Math.sin(lat1) * Math.sin(lat2),
+            );
+        const lon = (((((lon2 * 180) / Math.PI + 180) % 360) + 360) % 360) - 180;
+        ring.push([lon, (lat2 * 180) / Math.PI]);
+    }
+
+    return {
+        type: 'Feature',
+        properties: { accuracyM: snapshot.fixAccuracy, safety: 'approximate' },
+        geometry: { type: 'Polygon', coordinates: [ring] },
+    };
+}
+
+function clearMobAccuracyGeometry(map: mapboxgl.Map): void {
+    if (map.getLayer(MOB_ACCURACY_LINE)) map.removeLayer(MOB_ACCURACY_LINE);
+    if (map.getLayer(MOB_ACCURACY_FILL)) map.removeLayer(MOB_ACCURACY_FILL);
+    if (map.getSource(MOB_ACCURACY_SOURCE)) map.removeSource(MOB_ACCURACY_SOURCE);
+}
+
+function setMobAccuracyGeometry(map: mapboxgl.Map, snapshot: MobSnapshot): void {
+    if (snapshot.fixAccuracy <= MOB_PRECISE_FIX_ACCURACY_M) {
+        clearMobAccuracyGeometry(map);
+        return;
+    }
+    const data = buildMobAccuracyCircle(snapshot);
+    const existing = map.getSource(MOB_ACCURACY_SOURCE) as mapboxgl.GeoJSONSource | undefined;
+    if (existing) {
+        existing.setData(data);
+        return;
+    }
+    map.addSource(MOB_ACCURACY_SOURCE, { type: 'geojson', data });
+    map.addLayer({
+        id: MOB_ACCURACY_FILL,
+        type: 'fill',
+        source: MOB_ACCURACY_SOURCE,
+        paint: { 'fill-color': '#ef4444', 'fill-opacity': 0.16 },
+    });
+    map.addLayer({
+        id: MOB_ACCURACY_LINE,
+        type: 'line',
+        source: MOB_ACCURACY_SOURCE,
+        paint: { 'line-color': '#fca5a5', 'line-width': 3, 'line-dasharray': [2, 2] },
+    });
+}
 
 function fmtElapsed(sec: number): string {
     const m = Math.floor(sec / 60);
@@ -111,17 +176,29 @@ export function useMobMarker(mapRef: React.MutableRefObject<mapboxgl.Map | null>
         const unsub = MobService.subscribe((s: MobState) => {
             setMobActive(s.active !== null);
             if (chipRef.current && s.active) {
-                const brg = s.bearingDeg != null ? ` · ${Math.round(s.bearingDeg)}°` : '';
-                // The elapsed clock keeps ticking even when own-ship GPS
-                // stops, which makes a FROZEN recovery vector read as live —
-                // flag distance/bearing the moment the own fix goes stale.
-                const ownStale = !s.own || Date.now() - s.own.timestamp > GPS_STALE_LIMIT_MS;
-                const staleTag = ownStale ? ' · fix old' : '';
-                chipRef.current.textContent = `MOB ${fmtElapsed(s.elapsedSec)} · ${fmtDistance(s.distanceMeters)}${brg}${staleTag}`;
+                const datumLabel =
+                    s.active.fixAccuracy > MOB_PRECISE_FIX_ACCURACY_M
+                        ? `MOB APPROX ±${Math.round(s.active.fixAccuracy)}m`
+                        : 'MOB';
+                if (!s.ownPositionFresh) {
+                    const age =
+                        s.ownPositionAgeMs === null
+                            ? 'no GPS fix'
+                            : `last fix ${Math.floor(s.ownPositionAgeMs / 1000)}s ago`;
+                    chipRef.current.textContent = `${datumLabel} ${fmtElapsed(s.elapsedSec)} · ${age}`;
+                } else {
+                    const brg = s.bearingDeg != null ? ` · ${Math.round(s.bearingDeg)}°` : '';
+                    chipRef.current.textContent = `${datumLabel} ${fmtElapsed(s.elapsedSec)} · ${fmtDistance(s.distanceMeters)}${brg}`;
+                }
+            }
+            const map = mapRef.current;
+            if (map && mapReady && s.active) {
+                markerRef.current?.setLngLat([s.active.fixLon, s.active.fixLat]);
+                setMobAccuracyGeometry(map, s.active);
             }
         });
         return unsub;
-    }, []);
+    }, [mapReady, mapRef]);
 
     useEffect(() => {
         const map = mapRef.current;
@@ -133,6 +210,7 @@ export function useMobMarker(mapRef: React.MutableRefObject<mapboxgl.Map | null>
                 markerRef.current = null;
             }
             chipRef.current = null;
+            clearMobAccuracyGeometry(map);
         };
 
         const snap = MobService.currentState().active;
@@ -147,6 +225,7 @@ export function useMobMarker(mapRef: React.MutableRefObject<mapboxgl.Map | null>
         markerRef.current = new mapboxgl.Marker({ element: el, anchor: 'center' })
             .setLngLat([snap.fixLon, snap.fixLat])
             .addTo(map);
+        setMobAccuracyGeometry(map, snap);
 
         return cleanup;
     }, [mapRef, mapReady, mobActive]);

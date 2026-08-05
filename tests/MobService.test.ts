@@ -58,6 +58,7 @@ interface MobServiceInternals {
     snapshotOwnerKey: string | null;
     snapshotOwnerUserId: string | null;
     own: unknown;
+    persistenceStatus: 'idle' | 'pending' | 'confirmed' | 'failed';
     hydratedScopeKeys: Set<string>;
     hydrationPromises: Map<number, Promise<void>>;
     storageChains: Map<string, Promise<void>>;
@@ -79,8 +80,8 @@ function fullGpsFix(fix: { latitude: number; longitude: number; accuracy: number
     };
 }
 
-function pushOwn(latitude: number, longitude: number) {
-    const pos = { latitude, longitude, accuracy: 5, altitude: null, heading: null, speed: 0, timestamp: Date.now() };
+function pushOwn(latitude: number, longitude: number, timestamp: number = Date.now(), accuracy = 5, speed = 0) {
+    const pos = { latitude, longitude, accuracy, altitude: null, heading: null, speed, timestamp };
     for (const cb of [...watchCallbacks]) cb(pos);
 }
 
@@ -92,6 +93,7 @@ async function resetService() {
     service.snapshotOwnerKey = null;
     service.snapshotOwnerUserId = null;
     service.own = null;
+    service.persistenceStatus = 'idle';
     service.hydratedScopeKeys.clear();
     service.hydrationPromises.clear();
     service.storageChains.clear();
@@ -151,6 +153,81 @@ describe('MobService', () => {
         expect(MobService.isActive()).toBe(false);
     });
 
+    it('immediately retains a poor GPS fix as an approximate MOB search datum', async () => {
+        mockFix = { latitude: -27, longitude: 153, accuracy: 250 };
+
+        await expect(MobService.activate()).resolves.toMatchObject({
+            fixLat: -27,
+            fixLon: 153,
+            fixAccuracy: 250,
+        });
+
+        expect(MobService.isActive()).toBe(true);
+        expect(MobService.currentState().fixQuality).toBe('approximate');
+        expect(Preferences.set).toHaveBeenCalled();
+    });
+
+    it('refines an approximate datum with a better early fix without moving the activation time', async () => {
+        mockFix = { latitude: -27, longitude: 153, accuracy: 250 };
+        const initial = await MobService.activate();
+        expect(initial).not.toBeNull();
+
+        pushOwn(-27.00005, 153.00005, initial!.activatedAt + 5_000, 20);
+        await vi.waitFor(() => expect(MobService.currentState().persistenceStatus).toBe('confirmed'));
+
+        expect(MobService.currentState().active).toMatchObject({
+            fixLat: -27.00005,
+            fixLon: 153.00005,
+            fixAccuracy: 20,
+            activatedAt: initial!.activatedAt,
+        });
+        expect(MobService.currentState().fixQuality).toBe('precise');
+    });
+
+    it('freezes the MOB datum after the refinement window so own-ship motion cannot drag it', async () => {
+        mockFix = { latitude: -27, longitude: 153, accuracy: 250 };
+        const initial = await MobService.activate();
+
+        pushOwn(-27.01, 153.01, initial!.activatedAt + 31_000, 5);
+
+        expect(MobService.currentState().active).toMatchObject({
+            fixLat: -27,
+            fixLon: 153,
+            fixAccuracy: 250,
+            activatedAt: initial!.activatedAt,
+        });
+    });
+
+    it('retains the original search circle when own ship moves materially inside the refinement window', async () => {
+        mockFix = { latitude: -27, longitude: 153, accuracy: 250 };
+        const initial = await MobService.activate();
+
+        // About 130 m after 25 seconds at ten knots: accepting this as the
+        // casualty datum would move the search target down-track.
+        pushOwn(-27.00117, 153, initial!.activatedAt + 25_000, 5, 5.14);
+
+        expect(MobService.currentState().active).toMatchObject({
+            fixLat: -27,
+            fixLon: 153,
+            fixAccuracy: 250,
+            activatedAt: initial!.activatedAt,
+        });
+        expect(MobService.currentState().fixQuality).toBe('approximate');
+    });
+
+    it('requires negligible reported speed even when displacement still looks small', async () => {
+        mockFix = { latitude: -27, longitude: 153, accuracy: 250 };
+        const initial = await MobService.activate();
+
+        pushOwn(-27.00003, 153, initial!.activatedAt + 2_000, 5, 4);
+
+        expect(MobService.currentState().active).toMatchObject({
+            fixLat: -27,
+            fixLon: 153,
+            fixAccuracy: 250,
+        });
+    });
+
     it('computes distance + TRUE bearing from own position back to the fix', async () => {
         // Person went over at the fix; vessel has moved ~111 m SOUTH of it.
         mockFix = { latitude: -27.0, longitude: 153.0, accuracy: 4 };
@@ -175,6 +252,34 @@ describe('MobService', () => {
         expect(s.distanceMeters).toBeLessThan(110);
     });
 
+    it('ages its own-ship fix and hides stale distance and bearing', async () => {
+        vi.useFakeTimers();
+        try {
+            vi.setSystemTime(new Date('2026-06-21T00:00:00Z'));
+            mockFix = { latitude: -27.0, longitude: 153.001, accuracy: 4 };
+            await MobService.activate();
+            pushOwn(-27.0, 153.0);
+
+            expect(MobService.currentState()).toMatchObject({
+                ownPositionAgeMs: 0,
+                ownPositionFresh: true,
+            });
+            expect(MobService.currentState().distanceMeters).not.toBeNull();
+            expect(MobService.currentState().bearingDeg).not.toBeNull();
+
+            vi.setSystemTime(new Date('2026-06-21T00:00:16Z'));
+            const stale = MobService.currentState();
+            expect(stale.own?.longitude).toBe(153.0);
+            expect(stale.ownPositionAgeMs).toBe(16_000);
+            expect(stale.ownPositionFresh).toBe(false);
+            expect(stale.distanceMeters).toBeNull();
+            expect(stale.bearingDeg).toBeNull();
+        } finally {
+            await MobService.clear();
+            vi.useRealTimers();
+        }
+    });
+
     it('persists the fix and restores it on a fresh hydrate (app restart)', async () => {
         mockFix = { latitude: 12.34, longitude: -56.78, accuracy: 9 };
         await MobService.activate();
@@ -194,6 +299,17 @@ describe('MobService', () => {
         expect(MobService.isActive()).toBe(true);
         expect(MobService.currentState().active?.fixLat).toBe(12.34);
         expect(MobService.currentState().active?.fixLon).toBe(-56.78);
+        expect(MobService.currentState().persistenceStatus).toBe('confirmed');
+    });
+
+    it('keeps MOB active but exposes a failed restart-recovery write', async () => {
+        vi.mocked(Preferences.set).mockRejectedValueOnce(new Error('native storage unavailable'));
+        mockFix = { latitude: -27, longitude: 153, accuracy: 4 };
+
+        await expect(MobService.activate()).resolves.not.toBeNull();
+
+        expect(MobService.isActive()).toBe(true);
+        expect(MobService.currentState().persistenceStatus).toBe('failed');
     });
 
     it('clear() deactivates and wipes persisted state', async () => {
@@ -206,6 +322,34 @@ describe('MobService', () => {
         expect(MobService.currentState().active).toBeNull();
         expect(MobService.currentState().distanceMeters).toBeNull();
         expect(Object.keys(prefStore).length).toBe(0);
+    });
+
+    it('keeps the emergency armed when persisted recovery cannot be cleared', async () => {
+        mockFix = { latitude: -27, longitude: 153, accuracy: 4 };
+        await MobService.activate();
+        vi.mocked(Preferences.remove).mockRejectedValueOnce(new Error('native storage unavailable'));
+
+        await expect(MobService.clear()).rejects.toThrow('MOB remains active');
+
+        expect(MobService.isActive()).toBe(true);
+        expect(MobService.currentState().persistenceStatus).toBe('failed');
+        expect(Object.keys(prefStore)).toHaveLength(1);
+    });
+
+    it('retains device recovery when legacy cleanup succeeds but authoritative removal fails', async () => {
+        mockFix = { latitude: -27, longitude: 153, accuracy: 4 };
+        await MobService.activate();
+        vi.mocked(Preferences.remove)
+            .mockImplementationOnce(async ({ key }) => {
+                delete prefStore[key];
+            })
+            .mockRejectedValueOnce(new Error('device recovery removal failed'));
+
+        await expect(MobService.clear()).rejects.toThrow('MOB remains active');
+
+        expect(MobService.isActive()).toBe(true);
+        expect(prefStore[MOB_STORAGE_KEY]).toBeDefined();
+        expect(MobService.currentState().persistenceStatus).toBe('failed');
     });
 
     it('elapsedSec counts up from activation', async () => {
@@ -222,9 +366,8 @@ describe('MobService', () => {
         }
     });
 
-    it('keeps an armed MOB physically tracking but hides its fix from another account', async () => {
+    it('keeps an armed MOB visible and clearable across logout/account transitions', async () => {
         mockFix = { latitude: -27.01, longitude: 153.02, accuracy: 3 };
-        const accountAScope = getAuthIdentityScope();
         await MobService.activate();
         pushOwn(-27.02, 153.02);
 
@@ -233,26 +376,22 @@ describe('MobService', () => {
 
         setAuthIdentityScope(TEST_ACCOUNT_B);
 
-        expect(MobService.isActive()).toBe(false);
+        expect(MobService.isActive()).toBe(true);
         expect(MobService.currentState()).toMatchObject({
-            active: null,
-            own: null,
-            distanceMeters: null,
-            bearingDeg: null,
-            elapsedSec: 0,
+            active: { fixLat: -27.01, fixLon: 153.02 },
+            own: { latitude: -27.02 },
         });
-        // Account B cannot clear account A's emergency.
+        // The emergency belongs to the physical device, not the auth session.
         await MobService.clear();
-        expect(prefStore[authScopedStorageKey(MOB_STORAGE_KEY, accountAScope)]).toBeDefined();
-        expect(watchCallbacks).toHaveLength(1);
+        expect(prefStore[MOB_STORAGE_KEY]).toBeUndefined();
+        expect(watchCallbacks).toHaveLength(0);
 
         setAuthIdentityScope(TEST_ACCOUNT_A);
-        expect(MobService.isActive()).toBe(true);
-        expect(MobService.currentState().active?.fixLon).toBe(153.02);
-        expect(MobService.currentState().own?.latitude).toBe(-27.02);
+        expect(MobService.isActive()).toBe(false);
+        expect(MobService.currentState().active).toBeNull();
     });
 
-    it('discards a GPS activation that resolves after the account changes', async () => {
+    it('finishes a physical MOB activation even if auth changes while GPS resolves', async () => {
         let resolveFix!: (fix: GpsPosition) => void;
         vi.mocked(GpsService.getCurrentPosition).mockImplementationOnce(
             () =>
@@ -267,14 +406,14 @@ describe('MobService', () => {
         setAuthIdentityScope(TEST_ACCOUNT_B);
         resolveFix(fullGpsFix({ latitude: -27.5, longitude: 153.5, accuracy: 5 }));
 
-        await expect(pending).resolves.toBeNull();
-        expect(MobService.currentState().active).toBeNull();
-        expect(Object.keys(prefStore)).toHaveLength(0);
-        expect(Haptics.impact).not.toHaveBeenCalled();
-        expect(KeepAwake.keepAwake).not.toHaveBeenCalled();
+        await expect(pending).resolves.toMatchObject({ fixLat: -27.5, fixLon: 153.5 });
+        expect(MobService.currentState().active).toMatchObject({ fixLat: -27.5, fixLon: 153.5 });
+        expect(prefStore[MOB_STORAGE_KEY]).toBeDefined();
+        expect(Haptics.impact).toHaveBeenCalled();
+        expect(KeepAwake.keepAwake).toHaveBeenCalled();
     });
 
-    it('drops a persisted fix whose hydration resolves under another account', async () => {
+    it('restores a device emergency even when auth changes during hydration', async () => {
         const accountAScope = getAuthIdentityScope();
         const persisted = JSON.stringify({
             version: 2,
@@ -304,15 +443,12 @@ describe('MobService', () => {
         resolveRead({ value: persisted });
         await pending;
 
-        expect(MobService.currentState().active).toBeNull();
-        expect(watchCallbacks).toHaveLength(0);
-
-        setAuthIdentityScope(TEST_ACCOUNT_A);
-        await MobService.hydrate();
         expect(MobService.currentState().active?.fixLat).toBe(-27.7);
+        expect(MobService.isActive()).toBe(true);
+        expect(watchCallbacks).toHaveLength(1);
     });
 
-    it('ignores the unattributed legacy global MOB fix', async () => {
+    it('rejects and removes an unattributed legacy global MOB fix', async () => {
         prefStore[MOB_STORAGE_KEY] = JSON.stringify({
             fixLat: -27.9,
             fixLon: 153.9,
@@ -325,7 +461,7 @@ describe('MobService', () => {
 
         expect(MobService.isActive()).toBe(false);
         expect(MobService.currentState().active).toBeNull();
-        expect(prefStore[MOB_STORAGE_KEY]).toBeDefined();
+        expect(prefStore[MOB_STORAGE_KEY]).toBeUndefined();
     });
 
     it('serializes a slow persist before clear so the fix cannot resurrect', async () => {

@@ -5,7 +5,7 @@
  * GFW_API_KEY), then falls back to ITU MARS List V (public ship-station DB).
  * Handles everything not covered by AMSA/USCG/Equasis.
  */
-import { VesselMetadataRow, upsertMetadata } from '../supabase.ts';
+import { upsertMetadata, VesselMetadataRow } from '../supabase.ts';
 import { fetchWithTimeout, readResponseTextLimited } from '../../../_shared/http-security.ts';
 
 const GFW_API_BASE = 'https://gateway.api.globalfishingwatch.org/v3';

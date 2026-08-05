@@ -16,6 +16,58 @@
 
 import type { Geometry } from 'geojson';
 
+/**
+ * S-57 dataset names are case-insensitive identifiers, while the metadata
+ * registry is case-sensitive and the native Apple filesystem is normally
+ * case-insensitive. Keep one canonical identity at every import boundary so
+ * `AU...` and `au...` can never become two metadata records backed by the same
+ * on-device file.
+ */
+export const ENC_CELL_ID_PATTERN = /^[A-Z0-9][A-Z0-9_-]{1,63}$/;
+
+export function canonicalEncCellId(value: string): string {
+    return value.trim().toUpperCase();
+}
+
+/** Identity used for per-cell mutation locks and collision checks. */
+export function encCellStorageIdentity(value: string): string {
+    // Do not "make" an invalid ID filesystem-safe here. Turning `/`, `.`, or
+    // any other illegal character into `_` aliases attacker/corrupt input to a
+    // different, valid chart (for example `AU/PORT` -> `AU_PORT`). Callers
+    // that form a path validate ENC_CELL_ID_PATTERN first; maps/locks can use
+    // the canonical string itself without creating a second identity scheme.
+    return canonicalEncCellId(value);
+}
+
+/** One converted cell is intentionally kept well below the webview's
+ * practical heap ceiling. The measured AU corpus tops out around 7.6 MB; a
+ * 16 MB ceiling leaves generous headroom while preventing a signed/malformed
+ * source from being parsed, cached and cloned into an OOM-sized chart. */
+export const ENC_CELL_BLOB_MAX_BYTES = 16 * 1024 * 1024;
+
+/** Exact UTF-8 length without allocating a second byte buffer beside a large
+ * JSON string. `stopAfter` lets safety gates bail as soon as the limit is
+ * crossed, avoiding the peak-allocation pattern those gates prevent. */
+export function utf8ByteLength(value: string, stopAfter = Number.POSITIVE_INFINITY): number {
+    let bytes = 0;
+    for (let index = 0; index < value.length; index += 1) {
+        const code = value.charCodeAt(index);
+        if (code <= 0x7f) bytes += 1;
+        else if (code <= 0x7ff) bytes += 2;
+        else if (code >= 0xd800 && code <= 0xdbff) {
+            const next = value.charCodeAt(index + 1);
+            if (next >= 0xdc00 && next <= 0xdfff) {
+                bytes += 4;
+                index += 1;
+            } else {
+                bytes += 3; // TextEncoder's U+FFFD replacement
+            }
+        } else bytes += 3;
+        if (bytes > stopAfter) return bytes;
+    }
+    return bytes;
+}
+
 // ── S-57 source layers we care about ───────────────────────────────
 
 /**
@@ -565,7 +617,7 @@ export interface EncCell {
      * Missing values are legacy navigation imports except for the explicitly
      * migrated bundled-demo ids handled by EncCellMetadata.
      */
-    usage?: 'navigation' | 'demo';
+    usage?: 'navigation' | 'reference' | 'pending' | 'demo';
     /**
      * CATZOC range present in the cell's M_QUAL coverage.
      * `[best, worst]` (smaller numbers = higher confidence).
@@ -585,6 +637,10 @@ export interface EncCell {
      * are treated as "size unknown" → re-import on next sync.
      */
     sizeBytes?: number;
+    /** Persistent version of the private cloud manifest that supplied this
+     * blob. Binds saved route checks to corrected extractor output even when
+     * S-57 edition/date and byte metadata otherwise stay unchanged. */
+    cloudManifestVersion?: number;
 }
 
 // ── Query result ───────────────────────────────────────────────────

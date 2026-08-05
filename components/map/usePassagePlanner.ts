@@ -73,8 +73,31 @@ export interface PassageState {
     departureTime: string;
     speed: number;
     routeAnalysis: RouteAnalysis | null;
+    routeVerification: PassageRouteVerification;
+    routeActionsAvailable: boolean;
     settingPoint: 'departure' | 'arrival' | null;
     showPassage: boolean;
+}
+
+export type PassageRouteVerificationStatus = 'idle' | 'pending' | 'verified' | 'unverified';
+
+export interface PassageRouteVerification {
+    status: PassageRouteVerificationStatus;
+    /** Stable key for the exact GeoJSON geometry that received the verdict. */
+    geometryKey: string | null;
+    reason?: string;
+}
+
+function routeFeatureGeometryKey(features: readonly GeoJSON.Feature<GeoJSON.LineString>[]): string | null {
+    const coordinateRuns = features
+        .map((feature) => feature.geometry.coordinates)
+        .filter((coordinates) => coordinates.length >= 2);
+    if (coordinateRuns.length === 0) return null;
+    return coordinateRuns
+        .map((coordinates) =>
+            coordinates.map(([lon, lat]) => `${Number(lon).toFixed(6)},${Number(lat).toFixed(6)}`).join(';'),
+        )
+        .join('|');
 }
 
 /** Status/notice band content rendered by PassageBanner. */
@@ -183,6 +206,10 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
     const [departureTime, setDepartureTime] = useState('');
     const [speed, setSpeed] = useState(6);
     const [routeAnalysis, setRouteAnalysis] = useState<RouteAnalysis | null>(null);
+    const [routeVerification, setRouteVerification] = useState<PassageRouteVerification>({
+        status: 'idle',
+        geometryKey: null,
+    });
     const [settingPoint, setSettingPoint] = useState<'departure' | 'arrival' | null>(null);
     // A RoutePlanner handoff is staged before the tab changes. Read it during
     // initial render (not in the mount effect) so the destination MapHub never
@@ -191,6 +218,46 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
     const isoResultRef = useRef<IsochroneResult | null>(null);
     const turnWaypointsRef = useRef<TurnWaypoint[]>([]);
     const computeGenRef = useRef(0); // generation counter — prevents stale writes
+    const displayedRouteGeometryKeyRef = useRef<string | null>(null);
+    const commitDisplayedRoute = useCallback(
+        (
+            map: mapboxgl.Map,
+            features: GeoJSON.Feature<GeoJSON.LineString>[],
+            status: Exclude<PassageRouteVerificationStatus, 'idle'>,
+            reason?: string,
+        ): void => {
+            const geometryKey = routeFeatureGeometryKey(features);
+            const featureContractVerified =
+                features.length > 0 &&
+                features.every(
+                    (feature) =>
+                        feature.properties?.verification === 'verified' && feature.properties?.safety !== 'unverified',
+                );
+            const effectiveStatus = status === 'verified' && !featureContractVerified ? 'unverified' : status;
+            const routeSource = map.getSource('route-line') as mapboxgl.GeoJSONSource | undefined;
+            if (!routeSource) {
+                displayedRouteGeometryKeyRef.current = null;
+                setRouteVerification({
+                    status: 'unverified',
+                    geometryKey: null,
+                    reason: 'route layer is unavailable, so displayed geometry could not be confirmed',
+                });
+                return;
+            }
+            routeSource.setData({ type: 'FeatureCollection', features });
+            displayedRouteGeometryKeyRef.current = geometryKey;
+            setRouteVerification({
+                status: effectiveStatus,
+                geometryKey,
+                ...(reason
+                    ? { reason }
+                    : effectiveStatus === 'unverified' && status === 'verified'
+                      ? { reason: 'route safety classifications did not match the displayed geometry' }
+                      : {}),
+            });
+        },
+        [],
+    );
     // Phase 7 tide-window chips ("clears 09:40–15:10") anchored on the red runs.
     // Owned here so every compute/clear path tears them down — a chip that
     // outlives its route ghosts over the next one (the confidence-braid lesson).
@@ -214,6 +281,8 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                 setViaWaypoints([]);
                 setDepartureTime('');
                 setRouteAnalysis(null);
+                setRouteVerification({ status: 'idle', geometryKey: null });
+                displayedRouteGeometryKeyRef.current = null;
                 setSettingPoint(null);
                 setShowPassage(false);
                 clearTideChips();
@@ -325,12 +394,20 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
         // Clear previous results immediately so stale data isn't displayed
         isoResultRef.current = null;
         turnWaypointsRef.current = [];
+        PassageStore.clear(operationScope);
+        setRouteAnalysis(null);
+        setRouteVerification({ status: 'pending', geometryKey: null, reason: 'route computation in progress' });
+        displayedRouteGeometryKeyRef.current = null;
 
         const map = mapRef.current;
         if (!map) {
             log.warn('[Passage] No map ref');
+            setRouteVerification({ status: 'unverified', geometryKey: null, reason: 'map is unavailable' });
             return;
         }
+
+        const existingRouteSource = map.getSource('route-line') as mapboxgl.GeoJSONSource | undefined;
+        existingRouteSource?.setData({ type: 'FeatureCollection', features: [] });
 
         // ── Kill Follow Route overlay IMMEDIATELY ──
         // The Follow Route hook uses identical dashed sky-blue styling.
@@ -378,7 +455,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
             return R_NM * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
         })();
         // ── Inshore router (NEW — Phase 13): handle short coastal/river/harbor passages ──
-        // Before bailing on short routes, try the Pi-side ENC inshore
+        // Before bailing on short routes, try the on-device ENC inshore
         // router. It's specifically designed for the routes the deep-
         // water passage planner refuses (city-to-city via river,
         // marina-to-marina across a harbor, etc.) and only fires when
@@ -441,21 +518,28 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                 // LAND BACKSTOP (2026-06-12 Newport→Mooloolaba field bug):
                 // uncharted space is engine-navigable, so a mid-corridor
                 // chart gap can yield a confident route across an island.
-                // Reject and fall through to the offshore pipeline; fails
-                // open when GEBCO is unreachable.
+                // Reject and fall through to the offshore pipeline. Missing
+                // GEBCO coverage is an unverified verdict, never permission
+                // to paint/save/export a confident route.
                 const { inshoreRouteCrossesLand } = await import('../../services/routing/landBackstop');
                 const backstop = await inshoreRouteCrossesLand(inshoreRes.polyline);
                 if (gen !== computeGenRef.current) return; // user moved on, abort
-                if (backstop.crossesLand) {
+                if (backstop.status !== 'verified' || backstop.crossesLand) {
+                    const unavailable = backstop.status === 'unavailable';
                     log.warn(
-                        `[Passage][BAYLEG] FELL THROUGH (land-backstop) → passage-planner GREEN will draw — ` +
-                            `${backstop.runs.length} land run(s); inshore route REJECTED on satellite bathymetry`,
+                        `[Passage][BAYLEG] FELL THROUGH (${unavailable ? 'land-backstop-unavailable' : 'land-backstop'}) — ` +
+                            (unavailable
+                                ? `only ${backstop.samplesChecked}/${backstop.samplesRequested} satellite samples verified`
+                                : `${backstop.runs.length} land run(s); inshore route rejected on satellite bathymetry`),
                     );
                     dispatchPassageNotice({
                         severity: 'warn',
-                        title: 'Inshore route rejected — possible chart gap',
-                        message:
-                            'The charted route crossed land on satellite bathymetry. Sync ENC cells from Pi Cache for full coverage. Falling back to offshore planning.',
+                        title: unavailable
+                            ? 'Inshore route not verified'
+                            : 'Inshore route rejected — possible chart gap',
+                        message: unavailable
+                            ? 'Satellite land verification is unavailable, so Thalassa will not present this route as checked. Sync chart data or reconnect, then retry. Falling back to offshore planning.'
+                            : 'The charted route crossed land on satellite bathymetry. Retry only after trusted ENC coverage is corrected; unverified reference packs cannot clear this warning. Falling back to offshore planning.',
                     });
                 } else {
                     // Build a RouteAnalysis from the polyline so the rest of
@@ -496,7 +580,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                     }
                     const inshoreDuration = inshoreRes.distanceNM / inshoreSpeed; // hours
                     const arrivalDate = new Date(departureDate.getTime() + inshoreDuration * 3600_000);
-                    setRouteAnalysis({
+                    const inshoreAnalysis: RouteAnalysis = {
                         waypoints: [
                             { id: 'dep', lat: departure.lat, lon: departure.lon, name: departure.name },
                             { id: 'arr', lat: arrival.lat, lon: arrival.lon, name: arrival.name },
@@ -514,10 +598,13 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                         favorablePercentage: 0,
                         minDepth: null,
                         shallowSegments: 0,
+                        depthSamplesKnown: 0,
+                        depthSampleSpacingNm: null,
                         routeCoordinates: inshoreRes.polyline,
-                    });
+                    };
+                    setRouteAnalysis(inshoreAnalysis);
 
-                    // Render the polyline as a single safe-water route line.
+                    // Render the polyline with its explicit classified runs.
                     // No sea buoy gates, no harbour legs, no isochrone — the
                     // ENC chart already encoded all the channel knowledge we
                     // need. The line goes straight on the channel.
@@ -545,14 +632,14 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                     const cautionMask = inshoreRes.cautionMask;
                     const canalMask = inshoreRes.canalMask;
                     const offshoreMask = inshoreRes.offshoreMask;
-                    const channelMask =
-                        hasMask(inshoreRes.channelMask) || !hasMask(inshoreRes.tier4Mask)
-                            ? inshoreRes.channelMask
-                            : inshoreRes.tier4Mask;
-                    const anyMask =
-                        hasMask(cautionMask) || hasMask(canalMask) || hasMask(channelMask) || hasMask(offshoreMask);
+                    const channelMask = hasMask(inshoreRes.channelMask) ? inshoreRes.channelMask : inshoreRes.tier4Mask;
+                    // Every colour mask is part of the renderer's safety
+                    // contract. Missing or index-desynchronised data is not an
+                    // "all normal" verdict; it makes the whole line unverified.
+                    const inshoreMasksVerified =
+                        hasMask(cautionMask) && hasMask(canalMask) && hasMask(channelMask) && hasMask(offshoreMask);
                     const stateMask: ('danger' | 'channel' | 'offshore' | 'green' | 'ntmlock')[] | null =
-                        inshorePoly.length < 2 || !anyMask
+                        inshorePoly.length < 2 || !inshoreMasksVerified
                             ? null
                             : Array.from({ length: segCount }, (_, i) => {
                                   if (channelMask?.[i]) return 'channel'; // marked channel YELLOW (beats caution)
@@ -601,10 +688,16 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                     }
                     const inshoreFeatures: GeoJSON.Feature<GeoJSON.LineString>[] = [];
                     if (!stateMask) {
-                        // No (or mismatched) safety data — single green line.
+                        // No or mismatched safety data: keep the useful
+                        // geometry visible, but never imply it was classified.
                         inshoreFeatures.push({
                             type: 'Feature',
-                            properties: { safety: 'green', source: 'inshore-router' },
+                            properties: {
+                                safety: 'unverified',
+                                source: 'inshore-router',
+                                dashed: true,
+                                verification: 'unverified',
+                            },
                             geometry: { type: 'LineString', coordinates: inshorePoly },
                         });
                     } else {
@@ -617,6 +710,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                                     properties: {
                                         safety: stateMask[runStart],
                                         source: 'inshore-router',
+                                        verification: 'verified',
                                     },
                                     // run = segments [runStart, i) → points [runStart, i]
                                     geometry: {
@@ -628,15 +722,59 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                             }
                         }
                     }
+                    if (gen !== computeGenRef.current) return;
+                    // Bind every downstream action to the exact classified
+                    // inshore polyline. Falling back to the old "basic GPX"
+                    // path exported only the two pins, not the channel route
+                    // the skipper was looking at.
+                    if (stateMask) {
+                        const inshorePoints = inshorePoly.map(([lon, lat]) => ({ lat, lon }));
+                        const inshoreLegs = cumulativeLegs(inshorePoints, inshoreSpeed);
+                        const inshoreIsoResult: IsochroneResult = {
+                            route: inshorePoints.map((point, index) => ({
+                                ...point,
+                                timeHours: inshoreLegs[index].hours,
+                                bearing: inshoreSegments[Math.max(0, index - 1)]?.bearing ?? 0,
+                                speed: inshoreSpeed,
+                                sog: inshoreSpeed,
+                                tws: 0,
+                                twa: 0,
+                                parentIndex: null,
+                                distance: inshoreLegs[index].nm,
+                            })) as IsochroneResult['route'],
+                            routeCoordinates: inshorePoly,
+                            shallowFlags: inshorePoly.map((_, index) => cautionMask?.[Math.max(0, index - 1)] ?? false),
+                            totalDistanceNM: Math.round(inshoreRes.distanceNM * 10) / 10,
+                            totalDurationHours: Math.round(inshoreDuration * 10) / 10,
+                            arrivalTime: arrivalDate.toISOString(),
+                            isochrones: [],
+                            engineFlags: { stallRecovery: false, finalApproach: false },
+                        } as unknown as IsochroneResult;
+                        const inshoreWps = detectTurnWaypoints(inshoreIsoResult.route, departureDate.toISOString());
+                        pushToPassageStore(
+                            inshoreIsoResult,
+                            inshoreWps,
+                            departure,
+                            arrival,
+                            inshoreAnalysis,
+                            departureDate.toISOString(),
+                            inshoreSpeed,
+                            operationScope,
+                        );
+                        isoResultRef.current = inshoreIsoResult;
+                        turnWaypointsRef.current = inshoreWps;
+                    }
                     // A newer compute run may have started during the ~90s inshore await — don't let
                     // this (possibly stale) run paint over it. Two sequential runs (one fragmented, one
                     // chain-clean) were racing to write LAST, so the displayed route was non-deterministic
                     // — that is why code fixes appeared to "do nothing": a stale fragmented run sometimes won.
                     if (gen !== computeGenRef.current) return;
-                    const routeSrc = map.getSource('route-line') as mapboxgl.GeoJSONSource;
-                    if (routeSrc) {
-                        routeSrc.setData({ type: 'FeatureCollection', features: inshoreFeatures });
-                    }
+                    commitDisplayedRoute(
+                        map,
+                        inshoreFeatures,
+                        stateMask ? 'verified' : 'unverified',
+                        stateMask ? undefined : 'inshore safety masks were missing or did not match the route',
+                    );
                     const wpSource = map.getSource('waypoints') as mapboxgl.GeoJSONSource;
                     if (wpSource) {
                         wpSource.setData({
@@ -681,7 +819,14 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
 
                     // Route rendered — clear the computing band, or explain the trimmed
                     // tail when the pin geocoded to dry land (suburb-centroid class).
-                    if (inshoreRes.destinationInlandTrimM) {
+                    if (!stateMask) {
+                        dispatchPassageNotice({
+                            severity: 'warn',
+                            title: 'Route shown — verification incomplete',
+                            message:
+                                'The inshore router returned missing or mismatched safety classifications. The dashed amber line cannot be saved, exported or shared; retry after charts are synced.',
+                        });
+                    } else if (inshoreRes.destinationInlandTrimM) {
                         dispatchPassageNotice({
                             severity: 'warn',
                             title: 'Destination is inland',
@@ -715,7 +860,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                     // forget AFTER the route paints; stale computes are gen-guarded
                     // inside, and the markers land in tideChipMarkersRef so every
                     // compute/clear path tears them down.
-                    if (inshoreRes.shallowRuns?.length) {
+                    if (stateMask && inshoreRes.shallowRuns?.length) {
                         const { annotateTideWindows } = await import('./tideWindowChips');
                         void annotateTideWindows({
                             map,
@@ -737,7 +882,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                             // this fire-and-forget block resolves later and was
                             // clobbering the read-the-notice instruction at the
                             // flagship site (review finding #14).
-                            if (ntmLockBanner) return;
+                            if (ntmLockBanner || !stateMask) return;
                             const { loadLocalNotices, localNoticesNearPolyline } =
                                 await import('../../services/localNotices');
                             const hits = localNoticesNearPolyline(await loadLocalNotices(), inshoreRes.polyline, 500);
@@ -775,7 +920,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                     return;
                 }
                 log.warn(
-                    `[Passage][BAYLEG] FELL THROUGH (engine ${inshoreRes.code ?? 'no-code'}) → passage-planner GREEN will draw — ` +
+                    `[Passage][BAYLEG] FELL THROUGH (engine ${inshoreRes.code ?? 'no-code'}) → unverified offshore preview will draw — ` +
                         `${inshoreRes.error}`,
                 );
                 // The engine's error strings are skipper-readable
@@ -792,7 +937,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
             }
         } catch (err) {
             log.warn(
-                `[Passage][BAYLEG] FELL THROUGH (threw) → passage-planner GREEN will draw — inshore routing exception`,
+                `[Passage][BAYLEG] FELL THROUGH (threw) → unverified offshore preview will draw — inshore routing exception`,
                 err,
             );
             dispatchPassageNotice({
@@ -1131,8 +1276,12 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
         const buildFeatures = (
             passageCoords: number[][],
             shallowFlags?: boolean[],
+            verification: 'verified' | 'unverified' = 'unverified',
+            terminalsIncluded = false,
         ): GeoJSON.Feature<GeoJSON.LineString>[] => {
             const features: GeoJSON.Feature<GeoJSON.LineString>[] = [];
+            const safetyMaskAligned = shallowFlags?.length === passageCoords.length;
+            const effectiveVerification = verification === 'verified' && safetyMaskAligned ? 'verified' : 'unverified';
 
             // Helper: create a dashed harbour-leg feature
             const makeLandLeg = (coords: number[][]): GeoJSON.Feature<GeoJSON.LineString> => ({
@@ -1191,10 +1340,12 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                 const arrGateCoord = [arrGate.lon, arrGate.lat];
                 const arrCoord = [arrival.lon, arrival.lat];
 
-                // Departure harbour leg (dashed): departure → depGate
-                features.push(makeLandLeg([depCoord, depGateCoord]));
-                // Arrival harbour leg (dashed): arrGate → arrival
-                features.push(makeLandLeg([arrGateCoord, arrCoord]));
+                if (!terminalsIncluded) {
+                    // Departure harbour leg (dashed): departure → depGate
+                    features.push(makeLandLeg([depCoord, depGateCoord]));
+                    // Arrival harbour leg (dashed): arrGate → arrival
+                    features.push(makeLandLeg([arrGateCoord, arrCoord]));
+                }
 
                 // Ocean portion: the passage coords (gate-to-gate) — tier-4 water, so it
                 // renders the tier scheme's DARK BLUE (#1e40af), matching the inshore
@@ -1218,7 +1369,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
 
                 // Ocean portion: depCut → all intermediate points → arrCut
                 const oceanCoords = [depCut, ...passageCoords.slice(1, -1), arrCut];
-                const oceanShallows = shallowFlags?.slice(1, -1);
+                const oceanShallows = shallowFlags;
 
                 // Short route: depth-aware per-segment coloring
                 if (isShortRoute && oceanShallows && oceanShallows.length === oceanCoords.length) {
@@ -1254,7 +1405,8 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                     });
                 }
             } else {
-                // Too few points — render entire route as safe
+                // Too few points — the verification override below decides
+                // whether this base feature is verified or amber/unverified.
                 features.push({
                     type: 'Feature',
                     properties: { safety: 'safe' },
@@ -1262,14 +1414,138 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                 });
             }
 
-            return features;
+            return features.map((feature) => ({
+                ...feature,
+                properties:
+                    effectiveVerification === 'verified'
+                        ? { ...feature.properties, verification: 'verified' }
+                        : {
+                              ...feature.properties,
+                              safety: 'unverified',
+                              dashed: true,
+                              verification: 'unverified',
+                          },
+            }));
+        };
+
+        const withPassageTerminals = (candidate: IsochroneNode[]): IsochroneNode[] => {
+            if (candidate.length === 0) return [];
+            const samePosition = (node: IsochroneNode, point: { lat: number; lon: number }) =>
+                Math.abs(node.lat - point.lat) < 1e-7 && Math.abs(node.lon - point.lon) < 1e-7;
+            const expanded = [...candidate];
+            if (!samePosition(expanded[0], departure)) {
+                expanded.unshift({ ...expanded[0], lat: departure.lat, lon: departure.lon });
+            }
+            if (!samePosition(expanded[expanded.length - 1], arrival)) {
+                expanded.push({ ...expanded[expanded.length - 1], lat: arrival.lat, lon: arrival.lon });
+            }
+            const validationSpeed = speed > 0 ? speed : 6;
+            const legs = cumulativeLegs(
+                expanded.map(({ lat, lon }) => ({ lat, lon })),
+                validationSpeed,
+            );
+            return expanded.map((node, index) => ({
+                ...node,
+                timeHours: legs[index].hours,
+                distance: legs[index].nm,
+            }));
+        };
+
+        const validateCandidateRoute = async (
+            candidate: IsochroneNode[],
+            timeoutMs: number,
+            timeoutReason: string,
+        ): Promise<{ route: IsochroneNode[]; verified: boolean; reason?: string }> => {
+            const { validateRouteSegments } = await import('../../services/isochrone/landAvoidance');
+            const vesselDraftM = vesselDraftMetres(useSettingsStore.getState().settings.vessel);
+            const departureTimeMs = departureTime ? new Date(departureTime).getTime() : undefined;
+            let timedOut = false;
+            const outcomeRef: {
+                current: { status: 'verified' | 'unverified'; reason?: string } | null;
+            } = { current: null };
+            const validated = await Promise.race([
+                validateRouteSegments(candidate, {
+                    vesselDraftM,
+                    draftAssumed: vesselDraftIsAssumed(useSettingsStore.getState().settings.vessel),
+                    departureTimeMs,
+                    stillCurrent: () => !timedOut && computeGenRef.current === gen,
+                    onVerificationOutcome: (nextOutcome) => {
+                        outcomeRef.current = nextOutcome;
+                    },
+                }),
+                new Promise<null>((resolve) =>
+                    setTimeout(() => {
+                        timedOut = true;
+                        resolve(null);
+                    }, timeoutMs),
+                ),
+            ]);
+
+            if (!validated) return { route: candidate, verified: false, reason: timeoutReason };
+            if (computeGenRef.current !== gen) {
+                return { route: validated, verified: false, reason: 'route was superseded by a newer plan' };
+            }
+            const outcome = outcomeRef.current;
+            if (outcome?.status !== 'verified') {
+                return {
+                    route: validated,
+                    verified: false,
+                    reason: outcome?.reason ?? 'chart and depth verification did not complete',
+                };
+            }
+            return { route: validated, verified: true };
+        };
+
+        const applyValidatedRoute = (candidate: IsochroneResult, validated: IsochroneNode[]): IsochroneResult => {
+            const cruisingKt = speed > 0 ? speed : 6;
+            const points = validated.map(({ lat, lon }) => ({ lat, lon }));
+            const legs = cumulativeLegs(points, cruisingKt);
+            const route = validated.map((node, index) => ({
+                ...node,
+                timeHours: legs[index].hours,
+                distance: legs[index].nm,
+            }));
+            const totalDistanceNM = legs[legs.length - 1]?.nm ?? 0;
+            const totalDurationHours = legs[legs.length - 1]?.hours ?? 0;
+            const departureIso = departureTime || new Date().toISOString();
+            return {
+                ...candidate,
+                route,
+                routeCoordinates: route.map((node) => [node.lon, node.lat] as [number, number]),
+                shallowFlags: route.map(() => false),
+                totalDistanceNM: Math.round(totalDistanceNM * 10) / 10,
+                totalDurationHours: Math.round(totalDurationHours * 10) / 10,
+                arrivalTime: new Date(new Date(departureIso).getTime() + totalDurationHours * 3_600_000).toISOString(),
+            };
+        };
+
+        const markRouteUnverified = (coords: [number, number][], reason: string, terminalsIncluded: boolean): void => {
+            commitDisplayedRoute(
+                map,
+                buildFeatures(coords, undefined, 'unverified', terminalsIncluded),
+                'unverified',
+                reason,
+            );
+            isoResultRef.current = null;
+            turnWaypointsRef.current = [];
+            PassageStore.clear(operationScope);
+            dispatchPassageNotice({
+                severity: 'warn',
+                title: 'Route shown — not verified',
+                message: `${reason}. The dashed amber line cannot be saved, exported or shared. Retry when chart and depth data are available.`,
+            });
         };
 
         // Always show great-circle line immediately as a preview.
         // For long routes, the isochrone engine will replace it once computed.
         const routeSrc = map.getSource('route-line') as mapboxgl.GeoJSONSource;
         if (routeSrc) {
-            routeSrc.setData({ type: 'FeatureCollection', features: buildFeatures(waterAwareCoords) });
+            commitDisplayedRoute(
+                map,
+                buildFeatures(waterAwareCoords, undefined, 'unverified'),
+                'pending',
+                'route preview is awaiting chart and depth verification',
+            );
             log.info(
                 `[Passage] Trip Sandwich rendered (${waterAwareCoords !== gcCoords ? 'water-aware bypass' : 'great-circle'} preview: ${Math.round(straightLineNM)} NM)`,
             );
@@ -1349,8 +1625,9 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                         lat,
                         lon,
                     }));
+                    let shortRouteVerified = false;
+                    let shortRouteVerificationReason = 'depth validation did not complete';
                     try {
-                        const { validateRouteSegments } = await import('../../services/isochrone/landAvoidance');
                         // Feed the validator just the [origin, destination]
                         // pair — NOT the 80-point great-circle interpolation.
                         // sampleSegment uses 0.5 NM resolution; an 80-point
@@ -1383,57 +1660,33 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                             parentIndex: null,
                             distance: seedLegs[i].nm,
                         })) as unknown as IsochroneNode[];
-                        // validateRouteSegments wants METRES; vessel.draft is FEET
-                        // (see services/units.ts).
-                        const vesselDraftM = vesselDraftMetres(useSettingsStore.getState().settings.vessel);
-                        const departureTimeMs = departureTime ? new Date(departureTime).getTime() : undefined;
-                        // Timeout race guard (2026-07-17 audit): when the
-                        // ceiling wins, the still-running validator must not
-                        // later overwrite the live report for a line we
-                        // discarded — and the skipper must HEAR that the
-                        // drawn line was never verified (it used to ship
-                        // with a prod-silenced log.info and the previous
-                        // route's clean report still up).
-                        let shortRouteStale = false;
-                        const validated = await Promise.race([
-                            validateRouteSegments(seedNodes, {
-                                vesselDraftM,
-                                // Assumed default draft (no draft set) → surface the caution (audit #2).
-                                draftAssumed: vesselDraftIsAssumed(useSettingsStore.getState().settings.vessel),
-                                departureTimeMs,
-                                stillCurrent: () => !shortRouteStale,
-                            }),
-                            // 30s ceiling (was 12s). Multi-pass detour
-                            // search across reef-strewn coastal waters
-                            // can take ~15-20s — 12s was killing the
-                            // validator mid-fix and leaving a polyline
-                            // that still crossed land.
-                            new Promise<null>((r) =>
-                                setTimeout(() => {
-                                    shortRouteStale = true;
-                                    r(null);
-                                }, 30_000),
-                            ),
-                        ]);
-                        if (validated && validated.length >= 2) {
-                            validatedRoute = validated.map((n) => ({ lat: n.lat, lon: n.lon }));
-                            if (validated.length !== seedNodes.length) {
+                        const validation = await validateCandidateRoute(
+                            seedNodes,
+                            30_000,
+                            'final chart and coarse depth validation timed out after 30 seconds',
+                        );
+                        validatedRoute = validation.route.map((n) => ({ lat: n.lat, lon: n.lon }));
+                        shortRouteVerified = validation.verified;
+                        shortRouteVerificationReason = validation.reason ?? shortRouteVerificationReason;
+                        if (validation.verified) {
+                            if (validation.route.length !== seedNodes.length) {
                                 log.info(
-                                    `[Passage] Short route validated: ${seedNodes.length} → ${validated.length} points (land/reef detours added)`,
+                                    `[Passage] Short route validated: ${seedNodes.length} → ${validation.route.length} points (land/reef detours added)`,
                                 );
                             }
                         } else {
-                            log.warn('[Passage] Short route: GEBCO validation timed out or empty — using great-circle');
+                            log.warn(`[Passage] Short route remains unverified: ${shortRouteVerificationReason}`);
                             const { publishRouteNotValidated } =
                                 await import('../../services/enc/EncHazardReportService');
-                            publishRouteNotValidated('depth validation timed out (30 s)');
+                            publishRouteNotValidated(shortRouteVerificationReason);
                         }
                     } catch (e) {
                         log.warn('[Passage] Short route: GEBCO validation failed — using great-circle:', e);
+                        shortRouteVerificationReason = 'final chart and coarse depth validation failed';
                         try {
                             const { publishRouteNotValidated } =
                                 await import('../../services/enc/EncHazardReportService');
-                            publishRouteNotValidated('depth validation failed');
+                            publishRouteNotValidated(shortRouteVerificationReason);
                         } catch {
                             /* best effort */
                         }
@@ -1466,11 +1719,19 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
 
                     const validatedCoords: [number, number][] = validatedRoute.map((p) => [p.lon, p.lat]);
 
-                    // Re-render the route line with the validated
-                    // detour-aware geometry.
-                    const srcShort = map.getSource('route-line') as mapboxgl.GeoJSONSource;
-                    if (srcShort) {
-                        srcShort.setData({ type: 'FeatureCollection', features: buildFeatures(validatedCoords) });
+                    if (shortRouteVerified) {
+                        commitDisplayedRoute(
+                            map,
+                            buildFeatures(
+                                validatedCoords,
+                                validatedCoords.map(() => false),
+                                'verified',
+                            ),
+                            'verified',
+                        );
+                        dispatchPassageNotice(null);
+                    } else {
+                        markRouteUnverified(validatedCoords, shortRouteVerificationReason, true);
                     }
 
                     // Per-point ETAs, not zeros (2026-07-17 audit): cumulative
@@ -1519,30 +1780,43 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                             twa: 0,
                         } as unknown as TurnWaypoint,
                     ];
-                    turnWaypointsRef.current = minimalWps;
-                    isoResultRef.current = minimalIsoResult;
-
                     const updatedResultShort = { ...result };
                     updatedResultShort.totalDistance = minimalIsoResult.totalDistanceNM;
                     updatedResultShort.estimatedDuration = minimalIsoResult.totalDurationHours;
                     setRouteAnalysis(updatedResultShort);
 
-                    pushToPassageStore(
-                        minimalIsoResult,
-                        minimalWps,
-                        departure,
-                        arrival,
-                        updatedResultShort,
-                        depTimeStr,
-                        cruisingKt,
-                        operationScope,
-                    );
+                    if (shortRouteVerified) {
+                        turnWaypointsRef.current = minimalWps;
+                        isoResultRef.current = minimalIsoResult;
+                        pushToPassageStore(
+                            minimalIsoResult,
+                            minimalWps,
+                            departure,
+                            arrival,
+                            updatedResultShort,
+                            depTimeStr,
+                            cruisingKt,
+                            operationScope,
+                        );
+                    }
 
                     window.dispatchEvent(
-                        new CustomEvent('thalassa:isochrone-complete', { detail: { success: true, short: true } }),
+                        new CustomEvent('thalassa:isochrone-complete', {
+                            detail: { success: shortRouteVerified, short: true, verified: shortRouteVerified },
+                        }),
                     );
                 } catch (e) {
                     log.warn('[Passage] Short-route bypass push failed:', e);
+                    markRouteUnverified(
+                        waterAwareCoords as [number, number][],
+                        'the verified short route could not be prepared for display and export',
+                        false,
+                    );
+                    window.dispatchEvent(
+                        new CustomEvent('thalassa:isochrone-complete', {
+                            detail: { success: false, short: true, verified: false },
+                        }),
+                    );
                 }
                 return;
             }
@@ -1554,18 +1828,49 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                     const cached = getPrecomputedRoute(depGate.lat, depGate.lon, arrGate.lat, arrGate.lon);
                     if (cached && cached.routeCoordinates.length >= 2) {
                         if (computeGenRef.current !== gen) return;
-                        log.info(`[Isochrone BG] ✓ Using pre-computed route: ${cached.totalDistanceNM} NM`);
-                        isoResultRef.current = cached;
-                        const src = map.getSource('route-line') as mapboxgl.GeoJSONSource;
-                        if (src) {
-                            src.setData({
-                                type: 'FeatureCollection',
-                                features: buildFeatures(cached.routeCoordinates, cached.shallowFlags),
-                            });
+                        log.info(
+                            `[Isochrone BG] Pre-computed candidate found (${cached.totalDistanceNM} NM) — verifying exact geometry`,
+                        );
+                        commitDisplayedRoute(
+                            map,
+                            buildFeatures(cached.routeCoordinates, cached.shallowFlags, 'unverified'),
+                            'pending',
+                            'cached route is awaiting fresh chart and depth verification',
+                        );
+                        const cachedValidation = await validateCandidateRoute(
+                            withPassageTerminals(cached.route),
+                            15_000,
+                            'fresh verification of the cached route timed out after 15 seconds',
+                        );
+                        const checkedCached = applyValidatedRoute(cached, cachedValidation.route);
+                        const updatedResult2 = { ...result };
+                        updatedResult2.totalDistance = checkedCached.totalDistanceNM;
+                        updatedResult2.estimatedDuration = checkedCached.totalDurationHours;
+                        setRouteAnalysis(updatedResult2);
+                        if (!cachedValidation.verified) {
+                            markRouteUnverified(
+                                checkedCached.routeCoordinates,
+                                cachedValidation.reason ?? 'fresh verification of the cached route failed',
+                                true,
+                            );
+                            window.dispatchEvent(
+                                new CustomEvent('thalassa:isochrone-complete', {
+                                    detail: { success: false, verified: false, cached: true },
+                                }),
+                            );
+                            return;
                         }
+
+                        commitDisplayedRoute(
+                            map,
+                            buildFeatures(checkedCached.routeCoordinates, checkedCached.shallowFlags, 'verified', true),
+                            'verified',
+                        );
+                        dispatchPassageNotice(null);
+                        isoResultRef.current = checkedCached;
                         const depTimeStr2 = departureTime || new Date().toISOString();
                         const { detectTurnWaypoints } = await import('../../services/IsochroneRouter');
-                        const wps = detectTurnWaypoints(cached.route, depTimeStr2);
+                        const wps = detectTurnWaypoints(checkedCached.route, depTimeStr2);
                         turnWaypointsRef.current = wps;
                         const wpSource2 = map.getSource('waypoints') as mapboxgl.GeoJSONSource;
                         if (wpSource2) {
@@ -1584,14 +1889,10 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                                 })),
                             });
                         }
-                        const updatedResult2 = { ...result };
-                        updatedResult2.totalDistance = cached.totalDistanceNM;
-                        updatedResult2.estimatedDuration = cached.totalDurationHours;
-                        setRouteAnalysis(updatedResult2);
-
-                        // Push pre-computed route to global PassageStore for Nav Station
+                        // Push only after a fresh verification pass. Cache
+                        // provenance is never itself a safety verdict.
                         pushToPassageStore(
-                            cached,
+                            checkedCached,
                             wps,
                             departure,
                             arrival,
@@ -1603,15 +1904,26 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
 
                         try {
                             window.dispatchEvent(
-                                new CustomEvent('thalassa:isochrone-complete', { detail: { success: true } }),
+                                new CustomEvent('thalassa:isochrone-complete', {
+                                    detail: { success: true, verified: true, cached: true },
+                                }),
                             );
                         } catch (_) {
                             log.warn(``, _);
                         }
                         return; // Done — skip fresh computation
                     }
-                } catch {
-                    /* Cache not available — continue with fresh computation */
+                } catch (cacheError) {
+                    log.warn('[Isochrone BG] Cached candidate could not be verified — computing fresh:', cacheError);
+                    isoResultRef.current = null;
+                    turnWaypointsRef.current = [];
+                    PassageStore.clear(operationScope);
+                    commitDisplayedRoute(
+                        map,
+                        buildFeatures(waterAwareCoords, undefined, 'unverified'),
+                        'pending',
+                        'cached route was rejected; a fresh route is being computed',
+                    );
                 }
 
                 // Emit initial progress so UI shows something immediately
@@ -1737,13 +2049,20 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
 
                 if (!windGrid) {
                     log.info('[Isochrone BG] No wind data — keeping great-circle');
+                    markRouteUnverified(
+                        waterAwareCoords as [number, number][],
+                        'weather routing and final chart/depth verification could not run without wind data',
+                        false,
+                    );
                     // MUST dispatch complete: the first progress event
                     // already raised the "Loading wind data…" band, and
                     // PassageBanner hides stats/Save/Export while it
                     // shows. Returning silently left it spinning forever
                     // (field bug 2026-06-12, offline/marine LTE).
                     window.dispatchEvent(
-                        new CustomEvent('thalassa:isochrone-complete', { detail: { success: false, noWind: true } }),
+                        new CustomEvent('thalassa:isochrone-complete', {
+                            detail: { success: false, noWind: true, verified: false },
+                        }),
                     );
                     return;
                 }
@@ -1840,82 +2159,59 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                     log.info(
                         `[Isochrone BG] ✓ Route: ${isoResult.totalDistanceNM} NM, ${isoResult.totalDurationHours}h, ${isoResult.routeCoordinates.length} waypoints`,
                     );
-                    isoResultRef.current = isoResult;
+                    // Candidate geometry is useful immediately, but it remains
+                    // explicitly dashed/unverified until the exact displayed
+                    // line (including departure/arrival terminal legs) passes
+                    // the fine chart + depth validator.
+                    commitDisplayedRoute(
+                        map,
+                        buildFeatures(isoResult.routeCoordinates, isoResult.shallowFlags, 'unverified'),
+                        'pending',
+                        'final chart and coarse depth verification is running',
+                    );
+                    window.dispatchEvent(
+                        new CustomEvent('thalassa:isochrone-progress', {
+                            detail: {
+                                step: 0,
+                                closestNM: 0,
+                                totalDistNM: Math.round(isoResult.totalDistanceNM),
+                                phase: 'validating-route',
+                            },
+                        }),
+                    );
 
-                    const src = map.getSource('route-line') as mapboxgl.GeoJSONSource;
-                    if (src) {
-                        src.setData({
-                            type: 'FeatureCollection',
-                            features: buildFeatures(isoResult.routeCoordinates, isoResult.shallowFlags),
-                        });
+                    const directValidation = await validateCandidateRoute(
+                        withPassageTerminals(isoResult.route),
+                        15_000,
+                        'final chart and coarse depth validation timed out after 15 seconds',
+                    );
+                    isoResult = applyValidatedRoute(isoResult, directValidation.route);
+                    if (!directValidation.verified) {
+                        const reason = directValidation.reason ?? 'final chart and coarse depth validation failed';
+                        log.warn(`[IslandValidation] Route remains unverified: ${reason}`);
+                        markRouteUnverified(isoResult.routeCoordinates, reason, true);
+                        try {
+                            const { publishRouteNotValidated } =
+                                await import('../../services/enc/EncHazardReportService');
+                            publishRouteNotValidated(reason);
+                        } catch {
+                            /* best effort */
+                        }
+                        window.dispatchEvent(
+                            new CustomEvent('thalassa:isochrone-complete', {
+                                detail: { success: false, verified: false },
+                            }),
+                        );
+                        return;
                     }
 
-                    // ── Deferred: GEBCO island validation (runs AFTER route is visible) ──
-                    // The route renders immediately; this background pass detects and
-                    // fixes small island crossings the coarse 0.1° grid missed.
-                    (async () => {
-                        try {
-                            const { validateRouteSegments } = await import('../../services/isochrone/landAvoidance');
-                            // validateRouteSegments wants METRES; vessel.draft is FEET
-                            // (see services/units.ts).
-                            const vesselDraftM = vesselDraftMetres(useSettingsStore.getState().settings.vessel);
-                            const departureTimeMs = departureTime ? new Date(departureTime).getTime() : undefined;
-                            // Report-race guard (2026-07-17 audit): this fine
-                            // pass is the ONLY validateRouteSegments on the
-                            // long-route path, so its report is the one the
-                            // panel shows — but only while this plan is live
-                            // and the timeout hasn't already abandoned it.
-                            let deferredStale = false;
-                            const validated = await Promise.race([
-                                validateRouteSegments(isoResult.route, {
-                                    vesselDraftM,
-                                    // Assumed default draft (no draft set) → surface the caution (audit #2).
-                                    draftAssumed: vesselDraftIsAssumed(useSettingsStore.getState().settings.vessel),
-                                    departureTimeMs,
-                                    stillCurrent: () => !deferredStale && computeGenRef.current === gen,
-                                }),
-                                new Promise<null>((resolve) =>
-                                    setTimeout(() => {
-                                        deferredStale = true;
-                                        resolve(null);
-                                    }, 15_000),
-                                ),
-                            ]);
-                            if (!validated && computeGenRef.current === gen) {
-                                // Timed out: the drawn route was checked against
-                                // the coarse 0.1° grid only — say so, loudly,
-                                // instead of leaving the previous route's clean
-                                // report on the panel.
-                                const { publishRouteNotValidated } =
-                                    await import('../../services/enc/EncHazardReportService');
-                                publishRouteNotValidated(
-                                    'fine-resolution depth validation timed out (15 s) — route checked against coarse bathymetry only',
-                                );
-                            }
-                            if (!validated || computeGenRef.current !== gen) return; // stale or timed out
-
-                            // Check if validation actually changed anything
-                            if (validated.length !== isoResult.route.length) {
-                                const newCoords = validated.map((n) => [n.lon, n.lat] as [number, number]);
-                                isoResult.route = validated;
-                                isoResult.routeCoordinates = newCoords;
-
-                                const routeSrc = map.getSource('route-line') as mapboxgl.GeoJSONSource;
-                                if (routeSrc) {
-                                    const newShallowFlags = validated.map(() => false);
-                                    routeSrc.setData({
-                                        type: 'FeatureCollection',
-                                        features: buildFeatures(newCoords, newShallowFlags),
-                                    });
-                                }
-                                log.info(
-                                    `[IslandValidation] Route updated: ${isoResult.routeCoordinates.length} → ${newCoords.length} points`,
-                                );
-                            }
-                        } catch (err) {
-                            log.warn('[IslandValidation] Non-critical failure:', err);
-                        }
-                    })();
+                    commitDisplayedRoute(
+                        map,
+                        buildFeatures(isoResult.routeCoordinates, isoResult.shallowFlags, 'verified', true),
+                        'verified',
+                    );
+                    dispatchPassageNotice(null);
+                    isoResultRef.current = isoResult;
 
                     const depTimeStr2 = departureTime || new Date().toISOString();
                     const wps = detectTurnWaypoints(isoResult.route, depTimeStr2);
@@ -2182,7 +2478,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                                             hav(arrival.lat, arrival.lon, c[1], c[0]) > INSHORE_BRAID_CLIP_NM,
                                     );
 
-                                    // Deferred GEBCO fine-resolution validation (same as primary route)
+                                    // Deferred final route validation (same as primary route)
                                     (async () => {
                                         try {
                                             const { validateRouteSegments } =
@@ -2325,7 +2621,9 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
 
                     try {
                         window.dispatchEvent(
-                            new CustomEvent('thalassa:isochrone-complete', { detail: { success: true } }),
+                            new CustomEvent('thalassa:isochrone-complete', {
+                                detail: { success: true, verified: true },
+                            }),
                         );
                     } catch (_) {
                         log.warn(``, _);
@@ -2414,22 +2712,52 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                             shallowFlags: combinedFlags,
                         };
 
-                        // Display the stitched route
+                        // A stitched pair is a new geometry. Neither leg's
+                        // independent result proves the seam or terminal legs,
+                        // so show it unverified and run one fresh whole-route
+                        // pass before exposing downstream actions.
                         if (computeGenRef.current === gen) {
-                            isoResultRef.current = isoResult;
-                            const src = map.getSource('route-line') as mapboxgl.GeoJSONSource;
-                            if (src) {
-                                src.setData({
-                                    type: 'FeatureCollection',
-                                    features: buildFeatures(combinedCoords, combinedFlags),
-                                });
-                            }
+                            commitDisplayedRoute(
+                                map,
+                                buildFeatures(combinedCoords, combinedFlags, 'unverified'),
+                                'pending',
+                                'stitched multi-leg route is awaiting whole-route verification',
+                            );
+                            const multiValidation = await validateCandidateRoute(
+                                withPassageTerminals(isoResult.route),
+                                15_000,
+                                'whole-route verification of the stitched multi-leg route timed out after 15 seconds',
+                            );
+                            isoResult = applyValidatedRoute(isoResult, multiValidation.route);
                             const updatedResult = { ...result };
                             updatedResult.totalDistance = isoResult.totalDistanceNM;
                             updatedResult.estimatedDuration = isoResult.totalDurationHours;
                             setRouteAnalysis(updatedResult);
 
-                            // Push stitched multi-leg route to global PassageStore for Nav Station
+                            if (!multiValidation.verified) {
+                                markRouteUnverified(
+                                    isoResult.routeCoordinates,
+                                    multiValidation.reason ?? 'whole-route verification of the stitched route failed',
+                                    true,
+                                );
+                                window.dispatchEvent(
+                                    new CustomEvent('thalassa:isochrone-complete', {
+                                        detail: { success: false, verified: false, multiLeg: true },
+                                    }),
+                                );
+                                return;
+                            }
+
+                            commitDisplayedRoute(
+                                map,
+                                buildFeatures(isoResult.routeCoordinates, isoResult.shallowFlags, 'verified', true),
+                                'verified',
+                            );
+                            dispatchPassageNotice(null);
+                            isoResultRef.current = isoResult;
+
+                            // Push only after the stitched geometry itself has
+                            // completed a fresh verification pass.
                             const multiDepTime = departureTime || new Date().toISOString();
                             const multiWps = detectTurnWaypoints(isoResult.route, multiDepTime);
                             turnWaypointsRef.current = multiWps;
@@ -2446,16 +2774,25 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                         }
                         try {
                             window.dispatchEvent(
-                                new CustomEvent('thalassa:isochrone-complete', { detail: { success: true } }),
+                                new CustomEvent('thalassa:isochrone-complete', {
+                                    detail: { success: true, verified: true, multiLeg: true },
+                                }),
                             );
                         } catch (_) {
                             log.warn(``, _);
                         }
                     } else {
                         log.warn('[Isochrone BG] Multi-leg also failed — keeping great-circle preview');
+                        markRouteUnverified(
+                            waterAwareCoords as [number, number][],
+                            'direct and multi-leg weather routing both failed',
+                            false,
+                        );
                         try {
                             window.dispatchEvent(
-                                new CustomEvent('thalassa:isochrone-complete', { detail: { success: false } }),
+                                new CustomEvent('thalassa:isochrone-complete', {
+                                    detail: { success: false, verified: false },
+                                }),
                             );
                         } catch (_) {
                             log.warn(``, _);
@@ -2464,9 +2801,16 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                 }
             } catch (err) {
                 log.warn('[Isochrone BG] Failed — keeping great-circle:', err);
+                markRouteUnverified(
+                    waterAwareCoords as [number, number][],
+                    `route computation or verification failed${err instanceof Error && err.message ? `: ${err.message}` : ''}`,
+                    false,
+                );
                 try {
                     window.dispatchEvent(
-                        new CustomEvent('thalassa:isochrone-complete', { detail: { success: false } }),
+                        new CustomEvent('thalassa:isochrone-complete', {
+                            detail: { success: false, verified: false },
+                        }),
                     );
                 } catch (_) {
                     log.warn(``, _);
@@ -2482,6 +2826,11 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
             computePassage().catch((err) => {
                 log.error('[Passage] computePassage failed:', err);
                 setRouteAnalysis(null);
+                setRouteVerification({
+                    status: 'unverified',
+                    geometryKey: displayedRouteGeometryKeyRef.current,
+                    reason: 'route computation failed',
+                });
             });
         }
     }, [mapReady, showPassage, departure, arrival, computePassage]);
@@ -2515,6 +2864,8 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
         setDeparture(null);
         setArrival(null);
         setRouteAnalysis(null);
+        setRouteVerification({ status: 'idle', geometryKey: null });
+        displayedRouteGeometryKeyRef.current = null;
         setDepartureTime('');
         isoResultRef.current = null;
         turnWaypointsRef.current = [];
@@ -2542,6 +2893,11 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [setDeparture, setArrival, setRouteAnalysis, setDepartureTime]);
 
+    const routeActionsAvailable =
+        routeVerification.status === 'verified' &&
+        routeVerification.geometryKey !== null &&
+        routeVerification.geometryKey === displayedRouteGeometryKeyRef.current;
+
     return {
         departure,
         setDeparture,
@@ -2555,6 +2911,8 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
         setSpeed,
         routeAnalysis,
         setRouteAnalysis,
+        routeVerification,
+        routeActionsAvailable,
         settingPoint,
         setSettingPoint,
         showPassage,

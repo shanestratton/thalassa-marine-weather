@@ -157,8 +157,8 @@ export const SwipeableItemCard: React.FC<SwipeableItemCardProps> = ({
                             e.stopPropagation();
                             onEdit();
                         }}
-                        className="shrink-0 p-1.5 rounded-lg hover:bg-white/10 transition-colors"
-                        aria-label="Edit item details"
+                        className="shrink-0 min-h-11 min-w-11 rounded-lg hover:bg-white/10 transition-colors flex items-center justify-center"
+                        aria-label={`Edit checklist item: ${entry.text}`}
                     >
                         <svg
                             className="w-3.5 h-3.5 text-slate-400"

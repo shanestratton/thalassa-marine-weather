@@ -15,16 +15,17 @@ import { AisStore } from './AisStore';
 import { AisHubService } from './AisHubService';
 import { NmeaRateTracker } from './NmeaRateTracker';
 import { getNmeaDeviceLabel } from './NmeaDeviceProfiles';
+import { parseNmeaDepth, parseNmeaNumber, validateNmeaSentence, type ParsedNmeaDepth } from './nmea/nmeaSentence';
+import { NMEA_SAMPLE_INTERVAL_MS } from './nmea/nmeaCadence';
 const log = createLogger('NMEA');
 
-// Count of sentences dropped on checksum mismatch — surfaced occasionally
-// in the log so a corrupted NMEA link is diagnosable in the field.
-let _nmeaChecksumFails = 0;
+// Count rejected framing/checksum boundaries — surfaced occasionally so a
+// corrupted NMEA link is diagnosable in the field without flooding logs.
+let _nmeaSentenceRejects = 0;
 
 // ── Configuration ──
 const DEFAULT_HOST = '192.168.1.151';
 const DEFAULT_PORT = 1456; // YDWG-02 standard TCP port
-const SAMPLE_INTERVAL_MS = 5000; // Emit averaged sample every 5s
 const RECONNECT_BASE_MS = 2000;
 const RECONNECT_MAX_MS = 30000;
 const RECONNECT_GIVE_UP_MS = 5 * 60 * 1000; // Give up after 5 minutes of failed reconnects
@@ -56,7 +57,10 @@ interface RawAccumulator {
     heading: number[];
     rpm: number[];
     voltage: number[];
-    depth: number[];
+    /** DBT fallback for this sample window (never averaged with DPT). */
+    depthDbt: ParsedNmeaDepth | null;
+    /** DPT wins when both forms are broadcast because it declares an offset. */
+    depthDpt: ParsedNmeaDepth | null;
     sog: number[];
     cog: number[];
     waterTemp: number[];
@@ -417,32 +421,31 @@ class NmeaListenerServiceClass {
     // ── NMEA Parsing ──
 
     private parseNmeaSentence(sentence: string) {
-        // ── AIS sentences: !AIVDM or !AIVDO ──
-        if (sentence.startsWith('!')) {
-            const result = processAisSentence(sentence);
-            if (result) AisStore.update(result);
-            // Forward raw sentence to AISHub if enabled
-            AisHubService.forward(sentence);
-            return;
-        }
-
-        // Drop corrupted sentences (present-but-mismatched checksum) BEFORE
-        // parsing any field — a flaky NMEA link (MFD Wi-Fi, spliced TCP
-        // reads) otherwise leaks garbage position/instrument values, which
-        // is the source of the occasional "weird coord" in the log. Lenient
-        // when no checksum is present.
-        if (!nmeaChecksumValid(sentence)) {
-            _nmeaChecksumFails++;
-            if (_nmeaChecksumFails % 50 === 1) {
-                log.warn(`dropped ${_nmeaChecksumFails} NMEA sentence(s) on checksum mismatch (corrupted link?)`);
+        // Validate once at the ingress boundary. A present checksum must be
+        // exactly two terminal hex digits and verify; malformed `*...` is not
+        // silently downgraded to a checksum-less sentence. See the pure helper
+        // for the deliberately narrow checksum-absent compatibility policy.
+        const validated = validateNmeaSentence(sentence);
+        if (!validated) {
+            _nmeaSentenceRejects++;
+            if (_nmeaSentenceRejects % 50 === 1) {
+                log.warn(`dropped ${_nmeaSentenceRejects} malformed/checksum-invalid NMEA sentence(s)`);
             }
             return;
         }
 
-        // Strip checksum
-        const raw = sentence.split('*')[0];
+        // ── AIS sentences: valid-checksum !AIVDM or !AIVDO only ──
+        if (validated.kind === 'ais') {
+            const result = processAisSentence(sentence);
+            if (result) AisStore.update(result);
+            // Never forward a malformed raw sentence to an external service.
+            AisHubService.forward(sentence);
+            return;
+        }
+
+        const raw = validated.raw;
         const parts = raw.split(',');
-        const type = parts[0]?.slice(3); // Remove $XX prefix
+        const type = validated.type;
 
         // Record per-sentence arrival for the diagnostic rate tracker.
         // This is independent of the 5-second NmeaSample aggregation
@@ -496,10 +499,10 @@ class NmeaListenerServiceClass {
         // $xxMWV,angle,R/T,speed,unit,status
         if (parts[2] !== 'T') return; // Only true wind (not relative)
         if (parts[5] !== 'A') return; // A = valid
-        const angle = parseFloat(parts[1]);
-        const speed = parseFloat(parts[3]);
+        const angle = parseNmeaNumber(parts[1]);
+        const speed = parseNmeaNumber(parts[3]);
         const unit = parts[4]; // K=km/h, N=knots, M=m/s
-        if (isNaN(angle) || isNaN(speed)) return;
+        if (angle === null || speed === null) return;
 
         // Normalize to 0-180 (sailing polars use absolute angle)
         const twa = angle > 180 ? 360 - angle : angle;
@@ -516,30 +519,30 @@ class NmeaListenerServiceClass {
     /** $xxVHW — Water Speed and Heading */
     private parseVHW(parts: string[]) {
         // $xxVHW,headTrue,T,headMag,M,stwKts,N,stwKmh,K
-        const stw = parseFloat(parts[5]); // Knots
-        if (!isNaN(stw)) this.accumulator.stw.push(stw);
+        const stw = parseNmeaNumber(parts[5]); // Knots
+        if (stw !== null) this.accumulator.stw.push(stw);
 
-        const heading = parseFloat(parts[1]);
-        if (!isNaN(heading)) this.accumulator.heading.push(heading);
+        const heading = parseNmeaNumber(parts[1]);
+        if (heading !== null) this.accumulator.heading.push(heading);
     }
 
     /** $xxHDT — True Heading */
     private parseHDT(parts: string[]) {
-        const heading = parseFloat(parts[1]);
-        if (!isNaN(heading)) this.accumulator.heading.push(heading);
+        const heading = parseNmeaNumber(parts[1]);
+        if (heading !== null) this.accumulator.heading.push(heading);
     }
 
     /** $xxHDG — Magnetic Heading */
     private parseHDG(parts: string[]) {
-        const heading = parseFloat(parts[1]);
-        if (!isNaN(heading)) this.accumulator.heading.push(heading);
+        const heading = parseNmeaNumber(parts[1]);
+        if (heading !== null) this.accumulator.heading.push(heading);
     }
 
     /** $xxRPM — Engine RPM */
     private parseRPM(parts: string[]) {
         // $xxRPM,source,engineNo,rpm,pitch,status
-        const rpm = parseFloat(parts[3]);
-        if (!isNaN(rpm)) {
+        const rpm = parseNmeaNumber(parts[3]);
+        if (rpm !== null) {
             this.accumulator.rpm.push(rpm);
             this.hasRpmData = true;
         }
@@ -550,11 +553,11 @@ class NmeaListenerServiceClass {
         // $xxXDR,type,value,unit,name,...
         for (let i = 1; i + 3 < parts.length; i += 4) {
             const type = parts[i];
-            const value = parseFloat(parts[i + 1]);
+            const value = parseNmeaNumber(parts[i + 1]);
             const name = parts[i + 3]?.toLowerCase() || '';
             if (
                 type === 'V' &&
-                !isNaN(value) &&
+                value !== null &&
                 (name.includes('batt') || name.includes('volt') || name.includes('alt'))
             ) {
                 this.accumulator.voltage.push(value);
@@ -564,26 +567,24 @@ class NmeaListenerServiceClass {
 
     /** $xxDBT — Depth Below Transducer */
     private parseDBT(parts: string[]) {
-        // $xxDBT,depthFeet,f,depthMeters,M,depthFathoms,F
-        const meters = parseFloat(parts[3]);
-        if (!isNaN(meters)) this.accumulator.depth.push(meters);
+        const reading = parseNmeaDepth(parts.join(','), 'DBT');
+        if (reading) this.accumulator.depthDbt = reading;
     }
 
-    /** $xxDPT — Depth */
+    /** $xxDPT — transducer depth plus an optional signed reference offset */
     private parseDPT(parts: string[]) {
-        // $xxDPT,depth,offset
-        const depth = parseFloat(parts[1]);
-        if (!isNaN(depth)) this.accumulator.depth.push(depth);
+        const reading = parseNmeaDepth(parts.join(','), 'DPT');
+        if (reading) this.accumulator.depthDpt = reading;
     }
 
     /** $xxRMC — Recommended Minimum (GPS SOG/COG + position) */
     private parseRMC(parts: string[]) {
         // $xxRMC,time,status,lat,N/S,lon,E/W,sog,cog,...
         if (parts[2] !== 'A') return; // A = valid fix
-        const sog = parseFloat(parts[7]);
-        const cog = parseFloat(parts[8]);
-        if (!isNaN(sog)) this.accumulator.sog.push(sog);
-        if (!isNaN(cog)) this.accumulator.cog.push(cog);
+        const sog = parseNmeaNumber(parts[7]);
+        const cog = parseNmeaNumber(parts[8]);
+        if (sog !== null) this.accumulator.sog.push(sog);
+        if (cog !== null) this.accumulator.cog.push(cog);
 
         // Extract lat/lon (DDMM.MMMM format → decimal degrees)
         const lat = nmeaLatLon(parts[3], parts[4], 90);
@@ -597,16 +598,16 @@ class NmeaListenerServiceClass {
     /** $xxGGA — GPS Fix Quality, HDOP, satellite count */
     private parseGGA(parts: string[]) {
         // $xxGGA,time,lat,N/S,lon,E/W,quality,numSats,hdop,alt,M,...
-        const quality = parseInt(parts[6], 10);
-        if (isNaN(quality) || quality === 0) return; // 0 = invalid
+        const quality = parseNmeaInteger(parts[6]);
+        if (quality === null || quality === 0) return; // 0 = invalid
 
         this.accumulator.gpsFixQuality = quality;
 
-        const numSats = parseInt(parts[7], 10);
-        if (!isNaN(numSats)) this.accumulator.satellites = numSats;
+        const numSats = parseNmeaInteger(parts[7]);
+        if (numSats !== null) this.accumulator.satellites = numSats;
 
-        const hdop = parseFloat(parts[8]);
-        if (!isNaN(hdop)) this.accumulator.hdop = hdop;
+        const hdop = parseNmeaNumber(parts[8]);
+        if (hdop !== null) this.accumulator.hdop = hdop;
 
         // Also extract position (may be more accurate than RMC on some receivers)
         const lat = nmeaLatLon(parts[2], parts[3], 90);
@@ -620,14 +621,14 @@ class NmeaListenerServiceClass {
     /** $xxMTW — Water Temperature */
     private parseMTW(parts: string[]) {
         // $xxMTW,temp,C
-        const temp = parseFloat(parts[1]);
-        if (!isNaN(temp)) this.accumulator.waterTemp.push(temp);
+        const temp = parseNmeaNumber(parts[1]);
+        if (temp !== null) this.accumulator.waterTemp.push(temp);
     }
 
     // ── Sample Emission ──
 
     private startSampleTimer() {
-        this.sampleTimer = setInterval(() => this.emitSample(), SAMPLE_INTERVAL_MS);
+        this.sampleTimer = setInterval(() => this.emitSample(), NMEA_SAMPLE_INTERVAL_MS);
     }
 
     private stopSampleTimer() {
@@ -640,6 +641,12 @@ class NmeaListenerServiceClass {
     private emitSample() {
         if (this.status !== 'connected') return;
 
+        // DPT is explicit about its signed datum offset, so prefer its most
+        // recent value when a sounder broadcasts both DBT and DPT. Averaging
+        // the two can blend below-transducer, waterline and keel references
+        // into a number that has no truthful meaning.
+        const depthReading = this.accumulator.depthDpt ?? this.accumulator.depthDbt;
+
         const sample: NmeaSample = {
             timestamp: Date.now(),
             tws: avg(this.accumulator.tws),
@@ -648,7 +655,10 @@ class NmeaListenerServiceClass {
             heading: avg(this.accumulator.heading),
             rpm: avg(this.accumulator.rpm),
             voltage: avg(this.accumulator.voltage),
-            depth: avg(this.accumulator.depth),
+            depth: depthReading?.depthM ?? null,
+            depthSource: depthReading?.source ?? null,
+            depthReference: depthReading?.reference ?? null,
+            depthOffsetM: depthReading?.offsetM ?? null,
             sog: avg(this.accumulator.sog),
             cog: avg(this.accumulator.cog),
             waterTemp: avg(this.accumulator.waterTemp),
@@ -663,8 +673,21 @@ class NmeaListenerServiceClass {
         // Reset accumulator
         this.accumulator = this.freshAccumulator();
 
-        // Emit if we have EITHER core instrument data OR GPS position data
-        const hasInstruments = sample.tws !== null && sample.twa !== null && sample.stw !== null;
+        // Emit when ANY supported instrument has data. Requiring TWS + TWA +
+        // STW together silently discarded depth-only sounders and standalone
+        // GPS/engine feeds despite a healthy connection.
+        const hasInstruments = [
+            sample.tws,
+            sample.twa,
+            sample.stw,
+            sample.heading,
+            sample.rpm,
+            sample.voltage,
+            sample.depth,
+            sample.sog,
+            sample.cog,
+            sample.waterTemp,
+        ].some((value) => value !== null);
         const hasGps = sample.latitude !== null && sample.longitude !== null;
         if (hasInstruments || hasGps) {
             for (const cb of this.listeners) cb(sample);
@@ -679,7 +702,8 @@ class NmeaListenerServiceClass {
             heading: [],
             rpm: [],
             voltage: [],
-            depth: [],
+            depthDbt: null,
+            depthDpt: null,
             sog: [],
             cog: [],
             waterTemp: [],
@@ -697,32 +721,14 @@ function avg(arr: number[]): number | null {
     return arr.reduce((a, b) => a + b, 0) / arr.length;
 }
 
-/**
- * Validate an NMEA 0183 checksum: XOR of every char between the leading
- * `$`/`!` and the `*`, compared to the two hex digits after the `*`.
- *
- * Lenient when no checksum delimiter is present (some sources/sentences
- * omit it) — but a PRESENT-and-MISMATCHED checksum means the sentence is
- * corrupted (flaky MFD Wi-Fi, spliced TCP reads) and must be dropped, or
- * its garbage fields (including position) leak into the store and show up
- * as the occasional "weird coord" in the log.
- */
-function nmeaChecksumValid(sentence: string): boolean {
-    const star = sentence.lastIndexOf('*');
-    if (star < 1) return true; // no checksum delimiter — accept leniently
-    const expected = sentence.slice(star + 1).trim();
-    if (!/^[0-9A-Fa-f]{2}$/.test(expected)) return true; // malformed field — don't over-reject
-    let cs = 0;
-    for (let i = 1; i < star; i++) cs ^= sentence.charCodeAt(i); // XOR body, skip leading $/!
-    return cs === parseInt(expected, 16);
-}
-
 /** Convert NMEA DDMM.MMMM + N/S/E/W to decimal degrees. Returns null for a
  *  corrupted/out-of-range field (maxAbs = 90 for latitude, 180 for longitude). */
 function nmeaLatLon(value: string, hemisphere: string, maxAbs: number): number | null {
     if (!value || !hemisphere) return null;
-    const v = parseFloat(value);
-    if (isNaN(v)) return null;
+    const validHemispheres = maxAbs === 90 ? ['N', 'S'] : ['E', 'W'];
+    if (!validHemispheres.includes(hemisphere)) return null;
+    const v = parseNmeaNumber(value);
+    if (v === null) return null;
     // NMEA format: DDMM.MMMM (lat) or DDDMM.MMMM (lon)
     const deg = Math.floor(v / 100);
     const min = v - deg * 100;
@@ -734,6 +740,12 @@ function nmeaLatLon(value: string, hemisphere: string, maxAbs: number): number |
     // Range sanity — rejects garbage that still parsed as a finite number.
     if (!Number.isFinite(result) || Math.abs(result) > maxAbs) return null;
     return result;
+}
+
+function parseNmeaInteger(value: string | undefined): number | null {
+    if (!value || !/^\d+$/.test(value)) return null;
+    const parsed = Number(value);
+    return Number.isSafeInteger(parsed) ? parsed : null;
 }
 
 export const NmeaListenerService = new NmeaListenerServiceClass();

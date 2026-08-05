@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { composeArrivalMessage, composeFloatPlan, floatPlanCoord } from '../services/floatPlan';
+import {
+    composeArrivalMessage,
+    composeFloatPlan,
+    createFloatPlanSharePayload,
+    createFloatPlanShareUrl,
+    floatPlanCoord,
+    validateFloatPlan,
+} from '../services/floatPlan';
 import type { VesselProfile } from '../types/vessel';
 
 const VESSEL: Partial<VesselProfile> = {
@@ -38,6 +45,7 @@ const base = {
     overdueMs: OVERDUE,
     personsOnBoard: 3,
     whoToCall: 'Marine Rescue Bundaberg — 07 4159 4600',
+    timeZone: 'Australia/Brisbane',
 };
 
 describe('composeFloatPlan', () => {
@@ -57,11 +65,11 @@ describe('composeFloatPlan', () => {
         expect(plan).toContain('Marine Rescue Bundaberg');
     });
 
-    it('still tells the shore contact when to worry with no number given', () => {
-        // A bare overdue time beats nothing: it says when to start ringing.
+    it('marks the rescue instruction as incomplete when no number is given', () => {
         const plan = composeFloatPlan({ ...base, whoToCall: undefined });
         expect(plan).toContain('IF YOU HAVE NOT HEARD FROM US');
-        expect(plan).toContain('your local marine rescue or water police');
+        expect(plan).toContain('NOT SET — add a jurisdiction-specific rescue phone number before sharing');
+        expect(plan).not.toContain('your local marine rescue or water police');
     });
 
     it('carries the SAR gear a coordinator actually asks for', () => {
@@ -122,12 +130,12 @@ describe('composeFloatPlan', () => {
             route: { ...base.route, distanceNM: undefined },
         });
         // 27.14S,153.09E → 23.90S,152.40E ≈ 197 NM great-circle.
-        expect(plan).toMatch(/Distance {2}19[0-9] NM/);
+        expect(plan).toMatch(/Distance: 19[0-9] NM/);
     });
 
     it('an explicitly supplied distance wins over the computed one', () => {
         const plan = composeFloatPlan(base);
-        expect(plan).toContain('Distance  178 NM');
+        expect(plan).toContain('Distance: 178 NM');
     });
 
     it('carries free-text safety notes into the SAFETY section', () => {
@@ -156,8 +164,116 @@ describe('composeFloatPlan', () => {
 
     it('says "not set" rather than printing an invalid date', () => {
         const plan = composeFloatPlan({ ...base, departureMs: Number.NaN, overdueMs: Number.NaN });
-        expect(plan).toContain('Depart    not set');
+        expect(plan).toContain('Depart: not set');
         expect(plan).not.toContain('Invalid Date');
+    });
+});
+
+describe('channel-specific float plans', () => {
+    it('keeps the safety-critical facts in every format', () => {
+        const payloads = (['sms', 'whatsapp', 'email', 'generic'] as const).map((channel) =>
+            createFloatPlanSharePayload(base, channel),
+        );
+
+        for (const payload of payloads) {
+            expect(payload.text).toContain('Serene Summer');
+            expect(payload.text).toContain('Newport');
+            expect(payload.text).toContain('Lady Musgrave');
+            expect(payload.text).toContain('Marine Rescue Bundaberg');
+            expect(payload.text).toContain('501240101');
+            expect(payload.text).toContain('1D0E7A2B3C4D5E6');
+            expect(payload.text).toMatch(/3|POB/);
+            expect(payload.text).toContain('RECEIVED');
+            expect(
+                payload.text.indexOf('OVERDUE') >= 0 ||
+                    payload.text.indexOf('RAISE THE ALARM') >= 0 ||
+                    payload.text.indexOf('IF YOU HAVE NOT HEARD') >= 0,
+            ).toBe(true);
+        }
+    });
+
+    it('uses audience-neutral privacy wording for the generic share payload', () => {
+        const generic = createFloatPlanSharePayload(base, 'generic');
+        expect(generic.text).toContain('Thalassa does not upload this plan');
+        expect(generic.text).toContain('Verify the recipients and audience in the destination app');
+        expect(generic.text).not.toContain('Sent privately');
+        expect(generic.text).not.toContain('Nothing is posted publicly');
+    });
+
+    it('makes SMS compact, ASCII-safe and reports multipart length', () => {
+        const sms = createFloatPlanSharePayload(base, 'sms');
+        expect([...sms.text].every((character) => (character.codePointAt(0) ?? 0x80) <= 0x7f)).toBe(true);
+        expect(sms.text).toContain('OVERDUE:');
+        expect(sms.text).toContain('27 08.4S 153 05.4E');
+        expect(sms.text).not.toContain('🛟');
+        expect(sms.smsSegments).toBeGreaterThan(1);
+    });
+
+    it('uses WhatsApp emphasis without letting user text create markup', () => {
+        const whatsapp = createFloatPlanSharePayload(
+            {
+                ...base,
+                vessel: { ...VESSEL, name: 'Sea*Star_\nOne' },
+                route: { ...base.route, from: '~Home~', to: '`Harbour`' },
+            },
+            'whatsapp',
+        );
+        expect(whatsapp.text).toContain('🚨 *RAISE THE ALARM*');
+        expect(whatsapp.text).toContain('Sea\\*Star\\_ One');
+        expect(whatsapp.text).toContain('\\~Home\\~');
+        expect(whatsapp.text).toContain('\\`Harbour\\`');
+    });
+
+    it('creates a useful email subject and explicit timezone', () => {
+        const email = createFloatPlanSharePayload(base, 'email');
+        expect(email.subject).toBe('Float plan | Serene Summer | Newport to Lady Musgrave');
+        expect(email.text).toContain('AEST (UTC+10)');
+        expect(email.text).toContain('PEOPLE & CONTACT');
+        expect(email.text).toContain('INTENDED TRACK');
+    });
+
+    it('builds channel launch URLs with the right encoded payload', () => {
+        const email = createFloatPlanSharePayload(base, 'email');
+        const sms = createFloatPlanSharePayload(base, 'sms');
+        const whatsapp = createFloatPlanSharePayload(base, 'whatsapp');
+        expect(createFloatPlanShareUrl(email)).toContain('mailto:?subject=Float%20plan');
+        expect(createFloatPlanShareUrl(sms, 'ios')).toContain('sms:&body=');
+        expect(createFloatPlanShareUrl(sms, 'android')).toContain('sms:?body=');
+        expect(createFloatPlanShareUrl(whatsapp)).toContain('https://wa.me/?text=');
+    });
+
+    it('blocks invalid safety handoffs before sharing', () => {
+        expect(validateFloatPlan(base, DEPART - 3_600_000).errors).toEqual([]);
+        const invalid = validateFloatPlan(
+            {
+                ...base,
+                route: { ...base.route, to: '' },
+                overdueMs: ETA,
+                personsOnBoard: 0,
+            },
+            DEPART,
+        );
+        expect(invalid.errors).toContain('Add a destination.');
+        expect(invalid.errors).toContain('The overdue time must be after the ETA.');
+        expect(invalid.errors).toContain('Set the number of people aboard.');
+
+        const unnamed = validateFloatPlan({ ...base, vessel: { ...base.vessel!, name: '  ' } }, DEPART);
+        expect(unnamed.errors).toContain('Add the vessel name before sharing.');
+    });
+
+    it('requires an actionable jurisdiction-specific rescue number', () => {
+        const missing = validateFloatPlan({ ...base, whoToCall: undefined }, DEPART);
+        const placeOnly = validateFloatPlan({ ...base, whoToCall: 'local marine rescue or water police' }, DEPART);
+        const emergencyNumber = validateFloatPlan({ ...base, whoToCall: 'Call 000 and ask for Water Police' }, DEPART);
+
+        for (const result of [missing, placeOnly]) {
+            expect(result.errors).toContain(
+                'Add the jurisdiction-specific rescue contact and phone number your shore contact must call if you are overdue.',
+            );
+        }
+        expect(emergencyNumber.errors).not.toContain(
+            'Add the jurisdiction-specific rescue contact and phone number your shore contact must call if you are overdue.',
+        );
     });
 });
 

@@ -137,6 +137,15 @@ describe('RoutePlanner', () => {
         expect(container.innerHTML.length).toBeGreaterThan(0);
     });
 
+    it('exposes the short-landscape layout hooks that keep the CTA out of the departure controls', () => {
+        const { container } = render(<RoutePlanner onTriggerUpgrade={vi.fn()} />);
+
+        expect(container.querySelector('.route-planner-page')).toBeInTheDocument();
+        expect(container.querySelector('.route-planner-form')).toBeInTheDocument();
+        expect(container.querySelector('.route-planner-map')).toBeInTheDocument();
+        expect(container.querySelector('.route-planner-cta')).toBeInTheDocument();
+    });
+
     it('accepts onBack callback', () => {
         expect(() => {
             render(<RoutePlanner onTriggerUpgrade={vi.fn()} onBack={vi.fn()} />);

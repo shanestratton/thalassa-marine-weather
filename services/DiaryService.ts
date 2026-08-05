@@ -13,6 +13,7 @@
  */
 
 import { createLogger } from '../utils/createLogger';
+import { boundedLocalQuarantine } from '../utils/localPrivacyRetention';
 import { Capacitor } from '@capacitor/core';
 import { BackgroundFetch } from '@transistorsoft/capacitor-background-fetch';
 import {
@@ -103,6 +104,12 @@ export interface DiaryEntry {
      * prevents one signed-in account from adopting another account's work.
      */
     readonly owner_user_id?: string | null;
+    /** Device-only exact photo refs retired after this revision is canonical. */
+    _retirePhotos?: string[];
+    /** Device-only exact audio refs retired after this revision is canonical. */
+    _retireAudio?: string[];
+    /** Legacy server rows must bind an operation id before relay updates. */
+    _requiresOperationClaim?: boolean;
     _offline?: boolean; // Client-only flag — not persisted to DB
     _pendingPhotos?: string[]; // Base64 photos awaiting upload
 }
@@ -128,6 +135,7 @@ const PENDING_KEY = 'thalassa_diary_pending_v2';
 const DELETED_KEY = 'thalassa_diary_deleted_v1';
 const IDMAP_KEY = 'thalassa_diary_idmap_v1';
 const MEDIA_OWNERS_KEY = 'thalassa_diary_media_owners_v1';
+const MEDIA_CLEANUP_KEY = 'thalassa_diary_media_cleanup_v1';
 const QUARANTINE_KEY = 'thalassa_diary_quarantine_v1';
 const IDMAP_MAX = 300;
 const MAX_PHOTO_SIZE = 1200;
@@ -234,6 +242,14 @@ interface QuarantinedDiaryBytes {
     value: unknown;
 }
 
+interface DiaryMediaCleanupJob {
+    id: string;
+    entryId: string;
+    readonly owner_user_id: string;
+    refs: Array<{ bucket: typeof PHOTO_BUCKET | typeof AUDIO_BUCKET; ref: string }>;
+    createdAt: number;
+}
+
 // ── Service ────────────────────────────────────────────────────
 
 class DiaryServiceClass {
@@ -248,6 +264,7 @@ class DiaryServiceClass {
     private _lastRefreshTime = 0;
     private _refreshPromise: { generation: number; promise: Promise<void> } | null = null;
     private _drainPromise: { generation: number; promise: Promise<void> } | null = null;
+    private _mediaCleanupPromise: { generation: number; promise: Promise<void> } | null = null;
     // Buffer of recently-synced entries — prevents race condition where entry
     // vanishes between pending removal and server cache arrival. `offlineId`
     // maps the original offline- id to the real server row.
@@ -263,12 +280,13 @@ class DiaryServiceClass {
     private _backgroundRetryConfigured = false;
 
     constructor() {
-        subscribeAuthIdentityScope(() => {
+        subscribeAuthIdentityScope((next) => {
             // New calls are allowed to start immediately in the new namespace;
             // old promises retain their captured scope and fail generation checks.
             this._syncPromise = null;
             this._refreshPromise = null;
             this._drainPromise = null;
+            this._mediaCleanupPromise = null;
             this._lastRefreshTime = 0;
             this._recentlySynced = [];
             for (const url of this._idbRefToBlobUrl.values()) URL.revokeObjectURL(url);
@@ -276,6 +294,7 @@ class DiaryServiceClass {
             for (const url of this._idbAudioRefToBlobUrl.values()) URL.revokeObjectURL(url);
             this._idbAudioRefToBlobUrl.clear();
             this._signedUrlCache.clear();
+            if (next.userId) queueMicrotask(() => void this._drainRetiredMedia(next));
         });
         // Auto-sync when connectivity resumes
         if (typeof window !== 'undefined') {
@@ -291,12 +310,14 @@ class DiaryServiceClass {
             window.addEventListener('online', () => {
                 this.syncPending();
                 this.drainDeletedTombstones();
+                void this._drainRetiredMedia();
                 this._retryPendingVoyageLogEnablement();
             });
             // Attempt sync on init
             setTimeout(() => {
                 this.syncPending();
                 this.drainDeletedTombstones();
+                void this._drainRetiredMedia();
                 this._retryPendingVoyageLogEnablement();
             }, 5000);
             // Periodic retry every 30s — catches stuck pending entries and
@@ -313,6 +334,7 @@ class DiaryServiceClass {
                     this.syncPending();
                 }
                 if (this._getTombstones().length > 0) this.drainDeletedTombstones();
+                if (this._getMediaCleanupJobs(scope).length > 0) void this._drainRetiredMedia(scope);
                 this._retryPendingVoyageLogEnablement();
             }, 30_000);
         }
@@ -336,6 +358,7 @@ class DiaryServiceClass {
                 try {
                     await this.syncPending();
                     await this.drainDeletedTombstones();
+                    await this._drainRetiredMedia();
                     this._retryPendingVoyageLogEnablement();
                 } catch (error) {
                     log.warn('Background diary retry failed:', error);
@@ -462,6 +485,9 @@ class DiaryServiceClass {
         is_public?: boolean;
     }): Promise<DiaryEntry> {
         const scope = getAuthIdentityScope();
+        if (!this._submittedMediaBelongsToScope(entry.photos, entry.audio_url, scope, true)) {
+            throw new Error('Diary media is not owned by the active account');
+        }
         const now = new Date().toISOString();
         // A caller can deliberately supply `voyage_id: null` for an
         // unassigned journal note. When it omits the field, inherit the
@@ -538,9 +564,9 @@ class DiaryServiceClass {
         // Return entry without _offline flag — avoids persistent PENDING badge in UI.
         // The entry is now durably in pending queue AND IndexedDB; background sync
         // will upload it, and the periodic 30s retry catches transient failures.
-        if (!isAuthIdentityScopeCurrent(scope)) {
-            throw new Error('Authentication changed while saving the diary entry');
-        }
+        // Return the commit result even if the UI identity changed immediately
+        // afterwards: the caller suppresses stale rendering, but still needs to
+        // know that the outbox adopted its media and must not delete it.
         return { ...localEntry, _offline: false };
     }
 
@@ -570,85 +596,132 @@ class DiaryServiceClass {
     ): Promise<{ ok: boolean; audioUrl?: string | null }> {
         const scope = getAuthIdentityScope();
         const canContinue = () => isAuthIdentityScopeCurrent(scope) && (options.shouldContinue?.() ?? true);
-        // Update in pending queue if offline entry
-        if (id.startsWith('offline-')) {
-            if (!canContinue()) return { ok: false };
-            const pending = this._getPendingEntries(scope);
-            const idx = pending.findIndex((e) => e.id === id);
-            if (idx >= 0) {
-                const current = pending[idx];
-                const currentRevision =
-                    typeof current.client_revision === 'number' &&
-                    Number.isSafeInteger(current.client_revision) &&
-                    current.client_revision >= 1
-                        ? current.client_revision
-                        : 1;
-                const requestedPublic =
-                    updates.is_public === undefined
-                        ? current.publish_requested
-                        : updates.is_public === true
-                          ? true
-                          : undefined;
-                pending[idx] = {
-                    ...current,
-                    ...updates,
-                    // Offline display never claims a public post before the
-                    // canonical server revision has confirmed it.
-                    is_public: false,
-                    publish_requested: requestedPublic,
-                    client_revision: currentRevision + 1,
-                    updated_at: new Date().toISOString(),
-                };
-                return {
-                    ok: this._savePending(pending, scope),
-                    audioUrl: updates.audio_url,
-                };
-            }
-            // Not in the pending queue — it likely synced already. Resolve the
-            // offline id to the real server id so the Supabase update below hits.
-            const synced = this._recentlySynced.find((r) => r.offlineId === id);
-            if (synced) id = synced.entry.id;
+        const photosWereSubmitted = Object.prototype.hasOwnProperty.call(updates, 'photos');
+        const audioWasSubmitted = Object.prototype.hasOwnProperty.call(updates, 'audio_url');
+        if (
+            !canContinue() ||
+            !this._submittedMediaBelongsToScope(
+                photosWereSubmitted ? updates.photos : undefined,
+                updates.audio_url,
+                scope,
+                audioWasSubmitted,
+            )
+        ) {
+            return { ok: false };
         }
 
-        // Update in Supabase. A freshly dictated audio ref lives in IDB until
-        // it can be uploaded, rather than ever writing a local ref into the
-        // server row.
-        if (!supabase || !scope.userId || !canContinue()) return { ok: false };
-        const user = (await supabase.auth.getUser()).data.user;
-        if (!canContinue() || user?.id !== scope.userId) return { ok: false };
-        let persistedUpdates = updates;
-        let uploadedAudioRef: string | null = null;
-        let uploadedAudioStorageRef: string | null = null;
-        if (updates.audio_url && isIdbAudio(updates.audio_url)) {
-            const blob = await idbLoadAudio(updates.audio_url);
-            if (!blob || !canContinue()) return { ok: false };
-            const uploaded = await this._uploadAudioBlob(blob, scope);
-            if (!uploaded) return { ok: false };
-            if (!canContinue()) {
-                await this._removeAudioStorageRef(uploaded, scope);
-                return { ok: false };
-            }
-            persistedUpdates = { ...updates, audio_url: uploaded };
-            uploadedAudioRef = updates.audio_url;
-            uploadedAudioStorageRef = uploaded;
-        }
-        if (!canContinue()) return { ok: false };
-        const { error } = await supabase
-            .from(TABLE)
-            .update({ ...persistedUpdates, updated_at: new Date().toISOString() })
-            .eq('id', id)
-            .eq('user_id', scope.userId);
+        let targetId = id;
+        let pending = this._getPendingEntries(scope);
+        let current = pending.find((entry) => entry.id === targetId) ?? null;
 
-        if (!canContinue()) return { ok: false };
-        if (!error) {
-            if (uploadedAudioRef) await this.discardUnsavedAudio(uploadedAudioRef);
-            void this._refreshFromServer(50, scope);
-        } else if (uploadedAudioStorageRef) {
-            // The database row did not take ownership of this fresh object,
-            // so remove it and retain the IDB source for a safe retry.
-            await this._removeAudioStorageRef(uploadedAudioStorageRef, scope);
+        // A stale offline id can outlive its short in-memory sync buffer. Resolve
+        // both durable and recent mappings before looking up the canonical row.
+        if (!current && targetId.startsWith('offline-')) {
+            const recentlySynced = this._recentlySynced.find((candidate) => candidate.offlineId === targetId);
+            const mappedId = recentlySynced?.entry.id ?? this._resolveServerIdForScope(targetId, scope);
+            if (mappedId) {
+                targetId = mappedId;
+                current = recentlySynced?.entry ?? null;
+            }
         }
-        return { ok: !error, audioUrl: !error ? (persistedUpdates.audio_url ?? updates.audio_url) : undefined };
+
+        current ??=
+            pending.find((entry) => entry.id === targetId) ??
+            this._getCachedEntries(scope).find((entry) => entry.id === targetId) ??
+            this._recentlySynced.find((candidate) => candidate.entry.id === targetId)?.entry ??
+            null;
+
+        // A cache miss is allowed one owner-filtered canonical read. Nothing is
+        // queued when the row does not exist, belongs to someone else, or the
+        // identity changes while that read is in flight.
+        if (!current && !targetId.startsWith('offline-')) current = await this.getEntry(targetId);
+        if (!current || !canContinue() || current.owner_user_id !== scope.userId) return { ok: false };
+
+        let durablePhotos = photosWereSubmitted ? (updates.photos ?? []) : current.photos;
+        let promotedPhotoRefs: string[] = [];
+        if (photosWereSubmitted) {
+            const prepared = await this._prepareDurablePhotoRefs(durablePhotos, scope);
+            if (!prepared || !canContinue()) return { ok: false };
+            durablePhotos = prepared.refs;
+            promotedPhotoRefs = prepared.promotedFrom;
+        }
+
+        // A sync completion may have landed while a cache miss or blob promotion
+        // awaited. Prefer the latest queued revision if it still exists.
+        pending = this._getPendingEntries(scope);
+        current = pending.find((entry) => entry.id === targetId) ?? current;
+        if (!canContinue() || current.owner_user_id !== scope.userId) return { ok: false };
+
+        const currentRevision =
+            typeof current.client_revision === 'number' &&
+            Number.isSafeInteger(current.client_revision) &&
+            current.client_revision >= 1
+                ? current.client_revision
+                : 1;
+        const validOperationId =
+            typeof current.client_operation_id === 'string' &&
+            /^[A-Za-z0-9_-]{1,128}$/.test(current.client_operation_id)
+                ? current.client_operation_id
+                : null;
+        const requiresOperationClaim =
+            !targetId.startsWith('offline-') && (current._requiresOperationClaim === true || !validOperationId);
+        const nextPhotos = photosWereSubmitted ? durablePhotos : current.photos;
+        const nextAudio = audioWasSubmitted ? (updates.audio_url ?? null) : current.audio_url;
+        const retirePhotos = new Set(current._retirePhotos ?? []);
+        const retireAudio = new Set(current._retireAudio ?? []);
+        if (photosWereSubmitted) {
+            const retained = new Set(nextPhotos);
+            for (const ref of current.photos) if (!retained.has(ref)) retirePhotos.add(ref);
+        }
+        if (audioWasSubmitted && current.audio_url && current.audio_url !== nextAudio) {
+            retireAudio.add(current.audio_url);
+        }
+
+        const requestedPublic = targetId.startsWith('offline-')
+            ? updates.is_public === undefined
+                ? current.publish_requested
+                : updates.is_public === true
+                  ? true
+                  : undefined
+            : current.publish_requested;
+        const next: DiaryEntry = {
+            ...current,
+            ...updates,
+            id: targetId,
+            user_id: scope.userId ?? 'local',
+            owner_user_id: scope.userId,
+            photos: nextPhotos,
+            audio_url: nextAudio,
+            is_public: targetId.startsWith('offline-') ? false : (updates.is_public ?? current.is_public),
+            publish_requested: requestedPublic,
+            client_operation_id: validOperationId ?? newDiaryOperationId(),
+            client_revision: currentRevision + 1,
+            updated_at: new Date().toISOString(),
+            _retirePhotos: retirePhotos.size > 0 ? [...retirePhotos] : undefined,
+            _retireAudio: retireAudio.size > 0 ? [...retireAudio] : undefined,
+            _requiresOperationClaim: requiresOperationClaim || undefined,
+            _offline: true,
+        };
+
+        const existingIndex = pending.findIndex((entry) => entry.id === targetId);
+        if (existingIndex >= 0) pending[existingIndex] = next;
+        else pending.unshift(next);
+        if (!this._savePending(pending, scope)) return { ok: false };
+
+        const durable = this._getPendingEntries(scope).find((entry) => entry.id === targetId);
+        const mediaRoundTripped =
+            !!durable &&
+            durable.audio_url === next.audio_url &&
+            durable.photos.length === next.photos.length &&
+            durable.photos.every((ref, index) => ref === next.photos[index]);
+        if (!mediaRoundTripped) return { ok: false };
+
+        // The outbox is now the owner. Retire only the process-scoped source
+        // refs that were promoted during this update; their durable IDB/data
+        // replacements remain in the queue.
+        for (const ref of promotedPhotoRefs) await this.discardUnsavedPhoto(ref);
+        void this.syncPending();
+        return { ok: true, audioUrl: durable.audio_url };
     }
 
     // ── Publish ────────────────────────────────────────────────
@@ -982,19 +1055,27 @@ class DiaryServiceClass {
                     return false;
                 }
             }
-            // Row is gone — storage cleanup is best-effort from here.
-            try {
-                for (const url of photoUrls) {
-                    if (!isAuthIdentityScopeCurrent(scope)) return false;
-                    const path = this._extractStoragePath(url, PHOTO_BUCKET);
-                    if (path) await supabase.storage.from(PHOTO_BUCKET).remove([path]);
+            // Row is gone, but the tombstone is not acknowledged until every
+            // referenced object is gone too. Storage remove is idempotent:
+            // an already-absent path returns no error and is therefore safe on
+            // a retry after the row delete committed.
+            for (const url of photoUrls) {
+                if (!isAuthIdentityScopeCurrent(scope)) return false;
+                const path = this._extractStoragePath(url, PHOTO_BUCKET);
+                if (!path) continue;
+                const { error: storageError } = await supabase.storage.from(PHOTO_BUCKET).remove([path]);
+                if (storageError) {
+                    log.warn('Diary photo cleanup failed — will retry with the tombstone:', storageError.message);
+                    return false;
                 }
-                const audioPath = audioUrl ? this._extractStoragePath(audioUrl, AUDIO_BUCKET) : null;
-                if (audioPath && isAuthIdentityScopeCurrent(scope)) {
-                    await supabase.storage.from(AUDIO_BUCKET).remove([audioPath]);
+            }
+            const audioPath = audioUrl ? this._extractStoragePath(audioUrl, AUDIO_BUCKET) : null;
+            if (audioPath && isAuthIdentityScopeCurrent(scope)) {
+                const { error: storageError } = await supabase.storage.from(AUDIO_BUCKET).remove([audioPath]);
+                if (storageError) {
+                    log.warn('Diary audio cleanup failed — will retry with the tombstone:', storageError.message);
+                    return false;
                 }
-            } catch (e) {
-                log.warn('Storage cleanup after delete failed (objects orphaned):', e);
             }
             return true;
         } catch (e) {
@@ -1011,16 +1092,10 @@ class DiaryServiceClass {
         const compressed = await this._compressImage(file);
         if (!isAuthIdentityScopeCurrent(scope)) return null;
 
-        // Try direct upload if connectivity looks viable.
-        if (supabase && canAttemptDiaryCloudDelivery() && scope.userId) {
-            const url = await this._uploadPhotoToStorage(file, scope);
-            if (url && isAuthIdentityScopeCurrent(scope)) {
-                this._registerMediaRef(url, scope);
-                return url;
-            }
-        }
-
-        // Offline (or upload failed): persist the compressed Blob to IndexedDB
+        // Compose media is IDB-first even while online. Supabase Storage objects
+        // are created only by the sync worker after the durable diary outbox has
+        // adopted this ref, so abandoning a form cannot orphan a cloud object.
+        // Persist the compressed Blob to IndexedDB
         // and return an idb: reference. IndexedDB survives WKWebView process
         // suspend, unlike the in-memory _pendingPhotoBlobs Map, so the photo
         // won't vanish if iOS backgrounds the app between pick and save.
@@ -1051,6 +1126,32 @@ class DiaryServiceClass {
             this._registerMediaRef(blobUrl, scope);
             return blobUrl;
         }
+    }
+
+    /**
+     * Discard one photo which has not been adopted by createEntry/updateEntry.
+     * The compose screen owns that distinction; this method only removes the
+     * exact local or private-storage reference it is given and is idempotent.
+     */
+    async discardUnsavedPhoto(ref: string | null | undefined): Promise<void> {
+        if (!ref) return;
+        if (isIdbPhoto(ref)) {
+            await idbDeletePhoto(ref);
+            const cachedUrl = this._idbRefToBlobUrl.get(ref);
+            if (cachedUrl) {
+                URL.revokeObjectURL(cachedUrl);
+                this._idbRefToBlobUrl.delete(ref);
+            }
+            this._pendingPhotoBlobs.delete(ref);
+            return;
+        }
+        if (ref.startsWith('blob:')) {
+            this._pendingPhotoBlobs.delete(ref);
+            URL.revokeObjectURL(ref);
+            return;
+        }
+        if (ref.startsWith('data:')) return;
+        await this._removeUncommittedStorageRef(ref, PHOTO_BUCKET);
     }
 
     /**
@@ -1133,6 +1234,8 @@ class DiaryServiceClass {
         const user = (await supabase.auth.getUser()).data.user;
         if (!isAuthIdentityScopeCurrent(scope) || user?.id !== scope.userId) return null;
 
+        let uploadedPath: string | null = null;
+        let handedOff = false;
         try {
             const compressed = await this._compressImage(file);
             const ext = file.name.split('.').pop() || 'jpg';
@@ -1149,12 +1252,18 @@ class DiaryServiceClass {
                 log.warn(`[Diary] photo upload rejected (${PHOTO_BUCKET}): ${error.message}`);
                 return null;
             }
+            uploadedPath = path;
             if (!isAuthIdentityScopeCurrent(scope)) return null;
 
+            handedOff = true;
             return `${STORAGE_REF_PREFIX}${PHOTO_BUCKET}:${path}`;
         } catch (e) {
             log.error('Photo upload failed:', e);
             return null;
+        } finally {
+            if (uploadedPath && !handedOff) {
+                await this._removeUncommittedStorageObject(PHOTO_BUCKET, uploadedPath);
+            }
         }
     }
 
@@ -1192,6 +1301,8 @@ class DiaryServiceClass {
         const user = (await supabase.auth.getUser()).data.user;
         if (!isAuthIdentityScopeCurrent(scope) || user?.id !== scope.userId) return null;
 
+        let uploadedPath: string | null = null;
+        let handedOff = false;
         try {
             const path = `${scope.userId}/${Date.now()}-${Math.random().toString(36).slice(2, 6)}.jpg`;
 
@@ -1208,12 +1319,18 @@ class DiaryServiceClass {
                 log.warn(`[Diary] photo upload rejected (${PHOTO_BUCKET}): ${error.message}`);
                 return null;
             }
+            uploadedPath = path;
             if (!isAuthIdentityScopeCurrent(scope)) return null;
 
+            handedOff = true;
             return `${STORAGE_REF_PREFIX}${PHOTO_BUCKET}:${path}`;
         } catch (e) {
             log.error('Blob upload failed:', e);
             return null;
+        } finally {
+            if (uploadedPath && !handedOff) {
+                await this._removeUncommittedStorageObject(PHOTO_BUCKET, uploadedPath);
+            }
         }
     }
 
@@ -1265,6 +1382,105 @@ class DiaryServiceClass {
         return this._savePending(pending, scope) ? next : null;
     }
 
+    /**
+     * Older server rows pre-date the relay operation id. Bind one with an
+     * owner/id-constrained update before any text or media revision is handed
+     * to Pi/direct delivery. If that tiny claim has an ambiguous response, an
+     * exact read-back reconciles it; no media is touched by this step.
+     */
+    private async _claimServerOperation(
+        entry: DiaryEntry,
+        scope: AuthIdentityScope,
+        database: NonNullable<typeof supabase>,
+    ): Promise<DiaryEntry | null> {
+        if (!scope.userId || !isAuthIdentityScopeCurrent(scope) || entry.id.startsWith('offline-')) return null;
+
+        const readCanonical = async (): Promise<Partial<DiaryEntry> | null> => {
+            try {
+                const { data, error } = await database
+                    .from(TABLE)
+                    .select('id,user_id,client_operation_id,client_revision')
+                    .eq('id', entry.id)
+                    .eq('user_id', scope.userId!)
+                    .maybeSingle();
+                if (error || !isAuthIdentityScopeCurrent(scope) || data?.user_id !== scope.userId) return null;
+                return data as Partial<DiaryEntry>;
+            } catch (error) {
+                log.warn('Could not read a legacy diary operation claim:', error);
+                return null;
+            }
+        };
+
+        let canonical = await readCanonical();
+        if (!canonical || !isAuthIdentityScopeCurrent(scope)) return null;
+        let operationId =
+            typeof canonical.client_operation_id === 'string' &&
+            /^[A-Za-z0-9_-]{1,128}$/.test(canonical.client_operation_id)
+                ? canonical.client_operation_id
+                : null;
+
+        if (!operationId) {
+            const proposed =
+                typeof entry.client_operation_id === 'string' &&
+                /^[A-Za-z0-9_-]{1,128}$/.test(entry.client_operation_id)
+                    ? entry.client_operation_id
+                    : newDiaryOperationId();
+            try {
+                const { data, error } = await database
+                    .from(TABLE)
+                    .update({ client_operation_id: proposed })
+                    .eq('id', entry.id)
+                    .eq('user_id', scope.userId)
+                    .select('id,user_id,client_operation_id,client_revision')
+                    .maybeSingle();
+                if (!isAuthIdentityScopeCurrent(scope)) return null;
+                if (!error && data?.user_id === scope.userId && data.client_operation_id === proposed) {
+                    canonical = data as Partial<DiaryEntry>;
+                    operationId = proposed;
+                }
+            } catch (error) {
+                log.warn('Legacy diary operation claim returned an uncertain result:', error);
+            }
+
+            // A timeout/rejected response can arrive after Postgres committed.
+            // Read the exact owner row before deciding this revision is blocked.
+            if (!operationId) {
+                canonical = await readCanonical();
+                operationId =
+                    typeof canonical?.client_operation_id === 'string' &&
+                    /^[A-Za-z0-9_-]{1,128}$/.test(canonical.client_operation_id)
+                        ? canonical.client_operation_id
+                        : null;
+            }
+        }
+        if (!operationId || !canonical || !isAuthIdentityScopeCurrent(scope)) return null;
+
+        const pending = this._getPendingEntries(scope);
+        const index = pending.findIndex((candidate) => candidate.id === entry.id);
+        if (index < 0) return null;
+        const latest = pending[index];
+        const localRevision =
+            typeof latest.client_revision === 'number' && Number.isSafeInteger(latest.client_revision)
+                ? latest.client_revision
+                : 2;
+        const canonicalRevision =
+            typeof canonical.client_revision === 'number' && Number.isSafeInteger(canonical.client_revision)
+                ? canonical.client_revision
+                : 1;
+        const next: DiaryEntry = {
+            ...latest,
+            client_operation_id: operationId,
+            client_revision: Math.max(localRevision, canonicalRevision + 1),
+            _requiresOperationClaim: undefined,
+        };
+        pending[index] = next;
+        if (!this._savePending(pending, scope)) return null;
+        const durable = this._getPendingEntries(scope).find((candidate) => candidate.id === entry.id);
+        return durable?.client_operation_id === operationId && durable._requiresOperationClaim !== true
+            ? durable
+            : null;
+    }
+
     private _relayEnvelope(entry: DiaryEntry, photos = entry.photos, audioUrl = entry.audio_url): DiaryRelayEnvelope {
         return {
             client_operation_id: entry.client_operation_id || newDiaryOperationId(),
@@ -1310,6 +1526,183 @@ class DiaryServiceClass {
         return entry.photos.some((photo) => isPhoneOnly(photo)) || isPhoneOnly(entry.audio_url);
     }
 
+    private _mediaRefKey(ref: string, bucket: typeof PHOTO_BUCKET | typeof AUDIO_BUCKET): string {
+        const path = this._extractStoragePath(ref, bucket);
+        return path ? `${bucket}:${path}` : `${bucket}:${ref}`;
+    }
+
+    private _cleanupRefBelongsToScope(
+        ref: string,
+        bucket: typeof PHOTO_BUCKET | typeof AUDIO_BUCKET,
+        scope: AuthIdentityScope,
+    ): boolean {
+        if (bucket === PHOTO_BUCKET && isIdbPhoto(ref)) return true;
+        if (bucket === AUDIO_BUCKET && isIdbAudio(ref)) return true;
+        if (ref.startsWith('blob:') || ref.startsWith('data:')) return true;
+        return this._managedStorageRefBelongsToScope(ref, bucket, scope) === true;
+    }
+
+    private _getMediaCleanupJobs(scope: AuthIdentityScope = getAuthIdentityScope()): DiaryMediaCleanupJob[] {
+        if (!scope.userId) return [];
+        try {
+            const raw = localStorage.getItem(this._storageKey(MEDIA_CLEANUP_KEY, scope));
+            const parsed: unknown = raw ? JSON.parse(raw) : [];
+            if (!Array.isArray(parsed)) return [];
+            return parsed.flatMap((value): DiaryMediaCleanupJob[] => {
+                if (!value || typeof value !== 'object') return [];
+                const candidate = value as Partial<DiaryMediaCleanupJob>;
+                if (
+                    typeof candidate.id !== 'string' ||
+                    typeof candidate.entryId !== 'string' ||
+                    candidate.owner_user_id !== scope.userId ||
+                    typeof candidate.createdAt !== 'number' ||
+                    !Array.isArray(candidate.refs)
+                ) {
+                    return [];
+                }
+                const refs = candidate.refs.filter(
+                    (item): item is DiaryMediaCleanupJob['refs'][number] =>
+                        !!item &&
+                        typeof item === 'object' &&
+                        (item.bucket === PHOTO_BUCKET || item.bucket === AUDIO_BUCKET) &&
+                        typeof item.ref === 'string' &&
+                        this._cleanupRefBelongsToScope(item.ref, item.bucket, scope),
+                );
+                return refs.length > 0 ? [{ ...(candidate as DiaryMediaCleanupJob), refs }] : [];
+            });
+        } catch (error) {
+            log.warn('Diary media cleanup queue read failed:', error);
+            return [];
+        }
+    }
+
+    private _saveMediaCleanupJobs(jobs: DiaryMediaCleanupJob[], scope: AuthIdentityScope): boolean {
+        if (!scope.userId || jobs.some((job) => job.owner_user_id !== scope.userId)) return false;
+        const key = this._storageKey(MEDIA_CLEANUP_KEY, scope);
+        try {
+            localStorage.setItem(key, JSON.stringify(jobs));
+            const roundTrip: unknown = JSON.parse(localStorage.getItem(key) ?? 'null');
+            return (
+                Array.isArray(roundTrip) &&
+                roundTrip.length === jobs.length &&
+                jobs.every((job) =>
+                    roundTrip.some(
+                        (value) =>
+                            !!value &&
+                            typeof value === 'object' &&
+                            (value as DiaryMediaCleanupJob).id === job.id &&
+                            (value as DiaryMediaCleanupJob).refs?.length === job.refs.length,
+                    ),
+                )
+            );
+        } catch (error) {
+            log.warn('Diary media cleanup queue write failed:', error);
+            return false;
+        }
+    }
+
+    /** Persist exact old refs before retiring the revision which remembers them. */
+    private _queueRetiredMediaCleanup(local: DiaryEntry, canonical: DiaryEntry, scope: AuthIdentityScope): boolean {
+        if (!scope.userId) return false;
+        const canonicalKeys = new Set([
+            ...(canonical.photos ?? []).map((ref) => this._mediaRefKey(ref, PHOTO_BUCKET)),
+            ...(canonical.audio_url ? [this._mediaRefKey(canonical.audio_url, AUDIO_BUCKET)] : []),
+        ]);
+        const refs = [
+            ...(local._retirePhotos ?? []).map((ref) => ({ bucket: PHOTO_BUCKET, ref }) as const),
+            ...(local._retireAudio ?? []).map((ref) => ({ bucket: AUDIO_BUCKET, ref }) as const),
+        ].filter(
+            (item) =>
+                this._cleanupRefBelongsToScope(item.ref, item.bucket, scope) &&
+                !canonicalKeys.has(this._mediaRefKey(item.ref, item.bucket)),
+        );
+        if (refs.length === 0) return true;
+
+        const jobs = this._getMediaCleanupJobs(scope);
+        const id = `${local.id}:${local.client_operation_id ?? 'legacy'}:${local.client_revision ?? 1}`;
+        const existing = jobs.find((job) => job.id === id);
+        if (existing) {
+            const seen = new Set(existing.refs.map((item) => this._mediaRefKey(item.ref, item.bucket)));
+            for (const item of refs) {
+                const key = this._mediaRefKey(item.ref, item.bucket);
+                if (!seen.has(key)) existing.refs.push(item);
+            }
+        } else {
+            jobs.push({ id, entryId: canonical.id, owner_user_id: scope.userId, refs, createdAt: Date.now() });
+        }
+        return this._saveMediaCleanupJobs(jobs, scope);
+    }
+
+    private async _drainRetiredMedia(scope: AuthIdentityScope = getAuthIdentityScope()): Promise<void> {
+        const active = this._mediaCleanupPromise;
+        if (active?.generation === scope.generation) return active.promise;
+        const promise = this._doDrainRetiredMedia(scope);
+        this._mediaCleanupPromise = { generation: scope.generation, promise };
+        try {
+            await promise;
+        } finally {
+            if (this._mediaCleanupPromise?.promise === promise) this._mediaCleanupPromise = null;
+        }
+    }
+
+    private async _doDrainRetiredMedia(scope: AuthIdentityScope): Promise<void> {
+        if (!supabase || !scope.userId || !isAuthIdentityScopeCurrent(scope)) return;
+        const jobs = this._getMediaCleanupJobs(scope);
+        if (jobs.length === 0) return;
+
+        const user = (await supabase.auth.getUser()).data.user;
+        if (!isAuthIdentityScopeCurrent(scope) || user?.id !== scope.userId) return;
+        let serverRows: Array<Pick<DiaryEntry, 'photos' | 'audio_url'>>;
+        try {
+            const { data, error } = await supabase.from(TABLE).select('photos,audio_url').eq('user_id', scope.userId);
+            if (error || !isAuthIdentityScopeCurrent(scope)) return;
+            serverRows = (data ?? []) as Array<Pick<DiaryEntry, 'photos' | 'audio_url'>>;
+        } catch (error) {
+            log.warn('Could not reconcile retired diary media:', error);
+            return;
+        }
+
+        const referenced = new Set<string>();
+        for (const row of serverRows) {
+            for (const ref of row.photos ?? []) referenced.add(this._mediaRefKey(ref, PHOTO_BUCKET));
+            if (row.audio_url) referenced.add(this._mediaRefKey(row.audio_url, AUDIO_BUCKET));
+        }
+
+        const remaining: DiaryMediaCleanupJob[] = [];
+        for (const job of jobs) {
+            const retainedRefs: DiaryMediaCleanupJob['refs'] = [];
+            for (const item of job.refs) {
+                if (!isAuthIdentityScopeCurrent(scope)) return;
+                if (referenced.has(this._mediaRefKey(item.ref, item.bucket))) {
+                    retainedRefs.push(item);
+                    continue;
+                }
+
+                try {
+                    if (item.bucket === PHOTO_BUCKET && isIdbPhoto(item.ref)) {
+                        await idbDeletePhoto(item.ref);
+                    } else if (item.bucket === AUDIO_BUCKET && isIdbAudio(item.ref)) {
+                        await idbDeleteAudio(item.ref);
+                    } else if (item.ref.startsWith('blob:')) {
+                        this._pendingPhotoBlobs.delete(item.ref);
+                        URL.revokeObjectURL(item.ref);
+                    } else if (!item.ref.startsWith('data:')) {
+                        const path = this._extractStoragePath(item.ref, item.bucket);
+                        if (!path || !path.startsWith(`${scope.userId}/`)) continue;
+                        const { error } = await supabase.storage.from(item.bucket).remove([path]);
+                        if (error) retainedRefs.push(item);
+                    }
+                } catch (error) {
+                    log.warn('Retired diary media cleanup failed; it will retry:', error);
+                    retainedRefs.push(item);
+                }
+                if (!isAuthIdentityScopeCurrent(scope)) return;
+            }
+            if (retainedRefs.length > 0) remaining.push({ ...job, refs: retainedRefs });
+        }
+        if (isAuthIdentityScopeCurrent(scope)) this._saveMediaCleanupJobs(remaining, scope);
+    }
+
     /**
      * Atomically retire a device draft only after a verified Supabase row has
      * been returned by either the direct client or the Pi relay.
@@ -1345,6 +1738,7 @@ class DiaryServiceClass {
         // otherwise; the Pi/Edge protocol will replace the stale snapshot.
         if (canonicalRevision < localRevision) return false;
 
+        if (!this._queueRetiredMediaCleanup(latest, data, scope)) return false;
         const remaining = pending.filter((candidate) => candidate.id !== entry.id);
         if (!this._savePending(remaining, scope)) return false;
         this._recordIdMapping(latest.id, data.id, scope);
@@ -1364,6 +1758,7 @@ class DiaryServiceClass {
             this._removeTombstone(latest.id, scope);
             this._markRecentlyDrained(latest.id, scope);
             void this.drainDeletedTombstones();
+            void this._drainRetiredMedia(scope);
             return true;
         }
 
@@ -1372,6 +1767,7 @@ class DiaryServiceClass {
             entry: { ...data, owner_user_id: scope.userId },
             syncedAt: Date.now(),
         });
+        void this._drainRetiredMedia(scope);
         return true;
     }
 
@@ -1435,10 +1831,34 @@ class DiaryServiceClass {
                 this._quarantine(PENDING_KEY, 'pending owner did not match active sync scope', entry);
                 continue;
             }
+            const uncommittedStorageRefs: Array<{ bucket: string; ref: string }> = [];
+            const transientIdbPhotoRefs = new Set<string>();
+            const trackStorageRef = (bucket: string, ref: string): void => {
+                uncommittedStorageRefs.push({ bucket, ref });
+            };
+            const adoptStorageRefs = (bucket: string, refs: string[]): void => {
+                const adopted = new Set(refs);
+                for (let index = uncommittedStorageRefs.length - 1; index >= 0; index--) {
+                    const candidate = uncommittedStorageRefs[index];
+                    if (candidate.bucket === bucket && adopted.has(candidate.ref)) {
+                        uncommittedStorageRefs.splice(index, 1);
+                    }
+                }
+            };
             try {
                 const currentEntry = this._ensureClientOperationId(entry, scope);
                 if (!currentEntry) continue;
                 entry = currentEntry;
+
+                // A legacy server row is not a create. Never hand its newly
+                // generated operation id to Pi as though it were one, or the
+                // relay could create a duplicate row. Claim/reconcile first.
+                if (entry._requiresOperationClaim) {
+                    if (!database || !userId) continue;
+                    const claimed = await this._claimServerOperation(entry, scope, database);
+                    if (!claimed || !isAuthIdentityScopeCurrent(scope)) continue;
+                    entry = claimed;
+                }
 
                 // Device -> Pi is safe on the boat LAN even without WAN. The
                 // device keeps its own outbox until a returned server row
@@ -1473,7 +1893,14 @@ class DiaryServiceClass {
                 // gets retried on the next sync — rather than silently
                 // dropping the photo the way the legacy code did.
                 const uploadedPhotos: string[] = [];
+                const freshPhotoStorageRefs: string[] = [];
+                const replacedLocalPhotos: Array<{
+                    originalRef: string;
+                    replacementRef: string;
+                    kind: 'idb' | 'blob';
+                }> = [];
                 let allPhotosUploaded = true;
+                let failedPhotoUploads = 0;
                 for (const photo of entry.photos) {
                     if (isIdbPhoto(photo)) {
                         const blob = await idbLoadPhoto(photo);
@@ -1481,20 +1908,16 @@ class DiaryServiceClass {
                         if (blob) {
                             const url = await this._uploadBlob(blob, scope);
                             if (url) {
-                                uploadedPhotos.push(url);
-                                // Success — clean up IDB copy and any cached blob URL.
-                                await idbDeletePhoto(photo);
+                                trackStorageRef(PHOTO_BUCKET, url);
                                 if (!isAuthIdentityScopeCurrent(scope)) return;
-                                const cachedUrl = this._idbRefToBlobUrl.get(photo);
-                                if (cachedUrl) {
-                                    URL.revokeObjectURL(cachedUrl);
-                                    this._idbRefToBlobUrl.delete(photo);
-                                }
-                                this._pendingPhotoBlobs.delete(photo);
+                                uploadedPhotos.push(url);
+                                freshPhotoStorageRefs.push(url);
+                                replacedLocalPhotos.push({ originalRef: photo, replacementRef: url, kind: 'idb' });
                             } else {
                                 // Upload failed — keep the idb ref so we retry.
                                 uploadedPhotos.push(photo);
                                 allPhotosUploaded = false;
+                                failedPhotoUploads++;
                             }
                         } else {
                             // Blob missing in IDB (cleared/corrupted) — can't recover.
@@ -1505,9 +1928,11 @@ class DiaryServiceClass {
                         if (pendingBlob?.scopeKey === scope.key) {
                             const url = await this._uploadBlob(pendingBlob.blob, scope);
                             if (url) {
+                                trackStorageRef(PHOTO_BUCKET, url);
+                                if (!isAuthIdentityScopeCurrent(scope)) return;
                                 uploadedPhotos.push(url);
-                                this._pendingPhotoBlobs.delete(photo);
-                                URL.revokeObjectURL(photo);
+                                freshPhotoStorageRefs.push(url);
+                                replacedLocalPhotos.push({ originalRef: photo, replacementRef: url, kind: 'blob' });
                             } else {
                                 // Keep retrying — but blob: URLs die on app restart,
                                 // so promote to IDB for durability across restarts.
@@ -1519,31 +1944,106 @@ class DiaryServiceClass {
                                     }
                                     this._registerMediaRef(idbRef, scope);
                                     uploadedPhotos.push(idbRef);
+                                    transientIdbPhotoRefs.add(idbRef);
+                                    replacedLocalPhotos.push({
+                                        originalRef: photo,
+                                        replacementRef: idbRef,
+                                        kind: 'blob',
+                                    });
                                 } catch {
                                     uploadedPhotos.push(photo);
                                 }
                                 allPhotosUploaded = false;
+                                failedPhotoUploads++;
                             }
+                        } else {
+                            allPhotosUploaded = false;
+                            failedPhotoUploads++;
                         }
                         // If blob not in Map → app was restarted and it's gone.
                     } else if (photo.startsWith('data:')) {
                         const url = await this._uploadDataUri(photo, scope);
                         if (url) {
+                            trackStorageRef(PHOTO_BUCKET, url);
+                            if (!isAuthIdentityScopeCurrent(scope)) return;
                             uploadedPhotos.push(url);
+                            freshPhotoStorageRefs.push(url);
                         } else {
                             // Keep the data URI for retry.
                             uploadedPhotos.push(photo);
                             allPhotosUploaded = false;
+                            failedPhotoUploads++;
                         }
                     } else {
                         uploadedPhotos.push(photo);
                     }
                 }
 
+                // A storage URL is not owned by the diary until the transformed
+                // queue row can be read back. Persist this handoff even when all
+                // uploads succeeded: otherwise a crash before the database write
+                // leaves an orphaned object and an IDB ref whose source was
+                // already discarded.
+                const photosChanged =
+                    uploadedPhotos.length !== entry.photos.length ||
+                    uploadedPhotos.some((photo, index) => photo !== entry.photos[index]);
+                if (photosChanged) {
+                    if (!isAuthIdentityScopeCurrent(scope)) return;
+                    const pendingNow = this._getPendingEntries(scope);
+                    const idx = pendingNow.findIndex((candidate) => candidate.id === entry.id);
+                    if (idx < 0) continue;
+                    pendingNow[idx] = { ...pendingNow[idx], photos: uploadedPhotos };
+                    this._savePending(pendingNow, scope);
+                    const durableEntry = this._getPendingEntries(scope).find((candidate) => candidate.id === entry.id);
+                    const durablePhotos = durableEntry?.photos ?? [];
+
+                    // Never clean an object which a partially-successful queue
+                    // write already references. The durable outbox, not the
+                    // helper return value, is the media commit point.
+                    const durableStorageRefs = freshPhotoStorageRefs.filter((ref) => durablePhotos.includes(ref));
+                    adoptStorageRefs(PHOTO_BUCKET, durableStorageRefs);
+                    for (const ref of [...transientIdbPhotoRefs]) {
+                        if (durablePhotos.includes(ref)) transientIdbPhotoRefs.delete(ref);
+                    }
+
+                    // Each original can be retired independently once its exact
+                    // replacement appears in the durable queue, even if another
+                    // photo in the same row still needs a retry.
+                    for (const replacement of replacedLocalPhotos) {
+                        if (!durablePhotos.includes(replacement.replacementRef)) continue;
+                        if (replacement.kind === 'idb') {
+                            await idbDeletePhoto(replacement.originalRef);
+                            if (!isAuthIdentityScopeCurrent(scope)) return;
+                            const cachedUrl = this._idbRefToBlobUrl.get(replacement.originalRef);
+                            if (cachedUrl) {
+                                URL.revokeObjectURL(cachedUrl);
+                                this._idbRefToBlobUrl.delete(replacement.originalRef);
+                            }
+                            this._pendingPhotoBlobs.delete(replacement.originalRef);
+                        } else {
+                            this._pendingPhotoBlobs.delete(replacement.originalRef);
+                            URL.revokeObjectURL(replacement.originalRef);
+                        }
+                    }
+
+                    const transformedRowIsDurable =
+                        !!durableEntry &&
+                        durablePhotos.length === uploadedPhotos.length &&
+                        durablePhotos.every((photo, index) => photo === uploadedPhotos[index]);
+                    if (!transformedRowIsDurable) {
+                        log.warn(
+                            `[Diary] entry "${entry.title || entry.id}" deferred — ` +
+                                'uploaded photo references were not durably adopted by the device outbox.',
+                        );
+                        continue;
+                    }
+
+                    entry = durableEntry;
+                }
+
                 // If any photo failed to upload, skip the entry insert for
-                // this round — we'll retry on the next sync. Persist the
-                // current state of the photos array so any blob:→idb:
-                // promotions aren't lost on next sync attempt.
+                // this round — we'll retry on the next sync. Any successful
+                // replacements above are already durable and will be reused.
                 if (!allPhotosUploaded) {
                     // warn(), not info(): createLogger no-ops info in production
                     // builds, so on a device this deferral said NOTHING. An entry
@@ -1561,18 +2061,11 @@ class DiaryServiceClass {
                     // The escape hatch is making the CAUSE visible (the upload
                     // errors above now name themselves) rather than shipping a
                     // half-entry.
-                    const stuck = entry.photos.length - uploadedPhotos.length;
                     log.warn(
                         `[Diary] entry "${entry.title || entry.id}" deferred — ` +
-                            `${stuck} of ${entry.photos.length} photo(s) not uploaded. ` +
+                            `${failedPhotoUploads} of ${entry.photos.length} photo(s) not uploaded. ` +
                             `It will retry, and stays local until they land.`,
                     );
-                    const pendingNow = this._getPendingEntries(scope);
-                    const idx = pendingNow.findIndex((e) => e.id === entry.id);
-                    if (idx >= 0) {
-                        pendingNow[idx] = { ...pendingNow[idx], photos: uploadedPhotos };
-                        this._savePending(pendingNow, scope);
-                    }
                     continue;
                 }
 
@@ -1591,7 +2084,8 @@ class DiaryServiceClass {
                     } else {
                         const uploaded = await this._uploadAudioBlob(blob, scope);
                         if (uploaded) {
-                            audioUrl = uploaded;
+                            trackStorageRef(AUDIO_BUCKET, uploaded);
+                            if (!isAuthIdentityScopeCurrent(scope)) return;
                             // Make the durable queue point to storage before
                             // inserting the row. If the row insert retries,
                             // it reuses this object instead of orphaning a
@@ -1601,17 +2095,49 @@ class DiaryServiceClass {
                             if (idx >= 0) {
                                 pendingNow[idx] = { ...pendingNow[idx], audio_url: uploaded };
                                 this._savePending(pendingNow, scope);
+                                const durableEntry = this._getPendingEntries(scope).find(
+                                    (candidate) => candidate.id === entry.id,
+                                );
+                                if (durableEntry?.audio_url === uploaded) {
+                                    adoptStorageRefs(AUDIO_BUCKET, [uploaded]);
+                                    entry = durableEntry;
+                                    audioUrl = uploaded;
+                                    await this.discardUnsavedAudio(idbRef);
+                                    if (!isAuthIdentityScopeCurrent(scope)) return;
+                                } else {
+                                    audioStillPending = true;
+                                }
+                            } else {
+                                audioStillPending = true;
                             }
-                            await this.discardUnsavedAudio(idbRef);
-                            if (!isAuthIdentityScopeCurrent(scope)) return;
                         } else {
                             audioStillPending = true;
                         }
                     }
                 } else if (audioUrl && audioUrl.startsWith('data:')) {
                     const uploaded = await this._uploadAudioDataUri(audioUrl, scope);
-                    if (uploaded) audioUrl = uploaded;
-                    else audioStillPending = true;
+                    if (uploaded) {
+                        trackStorageRef(AUDIO_BUCKET, uploaded);
+                        if (!isAuthIdentityScopeCurrent(scope)) return;
+                        const pendingNow = this._getPendingEntries(scope);
+                        const idx = pendingNow.findIndex((candidate) => candidate.id === entry.id);
+                        if (idx >= 0) {
+                            pendingNow[idx] = { ...pendingNow[idx], audio_url: uploaded };
+                            this._savePending(pendingNow, scope);
+                            const durableEntry = this._getPendingEntries(scope).find(
+                                (candidate) => candidate.id === entry.id,
+                            );
+                            if (durableEntry?.audio_url === uploaded) {
+                                adoptStorageRefs(AUDIO_BUCKET, [uploaded]);
+                                entry = durableEntry;
+                                audioUrl = uploaded;
+                            } else {
+                                audioStillPending = true;
+                            }
+                        } else {
+                            audioStillPending = true;
+                        }
+                    } else audioStillPending = true;
                 }
                 if (!isAuthIdentityScopeCurrent(scope)) return;
                 if (audioStillPending) {
@@ -1662,6 +2188,20 @@ class DiaryServiceClass {
             } catch (e) {
                 log.error('Sync failed for entry:', entry.id, e);
                 // Leave in pending queue — will retry next sync
+            } finally {
+                // Re-check the durable queue before deleting. A storage write
+                // can succeed immediately before localStorage reports a quota
+                // or verification error; any reference which did land is now
+                // owned and must survive this attempt's cleanup.
+                const durableEntry = this._getPendingEntries(scope).find((candidate) => candidate.id === entry.id);
+                for (const candidate of uncommittedStorageRefs) {
+                    const isDurable =
+                        candidate.bucket === PHOTO_BUCKET
+                            ? durableEntry?.photos.includes(candidate.ref) === true
+                            : durableEntry?.audio_url === candidate.ref;
+                    if (!isDurable) await this._removeUncommittedStorageRef(candidate.ref, candidate.bucket);
+                }
+                for (const ref of transientIdbPhotoRefs) await idbDeletePhoto(ref);
             }
         }
 
@@ -1733,8 +2273,14 @@ class DiaryServiceClass {
     }
 
     private _registerEntryMedia(entry: DiaryEntry, scope: AuthIdentityScope): void {
-        for (const photo of entry.photos ?? []) this._registerMediaRef(photo, scope);
-        this._registerMediaRef(entry.audio_url, scope);
+        for (const photo of entry.photos ?? []) {
+            if (this._managedStorageRefBelongsToScope(photo, PHOTO_BUCKET, scope) !== false) {
+                this._registerMediaRef(photo, scope);
+            }
+        }
+        if (entry.audio_url && this._managedStorageRefBelongsToScope(entry.audio_url, AUDIO_BUCKET, scope) !== false) {
+            this._registerMediaRef(entry.audio_url, scope);
+        }
     }
 
     private _ownsMediaRef(ref: string, scope: AuthIdentityScope): boolean {
@@ -1747,13 +2293,74 @@ class DiaryServiceClass {
         }
     }
 
+    /**
+     * `null` means the value is not a managed Supabase Storage reference.
+     * Managed refs are accepted only when their exact object path is rooted in
+     * the authenticated owner's folder; a token in localStorage can never turn
+     * another skipper's object into ours.
+     */
+    private _managedStorageRefBelongsToScope(
+        ref: string,
+        bucket: typeof PHOTO_BUCKET | typeof AUDIO_BUCKET,
+        scope: AuthIdentityScope,
+    ): boolean | null {
+        const path = this._extractStoragePath(ref, bucket);
+        if (path) return Boolean(scope.userId && path.startsWith(`${scope.userId}/`));
+        return ref.startsWith(STORAGE_REF_PREFIX) ? false : null;
+    }
+
+    private _photoRefBelongsToScope(ref: string, scope: AuthIdentityScope): boolean {
+        if (!ref) return false;
+        const managed = this._managedStorageRefBelongsToScope(ref, PHOTO_BUCKET, scope);
+        if (managed !== null) return managed;
+        if (isIdbPhoto(ref) || ref.startsWith('blob:') || ref.startsWith('data:')) {
+            return this._ownsMediaRef(ref, scope);
+        }
+        return ref.startsWith('https://') || ref.startsWith('http://');
+    }
+
+    private _audioRefBelongsToScope(ref: string, scope: AuthIdentityScope): boolean {
+        if (!ref) return false;
+        const managed = this._managedStorageRefBelongsToScope(ref, AUDIO_BUCKET, scope);
+        if (managed !== null) return managed;
+        if (isIdbAudio(ref) || ref.startsWith('blob:') || ref.startsWith('data:')) {
+            return this._ownsMediaRef(ref, scope);
+        }
+        return ref.startsWith('https://') || ref.startsWith('http://');
+    }
+
+    private _submittedMediaBelongsToScope(
+        photos: string[] | undefined,
+        audioUrl: string | null | undefined,
+        scope: AuthIdentityScope,
+        validateAudio: boolean,
+    ): boolean {
+        if (photos && !photos.every((ref) => this._photoRefBelongsToScope(ref, scope))) return false;
+        if (validateAudio && audioUrl && !this._audioRefBelongsToScope(audioUrl, scope)) return false;
+        return true;
+    }
+
     private _quarantine(sourceKey: string, reason: string, value: unknown): boolean {
         try {
             const raw = localStorage.getItem(QUARANTINE_KEY);
-            const parsed: unknown = raw ? JSON.parse(raw) : [];
-            const current = Array.isArray(parsed) ? (parsed as QuarantinedDiaryBytes[]) : [];
-            current.push({ sourceKey, reason, quarantinedAt: Date.now(), value });
-            localStorage.setItem(QUARANTINE_KEY, JSON.stringify(current));
+            let parsed: unknown = [];
+            if (raw) {
+                try {
+                    parsed = JSON.parse(raw) as unknown;
+                } catch {
+                    parsed = {
+                        sourceKey: QUARANTINE_KEY,
+                        reason: 'unreadable prior diary quarantine',
+                        quarantinedAt: Date.now(),
+                        value: raw,
+                    } satisfies QuarantinedDiaryBytes;
+                }
+            }
+            const retained = boundedLocalQuarantine(parsed, [
+                { sourceKey, reason, quarantinedAt: Date.now(), value } satisfies QuarantinedDiaryBytes,
+            ]);
+            if (retained.length === 0) localStorage.removeItem(QUARANTINE_KEY);
+            else localStorage.setItem(QUARANTINE_KEY, JSON.stringify(retained));
             return true;
         } catch (error) {
             log.warn('Could not quarantine legacy diary bytes; leaving source untouched:', error);
@@ -2298,7 +2905,11 @@ class DiaryServiceClass {
                 const minimal = owned.map((en) => ({
                     ...en,
                     photos: en.photos.filter(
-                        (p) => p.startsWith('http://') || p.startsWith('https://') || p.startsWith(IDB_PHOTO_PREFIX),
+                        (p) =>
+                            p.startsWith('http://') ||
+                            p.startsWith('https://') ||
+                            p.startsWith(IDB_PHOTO_PREFIX) ||
+                            p.startsWith(STORAGE_REF_PREFIX),
                     ),
                 }));
                 for (const entry of minimal) this._registerEntryMedia(entry, scope);
@@ -2317,53 +2928,68 @@ class DiaryServiceClass {
      * blob: URLs that somehow reach here get promoted to idb: refs so they
      * survive WKWebView process suspend.
      */
+    private async _prepareDurablePhotoRefs(
+        photos: string[],
+        scope: AuthIdentityScope,
+    ): Promise<{ refs: string[]; promotedFrom: string[] } | null> {
+        const refs: string[] = [];
+        const promotedFrom: string[] = [];
+        for (const photo of photos) {
+            if (!photo.startsWith('blob:')) {
+                refs.push(photo);
+                continue;
+            }
+
+            const pendingBlob = this._pendingPhotoBlobs.get(photo);
+            if (pendingBlob?.scopeKey !== scope.key) return null;
+            let durableRef: string | null = null;
+            try {
+                durableRef = await idbSavePhoto(pendingBlob.blob);
+                if (!isAuthIdentityScopeCurrent(scope)) {
+                    await idbDeletePhoto(durableRef);
+                    return null;
+                }
+            } catch {
+                durableRef = await this._blobToCompressedDataUri(pendingBlob.blob);
+                if (!isAuthIdentityScopeCurrent(scope)) return null;
+            }
+            if (!durableRef) return null;
+            this._registerMediaRef(durableRef, scope);
+            refs.push(durableRef);
+            promotedFrom.push(photo);
+        }
+        return { refs, promotedFrom };
+    }
+
     private async _addPending(entry: DiaryEntry, scope: AuthIdentityScope): Promise<void> {
         if (entry.owner_user_id !== scope.userId || !isAuthIdentityScopeCurrent(scope)) {
             throw new Error('Diary entry owner changed before persistence');
         }
-        const persistedPhotos: string[] = [];
-        for (const photo of entry.photos) {
-            if (photo.startsWith('blob:')) {
-                // Legacy — promote to IndexedDB for durability.
-                const pendingBlob = this._pendingPhotoBlobs.get(photo);
-                if (pendingBlob?.scopeKey === scope.key) {
-                    try {
-                        const idbRef = await idbSavePhoto(pendingBlob.blob);
-                        if (!isAuthIdentityScopeCurrent(scope)) {
-                            await idbDeletePhoto(idbRef);
-                            throw new Error('Authentication changed while persisting a diary photo');
-                        }
-                        this._registerMediaRef(idbRef, scope);
-                        persistedPhotos.push(idbRef);
-                        continue;
-                    } catch {
-                        // Fall back to data URI if IDB write fails.
-                        const dataUri = await this._blobToCompressedDataUri(pendingBlob.blob);
-                        if (!isAuthIdentityScopeCurrent(scope)) {
-                            throw new Error('Authentication changed while persisting a diary photo');
-                        }
-                        if (dataUri) {
-                            this._registerMediaRef(dataUri, scope);
-                            persistedPhotos.push(dataUri);
-                            continue;
-                        }
-                    }
-                }
-                // No recoverable bytes for this blob — drop the reference.
-            } else {
-                persistedPhotos.push(photo);
-            }
+        if (!this._submittedMediaBelongsToScope(entry.photos, entry.audio_url, scope, true)) {
+            throw new Error('Diary media is not owned by the active account');
         }
+        const prepared = await this._prepareDurablePhotoRefs(entry.photos, scope);
+        if (!prepared) throw new Error('Diary photos could not be durably prepared');
 
         if (!isAuthIdentityScopeCurrent(scope)) {
             throw new Error('Authentication changed before diary persistence completed');
         }
-        const persistedEntry = { ...entry, photos: persistedPhotos, owner_user_id: scope.userId };
+        const persistedEntry = { ...entry, photos: prepared.refs, owner_user_id: scope.userId };
         const pending = this._getPendingEntries(scope);
         pending.unshift(persistedEntry);
         if (!this._savePending(pending, scope)) {
             throw new Error('Diary entry could not be durably persisted on this device');
         }
+        const durable = this._getPendingEntries(scope).find((candidate) => candidate.id === entry.id);
+        if (
+            !durable ||
+            durable.audio_url !== persistedEntry.audio_url ||
+            durable.photos.length !== persistedEntry.photos.length ||
+            durable.photos.some((ref, index) => ref !== persistedEntry.photos[index])
+        ) {
+            throw new Error('Diary media was not adopted by the durable outbox');
+        }
+        for (const ref of prepared.promotedFrom) await this.discardUnsavedPhoto(ref);
     }
 
     /** Compress a blob to a small base64 data URI (600px max) for localStorage persistence */
@@ -2548,10 +3174,14 @@ class DiaryServiceClass {
             /* shiplog unavailable — fall through to the one-shot fetch */
         }
         try {
-            // Use GpsService which handles web (navigator.geolocation with permission
-            // prompt) vs native (BgGeoManager/Transistorsoft) automatically
+            // Diary compose/save is an explicit foreground action. Keep it on
+            // Capacitor Geolocation so attaching a position cannot also wake the
+            // background tracker or raise an unrelated Motion prompt.
             const { GpsService } = await import('./GpsService');
-            const pos = await GpsService.getCurrentPosition({ staleLimitMs: 10_000, timeoutSec: 15 });
+            const pos = await GpsService.requestCurrentForegroundPosition({
+                staleLimitMs: 10_000,
+                timeoutSec: 15,
+            });
             if (pos) return { lat: pos.latitude, lon: pos.longitude };
             return null;
         } catch (e) {
@@ -2646,6 +3276,7 @@ class DiaryServiceClass {
                 await idbDeleteAudio(ref);
                 return null;
             }
+            this._registerMediaRef(ref, scope);
             return ref;
         } catch (error) {
             log.warn('Could not persist diary audio locally:', error);
@@ -2671,9 +3302,18 @@ class DiaryServiceClass {
      */
     async createAudioDataUri(blob: Blob): Promise<string | null> {
         if (!blob.size) return null;
+        const scope = getAuthIdentityScope();
         return new Promise((resolve) => {
             const reader = new FileReader();
-            reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : null);
+            reader.onload = () => {
+                const ref = typeof reader.result === 'string' ? reader.result : null;
+                if (!ref || !isAuthIdentityScopeCurrent(scope)) {
+                    resolve(null);
+                    return;
+                }
+                this._registerMediaRef(ref, scope);
+                resolve(ref);
+            };
             reader.onerror = () => {
                 log.warn('Could not prepare diary audio for saving');
                 resolve(null);
@@ -2691,20 +3331,9 @@ class DiaryServiceClass {
     async uploadAudio(blob: Blob): Promise<string | null> {
         const scope = getAuthIdentityScope();
         if (!isAuthIdentityScopeCurrent(scope)) return null;
-
-        // Try upload if online
-        if (supabase && canAttemptDiaryCloudDelivery() && scope.userId) {
-            const url = await this._uploadAudioBlob(blob, scope);
-            if (url && isAuthIdentityScopeCurrent(scope)) {
-                this._registerMediaRef(url, scope);
-                return url;
-            }
-        }
-
-        // Keep offline audio in IndexedDB, never base64 localStorage.
-        const ref = await this.saveAudioForEntry(blob);
-        if (ref && isAuthIdentityScopeCurrent(scope)) this._registerMediaRef(ref, scope);
-        return ref;
+        // As with photos, a fresh memo becomes an IndexedDB ref first. The
+        // durable outbox owns it before any Storage upload can begin.
+        return this.saveAudioForEntry(blob);
     }
 
     private async _uploadAudioBlob(blob: Blob, scope: AuthIdentityScope): Promise<string | null> {
@@ -2713,6 +3342,8 @@ class DiaryServiceClass {
         const user = (await supabase.auth.getUser()).data.user;
         if (!isAuthIdentityScopeCurrent(scope) || user?.id !== scope.userId) return null;
 
+        let uploadedPath: string | null = null;
+        let handedOff = false;
         try {
             const mimeType = normalizeDiaryAudioMimeType(blob.type);
             const path = `${scope.userId}/${Date.now()}.${diaryAudioFileExtension(mimeType)}`;
@@ -2735,7 +3366,7 @@ class DiaryServiceClass {
                 // a late successful upload orphaned after the UI has moved on.
                 void uploadPromise
                     .then(({ error }) => {
-                        if (!error) void this._removeAudioObject(path, scope);
+                        if (!error) void this._removeUncommittedStorageObject(AUDIO_BUCKET, path);
                     })
                     .catch((error) => log.warn('Late diary audio upload failed:', error));
                 log.warn('Diary audio upload timed out; keeping the local memo for retry');
@@ -2752,28 +3383,45 @@ class DiaryServiceClass {
                 log.warn(`[Diary] audio upload rejected (${AUDIO_BUCKET}, ${mimeType}): ${error.message}`);
                 return null;
             }
+            uploadedPath = path;
             if (!isAuthIdentityScopeCurrent(scope)) return null;
 
+            handedOff = true;
             return `${STORAGE_REF_PREFIX}${AUDIO_BUCKET}:${path}`;
         } catch (e) {
             log.error('Audio blob upload failed:', e);
             return null;
+        } finally {
+            if (uploadedPath && !handedOff) {
+                await this._removeUncommittedStorageObject(AUDIO_BUCKET, uploadedPath);
+            }
         }
     }
 
     /** Remove an uploaded diary-audio object which no entry has adopted. */
-    private async _removeAudioStorageRef(ref: string, scope: AuthIdentityScope): Promise<void> {
+    private async _removeAudioStorageRef(ref: string): Promise<void> {
         const path = this._extractStoragePath(ref, AUDIO_BUCKET);
-        if (path) await this._removeAudioObject(path, scope);
+        if (path) await this._removeUncommittedStorageObject(AUDIO_BUCKET, path);
     }
 
-    private async _removeAudioObject(path: string, scope: AuthIdentityScope): Promise<void> {
-        if (!supabase || !scope.userId || !isAuthIdentityScopeCurrent(scope)) return;
+    private async _removeUncommittedStorageRef(ref: string, bucket: string): Promise<void> {
+        const path = this._extractStoragePath(ref, bucket);
+        if (path) await this._removeUncommittedStorageObject(bucket, path);
+    }
+
+    /**
+     * Remove only the exact object created by a pre-commit upload attempt.
+     * Never list an owner folder: after an identity transition that could expose
+     * or mutate the next account's media. Storage RLS safely rejects the exact
+     * old-account path if the previous credentials are already unavailable.
+     */
+    private async _removeUncommittedStorageObject(bucket: string, path: string): Promise<void> {
+        if (!supabase) return;
         try {
-            const { error } = await supabase.storage.from(AUDIO_BUCKET).remove([path]);
-            if (error) log.warn('Could not clean up unowned diary audio:', error.message);
+            const { error } = await supabase.storage.from(bucket).remove([path]);
+            if (error) log.warn(`Could not clean up uncommitted ${bucket} object:`, error.message);
         } catch (error) {
-            log.warn('Could not clean up unowned diary audio:', error);
+            log.warn(`Could not clean up uncommitted ${bucket} object:`, error);
         }
     }
 

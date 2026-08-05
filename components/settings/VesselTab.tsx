@@ -474,12 +474,26 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
     };
 
     const handleYachtSelect = (entry: PolarDatabaseEntry) => {
-        // Update vessel model + auto-fill LOA
+        // Update vessel model + LOA. Missing dimensions use explicit rough
+        // ratios, and their provenance must survive the save: draft safety
+        // code treats a positive value as measured unless estimatedFields says
+        // otherwise. A later manual edit clears the flag in updateVessel().
         const currentVessel: Partial<VesselProfile> = vessel || {};
+        const estimatedFields = new Set(currentVessel.estimatedFields ?? []);
+        const shouldEstimate = (field: 'beam' | 'draft' | 'displacement') =>
+            !(Number(currentVessel[field]) > 0) || estimatedFields.has(field);
+        const estimateBeam = shouldEstimate('beam');
+        const estimateDraft = shouldEstimate('draft');
+        const estimateDisplacement = shouldEstimate('displacement');
+        if (estimateBeam) estimatedFields.add('beam');
+        if (estimateDraft) estimatedFields.add('draft');
+        if (estimateDisplacement) estimatedFields.add('displacement');
+        estimatedFields.delete('length');
+
         const nextVessel = vesselWithDefaults({
-            beam: currentVessel.beam || Math.round(entry.loa * 0.32),
-            draft: currentVessel.draft || Math.round(entry.loa * 0.16),
-            displacement: currentVessel.displacement || Math.round(Math.pow(entry.loa, 3) / 2.5),
+            beam: estimateBeam ? Math.round(entry.loa * 0.32) : currentVessel.beam,
+            draft: estimateDraft ? Math.round(entry.loa * 0.16) : currentVessel.draft,
+            displacement: estimateDisplacement ? Math.round(Math.pow(entry.loa, 3) / 2.5) : currentVessel.displacement,
             // Derived from the NEW length, not the old one: picking a
             // different yacht has to move these. The previous
             // `currentVessel.x || …` guards pinned them to whatever the first
@@ -491,6 +505,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
             waterCapacity: currentVessel.waterCapacity || 0,
             model: entry.model,
             length: entry.loa,
+            estimatedFields: estimatedFields.size > 0 ? [...estimatedFields] : undefined,
         });
         const usedFleetProfile = updateActiveFleetProfile({
             profile: nextVessel,
@@ -1010,6 +1025,18 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                         selectedModel={settings.polarBoatModel || vessel?.model}
                         onSelect={handleYachtSelect}
                     />
+                    {(vessel?.estimatedFields ?? []).some((field) =>
+                        ['beam', 'draft', 'displacement'].includes(field),
+                    ) && (
+                        <div
+                            className="mt-3 rounded-xl border border-amber-400/25 bg-amber-400/10 p-3 text-xs leading-relaxed text-amber-100"
+                            role="status"
+                        >
+                            Amber values are rough estimates derived from vessel length, not manufacturer measurements.
+                            Edit a value to replace the estimate. Until then, estimated draft is treated as unknown by
+                            depth guidance.
+                        </div>
+                    )}
                 </div>
 
                 {/* Hull Dimensions */}

@@ -9,9 +9,9 @@
  *      Anchor Watch uses). Intentionally short — half a second — so
  *      it doesn't compete with Calypso's voice.
  *
- *   2. Voice — Calypso speaks the alert via the standalone ttsClient.
- *      The HTML5 Audio playback rides the same active AVAudioSession
- *      so it's audible even when the app is backgrounded.
+ *   2. Voice — Calypso speaks the alert via the standalone ttsClient while
+ *      the JavaScript runtime and foreground audio path remain available.
+ *      This is not a background, terminated-app, or Critical Alert channel.
  *
  *   3. Page takeover — dispatch a `thalassa:navigate` event with
  *      tab=voice so App.tsx swaps to the Bosun voice page. The
@@ -23,9 +23,10 @@
  *      log alongside Calypso's other replies. Includes the synthesised
  *      audio_b64 so the skipper can replay it from the log.
  *
- * Single concurrent utterance: a new alert preempts an in-flight one.
- * The preempted alert's voice is cancelled; its history-log turn is
- * left in place (so we don't lose the record).
+ * Single concurrent utterance: a new alert preempts an in-flight one. The
+ * preempted alert's voice is cancelled; its history-log turn is left in place.
+ * The proactive caller is held for public beta until a native lifecycle owns
+ * monitoring; this notifier also serves honest foreground-only reminders.
  */
 
 import { AlarmAudioService } from './AlarmAudioService';
@@ -38,15 +39,26 @@ import { getAuthIdentityScope, isAuthIdentityScopeCurrent, subscribeAuthIdentity
 let activeUtterance: SpokenHandle | null = null;
 let activeDispatchEpoch = 0;
 let activeChimeStopTimer: ReturnType<typeof setTimeout> | null = null;
+let activeChimeLease: string | null = null;
 
-subscribeAuthIdentityScope(() => {
-    activeDispatchEpoch += 1;
-    const hadActiveChime = activeChimeStopTimer !== null;
+function releaseChimeLease(token: string): void {
+    if (activeChimeLease === token) activeChimeLease = null;
+    void AlarmAudioService.release(token).catch(() => undefined);
+}
+
+function clearActiveChime(): void {
     if (activeChimeStopTimer) {
         clearTimeout(activeChimeStopTimer);
         activeChimeStopTimer = null;
     }
-    if (hadActiveChime) void AlarmAudioService.stopAlarm().catch(() => undefined);
+    const token = activeChimeLease;
+    activeChimeLease = null;
+    if (token) void AlarmAudioService.release(token).catch(() => undefined);
+}
+
+subscribeAuthIdentityScope(() => {
+    activeDispatchEpoch += 1;
+    clearActiveChime();
     try {
         activeUtterance?.cancel();
     } catch {
@@ -79,10 +91,7 @@ export async function dispatchAlert(event: AlertEvent): Promise<void> {
         }
         activeUtterance = null;
     }
-    if (activeChimeStopTimer) {
-        clearTimeout(activeChimeStopTimer);
-        activeChimeStopTimer = null;
-    }
+    clearActiveChime();
 
     // 1. Page takeover for critical events. Less aggressive for warns
     // — warns don't yank the skipper out of whatever page they're on.
@@ -99,14 +108,15 @@ export async function dispatchAlert(event: AlertEvent): Promise<void> {
     // then Calypso's voice.
     if (event.severity === 'critical') {
         try {
-            await AlarmAudioService.startAlarm();
+            const chimeLease = await AlarmAudioService.acquire(`calypso-alert-${dispatchEpoch}`);
             if (!isCurrentDispatch()) {
-                await AlarmAudioService.stopAlarm().catch(() => undefined);
+                await AlarmAudioService.release(chimeLease).catch(() => undefined);
                 return;
             }
+            activeChimeLease = chimeLease;
             const stopTimer = setTimeout(() => {
                 if (activeChimeStopTimer === stopTimer) activeChimeStopTimer = null;
-                void AlarmAudioService.stopAlarm().catch(() => undefined);
+                releaseChimeLease(chimeLease);
             }, 500);
             activeChimeStopTimer = stopTimer;
         } catch {

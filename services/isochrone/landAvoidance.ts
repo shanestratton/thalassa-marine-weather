@@ -360,21 +360,20 @@ export function nudgeWaypointsOffshore(route: IsochroneNode[], grid: BathymetryG
 }
 
 // ══════════════════════════════════════════════════════════════════
-// Fine-Grained Island Validation (GEBCO Full Resolution)
+// Exact-Geometry Hazard Validation (ENC + Coarse NOAA ETOPO)
 // ══════════════════════════════════════════════════════════════════
 
-/** Spacing between GEBCO sample points along each segment (NM).
- *  GEBCO_2024 source is 15 arc-seconds ≈ 460m at the equator. By Nyquist,
- *  reliable detection of every pixel a route diagonally crosses requires
- *  sampling at 2× source resolution → 230m ≈ 0.125 NM. This costs ~4×
- *  the GEBCO calls vs. 0.5 NM but eliminates the aliasing failure mode
- *  where a route threads between adjacent samples and skips a hazard
- *  pixel. Reasonable cap: anything finer than 0.125 NM is genuinely
- *  redundant against this source. */
-const FINE_SAMPLE_SPACING_NM = 0.125;
+/** Spacing between coarse-relief sample points along each segment (NM).
+ *  The deployed point endpoint is NOAA ETOPO at 1 arc-minute: exactly 1 NM
+ *  north/south and narrower east/west away from the equator. A 0.25 NM
+ *  spacing gives four samples per nominal cell in ordinary cruising
+ *  latitudes. Sub-grid charted hazards are handled separately by exact ENC
+ *  segment/polygon intersection; ETOPO must never be described as fine
+ *  hydrographic clearance. */
+const COARSE_SAMPLE_SPACING_NM = 0.25;
 
-/** Maximum batch size for a single GEBCO edge function call */
-const GEBCO_BATCH_SIZE = 400;
+/** Exact point-query limit enforced by the legacy gebco-depth Edge endpoint. */
+const COARSE_BATHYMETRY_BATCH_SIZE = 200;
 
 /** Maximum recursion depth when fixing an island-crossing segment.
  *  Bumped from 4 to 6 — coastal routes through archipelagos (Nouméa
@@ -389,12 +388,12 @@ const MAX_FIX_DEPTH = 6;
 const MAX_VALIDATION_PASSES = 5;
 
 /**
- * Generate sample points along a great-circle segment at FINE_SAMPLE_SPACING_NM intervals.
+ * Generate sample points along a great-circle segment at COARSE_SAMPLE_SPACING_NM intervals.
  * Returns array of {lat, lon, frac} where frac is 0..1 along the segment.
  *
- * Hazard threshold logic (was the local GEBCO_HAZARD_DEPTH_M = -15 constant)
+ * Hazard threshold logic (formerly the local GEBCO_HAZARD_DEPTH_M = -15 constant)
  * now lives in HazardQueryService, which is the single source of truth for
- * "is this a hazard?" judgements across both ENC and GEBCO data.
+ * "is this a hazard?" judgements across both ENC and coarse ETOPO data.
  */
 function sampleSegment(
     lat1: number,
@@ -403,9 +402,9 @@ function sampleSegment(
     lon2: number,
 ): { lat: number; lon: number; frac: number }[] {
     const dist = haversineNm(lat1, lon1, lat2, lon2);
-    if (dist < FINE_SAMPLE_SPACING_NM) return [];
+    if (dist < COARSE_SAMPLE_SPACING_NM) return [];
 
-    const numSamples = Math.max(1, Math.floor(dist / FINE_SAMPLE_SPACING_NM));
+    const numSamples = Math.max(1, Math.floor(dist / COARSE_SAMPLE_SPACING_NM));
     const samples: { lat: number; lon: number; frac: number }[] = [];
 
     // Normalise longitude delta for antimeridian crossings
@@ -426,13 +425,13 @@ function sampleSegment(
 
 /**
  * Check if a segment crosses land or shallow hazards using the
- * unified HazardQueryService results (ENC where available, GEBCO
+ * unified HazardQueryService results (ENC where available, coarse ETOPO
  * otherwise). Returns the index of the first hazardous sample, or
  * -1 if clear.
  *
  * Each result carries the canonical `isHazard` flag — ENC's
  * spatial-index judgement when an ENC cell covers the point, the
- * GEBCO depth threshold elsewhere — so we no longer have to apply
+ * ETOPO depth threshold elsewhere — so we no longer have to apply
  * the threshold ourselves.
  */
 function findHazardInResults(results: HazardResult[], startIdx: number, count: number): number {
@@ -443,9 +442,9 @@ function findHazardInResults(results: HazardResult[], startIdx: number, count: n
 }
 
 /**
- * Validate every segment of the final route using GEBCO full-resolution queries.
- * Detects small islands that the coarse 0.1° bathymetry grid missed, and inserts
- * perpendicular detour waypoints to route around them.
+ * Validate every segment of the final route using exact ENC intersections plus
+ * coarse ETOPO point queries. Chart geometry detects small mapped islands;
+ * ETOPO is only the global fallback where no chart cell answers.
  *
  * This is designed as a POST-PROCESSING step — run once after all other smoothing
  * and land avoidance passes are complete.
@@ -459,7 +458,7 @@ export interface ValidateRouteOptions {
      * decide whether a sample point is too shallow. When omitted,
      * the HazardQueryService 2.5 m default is used.
      *
-     * Wired through both the GEBCO threshold check and the ENC
+     * Wired through both the coarse-relief threshold check and the ENC
      * `shallow` polygon re-evaluation, so a 1.5 m centreboarder
      * doesn't get blocked from anchorages a 3 m keelboat couldn't
      * touch — and vice versa.
@@ -508,14 +507,26 @@ export interface ValidateRouteOptions {
      * report the HazardReportPanel renders. Default true.
      */
     publishReport?: boolean;
+    /**
+     * Receives the validator's fail-closed completion verdict. The returned
+     * polyline alone is deliberately not a success signal: on a depth-service
+     * outage or pass-limit exhaustion this function still returns geometry so
+     * callers can show an explicitly unverified line.
+     */
+    onVerificationOutcome?: (outcome: RouteVerificationOutcome) => void;
+}
+
+export interface RouteVerificationOutcome {
+    status: 'verified' | 'unverified';
+    reason?: string;
 }
 
 /**
  * Build the route-wide "verify visually" advisories for a route that
  * validated CLEAN but carries caveats. Two SEVERITIES (mission audit: the
- * GEBCO-outage no-data path was a silent fail-open; route+warn is only
+ * coarse-bathymetry-outage no-data path was a silent fail-open; route+warn is only
  * defensible if the warn is LOUD):
- *  - `caution` — NO-DEPTH-DATA points (uncharted AND GEBCO unavailable). The
+ *  - `caution` — NO-DEPTH-DATA points (uncharted AND ETOPO unavailable). The
  *    router still returns a line (availability), and the depth is UNVERIFIED.
  *    Selection applies a capped graded steer-away from unknown/shoal water
  *    (IsochroneRouter candidate ranking, burn-down 2026-07-16), but that is a
@@ -530,8 +541,8 @@ export function buildRouteAdvisories(
     failedCellIds?: readonly string[],
     segmentTideConstrained = 0,
     draftAssumed = false,
-    /** Midpoints of sub-231 m legs that got ZERO depth samples AND no ENC
-     *  coverage — a short uncharted terminal leg in a GEBCO gap that the sampled
+    /** Midpoints of legs shorter than the ~460 m sample spacing that got ZERO
+     *  depth samples AND no ENC coverage — a short uncharted terminal leg in an ETOPO gap that the sampled
      *  no-data count can't see (cycle-6 re-audit #3). Folded into the count. */
     noDataSegmentLocs: readonly { lat: number; lon: number }[] = [],
 ): RouteAdvisory[] {
@@ -595,13 +606,13 @@ export function buildRouteAdvisories(
             kind: 'no-data',
             text:
                 `${noDataCount}/${results.length} route point(s) have NO depth data ` +
-                `(uncharted + GEBCO unavailable)${where} — routed but NOT confirmed safe, verify visually`,
+                `(uncharted + NOAA ETOPO unavailable)${where} — routed but NOT confirmed safe, verify visually`,
         });
     }
-    // Failed chart cells ALWAYS warn, independent of GEBCO share (cycle-4
+    // Failed chart cells ALWAYS warn, independent of coarse-bathymetry share (cycle-4
     // closing audit #1, the single largest deduction): a fine cell that fails
     // to load is dropped from the query indexes but stays in cellMeta, so an
-    // overlapping COARSE cell can answer covered:true and keep gebcoHits at 0.
+    // overlapping COARSE cell can answer covered:true and keep coarseHits at 0.
     // The old failed-cell note lived ONLY inside the gebco block below and was
     // suppressed in exactly that case — presenting a clean ENC-validated face
     // while the failed cell's detailed grounding features were never consulted.
@@ -617,21 +628,22 @@ export function buildRouteAdvisories(
                 `coarser charts can mask the gap. Re-import those cells and verify that area visually.`,
         });
     }
-    // GEBCO-tier verification made visible (2026-07-17 audit: a corrupt/
-    // unloadable ENC cell silently dropped its water to the ~460 m GEBCO raster
+    // Coarse-bathymetry fallback made visible (2026-07-17 audit: a corrupt/
+    // unloadable ENC cell silently dropped its water to the ~1.8 km ETOPO raster
     // and the panel showed the same clean face). Loud caution on a large share;
     // plain note for the honest offshore case (genuinely uncharted water). The
     // failed-cell warning is now owned by cell-load-failed above (it must fire
-    // even when the share is zero), so this is purely about the GEBCO fraction.
-    const gebcoHits = results.filter((r) => r.source === 'gebco').length;
-    if (gebcoHits > 0 && results.length > 0) {
-        const pct = Math.round((gebcoHits / results.length) * 100);
+    // even when the share is zero), so this is purely about the coarse fraction.
+    // `gebco-share` is retained as a persisted/report compatibility key.
+    const coarseHits = results.filter((r) => r.source === 'etopo').length;
+    if (coarseHits > 0 && results.length > 0) {
+        const pct = Math.round((coarseHits / results.length) * 100);
         advisories.push({
             severity: pct >= 30 ? 'caution' : 'note',
             kind: 'gebco-share',
             text:
-                `${gebcoHits}/${results.length} depth check(s) (${pct}%) used ~460 m GEBCO ocean ` +
-                `bathymetry, not charted ENC data — shoals smaller than the grid spacing are ` +
+                `${coarseHits}/${results.length} depth check(s) (${pct}%) used ~1.8 km NOAA ETOPO global ` +
+                `relief, not charted ENC data — shoals smaller than the grid spacing are ` +
                 `invisible to it.`,
         });
     }
@@ -793,7 +805,17 @@ export async function validateRouteSegments(
     route: IsochroneNode[],
     options: ValidateRouteOptions = {},
 ): Promise<IsochroneNode[]> {
-    if (route.length < 2) return route;
+    let verificationReported = false;
+    const reportVerification = (outcome: RouteVerificationOutcome): void => {
+        if (verificationReported) return;
+        verificationReported = true;
+        options.onVerificationOutcome?.(outcome);
+    };
+
+    if (route.length < 2) {
+        reportVerification({ status: 'unverified', reason: 'route has fewer than two points' });
+        return route;
+    }
 
     let result = [...route];
     const queryOpts: {
@@ -826,11 +848,11 @@ export async function validateRouteSegments(
             await HazardQueryService.preloadEncForBBox([bboxMinLon, bboxMinLat, bboxMaxLon, bboxMaxLat]);
             landLog.info('[ValidateRoute] ENC coverage detected — preloaded spatial indexes');
         } catch (err) {
-            landLog.warn('[ValidateRoute] ENC preload failed (continuing with GEBCO only)', err);
+            landLog.warn('[ValidateRoute] ENC preload failed (continuing with coarse ETOPO only)', err);
         }
     }
 
-    // Regional MSL→LAT datum pessimism for GEBCO fallback points, set for the
+    // Regional MSL→LAT datum pessimism for ETOPO fallback points, set for the
     // WHOLE route bbox even with NO departure time (cycle-5 re-audit: a no-time
     // plan kept the flat 1.3 m even on the big-tide central coast). The tide-
     // curve branch below can only RAISE this further, never lower the floor.
@@ -877,7 +899,7 @@ export async function validateRouteSegments(
             const curve = await fetchTideCurve(midLat, midLon, startMs, endMs);
             if (curve) {
                 queryOpts.tideAt = (p) => (p.timeMs != null ? curve.heightAt(p.timeMs) : null);
-                // REGIONAL DATUM PESSIMISM (closing audit): scale the GEBCO
+                // REGIONAL DATUM PESSIMISM (closing audit): scale the ETOPO
                 // MSL→LAT delta from the live curve's range instead of the
                 // fixed Moreton 1.3 m. Heights are LAT-referenced, so MSL sits
                 // near mid-range: delta ≈ 0.6 × observed range (the 0.6 over
@@ -935,11 +957,11 @@ export async function validateRouteSegments(
     // exhaustion path used to fall through silently as if clean).
     let unresolvedAfterPasses = 0;
     // Tide-credit-cleared SEGMENT crossings from the latest pass (the
-    // sampled-point results carry their own flags; these are the sub-231 m
+    // sampled-point results carry their own flags; these are the sub-spacing
     // polygon crossings the samples can't see).
     let segTideConstrained = 0;
-    // Midpoints of sub-231 m legs with ZERO samples AND no ENC coverage — a
-    // short uncharted terminal leg in a GEBCO gap the sampled no-data count
+    // Midpoints of sub-spacing legs with ZERO samples AND no ENC coverage — a
+    // short uncharted terminal leg in an ETOPO gap the sampled no-data count
     // can't see (cycle-6 re-audit #3). Reset + repopulated each pass.
     let segNoDataLocs: { lat: number; lon: number }[] = [];
     // Worst lateral GRAZE from the latest pass (a leg that validated clean but
@@ -947,7 +969,7 @@ export async function validateRouteSegments(
     // burn-down 2026-07-18 #1). Reset each pass, surfaced on the clean break.
     let worstGraze: EncAreaGraze | null = null;
     // Set when the segment-vs-polygon crossing check THREW this pass — the
-    // sub-231 m thin-islet protection did not run, and a clean report would
+    // exact thin-islet protection did not run, and a clean report would
     // otherwise hide that silently (burn-down 2026-07-18, the free one-liner).
     let segmentCheckFailed = false;
     // Last pass's sample results — kept so the EXHAUSTION path can still
@@ -992,7 +1014,7 @@ export async function validateRouteSegments(
             const startIdx = allSamples.length;
             const interior = sampleSegment(a.lat, a.lon, b.lat, b.lon);
             // sampleSegment excludes both endpoints and returns [] for legs
-            // under FINE_SAMPLE_SPACING_NM (231 m), so a hazard sitting AT an
+            // under COARSE_SAMPLE_SPACING_NM (~460 m), so a hazard sitting AT an
             // interior turn-point, or anywhere on a short marina/canal leg,
             // got ZERO ENC validation — and the 150 m point-hazard guard is
             // useless if the router never samples near the waypoint (audit #2).
@@ -1020,27 +1042,28 @@ export async function validateRouteSegments(
             segmentMeta.push({ startSampleIdx: startIdx, sampleCount: samples.length });
         }
 
-        // Sub-231 m legs produce ZERO samples (a short two-waypoint harbour
+        // Sub-sample-spacing legs produce ZERO samples (a short two-waypoint harbour
         // hop). This used to `break` here — BEFORE the segment-vs-polygon
         // crossing test — leaving exactly the shortest routes with no ENC
         // validation at all (burn-down 2026-07-16). Fall through instead:
         // the batch query and sample scan no-op on empty, and the crossing
         // test below still checks the leg against charted polygons.
 
-        // ── 2. Batch-query unified hazards (ENC where covered, GEBCO elsewhere) ──
+        // ── 2. Batch-query unified hazards (ENC where covered, ETOPO elsewhere) ──
         const allResults: HazardResult[] = [];
         try {
-            // Batch size still applies to the GEBCO portion of any
+            // Batch size still applies to the ETOPO portion of any
             // query; HazardQueryService internally short-circuits
             // ENC-covered points so we don't waste edge-fn calls.
-            for (let batchStart = 0; batchStart < allSamples.length; batchStart += GEBCO_BATCH_SIZE) {
-                const batch = allSamples.slice(batchStart, batchStart + GEBCO_BATCH_SIZE);
+            for (let batchStart = 0; batchStart < allSamples.length; batchStart += COARSE_BATHYMETRY_BATCH_SIZE) {
+                const batch = allSamples.slice(batchStart, batchStart + COARSE_BATHYMETRY_BATCH_SIZE);
                 const batchResults = await HazardQueryService.queryHazards(batch, queryOpts);
                 allResults.push(...batchResults);
             }
             lastAllResults = allResults; // for the exhaustion path's advisories
         } catch (err) {
             landLog.warn('[ValidateRoute] hazard query FAILED — route NOT validated:', err);
+            reportVerification({ status: 'unverified', reason: 'chart/depth hazard query failed' });
             // LOUD fail-open (audit: this path returned SILENTLY, leaving the
             // PREVIOUS route's hazard report on screen against a brand-new,
             // completely unvalidated line — the one path still violating the
@@ -1080,7 +1103,7 @@ export async function validateRouteSegments(
 
         // ── 3b. Segment-vs-polygon crossing (ENC only, audit #1) ──────
         // The per-sample scan above misses a charted shoal DEPARE / LNDARE
-        // islet NARROWER than the 231 m sampling that sits BETWEEN two
+        // islet narrower than the point-sampling spacing that sits BETWEEN two
         // samples. Test EVERY segment's polygon crossings directly — including
         // the terminal legs and a 2-waypoint direct route (the earlier
         // interior-only gate left those untested). The route's origin
@@ -1127,8 +1150,8 @@ export async function validateRouteSegments(
                     if (segResults[k]?.isHazard && !landSegments.includes(polySegs[k].idx)) {
                         landSegments.push(polySegs[k].idx);
                     }
-                    // Short (sub-231 m) leg with ZERO samples AND no ENC coverage:
-                    // uncharted water in a GEBCO gap the point count can't see
+                    // Short (sub-spacing) leg with ZERO samples AND no ENC coverage:
+                    // uncharted water in an ETOPO gap the point count can't see
                     // (re-audit #3). Its midpoint feeds the no-data advisory.
                     if (segmentMeta[polySegs[k].idx].sampleCount === 0 && segResults[k]?.source === 'none') {
                         segNoDataLocs.push({
@@ -1148,7 +1171,7 @@ export async function validateRouteSegments(
             } catch (err) {
                 landLog.warn('[ValidateRoute] segment-polygon check failed (continuing with sample scan):', err);
                 // Loud, not silent: the thin-islet crossing test did not run,
-                // so a "clean" report would hide an unverified sub-231 m
+                // so a "clean" report would hide an unverified exact-segment
                 // crossing (closing-audit missed finding). Surface it on the
                 // clean break, mirroring the point-path fail-open.
                 segmentCheckFailed = true;
@@ -1157,7 +1180,7 @@ export async function validateRouteSegments(
 
         if (landSegments.length === 0) {
             const encHits = allResults.filter((r) => r.source === 'enc').length;
-            const gebcoHits = allResults.filter((r) => r.source === 'gebco').length;
+            const coarseHits = allResults.filter((r) => r.source === 'etopo').length;
             // "verify visually" advisories for a route that validated CLEAN
             // but carries caveats. ATTACHED to the hazard report below so the
             // skipper sees them, and logged at warn() — createLogger silences
@@ -1186,13 +1209,24 @@ export async function validateRouteSegments(
                     kind: 'segment-check-failed',
                     text:
                         'The thin-islet crossing check could not run on this route — a charted shoal ' +
-                        'or islet narrower than the 231 m sampling may be unverified. Verify the line visually.',
+                        'or islet between sampled points may be unverified. Verify the line visually.',
                 });
             }
             await appendCautionCrossings();
+            const incompleteEvidence = routeAdvisories.find((advisory) =>
+                ['no-data', 'cell-load-failed', 'segment-check-failed'].includes(advisory.kind ?? ''),
+            );
+            reportVerification(
+                incompleteEvidence
+                    ? {
+                          status: 'unverified',
+                          reason: incompleteEvidence.text,
+                      }
+                    : { status: 'verified' },
+            );
             const clearMsg =
                 `[ValidateRoute] Pass ${pass + 1}: all segments clear ✓ ` +
-                `(${allSamples.length} samples — enc=${encHits} gebco=${gebcoHits})` +
+                `(${allSamples.length} samples — enc=${encHits} etopo=${coarseHits})` +
                 (routeAdvisories.length > 0 ? ` ⚠ ${routeAdvisories.map((a) => a.text).join(' · ')}` : '');
             if (routeAdvisories.length > 0) landLog.warn(clearMsg);
             else landLog.info(clearMsg);
@@ -1228,6 +1262,10 @@ export async function validateRouteSegments(
     // Hitting the pass limit means the final revision was NOT re-verified and
     // may still cross charted land/shoal — say so, loudly, on the report.
     if (unresolvedAfterPasses > 0) {
+        reportVerification({
+            status: 'unverified',
+            reason: `route validation hit its ${MAX_VALIDATION_PASSES}-pass limit`,
+        });
         // Exhaustion caution LEADS, then the standard no-data/CATZOC
         // advisories from the last pass + the caution crossings — the
         // least-verified routes get MORE context, not less (audit: these
@@ -1258,6 +1296,12 @@ export async function validateRouteSegments(
             `[ValidateRoute] EXHAUSTED ${MAX_VALIDATION_PASSES} passes with ${unresolvedAfterPasses} ` +
                 `segment(s) unresolved — route NOT verified clear`,
         );
+    }
+
+    // Defensive: every normal path above reports, but keep future refactors
+    // fail-closed if a new exit reaches phase 5 without an explicit verdict.
+    if (!verificationReported) {
+        reportVerification({ status: 'unverified', reason: 'route validation did not complete' });
     }
 
     // ── Phase 5: Hazard proximity report ─────────────────────────
@@ -1308,7 +1352,7 @@ export async function validateRouteSegments(
         // No ENC coverage → clear any stale report from a previous route so
         // the UI doesn't show outdated data. BUT if the clean route still
         // carries route-wide advisories (e.g. no-depth-data points during a
-        // GEBCO outage over uncharted water), surface those as an entry-less
+        // ETOPO outage over uncharted water), surface those as an entry-less
         // report rather than dropping them silently.
         try {
             const { setLastReport } = await import('./../enc/EncHazardReportService');
@@ -1330,7 +1374,7 @@ export async function validateRouteSegments(
 /**
  * Find a navigable detour around an island-crossing segment.
  *
- * OPTIMISED: Batch-queries ALL candidate detour points in a single GEBCO call
+ * OPTIMISED: Batch-queries ALL candidate detour points in a single coarse-depth call
  * instead of making individual HTTP requests per candidate. This reduces
  * network calls from ~20+ per island down to 1-3.
  */
@@ -1367,7 +1411,7 @@ async function findDetourAroundIsland(
         }
     }
 
-    // ── 2. Batch-query all candidate points in ONE call (ENC + GEBCO unified) ──
+    // ── 2. Batch-query all candidate points in ONE call (ENC + ETOPO unified) ──
     const candidateResults = await HazardQueryService.queryHazards(
         candidates.map((c) => ({ lat: c.pt.lat, lon: c.pt.lon })),
         queryOpts,
@@ -1406,7 +1450,7 @@ async function findDetourAroundIsland(
             distance: a.distance + haversineNm(a.lat, a.lon, pt.lat, pt.lon),
         };
 
-        const dataSource = candidateResults[i]?.source ?? 'gebco';
+        const dataSource = candidateResults[i]?.source ?? 'etopo';
         landLog.info(
             `[ValidateRoute] Detour: pushed ${pushNM} NM ${bearing === leftBearing ? 'port' : 'starboard'} (source=${dataSource}, depth=${depth})`,
         );

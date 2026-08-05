@@ -217,8 +217,8 @@ export default tseslint.config(
     // explicitly so CI lint doesn't trip no-undef.
     //
     // Root-level *.cjs is included because tool configs live at the repo root
-    // by convention (lighthouserc.cjs) and are CommonJS by necessity — lhci
-    // requires() them, so they cannot be ESM.
+    // by convention (lighthouserc.cjs) and are loaded through createRequire by
+    // the ESM release runner.
     {
         files: ['scripts/**/*.{js,mjs,cjs,ts}', '*.cjs'],
         languageOptions: {
@@ -244,11 +244,7 @@ export default tseslint.config(
     // operator interface. Console output is intentional there; application UI
     // code remains covered by the stricter rule above.
     {
-        files: [
-            'tools/**/*.{js,mjs,cjs,ts}',
-            'pi-cache/src/**/*.ts',
-            'cloudflare-worker/src/**/*.ts',
-        ],
+        files: ['tools/**/*.{js,mjs,cjs,ts}', 'pi-cache/src/**/*.ts', 'cloudflare-worker/src/**/*.ts'],
         rules: {
             'no-console': 'off',
         },

@@ -14,7 +14,8 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { DEFAULT_LAYERS, restoreActiveLayers } from '../components/map/useWeatherLayers';
+import type { WeatherLayer } from '../components/map/mapConstants';
+import { DEFAULT_LAYERS, enforceCmemsMarineExclusivity, restoreActiveLayers } from '../components/map/useWeatherLayers';
 
 describe('restoreActiveLayers', () => {
     it('opens on wind when nothing is stored (first run)', () => {
@@ -46,6 +47,20 @@ describe('restoreActiveLayers', () => {
         // A stored preference existed, so this is not a first run; the user
         // should land on a clean chart, not have wind conjured up.
         expect([...restoreActiveLayers('["waves"]')]).toEqual([]);
+    });
+
+    it('drops an unparked CMEMS product when its exact build flag is false', () => {
+        const exactAvailability = (layer: WeatherLayer) => layer !== 'currents';
+        expect([...restoreActiveLayers('["wind","currents"]', exactAvailability)]).toEqual(['wind']);
+    });
+
+    it('allows only one decoded CMEMS marine product to be owned at a time', () => {
+        expect([...restoreActiveLayers('["wind","currents","sst","chl"]')].sort()).toEqual(['chl', 'wind']);
+        expect(
+            [
+                ...enforceCmemsMarineExclusivity(new Set<WeatherLayer>(['wind', 'currents', 'sst', 'chl']), 'currents'),
+            ].sort(),
+        ).toEqual(['currents', 'wind']);
     });
 
     it('falls back to the default on junk rather than throwing', () => {

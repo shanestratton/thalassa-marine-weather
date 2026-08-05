@@ -2110,7 +2110,7 @@ function routeInshoreOnce(
     const bbox: [number, number, number, number] = [minLon - padLon, minLat - padLat, maxLon + padLon, maxLat + padLat];
 
     let tPhase = Date.now();
-    const { grid, cacheHit: gridCacheHit } = buildNavGridCached(
+    const { grid: baseGrid, cacheHit: gridCacheHit } = buildNavGridCached(
         layers,
         bbox,
         resolutionM,
@@ -2120,10 +2120,30 @@ function routeInshoreOnce(
         relaxedLndare,
         relaxZones,
     );
+    // Everything below may carve endpoint bubbles and component bridges.
+    // Keep the cached build immutable so a prior route cannot turn charted
+    // land into apparent water for a later request (or change its failure
+    // classification). Typed-array copies are substantially cheaper than
+    // rebuilding the raster and keep cache hits deterministic.
+    const grid: NavGrid = {
+        ...baseGrid,
+        cells: baseGrid.cells.slice(),
+        preferred: baseGrid.preferred.slice(),
+    };
     tPhase = mark(gridCacheHit ? 'buildNavGridCacheHit' : 'buildNavGrid', tPhase);
     if (grid.width === 0 || grid.height === 0) {
         return { error: 'Empty grid', code: 'empty-grid' };
     }
+
+    // The shared-component snap below permits a generous 10 km reach so
+    // marina endpoints can find their charted channel. Capture endpoint
+    // navigability BEFORE carving the two small assertion bubbles below;
+    // otherwise those artificial bubbles make both endpoints appear
+    // navigable and render the origin/destination-on-land classifications
+    // unreachable.
+    const maxSnapCells = Math.ceil(10_000 / resolutionM);
+    const originNavBeforeEndpointCarve = snapToNavigable(grid, req.fromLat, req.fromLon, maxSnapCells);
+    const destinationNavBeforeEndpointCarve = snapToNavigable(grid, req.toLat, req.toLon, maxSnapCells);
 
     // Tally grid health for diagnostics — useful when the user
     // reports "no-path" and we need to know whether the grid was
@@ -2310,7 +2330,6 @@ function routeInshoreOnce(
     // sits 6-8 km east in main Moreton Bay; the old 5 km radius
     // couldn't reach it.
     const minComponentCells = req.minComponentCells ?? 25;
-    const maxSnapCells = Math.ceil(10_000 / resolutionM);
 
     // DEBUG 2026-05-19: dump the top 5 connected components by size,
     // each with bbox + can-origin-snap-here + can-dest-snap-here. Tells
@@ -2418,16 +2437,14 @@ function routeInshoreOnce(
     if (!bestStart || !bestEnd) {
         // No sizeable component lies within snap radius of both endpoints.
         // Distinguish "origin on land" from "no shared water body".
-        const originNav = snapToNavigable(grid, req.fromLat, req.fromLon, maxSnapCells);
-        const destNav = snapToNavigable(grid, req.toLat, req.toLon, maxSnapCells);
-        if (!originNav) {
+        if (!originNavBeforeEndpointCarve) {
             return {
                 error: 'Origin point and surrounding area are not navigable for this draft',
                 code: 'origin-on-land',
                 debug,
             };
         }
-        if (!destNav) {
+        if (!destinationNavBeforeEndpointCarve) {
             return {
                 error: 'Destination point and surrounding area are not navigable for this draft',
                 code: 'destination-on-land',

@@ -20,6 +20,7 @@
  */
 
 import { BoatNetworkService } from '../BoatNetworkService';
+import { PI_INTEGRATION_ENABLED, PI_PUBLIC_BETA_UNAVAILABLE_MESSAGE } from '../piPublicBetaBoundary';
 import { blobToBase64 } from './audioRecorder';
 import type { VoiceQueryRequest, VoiceQueryResponse } from '../../types/voice';
 
@@ -37,6 +38,7 @@ export class BosunUnreachableError extends Error {
 }
 
 function getBosunBase(): string | null {
+    if (!PI_INTEGRATION_ENABLED) return null;
     const piHost = BoatNetworkService.getState().piHost;
     if (!piHost) return null;
     return `http://${piHost}:${BOSUN_WEB_PORT}`;
@@ -109,7 +111,11 @@ export async function askBosunText(req: VoiceQueryRequest, signal?: AbortSignal)
     signal?.throwIfAborted();
     const base = getBosunBase();
     if (!base) {
-        throw new BosunUnreachableError('No Pi discovered on the boat network. Connect to boat WiFi and try again.');
+        throw new BosunUnreachableError(
+            PI_INTEGRATION_ENABLED
+                ? 'No Pi discovered on the boat network. Connect to boat WiFi and try again.'
+                : PI_PUBLIC_BETA_UNAVAILABLE_MESSAGE,
+        );
     }
     const r = await postJson(
         `${base}/api/text/ask`,
@@ -125,7 +131,11 @@ export async function askBosunVoice(audioBlob: Blob, signal?: AbortSignal): Prom
     signal?.throwIfAborted();
     const base = getBosunBase();
     if (!base) {
-        throw new BosunUnreachableError('No Pi discovered on the boat network. Connect to boat WiFi and try again.');
+        throw new BosunUnreachableError(
+            PI_INTEGRATION_ENABLED
+                ? 'No Pi discovered on the boat network. Connect to boat WiFi and try again.'
+                : PI_PUBLIC_BETA_UNAVAILABLE_MESSAGE,
+        );
     }
     const audio_b64 = await blobToBase64(audioBlob);
     signal?.throwIfAborted();

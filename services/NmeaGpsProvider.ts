@@ -14,6 +14,7 @@
  */
 
 import { NmeaStore, type NmeaStoreState } from './NmeaStore';
+import { NMEA_LIVE_MAX_AGE_MS, NMEA_USABLE_MAX_AGE_MS } from './nmea/nmeaCadence';
 
 // Re-use the same VesselPosition interface from AnchorWatchService
 export interface NmeaGpsPosition {
@@ -31,13 +32,6 @@ export interface NmeaGpsPosition {
 
 export type NmeaGpsCallback = (pos: NmeaGpsPosition) => void;
 export type NmeaGpsFeedStatus = 'live' | 'stale' | 'unavailable';
-
-// The NMEA listener intentionally emits aggregated samples every 5 seconds,
-// while NmeaStore's visual "live" treatment turns muted after 3 seconds.
-// A GPS source must remain usable across that gap or ship-log / status logic
-// will flap between vessel GPS and phone GPS on a perfectly healthy feed.
-const GPS_LIVE_MAX_AGE_MS = 3_000;
-const GPS_USABLE_MAX_AGE_MS = 12_000;
 
 class NmeaGpsProviderClass {
     private listeners: Set<NmeaGpsCallback> = new Set();
@@ -65,9 +59,8 @@ class NmeaGpsProviderClass {
     /**
      * Whether the NMEA GPS feed remains usable for navigation.
      *
-     * This is deliberately broader than NmeaStore's 3-second *visual* live
-     * tier because the listener emits at a 5-second cadence. A source becomes
-     * unavailable only after two missed sample windows (12 seconds).
+     * Uses the same cadence-aware budgets as NmeaStore so The Glass, receiver
+     * status and navigation consumers cannot disagree about one healthy feed.
      */
     isActive(): boolean {
         return this.getFeedStatus() !== 'unavailable';
@@ -90,8 +83,8 @@ class NmeaGpsProviderClass {
         // A position needs both coordinates. Use the older timestamp so a
         // freshly updated latitude cannot mask an old/missing longitude.
         const ageMs = Math.max(0, now - Math.min(latitude.lastUpdated, longitude.lastUpdated));
-        if (ageMs <= GPS_LIVE_MAX_AGE_MS) return 'live';
-        if (ageMs <= GPS_USABLE_MAX_AGE_MS) return 'stale';
+        if (ageMs <= NMEA_LIVE_MAX_AGE_MS) return 'live';
+        if (ageMs <= NMEA_USABLE_MAX_AGE_MS) return 'stale';
         return 'unavailable';
     }
 

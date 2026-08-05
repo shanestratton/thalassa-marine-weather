@@ -3,6 +3,7 @@ import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const indexHtml = readFileSync(resolve(process.cwd(), 'index.html'), 'utf8');
+const nativeApiBase = readFileSync(resolve(process.cwd(), 'services/native/apiBase.ts'), 'utf8');
 const vercel = JSON.parse(readFileSync(resolve(process.cwd(), 'vercel.json'), 'utf8')) as {
     headers: Array<{ headers: Array<{ key: string; value: string }> }>;
 };
@@ -29,5 +30,10 @@ describe('application shell CSP', () => {
         expect(deployedCsp).not.toContain('api.spoonacular.com');
         expect(indexHtml).not.toContain('api.spoonacular.com');
         expect(deployedCsp).toContain("object-src 'none'");
+    });
+
+    it('allows the native shell to reach the canonical same-app API host explicitly', () => {
+        expect(indexHtml).toContain("connect-src 'self' data: http: https://thalassawx.vercel.app");
+        expect(nativeApiBase).toContain("const DEFAULT_NATIVE_BASE = 'https://thalassawx.vercel.app/api'");
     });
 });

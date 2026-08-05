@@ -236,6 +236,36 @@ describe('VoyageLogService identity fencing', () => {
         expect(VoyageLogService.lastError).toBeNull();
     });
 
+    it('reserves a new public handle with the page disabled by default', async () => {
+        mocks.respond.mockImplementation((query: (typeof mocks.queries)[number]) => {
+            if (query.table === 'boats' && query.action === 'read') {
+                return { data: { id: 'boat-a', owner_id: 'account-a' }, error: null };
+            }
+            if (query.table === 'boat_members' && query.action === 'insert') {
+                return { data: null, error: { message: 'duplicate key value violates unique constraint' } };
+            }
+            if (query.table === 'voyage_log_configs' && query.action === 'read') {
+                return { data: null, error: null };
+            }
+            if (query.table === 'voyage_log_configs' && query.action === 'insert') {
+                return { data: config('account-a', 'boat-a', false), error: null };
+            }
+            return { data: null, error: null };
+        });
+
+        await expect(VoyageLogService.ensureConfigured()).resolves.toMatchObject({ enabled: false });
+        const insert = mocks.queries.find((query) => query.table === 'voyage_log_configs' && query.action === 'insert');
+        expect(insert?.payload).toMatchObject({
+            owner_id: 'account-a',
+            boat_id: 'boat-a',
+            scope: 'combined',
+            enabled: false,
+        });
+        expect(mocks.queries.some((query) => query.table === 'voyage_log_configs' && query.action === 'update')).toBe(
+            false,
+        );
+    });
+
     it('uses one captured user through ensureEnabled and scopes every read/update', async () => {
         mocks.respond.mockImplementation((query: (typeof mocks.queries)[number]) => {
             if (query.table === 'boats' && query.action === 'read') {

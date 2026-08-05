@@ -10,16 +10,18 @@
  * The coverage gate only checks the route ENDPOINTS, so a mid-corridor
  * hole sails straight through.
  *
- * This backstop validates the FINAL polyline against GEBCO bathymetry
- * (~450 m grid, global, already cached app-side): sampled points whose
- * GEBCO value reads at/above sea level, in runs long enough to not be a
+ * This backstop corroborates the FINAL polyline against NOAA ETOPO global
+ * relief (nominal 1 arc-minute / ~1.8 km grid, cached app-side): sampled
+ * points whose ETOPO value reads at/above sea level, in runs long enough to not be a
  * coastal-pixel kiss, mean the route crosses land → the caller rejects
  * the inshore result and falls back to the offshore pipeline.
  *
- * Deliberately conservative the other way too: GEBCO is too coarse to
+ * Deliberately conservative the other way too: ETOPO is too coarse to
  * veto legitimate dredged channels (they read as WATER below datum, not
- * land), and a single land-flagged sample (~450 m) is ignored — only a
- * run of ≥ MIN_RUN_SAMPLES (~0.8 km of solid ground) rejects. Bribie is
+ * land), and a single land-flagged request point is ignored — only a
+ * run of ≥ MIN_RUN_SAMPLES rejects. Request points are ~400 m apart but
+ * are not independent grid cells; this remains a coarse veto, never a
+ * fine-resolution clearance. Bribie is
  * 8 km wide; no real channel transit trips this.
  *
  * Structural fix (corridor coverage gate + UNCHARTED ≠ OPEN in the
@@ -36,20 +38,20 @@ const log = createLogger('landBackstop');
 /**
  * Hard cap on how long a SUCCESSFUL inshore route may wait on this
  * backstop before it renders. GebcoDepthService bounds its own fetch
- * at 30 s, but a route sitting un-rendered behind a depth query is
- * worse than skipping the check — fail open at 10 s.
+ * at 30 s. A timeout is an explicit unavailable verdict: callers must
+ * not present the route as verified safe.
  */
 export const BACKSTOP_DEADLINE_MS = 10_000;
 
 export type LonLat = [number, number];
 
-/** GEBCO reading at/above this (metres of water) counts as land-ish. */
+/** ETOPO elevation at/above sea level counts as land-ish. */
 export const LAND_DEPTH_THRESHOLD_M = 0;
-/** Consecutive land samples required to call it a crossing (≥ ~0.8 km). */
+/** Consecutive land-reading request points required to call it a crossing. */
 export const MIN_RUN_SAMPLES = 2;
 /** Along-route sampling interval. */
 export const SAMPLE_STEP_M = 400;
-/** Hard cap on samples per validation (GEBCO edge-function batch limit). */
+/** Hard cap on samples per validation (legacy gebco-depth endpoint batch limit). */
 export const MAX_SAMPLES = 180;
 
 export interface LandRun {
@@ -62,14 +64,16 @@ export interface LandRun {
 }
 
 /**
- * Pure: find runs of consecutive land-reading samples. Null depths
- * (GEBCO gaps) break runs — unknown is not evidence of land.
+ * Pure: find runs of consecutive land-reading samples. NOAA ETOPO uses
+ * negative elevation below sea level and positive elevation on land.
+ * Null depths break runs — unknown is not evidence of land.
  */
 export function findLandRuns(depths: DepthResult[], thresholdM = LAND_DEPTH_THRESHOLD_M): LandRun[] {
     const runs: LandRun[] = [];
     let start = -1;
     for (let i = 0; i <= depths.length; i++) {
-        const isLand = i < depths.length && depths[i].depth_m !== null && (depths[i].depth_m as number) <= thresholdM;
+        const depth = i < depths.length ? depths[i].depth_m : null;
+        const isLand = depth !== null && Number.isFinite(depth) && depth >= thresholdM;
         if (isLand && start === -1) start = i;
         if (!isLand && start !== -1) {
             runs.push({ startIdx: start, samples: i - start, lat: depths[start].lat, lon: depths[start].lon });
@@ -115,21 +119,35 @@ export function samplePolyline(polyline: LonLat[], stepM = SAMPLE_STEP_M, maxSam
 }
 
 export interface LandBackstopResult {
+    /** Whether the no-land/crosses-land verdict is complete enough to trust. */
+    status: 'verified' | 'unavailable';
     crossesLand: boolean;
     runs: LandRun[];
+    /** Samples with a finite NOAA ETOPO value. */
     samplesChecked: number;
+    /** Samples requested along the final route geometry. */
+    samplesRequested: number;
 }
 
 /**
- * Validate an inshore route polyline against GEBCO. Fails OPEN on data
- * unavailability (offline / edge error → crossesLand=false with zero
- * samples): this is a backstop, not a gate — refusing every route when
- * GEBCO is unreachable would break offline routing that the chart layer
- * already validated properly.
+ * Corroborate an inshore route polyline against coarse NOAA ETOPO. Data unavailability
+ * is explicit and fail-closed: a caller may draw a route as verified only
+ * when status='verified' and crossesLand=false. A confirmed land run is a
+ * verified rejection even if another sample was unavailable.
  */
 export async function inshoreRouteCrossesLand(polyline: LonLat[]): Promise<LandBackstopResult> {
+    const samples = samplePolyline(polyline);
+    const unavailable = (samplesChecked = 0): LandBackstopResult => ({
+        status: 'unavailable',
+        crossesLand: false,
+        runs: [],
+        samplesChecked,
+        samplesRequested: samples.length,
+    });
+
+    if (samples.length < 2) return unavailable();
+
     try {
-        const samples = samplePolyline(polyline);
         const depths = await withTimeout(
             GebcoDepthService.queryRouteDepths(
                 samples.map(([lon, lat]) => ({ lat, lon })),
@@ -138,17 +156,44 @@ export async function inshoreRouteCrossesLand(polyline: LonLat[]): Promise<LandB
             null,
             BACKSTOP_DEADLINE_MS,
         );
-        if (!depths || depths.length === 0) return { crossesLand: false, runs: [], samplesChecked: 0 };
+        if (!depths || depths.length !== samples.length) {
+            log.warn('[landBackstop] ETOPO response missing or misaligned — route remains unverified');
+            return unavailable();
+        }
+
+        const samplesChecked = depths.filter((sample) => Number.isFinite(sample.depth_m)).length;
         const runs = findLandRuns(depths).filter((r) => r.samples >= MIN_RUN_SAMPLES);
         if (runs.length > 0) {
             log.warn(
                 `[landBackstop] inshore route crosses land: ${runs.length} run(s), first at ` +
                     `${runs[0].lat.toFixed(4)},${runs[0].lon.toFixed(4)} (${runs[0].samples} samples) — rejecting`,
             );
+            return {
+                status: 'verified',
+                crossesLand: true,
+                runs,
+                samplesChecked,
+                samplesRequested: samples.length,
+            };
         }
-        return { crossesLand: runs.length > 0, runs, samplesChecked: depths.length };
+
+        if (samplesChecked !== samples.length) {
+            log.warn(
+                `[landBackstop] ETOPO unavailable for ${samples.length - samplesChecked}/${samples.length} sample(s) — ` +
+                    'route remains unverified',
+            );
+            return unavailable(samplesChecked);
+        }
+
+        return {
+            status: 'verified',
+            crossesLand: false,
+            runs: [],
+            samplesChecked,
+            samplesRequested: samples.length,
+        };
     } catch (e) {
-        log.warn('[landBackstop] GEBCO unavailable — failing open:', e);
-        return { crossesLand: false, runs: [], samplesChecked: 0 };
+        log.warn('[landBackstop] ETOPO unavailable — route remains unverified:', e);
+        return unavailable();
     }
 }

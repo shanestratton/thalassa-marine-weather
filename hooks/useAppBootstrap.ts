@@ -15,6 +15,8 @@ import {
     subscribeAuthIdentityScope,
     type AuthIdentityScope,
 } from '../services/authIdentityScope';
+import { PI_INTEGRATION_ENABLED } from '../services/piPublicBetaBoundary';
+import { FEATURE_VISIBILITY } from '../utils/featureVisibility';
 
 const subscribeIdentitySnapshot = (notify: () => void): (() => void) => subscribeAuthIdentityScope(() => notify());
 const getIdentitySnapshot = (): AuthIdentityScope => getAuthIdentityScope();
@@ -106,6 +108,34 @@ export function useAppBootstrap() {
         return () => window.removeEventListener('unhandledrejection', handler);
     }, []);
 
+    // ── Sign in with Apple credential revocation ──────────────────
+    useEffect(() => {
+        if (!authChecked) return;
+        let active = true;
+        let stop: (() => Promise<void>) | null = null;
+
+        import('../services/auth/appleCredentialState')
+            .then(({ startAppleCredentialRevocationMonitoring }) =>
+                startAppleCredentialRevocationMonitoring(async (event) => {
+                    if (!active) return;
+                    const { handleNativeAppleCredentialRevocation } = await import('../stores/authStore');
+                    if (active) await handleNativeAppleCredentialRevocation(event.userId);
+                }),
+            )
+            .then((started) => {
+                if (active) stop = started;
+                else void started();
+            })
+            .catch((error) => {
+                if (active) console.error('[Auth] Apple credential-state monitor failed to start:', error);
+            });
+
+        return () => {
+            active = false;
+            void stop?.();
+        };
+    }, [authChecked]);
+
     // ── Anchor watch restore ───────────────────────────────────────
     useEffect(() => {
         if (!authChecked || authenticatedUserId !== identityScope.userId) return;
@@ -146,6 +176,9 @@ export function useAppBootstrap() {
 
     // ── Signal K auto-reconnect ───────────────────────────────────
     useEffect(() => {
+        // Public-beta production builds must not probe the boat LAN in
+        // the background after the visible Boat Network UI is replaced.
+        if (!PI_INTEGRATION_ENABLED) return;
         console.info('[Boot] AvNav: importing service...');
         import('../services/AvNavService')
             .then(({ AvNavService }) => {
@@ -220,7 +253,7 @@ export function useAppBootstrap() {
                 case 'drag_warning':
                 case 'geofence_alert':
                 case 'hail':
-                    setPage('guardian');
+                    setPage(FEATURE_VISIBILITY.guardian ? 'guardian' : 'dashboard');
                     break;
                 default:
                     setPage('dashboard');
@@ -247,7 +280,7 @@ export function useAppBootstrap() {
     // source instead of narrowing it a guess at a time.
     useEffect(() => startAnimationBudgetGuard(), []);
 
-    // ── Freeze all animation while backgrounded ────────────────────
+    // ── Freeze animation while backgrounded + clear badge on foreground ──
     // Shane's 2026-08-04 crash logs: 28 minutes of "markAllLayersVolatile:
     // Failed" while the app sat backgrounded at anchor with the tracker
     // running, then the renderer killed with 129 queued
@@ -269,46 +302,29 @@ export function useAppBootstrap() {
         let listener: { remove: () => void } | null = null;
         import('@capacitor/app')
             .then(({ App }) =>
-                App.addListener('appStateChange', ({ isActive }) => apply(!isActive)).then((l) => {
-                    if (active) listener = l;
-                    else l.remove();
-                }),
-            )
-            .catch(() => {});
-        return () => {
-            active = false;
-            document.removeEventListener('visibilitychange', onVisibility);
-            listener?.remove();
-            document.body.classList.remove('app-backgrounded');
-        };
-    }, []);
-
-    // ── Clear badge on foreground ──────────────────────────────────
-    useEffect(() => {
-        let active = true;
-        let listener: { remove: () => void } | null = null;
-        import('@capacitor/app')
-            .then(({ App }) => {
                 App.addListener('appStateChange', ({ isActive }) => {
+                    apply(!isActive);
                     if (isActive) {
-                        import('../services/PushNotificationService').then(({ PushNotificationService }) => {
+                        void import('../services/PushNotificationService').then(({ PushNotificationService }) => {
                             PushNotificationService.clearBadge();
                         });
                     }
                 }).then((l) => {
                     if (active) listener = l;
                     else l.remove();
-                });
-            })
+                }),
+            )
             .catch(() => {});
 
-        import('../services/PushNotificationService').then(({ PushNotificationService }) => {
+        // Remove an old badge at boot as well as on every foreground event.
+        void import('../services/PushNotificationService').then(({ PushNotificationService }) => {
             PushNotificationService.clearBadge();
         });
-
         return () => {
             active = false;
+            document.removeEventListener('visibilitychange', onVisibility);
             listener?.remove();
+            document.body.classList.remove('app-backgrounded');
         };
     }, []);
 

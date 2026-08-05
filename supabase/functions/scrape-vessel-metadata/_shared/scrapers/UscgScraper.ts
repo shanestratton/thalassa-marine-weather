@@ -5,7 +5,7 @@
  * pulls the key identity/dimension fields; US PSIX reports imperial units
  * so lengths/beams/drafts are converted feet → metres.
  */
-import { VesselMetadataRow, upsertMetadata } from '../supabase.ts';
+import { upsertMetadata, VesselMetadataRow } from '../supabase.ts';
 import { fetchWithTimeout, readResponseTextLimited } from '../../../_shared/http-security.ts';
 
 const USCG_API_BASE = Deno.env.get('USCG_API_URL') ?? 'https://cgmix.uscg.mil/xml';

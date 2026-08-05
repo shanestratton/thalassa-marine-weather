@@ -355,17 +355,6 @@ export class GpsSubscriptionManager {
                 }
             });
         }
-
-        // ── 4. Activity changes — native only ──
-        // The legacy code subscribed but did nothing on each event. We
-        // still subscribe in case a future iteration wants a hook, but
-        // a no-op handler is fine here.
-        if (opts.isNative) {
-            const unsubAct = BgGeoManager.subscribeActivity(() => {
-                /* reserved for future use */
-            });
-            this.unsubscribers.push(unsubAct);
-        }
     }
 
     /** Tear down every subscription and reset internal state. */

@@ -223,7 +223,7 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo((props) 
 
         const map = L.map(mapRef.current, {
             zoomControl: false,
-            attributionControl: false,
+            attributionControl: true,
             zoomAnimation: true,
             fadeAnimation: true,
         }).setView([-27.5, 153.1], 6); // Default view — fitBounds overrides when track loads
@@ -233,6 +233,8 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo((props) 
         // live without recreating the map or refitting bounds.
         const base = L.tileLayer(piCache.leafletTileTemplate(SATELLITE_BASE), {
             maxZoom: 19,
+            attribution:
+                'Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community',
             // Deepen Voyager's very pale water (the "Mary Poppins" wash) —
             // a saturation/brightness filter on the day base only.
             className: '',
@@ -247,6 +249,8 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo((props) 
             {
                 maxZoom: 18,
                 opacity: 0.9,
+                attribution:
+                    'Map data: &copy; <a href="https://www.openseamap.org" target="_blank" rel="noopener noreferrer">OpenSeaMap contributors</a>',
             },
         ).addTo(map);
         seamarkTileRef.current = seamark;

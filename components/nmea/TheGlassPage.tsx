@@ -16,6 +16,7 @@ import { triggerHaptic } from '../../utils/system';
 import { PageHeader } from '../ui/PageHeader';
 import { useDeviceClass, pickByDevice } from '../../utils/useDeviceClass';
 import type { TimestampedMetric, DataFreshness } from '../../services/NmeaStore';
+import { nmeaDepthReferenceLabel } from '../../services/nmea/nmeaSentence';
 
 interface TheGlassPageProps {
     onBack: () => void;
@@ -108,13 +109,13 @@ const Sparkline: React.FC<SparklineProps> = ({
 //  the empty-history case by rendering a low-opacity placeholder.)
 
 // ── HeroCompass — compact 360° compass card sized to its parent ──
-const HeroCompass: React.FC<{ value: number; isLive: boolean; accentColor?: string }> = ({
+const HeroCompass: React.FC<{ value: number | null; isLive: boolean; accentColor?: string }> = ({
     value,
     isLive,
     accentColor = '#22d3ee',
 }) => {
-    const rotation = -value;
-    const opacity = isLive ? 1 : 0.4;
+    const rotation = value === null ? 0 : -value;
+    const opacity = value === null ? 0.25 : isLive ? 1 : 0.4;
 
     const ticks = useMemo(() => {
         const items: { deg: number; label?: string; isCardinal: boolean; isMajor: boolean }[] = [];
@@ -218,7 +219,7 @@ const HeroCompass: React.FC<{ value: number; isLive: boolean; accentColor?: stri
                 fontFamily="ui-monospace, SFMono-Regular, monospace"
                 opacity={opacity}
             >
-                {Math.round(value).toString().padStart(3, '0')}°
+                {value === null ? '—' : `${Math.round(value).toString().padStart(3, '0')}°`}
             </text>
         </svg>
     );
@@ -226,7 +227,7 @@ const HeroCompass: React.FC<{ value: number; isLive: boolean; accentColor?: stri
 
 // ── HeroArcGauge — compact 240° arc gauge with self-contained digital readout ──
 interface HeroArcGaugeProps {
-    value: number;
+    value: number | null;
     min: number;
     max: number;
     unit: string;
@@ -267,10 +268,10 @@ const HeroArcGauge: React.FC<HeroArcGaugeProps> = ({
     isLive,
 }) => {
     const range = max - min;
-    const clamped = Math.max(min, Math.min(max, value));
+    const clamped = value === null ? min : Math.max(min, Math.min(max, value));
     const fraction = (clamped - min) / range;
     const needleAngle = HERO_START + fraction * HERO_SWEEP;
-    const opacity = isLive ? 1 : 0.4;
+    const opacity = value === null ? 0.25 : isLive ? 1 : 0.4;
 
     const ticks = useMemo(() => {
         const items: { val: number; isMajor: boolean }[] = [];
@@ -417,7 +418,7 @@ const HeroArcGauge: React.FC<HeroArcGaugeProps> = ({
                 fontFamily="ui-monospace, SFMono-Regular, monospace"
                 style={{ letterSpacing: '-1px' }}
             >
-                {value.toFixed(1)}
+                {value === null ? '—' : value.toFixed(1)}
             </text>
             <text
                 x={HERO_CX}
@@ -495,10 +496,22 @@ const HeelCapsule: React.FC<{ degrees: number; isLive: boolean }> = ({ degrees, 
 };
 
 // ── Sensor status icon ──
-const SensorIcon: React.FC<{ icon: string; label: string; active: boolean }> = ({ icon, label, active }) => (
-    <div className="flex flex-col items-center gap-0.5">
+const SensorIcon: React.FC<{ icon: string; label: string; active: boolean; stale?: boolean }> = ({
+    icon,
+    label,
+    active,
+    stale = false,
+}) => (
+    <div
+        className="flex flex-col items-center gap-0.5"
+        aria-label={`${label} data ${!active ? 'unavailable' : stale ? 'stale' : 'live'}`}
+    >
         <span className={`text-lg ${active ? 'opacity-100' : 'opacity-30'}`}>{icon}</span>
-        <span className={`text-[9px] font-bold uppercase tracking-wider ${active ? 'text-cyan-400' : 'text-gray-400'}`}>
+        <span
+            className={`text-[9px] font-bold uppercase tracking-wider ${
+                !active ? 'text-gray-400' : stale ? 'text-amber-400' : 'text-cyan-400'
+            }`}
+        >
             {label}
         </span>
     </div>
@@ -533,7 +546,7 @@ function useMetricHistory(metric: TimestampedMetric): { history: number[]; max: 
 //    yet) and its freshness. Callers render via fmt() for the "—"
 //    fallback. ──
 function resolveMetric(metric: TimestampedMetric): { value: number | null; freshness: DataFreshness } {
-    return { value: metric.value, freshness: metric.freshness };
+    return { value: metric.freshness === 'dead' ? null : metric.value, freshness: metric.freshness };
 }
 
 // ══════════════════════════════════════════════
@@ -632,6 +645,53 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
     }, [onBack]);
 
     const isConnected = state.connectionStatus === 'connected';
+    const metricIsAvailable = (metric: TimestampedMetric): boolean =>
+        isConnected && metric.value !== null && metric.freshness !== 'dead';
+    const metricIsStale = (metric: TimestampedMetric): boolean =>
+        metricIsAvailable(metric) && metric.freshness === 'stale';
+    const gpsAvailable =
+        metricIsAvailable(state.latitude) && metricIsAvailable(state.longitude) && state.gpsFixQuality !== 0;
+    const gpsStale = gpsAvailable && (metricIsStale(state.latitude) || metricIsStale(state.longitude));
+    const windAvailable = metricIsAvailable(state.tws) || metricIsAvailable(state.twa);
+    const windStale =
+        windAvailable &&
+        [state.tws, state.twa].filter(metricIsAvailable).every((metric) => metric.freshness === 'stale');
+    const depthAvailable = metricIsAvailable(state.depth);
+    const depthStale = metricIsStale(state.depth);
+
+    // A connected socket is not itself evidence that the numbers are live.
+    // If any retained (3–10s) reading is stale, label the whole panel Stale;
+    // dead readings are masked. This conservative roll-up prevents a stale
+    // numeric value from sitting beneath a green "Live" claim.
+    const panelMetrics = [
+        state.tws,
+        state.twa,
+        state.stw,
+        state.heading,
+        state.depth,
+        state.sog,
+        state.cog,
+        state.waterTemp,
+        state.rpm,
+        state.voltage,
+        state.latitude,
+        state.longitude,
+        state.hdop,
+        state.satellites,
+    ].filter((metric) => metric.value !== null && metric.freshness !== 'dead');
+    const panelStatus = !isConnected
+        ? 'No feed'
+        : panelMetrics.some((metric) => metric.freshness === 'stale')
+          ? 'Stale'
+          : panelMetrics.some((metric) => metric.freshness === 'live')
+            ? 'Live'
+            : 'Waiting';
+    const panelStatusDot =
+        panelStatus === 'Live'
+            ? 'bg-emerald-400 animate-pulse'
+            : panelStatus === 'Stale'
+              ? 'bg-amber-400'
+              : 'bg-slate-500';
 
     return (
         <div className="relative h-full bg-slate-950 overflow-hidden slide-up-enter">
@@ -641,13 +701,9 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                     onBack={handleBack}
                     action={
                         <div className="flex items-center gap-1.5">
-                            <div
-                                className={`w-2 h-2 rounded-full ${
-                                    isConnected ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'
-                                }`}
-                            />
+                            <div className={`w-2 h-2 rounded-full ${panelStatusDot}`} />
                             <span className="text-[9px] font-bold uppercase tracking-wider text-gray-500">
-                                {isConnected ? 'Live' : 'Demo'}
+                                {panelStatus}
                             </span>
                         </div>
                     }
@@ -770,7 +826,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                     >
                                         <div style={{ width: `${heroGaugeSize}px`, height: `${heroGaugeSize}px` }}>
                                             <HeroArcGauge
-                                                value={tws.value ?? 0}
+                                                value={tws.value}
                                                 min={0}
                                                 max={60}
                                                 unit="kts"
@@ -783,7 +839,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                                     { from: 40, to: 60, color: '#ef4444' },
                                                 ]}
                                                 majorTick={10}
-                                                isLive={tws.value !== null && tws.freshness !== 'dead'}
+                                                isLive={tws.value !== null && tws.freshness === 'live'}
                                             />
                                         </div>
                                     </div>
@@ -817,7 +873,9 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                 </span>
                                 <span className="text-xs font-bold text-gray-500">m</span>
                             </div>
-                            <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mt-0.5">W</p>
+                            <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mt-0.5">
+                                {nmeaDepthReferenceLabel(state.depthReference)}
+                            </p>
                             <div className="mt-1">
                                 <Sparkline
                                     history={depthChart.history}
@@ -845,8 +903,8 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                             </p>
                             <div style={{ width: '100%', maxWidth: `${compassMaxWidth}px`, aspectRatio: '1' }}>
                                 <HeroCompass
-                                    value={cog.value ?? 0}
-                                    isLive={cog.value !== null && cog.freshness !== 'dead'}
+                                    value={cog.value}
+                                    isLive={cog.value !== null && cog.freshness === 'live'}
                                 />
                             </div>
                         </div>
@@ -873,9 +931,9 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                 NMEA Data
                             </p>
                             <div className="flex items-center justify-around mb-2">
-                                <SensorIcon icon="📍" label="GPS" active />
-                                <SensorIcon icon="💨" label="Wind" active />
-                                <SensorIcon icon="🔵" label="Depth" active />
+                                <SensorIcon icon="📍" label="GPS" active={gpsAvailable} stale={gpsStale} />
+                                <SensorIcon icon="💨" label="Wind" active={windAvailable} stale={windStale} />
+                                <SensorIcon icon="🔵" label="Depth" active={depthAvailable} stale={depthStale} />
                             </div>
                             <div className="flex items-center gap-2 mt-1">
                                 <span className={sensorIconSize}>🔋</span>

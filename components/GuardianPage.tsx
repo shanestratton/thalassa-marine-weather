@@ -56,6 +56,38 @@ function identityIsCurrent(scope: AuthIdentityScope, ownerId: string): boolean {
 }
 
 type GuardianFeedback = { tone: 'error' | 'success'; message: string };
+type GuardianCoverageStatus = 'inactive' | 'checking' | 'ready' | 'unavailable';
+
+const GUARDIAN_INIT_TIMEOUT_MS = 15_000;
+
+/**
+ * Guardian depends on both GPS and remote identity checks. Neither is allowed
+ * to hold the whole page hostage: the skipper must always retain a truthful
+ * status and a working Back control, even on dead comms.
+ */
+function guardianInitializationSettled(promise: Promise<void>): Promise<boolean> {
+    return new Promise((resolve) => {
+        let settled = false;
+        const timer = window.setTimeout(() => {
+            settled = true;
+            resolve(false);
+        }, GUARDIAN_INIT_TIMEOUT_MS);
+        promise.then(
+            () => {
+                if (settled) return;
+                settled = true;
+                window.clearTimeout(timer);
+                resolve(true);
+            },
+            () => {
+                if (settled) return;
+                settled = true;
+                window.clearTimeout(timer);
+                resolve(false);
+            },
+        );
+    });
+}
 
 export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
     const { settings } = useSettings();
@@ -68,6 +100,9 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
     const [alerts, setAlerts] = useState<GuardianAlert[]>([]);
     const [_hasProfile, setHasProfile] = useState(false);
     const [loading, setLoading] = useState(true);
+    const [loadFailure, setLoadFailure] = useState<string | null>(null);
+    const [initAttempt, setInitAttempt] = useState(0);
+    const [coverageStatus, setCoverageStatus] = useState<GuardianCoverageStatus>('checking');
     const [feedback, setFeedback] = useState<GuardianFeedback | null>(null);
 
     // Modals
@@ -131,6 +166,8 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
             setAlerts([]);
             setHasProfile(false);
             setLoading(Boolean(next.userId));
+            setLoadFailure(null);
+            setCoverageStatus(next.userId ? 'checking' : 'unavailable');
             setShowSetup(false);
             setShowReport(false);
             setShowWeather(false);
@@ -181,12 +218,25 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
         setReportText('');
         setFeedback(null);
         setLoading(Boolean(ownerId));
+        setLoadFailure(null);
+        setCoverageStatus(ownerId ? 'checking' : 'unavailable');
 
         const unsub = GuardianService.subscribe((state) => {
             if (!requestIsCurrent()) return;
             setNearbyUsers(state.nearbyUsers);
             setAlerts(state.alerts);
             setArmed(state.armed);
+            if (!state.armed) {
+                setCoverageStatus('inactive');
+            } else if (
+                state.profile?.armed &&
+                state.profile.last_known_at &&
+                Date.now() - new Date(state.profile.last_known_at).getTime() < 5 * 60_000
+            ) {
+                setCoverageStatus('ready');
+            } else {
+                setCoverageStatus('checking');
+            }
             if (state.profile?.user_id === ownerId) {
                 setHasProfile(true);
             }
@@ -197,13 +247,30 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
                 if (!ownerId && mountedRef.current && requestVersionRef.current === requestVersion) setLoading(false);
                 return;
             }
-            await GuardianService.initialize();
+
+            const initialized = await guardianInitializationSettled(GuardianService.initialize());
             if (!requestIsCurrent()) return;
+            if (!initialized) {
+                setLoading(false);
+                setLoadFailure(
+                    'Guardian could not finish loading. Check your connection, then retry — no nearby coverage has been assumed.',
+                );
+                return;
+            }
             const state = GuardianService.getState();
             const profile = state.profile?.user_id === ownerId ? state.profile : null;
             setNearbyUsers(state.nearbyUsers);
             setAlerts(state.alerts);
             setArmed(state.armed);
+            if (state.armed) {
+                // A zero count is meaningful only after this armed device has
+                // proved it can produce the heartbeat position the server uses.
+                const position = await acquireFreshOwnshipPosition({ maxGpsAgeMs: 60_000, timeoutSec: 8 });
+                if (!requestIsCurrent()) return;
+                setCoverageStatus(position ? 'ready' : 'unavailable');
+            } else {
+                setCoverageStatus('inactive');
+            }
             if (profile) {
                 setHasProfile(true);
                 setVesselName(profile.vessel_name || '');
@@ -222,7 +289,41 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
             requestVersionRef.current += 1;
             unsub();
         };
-    }, [authUserId, settings.vessel?.name]);
+    }, [authUserId, initAttempt, settings.vessel?.name]);
+
+    const handleRetryCoverage = useCallback(async () => {
+        const scope = getAuthIdentityScope();
+        const ownerId = authUserId;
+        if (!ownerId || !armed || !identityIsCurrent(scope, ownerId)) return;
+        setCoverageStatus('checking');
+        setFeedback(null);
+        const position = await acquireFreshOwnshipPosition({
+            maxGpsAgeMs: 60_000,
+            timeoutSec: 10,
+            locationAccess: 'foreground-request',
+        });
+        if (!identityIsCurrent(scope, ownerId)) return;
+        if (!position) {
+            setCoverageStatus('unavailable');
+            setFeedback({
+                tone: 'error',
+                message: 'No fresh GPS fix is available. Nearby Guardian coverage has not been checked.',
+            });
+            return;
+        }
+        const refreshed = await GuardianService.refreshArmedPresence(position);
+        if (!identityIsCurrent(scope, ownerId)) return;
+        if (!refreshed) {
+            setCoverageStatus('unavailable');
+            setFeedback({
+                tone: 'error',
+                message: 'Guardian could not refresh the armed presence. Check your connection and try again.',
+            });
+            return;
+        }
+        setCoverageStatus('ready');
+        setFeedback({ tone: 'success', message: 'Guardian coverage refreshed from the vessel’s current position.' });
+    }, [armed, authUserId]);
 
     // ── ARM/DISARM handlers ──
     const handleArm = useCallback(async () => {
@@ -231,13 +332,16 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
         if (!ownerId || !identityIsCurrent(scope, ownerId)) return;
         setArming(true);
         setFeedback(null);
+        setCoverageStatus('checking');
         triggerHaptic('heavy');
         const position = await acquireFreshOwnshipPosition({
             maxGpsAgeMs: 30_000,
             timeoutSec: 10,
+            locationAccess: 'foreground-request',
         });
         if (!identityIsCurrent(scope, ownerId)) return;
         if (!position) {
+            setCoverageStatus('inactive');
             setFeedback({
                 tone: 'error',
                 message: 'Cannot arm without a fresh vessel GPS fix. Check location permissions and try again.',
@@ -245,13 +349,16 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
             setArming(false);
             return;
         }
+        setCoverageStatus('ready');
         const ok = await GuardianService.arm(position);
         if (!identityIsCurrent(scope, ownerId)) return;
         if (ok) {
             setArmed(true);
+            setCoverageStatus('ready');
             setFeedback({ tone: 'success', message: 'Guardian is armed at the vessel’s current GPS position.' });
             triggerHaptic('heavy');
         } else {
+            setCoverageStatus('inactive');
             setFeedback({
                 tone: 'error',
                 message: 'Guardian could not arm. Check your Guardian profile and connection, then try again.',
@@ -271,7 +378,13 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
         if (!identityIsCurrent(scope, ownerId)) return;
         if (ok) {
             setArmed(false);
-            setFeedback({ tone: 'success', message: 'Guardian is disarmed.' });
+            setNearbyUsers([]);
+            setAlerts([]);
+            setCoverageStatus('inactive');
+            setFeedback({
+                tone: 'success',
+                message: 'Guardian is disarmed. Location sharing and nearby polling have stopped.',
+            });
         } else {
             setFeedback({ tone: 'error', message: 'Guardian could not disarm. Check your connection and try again.' });
         }
@@ -443,6 +556,7 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
         const position = await acquireFreshOwnshipPosition({
             maxGpsAgeMs: 30_000,
             timeoutSec: 10,
+            locationAccess: 'foreground-request',
         });
         if (!identityIsCurrent(scope, ownerId)) return;
         if (!position) {
@@ -453,6 +567,7 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
             });
             return;
         }
+        setCoverageStatus('ready');
         const ok = await GuardianService.setHomeCoordinate(position.lat, position.lon);
         if (!identityIsCurrent(scope, ownerId)) return;
         if (!ok) {
@@ -534,13 +649,74 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
         return `${hrs}h ago`;
     };
 
-    const identityAligned =
-        stateOwnerId === authUserId && getAuthIdentityScope().userId === authUserId && Boolean(authUserId);
+    const identityAligned = stateOwnerId === authUserId && getAuthIdentityScope().userId === authUserId;
+
+    if (!authUserId && identityAligned) {
+        return (
+            <div
+                className="w-full h-full flex flex-col slide-up-enter overflow-hidden"
+                style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}
+            >
+                <PageHeader title="Guardian" subtitle="Maritime Neighbourhood Watch" onBack={onBack} />
+                <div className="flex-1 flex items-center justify-center px-6">
+                    <div
+                        role="status"
+                        className="w-full max-w-sm rounded-2xl border border-emerald-500/20 bg-emerald-500/[0.07] p-6 text-center"
+                    >
+                        <LockIcon className="mx-auto h-8 w-8 text-emerald-400" />
+                        <h2 className="mt-3 text-lg font-black text-white">Sign in to use Guardian</h2>
+                        <p className="mt-2 text-sm leading-relaxed text-slate-300">
+                            Guardian shares your vessel’s current safety presence with nearby Thalassa crews only while
+                            you arm it. Sign in from Account &amp; Settings, then return here to opt in.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        );
+    }
 
     if (loading || !identityAligned) {
         return (
-            <div className="w-full h-full flex items-center justify-center">
-                <div className="w-10 h-10 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin" />
+            <div
+                className="w-full h-full flex flex-col slide-up-enter overflow-hidden"
+                style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}
+            >
+                <PageHeader title="Guardian" subtitle="Maritime Neighbourhood Watch" onBack={onBack} />
+                <div className="flex-1 flex items-center justify-center px-6">
+                    <div role="status" aria-live="polite" className="text-center">
+                        <div className="mx-auto w-10 h-10 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin" />
+                        <p className="mt-4 text-sm font-bold text-slate-200">Loading Guardian…</p>
+                        <p className="mt-1 text-xs text-slate-500">Checking your profile, position and local watch.</p>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    if (loadFailure) {
+        return (
+            <div
+                className="w-full h-full flex flex-col slide-up-enter overflow-hidden"
+                style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}
+            >
+                <PageHeader title="Guardian" subtitle="Maritime Neighbourhood Watch" onBack={onBack} />
+                <div className="flex-1 flex items-center justify-center px-6">
+                    <div
+                        role="alert"
+                        className="w-full max-w-sm rounded-2xl border border-amber-500/25 bg-amber-500/[0.08] p-5 text-center"
+                    >
+                        <AlertTriangleIcon className="mx-auto h-8 w-8 text-amber-400" />
+                        <h2 className="mt-3 text-lg font-black text-white">Guardian is unavailable</h2>
+                        <p className="mt-2 text-sm leading-relaxed text-slate-300">{loadFailure}</p>
+                        <button
+                            type="button"
+                            onClick={() => setInitAttempt((attempt) => attempt + 1)}
+                            className="mt-4 min-h-[44px] w-full rounded-xl bg-amber-500 px-4 py-2.5 text-sm font-black text-slate-950"
+                        >
+                            Retry Guardian
+                        </button>
+                    </div>
+                </div>
             </div>
         );
     }
@@ -649,16 +825,39 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
                         )}
                     </div>
 
-                    <div className="text-3xl font-black text-white tracking-tight">{nearbyUsers.length}</div>
-                    <div className="text-sm text-gray-300 font-medium">
-                        Thalassa {nearbyUsers.length === 1 ? 'boat' : 'boats'} nearby
-                        {nearbyUsers.filter((u) => u.armed).length > 0 && (
-                            <span className="text-red-400 font-bold ml-1">
-                                · {nearbyUsers.filter((u) => u.armed).length} armed
-                            </span>
-                        )}
-                    </div>
-                    {nearbyUsers.length > 0 && (
+                    {coverageStatus === 'ready' ? (
+                        <>
+                            <div className="text-3xl font-black text-white tracking-tight">{nearbyUsers.length}</div>
+                            <div className="text-sm text-gray-300 font-medium">
+                                Thalassa {nearbyUsers.length === 1 ? 'boat' : 'boats'} nearby
+                            </div>
+                        </>
+                    ) : (
+                        <div aria-live="polite">
+                            <div className="text-3xl font-black text-white tracking-tight">—</div>
+                            <div
+                                className={`text-sm font-medium ${
+                                    coverageStatus === 'inactive' ? 'text-emerald-200' : 'text-amber-200'
+                                }`}
+                            >
+                                {coverageStatus === 'inactive'
+                                    ? 'Disarmed — no location sharing or nearby polling'
+                                    : coverageStatus === 'checking'
+                                      ? 'Checking vessel position…'
+                                      : 'GPS unavailable — nearby coverage not checked'}
+                            </div>
+                            {coverageStatus === 'unavailable' && (
+                                <button
+                                    type="button"
+                                    onClick={() => void handleRetryCoverage()}
+                                    className="mt-2 min-h-[44px] rounded-xl border border-amber-400/30 bg-amber-500/10 px-3 py-2 text-xs font-black text-amber-200"
+                                >
+                                    Retry GPS
+                                </button>
+                            )}
+                        </div>
+                    )}
+                    {coverageStatus === 'ready' && nearbyUsers.length > 0 && (
                         <div className="text-[12px] text-emerald-400/70 font-medium mt-1">
                             Closest: {nearbyUsers[0].vessel_name || 'Unknown'} ({nearbyUsers[0].distance_nm.toFixed(1)}{' '}
                             NM)
@@ -679,6 +878,16 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
                         className="relative h-[72px] flex items-center px-1"
                         onTouchStart={handleSliderStart}
                         onMouseDown={handleSliderStart}
+                        role="button"
+                        tabIndex={arming ? -1 : 0}
+                        aria-disabled={arming}
+                        aria-label={armed ? 'Disarm Guardian vessel watch' : 'Arm Guardian vessel watch'}
+                        onKeyDown={(event) => {
+                            if (arming || (event.key !== 'Enter' && event.key !== ' ')) return;
+                            event.preventDefault();
+                            if (armed) void handleDisarm();
+                            else void handleArm();
+                        }}
                     >
                         {/* Track label */}
                         <div
@@ -740,17 +949,32 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
                         </div>
                     </div>
                 </div>
+                <p className="-mt-3 px-1 text-[12px] leading-relaxed text-slate-400">
+                    {armed
+                        ? 'Armed: your recent vessel position is shared with other armed Guardian crews and refreshed while this watch runs.'
+                        : 'Disarmed: Guardian does not heartbeat your position or poll the nearby feed.'}
+                </p>
 
                 {/* ═══ ZONE 3: QUICK ACTIONS ═══ */}
                 <div className="grid grid-cols-3 gap-3">
                     {/* Report Suspicious */}
                     <button
                         aria-label="Report suspicious activity in your area"
+                        aria-disabled={!armed}
                         onClick={() => {
+                            if (!armed) {
+                                setFeedback({
+                                    tone: 'error',
+                                    message: 'Arm Guardian before sending a location-based safety report.',
+                                });
+                                return;
+                            }
                             triggerHaptic('medium');
                             setShowReport(true);
                         }}
-                        className="bg-gradient-to-br from-red-500/15 to-red-500/10 border border-red-500/20 rounded-xl p-3 text-left group hover:scale-[1.02] transition-all active:scale-[0.97]"
+                        className={`bg-gradient-to-br from-red-500/15 to-red-500/10 border border-red-500/20 rounded-xl p-3 text-left group transition-all ${
+                            armed ? 'hover:scale-[1.02] active:scale-[0.97]' : 'opacity-45'
+                        }`}
                     >
                         <div className="mb-1.5 text-red-300">
                             <SosIcon className="w-5 h-5" />
@@ -762,11 +986,21 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
                     {/* Weather Alert */}
                     <button
                         aria-label="Broadcast a weather alert to nearby boats"
+                        aria-disabled={!armed}
                         onClick={() => {
+                            if (!armed) {
+                                setFeedback({
+                                    tone: 'error',
+                                    message: 'Arm Guardian before broadcasting a location-based weather alert.',
+                                });
+                                return;
+                            }
                             triggerHaptic('medium');
                             setShowWeather(true);
                         }}
-                        className="bg-gradient-to-br from-sky-500/15 to-sky-500/10 border border-sky-500/20 rounded-xl p-3 text-left group hover:scale-[1.02] transition-all active:scale-[0.97]"
+                        className={`bg-gradient-to-br from-sky-500/15 to-sky-500/10 border border-sky-500/20 rounded-xl p-3 text-left group transition-all ${
+                            armed ? 'hover:scale-[1.02] active:scale-[0.97]' : 'opacity-45'
+                        }`}
                     >
                         <div className="mb-1.5 text-sky-300">
                             <ThunderstormIcon className="w-5 h-5" />
@@ -805,40 +1039,20 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
                                     className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-3 flex items-center gap-3 group hover:bg-white/[0.05] transition-all"
                                 >
                                     {/* Avatar/Icon */}
-                                    <div
-                                        className={`w-10 h-10 rounded-full flex items-center justify-center text-lg shrink-0 ${
-                                            user.armed
-                                                ? 'bg-red-500/20 border border-red-500/30'
-                                                : 'bg-emerald-500/15 border border-emerald-500/20'
-                                        }`}
-                                    >
-                                        {user.dog_name ? '🐕' : '⛵'}
+                                    <div className="w-10 h-10 rounded-full flex items-center justify-center text-lg shrink-0 bg-red-500/20 border border-red-500/30">
+                                        ⛵
                                     </div>
                                     <div className="flex-1 min-w-0">
                                         <div className="text-xs font-bold text-white truncate">
-                                            {user.vessel_name || `MMSI ${user.mmsi}`}
+                                            {user.vessel_name || 'Guardian vessel'}
                                         </div>
                                         <div className="text-[12px] text-gray-400 flex items-center gap-2">
                                             <span>{user.distance_nm.toFixed(1)} NM</span>
-                                            {user.owner_name && (
-                                                <>
-                                                    <span className="text-white/10">•</span>
-                                                    <span>{user.owner_name}</span>
-                                                </>
-                                            )}
-                                            {user.dog_name && (
-                                                <>
-                                                    <span className="text-white/10">•</span>
-                                                    <span>🐕 {user.dog_name}</span>
-                                                </>
-                                            )}
                                         </div>
-                                        {user.armed && (
-                                            <div className="text-[11px] text-red-400 font-bold uppercase tracking-wider mt-0.5 inline-flex items-center gap-1">
-                                                <LockIcon className="w-3 h-3" />
-                                                <span>Armed</span>
-                                            </div>
-                                        )}
+                                        <div className="text-[11px] text-red-400 font-bold uppercase tracking-wider mt-0.5 inline-flex items-center gap-1">
+                                            <LockIcon className="w-3 h-3" />
+                                            <span>Armed</span>
+                                        </div>
                                     </div>
                                     {/* Hail button */}
                                     <button
@@ -870,7 +1084,15 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
                             </span>
                         )}
                     </div>
-                    {alerts.length === 0 ? (
+                    {!armed ? (
+                        <div className="bg-white/[0.02] border border-white/[0.05] rounded-xl p-6 text-center">
+                            <LockIcon className="mx-auto h-7 w-7 text-slate-500" />
+                            <div className="mt-2 text-xs text-gray-300">Alert feed is paused</div>
+                            <div className="text-[12px] text-gray-500 mt-1">
+                                Arm Guardian to share presence and poll your nearby safety feed.
+                            </div>
+                        </div>
+                    ) : alerts.length === 0 ? (
                         <div className="bg-white/[0.02] border border-white/[0.05] rounded-xl p-6 text-center">
                             <div className="mb-2 flex justify-center text-emerald-400/60">
                                 <SailBoatIcon className="w-7 h-7" />
@@ -1200,7 +1422,7 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
                             <span>Hail {showHail.vessel_name || 'Vessel'}</span>
                         </h2>
                         <p id="guardian-hail-description" className="text-xs text-gray-400 mb-4">
-                            Send a quick message to {showHail.owner_name || 'the crew'}
+                            Send a quick message to the crew
                         </p>
                         <div className="grid grid-cols-2 gap-2">
                             {HAIL_MESSAGES.map((h) => (

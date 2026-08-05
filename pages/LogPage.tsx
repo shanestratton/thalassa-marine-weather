@@ -28,7 +28,7 @@ import { CommunityTrackBrowser } from '../components/CommunityTrackBrowser';
 
 import { UndoToast } from '../components/ui/UndoToast';
 import { EmptyTrackRemovedModal } from '../components/ui/EmptyTrackRemovedModal';
-import { useGpsHealth, gpsHealthMessage } from '../hooks/useGpsHealth';
+import { useGpsHealth, gpsHealthMessage, openDeviceSettings } from '../hooks/useGpsHealth';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
 import { PageHeader } from '../components/ui/PageHeader';
 import { OverlayPortal } from '../components/ui/OverlayPortal';
@@ -48,6 +48,7 @@ import {
 import { voyageHasRecordedFix } from '../services/shiplog/helpers';
 import { evaluatePropulsionConflict } from '../services/shiplog/propulsion';
 import { ShipLogService } from '../services/ShipLogService';
+import { acquireFreshOwnshipPosition } from '../services/ownshipPosition';
 import { VoyageLogService } from '../services/VoyageLogService';
 import { collapseReversedRoutes } from '../services/shiplog/collapseReversedRoutes';
 import { fetchVoyageAsTrack, groupByVoyage } from '../services/shiplog/RoutesAndTracks';
@@ -70,10 +71,20 @@ import {
     type AuthIdentityScope,
 } from '../services/authIdentityScope';
 import type { RouteCoordinate } from '../utils/routeCoordinates';
+import { FEATURE_VISIBILITY } from '../utils/featureVisibility';
+import { tracedRouteDirectUseBlockReason } from '../services/traceDirectUseGate';
 
 const NO_FOLLOWED_ROUTE: readonly RouteCoordinate[] = [];
 const FOLLOW_ROUTE_HYDRATION_TIMEOUT_MS = 10_000;
+const TRACE_ROUTE_USE_BLOCK_PREFIX = 'TRACE_ROUTE_USE_BLOCKED:';
 const SYSTEM_LOG_ENDPOINT_NAMES = new Set(['Voyage Start', 'Voyage End', 'Latest Position']);
+
+type TrackingStartFailure = {
+    kind: 'permission' | 'services-off' | 'no-provider' | 'no-fix';
+    title: string;
+    detail: string;
+    actionable: boolean;
+};
 
 /** A human-entered waypoint wins; recorder placeholders do not name a place. */
 function meaningfulLogEndpointName(entry: Pick<ShipLogEntry, 'waypointName'> | undefined): string | null {
@@ -383,13 +394,6 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
             const residentRoute = groupByVoyage(residentEntries, new Set([voyageId])).find(
                 (route) => route.id === voyageId,
             );
-            const residentPlan = residentRoute ? buildFollowRoutePlanFromRoute(residentRoute) : null;
-            let residentStartedAt: string | null = null;
-            if (residentRoute && residentPlan) {
-                useFollowRouteStore.getState().startFollowing(residentPlan, voyageId, residentRoute.points);
-                residentStartedAt = useFollowRouteStore.getState().startedAt;
-            }
-
             try {
                 const fetchedRoute = await withFollowRouteLoadDeadline(fetchVoyageAsTrack(voyageId));
                 if (
@@ -400,29 +404,24 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                 }
 
                 const current = useFollowRouteStore.getState();
-                const expectedFollowStillCurrent = residentStartedAt
-                    ? current.isFollowing && current.voyageId === voyageId && current.startedAt === residentStartedAt
-                    : current.isFollowing === initialFingerprint.isFollowing &&
-                      current.voyageId === initialFingerprint.voyageId &&
-                      current.startedAt === initialFingerprint.startedAt;
+                const expectedFollowStillCurrent =
+                    current.isFollowing === initialFingerprint.isFollowing &&
+                    current.voyageId === initialFingerprint.voyageId &&
+                    current.startedAt === initialFingerprint.startedAt;
                 if (!expectedFollowStillCurrent) return false;
 
-                if (!fetchedRoute) return residentPlan !== null;
-                const exactPlan = buildFollowRoutePlanFromRoute(fetchedRoute);
-                if (!exactPlan) return residentPlan !== null;
-                current.startFollowing(exactPlan, voyageId, fetchedRoute.points);
+                const exactRoute = fetchedRoute ?? residentRoute;
+                if (!exactRoute) return false;
+                const traceBlock = tracedRouteDirectUseBlockReason(exactRoute);
+                if (traceBlock) throw new Error(`${TRACE_ROUTE_USE_BLOCK_PREFIX}${traceBlock}`);
+                const exactPlan = buildFollowRoutePlanFromRoute(exactRoute);
+                if (!exactPlan) return false;
+                current.startFollowing(exactPlan, voyageId, exactRoute.points);
                 return true;
             } catch (error) {
+                if (error instanceof Error && error.message.startsWith(TRACE_ROUTE_USE_BLOCK_PREFIX)) throw error;
                 log.warn('Could not hydrate followed route geometry:', error);
-                const current = useFollowRouteStore.getState();
-                return (
-                    residentPlan !== null &&
-                    selectionGeneration === followSelectionGenerationRef.current &&
-                    isAuthIdentityScopeCurrent(actionScope) &&
-                    current.isFollowing &&
-                    current.voyageId === voyageId &&
-                    current.startedAt === residentStartedAt
-                );
+                return false;
             }
         },
         [identityScope, state.entries],
@@ -613,6 +612,9 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
     // it has been there for over 1 minute"). They now share one source.
     const gpsHealth = useGpsHealth();
     const gpsBlocked = gpsHealth && !gpsHealth.usable ? gpsHealthMessage(gpsHealth.reason) : null;
+    const [trackingStartFailure, setTrackingStartFailure] = useState<TrackingStartFailure | null>(null);
+    const [checkingStartGps, setCheckingStartGps] = useState(false);
+    const startGpsCheckRef = useRef(false);
 
     // Elapsed since this voyage started waiting. Module-scope so it survives
     // the tab-bounce that unmounts this page, per
@@ -787,6 +789,66 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         [identityScope],
     );
 
+    /**
+     * A voyage is not declared "Live Recording" until the page proves this
+     * device can supply a fresh position. ShipLogService still owns the
+     * long-lived capture gate; this is the fail-closed user-facing preflight
+     * that prevents permission denial or a GPS-less browser from entering an
+     * optimistic recording state indefinitely.
+     */
+    const verifyGpsAndStart = useCallback(
+        async (onProceed: () => void | Promise<void>, showDisclaimer: boolean) => {
+            if (startGpsCheckRef.current) return;
+            const actionScope = identityScope;
+            if (!isAuthIdentityScopeCurrent(actionScope)) return;
+
+            startGpsCheckRef.current = true;
+            setCheckingStartGps(true);
+            setTrackingStartFailure(null);
+            try {
+                const position = await acquireFreshOwnshipPosition({
+                    maxGpsAgeMs: 30_000,
+                    timeoutSec: 12,
+                    locationAccess: 'background-safety',
+                });
+                if (!isAuthIdentityScopeCurrent(actionScope)) return;
+                if (!position) {
+                    if (gpsBlocked && gpsHealth) {
+                        const kind: TrackingStartFailure['kind'] =
+                            gpsHealth.reason === 'denied' || gpsHealth.reason === 'not-determined'
+                                ? 'permission'
+                                : gpsHealth.reason === 'services-off'
+                                  ? 'services-off'
+                                  : 'no-provider';
+                        setTrackingStartFailure({
+                            kind,
+                            title: gpsBlocked.title,
+                            detail: `Tracking did not start. ${gpsBlocked.detail}`,
+                            actionable: gpsHealth.actionable,
+                        });
+                    } else {
+                        setTrackingStartFailure({
+                            kind: 'no-fix',
+                            title: 'No fresh GPS fix',
+                            detail: 'Tracking did not start. Check location permission, move the device to a clear view of the sky, or reconnect the vessel GPS, then try again.',
+                            actionable: gpsHealth?.actionable ?? false,
+                        });
+                    }
+                    triggerHaptic('medium');
+                    return;
+                }
+
+                setTrackingStartFailure(null);
+                if (showDisclaimer) await checkGpsDisclaimer(onProceed);
+                else await onProceed();
+            } finally {
+                startGpsCheckRef.current = false;
+                if (isAuthIdentityScopeCurrent(actionScope)) setCheckingStartGps(false);
+            }
+        },
+        [checkGpsDisclaimer, gpsBlocked, gpsHealth, identityScope],
+    );
+
     // Share form auto-fill state
     const [shareAutoTitle, setShareAutoTitle] = useState('');
     const [shareAutoRegion, setShareAutoRegion] = useState('');
@@ -957,6 +1019,9 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         setLiveMapExpanded(false);
         setShowGpsDisclaimer(false);
         pendingStartRef.current = null;
+        startGpsCheckRef.current = false;
+        setCheckingStartGps(false);
+        setTrackingStartFailure(null);
         setShareAutoTitle('');
         setShareAutoRegion('');
         shareFormResetRef.current += 1;
@@ -1146,14 +1211,16 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                                 }}
                                                 disabled={loggedVoyages.length === 0 && loggedEntries.length === 0}
                                             />
-                                            <MenuBtn
-                                                icon="📥"
-                                                label="Import"
-                                                onClick={() => {
-                                                    dispatch({ type: 'SET_ACTION_SHEET', sheet: 'import' });
-                                                    setShowMenu(false);
-                                                }}
-                                            />
+                                            {FEATURE_VISIBILITY.communityTrackSharing && (
+                                                <MenuBtn
+                                                    icon="📥"
+                                                    label="Import"
+                                                    onClick={() => {
+                                                        dispatch({ type: 'SET_ACTION_SHEET', sheet: 'import' });
+                                                        setShowMenu(false);
+                                                    }}
+                                                />
+                                            )}
                                             <MenuBtn
                                                 icon="🔗"
                                                 label="Share"
@@ -1815,10 +1882,35 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                 className="shrink-0 px-4 pt-2"
                                 style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}
                             >
+                                {trackingStartFailure && (
+                                    <div
+                                        role="alert"
+                                        aria-live="assertive"
+                                        className="mb-2 rounded-xl border border-red-400/30 bg-red-500/10 px-3 py-2.5"
+                                    >
+                                        <div className="text-sm font-black text-red-200">
+                                            {trackingStartFailure.title}
+                                        </div>
+                                        <p className="mt-1 text-xs leading-relaxed text-red-100/80">
+                                            {trackingStartFailure.detail}
+                                        </p>
+                                        {trackingStartFailure.actionable && (
+                                            <button
+                                                type="button"
+                                                onClick={openDeviceSettings}
+                                                className="mt-2 min-h-[44px] rounded-xl border border-red-300/25 bg-red-400/15 px-3 py-2 text-xs font-black text-red-100"
+                                            >
+                                                Open Location Settings
+                                            </button>
+                                        )}
+                                    </div>
+                                )}
                                 <SlideToAction
                                     label="Slide to Start Tracking"
                                     thumbIcon={<PlayIcon className="w-5 h-5 text-white" />}
-                                    onConfirm={() => checkGpsDisclaimer(handleStartTracking)}
+                                    onConfirm={() => void verifyGpsAndStart(handleStartTracking, true)}
+                                    loading={checkingStartGps}
+                                    loadingText="Checking GPS…"
                                     theme="emerald"
                                 />
                             </div>
@@ -1921,11 +2013,13 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
             />
 
             {/* Community Track Browser */}
-            <CommunityTrackBrowser
-                isOpen={showCommunityBrowser}
-                onClose={() => dispatch({ type: 'SHOW_COMMUNITY_BROWSER', show: false })}
-                onImportComplete={loadData}
-            />
+            {FEATURE_VISIBILITY.communityTrackSharing && (
+                <CommunityTrackBrowser
+                    isOpen={showCommunityBrowser}
+                    onClose={() => dispatch({ type: 'SHOW_COMMUNITY_BROWSER', show: false })}
+                    onImportComplete={loadData}
+                />
+            )}
 
             {/* ========== ACTION SHEET MODALS ========== */}
 
@@ -1940,7 +2034,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                 />
             )}
 
-            {actionSheet === 'import' && (
+            {FEATURE_VISIBILITY.communityTrackSharing && actionSheet === 'import' && (
                 <ImportSheet
                     onClose={() => dispatch({ type: 'SET_ACTION_SHEET', sheet: null })}
                     onImportGPXFile={handleImportGPXFile}
@@ -1966,7 +2060,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                 />
             )}
 
-            {actionSheet === 'share_form' && (
+            {FEATURE_VISIBILITY.communityTrackSharing && actionSheet === 'share_form' && (
                 <ShareFormSheet
                     onClose={() => dispatch({ type: 'SET_ACTION_SHEET', sheet: null })}
                     onBack={() => dispatch({ type: 'SET_ACTION_SHEET', sheet: 'share' })}
@@ -2056,20 +2150,6 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                             setFollowPromptLoadingId(s.voyageId);
                                             void (async () => {
                                                 try {
-                                                    // DECOUPLED (hardening 2026-08-01, finding A):
-                                                    // the ~200-byte public link write used to be
-                                                    // gated behind the heavy geometry fetch — on
-                                                    // marginal signal the fetch timed out and the
-                                                    // link, which would have succeeded, was never
-                                                    // attempted. They answer different questions
-                                                    // (draw here vs publish there), so the publish
-                                                    // starts NOW and races the geometry.
-                                                    const publishPromise = Promise.resolve(
-                                                        publishFollowedRoute(s.voyageId),
-                                                    ).catch((error) => {
-                                                        log.warn('publish followed route failed:', error);
-                                                        return 'error' as const;
-                                                    });
                                                     const answered = () => {
                                                         // The question is answered — record it
                                                         // (dismissal must not undo it) and retire
@@ -2095,9 +2175,17 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                                     if (!isAuthIdentityScopeCurrent(actionScope)) return;
 
                                                     if (started) {
-                                                        // Cockpit line is live — close immediately
-                                                        // (old behaviour kept); the publish reports
-                                                        // itself when it settles.
+                                                        // Verification and exact geometry are now
+                                                        // known. Only at this point may either the
+                                                        // cockpit or public page advertise the line;
+                                                        // racing publication before this gate let a
+                                                        // legacy unverified trace bypass MapHub.
+                                                        const publishPromise = Promise.resolve(
+                                                            publishFollowedRoute(s.voyageId),
+                                                        ).catch((error) => {
+                                                            log.warn('publish followed route failed:', error);
+                                                            return 'error' as const;
+                                                        });
                                                         answered();
                                                         void publishPromise.then((result) => {
                                                             if (!isAuthIdentityScopeCurrent(actionScope)) return;
@@ -2121,23 +2209,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                                         });
                                                         return;
                                                     }
-
-                                                    // Geometry failed — but the publish was already
-                                                    // racing. If IT landed (or queued durably), the
-                                                    // public half of the question is answered; only
-                                                    // when both fail does the sheet stay open.
-                                                    const publishResult = await publishPromise;
-                                                    if (!isAuthIdentityScopeCurrent(actionScope)) return;
-                                                    if (publishResult === 'linked' || publishResult === 'queued') {
-                                                        answered();
-                                                        toast.info(
-                                                            'Your public page follows this route — couldn’t draw it here, open it from saved routes to retry',
-                                                        );
-                                                    } else {
-                                                        toast.error(
-                                                            'Couldn’t load this saved route — please try again',
-                                                        );
-                                                    }
+                                                    toast.error('Couldn’t load this saved route — please try again');
                                                 } finally {
                                                     if (isAuthIdentityScopeCurrent(actionScope)) {
                                                         setFollowPromptLoadingId(null);
@@ -2146,7 +2218,12 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                             })().catch((error) => {
                                                 if (isAuthIdentityScopeCurrent(actionScope)) {
                                                     log.warn('Could not start followed route:', error);
-                                                    toast.error('Couldn’t load this saved route — please try again');
+                                                    const message =
+                                                        error instanceof Error &&
+                                                        error.message.startsWith(TRACE_ROUTE_USE_BLOCK_PREFIX)
+                                                            ? error.message.slice(TRACE_ROUTE_USE_BLOCK_PREFIX.length)
+                                                            : 'Couldn’t load this saved route — please try again';
+                                                    toast.error(message);
                                                     setFollowPromptLoadingId(null);
                                                 }
                                             });
@@ -2172,10 +2249,13 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
             {/* Voyage Choice Dialog - Continue or New */}
             {showVoyageChoiceDialog && (
                 <VoyageChoiceDialog
-                    onContinue={continueLastVoyage}
+                    onContinue={() => {
+                        dispatch({ type: 'SHOW_VOYAGE_CHOICE', show: false });
+                        void verifyGpsAndStart(continueLastVoyage, false);
+                    }}
                     onNewVoyage={async () => {
                         dispatch({ type: 'SHOW_VOYAGE_CHOICE', show: false });
-                        await startTrackingWithNewVoyage();
+                        await verifyGpsAndStart(startTrackingWithNewVoyage, false);
                     }}
                     onCancel={() => dispatch({ type: 'SHOW_VOYAGE_CHOICE', show: false })}
                 />
@@ -2249,8 +2329,8 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
             {/* Shared voyage warning confirm dialog */}
             <ConfirmDialog
                 isOpen={!!showSharedVoyageWarning}
-                title="Community Shared Voyage"
-                message={`This voyage has been shared to the community as ${showSharedVoyageWarning?.trackInfo || ''}. Deleting it will also remove it from the community.`}
+                title="Legacy Shared Track"
+                message={`This voyage has a legacy cloud track copy (${showSharedVoyageWarning?.trackInfo || 'untitled'}). Deleting the voyage will also remove that private copy.`}
                 confirmLabel="Delete Anyway"
                 cancelLabel="Cancel"
                 destructive

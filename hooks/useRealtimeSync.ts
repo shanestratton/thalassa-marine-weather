@@ -66,17 +66,18 @@ async function applyChange(
     payload: RealtimePayload,
     onSync: () => void,
     scope: AuthIdentityScope,
+    isActive: () => boolean,
 ): Promise<void> {
-    if (!isAuthIdentityScopeCurrent(scope)) return;
+    if (!isActive() || !isAuthIdentityScopeCurrent(scope)) return;
 
     if (table === 'vessel_crew') {
         // Membership/permission changes expand or contract the RLS-visible
         // snapshot. Replaying an old incremental cursor is insufficient.
-        if (!isAuthIdentityScopeCurrent(scope)) return;
+        if (!isActive() || !isAuthIdentityScopeCurrent(scope)) return;
         onSync();
         void import('../services/vessel/SyncService')
             .then(({ requestFullReconciliation }) => {
-                if (!isAuthIdentityScopeCurrent(scope)) return;
+                if (!isActive() || !isAuthIdentityScopeCurrent(scope)) return;
                 return requestFullReconciliation().catch((error) =>
                     log.warn('[Realtime] Full membership reconciliation failed:', error),
                 );
@@ -105,7 +106,7 @@ async function applyChange(
         },
         databaseSession,
     );
-    if (isAuthIdentityScopeCurrent(scope) && isLocalDatabaseSessionCurrent(databaseSession)) {
+    if (isActive() && isAuthIdentityScopeCurrent(scope) && isLocalDatabaseSessionCurrent(databaseSession)) {
         onSync();
     }
 }
@@ -125,54 +126,63 @@ export function useRealtimeSync(table: string, onSync: () => void, enabled: bool
     onSyncRef.current = onSync;
 
     useEffect(() => {
-        if (!supabase || !enabled) return;
+        const client = supabase;
+        if (!client || !enabled) return;
 
+        let active = true;
         let channel: RealtimeChannel | null = null;
 
         // Small delay to avoid subscribing during rapid navigation
         const timer = setTimeout(() => {
-            if (!isAuthIdentityScopeCurrent(identityScope)) return;
-            channel = supabase!
-                .channel(`realtime-${table}-${channelId}-${identityScope.generation}`)
-                .on(
-                    'postgres_changes',
-                    {
-                        event: '*', // INSERT, UPDATE, DELETE
-                        schema: 'public',
-                        table: table,
-                    },
-                    (payload) => {
-                        if (!isAuthIdentityScopeCurrent(identityScope)) return;
-                        // Apply the actual row payload to the offline mirror.
-                        // In particular, DELETE cannot be recovered by the
-                        // timestamp-only periodic pull.
-                        log.debug(`[Realtime] ${table} changed — syncing`);
-                        void applyChange(
-                            table,
-                            payload as unknown as RealtimePayload,
-                            () => onSyncRef.current(),
-                            identityScope,
-                        ).catch((error) => {
-                            log.warn(`[Realtime] Failed to apply ${table} change:`, error);
-                            // Server-only subscriptions such as vessel_crew
-                            // have no LocalDatabase mirror. Only notify its
-                            // caller while this channel still owns the active
-                            // account; stale channels fail closed.
-                            if (isAuthIdentityScopeCurrent(identityScope)) onSyncRef.current();
-                        });
-                    },
-                )
-                .subscribe((status) => {
-                    if (status === 'SUBSCRIBED') {
-                        log.debug(`[Realtime] Listening on ${table}`);
-                    }
-                });
+            if (!active || !isAuthIdentityScopeCurrent(identityScope)) return;
+            try {
+                channel = client
+                    .channel(`realtime-${table}-${channelId}-${identityScope.generation}`)
+                    .on(
+                        'postgres_changes',
+                        {
+                            event: '*', // INSERT, UPDATE, DELETE
+                            schema: 'public',
+                            table: table,
+                        },
+                        (payload) => {
+                            if (!active || !isAuthIdentityScopeCurrent(identityScope)) return;
+                            // Apply the actual row payload to the offline mirror.
+                            // In particular, DELETE cannot be recovered by the
+                            // timestamp-only periodic pull.
+                            log.debug(`[Realtime] ${table} changed — syncing`);
+                            void applyChange(
+                                table,
+                                payload as unknown as RealtimePayload,
+                                () => onSyncRef.current(),
+                                identityScope,
+                                () => active,
+                            ).catch((error) => {
+                                if (!active) return;
+                                log.warn(`[Realtime] Failed to apply ${table} change:`, error);
+                                // Server-only subscriptions such as vessel_crew
+                                // have no LocalDatabase mirror. Only notify its
+                                // caller while this channel still owns the active
+                                // account; stale channels fail closed.
+                                if (isAuthIdentityScopeCurrent(identityScope)) onSyncRef.current();
+                            });
+                        },
+                    )
+                    .subscribe((status) => {
+                        if (active && status === 'SUBSCRIBED') {
+                            log.debug(`[Realtime] Listening on ${table}`);
+                        }
+                    });
+            } catch (error) {
+                if (active) log.warn(`[Realtime] Could not subscribe to ${table}:`, error);
+            }
         }, 300);
 
         return () => {
+            active = false;
             clearTimeout(timer);
             if (channel) {
-                supabase!.removeChannel(channel);
+                client.removeChannel(channel);
             }
         };
     }, [channelId, table, enabled, identityScope]);
@@ -189,16 +199,18 @@ export function useRealtimeSyncMulti(tables: string[], onSync: () => void, enabl
     onSyncRef.current = onSync;
 
     useEffect(() => {
-        if (!supabase || !enabled || tables.length === 0) return;
+        const client = supabase;
+        if (!client || !enabled || tables.length === 0) return;
 
+        let active = true;
         const channels: RealtimeChannel[] = [];
 
         const timer = setTimeout(() => {
-            if (!isAuthIdentityScopeCurrent(identityScope)) return;
+            if (!active || !isAuthIdentityScopeCurrent(identityScope)) return;
             tables.forEach((table) => {
-                const channel = supabase!
-                    .channel(`realtime-${table}-${channelId}-${identityScope.generation}`)
-                    .on(
+                if (!active) return;
+                try {
+                    const channel = client.channel(`realtime-${table}-${channelId}-${identityScope.generation}`).on(
                         'postgres_changes',
                         {
                             event: '*',
@@ -206,28 +218,33 @@ export function useRealtimeSyncMulti(tables: string[], onSync: () => void, enabl
                             table: table,
                         },
                         (payload) => {
-                            if (!isAuthIdentityScopeCurrent(identityScope)) return;
+                            if (!active || !isAuthIdentityScopeCurrent(identityScope)) return;
                             log.debug(`[Realtime] ${table} changed — syncing`);
                             void applyChange(
                                 table,
                                 payload as unknown as RealtimePayload,
                                 () => onSyncRef.current(),
                                 identityScope,
+                                () => active,
                             ).catch((error) => {
+                                if (!active) return;
                                 log.warn(`[Realtime] Failed to apply ${table} change:`, error);
                                 if (isAuthIdentityScopeCurrent(identityScope)) onSyncRef.current();
                             });
                         },
-                    )
-                    .subscribe();
-
-                channels.push(channel);
+                    );
+                    channels.push(channel);
+                    channel.subscribe();
+                } catch (error) {
+                    if (active) log.warn(`[Realtime] Could not subscribe to ${table}:`, error);
+                }
             });
         }, 300);
 
         return () => {
+            active = false;
             clearTimeout(timer);
-            channels.forEach((ch) => supabase!.removeChannel(ch));
+            channels.forEach((ch) => client.removeChannel(ch));
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [channelId, tables.join(','), enabled, identityScope]);

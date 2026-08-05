@@ -7,7 +7,11 @@
 
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
-import { VesselDetailsStep } from '../components/onboarding/VesselDetailsStep';
+import {
+    VesselDetailsStep,
+    roughEstimatedDimensionFields,
+    validateVesselDetails,
+} from '../components/onboarding/VesselDetailsStep';
 
 // Mock YachtDatabaseSearch
 vi.mock('../components/settings/YachtDatabaseSearch', () => ({
@@ -118,9 +122,9 @@ describe('VesselDetailsStep', () => {
 
     it('renders dimension fields', () => {
         renderStep();
-        // Length field has placeholder '0', others have 'Auto'
-        const autoFields = screen.getAllByPlaceholderText('Auto');
-        expect(autoFields.length).toBeGreaterThanOrEqual(2);
+        expect(screen.getByPlaceholderText('Required')).toBeTruthy();
+        expect(screen.getAllByPlaceholderText('Estimated if blank')).toHaveLength(2);
+        expect(screen.getByPlaceholderText('Unknown if blank')).toBeTruthy();
     });
 
     it('renders tankage fields', () => {
@@ -163,11 +167,74 @@ describe('VesselDetailsStep', () => {
     it('shows air draft field with helper text', () => {
         renderStep();
         expect(screen.getByPlaceholderText('Height above waterline')).toBeTruthy();
-        expect(screen.getByText('Used for bridge clearance on routes')).toBeTruthy();
+        expect(screen.getByText('Needed for bridge-clearance checks; leave blank if you do not know it.')).toBeTruthy();
     });
 
     it('shows crew count helper text', () => {
         renderStep();
         expect(screen.getByText('Used for provisioning and watch schedules')).toBeTruthy();
+    });
+
+    it('blocks continuation and explains required or invalid values', () => {
+        renderStep({ name: '', length: '', draft: '-1', mmsi: '123', crewCount: '2.5' });
+
+        expect(screen.getByText('Vessel name is required')).toBeTruthy();
+        expect(screen.getByText('Length is required')).toBeTruthy();
+        expect(screen.getByText('Draft must be greater than zero')).toBeTruthy();
+        expect(screen.getByText('MMSI must contain exactly 9 digits')).toBeTruthy();
+        expect(screen.getByText('Crew aboard must be a whole number from 1 to 99')).toBeTruthy();
+        expect(screen.getByRole('button', { name: 'Continue after vessel details' })).toBeDisabled();
+    });
+
+    it('makes rough model-derived dimensions visible and requires review', () => {
+        const onAcknowledged = vi.fn();
+        renderStep({
+            autoFilledDimensions: { length: 'database', beam: 'estimate', draft: 'estimate' },
+            estimatedDimensionsAcknowledged: false,
+            onEstimatedDimensionsAcknowledgedChange: onAcknowledged,
+        });
+
+        expect(screen.getByText('Check the dimensions we filled in')).toBeTruthy();
+        expect(screen.getByText('MODEL DATA')).toBeTruthy();
+        expect(screen.getAllByText('ROUGH EST.')).toHaveLength(2);
+        expect(screen.getByRole('button', { name: 'Continue after vessel details' })).toBeDisabled();
+
+        fireEvent.click(screen.getByRole('checkbox'));
+        expect(onAcknowledged).toHaveBeenCalledWith(true);
+    });
+
+    it('allows reviewed estimates to continue while retaining their provenance', () => {
+        renderStep({
+            autoFilledDimensions: { length: 'database', beam: 'estimate', draft: 'estimate' },
+            estimatedDimensionsAcknowledged: true,
+        });
+
+        expect(screen.getByRole('button', { name: 'Continue after vessel details' })).not.toBeDisabled();
+        expect(roughEstimatedDimensionFields({ length: 'database', beam: 'estimate', draft: 'estimate' })).toEqual([
+            'beam',
+            'draft',
+        ]);
+    });
+});
+
+describe('validateVesselDetails', () => {
+    it('accepts unknown optional safety dimensions but rejects non-positive values', () => {
+        const base = {
+            name: 'Serenity',
+            mmsi: '',
+            length: '12',
+            beam: '',
+            draft: '',
+            displacement: '',
+            airDraft: '',
+            fuel: '',
+            water: '',
+            crewCount: '2',
+        };
+
+        expect(validateVesselDetails(base)).toEqual({});
+        expect(validateVesselDetails({ ...base, beam: '0' })).toEqual({
+            beam: 'Beam must be greater than zero',
+        });
     });
 });

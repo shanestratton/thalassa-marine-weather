@@ -20,6 +20,7 @@ import { PiCacheTab } from './settings/PiCacheTab';
 import { VoyageLogTab } from './settings/VoyageLogTab';
 import { ConfirmDialog } from './ui/ConfirmDialog';
 import { authScopedStorageKey } from '../services/authIdentityScope';
+import { PUBLIC_BETA_ACCESS } from '../services/SubscriptionService';
 
 interface SettingsViewProps {
     settings: UserSettings;
@@ -211,7 +212,6 @@ type SettingsTab =
     | 'alerts'
     | 'scenery'
     | 'locations'
-    | 'layout'
     | 'calypso'
     | 'calypsoKnowledge'
     | 'boatNetwork'
@@ -366,7 +366,7 @@ const MENU_ITEMS: {
     {
         id: 'boatNetwork',
         label: 'Boat Network',
-        description: 'Pi cache, Signal K & AvNav charts',
+        description: 'Pi cache, Signal K & AvNav — held in public beta',
         icon: (c) => (
             <svg className={c} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8}>
                 <path
@@ -417,6 +417,7 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
         const [_detectingLoc, setDetectingLoc] = useState(false);
         const [showFactoryReset, setShowFactoryReset] = useState(false);
         const isObserver = settings?.vessel?.type === 'observer';
+        const hasPaidPlan = !PUBLIC_BETA_ACCESS.enabled && settings.subscriptionTier !== 'free';
 
         // Settings tab search — added 2026-05-17 (scorecard fix #11).
         // 10 tabs is a lot even after the section grouping; "where do I
@@ -444,7 +445,7 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
 
         const handleDetectLocation = () => {
             setDetectingLoc(true);
-            GpsService.getCurrentPosition({ staleLimitMs: 30_000 }).then(async (pos) => {
+            GpsService.requestCurrentForegroundPosition({ staleLimitMs: 30_000 }).then(async (pos) => {
                 if (pos) {
                     const { latitude, longitude } = pos;
                     let resolvedName = `WP ${latitude.toFixed(4)}, ${longitude.toFixed(4)}`;
@@ -471,7 +472,7 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                 {/* --- DESKTOP SIDEBAR (unchanged) --- */}
                 <div className="hidden md:flex w-72 border-r border-white/5 p-6 flex-col gap-3 shrink-0 relative z-10 bg-gradient-to-b from-transparent via-white/[0.02] to-transparent">
                     <div className="mb-6 px-2">
-                        <h2 className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-white to-sky-300 flex items-center gap-3 drop-shadow-sm">
+                        <h2 className="settings-title text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-white to-sky-300 flex items-center gap-3 drop-shadow-sm">
                             <GearIcon className="w-6 h-6 text-sky-400" />
                             SETTINGS
                         </h2>
@@ -614,15 +615,56 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                     </div>
 
                     <div className="mt-auto pt-6 border-t border-white/5">
-                        <div className="bg-gradient-to-br from-sky-500/20 to-purple-500/20 rounded-xl p-4 border border-sky-500/30">
+                        <div
+                            className={`rounded-xl p-4 border ${
+                                PUBLIC_BETA_ACCESS.enabled
+                                    ? 'bg-gradient-to-br from-cyan-500/15 to-sky-500/10 border-cyan-300/25'
+                                    : hasPaidPlan
+                                      ? 'bg-gradient-to-br from-sky-500/20 to-purple-500/20 border-sky-500/30'
+                                      : 'bg-white/[0.03] border-white/10'
+                            }`}
+                        >
                             <div className="flex items-center gap-2 mb-2">
-                                <StarIcon className="w-4 h-4 text-sky-300" filled />
-                                <span className="text-xs font-bold text-sky-200 uppercase tracking-wider">
-                                    Thalassa Pro
+                                <StarIcon
+                                    className={`w-4 h-4 ${
+                                        PUBLIC_BETA_ACCESS.enabled
+                                            ? 'text-cyan-300'
+                                            : hasPaidPlan
+                                              ? 'text-sky-300'
+                                              : 'text-slate-500'
+                                    }`}
+                                    filled
+                                />
+                                <span
+                                    className={`text-xs font-bold uppercase tracking-wider ${
+                                        PUBLIC_BETA_ACCESS.enabled
+                                            ? 'text-cyan-100'
+                                            : hasPaidPlan
+                                              ? 'text-sky-200'
+                                              : 'text-slate-300'
+                                    }`}
+                                >
+                                    {PUBLIC_BETA_ACCESS.enabled
+                                        ? PUBLIC_BETA_ACCESS.label
+                                        : hasPaidPlan
+                                          ? 'Thalassa Pro'
+                                          : 'Deckhand Plan'}
                                 </span>
                             </div>
-                            <p className="text-[12px] text-sky-200/70 mb-3">
-                                Your subscription is active. Access to all premium features.
+                            <p
+                                className={`text-[12px] ${
+                                    PUBLIC_BETA_ACCESS.enabled
+                                        ? 'text-cyan-100/70'
+                                        : hasPaidPlan
+                                          ? 'text-sky-200/70'
+                                          : 'text-slate-400'
+                                }`}
+                            >
+                                {PUBLIC_BETA_ACCESS.enabled
+                                    ? PUBLIC_BETA_ACCESS.message
+                                    : hasPaidPlan
+                                      ? 'Your verified subscription is active.'
+                                      : 'No paid subscription is active on this account.'}
                             </p>
                         </div>
                     </div>
@@ -651,7 +693,7 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                                     </button>
                                 )}
                                 <div>
-                                    <h2 className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-white to-sky-300 flex items-center gap-3">
+                                    <h2 className="settings-title text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-white to-sky-300 flex items-center gap-3">
                                         <GearIcon className="w-6 h-6 text-sky-400" />
                                         SETTINGS
                                     </h2>

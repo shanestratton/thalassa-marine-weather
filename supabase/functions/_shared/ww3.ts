@@ -164,8 +164,9 @@ export function validateWW3Metadata(value: unknown, nowMs: number = Date.now()):
         throw new WW3ValidationError('WW3 metadata must be an object');
     }
 
-    const schemaVersion =
-        value.schema_version === undefined ? undefined : finiteInteger(value.schema_version, 'WW3 schema_version');
+    const schemaVersion = value.schema_version === undefined
+        ? undefined
+        : finiteInteger(value.schema_version, 'WW3 schema_version');
     if (schemaVersion !== undefined && schemaVersion !== 2) {
         throw new WW3ValidationError('WW3 metadata uses an unsupported schema version');
     }
@@ -243,10 +244,9 @@ export function validateWW3Metadata(value: unknown, nowMs: number = Date.now()):
         total_hours: totalHours,
         bucket,
         file_pattern: filePattern,
-        updated_at:
-            value.updated_at === undefined
-                ? undefined
-                : new Date(parseIsoMs(value.updated_at, 'WW3 updated_at')).toISOString(),
+        updated_at: value.updated_at === undefined
+            ? undefined
+            : new Date(parseIsoMs(value.updated_at, 'WW3 updated_at')).toISOString(),
     };
 }
 
@@ -304,8 +304,9 @@ export function validateWW3Shard(
         throw new WW3ValidationError('WW3 shard must contain grid and data objects');
     }
 
-    const schemaVersion =
-        value.schema_version === undefined ? undefined : finiteInteger(value.schema_version, 'WW3 schema_version');
+    const schemaVersion = value.schema_version === undefined
+        ? undefined
+        : finiteInteger(value.schema_version, 'WW3 schema_version');
     if (schemaVersion !== undefined && schemaVersion !== 2) {
         throw new WW3ValidationError('WW3 shard uses an unsupported schema version');
     }
@@ -342,8 +343,7 @@ export function validateWW3Shard(
         throw new WW3ValidationError('WW3 grid bounds or resolution are invalid');
     }
 
-    const hasExplicitAxes =
-        grid.lat_first !== undefined ||
+    const hasExplicitAxes = grid.lat_first !== undefined ||
         grid.lat_step !== undefined ||
         grid.lon_first !== undefined ||
         grid.lon_step !== undefined;
@@ -362,8 +362,8 @@ export function validateWW3Shard(
     const latFirst = hasExplicitAxes
         ? finiteNumber(grid.lat_first, 'WW3 grid.lat_first')
         : resolution < 0
-          ? latMax
-          : latMin;
+        ? latMax
+        : latMin;
     const latStep = hasExplicitAxes ? finiteNumber(grid.lat_step, 'WW3 grid.lat_step') : resolution;
     const lonFirst = hasExplicitAxes ? finiteNumber(grid.lon_first, 'WW3 grid.lon_first') : lonMin;
     const lonStep = hasExplicitAxes ? finiteNumber(grid.lon_step, 'WW3 grid.lon_step') : Math.abs(resolution);
@@ -393,8 +393,9 @@ export function validateWW3Shard(
     const peakPeriod = requireArray(rawData.peak_period_s, cellCount, 'WW3 peak_period_s', true)!;
     const waveDirection = requireArray(rawData.wave_dir_deg, cellCount, 'WW3 wave_dir_deg', schemaVersion === 2);
 
-    const missingValue =
-        value.missing_value === undefined ? undefined : finiteNumber(value.missing_value, 'WW3 missing_value');
+    const missingValue = value.missing_value === undefined
+        ? undefined
+        : finiteNumber(value.missing_value, 'WW3 missing_value');
 
     return {
         schema_version: schemaVersion,

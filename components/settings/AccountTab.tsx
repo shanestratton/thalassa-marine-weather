@@ -4,12 +4,18 @@
  */
 import React, { useState, useEffect } from 'react';
 import { Section, Row, Toggle, type SettingsTabProps } from './SettingsPrimitives';
-import { CloudIcon, GearIcon, MapIcon, CompassIcon, LockIcon } from '../Icons';
+import { CloudIcon, LockIcon } from '../Icons';
 import { SignInScreen } from '../SignInScreen';
 import { useThalassa } from '../../context/ThalassaContext';
 import { checkStormglassStatus, isStormglassKeyPresent } from '../../services/weather/keys';
 import { isGeminiConfigured } from '../../services/geminiService';
 import { isSupabaseConfigured } from '../../services/supabase';
+import { DeleteAccountDialog } from './DeleteAccountDialog';
+import {
+    ACCOUNT_DELETION_PRIVACY_EMAIL,
+    ACCOUNT_DELETION_PRIVACY_MAILTO,
+    ACCOUNT_DELETION_PUBLIC_BETA_ENABLED,
+} from '../../services/accountDeletionPublicBetaBoundary';
 
 const isMapboxConfigured = () => {
     const envKey = process.env?.MAPBOX_ACCESS_TOKEN || (import.meta.env && import.meta.env.VITE_MAPBOX_ACCESS_TOKEN);
@@ -91,6 +97,9 @@ const StatusRow = ({
 export const AccountTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
     const { user, logout } = useThalassa();
     const [authOpen, setAuthOpen] = useState(false);
+    const [deleteAccountOpen, setDeleteAccountOpen] = useState(false);
+    const [deletionNotice, setDeletionNotice] = useState<string | null>(null);
+    const [accountActionError, setAccountActionError] = useState<string | null>(null);
     const [sgStatus, setSgStatus] = useState<{ status: string; message: string } | null>(null);
 
     useEffect(() => {
@@ -100,6 +109,17 @@ export const AccountTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => 
         );
     }, []);
 
+    const handleLogout = async () => {
+        setAccountActionError(null);
+        try {
+            await logout();
+        } catch (logoutError) {
+            setAccountActionError(
+                logoutError instanceof Error ? logoutError.message : 'Sign out failed. Please try again.',
+            );
+        }
+    };
+
     return (
         <div className="max-w-2xl mx-auto animate-in fade-in slide-in-from-right-4 duration-300">
             <SignInScreen
@@ -107,6 +127,46 @@ export const AccountTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => 
                 onClose={() => setAuthOpen(false)}
                 prompt="Sign in to sync your vessel, voyages, and crew across devices."
             />
+            {ACCOUNT_DELETION_PUBLIC_BETA_ENABLED && (
+                <DeleteAccountDialog
+                    isOpen={deleteAccountOpen}
+                    accountLabel={user?.email || user?.phone}
+                    onClose={() => setDeleteAccountOpen(false)}
+                    onDeleted={(result) => {
+                        setDeleteAccountOpen(false);
+                        setDeletionNotice(
+                            [
+                                result.localCleanupComplete
+                                    ? 'Your account and synced data were permanently deleted.'
+                                    : 'Your cloud account was deleted. Some unreachable device cache could not be removed; reinstall Thalassa to clear it completely.',
+                                result.appleRevocationRequired
+                                    ? 'To remove the remaining Apple authorisation, open iOS Settings → your name → Sign in with Apple → Thalassa → Delete.'
+                                    : '',
+                            ]
+                                .filter(Boolean)
+                                .join(' '),
+                        );
+                    }}
+                />
+            )}
+
+            {deletionNotice && (
+                <div
+                    role="status"
+                    className="mb-5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-sm text-emerald-200"
+                >
+                    {deletionNotice}
+                </div>
+            )}
+
+            {accountActionError && (
+                <div
+                    role="alert"
+                    className="mb-5 rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-200"
+                >
+                    {accountActionError}
+                </div>
+            )}
 
             {/* Account Connection Hero */}
             <div className="bg-gradient-to-br from-slate-800 to-slate-900 border border-white/10 rounded-2xl p-6 mb-8 shadow-2xl relative overflow-hidden">
@@ -124,7 +184,7 @@ export const AccountTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => 
                         <p className="text-sm text-gray-400 max-w-md mt-1">
                             {user
                                 ? 'Your data is synced securely to the cloud.'
-                                : 'Sign in to sync settings, voyage data, and share community tracks.'}
+                                : 'Sign in to sync your settings and voyage data across your devices.'}
                         </p>
                     </div>
                     {!user ? (
@@ -238,60 +298,32 @@ export const AccountTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => 
                             </div>
                             <div className="flex items-center gap-2 text-[11px]">
                                 <div className="w-1.5 h-1.5 rounded-full bg-amber-400"></div>
-                                <span className="text-amber-200/70">Cloud sync paused to conserve bandwidth</span>
+                                <span className="text-amber-200/70">
+                                    Diary relay uploads pause until normal network mode resumes
+                                </span>
                             </div>
                         </div>
                     )}
                 </div>
             </Section>
 
-            {/* Data Sync Options */}
+            {/* Cloud data behaviour — sync is automatic while signed in. */}
             {user && (
-                <Section title="Data Sync">
+                <Section title="Cloud Data">
                     <Row>
-                        <div className="flex items-center gap-3 flex-1">
-                            <div className="p-2 bg-sky-500/20 text-sky-300 rounded-lg">
-                                <GearIcon className="w-5 h-5" />
+                        <div className="flex items-start gap-3">
+                            <div className="mt-0.5 rounded-lg bg-sky-500/20 p-2 text-sky-300">
+                                <CloudIcon className="h-5 w-5" />
                             </div>
-                            <div>
-                                <p className="text-white font-bold text-sm">Sync Settings</p>
-                                <p className="text-xs text-gray-400">Units, vessel profile, preferences</p>
+                            <div className="space-y-1">
+                                <p className="text-sm font-bold text-white">Automatic private sync</p>
+                                <p className="text-xs leading-relaxed text-gray-400">
+                                    While signed in, settings, vessel records, voyage data, and diary entries sync
+                                    privately across your devices. Community tracks and diary posts are public only when
+                                    you explicitly choose to share or publish them.
+                                </p>
                             </div>
                         </div>
-                        <Toggle
-                            checked={settings.cloudSyncSettings !== false}
-                            onChange={(v) => onSave({ cloudSyncSettings: v })}
-                        />
-                    </Row>
-                    <Row>
-                        <div className="flex items-center gap-3 flex-1">
-                            <div className="p-2 bg-amber-500/20 text-amber-300 rounded-lg">
-                                <MapIcon className="w-5 h-5" />
-                            </div>
-                            <div>
-                                <p className="text-white font-bold text-sm">Sync Voyages</p>
-                                <p className="text-xs text-gray-400">Track logs, waypoints, GPX data</p>
-                            </div>
-                        </div>
-                        <Toggle
-                            checked={settings.cloudSyncVoyages !== false}
-                            onChange={(v) => onSave({ cloudSyncVoyages: v })}
-                        />
-                    </Row>
-                    <Row>
-                        <div className="flex items-center gap-3 flex-1">
-                            <div className="p-2 bg-purple-500/20 text-purple-300 rounded-lg">
-                                <CompassIcon rotation={0} className="w-5 h-5" />
-                            </div>
-                            <div>
-                                <p className="text-white font-bold text-sm">Community Sharing</p>
-                                <p className="text-xs text-gray-400">Share and discover voyage tracks</p>
-                            </div>
-                        </div>
-                        <Toggle
-                            checked={settings.cloudSyncCommunity !== false}
-                            onChange={(v) => onSave({ cloudSyncCommunity: v })}
-                        />
                     </Row>
                 </Section>
             )}
@@ -330,12 +362,49 @@ export const AccountTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => 
                     <Row>
                         <button
                             aria-label="Lock account settings"
-                            onClick={logout}
+                            onClick={() => void handleLogout()}
                             className="w-full py-3 bg-red-500/10 text-red-400 rounded-xl text-xs font-bold uppercase flex items-center justify-center gap-2 hover:bg-red-500/20 transition-colors active:scale-95"
                         >
                             <LockIcon className="w-4 h-4" />
                             Sign Out
                         </button>
+                    </Row>
+                    <Row>
+                        {ACCOUNT_DELETION_PUBLIC_BETA_ENABLED ? (
+                            <div className="w-full space-y-2">
+                                <button
+                                    type="button"
+                                    aria-label="Permanently delete account"
+                                    onClick={() => setDeleteAccountOpen(true)}
+                                    className="w-full rounded-xl border border-red-500/30 bg-red-950/30 py-3 text-xs font-bold uppercase text-red-300 transition-colors hover:bg-red-950/60 active:scale-95"
+                                >
+                                    Delete Account and Data
+                                </button>
+                                <p className="text-center text-[11px] leading-relaxed text-gray-500">
+                                    Permanently removes your account, synced data, uploads, and shared content.
+                                </p>
+                            </div>
+                        ) : (
+                            <div
+                                role="status"
+                                className="w-full rounded-xl border border-amber-400/25 bg-amber-400/[0.08] p-4"
+                            >
+                                <p className="text-sm font-bold text-amber-200">
+                                    Account deletion temporarily unavailable
+                                </p>
+                                <p className="mt-1 text-xs leading-relaxed text-amber-100/75">
+                                    The destructive in-app flow is paused while its deletion safety controls are
+                                    completed and verified. To request deletion during this beta, email{' '}
+                                    <a
+                                        href={ACCOUNT_DELETION_PRIVACY_MAILTO}
+                                        className="font-semibold text-sky-300 underline decoration-sky-300/40 underline-offset-2 hover:text-sky-200"
+                                    >
+                                        {ACCOUNT_DELETION_PRIVACY_EMAIL}
+                                    </a>
+                                    .
+                                </p>
+                            </div>
+                        )}
                     </Row>
                 </Section>
             )}

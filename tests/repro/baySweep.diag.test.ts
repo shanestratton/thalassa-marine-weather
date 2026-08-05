@@ -509,10 +509,11 @@ describe('BAY SWEEP — classic passages vs real cells', () => {
             if (seawayHardLand !== null) {
                 expect(seawayHardLand, 'Seaway → Paradise Point must never emit an unvouched hard-land sample').toBe(0);
             }
-            // 300s cap like the sibling long diags (mooloolabaHomecoming,
-            // tangaloomaLeads) — the 12-passage sweep runs ~110s with the Pi
-            // up, and the suite-wide 20s default was failing it on time alone.
+            // This 12-passage Pi-backed sweep takes about 110s uninstrumented
+            // and measured 416s under full V8 coverage on 2026-08-05. Keep a
+            // suite-local ceiling with enough coverage headroom; the ordinary
+            // 20s test ceiling remains unchanged.
         },
-        300_000,
+        600_000,
     );
 });

@@ -8,6 +8,12 @@ const mocks = vi.hoisted(() => ({
     getAuthenticatedFunctionHeaders: vi.fn(),
 }));
 
+const cleanupMocks = vi.hoisted(() => ({
+    capture: vi.fn(),
+    retain: vi.fn(),
+    retire: vi.fn(),
+}));
+
 vi.mock('../services/supabase', () => ({
     supabase: {
         auth: { getUser: mocks.getUser },
@@ -19,6 +25,12 @@ vi.mock('../services/supabase', () => ({
 
 vi.mock('../services/supabaseAuth', () => ({
     getAuthenticatedFunctionHeaders: mocks.getAuthenticatedFunctionHeaders,
+}));
+
+vi.mock('../services/OwnedMediaCleanupService', () => ({
+    captureOwnedMediaAuthorization: cleanupMocks.capture,
+    retainUncertainOwnedMedia: cleanupMocks.retain,
+    retireOwnedMedia: cleanupMocks.retire,
 }));
 
 import {
@@ -111,6 +123,9 @@ describe('ProfilePhotoService identity isolation', () => {
             apikey: 'anon',
             'Content-Type': 'application/json',
         });
+        cleanupMocks.capture.mockResolvedValue({ ownerId: 'account-a', accessToken: 'token-a' });
+        cleanupMocks.retain.mockReturnValue(true);
+        cleanupMocks.retire.mockResolvedValue(true);
     });
 
     afterEach(() => {
@@ -212,6 +227,252 @@ describe('ProfilePhotoService identity isolation', () => {
         expect(remove).not.toHaveBeenCalled();
         expect(upload).not.toHaveBeenCalled();
         expect(mocks.from).not.toHaveBeenCalled();
+    });
+
+    it('retires the exact A object when identity changes after the upload lands', async () => {
+        installImageCompressionFakes();
+        vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+            ok: true,
+            status: 200,
+            json: vi.fn().mockResolvedValue({ text: '{"verdict":"approved","reason":"Safe"}' }),
+        } as unknown as Response);
+        const uploaded = deferred<{ error: null }>();
+        const upload = vi.fn().mockReturnValue(uploaded.promise);
+        const remove = vi.fn().mockResolvedValue({ error: null });
+        mocks.storageFrom.mockReturnValue({
+            list: vi.fn().mockResolvedValue({ data: [], error: null }),
+            upload,
+            remove,
+            getPublicUrl: vi.fn().mockReturnValue({ data: { publicUrl: 'https://images.test/account-a.jpg' } }),
+        });
+
+        const pending = uploadProfilePhoto(new File([[1, 2, 3] as unknown as BlobPart], 'avatar.jpg'));
+        await vi.waitFor(() => expect(upload).toHaveBeenCalledOnce());
+        const uploadedPath = upload.mock.calls[0][0] as string;
+
+        setAuthIdentityScope('account-b');
+        uploaded.resolve({ error: null });
+
+        await expect(pending).resolves.toEqual({
+            success: false,
+            error: 'Account changed during upload',
+        });
+        expect(cleanupMocks.retire).toHaveBeenCalledWith(
+            expect.objectContaining({ userId: 'account-a' }),
+            { ownerId: 'account-a', accessToken: 'token-a' },
+            'chat-avatars',
+            uploadedPath,
+        );
+        expect(remove).not.toHaveBeenCalled();
+        expect(uploadedPath).toMatch(/^account-a\/avatar-\d+[.]jpg$/);
+        expect(mocks.from).not.toHaveBeenCalled();
+    });
+
+    it('retires the exact new object when the profile row rejects it', async () => {
+        installImageCompressionFakes();
+        vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+            ok: true,
+            status: 200,
+            json: vi.fn().mockResolvedValue({ text: '{"verdict":"approved","reason":"Safe"}' }),
+        } as unknown as Response);
+        const upload = vi.fn().mockResolvedValue({ error: null });
+        const remove = vi.fn().mockResolvedValue({ error: null });
+        mocks.storageFrom.mockReturnValue({
+            list: vi.fn().mockResolvedValue({ data: [], error: null }),
+            upload,
+            remove,
+            getPublicUrl: vi.fn().mockReturnValue({ data: { publicUrl: 'https://images.test/account-a.jpg' } }),
+        });
+        const maybeSingle = vi.fn().mockResolvedValue({ data: null, error: { message: 'profile write rejected' } });
+        mocks.from.mockReturnValue({
+            upsert: vi.fn().mockReturnValue({
+                select: vi.fn().mockReturnValue({ maybeSingle }),
+            }),
+        });
+
+        await expect(uploadProfilePhoto(new File([[1, 2, 3] as unknown as BlobPart], 'avatar.jpg'))).resolves.toEqual({
+            success: false,
+            error: 'Could not save profile photo: profile write rejected',
+        });
+
+        const uploadedPath = upload.mock.calls[0][0] as string;
+        expect(cleanupMocks.retire).toHaveBeenCalledWith(
+            expect.objectContaining({ userId: 'account-a' }),
+            { ownerId: 'account-a', accessToken: 'token-a' },
+            'chat-avatars',
+            uploadedPath,
+        );
+        expect(remove).not.toHaveBeenCalled();
+    });
+
+    it('retires the exact new object when a post-upload step throws', async () => {
+        installImageCompressionFakes();
+        vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+            ok: true,
+            status: 200,
+            json: vi.fn().mockResolvedValue({ text: '{"verdict":"approved","reason":"Safe"}' }),
+        } as unknown as Response);
+        const upload = vi.fn().mockResolvedValue({ error: null });
+        const remove = vi.fn().mockResolvedValue({ error: null });
+        mocks.storageFrom.mockReturnValue({
+            list: vi.fn().mockResolvedValue({ data: [], error: null }),
+            upload,
+            remove,
+            getPublicUrl: vi.fn(() => {
+                throw new Error('URL construction failed');
+            }),
+        });
+
+        await expect(uploadProfilePhoto(new File([[1, 2, 3] as unknown as BlobPart], 'avatar.jpg'))).resolves.toEqual({
+            success: false,
+            error: 'URL construction failed',
+        });
+
+        const uploadedPath = upload.mock.calls[0][0] as string;
+        expect(cleanupMocks.retire).toHaveBeenCalledWith(
+            expect.objectContaining({ userId: 'account-a' }),
+            { ownerId: 'account-a', accessToken: 'token-a' },
+            'chat-avatars',
+            uploadedPath,
+        );
+        expect(remove).not.toHaveBeenCalled();
+        expect(mocks.from).not.toHaveBeenCalled();
+    });
+
+    it('retains a canonical reconciliation job when the profile commit response is lost', async () => {
+        installImageCompressionFakes();
+        vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+            ok: true,
+            status: 200,
+            json: vi.fn().mockResolvedValue({ text: '{"verdict":"approved","reason":"Safe"}' }),
+        } as unknown as Response);
+        const upload = vi.fn().mockResolvedValue({ error: null });
+        mocks.storageFrom.mockReturnValue({
+            list: vi.fn().mockResolvedValue({ data: [{ name: 'old.jpg' }], error: null }),
+            upload,
+            getPublicUrl: vi.fn().mockReturnValue({ data: { publicUrl: 'https://images.test/account-a.jpg' } }),
+        });
+        mocks.from.mockReturnValue({
+            upsert: vi.fn().mockReturnValue({
+                select: vi.fn().mockReturnValue({
+                    maybeSingle: vi.fn().mockRejectedValue(new Error('response lost after commit')),
+                }),
+            }),
+        });
+
+        await expect(uploadProfilePhoto(new File([[1, 2, 3] as unknown as BlobPart], 'avatar.jpg'))).resolves.toEqual({
+            success: false,
+            error: 'Could not verify saved profile photo: response lost after commit',
+        });
+
+        const freshPath = upload.mock.calls[0][0] as string;
+        expect(cleanupMocks.retain).toHaveBeenCalledWith(
+            expect.objectContaining({ userId: 'account-a' }),
+            'chat-avatars',
+            freshPath,
+            { kind: 'chat-profile-avatar' },
+        );
+        expect(cleanupMocks.retain).toHaveBeenCalledWith(
+            expect.objectContaining({ userId: 'account-a' }),
+            'chat-avatars',
+            'account-a/old.jpg',
+            { kind: 'chat-profile-avatar' },
+        );
+        expect(cleanupMocks.retire).not.toHaveBeenCalled();
+    });
+
+    it('retires old minus new paths only after the exact owner row adopts the replacement', async () => {
+        installImageCompressionFakes();
+        vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+            ok: true,
+            status: 200,
+            json: vi.fn().mockResolvedValue({ text: '{"verdict":"approved","reason":"Safe"}' }),
+        } as unknown as Response);
+        const upload = vi.fn().mockResolvedValue({ error: null });
+        const publicUrl = 'https://images.test/account-a-new.jpg';
+        mocks.storageFrom.mockReturnValue({
+            list: vi.fn().mockResolvedValue({ data: [{ name: 'old.jpg' }], error: null }),
+            upload,
+            getPublicUrl: vi.fn().mockReturnValue({ data: { publicUrl } }),
+        });
+        mocks.from.mockReturnValue({
+            upsert: vi.fn((payload: { avatar_url: string }) => ({
+                select: vi.fn().mockReturnValue({
+                    maybeSingle: vi.fn().mockResolvedValue({
+                        data: { user_id: 'account-a', avatar_url: payload.avatar_url },
+                        error: null,
+                    }),
+                }),
+            })),
+        });
+
+        await expect(uploadProfilePhoto(new File([[1, 2, 3] as unknown as BlobPart], 'avatar.jpg'))).resolves.toEqual({
+            success: true,
+            url: publicUrl,
+        });
+
+        const freshPath = upload.mock.calls[0][0] as string;
+        expect(cleanupMocks.retire).toHaveBeenCalledWith(
+            expect.objectContaining({ userId: 'account-a' }),
+            { ownerId: 'account-a', accessToken: 'token-a' },
+            'chat-avatars',
+            'account-a/old.jpg',
+        );
+        expect(cleanupMocks.retire).not.toHaveBeenCalledWith(
+            expect.anything(),
+            expect.anything(),
+            'chat-avatars',
+            freshPath,
+        );
+        expect(cleanupMocks.retain).not.toHaveBeenCalled();
+    });
+
+    it('nulls and verifies the exact profile row before retiring old avatar objects', async () => {
+        const list = vi.fn().mockResolvedValue({ data: [{ name: 'old.jpg' }, { name: 'orphan.jpg' }], error: null });
+        mocks.storageFrom.mockReturnValue({ list });
+        const maybeSingle = vi.fn().mockResolvedValue({
+            data: { user_id: 'account-a', avatar_url: null },
+            error: null,
+        });
+        const select = vi.fn().mockReturnValue({ maybeSingle });
+        const eq = vi.fn().mockReturnValue({ select });
+        const update = vi.fn().mockReturnValue({ eq });
+        mocks.from.mockReturnValue({ update });
+
+        await expect(removeProfilePhoto()).resolves.toBe(true);
+
+        expect(update).toHaveBeenCalledWith(expect.objectContaining({ avatar_url: null }));
+        expect(eq).toHaveBeenCalledWith('user_id', 'account-a');
+        expect(select).toHaveBeenCalledWith('user_id, avatar_url');
+        expect(cleanupMocks.retire).toHaveBeenCalledTimes(2);
+        expect(maybeSingle.mock.invocationCallOrder[0]).toBeLessThan(cleanupMocks.retire.mock.invocationCallOrder[0]);
+    });
+
+    it('does not accept or clean up a mutation response for another owner', async () => {
+        mocks.storageFrom.mockReturnValue({
+            list: vi.fn().mockResolvedValue({ data: [{ name: 'old.jpg' }], error: null }),
+        });
+        mocks.from.mockReturnValue({
+            update: vi.fn().mockReturnValue({
+                eq: vi.fn().mockReturnValue({
+                    select: vi.fn().mockReturnValue({
+                        maybeSingle: vi.fn().mockResolvedValue({
+                            data: { user_id: 'account-b', avatar_url: null },
+                            error: null,
+                        }),
+                    }),
+                }),
+            }),
+        });
+
+        await expect(removeProfilePhoto()).resolves.toBe(false);
+        expect(cleanupMocks.retire).not.toHaveBeenCalled();
+        expect(cleanupMocks.retain).toHaveBeenCalledWith(
+            expect.objectContaining({ userId: 'account-a' }),
+            'chat-avatars',
+            'account-a/old.jpg',
+            { kind: 'chat-profile-avatar' },
+        );
     });
 
     it('stops a deferred A removal before deleting any stored files', async () => {

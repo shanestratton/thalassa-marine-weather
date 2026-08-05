@@ -124,3 +124,28 @@ export const SkeletonDashboard = () => {
         </div>
     );
 };
+
+/** Neutral fallback for lazy-loaded tools and vessel pages. */
+export const SkeletonPage = () => (
+    <div className="mx-auto w-full max-w-3xl space-y-4 px-4 py-6" role="status" aria-label="Loading page">
+        <div className="flex items-center gap-3">
+            <div className="h-11 w-11 animate-pulse rounded-xl border border-sky-500/20 bg-sky-500/10" />
+            <div className="min-w-0 flex-1 space-y-2">
+                <div className="h-4 w-40 max-w-full animate-pulse rounded bg-white/15" />
+                <div className="h-3 w-56 max-w-full animate-pulse rounded bg-white/10" />
+            </div>
+        </div>
+        <span className="sr-only">Loading Thalassa page…</span>
+        {[0, 1, 2].map((index) => (
+            <div
+                key={index}
+                className="animate-pulse rounded-2xl border border-white/10 bg-slate-900/45 p-5"
+                style={{ minHeight: index === 0 ? 132 : 88 }}
+            >
+                <div className="mb-4 h-3 w-1/3 rounded bg-white/10" />
+                <div className="mb-2 h-3 w-full rounded bg-white/5" />
+                <div className="h-3 w-4/5 rounded bg-white/5" />
+            </div>
+        ))}
+    </div>
+);

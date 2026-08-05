@@ -13,13 +13,6 @@ import { DisclaimerOverlay } from '../modules/DisclaimerOverlay';
 
 const ACCEPT = 'Accept navigation disclaimer and continue';
 
-/** Force the scroll box to report a geometry, as a real browser would. */
-function stubGeometry(el: HTMLElement, { scrollHeight = 0, clientHeight = 0, scrollTop = 0 } = {}) {
-    Object.defineProperty(el, 'scrollHeight', { configurable: true, value: scrollHeight });
-    Object.defineProperty(el, 'clientHeight', { configurable: true, value: clientHeight });
-    Object.defineProperty(el, 'scrollTop', { configurable: true, writable: true, value: scrollTop });
-}
-
 describe('DisclaimerOverlay', () => {
     beforeEach(() => vi.clearAllMocks());
 

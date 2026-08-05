@@ -37,6 +37,8 @@ export interface InspectSaveProps {
 interface Props {
     data: PointWeatherData | null;
     loading: boolean;
+    error?: string | null;
+    onRetry?: () => void;
     onClose: () => void;
     /** Omitted where saving makes no sense (e.g. no settings owner). */
     save?: InspectSaveProps;
@@ -216,7 +218,7 @@ const SaveRow: React.FC<{ save: InspectSaveProps }> = ({ save }) => {
 
 // ── Main component ──
 
-export const WeatherInspectPopup: React.FC<Props> = ({ data, loading, onClose, save }) => {
+export const WeatherInspectPopup: React.FC<Props> = ({ data, loading, error, onRetry, onClose, save }) => {
     const hasMarine = data && data.waveHeightM != null && data.waveHeightM > 0;
 
     return (
@@ -295,6 +297,28 @@ export const WeatherInspectPopup: React.FC<Props> = ({ data, loading, onClose, s
                                 Loading weather…
                             </span>
                         </div>
+                    </div>
+                )}
+
+                {/* A failed point request must never collapse into a blank
+                    card. Keep Save available, state what is missing, and put
+                    the recovery action directly beside the failure. */}
+                {!loading && !data && error && (
+                    <div role="alert" className="px-2 pb-2 pt-8 text-center">
+                        <div className="text-xl" aria-hidden="true">
+                            ↻
+                        </div>
+                        <p className="mt-1 text-sm font-bold text-amber-200">Weather unavailable</p>
+                        <p className="mt-1 text-xs leading-relaxed text-slate-300">{error}</p>
+                        {onRetry && (
+                            <button
+                                type="button"
+                                onClick={onRetry}
+                                className="mt-3 min-h-11 w-full rounded-xl border border-sky-300/25 bg-sky-400/15 px-4 py-2 text-sm font-bold text-sky-100 transition-colors hover:bg-sky-400/25"
+                            >
+                                Retry weather
+                            </button>
+                        )}
                     </div>
                 )}
 
@@ -406,6 +430,24 @@ export const WeatherInspectPopup: React.FC<Props> = ({ data, loading, onClose, s
                                     )}
                                 </div>
                             </>
+                        )}
+
+                        {data?.marineStatus === 'unavailable' && (
+                            <div
+                                role="status"
+                                className="mt-2 rounded-lg border border-amber-300/20 bg-amber-400/10 px-2.5 py-2 text-[11px] leading-relaxed text-amber-100"
+                            >
+                                Marine wave data could not be reached. Wind and pressure above are still available.
+                            </div>
+                        )}
+
+                        {data && !loading && (
+                            <p className="mt-2 border-t border-white/[0.06] pt-2 text-[11px] text-white/55">
+                                Open-Meteo · fetched{' '}
+                                {Math.max(0, Math.round((Date.now() - data.fetchedAt) / 60_000)) <= 1
+                                    ? 'now'
+                                    : `${Math.round((Date.now() - data.fetchedAt) / 60_000)} min ago`}
+                            </p>
                         )}
                     </div>
                 )}

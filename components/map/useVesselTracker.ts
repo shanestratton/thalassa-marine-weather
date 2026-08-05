@@ -332,27 +332,21 @@ export function useVesselTracker(mapRef: MutableRefObject<mapboxgl.Map | null>, 
         }
         const map = mapRef.current;
 
-        // One watch path — GpsService abstracts BgGeo (native) vs browser
-        // geolocation (web). ensureRunning keeps the vessel marker live even
-        // when no voyage / anchor watch is tracking (ref-counted; released
-        // on unmount via the returned unsub). Previously the native branch
-        // subscribed to BgGeo without starting it, so the marker froze
-        // whenever nothing else had the engine running.
-        const unsub = GpsService.watchPosition(
-            (pos) => {
-                updateMarker({
-                    latitude: pos.latitude,
-                    longitude: pos.longitude,
-                    accuracy: pos.accuracy ?? 50,
-                    altitude: pos.altitude ?? null,
-                    heading: pos.heading ?? null,
-                    speed: pos.speed ?? 0,
-                    timestamp: pos.timestamp ?? Date.now(),
-                    receivedAt: Date.now(),
-                });
-            },
-            { ensureRunning: true },
-        );
+        // Passive foreground watch: it consumes an existing Location grant
+        // but never initializes background tracking or raises permission UI
+        // merely because the chart was restored at launch.
+        const unsub = GpsService.watchPosition((pos) => {
+            updateMarker({
+                latitude: pos.latitude,
+                longitude: pos.longitude,
+                accuracy: pos.accuracy ?? 50,
+                altitude: pos.altitude ?? null,
+                heading: pos.heading ?? null,
+                speed: pos.speed ?? 0,
+                timestamp: pos.timestamp ?? Date.now(),
+                receivedAt: Date.now(),
+            });
+        });
 
         // Staleness ticker — the only path that can grey the marker once
         // fixes STOP arriving (see lastFixAtRef comment).
@@ -389,7 +383,7 @@ export function useVesselTracker(mapRef: MutableRefObject<mapboxgl.Map | null>, 
                 essential: true,
             });
         } else {
-            GpsService.getCurrentPosition({ staleLimitMs: 30_000, timeoutSec: 10 }).then((p) => {
+            GpsService.requestCurrentForegroundPosition({ staleLimitMs: 30_000, timeoutSec: 10 }).then((p) => {
                 if (p) {
                     map.flyTo({
                         center: [p.longitude, p.latitude],

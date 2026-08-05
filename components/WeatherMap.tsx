@@ -619,7 +619,7 @@ export const WeatherMap: React.FC<WeatherMapProps> = React.memo(
                                     <button
                                         aria-label="Gps Service"
                                         onClick={() => {
-                                            GpsService.getCurrentPosition({
+                                            GpsService.requestCurrentForegroundPosition({
                                                 staleLimitMs: 30_000,
                                                 timeoutSec: 10,
                                             }).then((pos) => {

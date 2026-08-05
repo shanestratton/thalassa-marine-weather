@@ -346,7 +346,7 @@ export const VoyageResults: React.FC<VoyageResultsProps> = React.memo(
                             }
                             subtitle={
                                 voyagePlan.__inshoreRouting.status === 'success'
-                                    ? 'ENC Channel A* (Pi)'
+                                    ? 'ENC Channel A* (on device)'
                                     : 'ENC Channel A* — Could Not Route'
                             }
                             icon={<WaveIcon className="w-5 h-5" />}
@@ -413,15 +413,23 @@ export const VoyageResults: React.FC<VoyageResultsProps> = React.memo(
                                     (s: { safety: string }) => s.safety === 'danger' || s.safety === 'land',
                                 )
                                     ? 'red'
-                                    : d?.shallowSegments > 0
+                                    : d?.shallowSegments > 0 || d?.coverage !== 'complete'
                                       ? 'amber'
                                       : 'emerald';
                             })()}
-                            defaultOpen={voyagePlan.__depthSummary?.shallowSegments > 0}
+                            defaultOpen={
+                                voyagePlan.__depthSummary?.shallowSegments > 0 ||
+                                voyagePlan.__depthSummary?.coverage !== 'complete'
+                            }
                             badge={(() => {
                                 const d = voyagePlan.__depthSummary;
                                 if (!d) return 'Pending';
-                                return d.shallowSegments > 0 ? `${d.shallowSegments} shallow` : 'All Clear';
+                                if (d.shallowSegments > 0) return `${d.shallowSegments} hazard samples`;
+                                if (d.coverage === 'unavailable') return 'Not verified';
+                                if (d.coverage !== 'complete') {
+                                    return `${d.knownSegments ?? 0}/${d.totalSegments} sampled`;
+                                }
+                                return 'Sampled clear';
                             })()}
                         >
                             {/* vessel.draft is stored in FEET — the card renders metres + computes

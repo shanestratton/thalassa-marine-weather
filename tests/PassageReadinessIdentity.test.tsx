@@ -28,11 +28,16 @@ vi.mock('../services/ReadinessCheckService', () => ({
     ReadinessCheckService: readinessMocks,
 }));
 
-vi.mock('../services/WeatherWindowService', () => ({
-    WeatherWindowService: {
-        analyse: weatherMocks.analyse,
-    },
-}));
+vi.mock('../services/WeatherWindowService', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('../services/WeatherWindowService')>();
+    return {
+        ...actual,
+        WeatherWindowService: {
+            ...actual.WeatherWindowService,
+            analyse: weatherMocks.analyse,
+        },
+    };
+});
 
 vi.mock('../services/WatchAssignmentService', () => ({
     WatchAssignmentService: {
@@ -53,9 +58,10 @@ vi.mock('../components/passage/WatchAssignSheet', () => ({
     WatchAssignSheet: () => null,
 }));
 
-vi.mock('../utils/system', () => ({
-    triggerHaptic: vi.fn(),
-}));
+vi.mock('../utils/system', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('../utils/system')>();
+    return { ...actual, triggerHaptic: vi.fn() };
+});
 
 import { readinessStorageKey, useReadinessSync, useScopedReadinessStorageState } from '../hooks/useReadinessSync';
 import { WeatherWindowCard } from '../components/passage/WeatherWindowCard';
@@ -88,6 +94,7 @@ function ChecklistHarness({ voyageId }: { voyageId: string }) {
 
 function weatherResult(label: string): WeatherWindowResult {
     return {
+        availability: 'available',
         windows: [
             {
                 time: '2026-08-01T00:00:00.000Z',
@@ -108,6 +115,12 @@ function weatherResult(label: string): WeatherWindowResult {
         bestWindowIndex: 0,
         analysisTime: '2026-07-23T00:00:00.000Z',
         source: 'live',
+        provider: 'Open-Meteo Commercial marine + forecast',
+        cacheVersion: 2,
+        forecastStart: '2026-08-01T00:00:00.000Z',
+        forecastEnd: '2026-08-01T00:00:00.000Z',
+        dataFingerprint: `data-${label}`,
+        analysisContextFingerprint: `context-${label}`,
     };
 }
 

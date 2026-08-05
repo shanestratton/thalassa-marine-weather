@@ -147,6 +147,13 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                     }`}
                     onClick={handleHeroLeftTap}
                     role="button"
+                    tabIndex={0}
+                    onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                            event.preventDefault();
+                            handleHeroLeftTap();
+                        }
+                    }}
                     aria-label={
                         pinnedDisplay
                             ? `Pinned metric ${pinnedDisplay.label}. Tap to change, double-tap to reset. Drop a grid metric here to pin it.`
@@ -314,6 +321,13 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                     className={`flex-[1] flex items-center justify-end gap-2 pr-3 touch-none select-none ${onToggleExpand ? 'cursor-pointer' : ''}`}
                     style={{ WebkitTapHighlightColor: 'transparent' }}
                     role={onToggleExpand ? 'button' : undefined}
+                    tabIndex={onToggleExpand ? 0 : undefined}
+                    onKeyDown={(event) => {
+                        if (onToggleExpand && (event.key === 'Enter' || event.key === ' ')) {
+                            event.preventDefault();
+                            onToggleExpand();
+                        }
+                    }}
                     aria-label={
                         onToggleExpand
                             ? isExpanded

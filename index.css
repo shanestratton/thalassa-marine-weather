@@ -71,6 +71,50 @@ textarea,
     /* Hero numbers, stats (= text-2xl) */
 }
 
+/* Enforce the documented legibility floor even where legacy Tailwind
+   arbitrary sizes remain. This is particularly important in sunlight and on
+   vibrating phone mounts, where 9–10px labels cease to be operational text. */
+[class~='text-[8px]'],
+[class~='text-[9px]'],
+[class~='text-[10px]'],
+[class~='text-[10.5px]'] {
+    font-size: var(--text-micro) !important;
+}
+
+/* Keep range tracks visually slim while giving every slider a reliable
+   gloved/finger hit area. */
+input[type='range'] {
+    min-height: 44px;
+}
+
+/* Expand tiny icon controls to a 44px hit box without inflating the visual
+   glyph or compact card layout. */
+.hit-target-44 {
+    position: relative;
+}
+
+.hit-target-44::before {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 44px;
+    height: 44px;
+    content: '';
+    transform: translate(-50%, -50%);
+}
+
+/* Long-form content should remain copyable; controls and map gestures retain
+   the global long-press protection above. */
+p:not(button p),
+article,
+[role='article'],
+.prose,
+dd {
+    -webkit-touch-callout: default;
+    -webkit-user-select: text;
+    user-select: text;
+}
+
 /* Native iOS keyboards overlay the Capacitor WebView.  Scroll padding gives
    browser-managed scrolling (including selects and contenteditable fields) the
    same clearance as the app-wide keyboard guard. */
@@ -590,6 +634,35 @@ input[type='date']::-webkit-calendar-picker-indicator {
     --tw-text-opacity: 1;
     color: rgb(14 165 233 / var(--tw-text-opacity));
     /* sky-500 — more visible on light bg */
+}
+
+/* Vessel Hub keeps rich glass surfaces in both themes. Its old inline dark
+   gradients survived the global light text inversion, producing dark text on
+   dark cards. Theme variables make the surfaces and the text inversion move
+   together instead of trying to override hundreds of descendants. */
+.vessel-hub-surface {
+    --vessel-surface-bg: transparent;
+}
+
+.display-light .vessel-hub-surface {
+    --vessel-surface-bg: #e2e8f0;
+    --vessel-card-bg: rgba(255, 255, 255, 0.82);
+    --vessel-card-border: rgba(15, 23, 42, 0.12);
+    --vessel-list-bg: rgba(248, 250, 252, 0.9);
+    --vessel-list-border: rgba(15, 23, 42, 0.1);
+    --vessel-safety-group-bg: linear-gradient(135deg, rgba(16, 185, 129, 0.14), rgba(255, 255, 255, 0.76));
+    --vessel-safety-group-border: rgba(5, 150, 105, 0.34);
+    --vessel-safety-card-bg: linear-gradient(145deg, rgba(209, 250, 229, 0.95), rgba(255, 255, 255, 0.92));
+    --vessel-safety-card-border: rgba(5, 150, 105, 0.38);
+    --vessel-alert-card-bg: linear-gradient(145deg, rgba(254, 226, 226, 0.98), rgba(255, 255, 255, 0.94));
+    --vessel-hero-bg: linear-gradient(135deg, rgba(255, 255, 255, 0.94), rgba(224, 242, 254, 0.92));
+    --vessel-hero-border: rgba(14, 116, 144, 0.18);
+}
+
+.display-light .settings-title {
+    background-image: none;
+    color: #0f172a;
+    -webkit-text-fill-color: #0f172a;
 }
 
 /* ── Text-white opacity variants ── */
@@ -2085,13 +2158,6 @@ body,
     animation: staleness-loud-breathe 2.4s ease-in-out infinite;
 }
 
-/* Essential Mode Map Overrides */
-.essential-map .mapboxgl-ctrl-bottom-left,
-.essential-map .mapboxgl-ctrl-bottom-right,
-.essential-map .mapboxgl-ctrl-logo {
-    display: none !important;
-}
-
 /* ═══════════════════════════════════════════════════════════════════
    MAP OVERLAYS & CONTROLS
    Moved from inline <style> tags in React to prevent CSSOM thrashing
@@ -2749,6 +2815,25 @@ body,
     z-index: 10000 !important;
 }
 
+/* CAPAD popup HTML uses a light-on-dark palette; Mapbox's default popup
+   surface is white, so the content must own an explicit dark surface. */
+.mpa-popup .mapboxgl-popup-content {
+    padding: 16px !important;
+    color: #f3f4f6;
+    background: rgba(15, 23, 42, 0.97) !important;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 14px !important;
+    box-shadow:
+        0 12px 36px rgba(0, 0, 0, 0.55),
+        0 0 0 1px rgba(15, 23, 42, 0.5) !important;
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+}
+
+.mpa-popup .mapboxgl-popup-tip {
+    display: none;
+}
+
 /* ── Weather Inspect Popup — strip Mapbox default styling ──────── */
 .weather-inspect-popup {
     z-index: 10000 !important; /* above the compass rose (9996) + tracer card (9995) */
@@ -3223,4 +3308,161 @@ body.animation-diet [class*='slide-in'] {
     animation: none !important;
     opacity: 1 !important;
     transform: none !important;
+}
+
+/* ── Short mobile landscape map controls ────────────────────────────
+   The normal portrait geometry assumes ~700px of vertical room. At 390px it
+   placed the helm grid below the viewport and gave the top/bottom-bound Tracer
+   a negative content height. In short landscape, use the wide axis: layers
+   open on the left while the helm stays on the right, and Tracer becomes a
+   full-height scrollable rail clear of the navigation escape button. */
+@media (orientation: landscape) and (max-height: 500px) {
+    .anchor-setup-scroll {
+        padding-bottom: max(0.75rem, env(safe-area-inset-bottom)) !important;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .anchor-setup-radar {
+        flex: 0 0 180px !important;
+        min-height: 180px !important;
+    }
+
+    .anchor-shore-watch-backdrop {
+        justify-content: flex-start !important;
+        padding-top: max(0.5rem, env(safe-area-inset-top)) !important;
+        padding-right: max(0.75rem, env(safe-area-inset-right)) !important;
+        padding-bottom: max(0.5rem, env(safe-area-inset-bottom)) !important;
+        padding-left: max(0.75rem, env(safe-area-inset-left)) !important;
+    }
+
+    .anchor-shore-watch-dialog {
+        max-height: 100% !important;
+        margin: auto;
+    }
+
+    /* Safety dialogs must work on the iPhone 844×390 viewport. Their content
+       scrolls independently while the only safe exit/acknowledgement controls
+       stay pinned above the home indicator. */
+    .anchor-sound-check-backdrop {
+        align-items: stretch !important;
+        padding: max(0.5rem, env(safe-area-inset-top)) max(0.75rem, env(safe-area-inset-right))
+            max(0.5rem, env(safe-area-inset-bottom)) max(0.75rem, env(safe-area-inset-left)) !important;
+    }
+
+    .anchor-sound-check-dialog {
+        max-width: 42rem !important;
+        max-height: 100% !important;
+        margin: auto;
+    }
+
+    .anchor-sound-check-scroll,
+    .anchor-alarm-scroll {
+        min-height: 0 !important;
+        overflow-y: auto !important;
+        overscroll-behavior-y: contain;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .anchor-sound-check-actions,
+    .anchor-alarm-actions {
+        position: relative;
+        z-index: 2;
+        flex-shrink: 0 !important;
+    }
+
+    .anchor-alarm-scroll {
+        padding-top: max(0.75rem, env(safe-area-inset-top)) !important;
+        padding-bottom: 0.75rem !important;
+    }
+
+    .anchor-alarm-scroll > [aria-hidden='true']:not(.absolute) {
+        margin-bottom: 0.5rem !important;
+    }
+
+    .anchor-alarm-scroll h1 {
+        margin-bottom: 0.75rem !important;
+        font-size: 1.875rem !important;
+        line-height: 2.25rem !important;
+    }
+
+    .anchor-alarm-actions {
+        padding-top: 0.5rem !important;
+        padding-bottom: max(0.5rem, env(safe-area-inset-bottom)) !important;
+    }
+
+    .anchor-alarm-actions button {
+        min-height: 48px;
+        padding-top: 0.5rem !important;
+        padding-bottom: 0.5rem !important;
+    }
+
+    .anchor-alarm-actions p:last-child {
+        margin-top: 0.25rem !important;
+    }
+
+    /* Route Planner's portrait CTA is deliberately pinned above the tab bar.
+       On a short phone in landscape that same geometry sat across the
+       departure controls, making the date/time row look selected but partly
+       untappable. Let this one page become a normal vertical scroller and put
+       the CTA after the form. The chart planner still keeps its purpose-built
+       landscape rails below. */
+    .route-planner-page {
+        overflow-x: hidden !important;
+        overflow-y: auto !important;
+        overscroll-behavior-y: contain;
+    }
+
+    .route-planner-form {
+        max-height: none !important;
+        overflow: visible !important;
+    }
+
+    .route-planner-map {
+        flex: 0 0 0 !important;
+        min-height: 0 !important;
+        overflow: hidden;
+    }
+
+    .route-planner-cta {
+        position: relative !important;
+        inset: auto !important;
+        flex-shrink: 0;
+        padding-top: 0.5rem;
+    }
+
+    .radial-helm-menu {
+        top: max(64px, calc(env(safe-area-inset-top) + 52px)) !important;
+    }
+
+    .radial-helm-layer-grid {
+        top: max(8px, env(safe-area-inset-top)) !important;
+        right: auto !important;
+        bottom: max(8px, env(safe-area-inset-bottom)) !important;
+        left: max(12px, env(safe-area-inset-left)) !important;
+        width: min(360px, calc(100vw - 190px)) !important;
+        max-height: calc(100dvh - max(16px, env(safe-area-inset-top) + env(safe-area-inset-bottom))) !important;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+    }
+
+    .map-tracer-panel {
+        top: max(8px, env(safe-area-inset-top)) !important;
+        bottom: max(8px, env(safe-area-inset-bottom)) !important;
+        left: max(64px, calc(env(safe-area-inset-left) + 56px)) !important;
+    }
+
+    .map-tracer-card {
+        width: min(21rem, calc(100vw - 160px)) !important;
+        max-height: 100%;
+    }
+}
+
+html[data-keyboard-open='true'] .anchor-shore-watch-backdrop {
+    justify-content: flex-start;
+    padding-top: max(0.5rem, env(safe-area-inset-top));
+    padding-bottom: calc(var(--thalassa-keyboard-height) + env(safe-area-inset-bottom) + 0.5rem);
+}
+
+html[data-keyboard-open='true'] .anchor-shore-watch-dialog {
+    max-height: calc(100dvh - var(--thalassa-keyboard-height) - env(safe-area-inset-top) - 1rem);
 }

@@ -8,6 +8,7 @@
  *   import { toast } from '../components/Toast';
  *   toast.success('Route saved to logbook');
  *   toast.error('Failed to export GPX');
+ *   toast.persistentError('Safety action failed — user acknowledgement required');
  *   toast.info('Wind data loading…');
  *
  * Mount <ToastPortal /> once in App.tsx.
@@ -33,7 +34,23 @@ type Listener = (item: ToastItem) => void;
 type DismissListener = (id?: number) => void;
 const listeners: Set<Listener> = new Set();
 const dismissListeners: Set<DismissListener> = new Set();
+// Native safety events can arrive while React is still mounting (or while the
+// legal disclaimer is in front of App). Keep a small in-memory backlog so an
+// early Watch-MOB rejection is shown when ToastPortal becomes available rather
+// than disappearing before the user can see it.
+let pendingItems: ToastItem[] = [];
 let nextId = 1;
+
+function appendWithSafetyPriority(items: ToastItem[], item: ToastItem): ToastItem[] {
+    const next = [...items, item];
+    if (next.length <= 5) return next;
+    // Indefinite alerts/loading states require explicit user resolution. Drop
+    // the oldest transient message first so a native safety warning cannot be
+    // displaced by an ordinary burst of status toasts while the app resumes.
+    const transientIndex = next.findIndex((candidate) => candidate.duration > 0);
+    next.splice(transientIndex >= 0 ? transientIndex : 0, 1);
+    return next;
+}
 
 function emit(
     message: string,
@@ -43,7 +60,11 @@ function emit(
 ): number {
     const id = nextId++;
     const item: ToastItem = { id, message, type, duration, action };
-    listeners.forEach((fn) => fn(item));
+    if (listeners.size === 0) {
+        pendingItems = appendWithSafetyPriority(pendingItems, item);
+    } else {
+        listeners.forEach((fn) => fn(item));
+    }
     return id;
 }
 
@@ -51,10 +72,20 @@ function emit(
 export const toast = {
     success: (msg: string, action?: { label: string; onClick: () => void }) => emit(msg, 'success', 3000, action),
     error: (msg: string, duration = 4000) => emit(msg, 'error', duration),
+    persistentError: (
+        msg: string,
+        action: { label: string; onClick: () => void } = { label: 'Dismiss', onClick: () => undefined },
+    ) => emit(msg, 'error', 0, action),
     info: (msg: string, duration = 3000) => emit(msg, 'info', duration),
     loading: (msg: string) => emit(msg, 'loading', 0),
-    dismiss: (id: number) => dismissListeners.forEach((fn) => fn(id)),
-    clear: () => dismissListeners.forEach((fn) => fn()),
+    dismiss: (id: number) => {
+        pendingItems = pendingItems.filter((item) => item.id !== id);
+        dismissListeners.forEach((fn) => fn(id));
+    },
+    clear: () => {
+        pendingItems = [];
+        dismissListeners.forEach((fn) => fn());
+    },
 };
 
 // ── Single Toast Component ─────────────────────────────────────────
@@ -217,9 +248,14 @@ export const ToastPortal: React.FC = () => {
 
     useEffect(() => {
         const handler: Listener = (item) => {
-            setToasts((prev) => [...prev.slice(-4), item]); // Keep max 5
+            setToasts((prev) => appendWithSafetyPriority(prev, item));
         };
         listeners.add(handler);
+        if (pendingItems.length > 0) {
+            const queued = pendingItems;
+            pendingItems = [];
+            setToasts((prev) => queued.reduce(appendWithSafetyPriority, prev));
+        }
         const dismissHandler: DismissListener = (id) => {
             setToasts((prev) => (id === undefined ? [] : prev.filter((item) => item.id !== id)));
         };

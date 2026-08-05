@@ -11,7 +11,7 @@
  *   Inventory & Maint.:  Stores · Equipment · Repairs & Maintenance
  *   Reference:           Checklists · Polars · Documents
  *   Atmosphere:          Music (Apple Music) — "music on watch", non-essential
- *   Connect:             NMEA Gateway · Boat Network
+ *   Connect:             NMEA Gateway · ENC Library · Boat Network
  *   Account:             Settings + tier
  *
  * Recipe Library has moved to the Galley; keeping it in two places
@@ -46,6 +46,8 @@ import {
     type AuthIdentityScope,
 } from '../services/authIdentityScope';
 import { ConfirmDialog } from './ui/ConfirmDialog';
+import { PUBLIC_BETA_ACCESS } from '../services/SubscriptionService';
+import { FEATURE_VISIBILITY } from '../utils/featureVisibility';
 const AdminPanel = lazyRetry(
     () => import('./AdminPanel').then((m) => ({ default: m.AdminPanel })),
     'AdminPanel_Vessel',
@@ -60,17 +62,17 @@ interface VesselHubProps {
 // ── Glassmorphism constants ──
 const GLASS = {
     card: {
-        background: 'rgba(20, 25, 35, 0.6)',
+        background: 'var(--vessel-card-bg, rgba(20, 25, 35, 0.6))',
         backdropFilter: 'blur(16px)',
         WebkitBackdropFilter: 'blur(16px)',
-        border: '1px solid rgba(255, 255, 255, 0.08)',
+        border: '1px solid var(--vessel-card-border, rgba(255, 255, 255, 0.08))',
         borderRadius: '16px',
     } as React.CSSProperties,
     listContainer: {
-        background: 'rgba(20, 25, 35, 0.5)',
+        background: 'var(--vessel-list-bg, rgba(20, 25, 35, 0.5))',
         backdropFilter: 'blur(16px)',
         WebkitBackdropFilter: 'blur(16px)',
-        border: '1px solid rgba(255, 255, 255, 0.06)',
+        border: '1px solid var(--vessel-list-border, rgba(255, 255, 255, 0.06))',
         borderRadius: '16px',
         overflow: 'hidden' as const,
     } as React.CSSProperties,
@@ -82,22 +84,24 @@ const GLASS = {
 // genuine emergency states (MOB and a dragging anchor).
 const SAFETY_CONTROL_GROUP = {
     background:
-        'linear-gradient(135deg, rgba(16, 185, 129, 0.14) 0%, rgba(6, 78, 59, 0.08) 48%, rgba(20, 25, 35, 0.08) 100%)',
-    border: '1px solid rgba(74, 222, 128, 0.28)',
+        'var(--vessel-safety-group-bg, linear-gradient(135deg, rgba(16, 185, 129, 0.14) 0%, rgba(6, 78, 59, 0.08) 48%, rgba(20, 25, 35, 0.08) 100%))',
+    border: '1px solid var(--vessel-safety-group-border, rgba(74, 222, 128, 0.28))',
     boxShadow: '0 0 0 1px rgba(16, 185, 129, 0.06), 0 10px 26px rgba(5, 150, 105, 0.10)',
 } as React.CSSProperties;
 
 const SAFETY_CONTROL_CARD = {
     ...GLASS.card,
-    background: 'linear-gradient(145deg, rgba(16, 185, 129, 0.15) 0%, rgba(20, 25, 35, 0.82) 72%)',
-    border: '1px solid rgba(74, 222, 128, 0.42)',
+    background:
+        'var(--vessel-safety-card-bg, linear-gradient(145deg, rgba(16, 185, 129, 0.15) 0%, rgba(20, 25, 35, 0.82) 72%))',
+    border: '1px solid var(--vessel-safety-card-border, rgba(74, 222, 128, 0.42))',
     boxShadow:
         'inset 0 1px 0 rgba(167, 243, 208, 0.22), 0 0 0 1px rgba(16, 185, 129, 0.10), 0 8px 22px rgba(16, 185, 129, 0.12)',
 } as React.CSSProperties;
 
 const ALERT_SAFETY_CONTROL_CARD = {
     ...SAFETY_CONTROL_CARD,
-    background: 'linear-gradient(145deg, rgba(127, 29, 29, 0.56) 0%, rgba(20, 25, 35, 0.86) 72%)',
+    background:
+        'var(--vessel-alert-card-bg, linear-gradient(145deg, rgba(127, 29, 29, 0.56) 0%, rgba(20, 25, 35, 0.86) 72%))',
     border: '1px solid rgba(248, 113, 113, 0.62)',
     boxShadow:
         'inset 0 1px 0 rgba(254, 202, 202, 0.20), 0 0 0 1px rgba(239, 68, 68, 0.14), 0 8px 22px rgba(239, 68, 68, 0.16)',
@@ -143,7 +147,17 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
     // harmless; the Set just won't match any current section.
     const [expanded, setExpanded] = useState<Set<string>>(new Set());
     // Boat Binder is a SCREEN, not a section — see the row that opens it below.
-    const [binderOpen, setBinderOpen] = useState(false);
+    const [binderOpen, setBinderOpen] = useState(() => {
+        if (typeof window === 'undefined') return false;
+        const key = authScopedStorageKey('thalassa_boat_binder_return');
+        try {
+            const shouldReturn = sessionStorage.getItem(key) === '1';
+            sessionStorage.removeItem(key);
+            return shouldReturn;
+        } catch {
+            return false;
+        }
+    });
     const [_isAdmin, setIsAdmin] = useState(false);
 
     // ── Hero band state — vessel name, active voyage, GPS fix, wind, network ──
@@ -261,9 +275,10 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                 setPosition(pos);
             }
         });
-        // Also kick off a one-shot fetch so the hero band has data on
-        // first render even if watchPosition has a slow first emit.
-        GpsService.getCurrentPosition({ staleLimitMs: 60_000, timeoutSec: 8 })
+        // Also read one foreground fix if the OS grant already exists. The
+        // Nav Station may be restored at launch, so this must never prompt or
+        // initialize background/motion tracking merely to paint its hero band.
+        GpsService.getCurrentPositionIfGranted({ staleLimitMs: 60_000, timeoutSec: 8 })
             .then((pos) => {
                 if (pos && pos.timestamp > lastTs) {
                     lastTs = pos.timestamp;
@@ -417,6 +432,11 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
     const [guardianNearby, setGuardianNearby] = useState<number>(0);
 
     useEffect(() => {
+        if (!FEATURE_VISIBILITY.guardian) {
+            setGuardianArmed(false);
+            setGuardianNearby(0);
+            return;
+        }
         // Subscribe to Guardian for live armed-state + nearby-count.
         let cancelled = false;
         let unsub: (() => void) | null = null;
@@ -543,6 +563,18 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
     const anchorLabelShort: string = anchorStatus === 'alarm' ? 'DRAGGING' : anchorStatus === 'armed' ? 'Armed' : 'Off';
     const anchorColor = anchorStatus === 'alarm' ? '#ef4444' : anchorStatus === 'armed' ? '#22d3ee' : '#9ca3af';
 
+    const navigateFromBinder = useCallback(
+        (page: string) => {
+            try {
+                sessionStorage.setItem(authScopedStorageKey('thalassa_boat_binder_return'), '1');
+            } catch {
+                /* navigation still works when session storage is unavailable */
+            }
+            onNavigate(page);
+        },
+        [onNavigate],
+    );
+
     // BOAT BINDER SCREEN. Rendered instead of the hub — same wrapper and scroll
     // container, its own header, hardware-free back. Kept INSIDE VesselHub rather
     // than extracted to a routed view because the rows below read a dozen pieces
@@ -551,11 +583,12 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
     if (binderOpen) {
         return (
             <div
-                className="w-full h-full flex flex-col animate-in fade-in duration-300 vessel-hub-no-scrollbar"
+                className="vessel-hub-surface w-full h-full flex flex-col animate-in fade-in duration-300 vessel-hub-no-scrollbar"
                 style={{
                     paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)',
                     backgroundImage: CONTOUR_BG,
                     backgroundSize: '400px 400px',
+                    backgroundColor: 'var(--vessel-surface-bg, transparent)',
                 }}
             >
                 <div className="flex shrink-0 items-center gap-3 px-4 pb-3 pt-4">
@@ -582,7 +615,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                             statusColor="#94a3b8"
                             onClick={() => {
                                 triggerHaptic('light');
-                                onNavigate('gpx-import');
+                                navigateFromBinder('gpx-import');
                             }}
                         />
                     </div>
@@ -597,7 +630,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                             statusColor="#94a3b8"
                             onClick={() => {
                                 triggerHaptic('light');
-                                onNavigate('inventory');
+                                navigateFromBinder('inventory');
                             }}
                         />
                         <ListDivider />
@@ -619,7 +652,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                             statusColor="#94a3b8"
                             onClick={() => {
                                 triggerHaptic('light');
-                                onNavigate('galley');
+                                navigateFromBinder('galley');
                             }}
                         />
                         <ListDivider />
@@ -630,7 +663,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                             statusColor={expiringEquipCount > 0 ? '#f59e0b' : '#94a3b8'}
                             onClick={() => {
                                 triggerHaptic('light');
-                                onNavigate('equipment');
+                                navigateFromBinder('equipment');
                             }}
                             badge={expiringEquipCount > 0 ? expiringEquipCount : undefined}
                         />
@@ -642,7 +675,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                             statusColor={overdueCount > 0 ? '#ef4444' : '#94a3b8'}
                             onClick={() => {
                                 triggerHaptic('light');
-                                onNavigate('maintenance');
+                                navigateFromBinder('maintenance');
                             }}
                             badge={overdueCount > 0 ? overdueCount : undefined}
                             badgeUrgent={overdueCount > 0}
@@ -659,7 +692,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                             statusColor="#94a3b8"
                             onClick={() => {
                                 triggerHaptic('light');
-                                onNavigate('checklists');
+                                navigateFromBinder('checklists');
                             }}
                         />
                         <ListDivider />
@@ -672,7 +705,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                             statusColor="#34d399"
                             onClick={() => {
                                 triggerHaptic('light');
-                                onNavigate('weatherWindow');
+                                navigateFromBinder('weatherWindow');
                             }}
                         />
                         <ListDivider />
@@ -683,7 +716,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                             statusColor="#38bdf8"
                             onClick={() => {
                                 triggerHaptic('light');
-                                onNavigate('skipperReference');
+                                navigateFromBinder('skipperReference');
                             }}
                         />
                         <ListDivider />
@@ -695,7 +728,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                             onClick={() => {
                                 if (isObserver) return;
                                 triggerHaptic('light');
-                                onNavigate('polars');
+                                navigateFromBinder('polars');
                             }}
                             disabled={isObserver}
                         />
@@ -707,7 +740,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                             statusColor={expiringDocsCount > 0 ? '#ef4444' : '#94a3b8'}
                             onClick={() => {
                                 triggerHaptic('light');
-                                onNavigate('documents');
+                                navigateFromBinder('documents');
                             }}
                             badge={expiringDocsCount > 0 ? expiringDocsCount : undefined}
                             badgeUrgent={expiringDocsCount > 0}
@@ -720,7 +753,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                             statusColor="#f59e0b"
                             onClick={() => {
                                 triggerHaptic('light');
-                                onNavigate('notices');
+                                navigateFromBinder('notices');
                             }}
                         />
                     </div>
@@ -731,11 +764,12 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
 
     return (
         <div
-            className="w-full h-full flex flex-col animate-in fade-in duration-300 vessel-hub-no-scrollbar"
+            className="vessel-hub-surface w-full h-full flex flex-col animate-in fade-in duration-300 vessel-hub-no-scrollbar"
             style={{
                 paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)',
                 backgroundImage: CONTOUR_BG,
                 backgroundSize: '400px 400px',
+                backgroundColor: 'var(--vessel-surface-bg, transparent)',
             }}
         >
             {/*
@@ -841,7 +875,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                             data-testid="vessel-safety-controls"
                             role="group"
                             style={SAFETY_CONTROL_GROUP}
-                            className="grid grid-cols-4 gap-2 rounded-[20px] p-1"
+                            className={`grid ${FEATURE_VISIBILITY.guardian ? 'grid-cols-4' : 'grid-cols-3'} gap-2 rounded-[20px] p-1`}
                         >
                             {/* Order is deliberate (Shane 2026-08-04): MOB
                                 first — the one you reach for in a genuine
@@ -889,37 +923,39 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                 </p>
                             </button>
 
-                            <button
-                                aria-label="Open Guardian bay watch"
-                                onClick={() => {
-                                    triggerHaptic('light');
-                                    onNavigate('guardian');
-                                }}
-                                style={SAFETY_CONTROL_CARD}
-                                className="card-lift flex flex-col items-center gap-1.5 px-1 py-2.5 transition-all hover:bg-white/[0.03] active:scale-[0.98] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300"
-                            >
-                                <div
-                                    className="flex h-8 w-8 items-center justify-center rounded-lg"
-                                    style={{ background: 'rgba(245, 158, 11, 0.12)' }}
+                            {FEATURE_VISIBILITY.guardian && (
+                                <button
+                                    aria-label="Open Guardian bay watch"
+                                    onClick={() => {
+                                        triggerHaptic('light');
+                                        onNavigate('guardian');
+                                    }}
+                                    style={SAFETY_CONTROL_CARD}
+                                    className="card-lift flex flex-col items-center gap-1.5 px-1 py-2.5 transition-all hover:bg-white/[0.03] active:scale-[0.98] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300"
                                 >
-                                    <ShieldIcon color="#f59e0b" />
-                                </div>
-                                <h4 className="text-[11px] font-black leading-none tracking-wide text-white">
-                                    Guardian
-                                </h4>
-                                <p
-                                    className="max-w-full truncate text-[9px] font-bold uppercase leading-none tracking-wide"
-                                    style={{ color: guardianArmed ? '#10b981' : '#f59e0b' }}
-                                >
-                                    {/* The "· N nearby" suffix does not fit here; the
+                                    <div
+                                        className="flex h-8 w-8 items-center justify-center rounded-lg"
+                                        style={{ background: 'rgba(245, 158, 11, 0.12)' }}
+                                    >
+                                        <ShieldIcon color="#f59e0b" />
+                                    </div>
+                                    <h4 className="text-[11px] font-black leading-none tracking-wide text-white">
+                                        Guardian
+                                    </h4>
+                                    <p
+                                        className="max-w-full truncate text-[9px] font-bold uppercase leading-none tracking-wide"
+                                        style={{ color: guardianArmed ? '#10b981' : '#f59e0b' }}
+                                    >
+                                        {/* The "· N nearby" suffix does not fit here; the
                                         count replaces the word so it is not lost. */}
-                                    {guardianArmed
-                                        ? guardianNearby > 0
-                                            ? `${guardianNearby} near`
-                                            : 'Watching'
-                                        : 'Off'}
-                                </p>
-                            </button>
+                                        {guardianArmed
+                                            ? guardianNearby > 0
+                                                ? `${guardianNearby} near`
+                                                : 'Watching'
+                                            : 'Off'}
+                                    </p>
+                                </button>
+                            )}
 
                             <button
                                 aria-label="Anchor Watch"
@@ -1051,7 +1087,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                             </div>
                         </button>
 
-                        {/* Scuttlebutt — community + DMs + Chandlery
+                        {/* Scuttlebutt — community channels + DMs
                                 (right tile). Moved here from the Wardroom
                                 section because it's a sharing surface
                                 more than a "lounge" feature — pairs
@@ -1182,10 +1218,21 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                             />
                             <ListDivider />
                             <OfficeRow
+                                icon={<MapChartIcon color="#7dd3fc" />}
+                                label="ENC Library"
+                                status="Unverified reference overlays"
+                                statusColor="#7dd3fc"
+                                onClick={() => {
+                                    triggerHaptic('light');
+                                    onNavigate('encLibrary');
+                                }}
+                            />
+                            <ListDivider />
+                            <OfficeRow
                                 icon={<MapChartIcon color="#cbd5e1" />}
                                 label="Boat Network"
-                                status="Pi & Charts"
-                                statusColor="#94a3b8"
+                                status="Pi held in public beta"
+                                statusColor="#fbbf24"
                                 onClick={() => {
                                     triggerHaptic('light');
                                     onNavigate('avnav');
@@ -1196,12 +1243,14 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                 icon={<UserIcon color="#cbd5e1" />}
                                 label="Account & Settings"
                                 status={(() => {
+                                    if (PUBLIC_BETA_ACCESS.enabled) return PUBLIC_BETA_ACCESS.label;
                                     const tier = (settings as Record<string, unknown>).subscriptionTier as string;
                                     if (tier === 'owner') return 'Vessel Owner';
                                     if (tier === 'crew') return 'Crew Plan';
                                     return 'Free Plan';
                                 })()}
                                 statusColor={(() => {
+                                    if (PUBLIC_BETA_ACCESS.enabled) return '#67E8F9';
                                     // Tier badge stays its own colour —
                                     // owner=amber (premium), crew=cyan,
                                     // free=grey. This is a deliberate
@@ -1929,8 +1978,9 @@ const NavStationHero: React.FC<{
                 className="mb-3 overflow-hidden"
                 style={{
                     ...GLASS.card,
-                    background: 'linear-gradient(135deg, rgba(20,25,35,0.7) 0%, rgba(14,165,233,0.05) 100%)',
-                    borderColor: 'rgba(255,255,255,0.10)',
+                    background:
+                        'var(--vessel-hero-bg, linear-gradient(135deg, rgba(20,25,35,0.7) 0%, rgba(14,165,233,0.05) 100%))',
+                    borderColor: 'var(--vessel-hero-border, rgba(255,255,255,0.10))',
                 }}
             >
                 <MetricChipStrip showTopBorder={false} chips={metricChips} />
@@ -1943,8 +1993,9 @@ const NavStationHero: React.FC<{
             className={`mb-4 overflow-hidden ${anchorStatus === 'alarm' ? 'nav-hero-alarm' : ''}`}
             style={{
                 ...GLASS.card,
-                background: 'linear-gradient(135deg, rgba(20,25,35,0.75) 0%, rgba(14,165,233,0.08) 100%)',
-                borderColor: 'rgba(255,255,255,0.12)',
+                background:
+                    'var(--vessel-hero-bg, linear-gradient(135deg, rgba(20,25,35,0.75) 0%, rgba(14,165,233,0.08) 100%))',
+                borderColor: 'var(--vessel-hero-border, rgba(255,255,255,0.12))',
                 transition: 'border-color 300ms ease, box-shadow 300ms ease',
             }}
         >

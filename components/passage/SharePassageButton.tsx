@@ -1,9 +1,10 @@
 /**
  * SharePassageButton — Share passage brief via iOS Share Sheet.
  *
- * Two modes:
- *   📤 Quick Brief — plain text, ideal for WhatsApp/iMessage
- *   📄 Export PDF  — professional PDF via jsPDF, ideal for Email/AirDrop
+ * Three clear products:
+ *   🛟 Float Plan  — private safety handoff with overdue action + SAR details
+ *   💬 Quick Brief — route summary for casual sharing
+ *   📄 Export PDF  — professional passage dossier
  *
  * Uses:
  *   - PassageBriefService for data assembly
@@ -20,6 +21,8 @@ import { generatePassagePdf, getPassagePdfFileName } from '../../services/Passag
 import { triggerHaptic } from '../../utils/system';
 import { createLogger } from '../../utils/createLogger';
 import { useMenuNavigation } from '../../hooks/useMenuNavigation';
+import { ModalSheet } from '../ui/ModalSheet';
+import { FloatPlanSheet, type FloatPlanPreset } from '../vessel/FloatPlanSheet';
 
 const log = createLogger('SharePassage');
 
@@ -28,9 +31,35 @@ interface SharePassageButtonProps {
     className?: string;
 }
 
+interface ShareFailure {
+    kind: 'text' | 'pdf';
+    message: string;
+    fallbackText: string;
+}
+
+function passageFallbackText(data: PassageBriefData): string {
+    try {
+        return generatePassageBrief(data).textVersion;
+    } catch {
+        return [
+            'THALASSA PASSAGE BRIEF',
+            `${data.origin?.name || 'Unknown origin'} to ${data.destination?.name || 'Unknown destination'}`,
+            data.departureTime ? `Departure: ${new Date(data.departureTime).toLocaleString()}` : 'Departure: not set',
+            Number.isFinite(data.totalDistanceNM) ? `Distance: ${data.totalDistanceNM} NM` : '',
+            Number.isFinite(data.estimatedDuration) ? `Estimated duration: ${data.estimatedDuration} hours` : '',
+            'Verify all route, weather, depth and timing information independently before departure.',
+        ]
+            .filter(Boolean)
+            .join('\n');
+    }
+}
+
 const SharePassageButton: React.FC<SharePassageButtonProps> = ({ briefData, className = '' }) => {
     const [menuOpen, setMenuOpen] = useState(false);
     const [sharing, setSharing] = useState(false);
+    const [showFloatPlan, setShowFloatPlan] = useState(false);
+    const [shareFailure, setShareFailure] = useState<ShareFailure | null>(null);
+    const [fallbackCopyState, setFallbackCopyState] = useState<'idle' | 'copied' | 'failed'>('idle');
     // Nothing prints or shares until the passage plan is actually complete —
     // a float plan naming "?" as the destination or carrying no departure
     // time is worse than none, because someone ashore will act on it
@@ -56,6 +85,8 @@ const SharePassageButton: React.FC<SharePassageButtonProps> = ({ briefData, clas
 
     const handleShareText = useCallback(async () => {
         if (!briefData) return;
+        setShareFailure(null);
+        setFallbackCopyState('idle');
         setSharing(true);
         triggerHaptic('medium');
 
@@ -71,6 +102,11 @@ const SharePassageButton: React.FC<SharePassageButtonProps> = ({ briefData, clas
             log.info('[share] Text brief shared');
         } catch (err) {
             log.warn('[share] Text share failed:', err);
+            setShareFailure({
+                kind: 'text',
+                message: 'Thalassa could not confirm that the passage brief was shared.',
+                fallbackText: passageFallbackText(briefData),
+            });
         } finally {
             setSharing(false);
             setMenuOpen(false);
@@ -79,6 +115,8 @@ const SharePassageButton: React.FC<SharePassageButtonProps> = ({ briefData, clas
 
     const handleSharePdf = useCallback(async () => {
         if (!briefData) return;
+        setShareFailure(null);
+        setFallbackCopyState('idle');
         setSharing(true);
         triggerHaptic('medium');
 
@@ -125,13 +163,62 @@ const SharePassageButton: React.FC<SharePassageButtonProps> = ({ briefData, clas
             }, 30_000);
         } catch (err) {
             log.warn('[share] PDF share failed:', err);
+            setShareFailure({
+                kind: 'pdf',
+                message: 'The passage PDF could not be created or handed to the share sheet.',
+                fallbackText: passageFallbackText(briefData),
+            });
         } finally {
             setSharing(false);
             setMenuOpen(false);
         }
     }, [briefData]);
 
+    const retryFailedShare = useCallback(() => {
+        if (!shareFailure) return;
+        const kind = shareFailure.kind;
+        setShareFailure(null);
+        if (kind === 'pdf') void handleSharePdf();
+        else void handleShareText();
+    }, [handleSharePdf, handleShareText, shareFailure]);
+
+    const copyFallbackText = useCallback(async () => {
+        if (!shareFailure) return;
+        try {
+            await navigator.clipboard.writeText(shareFailure.fallbackText);
+            setFallbackCopyState('copied');
+            triggerHaptic('light');
+        } catch (error) {
+            log.warn('[share] Manual fallback copy failed:', error);
+            setFallbackCopyState('failed');
+        }
+    }, [shareFailure]);
+
     if (!briefData) return null;
+
+    const floatPlanPreset: FloatPlanPreset | null =
+        briefData.origin && briefData.destination
+            ? {
+                  route: {
+                      name: briefData.routeName,
+                      from: briefData.origin.name,
+                      to: briefData.destination.name,
+                      distanceNM: briefData.totalDistanceNM,
+                      waypoints: [
+                          { lat: briefData.origin.lat, lon: briefData.origin.lon },
+                          ...(briefData.turnWaypoints?.length
+                              ? briefData.turnWaypoints.map((point) => ({ lat: point.lat, lon: point.lon }))
+                              : (briefData.viaWaypoints ?? []).map((point) => ({ lat: point.lat, lon: point.lon }))),
+                          { lat: briefData.destination.lat, lon: briefData.destination.lon },
+                      ],
+                  },
+                  departureMs: new Date(briefData.departureTime).getTime(),
+                  etaMs:
+                      new Date(briefData.departureTime).getTime() +
+                      Number(briefData.estimatedDuration || 0) * 3_600_000,
+                  personsOnBoard: briefData.crewCount,
+              }
+            : null;
 
     return (
         <div className={`relative ${className}`}>
@@ -177,7 +264,33 @@ const SharePassageButton: React.FC<SharePassageButtonProps> = ({ briefData, clas
                         </p>
                     </div>
 
-                    {/* Float Plan (text) — renamed from "Quick Brief" */}
+                    {/* A real float plan: overdue action, POB, rescue contact,
+                        vessel identity and safety equipment. */}
+                    <button
+                        role="menuitem"
+                        onClick={() => {
+                            if (!planComplete || !floatPlanPreset) return;
+                            setMenuOpen(false);
+                            setShowFloatPlan(true);
+                            triggerHaptic('medium');
+                        }}
+                        disabled={sharing || !planComplete}
+                        className="w-full flex items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-white/5 active:bg-white/10 disabled:opacity-40"
+                    >
+                        <span className="text-xl">🛟</span>
+                        <div className="flex-1">
+                            <p className="text-sm font-bold text-white">Float Plan</p>
+                            <p className="text-[11px] text-gray-500">
+                                {planComplete
+                                    ? 'Safety handoff · text, WhatsApp, email'
+                                    : 'Finish the passage plan first'}
+                            </p>
+                        </div>
+                    </button>
+
+                    <div role="separator" className="h-px bg-white/[0.04] mx-3" />
+
+                    {/* Passage data without the safety promise of a float plan. */}
                     <button
                         role="menuitem"
                         onClick={handleShareText}
@@ -186,9 +299,9 @@ const SharePassageButton: React.FC<SharePassageButtonProps> = ({ briefData, clas
                     >
                         <span className="text-xl">💬</span>
                         <div className="flex-1">
-                            <p className="text-sm font-bold text-white">Float Plan</p>
+                            <p className="text-sm font-bold text-white">Quick Passage Brief</p>
                             <p className="text-[11px] text-gray-500">
-                                {planComplete ? 'Plain text · WhatsApp, iMessage' : 'Finish the passage plan first'}
+                                {planComplete ? 'Route summary · casual sharing' : 'Finish the passage plan first'}
                             </p>
                         </div>
                     </button>
@@ -228,6 +341,79 @@ const SharePassageButton: React.FC<SharePassageButtonProps> = ({ briefData, clas
             {menuOpen && (
                 <div role="presentation" aria-hidden="true" className="fixed inset-0 z-40" onClick={closeMenu} />
             )}
+
+            <ModalSheet
+                isOpen={showFloatPlan && floatPlanPreset !== null}
+                onClose={() => setShowFloatPlan(false)}
+                title="Float plan"
+                maxWidth="max-w-3xl"
+                alignTop
+                zIndex="z-[1200]"
+            >
+                {floatPlanPreset && <FloatPlanSheet preset={floatPlanPreset} onClose={() => setShowFloatPlan(false)} />}
+            </ModalSheet>
+
+            <ModalSheet
+                isOpen={shareFailure !== null}
+                onClose={() => setShareFailure(null)}
+                title="Share did not complete"
+                maxWidth="max-w-xl"
+                zIndex="z-[1250]"
+            >
+                {shareFailure && (
+                    <div className="space-y-4 p-1">
+                        <div
+                            role="alert"
+                            aria-live="assertive"
+                            className="rounded-xl border border-red-400/30 bg-red-500/10 p-3 text-sm font-semibold text-red-100"
+                        >
+                            {shareFailure.message} Nothing has been marked as sent. Retry, or copy the text below and
+                            send it manually.
+                        </div>
+
+                        <div>
+                            <label
+                                htmlFor="passage-share-manual-fallback"
+                                className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-300"
+                            >
+                                Selectable manual fallback
+                            </label>
+                            <textarea
+                                id="passage-share-manual-fallback"
+                                readOnly
+                                value={shareFailure.fallbackText}
+                                onFocus={(event) => event.currentTarget.select()}
+                                rows={10}
+                                className="w-full resize-y rounded-xl border border-white/10 bg-slate-950/80 p-3 font-mono text-xs leading-relaxed text-slate-100 outline-none focus:border-sky-400"
+                            />
+                        </div>
+
+                        <div aria-live="polite" className="min-h-5 text-xs text-slate-300">
+                            {fallbackCopyState === 'copied' && 'Fallback text copied. Choose and verify the recipient.'}
+                            {fallbackCopyState === 'failed' &&
+                                'Clipboard access is unavailable. Select the text above and copy it manually.'}
+                        </div>
+
+                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                            <button
+                                type="button"
+                                onClick={retryFailedShare}
+                                disabled={sharing}
+                                className="min-h-[44px] rounded-xl bg-sky-500 px-4 py-3 text-sm font-black text-slate-950 disabled:opacity-50"
+                            >
+                                {sharing ? 'Retrying…' : `Retry ${shareFailure.kind === 'pdf' ? 'PDF' : 'share'}`}
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => void copyFallbackText()}
+                                className="min-h-[44px] rounded-xl border border-white/15 bg-white/5 px-4 py-3 text-sm font-bold text-white"
+                            >
+                                Copy fallback text
+                            </button>
+                        </div>
+                    </div>
+                )}
+            </ModalSheet>
         </div>
     );
 };

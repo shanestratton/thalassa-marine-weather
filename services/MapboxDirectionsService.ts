@@ -27,6 +27,7 @@
  */
 import { detectBends } from './passage/detectBends';
 import { createLogger } from '../utils/createLogger';
+import { DeadlineExceeded, withDeadline } from '../utils/deadline';
 
 const log = createLogger('MapboxDirections');
 
@@ -105,10 +106,20 @@ export async function getDirections(
     log.info(`requesting ${profile} route ${coords}`);
 
     let res: Response;
+    const deadlineAt = Date.now() + DIRECTIONS_TIMEOUT_MS;
     try {
-        res = await fetch(url, { signal: AbortSignal.timeout(DIRECTIONS_TIMEOUT_MS) });
+        // Capacitor's native fetch patch ignores AbortSignal. Keep the signal
+        // for browsers, but enforce the wall-clock bound in JavaScript too.
+        res = await withDeadline(
+            fetch(url, { signal: AbortSignal.timeout(DIRECTIONS_TIMEOUT_MS) }),
+            DIRECTIONS_TIMEOUT_MS,
+            'Mapbox Directions request',
+        );
     } catch (error) {
-        if (error instanceof Error && (error.name === 'AbortError' || error.name === 'TimeoutError')) {
+        if (
+            error instanceof DeadlineExceeded ||
+            (error instanceof Error && (error.name === 'AbortError' || error.name === 'TimeoutError'))
+        ) {
             throw new Error('Mapbox Directions timed out — check your connection and try again.');
         }
         throw error;
@@ -116,7 +127,7 @@ export async function getDirections(
     if (!res.ok) {
         throw new Error(`Mapbox Directions HTTP ${res.status}`);
     }
-    const json = (await res.json()) as {
+    let json: {
         code: string;
         routes?: Array<{
             geometry: { type: 'LineString'; coordinates: Array<[number, number]> };
@@ -124,6 +135,18 @@ export async function getDirections(
             duration: number; // seconds
         }>;
     };
+    try {
+        json = (await withDeadline(
+            res.json(),
+            Math.max(1, deadlineAt - Date.now()),
+            'Mapbox Directions response body',
+        )) as typeof json;
+    } catch (error) {
+        if (error instanceof DeadlineExceeded) {
+            throw new Error('Mapbox Directions timed out — check your connection and try again.');
+        }
+        throw error;
+    }
 
     if (json.code !== 'Ok' || !json.routes || json.routes.length === 0) {
         log.info(`no route returned — code=${json.code}`);

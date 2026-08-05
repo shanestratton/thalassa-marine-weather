@@ -15,8 +15,6 @@
 		504EC30F1FED79650016851F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 504EC30E1FED79650016851F /* Assets.xcassets */; };
 		504EC3121FED79650016851F /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 504EC3101FED79650016851F /* LaunchScreen.storyboard */; };
 		50B271D11FEDC1A000F3C39B /* public in Resources */ = {isa = PBXBuildFile; fileRef = 50B271D01FEDC1A000F3C39B /* public */; };
-		A51059EE2FA6E9A50083AF02 /* AppleMusicPlugin.m in Sources */ = {isa = PBXBuildFile; fileRef = A51059EC2FA6E9A50083AF02 /* AppleMusicPlugin.m */; };
-		A51059EF2FA6E9A50083AF02 /* AppleMusicPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A51059ED2FA6E9A50083AF02 /* AppleMusicPlugin.swift */; };
 		A5CCB7372F98653D00778C68 /* ThalassaWatch Watch App.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = A5CCB72D2F98653B00778C68 /* ThalassaWatch Watch App.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		AA000001AAAA000100000001 /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000001AAAA000100000002 /* SceneDelegate.swift */; };
 		AA000002AAAA000200000001 /* AlarmAudioPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000002AAAA000200000002 /* AlarmAudioPlugin.swift */; };
@@ -34,6 +32,9 @@
 		AA000014AAAA001400000001 /* MdnsBrowserPlugin.m in Sources */ = {isa = PBXBuildFile; fileRef = AA000014AAAA001400000002 /* MdnsBrowserPlugin.m */; };
 		AA000015AAAA001500000001 /* WatchConnectivityPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000015AAAA001500000002 /* WatchConnectivityPlugin.swift */; };
 		AA000016AAAA001600000001 /* WatchConnectivityPlugin.m in Sources */ = {isa = PBXBuildFile; fileRef = AA000016AAAA001600000002 /* WatchConnectivityPlugin.m */; };
+		AA000017AAAA001700000001 /* AppleCredentialStatePlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000017AAAA001700000002 /* AppleCredentialStatePlugin.swift */; };
+		AA000018AAAA001800000001 /* AnchorSafetyNotificationPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000018AAAA001800000002 /* AnchorSafetyNotificationPlugin.swift */; };
+		B3A100012026080400000001 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = B3A100012026080400000002 /* PrivacyInfo.xcprivacy */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -92,10 +93,23 @@
 		AA000014AAAA001400000002 /* MdnsBrowserPlugin.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = MdnsBrowserPlugin.m; sourceTree = "<group>"; };
 		AA000015AAAA001500000002 /* WatchConnectivityPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchConnectivityPlugin.swift; sourceTree = "<group>"; };
 		AA000016AAAA001600000002 /* WatchConnectivityPlugin.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = WatchConnectivityPlugin.m; sourceTree = "<group>"; };
+		AA000017AAAA001700000002 /* AppleCredentialStatePlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleCredentialStatePlugin.swift; sourceTree = "<group>"; };
+		AA000018AAAA001800000002 /* AnchorSafetyNotificationPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnchorSafetyNotificationPlugin.swift; sourceTree = "<group>"; };
+		B3A100012026080400000002 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		A5CCB72E2F98653B00778C68 /* ThalassaWatch Watch App */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = "ThalassaWatch Watch App"; sourceTree = "<group>"; };
+		A5CCB72E2F98653B00778C68 /* ThalassaWatch Watch App */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+			);
+			explicitFileTypes = {
+			};
+			explicitFolders = (
+			);
+			path = "ThalassaWatch Watch App";
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -160,10 +174,13 @@
 				AA000014AAAA001400000002 /* MdnsBrowserPlugin.m */,
 				AA000015AAAA001500000002 /* WatchConnectivityPlugin.swift */,
 				AA000016AAAA001600000002 /* WatchConnectivityPlugin.m */,
+				AA000017AAAA001700000002 /* AppleCredentialStatePlugin.swift */,
+				AA000018AAAA001800000002 /* AnchorSafetyNotificationPlugin.swift */,
 				504EC30B1FED79650016851F /* Main.storyboard */,
 				504EC30E1FED79650016851F /* Assets.xcassets */,
 				504EC3101FED79650016851F /* LaunchScreen.storyboard */,
 				504EC3131FED79650016851F /* Info.plist */,
+				B3A100012026080400000002 /* PrivacyInfo.xcprivacy */,
 				2FAD9762203C412B000D30F8 /* config.xml */,
 				50B271D01FEDC1A000F3C39B /* public */,
 			);
@@ -288,6 +305,7 @@
 				50379B232058CBB4000EE86E /* capacitor.config.json in Resources */,
 				504EC30D1FED79650016851F /* Main.storyboard in Resources */,
 				2FAD9763203C412B000D30F8 /* config.xml in Resources */,
+				B3A100012026080400000001 /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -363,8 +381,6 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				A51059EE2FA6E9A50083AF02 /* AppleMusicPlugin.m in Sources */,
-				A51059EF2FA6E9A50083AF02 /* AppleMusicPlugin.swift in Sources */,
 				504EC3081FED79650016851F /* AppDelegate.swift in Sources */,
 				AA000001AAAA000100000001 /* SceneDelegate.swift in Sources */,
 				AA000002AAAA000200000001 /* AlarmAudioPlugin.swift in Sources */,
@@ -382,6 +398,8 @@
 				AA000014AAAA001400000001 /* MdnsBrowserPlugin.m in Sources */,
 				AA000015AAAA001500000001 /* WatchConnectivityPlugin.swift in Sources */,
 				AA000016AAAA001600000001 /* WatchConnectivityPlugin.m in Sources */,
+				AA000017AAAA001700000001 /* AppleCredentialStatePlugin.swift in Sources */,
+				AA000018AAAA001800000001 /* AnchorSafetyNotificationPlugin.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -548,7 +566,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = App/App.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 100;
+				CURRENT_PROJECT_VERSION = 101;
 				INFOPLIST_FILE = App/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -579,7 +597,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = App/App.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 100;
+				CURRENT_PROJECT_VERSION = 101;
 				INFOPLIST_FILE = App/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -614,7 +632,7 @@
 				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
 				CODE_SIGN_ENTITLEMENTS = "ThalassaWatch Watch App/ThalassaWatch Watch App.entitlements";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 100;
+				CURRENT_PROJECT_VERSION = 101;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				FRAMEWORK_SEARCH_PATHS = "";
@@ -622,8 +640,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "ThalassaWatch-Watch-App-Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = ThalassaWatch;
-				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "Anchor Watch monitors your position even when the watch face is dimmed";
-				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Anchor Watch needs GPS to detect drag and trigger the alarm";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Thalassa uses your Watch position for a foreground anchor-distance check while the Anchor screen is visible.";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
 				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = com.thalassa.weather;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -652,7 +669,7 @@
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = 4;
-				WATCHOS_DEPLOYMENT_TARGET = 26.4;
+				WATCHOS_DEPLOYMENT_TARGET = 10.0;
 			};
 			name = Debug;
 		};
@@ -670,7 +687,7 @@
 				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
 				CODE_SIGN_ENTITLEMENTS = "ThalassaWatch Watch App/ThalassaWatch Watch App.entitlements";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 100;
+				CURRENT_PROJECT_VERSION = 101;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				FRAMEWORK_SEARCH_PATHS = "";
@@ -678,8 +695,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "ThalassaWatch-Watch-App-Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = ThalassaWatch;
-				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "Anchor Watch monitors your position even when the watch face is dimmed";
-				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Anchor Watch needs GPS to detect drag and trigger the alarm";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Thalassa uses your Watch position for a foreground anchor-distance check while the Anchor screen is visible.";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
 				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = com.thalassa.weather;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -705,7 +721,7 @@
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = 4;
-				WATCHOS_DEPLOYMENT_TARGET = 26.4;
+				WATCHOS_DEPLOYMENT_TARGET = 10.0;
 			};
 			name = Release;
 		};

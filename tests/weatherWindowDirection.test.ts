@@ -1,9 +1,16 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { WeatherWindowService, meanWindDirection } from '../services/WeatherWindowService';
+import {
+    WeatherWindowService,
+    WEATHER_WINDOW_MAX_FALLBACK_AGE_MS,
+    isWeatherWindowResultAcceptable,
+    meanWindDirection,
+} from '../services/WeatherWindowService';
 
 const CACHE_PREFIX = 'thalassa_weather_windows';
 
 afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
     for (let i = localStorage.length - 1; i >= 0; i--) {
         const key = localStorage.key(i);
         if (key?.startsWith(CACHE_PREFIX)) localStorage.removeItem(key);
@@ -53,6 +60,7 @@ describe('WeatherWindowService direction and cache handling', () => {
 
         expect(result.windows).toEqual([]);
         expect(result.bestWindowIndex).toBe(-1);
+        expect(result.availability).toBe('available');
         expect(fetchMock).toHaveBeenCalledTimes(2);
         for (const [url, init] of fetchMock.mock.calls) {
             expect(url).toBe('https://test.supabase.co/functions/v1/proxy-openmeteo');
@@ -69,6 +77,7 @@ describe('WeatherWindowService direction and cache handling', () => {
 
         expect(result.windows).toEqual([]);
         expect(result.bestWindowIndex).toBe(-1);
+        expect(result.availability).toBe('unavailable');
         expect(fetchMock).not.toHaveBeenCalled();
         fetchMock.mockRestore();
     });
@@ -96,6 +105,75 @@ describe('WeatherWindowService direction and cache handling', () => {
 
         expect(result.windows).toEqual([]);
         expect(result.bestWindowIndex).toBe(-1);
+        expect(result.availability).toBe('available');
         fetchMock.mockRestore();
+    });
+
+    it('uses a failed-live fallback only inside the hard six-hour ceiling', async () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date('2026-08-05T00:00:00.000Z'));
+        const times = Array.from({ length: 24 }, (_, index) => new Date(Date.UTC(2026, 7, 5, index)).toISOString());
+        const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (_url, init) => {
+            const operation = JSON.parse(String(init?.body)).operation as 'forecast' | 'marine';
+            return new Response(
+                JSON.stringify({
+                    hourly:
+                        operation === 'marine'
+                            ? { wave_height: Array(24).fill(1.2) }
+                            : {
+                                  time: times,
+                                  wind_speed_10m: Array(24).fill(12),
+                                  wind_direction_10m: Array(24).fill(90),
+                                  precipitation_probability: Array(24).fill(5),
+                              },
+                }),
+                { status: 200 },
+            );
+        });
+
+        const live = await WeatherWindowService.analyse(-20.3, 148.7, 'voyage', 90);
+        expect(live.availability).toBe('available');
+        expect(isWeatherWindowResultAcceptable(live)).toBe(true);
+
+        vi.setSystemTime(new Date('2026-08-05T04:00:00.000Z'));
+        fetchMock.mockImplementation(async () => new Response('offline', { status: 503 }));
+        const boundedFallback = await WeatherWindowService.analyse(-20.3, 148.7, 'voyage', 90);
+        expect(boundedFallback).toMatchObject({ availability: 'available', source: 'cached' });
+        expect(isWeatherWindowResultAcceptable(boundedFallback)).toBe(true);
+
+        vi.setSystemTime(new Date('2026-08-05T07:00:00.000Z'));
+        const expired = await WeatherWindowService.analyse(-20.3, 148.7, 'voyage', 90);
+        expect(expired).toMatchObject({ availability: 'unavailable', source: 'unavailable' });
+        expect(isWeatherWindowResultAcceptable(expired)).toBe(false);
+        expect(WEATHER_WINDOW_MAX_FALLBACK_AGE_MS).toBe(6 * 60 * 60 * 1000);
+    });
+
+    it('does not share a scored cache after course or safety context changes', async () => {
+        const times = Array.from({ length: 6 }, (_, index) => new Date(Date.UTC(2026, 7, 5, index)).toISOString());
+        const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (_url, init) => {
+            const operation = JSON.parse(String(init?.body)).operation as 'forecast' | 'marine';
+            return new Response(
+                JSON.stringify({
+                    hourly:
+                        operation === 'marine'
+                            ? { wave_height: Array(6).fill(1) }
+                            : {
+                                  time: times,
+                                  wind_speed_10m: Array(6).fill(10),
+                                  wind_direction_10m: Array(6).fill(90),
+                                  precipitation_probability: Array(6).fill(0),
+                              },
+                }),
+                { status: 200 },
+            );
+        });
+
+        const first = await WeatherWindowService.analyse(-20.3, 148.7, 'voyage', 90);
+        const second = await WeatherWindowService.analyse(-20.3, 148.7, 'voyage', 180);
+
+        expect(first.availability).toBe('available');
+        expect(second.availability).toBe('available');
+        expect(first.analysisContextFingerprint).not.toBe(second.analysisContextFingerprint);
+        expect(fetchMock).toHaveBeenCalledTimes(4);
     });
 });

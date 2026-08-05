@@ -14,6 +14,7 @@ import { nightPolygon, bearingDeg, haversineNm } from '../geo';
 import { CompassRose } from './CompassRose';
 import { WindBarb, windBarbColor } from './WindBarb';
 import { fetchWindGrid, type WindSample } from '../windField';
+import { classifyNearbyVesselFreshness, formatPublicAge, isPublicPositionFresh } from '../publicVoyageFreshness';
 
 // Wind barbs are a skipper's tool, not a viewer's — the public page is for
 // following a boat, and the control was competing with the base-map switcher in
@@ -35,6 +36,8 @@ interface MapContainerProps {
     waypoints: VoyageLogWaypoint[];
     /** Nearby AIS contacts to plot. */
     nearbyVessels: NearbyVessel[];
+    /** True when the dashboard's latest public-log request failed or aged out. */
+    connectionLost: boolean;
     /** A map marker was tapped. */
     onEntryClick: (entry: VoyageLogEntry) => void;
     /** Entry currently focused in the sidebar — its pin gets a pulsing
@@ -128,6 +131,7 @@ export default function MapContainer({
     passageLine,
     waypoints,
     nearbyVessels,
+    connectionLost,
     onEntryClick,
     selectedEntryId,
     focusKey,
@@ -402,21 +406,37 @@ export default function MapContainer({
     // Selecting an entry deliberately does NOT move the camera — the whole
     // track is already framed, and viewers want to keep the overview.
 
+    const nowMs = now.getTime();
     const lastFix = trackCoords[trackCoords.length - 1] ?? telemetryFix;
-    // Only label the marker when the position is the fallback: a live boat needs
-    // no caption, a month-old berth fix very much does.
+    const lastFixUpdatedAt = telemetry?.updated_at ?? track.at(-1)?.timestamp ?? null;
+    const positionIsLive =
+        lastFix !== undefined &&
+        !connectionLost &&
+        telemetry !== null &&
+        telemetry !== undefined &&
+        !telemetry.is_last_known &&
+        isPublicPositionFresh(telemetry.updated_at, nowMs);
+    // Keep the point for spatial context, but remove current/live styling as
+    // soon as transport or timestamp freshness fails. This is deliberately
+    // independent of the frozen `is_last_known` bit in the last payload.
     const lastKnownAgeLabel =
-        trackCoords.length === 0 && telemetry?.is_last_known
-            ? (() => {
-                  const ms = Date.now() - new Date(telemetry.updated_at).getTime();
-                  if (!Number.isFinite(ms) || ms < 0) return 'Last known';
-                  const days = Math.floor(ms / 86_400_000);
-                  if (days >= 1) return `Last known · ${days}d ago`;
-                  const hours = Math.floor(ms / 3_600_000);
-                  if (hours >= 1) return `Last known · ${hours}h ago`;
-                  return 'Last known · just now';
-              })()
-            : null;
+        lastFix && !positionIsLive ? `Last known · ${formatPublicAge(lastFixUpdatedAt, nowMs)}` : null;
+
+    const nearbyVesselDisplays = useMemo(
+        () =>
+            nearbyVessels
+                .map((vessel) => ({
+                    vessel,
+                    freshness: classifyNearbyVesselFreshness(vessel.updated_at, nowMs, connectionLost),
+                    ageLabel: formatPublicAge(vessel.updated_at, nowMs),
+                }))
+                .filter((item) => item.freshness !== 'expired'),
+        [connectionLost, nearbyVessels, nowMs],
+    );
+    const selectedVesselDisplay = selectedVessel
+        ? (nearbyVesselDisplays.find((item) => item.vessel.mmsi === selectedVessel.mmsi) ?? null)
+        : null;
+    const popupVessel = selectedVesselDisplay?.vessel ?? null;
 
     // Fetch the wind grid around the boat the first time the overlay is
     // switched on (and when the boat's position moves materially). Client-side
@@ -461,7 +481,7 @@ export default function MapContainer({
                 initialViewState={initialViewState}
                 mapStyle={STYLES[styleMode]}
                 projection="mercator"
-                attributionControl={false}
+                attributionControl
             >
                 <NavigationControl position="top-left" showCompass={false} />
 
@@ -479,6 +499,7 @@ export default function MapContainer({
                     tiles={['https://api.maptiler.com/maps/ocean/{z}/{x}/{y}.png?key=3misfI2jeOYbJqgl5a6e']}
                     tileSize={512}
                     maxzoom={16}
+                    attribution="© MapTiler © OpenStreetMap contributors"
                 >
                     <Layer
                         id="bathy-ocean-layer"
@@ -613,7 +634,7 @@ export default function MapContainer({
                     </Marker>
                 ))}
 
-                {/* Latest known position — pulsing */}
+                {/* Latest known position — pulses only while independently fresh. */}
                 {lastFix && (
                     <Marker longitude={lastFix[0]} latitude={lastFix[1]} anchor="center">
                         <div className="flex flex-col items-center">
@@ -698,9 +719,11 @@ export default function MapContainer({
                 })}
 
                 {/* AIS — nearby ships. Triangle points along COG (or heading). */}
-                {nearbyVessels.map((v) => {
+                {nearbyVesselDisplays.map(({ vessel: v, freshness, ageLabel }) => {
                     const bearing = v.cog ?? v.heading ?? 0;
-                    const fill = vesselColor(v.ship_type);
+                    const isLastKnown = freshness === 'last-known';
+                    const fill = isLastKnown ? '#64748b' : vesselColor(v.ship_type);
+                    const contactName = v.name || v.mmsi;
                     return (
                         <Marker key={v.mmsi} longitude={v.lon} latitude={v.lat} anchor="center" rotation={bearing}>
                             <button
@@ -709,8 +732,14 @@ export default function MapContainer({
                                     e.stopPropagation();
                                     setSelectedVessel(v);
                                 }}
-                                aria-label={`AIS contact ${v.name || v.mmsi}`}
-                                className="cursor-pointer transition-transform hover:scale-125"
+                                aria-label={
+                                    isLastKnown
+                                        ? `AIS contact ${contactName}, last known ${ageLabel}`
+                                        : `AIS contact ${contactName}, updated ${ageLabel}`
+                                }
+                                className={`cursor-pointer transition-transform hover:scale-125 ${
+                                    isLastKnown ? 'opacity-45' : ''
+                                }`}
                             >
                                 <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true">
                                     <polygon
@@ -727,10 +756,10 @@ export default function MapContainer({
                 })}
 
                 {/* AIS detail popup */}
-                {selectedVessel && (
+                {popupVessel && selectedVesselDisplay && (
                     <Popup
-                        longitude={selectedVessel.lon}
-                        latitude={selectedVessel.lat}
+                        longitude={popupVessel.lon}
+                        latitude={popupVessel.lat}
                         anchor="bottom"
                         offset={14}
                         closeButton={false}
@@ -740,63 +769,71 @@ export default function MapContainer({
                     >
                         <div className="min-w-[190px] max-w-[240px] bg-slate-900 border border-white/10 rounded-xl px-3 py-2.5 text-slate-100 shadow-2xl">
                             <div className="flex items-center gap-2 mb-1.5">
-                                {selectedVessel.thumbnail_url ? (
+                                {popupVessel.thumbnail_url ? (
                                     <img
-                                        src={selectedVessel.thumbnail_url}
+                                        src={popupVessel.thumbnail_url}
                                         alt=""
                                         className="w-8 h-8 rounded object-cover shrink-0 border border-white/10"
                                     />
                                 ) : (
                                     <span
                                         className="w-2 h-2 rounded-full shrink-0"
-                                        style={{ backgroundColor: vesselColor(selectedVessel.ship_type) }}
+                                        style={{ backgroundColor: vesselColor(popupVessel.ship_type) }}
                                     />
                                 )}
                                 <p className="text-sm font-bold truncate">
-                                    {selectedVessel.flag_emoji ? `${selectedVessel.flag_emoji} ` : ''}
-                                    {selectedVessel.name || `MMSI ${selectedVessel.mmsi}`}
+                                    {popupVessel.flag_emoji ? `${popupVessel.flag_emoji} ` : ''}
+                                    {popupVessel.name || `MMSI ${popupVessel.mmsi}`}
                                 </p>
                             </div>
-                            {(selectedVessel.ship_type || selectedVessel.loa || selectedVessel.flag_country) && (
+                            <p
+                                className={`mb-1.5 text-[10px] font-bold uppercase tracking-wider ${
+                                    selectedVesselDisplay.freshness === 'fresh' ? 'text-emerald-400' : 'text-slate-400'
+                                }`}
+                            >
+                                {selectedVesselDisplay.freshness === 'fresh' ? 'Updated' : 'Last known'} ·{' '}
+                                {selectedVesselDisplay.ageLabel}
+                            </p>
+                            {(popupVessel.ship_type || popupVessel.loa || popupVessel.flag_country) && (
                                 <p className="text-[10px] text-slate-400 uppercase tracking-wider mb-1.5 truncate">
                                     {[
-                                        selectedVessel.ship_type,
-                                        selectedVessel.loa ? `${Math.round(selectedVessel.loa)} m` : null,
-                                        selectedVessel.flag_country,
+                                        popupVessel.ship_type,
+                                        popupVessel.loa ? `${Math.round(popupVessel.loa)} m` : null,
+                                        popupVessel.flag_country,
                                     ]
                                         .filter(Boolean)
                                         .join(' · ')}
                                 </p>
                             )}
                             <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-[11px] font-mono">
-                                {selectedVessel.sog != null && (
+                                {popupVessel.sog != null && (
                                     <>
                                         <span className="text-slate-500">SOG</span>
                                         <span className="text-emerald-400 text-right">
-                                            {selectedVessel.sog.toFixed(1)} kt
+                                            {popupVessel.sog.toFixed(1)} kt
                                         </span>
                                     </>
                                 )}
-                                {selectedVessel.cog != null && (
+                                {popupVessel.cog != null && (
                                     <>
                                         <span className="text-slate-500">COG</span>
                                         <span className="text-amber-400 text-right">
-                                            {Math.round(selectedVessel.cog)}°
+                                            {Math.round(popupVessel.cog)}°
                                         </span>
                                     </>
                                 )}
-                                {selectedVessel.destination && (
+                                {popupVessel.destination && (
                                     <>
                                         <span className="text-slate-500">To</span>
                                         <span className="text-slate-200 text-right truncate">
-                                            {selectedVessel.destination}
+                                            {popupVessel.destination}
                                         </span>
                                     </>
                                 )}
-                                {selectedVessel.call_sign && (
+                                {popupVessel.call_sign && (
                                     <>
                                         <span className="text-slate-500">Call</span>
-                                        <span className="text-slate-200 text-right">{selectedVessel.call_sign}</span>
+                                        <span className="text-slate-200 text-right">{popupVessel.call_sign}</span>
                                     </>
                                 )}
                             </div>

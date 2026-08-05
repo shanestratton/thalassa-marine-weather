@@ -101,18 +101,18 @@ async function handleEnhance(
         return jsonResponse({ error: 'Text too short to enhance' }, 400);
     }
 
-    const styleInstruction =
-        intensity <= 10
-            ? `Clean: correct spelling, grammar, punctuation, and obvious transcription errors only. Keep the skipper's wording, cadence, and sentence structure substantially unchanged. Do not add descriptive language.`
-            : intensity <= 35
-              ? `Tidy: lightly clarify grammar and flow while preserving the skipper's natural voice. Do not add new imagery, colour, or detail.`
-              : intensity <= 60
-                ? `Polished: improve rhythm and readability with restrained nautical colour drawn only from facts already stated. Keep the same overall voice and approximate length.`
-                : intensity <= 85
-                  ? `Literary: shape the facts into flowing, evocative maritime prose. Use measured sensory language only where it is supported by what the skipper said.`
-                  : `Shakespearean: render the entry as vivid, elevated maritime prose with the dramatic cadence, muscular metaphor, and high romance of Shakespeare's seafaring passages. Let the language feel memorable and alive, with light, intelligible Elizabethan colour where it earns its place; do not turn every sentence into archaic pastiche. Preserve every fact, never invent an event, person, condition, or observation, and keep it as prose rather than verse.`;
+    const styleInstruction = intensity <= 10
+        ? `Clean: correct spelling, grammar, punctuation, and obvious transcription errors only. Keep the skipper's wording, cadence, and sentence structure substantially unchanged. Do not add descriptive language.`
+        : intensity <= 35
+        ? `Tidy: lightly clarify grammar and flow while preserving the skipper's natural voice. Do not add new imagery, colour, or detail.`
+        : intensity <= 60
+        ? `Polished: improve rhythm and readability with restrained nautical colour drawn only from facts already stated. Keep the same overall voice and approximate length.`
+        : intensity <= 85
+        ? `Literary: shape the facts into flowing, evocative maritime prose. Use measured sensory language only where it is supported by what the skipper said.`
+        : `Shakespearean: render the entry as vivid, elevated maritime prose with the dramatic cadence, muscular metaphor, and high romance of Shakespeare's seafaring passages. Let the language feel memorable and alive, with light, intelligible Elizabethan colour where it earns its place; do not turn every sentence into archaic pastiche. Preserve every fact, never invent an event, person, condition, or observation, and keep it as prose rather than verse.`;
 
-    const systemPrompt = `You are a precise maritime journal editor. You are polishing a sailor's personal record of an extraordinary voyage.
+    const systemPrompt =
+        `You are a precise maritime journal editor. You are polishing a sailor's personal record of an extraordinary voyage.
 
 SELECTED STYLE (${intensity}/100):
 ${styleInstruction}
@@ -157,8 +157,11 @@ async function handleTranscribe(
     // `audio/webm;codecs=opus`) to MediaRecorder's MIME type. Gemini needs
     // the container type, so validate and forward the canonical value.
     const rawMimeType = mime_type.split(';', 1)[0]?.trim().toLowerCase() || '';
-    const canonicalMimeType =
-        rawMimeType === 'audio/x-wav' ? 'audio/wav' : rawMimeType === 'audio/x-m4a' ? 'audio/mp4' : rawMimeType;
+    const canonicalMimeType = rawMimeType === 'audio/x-wav'
+        ? 'audio/wav'
+        : rawMimeType === 'audio/x-m4a'
+        ? 'audio/mp4'
+        : rawMimeType;
     const allowedMimeTypes = new Set(['audio/webm', 'audio/mp4', 'audio/mpeg', 'audio/wav', 'audio/ogg', 'audio/aac']);
     if (
         !audio_base64 ||

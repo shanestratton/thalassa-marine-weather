@@ -23,6 +23,7 @@
  */
 
 import { BoatNetworkService } from '../BoatNetworkService';
+import { PI_INTEGRATION_ENABLED, PI_PUBLIC_BETA_UNAVAILABLE_MESSAGE } from '../piPublicBetaBoundary';
 
 const BOSUN_WEB_PORT = 5000;
 
@@ -71,6 +72,7 @@ export interface PiToolResult {
 }
 
 function getBosunBase(): string | null {
+    if (!PI_INTEGRATION_ENABLED) return null;
     const piHost = BoatNetworkService.getState().piHost;
     if (!piHost) return null;
     return `http://${piHost}:${BOSUN_WEB_PORT}`;
@@ -109,7 +111,9 @@ export async function executePiTool(name: PiToolName, input: Record<string, unkn
     if (!base) {
         return {
             content: JSON.stringify({
-                error: "Pi not on the network. Can't read live boat data right now.",
+                error: PI_INTEGRATION_ENABLED
+                    ? "Pi not on the network. Can't read live boat data right now."
+                    : PI_PUBLIC_BETA_UNAVAILABLE_MESSAGE,
             }),
             is_error: true,
         };

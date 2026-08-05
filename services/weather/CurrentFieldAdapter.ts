@@ -1,8 +1,8 @@
 /**
- * CurrentFieldAdapter — Bridges sparse OSCAR current vectors to the
+ * CurrentFieldAdapter — Bridges sparse NOAA CoastWatch current vectors to the
  * IsochroneRouter's CurrentField interface.
  *
- * OSCAR currents come as a sparse cloud of (lat, lon, u, v) vectors at
+ * Provider currents come as a sparse cloud of (lat, lon, u, v) vectors at
  * 1/3° resolution. The IsochroneRouter needs `getCurrent(lat, lon, t)`
  * for any (lat, lon) along the route. This adapter provides
  * inverse-distance-weighted (IDW) interpolation between the N nearest
@@ -13,11 +13,8 @@
  * accurate enough — and far cheaper than Kriging or a full bilinear
  * grid build for a single route compute.
  *
- * Time dimension: OSCAR climatology is steady-state monthly; OSCAR NRT
- * is a single snapshot 5 days behind. Either way the time offset is
- * ignored — we don't have hourly current data to interpolate over.
- * That's a limitation but matches what PredictWind does with monthly
- * climatology for most routes.
+ * Time dimension: the service currently exposes one provider field rather
+ * than an hourly current series, so the time offset is ignored.
  */
 
 import type { CurrentField } from '../isochrone/types';
@@ -33,9 +30,9 @@ const SEARCH_RADIUS_DEG = 2.0;
 const MIN_NEIGHBOURS = 1;
 
 /**
- * Build a CurrentField from sparse OSCAR vectors.
+ * Build a CurrentField from sparse surface-current vectors.
  *
- * Returns null when the vector cloud is empty (e.g. fetch failed) so
+ * Returns null when the provider-confirmed vector cloud is empty so
  * the caller can pass `null` to the isochrone engine and route without
  * current advection — the engine treats a null field as "no current
  * data, just use STW".
@@ -65,7 +62,7 @@ export function createCurrentFieldFromVectors(vectors: CurrentVector[]): Current
 
                 // IDW weight: 1/d² with a small floor so coincident
                 // vectors don't blow up. 0.001 ≈ 0.06 NM apart, well
-                // below OSCAR's 1/3° resolution.
+                // below the source grid's typical resolution.
                 const w = 1 / Math.max(0.001, distSq);
                 uSum += vec.u * w;
                 vSum += vec.v * w;
@@ -79,7 +76,7 @@ export function createCurrentFieldFromVectors(vectors: CurrentVector[]): Current
             const v = vSum / weightSum;
 
             // Convert m/s components → speed (kts) and direction (TO).
-            // OSCAR u/v are already TO components (east, north).
+            // Provider u/v values are TO components (east, north).
             const speedMs = Math.sqrt(u * u + v * v);
             const speedKts = speedMs * 1.94384;
 

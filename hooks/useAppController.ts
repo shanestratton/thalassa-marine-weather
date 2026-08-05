@@ -14,7 +14,6 @@ import { LocationStore } from '../stores/LocationStore';
 import { useAuthStore } from '../stores/authStore';
 import { useSettingsStore } from '../stores/settingsStore';
 import { supabase } from '../services/supabase';
-import { Geolocation } from '@capacitor/geolocation';
 import { crumb } from '../utils/flightRecorder';
 import {
     authScopedStorageKey,
@@ -230,29 +229,13 @@ export const useAppController = () => {
                         // boat. This was the "Apple sign-in but wizard
                         // ran anyway" bug.
                         if (!cancelled) setShowOnboardingForScope(actionScope, false);
-                        // Returning users skip onboarding's "Locate Me"
-                        // step, so iOS never sees a location request
-                        // until something happens to need GPS — leaves
-                        // The Glass page spinning. Trigger the prompt
-                        // now via Capacitor's own Geolocation plugin
-                        // rather than GpsService, because GpsService
-                        // routes through BgGeoManager which would ALSO
-                        // initialize Transistorsoft's
-                        // BackgroundGeolocation and triggers a Motion
-                        // permission prompt on top of Location — three
-                        // prompts on first launch is overload. Capacitor
-                        // Geolocation requests just Location and stays
-                        // out of the motion / background-tracking
-                        // permission domain. BgGeoManager will init
-                        // later, when the user navigates to a feature
-                        // that actually needs background tracking
-                        // (Map, Anchor Watch, Voyage), and Motion will
-                        // get prompted then — at point-of-need, not
-                        // boot. Fire-and-forget.
-                        void Geolocation.requestPermissions().catch(() => {
-                            /* denied or unavailable — weather will fall
-                               back to the user's saved port location */
-                        });
+                        // Do not ask for Location merely because a returning
+                        // account was restored. The Glass empty state exposes
+                        // an explicit "Use my location" action, and features
+                        // that need continuous/background fixes request their
+                        // own permissions at point of use. Boot may consume an
+                        // already-granted one-shot fix below, but it must never
+                        // manufacture a permission prompt.
                         // Drop the !loading guard. On first launch after
                         // a fresh install + sign-in, the orchestrator's
                         // init has already run and set loading=false
@@ -308,13 +291,11 @@ export const useAppController = () => {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [settings.defaultLocation, authedUser, authChecked, identityScope, setShowOnboardingForScope]);
 
-    // 1b. CHARTPLOTTER DEFAULT — every open re-centres on the live position
-    // and enters GPS-follow mode (2026-06-16, Shane: "when I open the app it
-    // should ALWAYS default to my current location"). On a successful boot
-    // fix we switch to 'Current Location'/'gps' regardless of the last-saved
-    // place, so weather + location track the boat as it moves. Saved ports
-    // live in settings.savedLocations (a separate picker) and are untouched —
-    // they become picks, not the open default.
+    // 1b. CHARTPLOTTER DEFAULT — when Location has ALREADY been granted, an
+    // open re-centres on the live position and enters GPS-follow mode. A boot
+    // must never trigger Location or Motion permission UI: if permission is
+    // not already granted, the saved location remains in place until the
+    // skipper explicitly taps a location/GPS action.
     //
     // Runs once per launch (gpsBootRan) so it only sets the OPEN default; a
     // port the user picks later in the session is respected until the next
@@ -335,24 +316,32 @@ export const useAppController = () => {
         gpsBootScopeRef.current = scopeRunKey;
         let cancelled = false;
 
-        // Fire GPS check in background — non-blocking.
-        GpsService.getCurrentPosition({ staleLimitMs: 60_000, timeoutSec: 8 }).then((pos) => {
-            if (cancelled || !isAuthIdentityScopeCurrent(actionScope)) return;
-            if (!pos) return; // GPS denied or timed out — keep the saved location 1a painted
+        void (async () => {
+            try {
+                // This already-granted-only path uses the foreground provider
+                // and fails closed before any prompt. It never initializes the
+                // Transistorsoft background or motion engine.
+                const fix = await GpsService.getCurrentPositionIfGranted({
+                    staleLimitMs: 60_000,
+                    timeoutSec: 8,
+                });
+                if (cancelled || !isAuthIdentityScopeCurrent(actionScope)) return;
+                if (!fix) return;
 
-            // Already following GPS → the WeatherContext follower owns it
-            // (renames + refetches underway without leaving 'gps' mode). Read
-            // the LIVE store, not the mount-time closure.
-            if (useSettingsStore.getState().settings.defaultLocation === 'Current Location') return;
+                // Already following GPS → the WeatherContext follower owns it
+                // (renames + refetches underway without leaving 'gps' mode).
+                // Read the LIVE store, not the mount-time closure.
+                if (useSettingsStore.getState().settings.defaultLocation === 'Current Location') return;
 
-            // Enter sticky GPS-follow mode at the live position. selectLocation
-            // flips locationMode 'gps' + persists the intent; the follower
-            // prettifies the 'Current Location' label on its first tick and
-            // keeps it live as the boat moves. Seeding the coords makes the
-            // switch a silent background refresh, not a blur overlay.
-            log.info(`GPS boot: entering follow mode at ${pos.latitude.toFixed(2)}, ${pos.longitude.toFixed(2)}`);
-            selectLocation('Current Location', { lat: pos.latitude, lon: pos.longitude }).catch(() => {});
-        });
+                const { latitude, longitude } = fix;
+                // Enter sticky GPS-follow mode at the live position.
+                log.info(`GPS boot: entering follow mode at ${latitude.toFixed(2)}, ${longitude.toFixed(2)}`);
+                await selectLocation('Current Location', { lat: latitude, lon: longitude });
+            } catch {
+                // Permission unavailable/denied, location services disabled,
+                // or a timed-out fix: retain the saved location silently.
+            }
+        })();
         return () => {
             cancelled = true;
         };
@@ -487,7 +476,10 @@ export const useAppController = () => {
         setQuery('Locating...');
         void (async () => {
             try {
-                const pos = await GpsService.getCurrentPosition({ staleLimitMs: 30_000, timeoutSec: 15 });
+                const pos = await GpsService.requestCurrentForegroundPosition({
+                    staleLimitMs: 30_000,
+                    timeoutSec: 15,
+                });
                 if (!isAuthIdentityScopeCurrent(actionScope)) return;
                 if (!pos) {
                     showToast('GPS Error: Unable to get position');
@@ -520,53 +512,43 @@ export const useAppController = () => {
      * "Lite" one-shot location handler for first-touch surfaces
      * (e.g. The Glass empty-state's "Use my location" button).
      *
-     * Routes through Capacitor's basic Geolocation plugin instead
-     * of `GpsService` → `BgGeoManager` (Transistorsoft). The
-     * reason matters: BgGeoManager initialises the background-
-     * tracking engine the first time it's called, which prompts
-     * for the iOS **Motion & Fitness** permission on top of
-     * **Location** — two prompts back-to-back on first tap is
-     * jarring and confusing. Capacitor Geolocation prompts only
-     * for Location.
+     * Routes through GpsService's foreground-only provider instead of its
+     * background-safety path. This asks only for ordinary foreground Location
+     * and never initializes Transistorsoft or motion activity machinery.
      *
-     * BgGeoManager + the Motion prompt are deferred to when the
-     * user actually opens a feature that needs background tracking
-     * (Map, Anchor Watch, Voyage). Point-of-need permissions,
-     * not boot-time overload.
+     * BgGeoManager is deferred to features that genuinely need background
+     * tracking (MOB, Anchor Watch, active Voyage). Point-of-need permissions,
+     * not boot-time initialization.
      */
     const handleLocateLite = useCallback(async () => {
         const actionScope = identityScope;
         if (!isAuthIdentityScopeCurrent(actionScope)) return;
-        if (isOffline) {
-            toast.error('GPS requires network.');
-            return;
-        }
         try {
-            const perms = await Geolocation.requestPermissions();
+            const pos = await GpsService.requestCurrentForegroundPosition({
+                staleLimitMs: 30_000,
+                timeoutSec: 12,
+            });
             if (!isAuthIdentityScopeCurrent(actionScope)) return;
-            if (perms.location !== 'granted' && perms.coarseLocation !== 'granted') {
+            if (!pos) {
                 toast.error('Location denied. Try the map picker instead.');
                 return;
             }
-            const pos = await Geolocation.getCurrentPosition({
-                enableHighAccuracy: true,
-                timeout: 12_000,
-                maximumAge: 30_000,
-            });
-            if (!isAuthIdentityScopeCurrent(actionScope)) return;
-            const { latitude, longitude } = pos.coords;
+            const { latitude, longitude } = pos;
             let searchTarget = `WP ${Math.abs(latitude).toFixed(4)}°${latitude >= 0 ? 'N' : 'S'}, ${Math.abs(longitude).toFixed(4)}°${longitude >= 0 ? 'E' : 'W'}`;
-            try {
-                const name = await reverseGeocode(latitude, longitude);
-                if (!isAuthIdentityScopeCurrent(actionScope)) return;
-                if (name) searchTarget = name;
-            } catch {
-                if (!isAuthIdentityScopeCurrent(actionScope)) return;
-                // Silent — the coord string fallback is fine
+            if (!isOffline) {
+                try {
+                    const name = await reverseGeocode(latitude, longitude);
+                    if (!isAuthIdentityScopeCurrent(actionScope)) return;
+                    if (name) searchTarget = name;
+                } catch {
+                    if (!isAuthIdentityScopeCurrent(actionScope)) return;
+                    // Silent — the coordinate string fallback is sufficient.
+                }
             }
             setQuery(searchTarget);
             setPage('dashboard');
             selectLocation(searchTarget, { lat: latitude, lon: longitude });
+            if (isOffline) toast.info('GPS location saved. Weather will update when the network returns.');
         } catch (e) {
             if (!isAuthIdentityScopeCurrent(actionScope)) return;
             log.warn('handleLocateLite failed:', e);

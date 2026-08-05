@@ -58,12 +58,14 @@ export const YachtDatabaseSearch: React.FC<YachtDatabaseSearchProps> = ({
             <div className="relative">
                 <input
                     type="text"
+                    aria-label="Search yacht model or manufacturer"
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
                     placeholder="Search by model or manufacturer…"
                     className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white text-sm placeholder-gray-500 outline-none focus:border-sky-500 transition-colors"
                 />
                 <svg
+                    aria-hidden="true"
                     className="absolute right-3 top-3.5 w-4 h-4 text-gray-400"
                     fill="none"
                     viewBox="0 0 24 24"
@@ -89,7 +91,9 @@ export const YachtDatabaseSearch: React.FC<YachtDatabaseSearchProps> = ({
                             <div className="space-y-1">
                                 {entries.map((entry) => (
                                     <button
-                                        aria-label="Local Selected"
+                                        type="button"
+                                        aria-label={`Select ${entry.model}`}
+                                        aria-pressed={localSelected === entry.model}
                                         key={entry.model}
                                         onClick={() => {
                                             setLocalSelected(entry.model);

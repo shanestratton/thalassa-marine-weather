@@ -14,10 +14,10 @@ import { Preferences } from '@capacitor/preferences';
 import { GpsService, type GpsPosition } from './GpsService';
 import { createLogger } from '../utils/createLogger';
 import { calculateDistance, calculateBearing } from '../utils/navigationCalculations';
+import { setLiveMobSafetyState } from './activeSafetyInterlock';
 import {
     authScopedStorageKey,
     getAuthIdentityScope,
-    isAuthIdentityScopeCurrent,
     subscribeAuthIdentityScope,
     type AuthIdentityScope,
 } from './authIdentityScope';
@@ -26,6 +26,21 @@ const log = createLogger('MOB');
 
 const STORAGE_KEY = 'thalassa_mob_active_v1';
 const STORAGE_VERSION = 2;
+/** Recovery vectors must never be calculated from an own-ship fix older than this. */
+export const MOB_OWN_POSITION_STALE_MS = 15_000;
+/** Marks at or below this uncertainty are treated as precise recovery fixes. */
+export const MOB_PRECISE_FIX_ACCURACY_M = 100;
+/** Backward-compatible name retained for consumers; this is a quality
+ * threshold, no longer an activation refusal threshold. */
+export const MOB_MAX_ACTIVATION_ACCURACY_M = MOB_PRECISE_FIX_ACCURACY_M;
+/** A later GPS observation may refine an approximate mark only briefly after
+ * activation. After this window, own-ship movement must never drag the datum. */
+export const MOB_FIX_REFINEMENT_WINDOW_MS = 30_000;
+/** Refinement may tighten an approximate circle only while the receiver proves
+ * the boat has barely moved. Otherwise a later high-accuracy own-ship fix can
+ * drag the casualty datum down-track and falsely label it precise. */
+export const MOB_FIX_REFINEMENT_MAX_SPEED_MPS = 0.5;
+export const MOB_FIX_REFINEMENT_MAX_DISPLACEMENT_M = 15;
 
 export interface MobSnapshot {
     /** Position where MOB was marked. */
@@ -34,19 +49,29 @@ export interface MobSnapshot {
     /** Epoch ms when MOB was activated. */
     activatedAt: number;
     /** Source of the initial fix. */
-    fixAccuracy: number | null;
+    fixAccuracy: number;
 }
+
+export type MobPersistenceStatus = 'idle' | 'pending' | 'confirmed' | 'failed';
 
 export interface MobState {
     active: MobSnapshot | null;
-    /** Live own-vessel position, if known. */
+    /** Most recent own-vessel position, if known; inspect freshness before use. */
     own: GpsPosition | null;
     /** Metres from own position back to the MOB fix. */
     distanceMeters: number | null;
     /** True bearing (degrees) from own position to MOB fix. */
     bearingDeg: number | null;
+    /** Age of the retained own-ship fix, or null when no valid fix is known. */
+    ownPositionAgeMs: number | null;
+    /** Whether distance/bearing are based on an in-bound own-ship fix. */
+    ownPositionFresh: boolean;
     /** Seconds since MOB was activated. */
     elapsedSec: number;
+    /** Whether the casualty datum is precise or an uncertainty/search area. */
+    fixQuality: 'precise' | 'approximate' | null;
+    /** Whether restart recovery of the active physical emergency is durable. */
+    persistenceStatus: MobPersistenceStatus;
 }
 
 type Subscriber = (state: MobState) => void;
@@ -73,20 +98,22 @@ function isValidSnapshot(value: unknown): value is MobSnapshot {
         typeof snapshot.activatedAt === 'number' &&
         Number.isFinite(snapshot.activatedAt) &&
         snapshot.activatedAt > 0 &&
-        (snapshot.fixAccuracy === null ||
-            (typeof snapshot.fixAccuracy === 'number' &&
-                Number.isFinite(snapshot.fixAccuracy) &&
-                snapshot.fixAccuracy >= 0))
+        typeof snapshot.fixAccuracy === 'number' &&
+        Number.isFinite(snapshot.fixAccuracy) &&
+        snapshot.fixAccuracy >= 0
     );
 }
 
-function isValidPersistedSnapshot(value: unknown, scope: AuthIdentityScope): value is PersistedMobSnapshot {
+function isValidPersistedSnapshot(value: unknown): value is PersistedMobSnapshot {
     if (!value || typeof value !== 'object') return false;
     const persisted = value as Partial<PersistedMobSnapshot>;
+    const expectedOwnerKey = persisted.ownerUserId ? `user:${persisted.ownerUserId}` : 'anonymous';
     return (
         persisted.version === STORAGE_VERSION &&
-        persisted.ownerKey === scope.key &&
-        persisted.ownerUserId === scope.userId &&
+        typeof persisted.ownerKey === 'string' &&
+        persisted.ownerKey === expectedOwnerKey &&
+        (persisted.ownerUserId === null ||
+            (typeof persisted.ownerUserId === 'string' && persisted.ownerUserId.trim().length > 0)) &&
         isValidSnapshot(persisted.snapshot)
     );
 }
@@ -94,13 +121,14 @@ function isValidPersistedSnapshot(value: unknown, scope: AuthIdentityScope): val
 class MobServiceClass {
     private snapshot: MobSnapshot | null = null;
     /**
-     * Stable owner of the physical emergency. This deliberately survives an
-     * auth transition: changing accounts must neither disarm a live MOB nor
-     * expose its fix to the newly active account.
+     * Originating identity is retained only as provenance/migration metadata.
+     * The active emergency itself is device-authoritative: logout/session loss
+     * must never hide the casualty fix or make Clear impossible.
      */
     private snapshotOwnerKey: string | null = null;
     private snapshotOwnerUserId: string | null = null;
     private own: GpsPosition | null = null;
+    private persistenceStatus: MobPersistenceStatus = 'idle';
     private tickerId: ReturnType<typeof setInterval> | null = null;
     private gpsUnsub: (() => void) | null = null;
     private hapticTimeouts = new Set<ReturnType<typeof setTimeout>>();
@@ -111,7 +139,9 @@ class MobServiceClass {
 
     constructor() {
         subscribeAuthIdentityScope((next) => {
-            // Hide/reveal synchronously before any account-specific async work.
+            // A physical MOB remains visible across identity transitions. Emit
+            // so subscribers can re-render, then look for a legacy scoped record
+            // only when no device emergency is already active.
             this.emit();
             if (!this.snapshot) {
                 void this.hydrate(next);
@@ -119,10 +149,10 @@ class MobServiceClass {
         });
     }
 
-    /** Load the current account's persisted MOB on first access. Idempotent. */
+    /** Load the device's persisted MOB on first access. Legacy account-scoped
+     * records are migrated only from the scope that originally created them. */
     async hydrate(scope: AuthIdentityScope = getAuthIdentityScope()): Promise<void> {
-        if (!isAuthIdentityScopeCurrent(scope)) return;
-        if (this.isOwnedBy(scope) || this.snapshot || this.hydratedScopeKeys.has(scope.key)) return;
+        if (this.snapshot || this.hydratedScopeKeys.has(scope.key)) return;
 
         const existing = this.hydrationPromises.get(scope.generation);
         if (existing) return existing;
@@ -146,31 +176,24 @@ class MobServiceClass {
     async activate(): Promise<MobSnapshot | null> {
         const operationScope = getAuthIdentityScope();
         await this.hydrate(operationScope);
-        if (!isAuthIdentityScopeCurrent(operationScope)) return null;
         if (this.snapshot) {
-            // Never hand another account the active emergency fix.
-            return this.isOwnedBy(operationScope) ? { ...this.snapshot } : null;
+            return { ...this.snapshot };
         }
 
         const pos = await GpsService.getCurrentPosition({ staleLimitMs: 15_000, timeoutSec: 6 });
-        if (!isAuthIdentityScopeCurrent(operationScope)) {
-            log.warn('Discarded stale MOB activation after identity changed');
-            return null;
-        }
         // Another activation may have won while GPS was pending.
         const activeSnapshot = this.getPhysicalSnapshot();
         if (activeSnapshot) {
-            return this.isOwnedBy(operationScope) ? { ...activeSnapshot } : null;
+            return { ...activeSnapshot };
         }
         if (!pos) {
             log.error('Cannot activate MOB — no GPS fix available');
             return null;
         }
-
         const snap: MobSnapshot = {
             fixLat: pos.latitude,
             fixLon: pos.longitude,
-            fixAccuracy: pos.accuracy ?? null,
+            fixAccuracy: pos.accuracy,
             activatedAt: Date.now(),
         };
         if (!isValidSnapshot(snap)) {
@@ -181,21 +204,37 @@ class MobServiceClass {
         this.snapshot = snap;
         this.snapshotOwnerKey = operationScope.key;
         this.snapshotOwnerUserId = operationScope.userId;
+        this.persistenceStatus = 'pending';
         this.hydratedScopeKeys.add(operationScope.key);
         this.startLiveTracking();
         this.emit();
 
         // Persistence must never delay the immediate physical alarm path.
-        const persistPromise = this.persist(snap, operationScope);
+        const persistPromise = this.persist(snap).then(
+            () => {
+                if (this.snapshot === snap) {
+                    this.persistenceStatus = 'confirmed';
+                    this.emit();
+                }
+            },
+            (error: unknown) => {
+                if (this.snapshot === snap) {
+                    this.persistenceStatus = 'failed';
+                    this.emit();
+                }
+                log.error('MOB is active but restart recovery could not be persisted', error);
+            },
+        );
 
         // Strong triple-buzz to distinguish from normal taps
+        const activationId = snap.activatedAt;
         const hapticPromise = (async () => {
-            if (this.snapshot !== snap) return;
+            if (this.snapshot?.activatedAt !== activationId) return;
             try {
                 await Haptics.impact({ style: ImpactStyle.Heavy });
-                if (this.snapshot === snap) {
-                    this.scheduleHaptic(snap, 180);
-                    this.scheduleHaptic(snap, 360);
+                if (this.snapshot?.activatedAt === activationId) {
+                    this.scheduleHaptic(activationId, 180);
+                    this.scheduleHaptic(activationId, 360);
                 }
             } catch {
                 /* haptics unavailable on web */
@@ -203,7 +242,7 @@ class MobServiceClass {
         })();
 
         const wakePromise = (async () => {
-            if (this.snapshot !== snap) return;
+            if (this.snapshot?.activatedAt !== activationId) return;
             try {
                 await KeepAwake.keepAwake();
             } catch {
@@ -212,40 +251,43 @@ class MobServiceClass {
         })();
 
         await Promise.all([persistPromise, hapticPromise, wakePromise]);
-        log.info('MOB ACTIVATED', snap);
-        return { ...snap };
+        const finalSnapshot = this.snapshot ?? snap;
+        log.info('MOB ACTIVATED', finalSnapshot);
+        return { ...finalSnapshot };
     }
 
     /** Cancel the active MOB. Releases wake-lock and clears tracking. */
     async clear(): Promise<void> {
-        const operationScope = getAuthIdentityScope();
-        if (!this.snapshot || !this.isOwnedBy(operationScope)) return;
+        if (!this.snapshot) return;
+
+        const clearingSnapshot = this.snapshot;
+        try {
+            await this.removePersisted();
+        } catch (error) {
+            if (this.snapshot === clearingSnapshot) {
+                this.persistenceStatus = 'failed';
+                this.emit();
+            }
+            throw new Error('MOB remains active because restart-recovery storage could not be cleared.', {
+                cause: error,
+            });
+        }
+        if (this.snapshot !== clearingSnapshot) return;
 
         log.info('MOB cleared');
         this.snapshot = null;
         this.snapshotOwnerKey = null;
         this.snapshotOwnerUserId = null;
+        this.persistenceStatus = 'idle';
         this.own = null;
         this.clearScheduledHaptics();
         this.stopLiveTracking();
         this.emit();
 
-        const removePromise = this.removePersisted(operationScope);
         try {
             await KeepAwake.allowSleep();
         } catch {
             /* noop */
-        }
-        await removePromise;
-
-        // A new emergency may have armed while native sleep/storage calls were
-        // pending. Restore the wake lock instead of letting the stale clear win.
-        if (this.snapshot) {
-            try {
-                await KeepAwake.keepAwake();
-            } catch {
-                /* keep-awake not available */
-            }
         }
     }
 
@@ -261,14 +303,25 @@ class MobServiceClass {
 
     /** Snapshot of the current MOB state (pure read). */
     currentState(): MobState {
-        const currentScope = getAuthIdentityScope();
-        const visible = this.isOwnedBy(currentScope);
-        const snap = visible ? this.snapshot : null;
-        const own = visible ? this.own : null;
+        const snap = this.snapshot;
+        const own = this.own;
         const elapsedSec = snap ? Math.max(0, Math.floor((Date.now() - snap.activatedAt) / 1000)) : 0;
+        const now = Date.now();
+        const ownCoordinatesValid =
+            own !== null &&
+            Number.isFinite(own.latitude) &&
+            own.latitude >= -90 &&
+            own.latitude <= 90 &&
+            Number.isFinite(own.longitude) &&
+            own.longitude >= -180 &&
+            own.longitude <= 180;
+        const ownTimestampValid =
+            own !== null && Number.isFinite(own.timestamp) && own.timestamp > 0 && own.timestamp <= now;
+        const ownPositionAgeMs = ownCoordinatesValid && ownTimestampValid ? Math.max(0, now - own.timestamp) : null;
+        const ownPositionFresh = ownPositionAgeMs !== null && ownPositionAgeMs <= MOB_OWN_POSITION_STALE_MS;
         let distance: number | null = null;
         let bearing: number | null = null;
-        if (snap && own) {
+        if (snap && own && ownPositionFresh) {
             // Canonical haversine (R = 3440.065 NM = 6 371 000.4 m). The old
             // private copy used the WGS-84 mean radius 6 371 008.8 m — the repo's
             // one radius outlier; the ~1.4 mm/km shift is irrelevant at MOB range.
@@ -280,12 +333,16 @@ class MobServiceClass {
             own: own ? { ...own } : null,
             distanceMeters: distance,
             bearingDeg: bearing,
+            ownPositionAgeMs,
+            ownPositionFresh,
             elapsedSec,
+            fixQuality: snap ? (snap.fixAccuracy <= MOB_PRECISE_FIX_ACCURACY_M ? 'precise' : 'approximate') : null,
+            persistenceStatus: this.persistenceStatus,
         };
     }
 
     isActive(): boolean {
-        return this.snapshot !== null && this.isOwnedBy(getAuthIdentityScope());
+        return this.snapshot !== null;
     }
 
     // ── Internals ────────────────────────────────────────────────────────────
@@ -310,6 +367,7 @@ class MobServiceClass {
         this.gpsUnsub = GpsService.watchPosition(
             (pos) => {
                 this.own = { ...pos };
+                this.refineApproximateFix(pos);
                 this.emit();
             },
             { ensureRunning: true },
@@ -318,6 +376,69 @@ class MobServiceClass {
         if (!this.tickerId) {
             this.tickerId = setInterval(() => this.emit(), 1000);
         }
+    }
+
+    /**
+     * Improve an uncertain initial datum while the boat is still effectively
+     * at the activation point. The original activation timestamp never moves,
+     * and the mark freezes permanently after the short refinement window.
+     */
+    private refineApproximateFix(pos: GpsPosition): void {
+        const snap = this.snapshot;
+        if (!snap || snap.fixAccuracy <= MOB_PRECISE_FIX_ACCURACY_M) return;
+        const displacementM =
+            Number.isFinite(pos.latitude) && Number.isFinite(pos.longitude)
+                ? calculateDistance(snap.fixLat, snap.fixLon, pos.latitude, pos.longitude) * 1852
+                : Number.POSITIVE_INFINITY;
+        if (
+            !Number.isFinite(pos.latitude) ||
+            pos.latitude < -90 ||
+            pos.latitude > 90 ||
+            !Number.isFinite(pos.longitude) ||
+            pos.longitude < -180 ||
+            pos.longitude > 180 ||
+            !Number.isFinite(pos.accuracy) ||
+            pos.accuracy < 0 ||
+            pos.accuracy >= snap.fixAccuracy ||
+            !Number.isFinite(pos.timestamp) ||
+            !Number.isFinite(pos.speed) ||
+            pos.speed < 0 ||
+            pos.speed > MOB_FIX_REFINEMENT_MAX_SPEED_MPS ||
+            !Number.isFinite(displacementM) ||
+            displacementM > MOB_FIX_REFINEMENT_MAX_DISPLACEMENT_M ||
+            pos.timestamp < snap.activatedAt - MOB_OWN_POSITION_STALE_MS ||
+            pos.timestamp > snap.activatedAt + MOB_FIX_REFINEMENT_WINDOW_MS
+        ) {
+            return;
+        }
+
+        const refined: MobSnapshot = {
+            ...snap,
+            fixLat: pos.latitude,
+            fixLon: pos.longitude,
+            fixAccuracy: pos.accuracy,
+            // activatedAt deliberately inherited from the original alarm.
+        };
+        this.snapshot = refined;
+        this.persistenceStatus = 'pending';
+        void this.persist(refined).then(
+            () => {
+                if (this.snapshot === refined) {
+                    this.persistenceStatus = 'confirmed';
+                    this.emit();
+                }
+            },
+            (error: unknown) => {
+                if (this.snapshot === refined) {
+                    this.persistenceStatus = 'failed';
+                    this.emit();
+                }
+                log.error('Improved MOB fix could not be persisted', error);
+            },
+        );
+        log.warn(
+            `MOB approximate datum refined from ±${Math.round(snap.fixAccuracy)}m to ±${Math.round(pos.accuracy)}m`,
+        );
     }
 
     private stopLiveTracking(): void {
@@ -331,72 +452,99 @@ class MobServiceClass {
         }
     }
 
-    private isOwnedBy(scope: AuthIdentityScope): boolean {
-        return (
-            this.snapshot !== null && this.snapshotOwnerKey === scope.key && this.snapshotOwnerUserId === scope.userId
-        );
-    }
-
     private async hydrateForScope(scope: AuthIdentityScope): Promise<void> {
-        const storageKey = authScopedStorageKey(STORAGE_KEY, scope);
         try {
-            const { value } = await Preferences.get({ key: storageKey });
-            if (!isAuthIdentityScopeCurrent(scope) || this.snapshot) return;
-            if (!value) {
+            const { value: deviceValue } = await Preferences.get({ key: STORAGE_KEY });
+            if (this.snapshot) return;
+            if (deviceValue) {
+                const parsed: unknown = JSON.parse(deviceValue);
+                if (isValidPersistedSnapshot(parsed)) {
+                    this.adoptPersisted(parsed);
+                    this.hydratedScopeKeys.add(scope.key);
+                    log.info('Hydrated active MOB from device safety storage');
+                    return;
+                }
+                // A corrupt or pre-v2 unattributed record is not safe enough to
+                // navigate to. Remove it so it cannot repeatedly masquerade as
+                // a recoverable emergency.
+                await this.enqueueStorage(async () => Preferences.remove({ key: STORAGE_KEY }));
+            }
+
+            const legacyKey = authScopedStorageKey(STORAGE_KEY, scope);
+            const { value: scopedValue } = await Preferences.get({ key: legacyKey });
+            if (this.snapshot) return;
+            if (!scopedValue) {
                 this.hydratedScopeKeys.add(scope.key);
                 return;
             }
 
-            const parsed: unknown = JSON.parse(value);
-            if (!isValidPersistedSnapshot(parsed, scope)) {
-                // The old global record is intentionally not consulted:
-                // unattributed emergency coordinates cannot be adopted safely.
-                await this.removePersisted(scope);
-                if (isAuthIdentityScopeCurrent(scope)) this.hydratedScopeKeys.add(scope.key);
+            const parsed: unknown = JSON.parse(scopedValue);
+            if (
+                !isValidPersistedSnapshot(parsed) ||
+                parsed.ownerKey !== scope.key ||
+                parsed.ownerUserId !== scope.userId
+            ) {
+                await this.enqueueStorage(async () => Preferences.remove({ key: legacyKey }));
+                this.hydratedScopeKeys.add(scope.key);
                 return;
             }
-            if (!isAuthIdentityScopeCurrent(scope) || this.snapshot) return;
 
-            this.snapshot = { ...parsed.snapshot };
-            this.snapshotOwnerKey = scope.key;
-            this.snapshotOwnerUserId = scope.userId;
+            // Migrate before deleting the only crash-recovery copy.
+            await this.enqueueStorage(async () => {
+                await Preferences.set({ key: STORAGE_KEY, value: JSON.stringify(parsed) });
+                await Preferences.remove({ key: legacyKey });
+            });
+            if (this.snapshot) return;
+            this.adoptPersisted(parsed);
             this.hydratedScopeKeys.add(scope.key);
-            this.startLiveTracking();
-            this.emit();
-            log.info('Hydrated active MOB from scoped storage');
+            log.info('Migrated and hydrated active MOB from legacy scoped storage');
         } catch (e) {
-            if (isAuthIdentityScopeCurrent(scope)) {
-                log.warn('hydrate failed', e);
-            }
+            log.warn('hydrate failed', e);
         }
     }
 
-    private async persist(snap: MobSnapshot, scope: AuthIdentityScope): Promise<void> {
+    private adoptPersisted(persisted: PersistedMobSnapshot): void {
+        this.snapshot = { ...persisted.snapshot };
+        this.snapshotOwnerKey = persisted.ownerKey;
+        this.snapshotOwnerUserId = persisted.ownerUserId;
+        this.persistenceStatus = 'confirmed';
+        this.startLiveTracking();
+        this.emit();
+    }
+
+    private async persist(snap: MobSnapshot): Promise<void> {
+        if (!this.snapshotOwnerKey) throw new Error('MOB device recovery owner metadata is unavailable.');
         const persisted: PersistedMobSnapshot = {
             version: STORAGE_VERSION,
-            ownerKey: scope.key,
-            ownerUserId: scope.userId,
+            ownerKey: this.snapshotOwnerKey,
+            ownerUserId: this.snapshotOwnerUserId,
             snapshot: { ...snap },
         };
-        await this.enqueueStorage(scope, async () => {
-            try {
-                await Preferences.set({
-                    key: authScopedStorageKey(STORAGE_KEY, scope),
-                    value: JSON.stringify(persisted),
-                });
-            } catch (e) {
-                log.warn('failed to persist MOB', e);
-            }
+        await this.enqueueStorage(async () => {
+            await Preferences.set({
+                key: STORAGE_KEY,
+                value: JSON.stringify(persisted),
+            });
         });
     }
 
-    private async removePersisted(scope: AuthIdentityScope): Promise<void> {
-        await this.enqueueStorage(scope, async () => {
-            try {
-                await Preferences.remove({ key: authScopedStorageKey(STORAGE_KEY, scope) });
-            } catch (e) {
-                log.warn('failed to clear storage', e);
+    private async removePersisted(): Promise<void> {
+        const ownerKey = this.snapshotOwnerKey;
+        const ownerUserId = this.snapshotOwnerUserId;
+        await this.enqueueStorage(async () => {
+            // Also clear a pre-device-scope record if this emergency was
+            // migrated from an older beta build. Remove it first: if this step
+            // fails, the device-authoritative restart record must remain.
+            if (ownerKey) {
+                await Preferences.remove({
+                    key: authScopedStorageKey(STORAGE_KEY, {
+                        key: ownerKey,
+                        userId: ownerUserId,
+                        generation: 0,
+                    }),
+                });
             }
+            await Preferences.remove({ key: STORAGE_KEY });
         });
     }
 
@@ -404,23 +552,23 @@ class MobServiceClass {
      * Capacitor Preferences has no transaction API. Per-owner serialization
      * prevents a slow activation write from resurrecting a later clear.
      */
-    private enqueueStorage(scope: AuthIdentityScope, operation: () => Promise<void>): Promise<void> {
-        const previous = this.storageChains.get(scope.key) ?? Promise.resolve();
+    private enqueueStorage(operation: () => Promise<void>): Promise<void> {
+        const previous = this.storageChains.get(STORAGE_KEY) ?? Promise.resolve();
         const next = previous.catch(() => {}).then(operation);
-        this.storageChains.set(scope.key, next);
+        this.storageChains.set(STORAGE_KEY, next);
         const cleanup = () => {
-            if (this.storageChains.get(scope.key) === next) {
-                this.storageChains.delete(scope.key);
+            if (this.storageChains.get(STORAGE_KEY) === next) {
+                this.storageChains.delete(STORAGE_KEY);
             }
         };
         void next.then(cleanup, cleanup);
         return next;
     }
 
-    private scheduleHaptic(snap: MobSnapshot, delayMs: number): void {
+    private scheduleHaptic(activationId: number, delayMs: number): void {
         const timeout = setTimeout(() => {
             this.hapticTimeouts.delete(timeout);
-            if (this.snapshot !== snap) return;
+            if (this.snapshot?.activatedAt !== activationId) return;
             void Haptics.impact({ style: ImpactStyle.Heavy }).catch(() => {});
         }, delayMs);
         this.hapticTimeouts.add(timeout);
@@ -432,6 +580,7 @@ class MobServiceClass {
     }
 
     private emit(): void {
+        setLiveMobSafetyState(this.snapshot !== null);
         const state = this.currentState();
         for (const sub of this.subs) {
             try {

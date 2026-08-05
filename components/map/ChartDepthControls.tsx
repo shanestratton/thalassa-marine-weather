@@ -17,12 +17,18 @@ export interface ChartDepthControlsProps {
     onTideScrubChange: (quarters: number) => void;
     onToggleTideDepth: () => void;
     encCellCount: number;
+    /** Unsigned local/URL packs: display-only, never safety authority. */
+    encReferenceCellCount: number;
     encVisible: boolean;
     encHydration: { total: number; remaining: number };
     encNoCoverage: boolean;
+    /** Reference warning remains visible on both Browse and Plan surfaces. */
+    referenceNoticeVisible: boolean;
     nightDim: boolean;
     onNightDimChange: (enabled: boolean) => void;
     onToggleChartKey: () => void;
+    /** Opens the Pi-independent ENC Library when this viewport has no coverage. */
+    onOpenEncLibrary: () => void;
 }
 
 /**
@@ -39,12 +45,15 @@ export function ChartDepthControls({
     onTideScrubChange,
     onToggleTideDepth,
     encCellCount,
+    encReferenceCellCount,
     encVisible,
     encHydration,
     encNoCoverage,
+    referenceNoticeVisible,
     nightDim,
     onNightDimChange,
     onToggleChartKey,
+    onOpenEncLibrary,
 }: ChartDepthControlsProps) {
     return (
         <>
@@ -171,14 +180,59 @@ export function ChartDepthControls({
                 </button>
             )}
 
-            {encNoCoverage && encHydration.remaining === 0 && encVisible && surfaceVisible && (
+            {encReferenceCellCount > 0 && encVisible && referenceNoticeVisible && (
                 <div
-                    className="pointer-events-none absolute bottom-6 left-1/2 z-[9980] -translate-x-1/2 whitespace-nowrap rounded-full border border-amber-500/30 bg-slate-900/85 px-3 py-1 text-[11px] font-bold text-amber-300 shadow-lg"
+                    className={`absolute left-1/2 z-[9995] flex w-[min(440px,calc(100%-24px))] -translate-x-1/2 items-center justify-between gap-3 rounded-2xl border border-amber-500/40 bg-slate-950/95 px-3 py-2 text-[11px] font-bold text-amber-100 shadow-lg backdrop-blur-sm ${
+                        tideDepthMode && surfaceVisible ? 'top-28' : 'top-16'
+                    }`}
+                    role="status"
                     aria-live="polite"
                 >
-                    No chart coverage here — depths unverified
+                    <span className="leading-snug">
+                        Unverified reference ENC installed — it cannot establish chart coverage, and route checks ignore
+                        it.
+                    </span>
+                    <button
+                        type="button"
+                        onClick={() => {
+                            triggerHaptic('light');
+                            onOpenEncLibrary();
+                        }}
+                        className="min-h-[44px] shrink-0 rounded-xl border border-amber-400/35 bg-amber-400/15 px-3 text-[10px] font-black uppercase tracking-wider text-amber-100 transition-colors hover:bg-amber-400/25 active:scale-95"
+                        aria-label="Manage unverified reference ENCs"
+                    >
+                        Manage
+                    </button>
                 </div>
             )}
+
+            {encNoCoverage &&
+                encReferenceCellCount === 0 &&
+                encHydration.remaining === 0 &&
+                encVisible &&
+                surfaceVisible && (
+                    <div
+                        className="absolute bottom-6 left-1/2 z-[9980] flex w-[min(390px,calc(100%-24px))] -translate-x-1/2 items-center justify-between gap-3 rounded-2xl border border-amber-500/30 bg-slate-900/92 px-3 py-2 text-[11px] font-bold text-amber-200 shadow-lg backdrop-blur-sm"
+                        aria-live="polite"
+                    >
+                        <span className="leading-snug">
+                            {encCellCount === 0
+                                ? 'No verified ENC charts installed. Library imports are reference-only.'
+                                : 'No verified ENC coverage here — reference imports cannot verify it.'}
+                        </span>
+                        <button
+                            type="button"
+                            onClick={() => {
+                                triggerHaptic('light');
+                                onOpenEncLibrary();
+                            }}
+                            className="min-h-[44px] shrink-0 rounded-xl border border-amber-400/35 bg-amber-400/15 px-3 text-[10px] font-black uppercase tracking-wider text-amber-200 transition-colors hover:bg-amber-400/25 active:scale-95"
+                            aria-label="Open on-device ENC Library"
+                        >
+                            ENC Library
+                        </button>
+                    </div>
+                )}
         </>
     );
 }

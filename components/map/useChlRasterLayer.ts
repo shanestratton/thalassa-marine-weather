@@ -13,17 +13,27 @@
  *     u[stepIdx] as the data plane.
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type mapboxgl from 'mapbox-gl';
 import { createLogger } from '../../utils/createLogger';
 import { ChlRasterLayer } from './ChlRasterLayer';
-import { fetchChlGrid } from '../../services/weather/api/chlGrid';
-import type { WindGrid } from '../../services/weather/windField';
+import { fetchChlGrid, releaseChlGrid } from '../../services/weather/api/chlGrid';
+import { cmemsRenderedLayerState, type CmemsRenderOutcome, useCmemsGridRefresh } from './useCmemsGridRefresh';
+import {
+    addCmemsLayerAndProveOwnership,
+    deactivateCmemsLayerAndProveSafe,
+    isCmemsLayerAbsent,
+    isCmemsLayerOwned,
+    monitorCmemsLayerDeactivation,
+    removeCmemsLayerAndProveAbsent,
+} from './cmemsLayerOwnership';
+import { isCmemsFeatureEnabled } from './cmemsFeatureAvailability';
+import { deactivateFailedCmemsRenderer } from './cmemsLayerFailure';
 
 const log = createLogger('ChlRasterLayer');
 
 const LAYER_ID = 'cmems-chl-raster';
-const FEATURE_ENABLED = String(import.meta.env.VITE_CMEMS_CHL_ENABLED ?? 'false').toLowerCase() === 'true';
+const FEATURE_ENABLED = isCmemsFeatureEnabled('chl');
 
 export function useChlRasterLayer(
     mapRef: React.MutableRefObject<mapboxgl.Map | null>,
@@ -33,42 +43,29 @@ export function useChlRasterLayer(
 ) {
     const layerRef = useRef<ChlRasterLayer | null>(null);
     const currentStepRef = useRef(-1);
-    const inflightRef = useRef(false);
-    const attemptedRef = useRef(false);
-    const [grid, setGrid] = useState<WindGrid | null>(null);
-
-    // Lazy-load the grid the first time chl becomes visible.
-    useEffect(() => {
-        if (!FEATURE_ENABLED) return;
-        if (!visible) {
-            attemptedRef.current = false;
-            return;
-        }
-        if (grid || inflightRef.current || attemptedRef.current) return;
-
-        let cancelled = false;
-        inflightRef.current = true;
-        attemptedRef.current = true;
-        fetchChlGrid()
-            .then((g) => {
-                inflightRef.current = false;
-                if (cancelled) return;
-                if (!g) {
-                    log.warn('CHL grid unavailable — giving up until next toggle');
-                    return;
-                }
-                log.info(`CHL grid cached (${g.totalHours} days × ${g.width}×${g.height})`);
-                currentStepRef.current = -1;
-                setGrid(g);
-            })
-            .catch((err) => {
-                inflightRef.current = false;
-                log.warn('Failed to load CHL grid', err);
-            });
-        return () => {
-            cancelled = true;
-        };
-    }, [visible, grid]);
+    const generationRef = useRef<string | undefined>();
+    const clearLayerOwnership = useCallback(() => {
+        layerRef.current = null;
+        currentStepRef.current = -1;
+        generationRef.current = undefined;
+    }, []);
+    const prepareForFrame = useCallback(() => {
+        const map = mapRef.current;
+        if (!map || !mapReady || !removeCmemsLayerAndProveAbsent(map, LAYER_ID)) return false;
+        clearLayerOwnership();
+        return true;
+    }, [clearLayerOwnership, mapReady, mapRef]);
+    const refresh = useCmemsGridRefresh(
+        FEATURE_ENABLED && mapReady,
+        visible,
+        forecastStep,
+        fetchChlGrid,
+        releaseChlGrid,
+        prepareForFrame,
+    );
+    const grid = refresh.grid;
+    const [renderOutcome, setRenderOutcome] = useState<CmemsRenderOutcome | null>(null);
+    const layerState = cmemsRenderedLayerState(refresh, FEATURE_ENABLED, visible, mapReady, renderOutcome);
 
     // Mount / update / unmount the layer based on visibility + data.
     useEffect(() => {
@@ -79,39 +76,123 @@ export function useChlRasterLayer(
             return;
         }
 
-        // Teardown when hidden.
-        if (!visible) {
-            if (layerRef.current && map.getLayer(LAYER_ID)) {
-                try {
-                    map.removeLayer(LAYER_ID);
-                } catch {
-                    /* best effort */
+        // Teardown when hidden or when a trust refresh rejects the grid.
+        if (!visible || !grid) {
+            const retainedStep = currentStepRef.current >= 0 ? currentStepRef.current : null;
+            const retainedGeneration = generationRef.current ?? null;
+            const publishSafeDeactivation = (safe: 'absent' | 'hidden') => {
+                if (safe === 'absent') {
+                    clearLayerOwnership();
+                    setRenderOutcome(null);
+                    return;
                 }
+                setRenderOutcome({
+                    phase: 'hidden',
+                    attempt: refresh.attempt,
+                    verifiedStep: retainedStep,
+                    sourceGeneration: retainedGeneration,
+                });
+            };
+            const deactivation = deactivateCmemsLayerAndProveSafe(map, LAYER_ID);
+            if (deactivation === 'absent') {
+                clearLayerOwnership();
+                setRenderOutcome(null);
+            } else if (deactivation === 'hidden') {
+                publishSafeDeactivation('hidden');
+                return monitorCmemsLayerDeactivation(map, LAYER_ID, 'Chlorophyll', publishSafeDeactivation);
+            } else {
+                setRenderOutcome({
+                    phase: 'stuck-visible',
+                    attempt: refresh.attempt,
+                    verifiedStep: currentStepRef.current >= 0 ? currentStepRef.current : null,
+                    sourceGeneration: generationRef.current ?? null,
+                });
+                return monitorCmemsLayerDeactivation(map, LAYER_ID, 'Chlorophyll', publishSafeDeactivation);
             }
-            layerRef.current = null;
-            currentStepRef.current = -1;
             return;
         }
 
-        if (!grid) return;
+        if (generationRef.current !== grid.sourceGeneration) {
+            generationRef.current = grid.sourceGeneration;
+            currentStepRef.current = -1;
+        }
         if (!grid.landMask) {
-            log.warn('CHL grid has no land mask (v1 binary?) — skipping draw');
-            return;
+            log.warn('Verified CHL grid has no land mask — skipping draw');
+            return deactivateFailedCmemsRenderer({
+                map,
+                layerId: LAYER_ID,
+                label: 'Chlorophyll',
+                attempt: refresh.attempt,
+                verifiedStep: currentStepRef.current >= 0 ? currentStepRef.current : null,
+                sourceGeneration: generationRef.current ?? null,
+                clearOwnership: clearLayerOwnership,
+                publish: setRenderOutcome,
+            });
         }
 
         const wantsStep = Math.min(Math.max(0, Math.round(forecastStep)), grid.totalHours - 1);
+        if (grid.sourceStep !== wantsStep || !grid.u[wantsStep]) {
+            log.warn('Verified CHL frame does not match the requested scrubber step');
+            return deactivateFailedCmemsRenderer({
+                map,
+                layerId: LAYER_ID,
+                label: 'Chlorophyll',
+                attempt: refresh.attempt,
+                verifiedStep: currentStepRef.current >= 0 ? currentStepRef.current : null,
+                sourceGeneration: generationRef.current ?? null,
+                clearOwnership: clearLayerOwnership,
+                publish: setRenderOutcome,
+            });
+        }
 
         if (!layerRef.current) {
+            if (!isCmemsLayerAbsent(map, LAYER_ID)) {
+                return deactivateFailedCmemsRenderer({
+                    map,
+                    layerId: LAYER_ID,
+                    label: 'Chlorophyll',
+                    attempt: refresh.attempt,
+                    verifiedStep: null,
+                    sourceGeneration: generationRef.current ?? null,
+                    clearOwnership: clearLayerOwnership,
+                    publish: setRenderOutcome,
+                });
+            }
             try {
                 const layer = new ChlRasterLayer(LAYER_ID);
-                map.addLayer(layer);
                 layerRef.current = layer;
+                if (!addCmemsLayerAndProveOwnership(map, LAYER_ID, layer)) {
+                    throw new Error('Mapbox did not register the CHL candidate');
+                }
                 currentStepRef.current = -1;
                 log.info(`Mounted CHL raster layer (id=${LAYER_ID})`);
             } catch (err) {
                 log.warn('Failed to mount CHL layer', err);
-                return;
+                return deactivateFailedCmemsRenderer({
+                    map,
+                    layerId: LAYER_ID,
+                    label: 'Chlorophyll',
+                    attempt: refresh.attempt,
+                    verifiedStep: null,
+                    sourceGeneration: generationRef.current ?? null,
+                    clearOwnership: clearLayerOwnership,
+                    publish: setRenderOutcome,
+                });
             }
+        }
+
+        const ownedLayer = layerRef.current;
+        if (!ownedLayer || !isCmemsLayerOwned(map, LAYER_ID, ownedLayer)) {
+            return deactivateFailedCmemsRenderer({
+                map,
+                layerId: LAYER_ID,
+                label: 'Chlorophyll',
+                attempt: refresh.attempt,
+                verifiedStep: currentStepRef.current >= 0 ? currentStepRef.current : null,
+                sourceGeneration: generationRef.current ?? null,
+                clearOwnership: clearLayerOwnership,
+                publish: setRenderOutcome,
+            });
         }
 
         if (currentStepRef.current !== wantsStep) {
@@ -119,7 +200,7 @@ export function useChlRasterLayer(
                 // Pre-normalised log10(chl) ∈ [0,1] is packed into the
                 // u-channel by the pipeline (v-channel is zero).
                 const chlNormalised = grid.u[wantsStep];
-                layerRef.current.setData(
+                ownedLayer.setData(
                     chlNormalised,
                     grid.width,
                     grid.height,
@@ -139,9 +220,25 @@ export function useChlRasterLayer(
                 log.info(`CHL step swapped to ${dayLabel}`);
             } catch (err) {
                 log.warn('Failed to set CHL data', err);
+                return deactivateFailedCmemsRenderer({
+                    map,
+                    layerId: LAYER_ID,
+                    label: 'Chlorophyll',
+                    attempt: refresh.attempt,
+                    verifiedStep: currentStepRef.current >= 0 ? currentStepRef.current : null,
+                    sourceGeneration: generationRef.current ?? null,
+                    clearOwnership: clearLayerOwnership,
+                    publish: setRenderOutcome,
+                });
             }
         }
-    }, [mapRef, mapReady, visible, forecastStep, grid]);
+        setRenderOutcome({
+            phase: 'ready',
+            attempt: refresh.attempt,
+            verifiedStep: wantsStep,
+            sourceGeneration: grid.sourceGeneration ?? null,
+        });
+    }, [clearLayerOwnership, mapRef, mapReady, visible, forecastStep, grid, refresh.attempt]);
 
     // Unmount cleanup.
     useEffect(() => {
@@ -149,16 +246,12 @@ export function useChlRasterLayer(
         const map = mapRef.current;
         return () => {
             if (!map) return;
-            try {
-                if (layerRef.current && map.getLayer(LAYER_ID)) {
-                    map.removeLayer(LAYER_ID);
-                }
-            } catch {
-                /* best effort */
-            }
-            layerRef.current = null;
+            const deactivation = deactivateCmemsLayerAndProveSafe(map, LAYER_ID);
+            if (deactivation === 'absent') clearLayerOwnership();
         };
-    }, [mapRef, mapReady]);
+    }, [clearLayerOwnership, mapRef, mapReady]);
+
+    return layerState;
 }
 
 /** Exposed so the legend / attribution chip can check the flag state. */

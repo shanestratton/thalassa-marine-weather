@@ -15,6 +15,7 @@ import {
     SETTINGS_MIRROR_KEY,
     mergeSettings,
     readSettingsMirrorSync,
+    tierForVerifiedSubscriptionStatus,
     writeSettingsMirror,
 } from '../../stores/settingsStore';
 import type { UserSettings } from '../../types';
@@ -39,15 +40,26 @@ describe('mergeSettings — sync-seed / async-load parity', () => {
         );
     });
 
-    it('legacy isPro:true with no tier migrates to owner', () => {
+    it('does not treat a legacy local isPro flag as paid entitlement', () => {
         const merged = mergeSettings({ isPro: true });
-        expect(merged.subscriptionTier).toBe('owner');
-        expect(merged.isPro).toBe(true);
+        expect(merged.subscriptionTier).toBe('free');
+        expect(merged.isPro).toBe(false);
     });
 
     it('isPro:false with no tier migrates to free', () => {
         const merged = mergeSettings({ isPro: false });
         expect(merged.subscriptionTier).toBe('free');
+        expect(merged.isPro).toBe(false);
+    });
+
+    it('quarantines a locally persisted paid tier and expiry', () => {
+        const merged = mergeSettings({
+            subscriptionTier: 'owner',
+            subscriptionExpiry: '2099-01-01T00:00:00.000Z',
+            isPro: true,
+        });
+        expect(merged.subscriptionTier).toBe('free');
+        expect(merged.subscriptionExpiry).toBeUndefined();
         expect(merged.isPro).toBe(false);
     });
 
@@ -61,6 +73,15 @@ describe('mergeSettings — sync-seed / async-load parity', () => {
     it('waveHeight back-compat: falls back to legacy length unit then m', () => {
         expect(mergeSettings({ units: { length: 'ft' } }).units.waveHeight).toBe('ft');
         expect(mergeSettings({ units: {} }).units.waveHeight).toBe('m');
+    });
+});
+
+describe('verified entitlement mapping', () => {
+    it('grants the premium feature set only for a server-verified active plan or trial', () => {
+        expect(tierForVerifiedSubscriptionStatus('active')).toBe('owner');
+        expect(tierForVerifiedSubscriptionStatus('trial')).toBe('owner');
+        expect(tierForVerifiedSubscriptionStatus('expired')).toBe('free');
+        expect(tierForVerifiedSubscriptionStatus('free')).toBe('free');
     });
 });
 

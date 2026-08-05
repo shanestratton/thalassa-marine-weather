@@ -53,7 +53,7 @@ export function normalizeGlobalPressureFrames(rawFrames: number[][][]): Normaliz
             // Always close the global axis at +180°. A 361-column source
             // already has this duplicate and a 360-column source needs it.
             return [...rotated, rotated[0]];
-        }),
+        })
     );
 
     const lons = Array.from({ length: uniqueWidth + 1 }, (_, index) => -180 + (360 * index) / uniqueWidth);

@@ -15,7 +15,13 @@ import { GLAZE_WORKER_ENABLED, isGeoWorkerBroken, type GlazeUpgradeItem } from '
 import type { EncMergedVectorData } from './EncHazardService';
 
 export interface GlazeBuildContext {
-    cell: { id: string; bbox: [number, number, number, number]; edition?: number; sizeBytes?: number };
+    cell: {
+        id: string;
+        bbox: [number, number, number, number];
+        edition?: number;
+        sizeBytes?: number;
+        usage?: 'navigation' | 'reference' | 'pending' | 'demo';
+    };
     blob: { layers: { DEPARE?: FeatureCollection; DRGARE?: FeatureCollection } };
     glazeShadows: Array<{ id: string; bbox: [number, number, number, number] }>;
     coverageFor: (cellId: string) => CoverageGeom | null;
@@ -51,7 +57,7 @@ export async function buildCellGlaze(ctx: GlazeBuildContext): Promise<void> {
     // coast per arriving cell — the cold-boot cascade's biggest
     // duplicated cost (z10-boot audit #3). A re-extracted cell
     // still invalidates: same id, different sizeBytes.
-    const glazeKey = `${cell.id}@${cell.edition}@${cell.sizeBytes ?? 0}:${glazeShadows
+    const glazeKey = `${cell.id}@${cell.edition}@${cell.sizeBytes ?? 0}@${cell.usage ?? 'navigation'}:${glazeShadows
         .map((s) => s.id)
         .sort()
         .join(',')}`;
@@ -77,7 +83,11 @@ export async function buildCellGlaze(ctx: GlazeBuildContext): Promise<void> {
                 if (!feat || !feat.geometry) continue;
                 const base: Feature = {
                     ...feat,
-                    properties: { ...(feat.properties ?? {}), _scaleRank: glazeRank },
+                    properties: {
+                        ...(feat.properties ?? {}),
+                        _scaleRank: glazeRank,
+                        ...(cell.usage === 'reference' ? { _reference: true } : {}),
+                    },
                 };
                 const glazed = finerRects.length > 0 ? clipFeatureOutsideBboxes(base, finerRects) : base;
                 if (glazed) glazeOut.push(glazed);
@@ -141,7 +151,11 @@ export async function buildCellGlaze(ctx: GlazeBuildContext): Promise<void> {
                     if (!feat || !feat.geometry) continue;
                     const decorated = {
                         ...feat,
-                        properties: { ...(feat.properties ?? {}), _scaleRank: glazeRank },
+                        properties: {
+                            ...(feat.properties ?? {}),
+                            _scaleRank: glazeRank,
+                            ...(cell.usage === 'reference' ? { _reference: true } : {}),
+                        },
                     };
                     const fbb = featureBboxCached(feat);
                     const touches =

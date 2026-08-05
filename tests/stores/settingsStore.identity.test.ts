@@ -21,10 +21,15 @@ const harness = vi.hoisted(() => ({
     getCalls: [] as string[],
     setCalls: [] as Array<{ key: string; value: string }>,
     cloudSettings: {} as Record<string, Partial<UserSettings> | null>,
+    deferredCloudSettings: new Map<
+        string,
+        Array<Promise<{ data: { settings: Partial<UserSettings> } | null; error: null }>>
+    >(),
+    cloudSettingReads: [] as string[],
     vessels: {} as Record<string, Record<string, unknown> | null>,
     cloudPatches: [] as Array<Record<string, unknown>>,
-    geolocationPromise: null as Promise<{ location: string }> | null,
     geolocationCalls: 0,
+    entitlementStatus: 'free' as 'active' | 'trial' | 'expired' | 'free',
 }));
 
 vi.mock('@capacitor/preferences', () => ({
@@ -59,6 +64,9 @@ vi.mock('../../services/supabase', () => ({
                 },
                 maybeSingle: async () => {
                     if (table === 'user_settings') {
+                        harness.cloudSettingReads.push(eqValue);
+                        const pending = harness.deferredCloudSettings.get(eqValue);
+                        if (pending?.length) return pending.shift()!;
                         const settings = harness.cloudSettings[eqValue];
                         return { data: settings ? { settings } : null, error: null };
                     }
@@ -85,6 +93,15 @@ vi.mock('../../services/SubscriptionService', () => ({
     tierIsPro: (tier: string | undefined) => tier === 'crew' || tier === 'owner',
 }));
 
+vi.mock('../../managers/SubscriptionManager', () => ({
+    getSubscriptionStatus: vi.fn(async () => ({
+        status: harness.entitlementStatus,
+        trialStartDate: null,
+        subscriptionExpiry: null,
+        trialRemainingDays: harness.entitlementStatus === 'trial' ? 14 : 0,
+    })),
+}));
+
 vi.mock('../../utils/createLogger', () => ({
     createLogger: () => ({ debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }),
     getErrorMessage: (error: unknown) => (error instanceof Error ? error.message : String(error)),
@@ -94,7 +111,7 @@ vi.mock('@capacitor/geolocation', () => ({
     Geolocation: {
         requestPermissions: vi.fn(async () => {
             harness.geolocationCalls += 1;
-            return harness.geolocationPromise ?? { location: 'granted' };
+            return { location: 'granted' };
         }),
     },
 }));
@@ -109,10 +126,12 @@ function resetHarness(): void {
     harness.getCalls.length = 0;
     harness.setCalls.length = 0;
     for (const key of Object.keys(harness.cloudSettings)) delete harness.cloudSettings[key];
+    harness.deferredCloudSettings.clear();
+    harness.cloudSettingReads.length = 0;
     for (const key of Object.keys(harness.vessels)) delete harness.vessels[key];
     harness.cloudPatches.length = 0;
-    harness.geolocationPromise = null;
     harness.geolocationCalls = 0;
+    harness.entitlementStatus = 'free';
     localStorage.clear();
 }
 
@@ -150,6 +169,34 @@ beforeEach(() => {
 });
 
 describe('settingsStore identity isolation', () => {
+    it('ignores client-authored paid tier fields while preserving ordinary settings writes', async () => {
+        const { settings } = await freshStore();
+
+        await update(settings, {
+            firstName: 'Shane',
+            subscriptionTier: 'owner',
+            subscriptionExpiry: '2099-01-01T00:00:00.000Z',
+            isPro: true,
+        });
+
+        expect(settings.useSettingsStore.getState().settings).toMatchObject({
+            firstName: 'Shane',
+            subscriptionTier: 'free',
+            isPro: false,
+        });
+        expect(settings.useSettingsStore.getState().settings.subscriptionExpiry).toBeUndefined();
+    });
+
+    it('applies paid access only after the active identity receives a verified server entitlement', async () => {
+        const { settings, identity } = await freshStore();
+        harness.entitlementStatus = 'active';
+        identity.setAuthIdentityScope('account-a');
+
+        settings.useSettingsStore.getState()._setUserId('account-a');
+        expect(settings.useSettingsStore.getState().settings.subscriptionTier).toBe('free');
+        await vi.waitFor(() => expect(settings.useSettingsStore.getState().settings.subscriptionTier).toBe('owner'));
+    });
+
     it('keeps A and B durable state isolated across A → B → A with synchronous warm paint', async () => {
         const { settings, identity } = await freshStore();
 
@@ -291,26 +338,25 @@ describe('settingsStore identity isolation', () => {
         expect(settings.useSettingsStore.getState().settings.vessel).toBeUndefined();
     });
 
-    it('fences stale A cloud/geolocation work from B state, storage, and events', async () => {
+    it('fences stale A cloud work from B state, storage, and events', async () => {
         const { settings, identity } = await freshStore();
         identity.setAuthIdentityScope('account-a');
         await settings.awaitSettingsLoaded();
 
-        harness.cloudSettings['account-a'] = { firstName: 'Cloud Alice' };
+        const cloudRead = deferred<{ data: { settings: Partial<UserSettings> } | null; error: null }>();
+        harness.deferredCloudSettings.set('account-a', [cloudRead.promise]);
         harness.vessels['account-a'] = {
             vessel_name: 'Cloud A Boat',
             vessel_type: 'sail',
             model: 'A Model',
         };
-        const permission = deferred<{ location: string }>();
-        harness.geolocationPromise = permission.promise;
         const dispatch = vi.spyOn(window, 'dispatchEvent');
 
         settings.useSettingsStore.getState()._setUserId('account-a');
-        await vi.waitFor(() => expect(harness.geolocationCalls).toBe(1));
+        await vi.waitFor(() => expect(harness.cloudSettingReads).toContain('account-a'));
 
         identity.setAuthIdentityScope('account-b');
-        permission.resolve({ location: 'granted' });
+        cloudRead.resolve({ data: { settings: { firstName: 'Cloud Alice' } }, error: null });
         await settings.awaitSettingsLoaded();
         await Promise.resolve();
 
@@ -325,6 +371,26 @@ describe('settingsStore identity isolation', () => {
         ).toBe(false);
         const bKey = identity.authScopedStorageKey('thalassa_settings', identity.getAuthIdentityScope());
         expect(harness.preferences[bKey]).toBeUndefined();
+    });
+
+    it('never prompts for Location or invents GPS-follow intent during cloud restore', async () => {
+        const { settings, identity } = await freshStore();
+        identity.setAuthIdentityScope('account-a');
+        await settings.awaitSettingsLoaded();
+
+        harness.cloudSettings['account-a'] = { firstName: 'Cloud Alice' };
+        harness.vessels['account-a'] = {
+            vessel_name: 'Cloud A Boat',
+            vessel_type: 'sail',
+            model: 'A Model',
+        };
+
+        settings.useSettingsStore.getState()._setUserId('account-a');
+        await vi.waitFor(() => expect(settings.useSettingsStore.getState().settings.firstName).toBe('Cloud Alice'));
+
+        expect(harness.geolocationCalls).toBe(0);
+        expect(settings.useSettingsStore.getState().settings.defaultLocation).toBeFalsy();
+        expect(settings.useSettingsStore.getState().settings.defaultLocation).not.toBe('Current Location');
     });
 
     it('does not launch A cloud sync when its disk write resolves after switching to B', async () => {

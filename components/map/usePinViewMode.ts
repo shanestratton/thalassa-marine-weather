@@ -101,7 +101,7 @@ export function usePinViewMode({
                 pinMarkerRef.current = null;
             }
         };
-    }, [isPinView, mapReady]);
+    }, [isPinView, mapReady, mapRef, ownedPinViewRef, pinMarkerRef]);
 
     // ── Pin View: temporarily clear weather overlays for a clean map ──
     // Shane: "when the punter does click the pin, we need to ensure
@@ -171,7 +171,7 @@ export function usePinViewMode({
             }
             ownedPinViewRef.current = null;
         };
-    }, []);
+    }, [ownedPinViewRef, setIsPinView]);
 
     const handlePinDirections = useCallback(async () => {
         const pv = readCurrentPinView();
@@ -184,7 +184,7 @@ export function usePinViewMode({
         try {
             const { GpsService } = await import('../../services/GpsService');
             if (!isAuthIdentityScopeCurrent(actionScope)) return;
-            const pos = await GpsService.getCurrentPosition({ staleLimitMs: 30_000, timeoutSec: 10 });
+            const pos = await GpsService.requestCurrentForegroundPosition({ staleLimitMs: 30_000, timeoutSec: 10 });
             if (!isAuthIdentityScopeCurrent(actionScope)) return;
             if (!pos) {
                 setPinDirectionsError('Could not get your GPS position.');

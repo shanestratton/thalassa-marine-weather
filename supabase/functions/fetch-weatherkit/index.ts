@@ -169,8 +169,8 @@ Deno.serve(async (req: Request) => {
     // service-role call is already protected by route-weather's own quota and
     // must not consume (or be rejected by) the public 30-call WeatherKit lane.
     const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
-    const isTrustedInternalCall =
-        Boolean(serviceRoleKey) && req.headers.get('authorization') === `Bearer ${serviceRoleKey}`;
+    const isTrustedInternalCall = Boolean(serviceRoleKey) &&
+        req.headers.get('authorization') === `Bearer ${serviceRoleKey}`;
     if (!isTrustedInternalCall) {
         const caller = await requireAuthenticatedOrPublicQuota(req, 'weatherkit', 240, 30, 3600);
         if (caller instanceof Response) return withCors(caller, CORS);
@@ -181,8 +181,7 @@ Deno.serve(async (req: Request) => {
         const p8Key = Deno.env.get('APPLE_WEATHERKIT_P8_KEY') || Deno.env.get('WEATHERKIT_PRIVATE_KEY');
         const keyId = Deno.env.get('APPLE_WEATHERKIT_KEY_ID') || Deno.env.get('WEATHERKIT_KEY_ID');
         const teamId = Deno.env.get('APPLE_WEATHERKIT_TEAM_ID') || Deno.env.get('WEATHERKIT_TEAM_ID');
-        const serviceId =
-            Deno.env.get('APPLE_WEATHERKIT_SERVICE_ID') ||
+        const serviceId = Deno.env.get('APPLE_WEATHERKIT_SERVICE_ID') ||
             Deno.env.get('WEATHERKIT_SERVICE_ID') ||
             (teamId ? `com.thalassa.weatherkit` : undefined);
 
@@ -216,15 +215,12 @@ Deno.serve(async (req: Request) => {
         }
         const allowedDataSets = new Set(['currentWeather', 'forecastHourly', 'forecastDaily', 'forecastNextHour']);
         const requestedDataSets = rawBody.dataSets;
-        const dataSets =
-            requestedDataSets === undefined
-                ? [...allowedDataSets]
-                : Array.isArray(requestedDataSets) &&
-                    requestedDataSets.length >= 1 &&
-                    requestedDataSets.length <= allowedDataSets.size &&
-                    requestedDataSets.every((value) => typeof value === 'string' && allowedDataSets.has(value))
-                  ? [...new Set(requestedDataSets as string[])]
-                  : null;
+        const dataSets = requestedDataSets === undefined ? [...allowedDataSets] : Array.isArray(requestedDataSets) &&
+                requestedDataSets.length >= 1 &&
+                requestedDataSets.length <= allowedDataSets.size &&
+                requestedDataSets.every((value) => typeof value === 'string' && allowedDataSets.has(value))
+            ? [...new Set(requestedDataSets as string[])]
+            : null;
         if (!dataSets) {
             return corsResponse(JSON.stringify({ error: 'Invalid dataSets' }), 400, {
                 'Content-Type': 'application/json',

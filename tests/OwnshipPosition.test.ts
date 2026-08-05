@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const dependencies = vi.hoisted(() => ({
     gps: vi.fn(),
+    foregroundGps: vi.fn(),
+    safetyGps: vi.fn(),
     nmea: { current: {} as Record<string, unknown> },
     location: {
         current: {
@@ -15,7 +17,9 @@ const dependencies = vi.hoisted(() => ({
 
 vi.mock('../services/GpsService', () => ({
     GpsService: {
-        getCurrentPosition: (...args: unknown[]) => dependencies.gps(...args),
+        getCurrentPositionIfGranted: (...args: unknown[]) => dependencies.gps(...args),
+        requestCurrentForegroundPosition: (...args: unknown[]) => dependencies.foregroundGps(...args),
+        getCurrentPosition: (...args: unknown[]) => dependencies.safetyGps(...args),
     },
 }));
 
@@ -54,6 +58,8 @@ describe('ownship position safety boundary', () => {
             timestamp: NOW,
         };
         dependencies.gps.mockResolvedValue(null);
+        dependencies.foregroundGps.mockResolvedValue(null);
+        dependencies.safetyGps.mockResolvedValue(null);
     });
 
     it('never treats a selected map or weather location as the vessel position', () => {
@@ -125,6 +131,44 @@ describe('ownship position safety boundary', () => {
             source: 'gps',
         });
         expect(dependencies.gps).toHaveBeenCalledWith({ staleLimitMs: 30_000, timeoutSec: 10 });
+        expect(dependencies.foregroundGps).not.toHaveBeenCalled();
+        expect(dependencies.safetyGps).not.toHaveBeenCalled();
+    });
+
+    it('uses prompt-capable providers only for an explicit foreground or safety intent', async () => {
+        const position = {
+            latitude: -27.48,
+            longitude: 153.04,
+            accuracy: 4,
+            altitude: null,
+            heading: 182,
+            speed: 5,
+            timestamp: NOW - 1_000,
+        };
+        dependencies.foregroundGps.mockResolvedValueOnce(position);
+        await expect(
+            acquireFreshOwnshipPosition({
+                now: NOW,
+                maxGpsAgeMs: 30_000,
+                locationAccess: 'foreground-request',
+            }),
+        ).resolves.toMatchObject({ lat: -27.48, source: 'gps' });
+        expect(dependencies.foregroundGps).toHaveBeenCalledWith({ staleLimitMs: 30_000, timeoutSec: 10 });
+        expect(dependencies.gps).not.toHaveBeenCalled();
+        expect(dependencies.safetyGps).not.toHaveBeenCalled();
+
+        vi.clearAllMocks();
+        dependencies.safetyGps.mockResolvedValueOnce(position);
+        await expect(
+            acquireFreshOwnshipPosition({
+                now: NOW,
+                maxGpsAgeMs: 30_000,
+                locationAccess: 'background-safety',
+            }),
+        ).resolves.toMatchObject({ lat: -27.48, source: 'gps' });
+        expect(dependencies.safetyGps).toHaveBeenCalledWith({ staleLimitMs: 30_000, timeoutSec: 10 });
+        expect(dependencies.gps).not.toHaveBeenCalled();
+        expect(dependencies.foregroundGps).not.toHaveBeenCalled();
     });
 
     it('fails closed for stale, malformed, or rejected plugin positions', async () => {
@@ -187,5 +231,32 @@ describe('ownship position safety boundary', () => {
         const [a, b] = await Promise.all([first, second]);
         expect(a).toEqual(b);
         expect(a).toMatchObject({ lat: -27.48, lon: 153.04, source: 'gps' });
+    });
+
+    it('never lets a passive acquisition borrow a concurrent safety request', async () => {
+        let resolvePassive!: (value: null) => void;
+        dependencies.gps.mockReturnValueOnce(
+            new Promise((resolve) => {
+                resolvePassive = resolve;
+            }),
+        );
+        dependencies.safetyGps.mockResolvedValueOnce({
+            latitude: -27.49,
+            longitude: 153.05,
+            accuracy: 5,
+            altitude: null,
+            heading: 45,
+            speed: 1,
+            timestamp: NOW,
+        });
+
+        const passive = acquireFreshOwnshipPosition({ now: NOW });
+        const safety = acquireFreshOwnshipPosition({ now: NOW, locationAccess: 'background-safety' });
+        await expect(safety).resolves.toMatchObject({ lat: -27.49, source: 'gps' });
+        expect(dependencies.gps).toHaveBeenCalledOnce();
+        expect(dependencies.safetyGps).toHaveBeenCalledOnce();
+
+        resolvePassive(null);
+        await expect(passive).resolves.toBeNull();
     });
 });

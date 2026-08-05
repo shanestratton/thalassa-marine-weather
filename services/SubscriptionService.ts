@@ -2,15 +2,10 @@
  * SubscriptionService — Central subscription tier & feature gating.
  *
  * Three tiers (annual billing):
- *   - Deckhand     ($0)      — basic weather, full chandlery access, crew finder
+ *   - Deckhand     ($0)      — basic weather, chart browsing, crew finder
  *   - First Mate   ($49.95)  — GPS tracking, DMs, AI advice, full weather
  *   - Skipper      ($149)    — full feature set inc. route planning, passage
  *                              legs, galley, AI diary, Apple Watch
- *
- * Chandlery (formerly gated to Skipper) is open to all tiers. The pivot
- * from peer-to-peer used-gear marketplace to a B2B drop-ship storefront
- * (see roadmap entry "Chandlery B-pivot") makes restricted access the
- * wrong play — the business wants every user able to browse and buy.
  *
  * Pricing rationale (set 2026-04-22): Skipper is positioned alongside
  * Orca CORE ($129/yr) — the de-facto "serious offshore nav" benchmark —
@@ -25,6 +20,25 @@
  */
 
 import type { SubscriptionTier } from '../types/settings';
+
+/**
+ * Public-beta access policy.
+ *
+ * Billing/receipt entitlement code remains below for a later store release,
+ * but the beta itself is deliberately free: every feature gate resolves open,
+ * no trial clock starts in the client, and no purchase is offered.
+ */
+export const PUBLIC_BETA_ACCESS: {
+    enabled: boolean;
+    label: string;
+    badge: string;
+    message: string;
+} = {
+    enabled: true,
+    label: 'Free Public Beta',
+    badge: 'PUBLIC BETA',
+    message: 'All public-beta features are unlocked at no charge. No purchase or trial is required.',
+};
 
 // ── Tier Metadata ─────────────────────────────────────────────
 
@@ -90,10 +104,11 @@ export type Feature =
     | 'communityDownload' // Download community tracks
     | 'communityShare' // Share own tracks
     | 'aiAdvice' // Captain's AI advice
+    | 'vesselIntel' // AIS vessel identity, dimensions, and imagery
     | 'anchorWatch' // Anchor watch alarm
     | 'polars' // Polar diagrams & smart polars
     | 'piCache' // Raspberry Pi local cache server
-    | 'bosunVoice' // Bosun voice console (PTT to on-boat AI + cloud Haiku)
+    | 'bosunVoice' // Calypso voice console (PTT to on-boat AI + cloud Haiku)
     | 'calypsoMusic' // Calypso → Apple Music control (search, play, queue)
     | 'calypsoEmail' // Calypso → Gmail integration (read inbox, draft, send)
     | 'calypsoAlerts'; // Calypso proactive "speak up" alerts (NMEA threshold monitor)
@@ -116,8 +131,7 @@ const FEATURE_GATES: Record<Feature, SubscriptionTier> = {
     diary: 'owner',
     gpsTracking: 'crew',
     crewTalkWrite: 'crew',
-    // crewFinderCaptain: free — same logic as the Chandlery B-pivot
-    // (#11 on the WD roadmap). Network-effect features need EVERY
+    // Network-effect features need every
     // tier able to participate, otherwise the listing density never
     // reaches usefulness. The owner-tier gate was advertised in the
     // UpgradeModal but never actually enforced anywhere in code, so
@@ -128,10 +142,11 @@ const FEATURE_GATES: Record<Feature, SubscriptionTier> = {
     communityDownload: 'crew',
     communityShare: 'owner',
     aiAdvice: 'crew',
+    vesselIntel: 'crew',
     anchorWatch: 'crew',
     polars: 'owner',
     piCache: 'owner',
-    bosunVoice: 'owner', // Skipper-tier (top tier) only — voice console wraps the most expensive features (Pi-based AI, cloud Haiku, ElevenLabs TTS)
+    bosunVoice: 'owner', // Skipper-tier (top tier) only — Calypso wraps the most expensive features (Pi-based AI, cloud Haiku, ElevenLabs TTS)
     calypsoMusic: 'owner', // Skipper-tier — Apple Music integration (MusicKit + URL schemes)
     calypsoEmail: 'owner', // Skipper-tier — Gmail OAuth + read/draft/send
     calypsoAlerts: 'owner', // Skipper-tier — proactive NMEA threshold alerts via AlertMonitorService
@@ -156,6 +171,7 @@ const TIER_RANK: Record<SubscriptionTier, number> = {
  *   canAccess('owner', 'routePlanner') // true
  */
 export function canAccess(tier: SubscriptionTier, feature: Feature): boolean {
+    if (PUBLIC_BETA_ACCESS.enabled) return true;
     const required = FEATURE_GATES[feature];
     return TIER_RANK[tier] >= TIER_RANK[required];
 }

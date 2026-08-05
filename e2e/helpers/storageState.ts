@@ -2,7 +2,7 @@ import type { BrowserContextOptions } from '@playwright/test';
 
 type InlineStorageState = Exclude<NonNullable<BrowserContextOptions['storageState']>, string>;
 
-const ORIGIN = 'http://localhost:3000';
+const ORIGIN = 'http://127.0.0.1:4173';
 
 export const DISCLAIMER_STORAGE: InlineStorageState = {
     cookies: [],

@@ -1,10 +1,10 @@
 /**
- * TalkButton — tap-to-toggle voice button (single Bosun blue variant).
+ * TalkButton — tap-to-toggle voice button (single Calypso blue variant).
  *
- * One big blue Bosun button. The brain it routes to (cloud Haiku or local
+ * One big blue Calypso button. The brain it routes to (cloud Haiku or local
  * 3B on the Pi) is decided by the caller based on connectivity, and is
- * shown in the subtitle ("Bosun cloud" / "Bosun local (3B)") rather than
- * by switching button styling — there is one Bosun, the brain swaps in
+ * shown in the subtitle ("Calypso cloud" / "Calypso local (3B)") rather than
+ * by switching button styling — there is one Calypso, the brain swaps in
  * behind it.
  *
  * Tap-to-toggle gesture:
@@ -19,7 +19,7 @@ export type TalkButtonState = 'idle' | 'recording' | 'sending' | 'awaiting' | 'p
 
 interface TalkButtonProps {
     state: TalkButtonState;
-    /** Caption under the button — typically the active brain ("Bosun cloud", "Bosun local (3B)"). */
+    /** Caption under the button — typically the active brain ("Calypso cloud", "Calypso local (3B)"). */
     subtitle?: string;
     /** Disable the button (greyed out, no tap) */
     disabled?: boolean;
@@ -48,7 +48,7 @@ const STATE_HINT: Record<TalkButtonState, string> = {
     error: 'Try again',
 };
 
-/** Marine-blue Bosun gradient (matches AvNav badge family). */
+/** Marine-blue Calypso gradient (matches AvNav badge family). */
 const GRADIENT_IDLE = 'bg-gradient-to-br from-sky-500 via-blue-600 to-blue-800';
 const GRADIENT_HOT = 'bg-gradient-to-br from-sky-400 via-blue-500 to-blue-700 ring-4 ring-sky-300/60';
 const SHADOW_IDLE =

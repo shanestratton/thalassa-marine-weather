@@ -440,7 +440,7 @@ export const MealCalendar: React.FC<MealCalendarProps> = ({
                                             {/* ✕ Delete button */}
                                             <button
                                                 onClick={(e) => handleDeleteMeal(meal, e)}
-                                                className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-gray-600/90 text-white text-[11px] leading-none flex items-center justify-center z-10 active:scale-90 opacity-60 hover:opacity-100 transition-opacity"
+                                                className="hit-target-44 absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-gray-600/90 text-white text-[11px] leading-none flex items-center justify-center z-10 active:scale-90 opacity-60 hover:opacity-100 transition-opacity"
                                                 aria-label={`Remove ${meal.title}`}
                                             >
                                                 ✕
@@ -790,7 +790,7 @@ const SlotPicker: React.FC<{
                         </div>
                         <button
                             onClick={onClose}
-                            className="w-8 h-8 rounded-full bg-white/[0.06] flex items-center justify-center text-gray-400 hover:text-white transition-colors"
+                            className="w-11 h-11 rounded-full bg-white/[0.06] flex items-center justify-center text-gray-300 hover:text-white transition-colors"
                             aria-label="Close recipe picker"
                         >
                             ✕

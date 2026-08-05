@@ -1,24 +1,26 @@
 /**
- * SocialAuthService — native Apple + Google sign-in for iOS.
+ * SocialAuthService — Sign in with Apple for iOS and the web.
  *
- * Wraps the two Capacitor plugins:
- *   - @capacitor-community/apple-sign-in  → native Apple Sign-In dialog
- *   - @codetrix-studio/capacitor-google-auth → native Google Sign-In flow
+ * Wraps @capacitor-community/apple-sign-in for the native Apple
+ * Sign-In dialog.
  *
- * Both plugins return an ID token (a JWT signed by Apple/Google).
+ * The plugin returns an ID token (a JWT signed by Apple).
  * We hand that token to Supabase via `signInWithIdToken`, which
  * verifies the signature against the provider's public keys and
  * creates (or fetches) the user in `auth.users`.
  *
- * Nonce handling differs by provider:
- *   - Apple: Supabase REQUIRES a nonce. We generate a raw random
+ * Apple also returns a one-time authorization code. Only AFTER Supabase has
+ * authenticated the ID token do we send that code to our authenticated Edge
+ * Function. The server exchanges it directly with Apple, identity-matches the
+ * response, and stores the resulting refresh token encrypted for account
+ * deletion revocation (TN3194). No Apple key or refresh token reaches this
+ * client. If that registration fails, the new local session is discarded.
+ *
+ * Supabase requires a nonce for Apple. We generate a raw random
  *     string, SHA-256 it, pass the *hash* to Apple's plugin (Apple
  *     includes that hash in the token's `nonce` claim), and pass
  *     the *raw* nonce to Supabase, which re-hashes and compares.
- *     This is the canonical Supabase Apple Sign-In pattern.
- *   - Google: we configured "Skip nonce checks" ON in Supabase's
- *     Google provider because the capacitor-google-auth plugin
- *     doesn't expose nonce control. No nonce sent.
+ * This is the canonical Supabase Apple Sign-In pattern.
  *
  * Returns the resulting Supabase Session on success, or throws an
  * Error with a user-friendly message that the SignInScreen can
@@ -26,10 +28,10 @@
  */
 
 import { SignInWithApple, type SignInWithAppleResponse } from '@capacitor-community/apple-sign-in';
-import { GoogleAuth } from '@codetrix-studio/capacitor-google-auth';
 import type { Session } from '@supabase/supabase-js';
 import { supabase } from '../supabase';
 import { createLogger } from '../../utils/createLogger';
+import { bindAppleCredentialUser, clearBoundAppleCredential } from './appleCredentialState';
 
 const log = createLogger('SocialAuth');
 
@@ -58,6 +60,25 @@ async function sha256Hex(input: string): Promise<string> {
 function nativeErrorCode(error: unknown): string {
     if (!error || typeof error !== 'object' || !('code' in error)) return '';
     return String((error as { code?: unknown }).code ?? '');
+}
+
+async function discardUnsecuredAppleSession(): Promise<void> {
+    if (!supabase) return;
+    await clearBoundAppleCredential().catch((error) => {
+        log.warn(
+            'Could not clear the unsecured Apple credential binding:',
+            error instanceof Error ? error.message : 'unknown error',
+        );
+    });
+    try {
+        const { error } = await supabase.auth.signOut({ scope: 'local' });
+        if (error) log.warn('Could not discard the unsecured Apple session:', error.message);
+    } catch (error) {
+        log.warn(
+            'Could not discard the unsecured Apple session:',
+            error instanceof Error ? error.message : 'unknown error',
+        );
+    }
 }
 
 // ── Apple ──────────────────────────────────────────────────────
@@ -101,6 +122,14 @@ export async function signInWithApple(): Promise<Session> {
     if (!idToken) {
         throw new Error('Apple returned no identity token. Try again.');
     }
+    const authorizationCode = appleResponse.response?.authorizationCode;
+    if (!authorizationCode) {
+        throw new Error('Apple returned no authorization code. Try again.');
+    }
+    const appleUserId = appleResponse.response?.user;
+    if (!appleUserId) {
+        throw new Error('Apple returned no user identifier. Try again.');
+    }
 
     const { data, error } = await supabase.auth.signInWithIdToken({
         provider: 'apple',
@@ -111,6 +140,33 @@ export async function signInWithApple(): Promise<Session> {
     if (error || !data.session) {
         log.warn('Supabase signInWithIdToken (apple) failed:', error?.message);
         throw new Error(error?.message ?? "Sign-in didn't complete on our end. Try again.");
+    }
+
+    // Secure and verify the opaque Apple user binding before consuming the
+    // one-time authorization code. This remains after Supabase auth, and means
+    // a Keychain failure cannot leave a server-side refresh token for a sign-in
+    // the client reports as failed.
+    try {
+        await bindAppleCredentialUser(appleUserId);
+    } catch (bindingError) {
+        log.warn(
+            'Native Apple credential-state binding failed:',
+            bindingError instanceof Error ? bindingError.message : 'unknown error',
+        );
+        await discardUnsecuredAppleSession();
+        throw new Error("Apple Sign-In couldn't finish securely. Please try again.");
+    }
+
+    // TN3194 lifecycle registration is intentionally after authenticated
+    // Supabase sign-in: the Edge Function requires this new user's access
+    // token and independently matches Apple's returned subject to that user.
+    const { data: registration, error: registrationError } = await supabase.functions.invoke('register-apple-token', {
+        body: { authorizationCode },
+    });
+    if (registrationError || registration?.registered !== true) {
+        log.warn('Server-side Apple token registration failed:', registrationError?.message ?? 'invalid response');
+        await discardUnsecuredAppleSession();
+        throw new Error("Apple Sign-In couldn't finish securely. Please try again.");
     }
 
     // Persist name parts to user_metadata on FIRST sign-in only — Apple
@@ -132,77 +188,9 @@ export async function signInWithApple(): Promise<Session> {
     return data.session;
 }
 
-// ── Google ─────────────────────────────────────────────────────
-let googleInitialized = false;
-async function ensureGoogleInitialized(): Promise<void> {
-    if (googleInitialized) return;
-    await GoogleAuth.initialize();
-    googleInitialized = true;
-}
-
-/**
- * Open the native Google sign-in flow, mint a Supabase session
- * from the returned ID token. Supabase is configured with "Skip
- * nonce checks" for Google because the plugin doesn't expose nonce
- * control — the trade is documented at the top of this file.
- */
-export async function signInWithGoogle(): Promise<Session> {
-    if (!supabase) throw new Error('Supabase client unavailable.');
-
-    await ensureGoogleInitialized();
-
-    let googleResponse: Awaited<ReturnType<typeof GoogleAuth.signIn>>;
-    try {
-        googleResponse = await GoogleAuth.signIn();
-    } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        const code = nativeErrorCode(err);
-        if (/cancel|popup_closed|user_cancel/i.test(msg) || /cancel|popup_closed|user_cancel/i.test(code)) {
-            throw new Error('CANCELLED');
-        }
-        log.warn('Google signIn failed:', msg);
-        throw new Error("Google Sign-In didn't complete. Try again or use another method.");
-    }
-
-    const idToken = googleResponse.authentication?.idToken;
-    if (!idToken) {
-        throw new Error('Google returned no identity token. Try again.');
-    }
-
-    const { data, error } = await supabase.auth.signInWithIdToken({
-        provider: 'google',
-        token: idToken,
-    });
-
-    if (error || !data.session) {
-        log.warn('Supabase signInWithIdToken (google) failed:', error?.message);
-        throw new Error(error?.message ?? "Sign-in didn't complete on our end. Try again.");
-    }
-
-    // Persist a friendly name on first sign-in. Google reliably
-    // returns givenName + familyName on every sign-in (unlike Apple),
-    // but we only overwrite if user_metadata is empty, so the user's
-    // own edits in Settings always win.
-    const givenName = googleResponse.givenName ?? null;
-    const familyName = googleResponse.familyName ?? null;
-    if (givenName || familyName) {
-        const existingMeta = data.session.user.user_metadata as { first_name?: string };
-        if (!existingMeta?.first_name) {
-            await supabase.auth.updateUser({
-                data: {
-                    first_name: givenName ?? undefined,
-                    last_name: familyName ?? undefined,
-                },
-            });
-        }
-    }
-
-    return data.session;
-}
-
 // ── Browser lane ───────────────────────────────────────────────
 /**
- * Apple / Google sign-in in a plain browser.
+ * Apple sign-in in a plain browser.
  *
  * A DIFFERENT MECHANISM to the native functions above, not a fallback. Native
  * uses signInWithIdToken: the plugin opens a system dialog, returns a signed ID
@@ -215,22 +203,18 @@ export async function signInWithGoogle(): Promise<Session> {
  *
  * WHY IT MATTERS (Shane, flagged VERY IMPORTANT 2026-07-09, deferred twice):
  * the web /plan planner is signed-in-gated. Without this, a browser's only lane
- * is email OTP — and an account BORN from Apple/Google on the phone cannot use
+ * is email OTP — and an account born from Apple on the phone cannot use
  * it (GoTrue answers user_already_exists). So saved routes and vessel details,
  * both account-scoped, simply never arrive on the web planner.
  *
  * REQUIRES DASHBOARD CREDENTIALS THAT DO NOT EXIST YET. Until they are added
  * this will fail at the provider, by design, with a legible message rather than
  * a silent redirect to nowhere:
- *   - Google: a WEB OAuth client (the current provider has no client secret, so
- *     the authorization-code flow is impossible), with
- *     https://pcisdplnodrphauixcau.supabase.co/auth/v1/callback as an
- *     authorized redirect URI.
  *   - Apple: a SERVICES ID — the provider is currently configured with the app
  *     bundle id, which Apple will not accept for web — plus its generated
  *     secret.
  */
-export async function signInWithProviderOnWeb(provider: 'apple' | 'google'): Promise<void> {
+export async function signInWithAppleOnWeb(): Promise<void> {
     if (!supabase) throw new Error('Sign-in is unavailable — no Supabase client.');
 
     // Return to the page the skipper actually came from, not a hardcoded root:
@@ -240,25 +224,20 @@ export async function signInWithProviderOnWeb(provider: 'apple' | 'google'): Pro
     const redirectTo = `${window.location.origin}${window.location.pathname}`;
 
     const { error } = await supabase.auth.signInWithOAuth({
-        provider,
+        provider: 'apple',
         options: {
             redirectTo,
-            // Force the account chooser. Without it a browser already signed
-            // into one Google account silently reuses it, which on a shared
-            // chart-table laptop is the wrong boat's routes.
-            queryParams: provider === 'google' ? { prompt: 'select_account' } : undefined,
         },
     });
 
     if (error) {
-        log.warn(`[web-oauth] ${provider} sign-in failed:`, error);
+        log.warn('[web-oauth] Apple sign-in failed:', error);
         // Name the likely cause rather than echoing a raw provider string: the
         // overwhelmingly probable failure here is the missing dashboard
         // credential above, and "Unsupported provider" alone sends the reader
         // looking in the code.
         throw new Error(
-            `${provider === 'apple' ? 'Apple' : 'Google'} sign-in is not available on the web yet ` +
-                `(${error.message}). Use “Sign in with email” for now.`,
+            `Apple sign-in is not available on the web yet (${error.message}). ` + 'Use “Sign in with email” for now.',
         );
     }
     // No return value: signInWithOAuth navigates away. Anything after this line
@@ -268,12 +247,5 @@ export async function signInWithProviderOnWeb(provider: 'apple' | 'google'): Pro
 // ── Sign out (works for any provider) ──────────────────────────
 export async function signOut(): Promise<void> {
     if (!supabase) return;
-    // Also sign out of the Google plugin so the next sign-in shows the
-    // account picker rather than silently reusing the previous account.
-    try {
-        await GoogleAuth.signOut();
-    } catch {
-        /* not initialized → fine */
-    }
     await supabase.auth.signOut();
 }

@@ -102,6 +102,15 @@ export interface TrackingState {
     isPaused: boolean;
     isRapidMode: boolean;
     /**
+     * A ShipLog-owned native GPS lease could not yet be verified stopped.
+     * `release-only` belongs to Pause, identity disarm, or failed-start
+     * rollback and must never emit a Voyage End while Resume/Retry recovers.
+     * `end-voyage` is the only intent allowed to resume terminal finalization.
+     * Ordinary pauses leave this unset because Anchor Watch may legitimately
+     * own the shared live engine.
+     */
+    nativeTeardownPending?: 'release-only' | 'end-voyage';
+    /**
      * Precision Mode (added 2026-05-17) — hi-fi GPS capture at ~2 Hz
      * with live decimation in GpsTrackBuffer.pushWithLiveFilter to
      * keep storage sane. Auto-shuts-off after 60 min to bound the
@@ -274,6 +283,14 @@ export function suspendTrackingStateForIdentityChange(
         previousScope,
         undefined,
         async () => {
+            const currentScope = getAuthIdentityScope();
+            if (currentScope.key === previousScope.key && currentScope.generation !== previousScope.generation) {
+                // A delayed transition callback from A(gen 1) may enter this
+                // lock only after A(gen 3) has returned and saved newer state.
+                // Transition writes are allowed while another key is current,
+                // never after the same stable owner has a newer generation.
+                return;
+            }
             await Preferences.set({
                 key: scopedKey(TRACKING_STATE_KEY, previousScope),
                 value: JSON.stringify(ownedValue(suspended, previousScope)),

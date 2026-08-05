@@ -1,30 +1,15 @@
 /**
- * AisHubService — Forwards raw AIS NMEA sentences to AISHub via UDP.
+ * Public-beta boundary for the optional AISHub contribution uplink.
  *
- * Makes Thalassa a contributing mobile AIS station.
- * Opt-in via checkbox on the NMEA page.
- *
- * Uses @frontall/capacitor-udp for native UDP datagrams.
- * Install: npm install @frontall/capacitor-udp --legacy-peer-deps && npx cap sync
- *
- * Features:
- *   - UDP datagram forwarding (native) or log-only (web)
- *   - 3-second deduplication window (same sentence on channels A+B)
- *   - Rate limiting: max 100 sentences/second
- *   - Statistics: sentence count, bytes sent, last forwarded time
+ * The historical UDP bridge declares a Capacitor 3 peer
+ * while Thalassa ships Capacitor 8. Receiving and displaying AIS over the
+ * supported NMEA/TCP path remains available; only the outbound UDP
+ * contribution is disabled until a compatible, device-tested bridge exists.
  */
-import { Capacitor } from '@capacitor/core';
 import { createLogger } from '../utils/createLogger';
+import { FEATURE_VISIBILITY } from '../utils/featureVisibility';
 
 const log = createLogger('AISHub');
-
-// ── Configuration ──
-const DEDUP_WINDOW_MS = 3000;
-const MAX_SENTENCES_PER_SECOND = 100;
-const RATE_WINDOW_MS = 1000;
-const DEDUP_CLEANUP_INTERVAL_MS = 10_000;
-
-// ── localStorage keys ──
 const KEY_ENABLED = 'aishub_enabled';
 const KEY_IP = 'aishub_ip';
 const KEY_PORT = 'aishub_port';
@@ -33,261 +18,76 @@ export interface AisHubStats {
     sentenceCount: number;
     bytesSent: number;
     lastForwardedAt: number;
-    isActive: boolean; // Currently sending (enabled + socket open)
+    isActive: boolean;
     networkOk: boolean;
 }
 
 export type AisHubListener = (stats: AisHubStats) => void;
 
 class AisHubServiceClass {
-    private enabled = false;
     private ip = '';
     private port = 0;
-    private socketId: number | null = null;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    private udpPlugin: any = null;
-
-    // ── Deduplication ──
-    private recentSentences = new Map<string, number>(); // sentence → timestamp
-    private dedupTimer: ReturnType<typeof setInterval> | null = null;
-
-    // ── Rate limiting ──
-    private rateCounter = 0;
-    private rateWindowStart = 0;
-
-    // ── Stats ──
-    private stats: AisHubStats = {
+    private readonly listeners = new Set<AisHubListener>();
+    private readonly stats: AisHubStats = {
         sentenceCount: 0,
         bytesSent: 0,
         lastForwardedAt: 0,
         isActive: false,
-        networkOk: true,
+        networkOk: false,
     };
 
-    private listeners = new Set<AisHubListener>();
-
-    // ── Public API ──
-
-    /** Load saved config and start if previously enabled */
     init(): void {
-        this.enabled = localStorage.getItem(KEY_ENABLED) === 'true';
         this.ip = localStorage.getItem(KEY_IP) || '';
-        this.port = parseInt(localStorage.getItem(KEY_PORT) || '0', 10);
-
-        if (this.enabled && this.ip && this.port > 0) {
-            this.openSocket();
-        }
-    }
-
-    /** Enable/disable AISHub forwarding */
-    setEnabled(enabled: boolean): void {
-        this.enabled = enabled;
-        localStorage.setItem(KEY_ENABLED, String(enabled));
-
-        if (enabled && this.ip && this.port > 0) {
-            this.openSocket();
-        } else {
-            this.closeSocket();
-        }
-
-        this.updateActiveState();
+        this.port = Number.parseInt(localStorage.getItem(KEY_PORT) || '0', 10) || 0;
+        // Retire a remembered opt-in from builds which bundled the incompatible
+        // bridge. It must never spring back to life without a fresh choice in a
+        // future compatible release.
+        localStorage.setItem(KEY_ENABLED, 'false');
         this.notify();
     }
 
-    /** Update station IP and port */
+    setEnabled(enabled: boolean): void {
+        localStorage.setItem(KEY_ENABLED, 'false');
+        if (enabled) log.warn('AISHub contribution is unavailable in this public-beta build.');
+        this.notify();
+    }
+
     configure(ip: string, port: number): void {
         this.ip = ip;
-        this.port = port;
-        localStorage.setItem(KEY_IP, ip);
-        localStorage.setItem(KEY_PORT, String(port));
-
-        // Reconnect if enabled
-        if (this.enabled && ip && port > 0) {
-            this.closeSocket();
-            this.openSocket();
-        }
+        this.port = Number.isFinite(port) && port > 0 ? Math.trunc(port) : 0;
+        localStorage.setItem(KEY_IP, this.ip);
+        localStorage.setItem(KEY_PORT, String(this.port));
     }
 
-    /** Get current config */
     getConfig(): { enabled: boolean; ip: string; port: number } {
-        return { enabled: this.enabled, ip: this.ip, port: this.port };
+        return { enabled: false, ip: this.ip, port: this.port };
     }
 
-    /** Get current stats */
     getStats(): AisHubStats {
         return { ...this.stats };
     }
 
-    /** Subscribe to stats updates. Returns unsubscribe function. */
-    subscribe(cb: AisHubListener): () => void {
-        this.listeners.add(cb);
-        return () => this.listeners.delete(cb);
+    subscribe(listener: AisHubListener): () => void {
+        this.listeners.add(listener);
+        return () => this.listeners.delete(listener);
     }
 
-    /**
-     * Forward a raw AIS sentence to AISHub.
-     * Called from NmeaListenerService for every !AIVDM/!AIVDO sentence.
-     */
-    forward(sentence: string): void {
-        if (!this.enabled || !this.ip || this.port <= 0) return;
-
-        // ── Deduplication: skip if same sentence seen within window ──
-        const now = Date.now();
-        // Strip checksum AND channel letter for dedup key.
-        // Same AIS message arrives on both channels A+B with different checksums.
-        // NMEA format: !AIVDM,fragments,fragNum,seqId,channel,payload,fillBits*checksum
-        // We extract just the payload portion (field index 5) for dedup.
-        const parts = sentence.split('*')[0].split(',');
-        const dedupKey = parts.length >= 6 ? parts.slice(5).join(',') : parts.join(',');
-        const lastSeen = this.recentSentences.get(dedupKey);
-        if (lastSeen && now - lastSeen < DEDUP_WINDOW_MS) return;
-        this.recentSentences.set(dedupKey, now);
-
-        // ── Rate limiting ──
-        if (now - this.rateWindowStart > RATE_WINDOW_MS) {
-            this.rateCounter = 0;
-            this.rateWindowStart = now;
-        }
-        if (this.rateCounter >= MAX_SENTENCES_PER_SECOND) return;
-        this.rateCounter++;
-
-        // ── Send ──
-        this.sendDatagram(sentence);
+    forward(_sentence: string): void {
+        // Intentionally inert. Keep the call surface stable for NMEA ingestion
+        // without importing or invoking an incompatible native plugin.
     }
 
-    /** Clean up on app shutdown — full state reset for testability */
     destroy(): void {
-        this.closeSocket();
         this.listeners.clear();
-        this.enabled = false;
-        this.ip = '';
-        this.port = 0;
-        this.rateCounter = 0;
-        this.rateWindowStart = 0;
-        this.stats = {
-            sentenceCount: 0,
-            bytesSent: 0,
-            lastForwardedAt: 0,
-            isActive: false,
-            networkOk: true,
-        };
-    }
-
-    // ── Internals ──
-
-    private async openSocket(): Promise<void> {
-        if (this.socketId !== null) return;
-
-        this.startDedupCleanup();
-
-        if (!Capacitor.isNativePlatform()) {
-            // Web fallback — log only, no UDP capability in browser
-            log.info(`AISHub uplink enabled (web mode — log only) → ${this.ip}:${this.port}`);
-            this.updateActiveState();
-            return;
-        }
-
-        try {
-            // Dynamic import — only loaded on native where the plugin exists
-            const mod = await import('@frontall/capacitor-udp');
-            // v7 exports `UDP`; earlier releases exposed `UdpSocket`. Keep
-            // the legacy aliases only as a migration bridge, but prefer the
-            // current native plugin so an AIS uplink does not silently remain
-            // in its web/log-only state on device.
-            const udpModule = mod as unknown as {
-                UDP?: unknown;
-                UdpSocket?: unknown;
-                default?: { UDP?: unknown; UdpSocket?: unknown };
-            };
-            this.udpPlugin =
-                udpModule.UDP ?? udpModule.UdpSocket ?? udpModule.default?.UDP ?? udpModule.default?.UdpSocket ?? null;
-            if (!this.udpPlugin) throw new Error('Capacitor UDP plugin is unavailable');
-
-            const result = await this.udpPlugin.create();
-            this.socketId = result.socketId;
-            // Bind to any available local port
-            await this.udpPlugin.bind({ socketId: this.socketId, address: '0.0.0.0', port: 0 });
-
-            log.info(`AISHub UDP socket created (id=${this.socketId}) → ${this.ip}:${this.port}`);
-            this.updateActiveState();
-            this.notify();
-        } catch (e) {
-            log.error('Failed to create AISHub UDP socket:', e);
-            this.socketId = null;
-        }
-    }
-
-    private async closeSocket(): Promise<void> {
-        if (this.dedupTimer) {
-            clearInterval(this.dedupTimer);
-            this.dedupTimer = null;
-        }
-        this.recentSentences.clear();
-
-        if (this.socketId !== null && this.udpPlugin) {
-            try {
-                await this.udpPlugin.close({ socketId: this.socketId });
-            } catch (e) {
-                log.warn('AISHub UDP close error:', e);
-            }
-            this.socketId = null;
-        }
-
-        this.updateActiveState();
-    }
-
-    private async sendDatagram(sentence: string): Promise<void> {
-        const payload = sentence + '\r\n'; // NMEA line termination
-        const bytes = payload.length;
-
-        if (!Capacitor.isNativePlatform()) {
-            // Web: just count it
-            this.stats.sentenceCount++;
-            this.stats.bytesSent += bytes;
-            this.stats.lastForwardedAt = Date.now();
-            this.notify();
-            return;
-        }
-
-        if (this.socketId === null || !this.udpPlugin) return;
-
-        try {
-            await this.udpPlugin.send({
-                socketId: this.socketId,
-                address: this.ip,
-                port: this.port,
-                buffer: payload,
-            });
-
-            this.stats.sentenceCount++;
-            this.stats.bytesSent += bytes;
-            this.stats.lastForwardedAt = Date.now();
-
-            // Throttle notifications to avoid excessive re-renders
-            if (this.stats.sentenceCount % 10 === 0) {
-                this.notify();
-            }
-        } catch (e) {
-            log.warn('AISHub UDP send failed:', e);
-        }
-    }
-
-    private startDedupCleanup(): void {
-        if (this.dedupTimer) return;
-        this.dedupTimer = setInterval(() => {
-            const cutoff = Date.now() - DEDUP_WINDOW_MS;
-            for (const [key, ts] of this.recentSentences) {
-                if (ts < cutoff) this.recentSentences.delete(key);
-            }
-        }, DEDUP_CLEANUP_INTERVAL_MS);
-    }
-
-    private updateActiveState(): void {
-        this.stats.isActive = this.enabled && (this.socketId !== null || !Capacitor.isNativePlatform());
     }
 
     private notify(): void {
-        for (const cb of this.listeners) cb({ ...this.stats });
+        // This invariant is a release guard as well as documentation. A future
+        // implementation must deliberately flip the source-controlled flag.
+        if (FEATURE_VISIBILITY.aisHub) {
+            log.warn('AISHub visibility was enabled without a compatible uplink implementation.');
+        }
+        for (const listener of this.listeners) listener({ ...this.stats });
     }
 }
 

@@ -1,12 +1,12 @@
 {
     "name": "thalassa-vessel-scraper",
     "version": "1.0.0",
-    "description": "The Railroad — vessel metadata scraper for Thalassa. Runs on Railway.app as a cron job (every 15 min).",
+    "private": true,
+    "description": "Retired archive of the former Railway vessel metadata scraper; do not deploy or start.",
     "main": "dist/index.js",
     "scripts": {
-        "build": "tsc",
-        "start": "node dist/index.js",
-        "dev": "ts-node src/index.ts"
+        "archive:build": "tsc",
+        "start": "node -e \"console.error('vessel-scraper is retired; use the scheduled Supabase Edge Function'); process.exit(78)\""
     },
     "dependencies": {
         "@supabase/supabase-js": "^2.45.0",

@@ -1,7 +1,7 @@
 /**
  * SubscriptionService — Unit tests for the three-tier feature gate system.
  */
-import { describe, it, expect } from 'vitest';
+import { afterEach, beforeEach, describe, it, expect } from 'vitest';
 import {
     canAccess,
     requiredTier,
@@ -10,7 +10,12 @@ import {
     effectiveTier,
     tierIsPro,
     TIER_INFO,
+    PUBLIC_BETA_ACCESS,
 } from '../services/SubscriptionService';
+
+afterEach(() => {
+    PUBLIC_BETA_ACCESS.enabled = true;
+});
 
 describe('SubscriptionService', () => {
     // ── Tier Info ──
@@ -32,7 +37,20 @@ describe('SubscriptionService', () => {
 
     // ── canAccess ──
 
+    it('unlocks every registered feature for the clearly labelled free public beta', () => {
+        expect(PUBLIC_BETA_ACCESS.enabled).toBe(true);
+        expect(PUBLIC_BETA_ACCESS.label).toMatch(/free public beta/i);
+        expect(canAccess('free', 'routePlanner')).toBe(true);
+        expect(canAccess('free', 'bosunVoice')).toBe(true);
+    });
+
     describe('canAccess', () => {
+        beforeEach(() => {
+            // Keep the dormant post-beta tier matrix covered without changing
+            // the beta's shipped open-access policy.
+            PUBLIC_BETA_ACCESS.enabled = false;
+        });
+
         it('free tier can access nothing gated', () => {
             expect(canAccess('free', 'routePlanner')).toBe(false);
             expect(canAccess('free', 'weatherFull')).toBe(false);
@@ -60,7 +78,7 @@ describe('SubscriptionService', () => {
             expect(canAccess('crew', 'polars')).toBe(false);
         });
 
-        it('crewFinderCaptain is free tier (network-effect parity with Chandlery B-pivot)', () => {
+        it('keeps crew-finder participation free for network density', () => {
             // Was 'owner' historically. Dropped to 'free' alongside
             // the Chandlery B-pivot (marketplace + chandleryPost) so
             // the entire crew-finder network is open to all tiers —
@@ -93,6 +111,7 @@ describe('SubscriptionService', () => {
             expect(requiredTier('gpsTracking')).toBe('crew');
             expect(requiredTier('shipLog')).toBe('owner');
             expect(requiredTier('shipLogRead')).toBe('crew');
+            expect(requiredTier('vesselIntel')).toBe('crew');
         });
     });
 

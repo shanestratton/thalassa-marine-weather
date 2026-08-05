@@ -97,7 +97,11 @@ vi.mock('../services/supabase', () => ({
 
 vi.mock('../services/GpsService', () => ({ GpsService: { getCurrentPosition: h.getCurrentPosition } }));
 vi.mock('@capacitor/geolocation', () => ({
-    Geolocation: { requestPermissions: vi.fn(), getCurrentPosition: vi.fn() },
+    Geolocation: {
+        checkPermissions: vi.fn(async () => ({ location: 'denied', coarseLocation: 'denied' })),
+        requestPermissions: vi.fn(),
+        getCurrentPosition: vi.fn(),
+    },
 }));
 vi.mock('../services/weatherService', () => ({ reverseGeocode: vi.fn() }));
 vi.mock('../components/Toast', () => ({ toast: { error: vi.fn(), success: vi.fn() } }));

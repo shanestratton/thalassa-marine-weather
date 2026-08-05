@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../services/auth/SocialAuthService', () => ({
     signInWithApple: vi.fn(),
-    signInWithGoogle: vi.fn(),
+    signInWithAppleOnWeb: vi.fn(),
 }));
 
 vi.mock('../stores/authStore', () => ({
@@ -56,10 +56,10 @@ describe('SignInScreen accessibility', () => {
         // Tab off the last control lands on the first, and Shift+Tab off the
         // first lands on the last. Close is first (it renders before the form);
         // the last used to be "Sign in with email" simply because nothing
-        // followed it on web. Apple/Google now render on web too, so the last
-        // control is Google — assert against THAT rather than relaxing the
-        // check, or this stops testing the wrap at all.
-        const lastAction = screen.getByRole('button', { name: 'Sign in with Google' });
+        // followed it on web. The Terms & Privacy link follows it now, so
+        // assert against the actual last control rather than relaxing
+        // the check, or this stops testing the wrap at all.
+        const lastAction = screen.getByRole('link', { name: 'Terms & Privacy' });
 
         // Move focus there first. The trap decides from document.activeElement,
         // not from the event target — the original assertion only worked because
@@ -90,6 +90,8 @@ describe('SignInScreen accessibility', () => {
         expect(dialog).toHaveAttribute('aria-modal', 'true');
         expect(screen.getByRole('button', { name: 'Sign in with email' })).toHaveFocus();
         expect(screen.queryByRole('button', { name: 'Close sign-in' })).not.toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: 'Sign in with Apple' })).not.toBeInTheDocument();
+        expect(screen.getByText(/Apple sign-in is not enabled in this beta build; use email/i)).toBeInTheDocument();
     });
 
     it('keeps the outer trap mounted beneath the nested email dialog and restores its action', () => {

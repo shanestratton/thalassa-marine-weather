@@ -342,35 +342,35 @@ describe('buildRouteAdvisories', () => {
         expect(buildRouteAdvisories([r({ source: 'enc', catzoc: 1 }), r({ source: 'enc', catzoc: 1 })])).toEqual([]);
     });
 
-    it('GEBCO share below 30% with no failed cells → informational NOTE naming the count', () => {
+    it('ETOPO share below 30% with no failed cells → informational NOTE naming the count', () => {
         // 1/4 = 25%: the honest offshore case — genuinely uncharted water.
-        const out = buildRouteAdvisories([r({ source: 'gebco' }), r({}), r({}), r({})]);
+        const out = buildRouteAdvisories([r({ source: 'etopo' }), r({}), r({}), r({})]);
         expect(out).toHaveLength(1);
         expect(out[0].severity).toBe('note');
         expect(out[0].text).toContain('1/4');
-        expect(out[0].text).toContain('GEBCO');
+        expect(out[0].text).toContain('NOAA ETOPO');
     });
 
-    it('GEBCO share ≥30% escalates to CAUTION (audit #1: silent 460 m-grid verification)', () => {
-        const out = buildRouteAdvisories([r({ source: 'gebco' }), r({ source: 'gebco' }), r({})]);
+    it('ETOPO share ≥30% escalates to CAUTION (audit #1: silent coarse-grid verification)', () => {
+        const out = buildRouteAdvisories([r({ source: 'etopo' }), r({ source: 'etopo' }), r({})]);
         expect(out).toHaveLength(1);
         expect(out[0].severity).toBe('caution');
         expect(out[0].text).toContain('67%');
     });
 
-    it('FAILED chart cells raise a dedicated CAUTION naming the cells, plus the GEBCO note', () => {
-        const out = buildRouteAdvisories([r({ source: 'gebco' }), r({}), r({}), r({})], undefined, ['OC-61-10ENB5']);
+    it('FAILED chart cells raise a dedicated CAUTION naming the cells, plus the ETOPO note', () => {
+        const out = buildRouteAdvisories([r({ source: 'etopo' }), r({}), r({}), r({})], undefined, ['OC-61-10ENB5']);
         const failedCaution = out.find((a) => a.kind === 'cell-load-failed');
         expect(failedCaution?.severity).toBe('caution');
         expect(failedCaution?.text).toContain('OC-61-10ENB5');
         expect(failedCaution?.text).toContain('FAILED to load');
-        // The GEBCO-share advisory is now purely about the fraction (25% → note).
+        // The legacy-keyed coarse-share advisory is now purely about the fraction (25% → note).
         expect(out.find((a) => a.kind === 'gebco-share')?.severity).toBe('note');
     });
 
     it('failed cells STILL warn with zero gebco hits — a coarse backstop must not mask the gap (cycle-4 audit #1)', () => {
         // The exact silent-degradation bug: a failed fine cell backstopped by an
-        // overlapping coarse cell (all source:'enc', gebcoHits=0). Old behaviour
+        // overlapping coarse cell (all source:'enc', coarseHits=0). Old behaviour
         // was silence; now a loud caution fires.
         const out = buildRouteAdvisories([r({}), r({})], undefined, ['OC-61-10ENB5']);
         expect(out).toHaveLength(1);
@@ -384,9 +384,9 @@ describe('buildRouteAdvisories', () => {
         expect(out).toHaveLength(1);
         expect(out[0].severity).toBe('note');
         expect(out[0].text).toContain('UNASSESSED');
-        // A pure-GEBCO route stays silent here (no ENC claim to qualify) —
-        // the GEBCO-share advisory owns that story.
-        const gebcoOnly = buildRouteAdvisories([r({ source: 'gebco', catzoc: null })]);
+        // A pure-ETOPO route stays silent here (no ENC claim to qualify) —
+        // the coarse-share advisory owns that story.
+        const gebcoOnly = buildRouteAdvisories([r({ source: 'etopo', catzoc: null })]);
         expect(gebcoOnly.every((a) => !a.text.includes('UNASSESSED'))).toBe(true);
     });
 

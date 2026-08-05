@@ -4,9 +4,9 @@ import SwiftUI
  * RootView — TabView shell for the watch app.
  *
  * Three tabs, ordered by safety value:
- *   1. Anchor Watch — drag detection + alarm
- *   2. Cockpit — wind / heading / SOG glance
- *   3. MOB — long-press for mayday
+ *   1. Anchor — phone state plus a foreground watch-GPS backup check
+ *   2. Cockpit — age-gated wind / heading / SOG glance
+ *   3. MOB — long-press to request a marker on the phone
  *
  * The watch's tab indicator dots are at the bottom by default; on
  * Series 4+ a side button can also page between tabs.

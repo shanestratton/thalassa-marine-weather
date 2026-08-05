@@ -19,6 +19,7 @@ import { LocalDocumentService } from './LocalDocumentService';
 import { getFullQueue, getLocalDatabaseIdentity } from './LocalDatabase';
 import { forceFullPull, syncNow } from './SyncService';
 import { safeDocumentNavigationUrl } from '../../utils/safeUrl';
+import { authScopedStorageKey, type AuthIdentityScope } from '../authIdentityScope';
 
 const log = createLogger('DocSync');
 
@@ -89,6 +90,23 @@ class DocumentSyncServiceClass {
 
     private _statusStorageKey(): string | null {
         if (this._statusIdentity === undefined) return null;
+        return authScopedStorageKey(SYNC_STATUS_KEY_PREFIX, this._statusScope());
+    }
+
+    private _statusScope(): AuthIdentityScope {
+        const userId = this._statusIdentity ?? null;
+        return {
+            key: userId ? `user:${userId}` : 'anonymous',
+            userId,
+            // This facade follows LocalDatabase's identity fence. Persistence
+            // namespacing itself is intentionally generation-independent.
+            generation: 0,
+        };
+    }
+
+    /** Retired v1 used a colon key that account deletion could not discover. */
+    private _legacyStatusStorageKey(): string | null {
+        if (this._statusIdentity === undefined) return null;
         return `${SYNC_STATUS_KEY_PREFIX}:${encodeURIComponent(this._statusIdentity ?? 'anonymous')}`;
     }
 
@@ -101,7 +119,10 @@ class DocumentSyncServiceClass {
         }
 
         try {
-            const raw = localStorage.getItem(storageKey);
+            const legacyKey = this._legacyStatusStorageKey();
+            const currentRaw = localStorage.getItem(storageKey);
+            const legacyRaw = legacyKey ? localStorage.getItem(legacyKey) : null;
+            const raw = currentRaw ?? legacyRaw;
             const stored = raw ? (JSON.parse(raw) as SyncStatusMap) : {};
 
             // An interrupted upload is pending again on the next app launch.
@@ -111,6 +132,18 @@ class DocumentSyncServiceClass {
                     status.status === 'uploading' ? { ...status, status: 'pending' as const } : status,
                 ]),
             );
+
+            // Copy before remove so quota/unavailable storage never destroys
+            // the only retained status. The new key follows the shared exact-
+            // owner suffix used by account deletion.
+            if (!currentRaw && legacyRaw && legacyKey) {
+                localStorage.setItem(storageKey, JSON.stringify(this._statusCache));
+                localStorage.removeItem(legacyKey);
+            } else if (currentRaw && legacyRaw && legacyKey) {
+                // A previous copy may have committed before its remove failed.
+                // The exact current-identity namespace is now authoritative.
+                localStorage.removeItem(legacyKey);
+            }
         } catch (error) {
             log.warn('[DocumentSync] Could not load status cache:', error);
             this._statusCache = {};

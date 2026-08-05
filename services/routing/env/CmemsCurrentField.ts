@@ -13,12 +13,12 @@
  * ════════════════════════════════════════════════════════════════════
  *
  * Data path: scripts/cmems-currents-pipeline → GitHub Release → edge
- * proxy → services/weather/api/currentsGrid.fetchCurrentsGrid(), which
- * session-caches a WindGrid-shaped structure (u/v planes per hourly
- * step, rows NORTH→SOUTH, refTime = the model-run reference moment of
- * step 0). This module adds NO second fetch pipeline — the loader rides
- * that exact cache, so toggling the particles layer and asking for a
- * routing field cost one download between them.
+ * proxy → the shared schema-v2 trust boundary. Map display decodes one
+ * selected frame. Public-beta routing is deliberately held: the publisher
+ * has only global assets, so an automatic departure sweep would silently
+ * download up to ~117 MB. `getCurrentField()` therefore performs no network
+ * work and returns null until regional/tiled signed assets exist. The pure
+ * sampler remains ready for a future bounded verified regional grid.
  *
  * Temporal honesty (the WindFieldAdapter lesson): when the grid carries
  * an explicit `stepHours` axis it is authoritative — step index is NOT
@@ -30,9 +30,10 @@
 
 import type { WindGrid } from '../../weather/windField';
 import type { CurrentField2D, Vector2 } from './EnvFields';
-import { fetchCurrentsGrid } from '../../weather/api/currentsGrid';
-
 const HOUR_MS = 3_600_000;
+
+/** Public-beta safety hold: global current cubes are not an acceptable implicit mobile download. */
+export const CMEMS_CURRENT_ROUTING_BETA_ENABLED = false;
 
 // ── Pure field construction ─────────────────────────────────────────
 
@@ -103,18 +104,39 @@ export function currentFieldFromGrid(grid: WindGrid, baseTimeMs: number): Curren
             const rFrac = rowF - r0;
             const cFrac = colF - c0;
 
-            // Sparse-assembly guard: currentsGrid indexes planes by the
-            // manifest's hour value, so a gappy manifest leaves holes.
+            // Fail closed at the coast. Publisher-masked land values are
+            // deliberately encoded as zero, but zero is also a real current;
+            // treating masked corners as observations would bias coastal ETA.
+            // Exact edges/corners use only mathematically non-zero weights.
+            if (
+                !grid.landMask ||
+                grid.landMask.length !== grid.width * grid.height ||
+                interpolationTouchesLand(grid.landMask, r0, r1, c0, c1, rFrac, cFrac, grid.width)
+            ) {
+                return null;
+            }
+
+            // Sparse-sequence guard: only requested temporal brackets exist.
             const u0 = grid.u[h0];
             const v0 = grid.v[h0];
             const u1 = grid.u[h1];
             const v1 = grid.v[h1];
-            if (!u0 || !v0 || !u1 || !v1) return null;
-
-            const uA = bilinear(u0, r0, r1, c0, c1, rFrac, cFrac, grid.width);
-            const vA = bilinear(v0, r0, r1, c0, c1, rFrac, cFrac, grid.width);
-            const uB = bilinear(u1, r0, r1, c0, c1, rFrac, cFrac, grid.width);
-            const vB = bilinear(v1, r0, r1, c0, c1, rFrac, cFrac, grid.width);
+            const useA = 1 - tFrac > 0;
+            const useB = tFrac > 0;
+            let uA = 0;
+            let vA = 0;
+            if (useA) {
+                if (!u0 || !v0) return null;
+                uA = bilinear(u0, r0, r1, c0, c1, rFrac, cFrac, grid.width);
+                vA = bilinear(v0, r0, r1, c0, c1, rFrac, cFrac, grid.width);
+            }
+            let uB = uA;
+            let vB = vA;
+            if (useB) {
+                if (!u1 || !v1) return null;
+                uB = bilinear(u1, r0, r1, c0, c1, rFrac, cFrac, grid.width);
+                vB = bilinear(v1, r0, r1, c0, c1, rFrac, cFrac, grid.width);
+            }
 
             const u = uA + (uB - uA) * tFrac;
             const v = vA + (vB - vA) * tFrac;
@@ -125,6 +147,25 @@ export function currentFieldFromGrid(grid: WindGrid, baseTimeMs: number): Curren
             return { u, v };
         },
     };
+}
+
+function interpolationTouchesLand(
+    mask: Uint8Array,
+    r0: number,
+    r1: number,
+    c0: number,
+    c1: number,
+    rFrac: number,
+    cFrac: number,
+    width: number,
+): boolean {
+    const corners = [
+        { index: r0 * width + c0, weight: (1 - rFrac) * (1 - cFrac) },
+        { index: r0 * width + c1, weight: (1 - rFrac) * cFrac },
+        { index: r1 * width + c0, weight: rFrac * (1 - cFrac) },
+        { index: r1 * width + c1, weight: rFrac * cFrac },
+    ];
+    return corners.some(({ index, weight }) => weight > 0 && mask[index] !== 0);
 }
 
 function bilinear(
@@ -146,7 +187,7 @@ function bilinear(
     return top + (bot - top) * rFrac;
 }
 
-// ── Loader over the existing fetch/cache path ───────────────────────
+// ── Public-beta remote-loading boundary ─────────────────────────────
 
 export interface LatLonBounds {
     north: number;
@@ -161,49 +202,19 @@ export interface TimeRangeMs {
 }
 
 /**
- * Fetch (or reuse the session-cached) THCU grid and return a
- * CurrentField2D covering the request — or null when one honestly can't
- * be built. Null is the OFFLINE / NO-DATA answer and consumers must
- * treat it as "currents unknown, ETAs un-adjusted", never as an error:
- *
- *   null when … the download fails (offline — currentsGrid already
- *               returns null cleanly), the grid has no parseable
- *               refTime (we refuse to guess a temporal origin), or the
- *               requested area/time doesn't intersect coverage at all.
- *
- * Partial overlap returns a field — the per-point null contract handles
- * legs that wander off the edge. Caching is whatever currentsGrid does
- * (session cache + inflight coalescing); this adds none of its own.
- *
- * @param area      Bbox or single point of interest (plain intervals; an
- *                  antimeridian-crossing bbox should be split by the
- *                  caller).
- * @param timeRange Departure→arrival span the consumer will sample.
+ * Public-beta no-data boundary. A future regional/tiled integrity scheme can
+ * replace this implementation; until then, callers get an immediate null and
+ * must label ETAs as current-unadjusted. The arguments remain in the API so
+ * callers do not need another migration when a bounded source is available.
  */
 export async function getCurrentField(
     area: LatLonBounds | { lat: number; lon: number },
     timeRange: TimeRangeMs,
+    signal?: AbortSignal,
 ): Promise<CurrentField2D | null> {
-    const grid = await fetchCurrentsGrid();
-    if (!grid) return null;
-
-    // Without the model-run reference time we cannot map wall-clock ms to
-    // a step index honestly — refuse rather than assume "now == h00".
-    const baseTimeMs = grid.refTime ? Date.parse(grid.refTime) : NaN;
-    if (!isFinite(baseTimeMs)) return null;
-
-    const stepHours = grid.stepHours && grid.stepHours.length === grid.totalHours ? grid.stepHours : null;
-    const firstHr = stepHours ? stepHours[0] : 0;
-    const lastHr = stepHours ? stepHours[stepHours.length - 1] : grid.totalHours - 1;
-    const covStartMs = baseTimeMs + firstHr * HOUR_MS;
-    const covEndMs = baseTimeMs + lastHr * HOUR_MS;
-    if (timeRange.endMs < covStartMs || timeRange.startMs > covEndMs) return null;
-
-    const bbox: LatLonBounds =
-        'lat' in area ? { north: area.lat, south: area.lat, west: area.lon, east: area.lon } : area;
-    const disjoint =
-        bbox.south > grid.north || bbox.north < grid.south || bbox.west > grid.east || bbox.east < grid.west;
-    if (disjoint) return null;
-
-    return currentFieldFromGrid(grid, baseTimeMs);
+    void area;
+    void timeRange;
+    void signal;
+    if (!CMEMS_CURRENT_ROUTING_BETA_ENABLED) return null;
+    return null;
 }

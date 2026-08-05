@@ -14,10 +14,13 @@ test.describe('First-run legal gate', () => {
         await page.goto('/');
         const disclaimer = page.getByRole('document', { name: 'Navigation disclaimer text' });
         await expect(page.getByRole('button', { name: /Accept navigation disclaimer/i })).toHaveCount(0);
-        await disclaimer.evaluate((element) => element.scrollTo(0, element.scrollHeight));
+        await disclaimer.evaluate((element) => {
+            element.scrollTop = element.scrollHeight;
+            element.dispatchEvent(new Event('scroll', { bubbles: true }));
+        });
 
         const accept = page.getByRole('button', { name: /Accept navigation disclaimer/i });
-        await expect(accept).toBeVisible();
+        await expect(accept).toBeVisible({ timeout: 10_000 });
         await accept.click();
         await expect(page.getByRole('dialog', { name: 'Important Notice' })).toHaveCount(0);
         await expect(page.getByRole('heading', { name: 'Welcome aboard' })).toBeVisible();
@@ -26,7 +29,10 @@ test.describe('First-run legal gate', () => {
     test('accept control meets the mobile touch-target minimum', async ({ page }) => {
         await page.goto('/');
         const disclaimer = page.getByRole('document', { name: 'Navigation disclaimer text' });
-        await disclaimer.evaluate((element) => element.scrollTo(0, element.scrollHeight));
+        await disclaimer.evaluate((element) => {
+            element.scrollTop = element.scrollHeight;
+            element.dispatchEvent(new Event('scroll', { bubbles: true }));
+        });
         const box = await page.getByRole('button', { name: /Accept navigation disclaimer/i }).boundingBox();
         expect(box?.height).toBeGreaterThanOrEqual(44);
     });

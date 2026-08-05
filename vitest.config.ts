@@ -8,11 +8,10 @@ export default defineConfig({
         globals: true,
         environment: 'jsdom',
         setupFiles: ['./tests/setup.ts'],
-        // Heavy real-ENC routing repros (e.g. newportPinkenba) take ~2.5s solo
-        // but can blow the 5s default under full-suite parallel CPU contention,
-        // surfacing as an intermittent STACK_TRACE_ERROR. A generous ceiling
-        // (it's a cap, not a delay — fast tests still finish fast) removes the
-        // timeout flake without weakening any assertion.
+        // Keep ordinary tests tightly bounded. The handful of real-ENC routing
+        // repros set measured, suite-local ceilings because V8 coverage
+        // instrumentation makes their grid searches substantially slower; the
+        // assertions themselves remain identical in covered and uncovered runs.
         testTimeout: 20000,
         hookTimeout: 20000,
         include: [
@@ -27,6 +26,9 @@ export default defineConfig({
         coverage: {
             provider: 'v8',
             reporter: ['text', 'text-summary', 'lcov'],
+            // Preserve the coverage evidence when an unrelated test is red so
+            // CI failures remain diagnosable instead of discarding the report.
+            reportOnFailure: true,
             include: [
                 'services/**/*.ts',
                 'hooks/**/*.ts',

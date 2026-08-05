@@ -128,7 +128,7 @@ export const DiaryEntryView: React.FC<DiaryEntryViewProps> = React.memo(
                             <h1 className="text-lg font-extrabold text-white truncate">{e.title}</h1>
                         </div>
                         <button
-                            aria-label="Edit item details"
+                            aria-label={`Edit diary entry: ${e.title}`}
                             onClick={() => onEdit(e)}
                             className="p-3 rounded-xl bg-white/5 hover:bg-white/10 transition-colors"
                         >

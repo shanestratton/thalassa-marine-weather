@@ -1,13 +1,13 @@
 /**
  * Hazard Query Service — unified facade over ENC (vector) and
- * GEBCO (bathymetric raster) hazard data.
+ * coarse NOAA ETOPO (global relief raster) hazard data.
  *
  * This is the only service `landAvoidance.ts` should call for
  * "is there a hazard at these points?" questions. Internally it:
  *
  *   1. Asks EncHazardService for every point.
  *   2. For points an ENC cell covered authoritatively, returns
- *      that result (skipping GEBCO entirely — faster + more
+ *      that result (skipping ETOPO entirely — faster + more
  *      accurate).
  *   3. For points no ENC cell covers, falls back to a batched
  *      GebcoDepthService query and synthesises a HazardResult
@@ -15,10 +15,10 @@
  *
  * The returned `HazardResult` carries enough provenance for the
  * router to log/UI-surface "this leg was validated against ENC
- * cell AU530150 + GEBCO."
+ * cell AU530150 + coarse NOAA ETOPO."
  *
  * Conventions:
- *  - `depth_m` follows GEBCO convention: negative = below sea
+ *  - `depth_m` follows global-relief convention: negative = below sea
  *    level, positive = above. ENC depths (S-57 convention,
  *    positive = below) are negated on the way out.
  *  - `isHazard` is the canonical "should the router avoid this
@@ -39,10 +39,10 @@ const log = createLogger('HazardQueryService');
 
 /**
  * Source of a HazardResult. `'none'` means we have no data for the
- * point (e.g. GEBCO offline + no ENC coverage); the router should
+ * point (e.g. ETOPO offline + no ENC coverage); the router should
  * be conservative.
  */
-export type HazardSource = 'enc' | 'gebco' | 'none';
+export type HazardSource = 'enc' | 'etopo' | 'none';
 
 export interface HazardQueryPoint {
     lat: number;
@@ -64,7 +64,7 @@ export interface HazardResult {
      */
     isHazard: boolean;
     /**
-     * Depth in metres, GEBCO convention (negative = below sea
+     * Depth in metres, global-relief convention (negative = below sea
      * level). Null if depth unknown (still may be a hazard via
      * `isHazard` if e.g. an ENC marked it as land).
      */
@@ -77,7 +77,7 @@ export interface HazardResult {
     /**
      * S-57 CATZOC value at this point (1=A1 best, 6=U unassessed),
      * when the answering ENC cell ships M_QUAL data. Always null
-     * for GEBCO results.
+     * for ETOPO results.
      */
     catzoc?: EncCatzoc | null;
     /**
@@ -100,7 +100,7 @@ export interface HazardResult {
 const DEFAULT_VESSEL_DRAFT_M = 2.5;
 
 /**
- * Compute the routing hazard depth threshold (GEBCO convention,
+ * Compute the routing hazard depth threshold (negative-elevation convention,
  * negative metres) from a vessel's draft.
  *
  * Formula: -(draft × 1.5 + 0.5) m — keeps the "danger zone"
@@ -124,14 +124,16 @@ export function hazardDepthForDraft(draftM: number | null | undefined): number {
     return -(clamped * 1.5 + 0.5);
 }
 
-/** Conservative MSL→LAT delta applied to GEBCO depths in the hazard
+/** Conservative MSL→LAT delta applied to ETOPO depths in the hazard
  *  comparison (audit #7). Moreton Bay's MSL sits ~1.0-1.3 m above LAT;
- *  a fixed pessimistic 1.3 m means a GEBCO point must show that much
- *  MORE water before it reads clear. Only GEBCO fallback points pay it —
+ *  a fixed pessimistic 1.3 m means an ETOPO point must show that much
+ *  MORE water before it reads clear. Only coarse fallback points pay it —
  *  ENC depths are already LAT-referenced. */
+/** @deprecated Legacy compatibility name; the value applies to the current
+ * NOAA ETOPO coarse-bathymetry fallback. */
 export const GEBCO_MSL_TO_LAT_PESSIMISM_M = 1.3;
 
-/** Regions where MSL sits well above LAT (chart datum), so a GEBCO (MSL) depth
+/** Regions where MSL sits well above LAT (chart datum), so an ETOPO (MSL) depth
  *  must clear MORE water before it reads safe. bbox = [minLon,minLat,maxLon,maxLat].
  *  Values are conservative FLOORS from AHO standard-port ranges — only ever
  *  RAISE the pessimism vs the 1.3 m Moreton default (cycle-5 re-audit: a no-
@@ -142,7 +144,7 @@ const REGIONAL_MSL_TO_LAT_DELTA_M: { bbox: [number, number, number, number]; del
     { bbox: [150.8, -24.3, 152.6, -23.3], deltaM: 2.3 }, // Gladstone / Bundaberg
     { bbox: [152.4, -25.6, 153.1, -24.6], deltaM: 1.8 }, // Hervey Bay / Great Sandy Strait
     { bbox: [145.6, -19.6, 147.2, -16.7], deltaM: 1.8 }, // Townsville / Cairns
-    // Moreton Bay & elsewhere fall through to GEBCO_MSL_TO_LAT_PESSIMISM_M (1.3).
+    // Moreton Bay & elsewhere fall through to the 1.3 m compatibility constant.
 ];
 
 /** Most-conservative regional MSL→LAT delta touching a route bbox, floored at
@@ -159,11 +161,11 @@ export function regionalGebcoDatumDeltaM(bbox: [number, number, number, number])
     return delta;
 }
 
-function gebcoIsHazard(depth_m: number | null, hazardThresholdM: number): boolean {
+function coarseBathymetryIsHazard(depth_m: number | null, hazardThresholdM: number): boolean {
     // ROUTE+WARN POLICY (deliberate, not fail-open): null = NO depth data
-    // (uncharted + GEBCO unavailable). We return false so the router still
+    // (uncharted + ETOPO unavailable). We return false so the router still
     // yields a line — availability beats stranding a vessel over a data gap,
-    // and a GEBCO gap is usually open ocean, not shoal. Unknown is NOT treated
+    // and an ETOPO gap is usually open ocean, not shoal. Unknown is NOT treated
     // as confirmed-clear: every no-data point becomes a LOUD 'caution' route
     // advisory (landAvoidance.buildRouteAdvisories → RouteHazardReport →
     // HazardReportPanel red banner), AND the isochrone's candidate ranking
@@ -180,7 +182,7 @@ function gebcoIsHazard(depth_m: number | null, hazardThresholdM: number): boolea
  * Project an EncHazardResult onto our unified HazardResult shape.
  *
  * Depth conversion: ENC stores depth as positive S-57 metres; we
- * flip sign to match GEBCO convention.
+ * flip sign to match the negative-elevation convention.
  *
  * Hazard reconciliation: ENC marks a polygon as a hazard based on
  * its built-in threshold (`ENC_HAZARD_DEPTH_M = 15 m`). We re-
@@ -197,7 +199,7 @@ export function encToHazardResult(
     hazardThresholdM: number,
     tideOffsetM: number,
 ): HazardResult {
-    // Flip S-57 depth (positive = below datum) to GEBCO convention
+    // Flip S-57 depth (positive = below datum) to negative-elevation convention
     // (negative = below sea level). Do NOT abs(): a DRYING DEPARE/DRGARE
     // carries a NEGATIVE DRVAL1 (drying HEIGHT above datum), which must map
     // to a POSITIVE above-surface value so the tide re-eval below (and the
@@ -275,9 +277,9 @@ export interface HazardQueryOptions {
      */
     vesselDraftM?: number;
     /**
-     * Regional MSL→LAT pessimism (metres) applied to GEBCO depths in
+     * Regional MSL→LAT pessimism (metres) applied to coarse ETOPO depths in
      * the hazard comparison. Defaults to the Moreton-calibrated
-     * GEBCO_MSL_TO_LAT_PESSIMISM_M (1.3 m); the route validator scales
+     * legacy-named GEBCO_MSL_TO_LAT_PESSIMISM_M (1.3 m); the route validator scales
      * it from the live tide curve's range (closing audit: the fixed
      * constant quietly stops being pessimistic on the big-tide QLD
      * coast — Broad Sound's MSL sits ~4 m above LAT, not 1.3).
@@ -309,11 +311,11 @@ export interface HazardQueryOptions {
 }
 
 /**
- * Convert a GEBCO-convention depth (negative = below sea level) to
+ * Convert a negative-elevation depth (negative = below sea level) to
  * its tide-corrected equivalent.
  *
  * Rationale: a charted -2 m point at chart datum is -3 m below the
- * actual sea surface when tide is at +1 m. In GEBCO convention
+ * actual sea surface when tide is at +1 m. In this convention
  * this is `depth_m - tideOffsetM`.
  */
 function applyTide(depth_m: number | null, tideOffsetM: number): number | null {
@@ -331,9 +333,9 @@ function applyTide(depth_m: number | null, tideOffsetM: number): number | null {
  *
  * Performance:
  *  - ENC checks are in-memory + O(log n) per point.
- *  - GEBCO calls are batched to a single edge-function request
- *    per `GEBCO_BATCH_SIZE` chunk in landAvoidance (caller-owned).
- *  - When a route is fully ENC-covered, we make ZERO GEBCO calls.
+ *  - ETOPO calls are batched to a single edge-function request
+ *    per caller-owned endpoint-sized chunk in landAvoidance.
+ *  - When a route is fully ENC-covered, we make ZERO ETOPO calls.
  */
 export async function queryHazards(
     points: HazardQueryPoint[],
@@ -361,7 +363,7 @@ export async function queryHazards(
     const encResults = await EncHazardService.queryHazards(points);
 
     // Collect points that were NOT covered by any ENC cell — these
-    // need GEBCO.
+    // need coarse ETOPO.
     const gebcoNeeded: HazardQueryPoint[] = [];
     const gebcoIndexMap: number[] = []; // Maps gebcoNeeded[i] → original index.
     const out: HazardResult[] = new Array(points.length);
@@ -373,7 +375,7 @@ export async function queryHazards(
             // A SOUNDING-ONLY hit is hazard evidence, not area coverage: if
             // the draft re-eval just cleared it (deep enough for THIS vessel),
             // the sounding certifies nothing about the surrounding water —
-            // fall through to GEBCO instead of reading "ENC-verified clear"
+            // fall through to ETOPO instead of reading "ENC-verified clear"
             // off one spot depth (burn-down 2026-07-16).
             if (enc.soundingOnly && !r.isHazard) {
                 gebcoNeeded.push(points[i]);
@@ -387,26 +389,26 @@ export async function queryHazards(
         }
     }
 
-    // ── Phase 2: GEBCO fallback for uncovered points ──────────────
+    // ── Phase 2: coarse ETOPO fallback for uncovered points ───────
     if (gebcoNeeded.length > 0) {
         try {
             const gebcoResults = await GebcoDepthService.queryDepths(gebcoNeeded);
             for (let j = 0; j < gebcoResults.length; j++) {
                 const idx = gebcoIndexMap[j];
                 const g = gebcoResults[j];
-                // DATUM MISMATCH GUARD (audit): GEBCO depths are MSL-referenced,
+                // DATUM MISMATCH GUARD (audit): ETOPO depths are MSL-referenced,
                 // but tide heights are above CHART DATUM (≈LAT). Crediting a
                 // LAT-referenced tide onto an MSL depth over-credits water by
                 // roughly HALF the tidal range — anti-conservative on exactly
                 // the weakest-data (uncharted) points. Without per-point
                 // LAT↔MSL offsets we take the conservative branch: never apply
-                // a POSITIVE tide credit to a GEBCO depth (nobody threads a
-                // half-tide channel on 450 m ocean bathymetry); a negative
+                // a POSITIVE tide credit to a coarse ETOPO depth (nobody threads a
+                // half-tide channel on ~1.8 km global relief); a negative
                 // offset (surge below datum) still applies — it makes the
                 // water SHALLOWER, which is the safe direction.
                 const gebcoTide = Math.min(0, tideForPoint(points[idx]));
                 const tidedDepth = applyTide(g.depth_m, gebcoTide);
-                // MSL→LAT pessimism (2026-07-17 audit #7): GEBCO is
+                // MSL→LAT pessimism (2026-07-17 audit #7): ETOPO is
                 // MSL-referenced but the threshold logic lives in chart-datum
                 // (≈LAT) terms — at low water an MSL depth overstates the
                 // water under the keel by the MSL-LAT offset (~1.0-1.3 m in
@@ -418,20 +420,20 @@ export async function queryHazards(
                 out[idx] = {
                     lat: points[idx].lat,
                     lon: points[idx].lon,
-                    isHazard: gebcoIsHazard(pessimistic, hazardThresholdM),
+                    isHazard: coarseBathymetryIsHazard(pessimistic, hazardThresholdM),
                     depth_m: tidedDepth,
-                    source: tidedDepth == null ? 'none' : 'gebco',
+                    source: tidedDepth == null ? 'none' : 'etopo',
                 };
             }
         } catch (err) {
-            log.warn('GEBCO fallback failed; marking uncovered points as no-data', err);
+            log.warn('NOAA ETOPO fallback failed; marking uncovered points as no-data', err);
             for (const idx of gebcoIndexMap) {
                 out[idx] = {
                     lat: points[idx].lat,
                     lon: points[idx].lon,
                     // Route+warn on outage: source:'none' keeps the route
                     // available but flags every point UNVERIFIED — surfaced by
-                    // the red route advisory (see gebcoIsHazard). Not a silent clear.
+                    // the red route advisory (see coarseBathymetryIsHazard). Not a silent clear.
                     isHazard: false,
                     depth_m: null,
                     source: 'none',
@@ -442,10 +444,10 @@ export async function queryHazards(
 
     if (process.env.NODE_ENV !== 'production') {
         const encHits = out.filter((r) => r.source === 'enc').length;
-        const gebcoHits = out.filter((r) => r.source === 'gebco').length;
+        const coarseHits = out.filter((r) => r.source === 'etopo').length;
         const noData = out.filter((r) => r.source === 'none').length;
         log.info(
-            `queryHazards(${points.length}, draft=${options.vesselDraftM ?? DEFAULT_VESSEL_DRAFT_M}m, threshold=${hazardThresholdM.toFixed(2)}m, tide=${options.tideAt ? 'per-point' : `${fallbackTideM.toFixed(2)}m`}): enc=${encHits} gebco=${gebcoHits} none=${noData}`,
+            `queryHazards(${points.length}, draft=${options.vesselDraftM ?? DEFAULT_VESSEL_DRAFT_M}m, threshold=${hazardThresholdM.toFixed(2)}m, tide=${options.tideAt ? 'per-point' : `${fallbackTideM.toFixed(2)}m`}): enc=${encHits} etopo=${coarseHits} none=${noData}`,
         );
     }
 
@@ -454,9 +456,9 @@ export async function queryHazards(
 
 /**
  * Segment-level hazard check: does each segment CROSS a charted ENC hazard
- * that the sampled point query would miss between its 231 m samples (an AREA
+ * that the sampled point query could miss between samples (an AREA
  * thinner than the spacing, or a point/line on a short terminal leg)? ENC-only
- * — GEBCO is a raster with no polygons, so the sampled point query stays its
+ * — ETOPO is a raster with no polygons, so the sampled point query stays its
  * backstop. Draft + tide are applied to the crossed feature exactly like the
  * point path via encToHazardResult (honouring the live `tideAt` curve at the
  * segment midpoint/ETA when supplied — else the static offset), so a dredged
@@ -485,7 +487,7 @@ export async function querySegmentHazards(
 > {
     if (segments.length === 0) return [];
     const hazardThresholdM = hazardDepthForDraft(options.vesselDraftM);
-    // hazardThresholdM is the GEBCO-convention negative threshold (e.g. -4.1 m
+    // hazardThresholdM is the negative-elevation threshold (e.g. -4.1 m
     // for a 2.4 m draft); flip to positive metres-below-datum for the draft-
     // aware lateral-graze classification (cycle-4 audit #8) so a depth area only
     // graze-flags when it is genuinely too shallow for THIS vessel.
@@ -510,7 +512,7 @@ export async function querySegmentHazards(
             : fallbackTideM;
         const r = encToHazardResult({ lat: midLat, lon: midLon }, enc, hazardThresholdM, tideM);
         // tideConstrained rides through (closing audit: it was computed
-        // here then DISCARDED, so a tide-credit-cleared sub-231 m crossing
+        // here then DISCARDED, so a tide-credit-cleared sub-sample-spacing crossing
         // never produced the tide-constrained advisory).
         return {
             isHazard: r.isHazard,

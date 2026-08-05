@@ -10,6 +10,7 @@ const contextMocks = vi.hoisted(() => ({
     fetchWeatherByStrategy: vi.fn(),
     parseLocation: vi.fn(),
     reverseGeocode: vi.fn(),
+    toastInfo: vi.fn(),
     settings: {
         defaultLocation: 'Locked test port',
         defaultLocationCoords: { lat: -27.4, lon: 153.1 },
@@ -53,7 +54,10 @@ vi.mock('../services/nativeStorage', () => ({
 }));
 
 vi.mock('../services/GpsService', () => ({
-    GpsService: { getCurrentPosition: contextMocks.gps },
+    GpsService: {
+        getCurrentPosition: contextMocks.gps,
+        getCurrentPositionIfGranted: contextMocks.gps,
+    },
 }));
 
 vi.mock('../services/weatherService', () => ({
@@ -68,12 +72,13 @@ vi.mock('../services/EnvironmentService', () => ({
 }));
 
 vi.mock('../components/Toast', () => ({
-    toast: { info: vi.fn(), error: vi.fn(), success: vi.fn(), warning: vi.fn() },
+    toast: { info: contextMocks.toastInfo, error: vi.fn(), success: vi.fn(), warning: vi.fn() },
 }));
 
 import { WeatherProvider, useWeather } from '../context/WeatherContext';
 import { weatherCacheKeysForScope } from '../services/WeatherOrchestrator';
 import { getAuthIdentityScope, setAuthIdentityScope } from '../services/authIdentityScope';
+import { useUIStore } from '../stores/uiStore';
 import { useWeatherStore } from '../stores/weatherStore';
 
 function makeReport(name: string, generatedAt = new Date().toISOString()): MarineWeatherReport {
@@ -116,6 +121,7 @@ beforeEach(() => {
     contextMocks.fetchWeatherByStrategy.mockReset();
     contextMocks.parseLocation.mockReset();
     contextMocks.reverseGeocode.mockReset();
+    contextMocks.toastInfo.mockReset();
     Object.assign(contextMocks.settings, {
         defaultLocation: 'Locked test port',
         defaultLocationCoords: { lat: -27.4, lon: 153.1 },
@@ -125,11 +131,13 @@ beforeEach(() => {
     contextMocks.settingsLoading = true;
     latestContext = null;
     accountAContext = null;
+    useUIStore.setState({ isOffline: false });
     setAuthIdentityScope('account-a');
 });
 
 afterEach(() => {
     cleanup();
+    useUIStore.setState({ isOffline: false });
     setAuthIdentityScope(null);
     vi.useRealTimers();
 });
@@ -244,6 +252,7 @@ describe('WeatherProvider identity transition', () => {
 
     it('cancels an A reconnect timer before it can fetch or write for B', async () => {
         vi.useFakeTimers();
+        useUIStore.setState({ isOffline: true });
         const scopeA = getAuthIdentityScope();
         contextMocks.storage.set(
             weatherCacheKeysForScope(scopeA).data,
@@ -255,8 +264,8 @@ describe('WeatherProvider identity transition', () => {
             </WeatherProvider>,
         );
 
-        act(() => {
-            window.dispatchEvent(new Event('online'));
+        await act(async () => {
+            useUIStore.setState({ isOffline: false });
         });
         await act(async () => {
             setAuthIdentityScope('account-b');
@@ -266,6 +275,69 @@ describe('WeatherProvider identity transition', () => {
         expect(contextMocks.fetchWeatherByStrategy).not.toHaveBeenCalled();
         expect(latestContext?.weatherData).toBeNull();
         expect(contextMocks.storage.has(weatherCacheKeysForScope(getAuthIdentityScope()).data)).toBe(false);
+    });
+
+    it('keeps the refresh schedule empty and does no provider work while the WAN probe says offline', async () => {
+        vi.useFakeTimers();
+        Object.defineProperty(navigator, 'onLine', { configurable: true, value: true });
+        useUIStore.setState({ isOffline: true });
+        const scope = getAuthIdentityScope();
+        contextMocks.storage.set(
+            weatherCacheKeysForScope(scope).data,
+            makeReport('Stale cached port', new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString()),
+        );
+
+        render(
+            <WeatherProvider>
+                <Probe />
+            </WeatherProvider>,
+        );
+        await act(async () => {
+            latestContext?.refreshData(false);
+            window.dispatchEvent(new Event('online'));
+            await vi.advanceTimersByTimeAsync(2 * 60 * 1000);
+        });
+
+        expect(navigator.onLine).toBe(true);
+        expect(latestContext?.nextUpdate).toBeNull();
+        expect(contextMocks.toastInfo).toHaveBeenCalledWith('Offline — showing cached data');
+        expect(contextMocks.fetchWeatherByStrategy).not.toHaveBeenCalled();
+        expect(contextMocks.reverseGeocode).not.toHaveBeenCalled();
+    });
+
+    it('refreshes stale cached weather only after the WAN probe confirms reconnection', async () => {
+        vi.useFakeTimers();
+        useUIStore.setState({ isOffline: true });
+        const scope = getAuthIdentityScope();
+        contextMocks.storage.set(
+            weatherCacheKeysForScope(scope).data,
+            makeReport('Stale cached port', new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString()),
+        );
+        contextMocks.fetchWeatherByStrategy.mockResolvedValue(makeReport('Fresh provider port'));
+
+        render(
+            <WeatherProvider>
+                <Probe />
+            </WeatherProvider>,
+        );
+
+        act(() => {
+            window.dispatchEvent(new Event('online'));
+        });
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(2_000);
+        });
+        expect(contextMocks.fetchWeatherByStrategy).not.toHaveBeenCalled();
+
+        await act(async () => {
+            useUIStore.setState({ isOffline: false });
+        });
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(1_500);
+            await Promise.resolve();
+        });
+
+        expect(contextMocks.fetchWeatherByStrategy).toHaveBeenCalledOnce();
     });
 
     it('drops an A GPS-follow result before geocode or fetch after A → B', async () => {

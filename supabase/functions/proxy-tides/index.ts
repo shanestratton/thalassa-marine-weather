@@ -92,8 +92,7 @@ function isValidStation(value: unknown): boolean {
     const lat = parseCoordinate(value.lat, 'lat');
     const lon = parseCoordinate(value.lon, 'lon');
     const distance = value.distance === undefined ? 0 : parseBoundedNumber(value.distance, 0, 1_000);
-    const idIsValid =
-        (typeof value.id === 'string' && value.id.length > 0 && value.id.length <= 200) ||
+    const idIsValid = (typeof value.id === 'string' && value.id.length > 0 && value.id.length <= 200) ||
         (typeof value.id === 'number' && Number.isSafeInteger(value.id));
     return (
         lat !== null &&

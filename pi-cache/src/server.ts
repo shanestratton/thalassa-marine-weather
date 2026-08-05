@@ -1,9 +1,9 @@
 /**
  * Thalassa Pi Cache — Express server entry point.
  *
- * Runs on the boat's Raspberry Pi. Zero config required.
- * The Thalassa app on the phone pushes any needed configuration
- * via the /api/configure endpoint.
+ * Runs on a Raspberry Pi for isolated development. Public-beta defaults are
+ * loopback-only with every private/admin surface disabled; see
+ * publicBetaBoundary.ts and pi-cache/README.md.
  *
  * Default port: 3001
  */
@@ -35,11 +35,21 @@ import { startEncWatcher, stopEncWatcher } from './encWatcher.js';
 import { DiaryRelayOutbox, type DiaryRelayConfigInput, DiaryRelayValidationError } from './diaryRelayOutbox.js';
 import { loadOrCreateIdentity } from './identity.js';
 import { createPairRoutes } from './routes/pair.js';
+import {
+    adminApiDisabledPayload,
+    allowedCorsOrigins,
+    publicStatusPayload,
+    resolveBindHost,
+    unsafeAdminApiEnabled,
+} from './publicBetaBoundary.js';
 
-// ── Config (mutable — app can update via /api/configure) ──
+// ── Config (mutable only after explicit unsafe-development opt-in) ──
 
 const PORT = parseInt(process.env.PORT || '3001', 10);
 const CACHE_DIR = process.env.CACHE_DIR || './cache';
+const BIND_HOST = resolveBindHost();
+const UNSAFE_ADMIN_API_ENABLED = unsafeAdminApiEnabled();
+const CORS_ORIGINS = allowedCorsOrigins();
 
 // Pairing identity — survives redeploys (rsync excludes identity/). See
 // identity.ts for what this defends against. PI_BOAT_NAME overrides the
@@ -79,13 +89,26 @@ const cache = new Cache(CACHE_DIR);
 const diaryRelayOutbox = new DiaryRelayOutbox(CACHE_DIR);
 const app = express();
 
-app.use(cors());
+app.use(
+    cors({
+        origin(origin, callback) {
+            // No Origin is a same-origin/native/CLI request. Browser origins
+            // must be explicitly allowlisted; a wildcard is never accepted.
+            callback(null, !origin || CORS_ORIGINS.has(origin));
+        },
+    }),
+);
 // Bump body parser limit for public-data chart uploads. A regional
 // GeoJSON pack for AU coastal coverage runs 10-50MB after gdal_contour
 // simplification — the 100kb default would reject them on POST. ENC
 // imports go through a different code path (raw octet-stream / base64)
 // so they aren't affected by this limit.
-app.use(express.json({ limit: '100mb' }));
+app.use(express.json({ limit: UNSAFE_ADMIN_API_ENABLED ? '100mb' : '64kb' }));
+
+const requireUnsafeAdmin: express.RequestHandler = (_req, res, next) => {
+    if (UNSAFE_ADMIN_API_ENABLED) return next();
+    return res.status(503).json(adminApiDisabledPayload());
+};
 
 // ── Health & Status ──
 
@@ -94,11 +117,22 @@ app.get('/health', (_req, res) => {
 });
 
 app.get('/status', (_req, res) => {
-    const stats = cache.getStats();
+    res.json(
+        publicStatusPayload({
+            uptime: process.uptime(),
+            cache: cache.getStats(),
+            bindHost: BIND_HOST,
+            unsafeAdminEnabled: UNSAFE_ADMIN_API_ENABLED,
+        }),
+    );
+});
+
+/** Private development status. Never fold this detail back into /status. */
+app.get('/api/admin/status', requireUnsafeAdmin, (_req, res) => {
     const diaryRelay = diaryRelayOutbox.getStats();
     res.json({
         status: 'ok',
-        cache: stats,
+        cache: cache.getStats(),
         config: {
             port: PORT,
             cacheDir: CACHE_DIR,
@@ -206,7 +240,7 @@ function applyDiaryRelayConfiguration(body: Record<string, unknown>): void {
     diaryRelayOutbox.configure(input);
 }
 
-app.post('/api/configure', (req, res) => {
+app.post('/api/configure', requireUnsafeAdmin, (req, res) => {
     const requestBody = configurationBody(req.body);
     try {
         // Validate and persist Pi-private relay configuration before changing
@@ -269,7 +303,7 @@ app.post('/api/configure', (req, res) => {
 });
 
 // Purge expired cache entries
-app.post('/cache/purge', (_req, res) => {
+app.post('/cache/purge', requireUnsafeAdmin, (_req, res) => {
     const result = cache.purgeExpired();
     res.json({ purged: result });
 });
@@ -278,7 +312,7 @@ app.post('/cache/purge', (_req, res) => {
 // The app sends any URL here and the Pi caches the response.
 // This is the magic one — zero config, works for every API.
 
-app.get('/api/passthrough', async (req, res) => {
+app.get('/api/passthrough', requireUnsafeAdmin, async (req, res) => {
     try {
         const url = req.query.url as string;
         const ttl = parseInt((req.query.ttl as string) || '900000', 10);
@@ -296,7 +330,7 @@ app.get('/api/passthrough', async (req, res) => {
     }
 });
 
-app.get('/api/passthrough-tile', async (req, res) => {
+app.get('/api/passthrough-tile', requireUnsafeAdmin, async (req, res) => {
     try {
         const url = req.query.url as string;
         const ttl = parseInt((req.query.ttl as string) || '1800000', 10);
@@ -321,12 +355,21 @@ app.use('/api/weather', createWeatherRoutes(cache, proxyConfig));
 app.use('/api/tiles', createTileRoutes(cache, proxyConfig));
 app.use('/api/grib', createGribRoutes(cache, proxyConfig));
 app.use('/api/tides', createTideRoutes(cache, proxyConfig));
+// The fixed named routes above have bounded upstreams. The generic function
+// proxy below does not, so block it before the harmless misc allowlist.
+app.use('/api/misc/proxy', requireUnsafeAdmin);
 app.use('/api/misc', createMiscRoutes(cache, proxyConfig));
-app.use('/api/charts', createChartRoutes());
-app.use('/api/enc', createEncRoutes(identity));
-app.use('/api/osm', createOsmRoutes());
-app.use('/api/pair', createPairRoutes(identity));
-app.use('/api/diary', createDiaryRelayRoutes(diaryRelayOutbox));
+if (UNSAFE_ADMIN_API_ENABLED) {
+    app.use('/api/charts', createChartRoutes());
+    app.use('/api/enc', createEncRoutes(identity));
+    app.use('/api/osm', createOsmRoutes());
+    app.use('/api/pair', createPairRoutes(identity));
+    app.use('/api/diary', createDiaryRelayRoutes(diaryRelayOutbox));
+} else {
+    for (const prefix of ['/api/charts', '/api/enc', '/api/osm', '/api/pair', '/api/diary']) {
+        app.use(prefix, requireUnsafeAdmin);
+    }
+}
 
 // ── Boat-LAN app hosting (Shane 2026-07-09: "if the Pi serves charts
 // to the device, how come it can't serve the computer?") ──
@@ -339,7 +382,7 @@ app.use('/api/diary', createDiaryRelayRoutes(diaryRelayOutbox));
 // built web bundle into app-dist/ next to the server (see redeploy.sh);
 // missing dir = feature off, the Pi stays a pure cache.
 const APP_DIST = process.env.THALASSA_APP_DIST || path.join(process.cwd(), 'app-dist');
-if (fs.existsSync(path.join(APP_DIST, 'index.html'))) {
+if (UNSAFE_ADMIN_API_ENABLED && fs.existsSync(path.join(APP_DIST, 'index.html'))) {
     app.use(express.static(APP_DIST));
     // SPA fallback: any dotless non-API path boots the app (mirrors the
     // Vercel catch-all so /plan works here too).
@@ -351,20 +394,25 @@ if (fs.existsSync(path.join(APP_DIST, 'index.html'))) {
 
 // ── Start ──
 
-const server = app.listen(PORT, '0.0.0.0', () => {
-    console.log(`\n🌊 Thalassa Pi Cache running on http://0.0.0.0:${PORT}`);
+const server = app.listen(PORT, BIND_HOST, () => {
+    console.log(`\n🌊 Thalassa Pi Cache running on http://${BIND_HOST}:${PORT}`);
     console.log(`   Cache dir: ${CACHE_DIR}`);
-    console.log(`   Supabase:  ${SUPABASE_URL ? '✅ configured' : '⏳ waiting for app to configure'}`);
-    console.log(`   Open Thalassa on your phone → Settings → Pi Cache\n`);
+    console.log(
+        `   LAN bind:   ${BIND_HOST === '127.0.0.1' ? 'disabled (loopback only)' : 'ENABLED by explicit opt-in'}`,
+    );
+    console.log(`   Admin API:  ${UNSAFE_ADMIN_API_ENABLED ? 'UNSAFE DEVELOPMENT OPT-IN ENABLED' : 'disabled'}`);
+    console.log(`   CORS:       ${CORS_ORIGINS.size > 0 ? [...CORS_ORIGINS].join(', ') : 'same-origin only'}\n`);
 
-    if (SUPABASE_URL) {
+    if (UNSAFE_ADMIN_API_ENABLED && SUPABASE_URL) {
         startScheduler(cache, proxyConfig);
     }
 
     // Close the chart-distribution loop: watch the user's o-charts download dir
     // for new .oesu files and auto-decrypt them into pi-cache's chart store.
     // The iOS app's auto-sync picks them up on next launch.
-    startEncWatcher();
+    if (UNSAFE_ADMIN_API_ENABLED && process.env.ENC_WATCHER_ENABLED === 'true') {
+        startEncWatcher();
+    }
 });
 
 // ── Graceful Shutdown ──

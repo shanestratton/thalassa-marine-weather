@@ -6,7 +6,7 @@
  * RootGate renders <DisclaimerOverlay /> ahead of the <Suspense> that
  * lazy-loads ApplicationShell, so if the acceptance seed in
  * scripts/lighthouse-setup.cjs ever stops working — a renamed storage key, a
- * bumped DISCLAIMER_VERSION, a puppeteer/lhci resolution change, a stray
+ * bumped DISCLAIMER_VERSION, a Puppeteer/Lighthouse runtime change, a stray
  * numberOfRuns > 1 — Lighthouse quietly measures a few KB of static text and
  * reports a perfect score. That is exactly how this gate spent months
  * certifying nothing, and green CI is precisely when nobody looks.

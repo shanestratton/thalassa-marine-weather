@@ -393,6 +393,12 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
                     >
                         Reload Thalassa
                     </button>
+                    <a
+                        href="mailto:privacy@thalassa.app?subject=Thalassa%20Public%20Beta%20Startup%20Crash"
+                        style={{ marginTop: '1rem', color: '#7dd3fc', fontWeight: 700 }}
+                    >
+                        Report this beta problem
+                    </a>
                 </main>
             );
         }

@@ -177,7 +177,7 @@ export function setDeepgramEventTap(tap: ((message: string) => void) | null): vo
     eventTap = tap;
 }
 function emitEvent(message: string): void {
-    console.log(message);
+    if (import.meta.env.DEV) console.log(message);
     eventTap?.(message);
 }
 
@@ -1291,14 +1291,12 @@ export async function startDeepgramRecognizer(opts: StartOptions = {}): Promise<
         } catch {
             return; // ignore non-JSON
         }
-        // Surface every message type we see — particularly useful
-        // when transcripts come back empty: lets us see ProxyHello
-        // (from Supabase proxy on connect), Metadata, SpeechStarted,
-        // UtteranceEnd, Error, etc. in the debug strip so we can tell
-        // whether the audio is even reaching the model.
+        // Surface only message type/size. Results frames contain exact speech
+        // transcripts and must not enter console breadcrumbs or diagnostics.
         if (totalMessagesReceived <= 3) {
-            const preview = JSON.stringify(msg).slice(0, 80);
-            emitEvent(`[DG] msg #${totalMessagesReceived} type=${msg.type ?? '?'}: ${preview}`);
+            emitEvent(
+                `[DG] msg #${totalMessagesReceived} type=${msg.type ?? '?'} bytes=${new TextEncoder().encode(event.data).byteLength}`,
+            );
         }
         // ProxyHello is our own diagnostic emitted by the Supabase
         // proxy on client connect — confirms proxy→client forwarding.
@@ -1336,7 +1334,7 @@ export async function startDeepgramRecognizer(opts: StartOptions = {}): Promise<
         partialCount++;
         if (!firstPartialFired) {
             firstPartialFired = true;
-            emitEvent(`[DG] first partial in ${Date.now() - t0}ms (audio→partial) — "${transcript.slice(0, 40)}"`);
+            emitEvent(`[DG] first partial in ${Date.now() - t0}ms (audio→partial), chars=${transcript.length}`);
             opts.onFirstPartial?.();
         }
         opts.onPartial?.(composedTranscript());
@@ -1555,8 +1553,7 @@ export async function startDeepgramRecognizer(opts: StartOptions = {}): Promise<
             await teardown();
 
             const trimmed = composedTranscript().trim();
-            const preview = trimmed.length > 60 ? trimmed.slice(0, 57) + '…' : trimmed;
-            emitEvent(`[DG] stop() — partials: ${partialCount}, ${durationMs}ms, text="${preview || '(empty)'}"`);
+            emitEvent(`[DG] stop() — partials: ${partialCount}, ${durationMs}ms, chars=${trimmed.length}`);
             if (trimmed.length < MIN_USABLE_CHARS) {
                 return { text: null, durationMs };
             }

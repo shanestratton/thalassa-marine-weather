@@ -27,12 +27,15 @@ function props(overrides: Partial<ChartDepthControlsProps> = {}): ChartDepthCont
         onTideScrubChange: vi.fn(),
         onToggleTideDepth: vi.fn(),
         encCellCount: 1,
+        encReferenceCellCount: 0,
         encVisible: true,
         encHydration: { total: 0, remaining: 0 },
         encNoCoverage: false,
+        referenceNoticeVisible: true,
         nightDim: false,
         onNightDimChange: vi.fn(),
         onToggleChartKey: vi.fn(),
+        onOpenEncLibrary: vi.fn(),
         ...overrides,
     };
 }
@@ -97,7 +100,39 @@ describe('ChartDepthControls', () => {
         expect(triggerHaptic).toHaveBeenCalledWith('light');
 
         rerender(<ChartDepthControls {...input} encHydration={{ total: 4, remaining: 0 }} encNoCoverage />);
-        expect(screen.getByText('No chart coverage here — depths unverified')).toBeInTheDocument();
+        expect(
+            screen.getByText('No verified ENC coverage here — reference imports cannot verify it.'),
+        ).toBeInTheDocument();
+        fireEvent.click(screen.getByRole('button', { name: 'Open on-device ENC Library' }));
+        expect(input.onOpenEncLibrary).toHaveBeenCalledOnce();
+        expect(triggerHaptic).toHaveBeenLastCalledWith('light');
+    });
+
+    it('makes an empty ENC inventory explicit and offers the working on-device importer', () => {
+        const input = props({ encCellCount: 0, encNoCoverage: true });
+        render(<ChartDepthControls {...input} />);
+
+        expect(
+            screen.getByText('No verified ENC charts installed. Library imports are reference-only.'),
+        ).toBeInTheDocument();
+        fireEvent.click(screen.getByRole('button', { name: 'Open on-device ENC Library' }));
+        expect(input.onOpenEncLibrary).toHaveBeenCalledOnce();
+    });
+
+    it('keeps unsigned reference data visibly unverified on the Plan surface', () => {
+        const input = props({
+            surfaceVisible: false,
+            plotting: true,
+            encCellCount: 1,
+            encReferenceCellCount: 1,
+            encNoCoverage: true,
+        });
+        render(<ChartDepthControls {...input} />);
+
+        expect(screen.getByRole('status')).toHaveTextContent(/cannot establish chart coverage/i);
+        expect(screen.getByRole('status')).toHaveTextContent(/route checks ignore it/i);
+        fireEvent.click(screen.getByRole('button', { name: 'Manage unverified reference ENCs' }));
+        expect(input.onOpenEncLibrary).toHaveBeenCalledOnce();
     });
 
     it('keeps only the chart key available on a clean planning surface', () => {

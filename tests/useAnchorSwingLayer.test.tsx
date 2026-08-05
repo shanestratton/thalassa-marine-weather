@@ -68,6 +68,7 @@ function snap(over: Partial<AnchorWatchSnapshot> = {}): AnchorWatchSnapshot {
         gpsQuality: 'precision',
         gpsQualityLabel: 'Precision GPS',
         guardianStatus: 'idle',
+        setupError: null,
         ...over,
     };
 }

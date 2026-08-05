@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { AnchorAlarmOverlay } from '../components/anchor-watch/AnchorAlarmOverlay';
 import { ProcessOverlay } from '../components/ProcessOverlay';
@@ -35,6 +35,7 @@ const alarmSnapshot: AnchorWatchSnapshot = {
     gpsQuality: 'precision',
     gpsQualityLabel: 'Precision GPS',
     guardianStatus: 'idle',
+    setupError: null,
 };
 
 describe('blocking overlay focus lifecycle', () => {
@@ -67,6 +68,23 @@ describe('blocking overlay focus lifecycle', () => {
 
         rerender(<button>Open anchor alarm</button>);
         expect(opener).toHaveFocus();
+    });
+
+    it('keeps the alarm overlay actionable and surfaces an acknowledgement failure', async () => {
+        const onAcknowledge = vi
+            .fn()
+            .mockRejectedValue(
+                new Error('Anchor alarm silence is not confirmed. The alarm remains active; retry Silence Alarm.'),
+            );
+        render(<AnchorAlarmOverlay snapshot={alarmSnapshot} onAcknowledge={onAcknowledge} />);
+
+        const acknowledge = screen.getByRole('button', { name: 'Acknowledge Alarm' });
+        fireEvent.click(acknowledge);
+
+        expect(acknowledge).toBeDisabled();
+        expect(await screen.findByRole('alert')).toHaveTextContent('alarm remains active');
+        await waitFor(() => expect(acknowledge).toBeEnabled());
+        expect(screen.getByRole('alertdialog', { name: 'Drag Alarm' })).toBeInTheDocument();
     });
 
     // The GpsAcquiringOverlay takeover was removed 2026-08-03 (Shane: only

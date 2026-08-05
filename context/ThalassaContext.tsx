@@ -55,7 +55,6 @@ export const useThalassa = () => {
         settings: settings.settings,
         updateSettings: settings.updateSettings,
         resetSettings: settings.resetSettings,
-        togglePro: settings.togglePro,
         quotaLimit: settings.quotaLimit,
 
         // UI

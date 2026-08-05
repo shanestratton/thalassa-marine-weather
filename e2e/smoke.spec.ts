@@ -27,9 +27,13 @@ test.describe('App Smoke Tests', () => {
 // PREVIEW_URL is set by the GitHub Actions workflow.
 
 const PREVIEW_URL = process.env.PREVIEW_URL;
+const DISCLAIMER_STORAGE_KEY = 'thalassa_disclaimer_v1.0';
 
 test.describe('Preview Deploy Smoke Tests', () => {
     test.skip(!PREVIEW_URL, 'PREVIEW_URL not set — skipping preview tests');
+    test.beforeEach(async ({ page }) => {
+        await page.addInitScript((key) => localStorage.setItem(key, 'accepted'), DISCLAIMER_STORAGE_KEY);
+    });
 
     test('preview loads without fatal errors', async ({ page }) => {
         const consoleErrors: string[] = [];
@@ -45,11 +49,14 @@ test.describe('Preview Deploy Smoke Tests', () => {
         expect(response?.status()).toBeLessThan(400);
         await page.waitForTimeout(3000);
 
-        // Filter known benign errors
+        // Keep the allowlist narrow. A blanket "Failed to fetch" exemption
+        // previously let a broken application shell pass as a healthy preview.
         const fatalErrors = consoleErrors.filter(
-            (e) => !e.includes('readonly property') && !e.includes('ResizeObserver') && !e.includes('Failed to fetch'),
+            (e) => !e.includes('readonly property') && !e.includes('ResizeObserver loop'),
         );
         expect(fatalErrors).toHaveLength(0);
+        await expect(page.getByRole('tablist', { name: 'Main navigation' })).toBeAttached({ timeout: 20_000 });
+        await expect(page.getByRole('heading', { name: /important navigation disclaimer/i })).toHaveCount(0);
     });
 
     test('preview React root renders', async ({ page }) => {
@@ -60,6 +67,7 @@ test.describe('Preview Deploy Smoke Tests', () => {
         await expect(root).toBeVisible();
         const childCount = await root.evaluate((el) => el.children.length);
         expect(childCount).toBeGreaterThan(0);
+        await expect(page.getByRole('tablist', { name: 'Main navigation' })).toBeAttached({ timeout: 20_000 });
     });
 
     test('preview has no blocking CSP violations', async ({ page }) => {

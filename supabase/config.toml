@@ -14,12 +14,36 @@ project_id = "pcisdplnodrphauixcau"
 # key IS a JWT, so verification still permits anonymous callers — it only
 # rejects requests carrying no credential at all.
 
+[functions.delete-account]
+# Irreversible authenticated mutation. Keep gateway verification explicit in
+# source control in addition to the function's own getUser() identity check.
+verify_jwt = true
+
+[functions.register-apple-token]
+# Accepts a one-time Apple authorization code only after native Supabase auth,
+# then stores the resulting refresh token behind the service role. Both the
+# gateway and the function independently verify the caller's session.
+verify_jwt = true
+
+[functions.apple-server-notification]
+# Apple cannot present a Supabase JWT. The receiver accepts no browser
+# credential and instead verifies Apple's RS256 JWS, issuer, and exact App-ID
+# audience before writing a service-role-only pending event.
+verify_jwt = false
+
 [functions.voyage-log]
 # The public voyage log. src/voyageLogApi.ts:206 fetches this with a bare
 # `fetch(url)` — no apikey, no Authorization — because the page is meant to
 # work for a shore contact holding nothing but the link. Verification here
 # would take the public log offline. The function guards itself instead: it
 # resolves the handle and returns only what that vessel has published.
+verify_jwt = false
+
+[functions.float-plan]
+# Historical public route-plan API. The source is now a 410 tombstone with no
+# database access, and must remain reachable without a JWT so old public links
+# receive the explicit fail-closed response rather than an ambiguous gateway
+# error. Do not restore service-role route lookup for the public beta.
 verify_jwt = false
 
 [functions.proxy-himawari-ir]

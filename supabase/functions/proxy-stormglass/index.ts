@@ -268,8 +268,9 @@ function isValidStormGlassResponse(
         return Object.entries(item).every(([name, metricValue]) => {
             if (name === 'time') return true;
             if (!requestedMetrics.has(name)) return false;
-            if (metricValue === null || typeof metricValue === 'number')
+            if (metricValue === null || typeof metricValue === 'number') {
                 return metricValue === null || Number.isFinite(metricValue);
+            }
             if (!isPlainRecord(metricValue) || Object.keys(metricValue).length > 16) return false;
             return Object.entries(metricValue).every(
                 ([source, reading]) =>

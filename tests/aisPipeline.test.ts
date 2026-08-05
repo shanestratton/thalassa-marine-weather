@@ -25,7 +25,7 @@ afterEach(() => {
 describe('AIS Pipeline — raw sentence → GeoJSON', () => {
     it('should process a Class A position report end-to-end', () => {
         // Real AIS sentence (message type 1)
-        const sentence = '!AIVDM,1,1,,B,15MwkT1P05Fo;H`EKP8a8:R`0@Fv,0*75';
+        const sentence = '!AIVDM,1,1,,B,15MwkT1P05Fo;H`EKP8a8:R`0@Fv,0*0D';
 
         // Decode
         const decoded = processAisSentence(sentence);
@@ -55,7 +55,7 @@ describe('AIS Pipeline — raw sentence → GeoJSON', () => {
 
     it('should merge position + static data for the same vessel', () => {
         // Step 1: Position report (Class A, type 1)
-        const posSentence = '!AIVDM,1,1,,B,15MwkT1P05Fo;H`EKP8a8:R`0@Fv,0*75';
+        const posSentence = '!AIVDM,1,1,,B,15MwkT1P05Fo;H`EKP8a8:R`0@Fv,0*0D';
         const posData = processAisSentence(posSentence);
         expect(posData).not.toBeNull();
         AisStore.update(posData!);
@@ -87,8 +87,8 @@ describe('AIS Pipeline — raw sentence → GeoJSON', () => {
     it('should handle multiple vessels simultaneously', () => {
         // Three different vessels
         const sentences = [
-            '!AIVDM,1,1,,B,15MwkT1P05Fo;H`EKP8a8:R`0@Fv,0*75',
-            '!AIVDM,1,1,,A,15MwkT1P05Fo;H`EKP8a8:R`0@Fv,0*74',
+            '!AIVDM,1,1,,B,15MwkT1P05Fo;H`EKP8a8:R`0@Fv,0*0D',
+            '!AIVDM,1,1,,A,15MwkT1P05Fo;H`EKP8a8:R`0@Fv,0*0E',
         ];
 
         const decoded = sentences.map((s) => processAisSentence(s));
@@ -121,8 +121,8 @@ describe('AIS Pipeline — raw sentence → GeoJSON', () => {
     });
 
     it('should handle the two-part message 5 pipeline', () => {
-        const part1 = '!AIVDM,2,1,3,B,55?MbV02>H97ac<H4eEK6W@T4@Dn2222220l18F220A5v1@1340Ep4Q8,0*2C';
-        const part2 = '!AIVDM,2,2,3,B,88888888880,2*2E';
+        const part1 = '!AIVDM,2,1,3,B,55?MbV02>H97ac<H4eEK6W@T4@Dn2222220l18F220A5v1@1340Ep4Q8,0*15';
+        const part2 = '!AIVDM,2,2,3,B,88888888880,2*24';
 
         // Part 1 should not produce a result yet
         const r1 = processAisSentence(part1);

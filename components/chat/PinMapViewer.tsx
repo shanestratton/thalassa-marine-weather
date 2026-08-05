@@ -48,7 +48,7 @@ export const PinMapViewer: React.FC<PinMapViewerProps> = React.memo(({ lat, lng,
         setRouteError(null);
         triggerHaptic('medium');
         try {
-            const pos = await GpsService.getCurrentPosition({ staleLimitMs: 30_000, timeoutSec: 10 });
+            const pos = await GpsService.requestCurrentForegroundPosition({ staleLimitMs: 30_000, timeoutSec: 10 });
             if (!pos) {
                 setRouteError('Could not get your GPS position.');
                 return;
@@ -87,7 +87,7 @@ export const PinMapViewer: React.FC<PinMapViewerProps> = React.memo(({ lat, lng,
             style: 'mapbox://styles/mapbox/dark-v11',
             center: [lng, lat],
             zoom: 13,
-            attributionControl: false,
+            attributionControl: true,
             logoPosition: 'bottom-left',
             dragRotate: false,
             // Route raster tiles through Pi Cache when available (offline support)

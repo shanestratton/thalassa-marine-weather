@@ -18,9 +18,9 @@
  * as part of the normal test suite so the next one fails CI instead
  * of shipping.
  *
- * If this test fails, see the audit script's error message — there
- * are three fixes (add a UI entry point, delete the dead route, or
- * allow-list it as intentionally indirect).
+ * If this test fails, see the audit script's error message — add a
+ * real UI entry point (and teach the audit about any one-hop navigation
+ * adapter), delete the dead route, or document a genuinely indirect route.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -55,8 +55,9 @@ describe('viewRegistry — no orphan routes', () => {
         expect(
             result.orphans,
             `Found ${result.orphans} orphan route(s): ${result.orphanList.join(', ')}. ` +
-                `Either add a UI entry point, delete the route from ` +
-                `viewRegistry.tsx, or allow-list it in ` +
+                `Either add a UI entry point, teach the audit about its ` +
+                `one-hop navigation adapter, delete the route from ` +
+                `viewRegistry.tsx, or document it in ` +
                 `INTENTIONAL_INDIRECT_ROUTES inside ` +
                 `scripts/audit-orphan-routes.mjs.`,
         ).toBe(0);

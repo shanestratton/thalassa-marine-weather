@@ -175,6 +175,10 @@ export interface DepthSummary {
     minDepth: number | null;
     shallowSegments: number;
     totalSegments: number;
+    knownSegments?: number;
+    coverage?: 'complete' | 'partial' | 'unavailable';
+    sampleSpacingNm?: number | null;
+    routeSource?: 'displayed' | 'fallback';
     segments: DepthSegment[];
 }
 
@@ -202,6 +206,9 @@ export interface PolarData {
     matrix: number[][];
 }
 
+export type NmeaDepthSource = 'DBT' | 'DPT';
+export type NmeaDepthReference = 'below-transducer' | 'below-waterline' | 'below-keel';
+
 /** Raw NMEA instrument sample (emitted every 5s by NmeaListenerService) */
 export interface NmeaSample {
     timestamp: number;
@@ -212,6 +219,12 @@ export interface NmeaSample {
     rpm: number | null;
     voltage: number | null;
     depth: number | null;
+    /** Sentence carrying `depth`; optional for compatibility with older saved/test samples. */
+    depthSource?: NmeaDepthSource | null;
+    /** Datum/reference of the already-adjusted `depth` value. */
+    depthReference?: NmeaDepthReference | null;
+    /** Signed DPT offset in metres; null/absent for DBT or an omitted offset. */
+    depthOffsetM?: number | null;
     sog: number | null;
     cog: number | null;
     waterTemp: number | null;

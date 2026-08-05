@@ -27,7 +27,9 @@ const danger: TraceLegVerdict = {
     nudgeTo: null,
 };
 
-function props(overrides: Partial<React.ComponentProps<typeof TraceReportModal>> = {}) {
+function props(
+    overrides: Partial<React.ComponentProps<typeof TraceReportModal>> = {},
+): React.ComponentProps<typeof TraceReportModal> {
     return {
         open: true,
         onClose: vi.fn(),
@@ -37,6 +39,25 @@ function props(overrides: Partial<React.ComponentProps<typeof TraceReportModal>>
         tideLabels: { 0: 'Wait for the rising tide' },
         departureLabel: 'Leave at 09:10',
         ackedLegs: new Set<number>(),
+        releaseGate: {
+            allowed: true,
+            reason: '',
+            verification: {
+                version: 1,
+                graderVersion: 'route-tracer-v1',
+                geometryKey: 'trace-geometry-v1|2|-27.471000,153.024000|-27.570000,153.100000',
+                checkedAt: '2026-08-05T00:00:00.000Z',
+                result: 'danger-acknowledged',
+                legGrades: ['danger'],
+                acknowledgedDangerLegs: [0],
+                draftM: 1.8,
+                draftAssumed: false,
+                encRegistryVersion: 3,
+                encRegistryFingerprint: 'AU5@1@2026-01-01@100',
+                departureMs: Date.parse('2026-08-05T01:00:00.000Z'),
+                tideWindowLabel: 'Leave at 09:10',
+            },
+        },
         fixBusy: null,
         onFlyTo: vi.fn(),
         onFixLeg: vi.fn(),
@@ -80,6 +101,24 @@ describe('TraceReportModal', () => {
         fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
 
         expect(input.onClose).toHaveBeenCalledTimes(2);
+    });
+
+    it('locks both export formats and explains an incomplete route check', () => {
+        render(
+            <TraceReportModal
+                {...props({
+                    releaseGate: {
+                        allowed: false,
+                        reason: 'Wait for every leg check to finish.',
+                        verification: null,
+                    },
+                })}
+            />,
+        );
+
+        expect(screen.getByRole('button', { name: /GPX/ })).toBeDisabled();
+        expect(screen.getByRole('button', { name: /PDF/ })).toBeDisabled();
+        expect(screen.getByRole('status')).toHaveTextContent('Wait for every leg check to finish.');
     });
 
     it('keeps keyboard focus inside the modal and restores it on close', () => {

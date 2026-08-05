@@ -101,10 +101,15 @@ describe('Crew List private conversation service contract', () => {
         expect(upload).toContain(".from('crew-list-photos')");
         expect(upload).toContain('this.getCrewPhotoSignedUrlMapForScope(scope, [path])');
         expect(signedUrls).toContain(".from('crew-list-photos').createSignedUrls(uniquePaths, 60 * 60)");
-        expect(upload).toMatch(/crew_photo_path: persistPrimary \? path/i);
+        expect(upload).toMatch(/const primaryPath = persistPrimary \? path/i);
+        expect(upload).toMatch(/crew_photo_path: primaryPath/i);
         expect(upload).toMatch(/crew_photo_paths: photoPaths/i);
         expect(upload).not.toMatch(/getPublicUrl/i);
-        expect(remove).toContain(".from('crew-list-photos').remove([removedPath])");
-        expect(deleteProfile).toContain(".from('crew-list-photos').remove(photoPaths)");
+        expect(remove).toContain("retireOwnedMedia(scope, cleanupAuthorization, 'crew-list-photos', removedPath)");
+        expect(deleteProfile).toContain(
+            "retireMediaPaths(scope, cleanupAuthorization, 'crew-list-photos', photoPaths)",
+        );
+        expect(remove).not.toMatch(/storage\.from\('crew-list-photos'\)\.remove/);
+        expect(deleteProfile).not.toMatch(/storage\.from\('crew-list-photos'\)\.remove/);
     });
 });

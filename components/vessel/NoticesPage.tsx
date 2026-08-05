@@ -80,7 +80,7 @@ export const NoticesPage: React.FC<NoticesPageProps> = ({ onBack }) => {
     const [nearMe, setNearMe] = useState(true);
     const [vesselPos, setVesselPos] = useState<{ lat: number; lon: number } | null>(null);
     useEffect(() => {
-        GpsService.getCurrentPosition({ staleLimitMs: 5 * 60_000, timeoutSec: 8 })
+        GpsService.getCurrentPositionIfGranted({ staleLimitMs: 5 * 60_000, timeoutSec: 8 })
             .then((pos) => {
                 if (pos) setVesselPos({ lat: pos.latitude, lon: pos.longitude });
             })

@@ -24,8 +24,7 @@ export const ShoreWatchModal: React.FC<ShoreWatchModalProps> = React.memo(
 
         return createPortal(
             <div
-                className="fixed inset-0 z-[9999] bg-black/70 flex flex-col items-center"
-                style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 108px)' }}
+                className="anchor-shore-watch-backdrop fixed inset-0 z-[9999] bg-black/70 flex flex-col items-center justify-center p-3"
                 onClick={onClose}
                 role="presentation"
             >
@@ -34,7 +33,7 @@ export const ShoreWatchModal: React.FC<ShoreWatchModalProps> = React.memo(
                     role="dialog"
                     aria-modal="true"
                     aria-labelledby="shore-watch-title"
-                    className="w-[calc(100%-1.5rem)] max-w-md bg-slate-900/95 border border-white/[0.08] rounded-2xl shadow-2xl"
+                    className="anchor-shore-watch-dialog flex max-h-[calc(100dvh-1.5rem)] w-full max-w-md flex-col overflow-hidden rounded-2xl border border-white/[0.08] bg-slate-900/95 shadow-2xl"
                     onClick={(e) => e.stopPropagation()}
                 >
                     {/* Modal Header */}
@@ -45,7 +44,11 @@ export const ShoreWatchModal: React.FC<ShoreWatchModalProps> = React.memo(
                                 Shore Watch
                             </h2>
                         </div>
-                        <button onClick={onClose} className={t.modal.close} aria-label="Close shore watch modal">
+                        <button
+                            onClick={onClose}
+                            className={`${t.modal.close} min-h-11 min-w-11 flex items-center justify-center`}
+                            aria-label="Close shore watch modal"
+                        >
                             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path
                                     strokeLinecap="round"
@@ -58,7 +61,7 @@ export const ShoreWatchModal: React.FC<ShoreWatchModalProps> = React.memo(
                     </div>
 
                     {/* Modal Content */}
-                    <div className={t.modal.body}>
+                    <div className={`${t.modal.body} min-h-0 flex-1 overflow-y-auto overscroll-y-contain`}>
                         <p className="text-sm text-slate-400 leading-relaxed">
                             Monitor your vessel&apos;s anchor from shore. Enter the{' '}
                             <span className="text-white font-bold">12-character session code</span> displayed on the
@@ -118,7 +121,7 @@ export const ShoreWatchModal: React.FC<ShoreWatchModalProps> = React.memo(
                                         onClose();
                                     }}
                                     disabled={sessionCode.length !== 12}
-                                    className="shrink-0 px-5 py-2.5 bg-sky-600 hover:bg-sky-500 rounded-lg text-white text-sm font-bold transition-all disabled:opacity-30 active:scale-95"
+                                    className="min-h-11 shrink-0 px-5 bg-sky-600 hover:bg-sky-500 rounded-lg text-white text-sm font-bold transition-all disabled:opacity-30 active:scale-95"
                                 >
                                     Join
                                 </button>

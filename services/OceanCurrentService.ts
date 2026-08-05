@@ -1,17 +1,19 @@
 /**
- * OceanCurrentService — OSCAR surface current data for passage planning.
+ * OceanCurrentService — NOAA CoastWatch surface current data for passage planning.
  *
- * Queries NOAA ERDDAP for OSCAR near-real-time surface currents
- * within a route bounding box. Lightweight JSON response — no NetCDF.
+ * Queries NOAA ERDDAP surface-current datasets within a route bounding
+ * box. Lightweight JSON response — no NetCDF.
  *
  * Strategy:
- * - Default: OSCAR monthly climatology via ERDDAP (free, bbox query)
- * - "Enhance" button: OSCAR NRT (5-day-old data) for the route corridor
- * - Cached in localStorage per bbox+month
+ * - Query NOAA CoastWatch ERDDAP datasets in a bounded fallback chain
+ * - "Enhance" requests the near-real-time mode for the route corridor
+ * - Cache only provider-confirmed responses; outages never become zero current
  * - Auto-purge after 30 days
  */
 
 import { createLogger } from '../utils/createLogger';
+import { withDeadline } from '../utils/deadline';
+import { passageDataFingerprint } from './passageEnvironmentReadiness';
 
 const log = createLogger('OceanCurrent');
 
@@ -24,26 +26,118 @@ export interface CurrentVector {
     directionDeg: number; // direction current is flowing TO
 }
 
-export interface CurrentBriefing {
+export interface CurrentSegment {
+    type: 'favourable' | 'adverse' | 'cross';
+    avgSpeedKts: number;
+    label: string;
+}
+
+interface CurrentBriefingBase {
     vectors: CurrentVector[];
+    /** Requested briefing mode: standard or near-real-time enhancement. */
+    source: 'climatology' | 'nrt';
+    fetchedAt: string;
+    provider: 'NOAA CoastWatch ERDDAP';
+    providerDataset: string | null;
+    /** Timestamp carried by the provider's current field, when supplied. */
+    dataTime: string | null;
+    /** Whether this response came from the network or a still-valid cache. */
+    retrieval: 'live' | 'cached';
+    segments: CurrentSegment[];
+}
+
+export interface AvailableCurrentBriefing extends CurrentBriefingBase {
+    availability: 'available';
     avgSpeedKts: number;
     maxSpeedKts: number;
     /** Net effect on passage: positive = favourable, negative = adverse */
     netEffectHours: number;
-    /** Source: 'climatology' | 'nrt' */
-    source: 'climatology' | 'nrt';
-    fetchedAt: string;
-    /** Segments along route: favourable / adverse / cross */
-    segments: Array<{
-        type: 'favourable' | 'adverse' | 'cross';
-        avgSpeedKts: number;
-        label: string;
-    }>;
+    /** Provider-confirmed field state. Empty is not a substituted zero field. */
+    coverage: 'data' | 'calm' | 'empty';
+    dataFingerprint: string;
+}
+
+export interface UnavailableCurrentBriefing extends CurrentBriefingBase {
+    availability: 'unavailable';
+    avgSpeedKts: null;
+    maxSpeedKts: null;
+    netEffectHours: null;
+    coverage: 'unavailable';
+    dataFingerprint: null;
+    errorMessage: string;
+}
+
+export type CurrentBriefing = AvailableCurrentBriefing | UnavailableCurrentBriefing;
+
+interface CachedCurrentBriefing extends AvailableCurrentBriefing {
+    _cachedAt: number;
+}
+
+interface ErddapPayload {
+    table?: { rows?: unknown[][] };
+}
+
+function unavailableBriefing(source: 'climatology' | 'nrt', message: string): UnavailableCurrentBriefing {
+    return {
+        availability: 'unavailable',
+        vectors: [],
+        avgSpeedKts: null,
+        maxSpeedKts: null,
+        netEffectHours: null,
+        source,
+        fetchedAt: new Date().toISOString(),
+        provider: 'NOAA CoastWatch ERDDAP',
+        providerDataset: null,
+        dataTime: null,
+        retrieval: 'live',
+        coverage: 'unavailable',
+        dataFingerprint: null,
+        errorMessage: message,
+        segments: [],
+    };
+}
+
+function parseCachedBriefing(raw: string | null): CachedCurrentBriefing | null {
+    if (!raw) return null;
+    try {
+        const value = JSON.parse(raw) as Partial<CachedCurrentBriefing>;
+        if (
+            value.availability !== 'available' ||
+            !Array.isArray(value.vectors) ||
+            !Array.isArray(value.segments) ||
+            typeof value.dataFingerprint !== 'string' ||
+            typeof value._cachedAt !== 'number' ||
+            !Number.isFinite(value._cachedAt)
+        ) {
+            return null;
+        }
+        return value as CachedCurrentBriefing;
+    } catch {
+        return null;
+    }
+}
+
+function currentCacheKey(
+    bbox: { north: number; south: number; east: number; west: number },
+    source: string,
+    courseBearing: number,
+    distanceNm: number,
+    speedKts: number,
+): string {
+    return `${CACHE_KEY_PREFIX}${passageDataFingerprint('current-query', {
+        bbox,
+        source,
+        courseBearing,
+        distanceNm,
+        speedKts,
+    })}`;
 }
 
 const CACHE_KEY_PREFIX = 'thalassa_ocean_currents_';
 const CACHE_TTL = 24 * 60 * 60 * 1000; // 24h for NRT, 7 days for climatology
 const PURGE_TTL = 30 * 24 * 60 * 60 * 1000; // 30 days auto-purge
+const CURRENT_FETCH_BUDGET_MS = 20_000;
+const CURRENT_HOP_TIMEOUT_MS = 8_000;
 
 /** Convert m/s to knots */
 function msToKts(ms: number): number {
@@ -60,10 +154,6 @@ function relativeAngle(currentDir: number, courseBearing: number): number {
     let diff = currentDir - courseBearing;
     diff = ((diff + 180) % 360) - 180;
     return Math.abs(diff);
-}
-
-function cacheKey(bbox: { north: number; south: number; east: number; west: number }, source: string): string {
-    return `${CACHE_KEY_PREFIX}${source}_${bbox.south.toFixed(0)}_${bbox.north.toFixed(0)}_${bbox.west.toFixed(0)}_${bbox.east.toFixed(0)}`;
 }
 
 export const OceanCurrentService = {
@@ -84,31 +174,27 @@ export const OceanCurrentService = {
         enhance = false,
     ): Promise<CurrentBriefing> {
         const source = enhance ? 'nrt' : 'climatology';
-        const key = cacheKey(bbox, source);
+        const key = currentCacheKey(bbox, source, courseBearing, distanceNM, speedKts);
+        const ttl = source === 'nrt' ? CACHE_TTL : 7 * CACHE_TTL;
 
         // Check cache
         try {
-            const cached = localStorage.getItem(key);
-            if (cached) {
-                const data = JSON.parse(cached) as CurrentBriefing & { _cachedAt: number };
-                const ttl = source === 'nrt' ? CACHE_TTL : 7 * CACHE_TTL;
-                if (Date.now() - data._cachedAt < ttl) {
-                    log.info(`Using cached ${source} current data`);
-                    return data;
-                }
+            const data = parseCachedBriefing(localStorage.getItem(key));
+            if (data && Date.now() - data._cachedAt < ttl) {
+                log.info(`Using cached ${source} current data`);
+                return { ...data, retrieval: 'cached' };
             }
         } catch {
             /* ignore */
         }
 
         try {
-            // OSCAR via NOAA CoastWatch ERDDAP. The original
+            // Surface currents via NOAA CoastWatch ERDDAP. The original
             // jplOscar_LonPM180 dataset was retired during NASA's
             // PODAAC migration (~2024-2025). Try the current dataset
-            // ID first, then fall back through a list of known
-            // alternates. If all 404, return an empty briefing rather
-            // than throwing — the OceanCurrents readiness card shows
-            // a "no data available" state instead of an error toast.
+            // ID first, then fall back through known alternates. A failed
+            // chain is explicitly unavailable; it must never be converted to
+            // an apparent zero-current field.
             const paddedBbox = {
                 south: Math.max(-80, bbox.south - 1),
                 north: Math.min(80, bbox.north + 1),
@@ -130,41 +216,50 @@ export const OceanCurrentService = {
                 `Fetching ${source} currents: ${paddedBbox.south}–${paddedBbox.north}°N, ${paddedBbox.west}–${paddedBbox.east}°E`,
             );
 
-            let data: { table?: { rows?: unknown[][] } } | null = null;
+            let data: ErddapPayload | null = null;
+            let providerDataset: string | null = null;
+            const providerFailures: string[] = [];
+            const fetchDeadlineAt = Date.now() + CURRENT_FETCH_BUDGET_MS;
             for (const ds of datasets) {
+                const remainingMs = fetchDeadlineAt - Date.now();
+                if (remainingMs <= 0) break;
                 const url = `https://coastwatch.pfeg.noaa.gov/erddap/griddap/${ds}.json${query}`;
                 try {
-                    const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
+                    // AbortSignal is ignored by Capacitor's native fetch
+                    // bridge, so the JS deadline is the real on-device bound.
+                    const hopTimeoutMs = Math.min(CURRENT_HOP_TIMEOUT_MS, remainingMs);
+                    const res = await withDeadline(
+                        fetch(url, { signal: AbortSignal.timeout(hopTimeoutMs) }),
+                        hopTimeoutMs,
+                        `ocean-current dataset ${ds}`,
+                    );
                     if (res.ok) {
-                        data = await res.json();
-                        log.info(`OSCAR currents fetched from dataset "${ds}"`);
-                        break;
+                        const candidate = (await withDeadline(
+                            res.json(),
+                            Math.max(1, fetchDeadlineAt - Date.now()),
+                            `ocean-current response ${ds}`,
+                        )) as ErddapPayload;
+                        if (candidate.table && Array.isArray(candidate.table.rows)) {
+                            data = candidate;
+                            providerDataset = ds;
+                            log.info(`Ocean currents fetched from dataset "${ds}"`);
+                            break;
+                        }
+                        providerFailures.push(`${ds}: malformed response`);
+                    } else {
+                        providerFailures.push(`${ds}: HTTP ${res.status}`);
                     }
-                } catch {
-                    /* try next dataset */
+                } catch (error) {
+                    providerFailures.push(`${ds}: ${error instanceof Error ? error.message : 'request failed'}`);
                 }
             }
             if (!data) {
-                // None of the datasets worked. Cache an empty briefing
-                // for a short TTL so we don't hammer ERDDAP with 404s
-                // every time the user re-opens the card.
-                log.warn('No ocean currents available — all ERDDAP datasets returned 404');
-                const empty: CurrentBriefing & { _cachedAt: number } = {
-                    vectors: [],
-                    avgSpeedKts: 0,
-                    maxSpeedKts: 0,
-                    netEffectHours: 0,
+                const detail = providerFailures.length ? ` (${providerFailures.join('; ')})` : '';
+                log.warn(`Ocean-current provider unavailable${detail}`);
+                return unavailableBriefing(
                     source,
-                    fetchedAt: new Date().toISOString(),
-                    segments: [],
-                    _cachedAt: Date.now(),
-                };
-                try {
-                    localStorage.setItem(key, JSON.stringify(empty));
-                } catch {
-                    /* ignore */
-                }
-                return empty;
+                    'NOAA CoastWatch could not provide a current field for this route. Retry when connected.',
+                );
             }
 
             // ERDDAP rows come back typed as `unknown[]` because the
@@ -177,7 +272,7 @@ export const OceanCurrentService = {
 
             for (const row of rows) {
                 const [, lat, lon, u, v] = row;
-                if (u != null && v != null && !isNaN(u) && !isNaN(v)) {
+                if ([lat, lon, u, v].every((value) => typeof value === 'number' && Number.isFinite(value))) {
                     const speed = Math.sqrt(u * u + v * v);
                     vectors.push({
                         lat,
@@ -190,8 +285,16 @@ export const OceanCurrentService = {
                 }
             }
 
+            if (rows.length > 0 && vectors.length === 0) {
+                log.warn(`Ocean-current dataset "${providerDataset}" returned rows without valid vectors`);
+                return unavailableBriefing(
+                    source,
+                    'NOAA CoastWatch returned an unreadable current field. No zero-current assumption was made.',
+                );
+            }
+
             // Analyse segments relative to course bearing
-            const segments: CurrentBriefing['segments'] = [];
+            const segments: CurrentSegment[] = [];
             if (vectors.length > 0) {
                 // Sort by latitude (rough N-S ordering along route)
                 vectors.sort((a, b) => b.lat - a.lat);
@@ -227,17 +330,37 @@ export const OceanCurrentService = {
             // Simplified net effect: favourable segments reduce time, adverse increase
             const favourableCount = segments.filter((s) => s.type === 'favourable').length;
             const adverseCount = segments.filter((s) => s.type === 'adverse').length;
-            const passageHours = distanceNM / speedKts;
+            const safeSpeedKts = Number.isFinite(speedKts) && speedKts > 0 ? speedKts : 6;
+            const safeDistanceNm = Number.isFinite(distanceNM) && distanceNM >= 0 ? distanceNM : 0;
+            const passageHours = safeDistanceNm / safeSpeedKts;
             const netFactor = (favourableCount - adverseCount) / Math.max(1, segments.length);
-            const netEffectHours = -Math.round(((passageHours * avgCurrentSpeed * netFactor) / speedKts) * 10) / 10;
+            const netEffectHours = -Math.round(((passageHours * avgCurrentSpeed * netFactor) / safeSpeedKts) * 10) / 10;
 
-            const briefing: CurrentBriefing = {
+            const dataTime =
+                rows
+                    .map((row) => row[0])
+                    .find((value): value is string => typeof value === 'string' && value.length > 0) ?? null;
+            const dataFingerprint = passageDataFingerprint('ocean-current-field', {
+                providerDataset,
+                dataTime,
+                vectors,
+            });
+            const coverage: AvailableCurrentBriefing['coverage'] =
+                vectors.length === 0 ? 'empty' : vectors.every((vector) => vector.speedKts <= 0.01) ? 'calm' : 'data';
+            const briefing: AvailableCurrentBriefing = {
+                availability: 'available',
                 vectors,
                 avgSpeedKts: Math.round(avgCurrentSpeed * 10) / 10,
                 maxSpeedKts: Math.round(maxCurrentSpeed * 10) / 10,
                 netEffectHours,
                 source,
                 fetchedAt: new Date().toISOString(),
+                provider: 'NOAA CoastWatch ERDDAP',
+                providerDataset,
+                dataTime,
+                retrieval: 'live',
+                coverage,
+                dataFingerprint,
                 segments,
             };
 
@@ -250,26 +373,11 @@ export const OceanCurrentService = {
 
             return briefing;
         } catch (err) {
-            log.error('OSCAR current fetch failed:', err);
-
-            // Return cached if available
-            try {
-                const cached = localStorage.getItem(key);
-                if (cached) return JSON.parse(cached);
-            } catch {
-                /* ignore */
-            }
-
-            // Return empty briefing
-            return {
-                vectors: [],
-                avgSpeedKts: 0,
-                maxSpeedKts: 0,
-                netEffectHours: 0,
+            log.error('Ocean-current fetch failed:', err);
+            return unavailableBriefing(
                 source,
-                fetchedAt: new Date().toISOString(),
-                segments: [],
-            };
+                'Ocean-current data is unavailable. No zero-current assumption was made; retry when connected.',
+            );
         }
     },
 

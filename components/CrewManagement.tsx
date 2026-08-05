@@ -1933,7 +1933,8 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                         </div>
                         <h2 className="text-lg font-bold text-white mb-2">Sign In Required</h2>
                         <p className="text-sm text-gray-400 max-w-xs mb-6">
-                            Sign in to share your vessel registers with crew members.
+                            Sign in to save routes, prepare the passage with your crew, and privately share its float
+                            plan.
                         </p>
                         <button
                             onClick={() => setShowAuth(true)}

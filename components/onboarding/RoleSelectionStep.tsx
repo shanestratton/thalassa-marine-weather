@@ -1,33 +1,23 @@
 /**
- * RoleSelectionStep — Onboarding Step 4: Combined tier + role selector.
- * Maps to SubscriptionTier: Skipper (owner), First Mate (crew), Deckhand (free).
+ * RoleSelectionStep — Onboarding Step 3: setup-role selector.
+ *
+ * A role personalises the wizard; it is deliberately independent from paid
+ * entitlement. Choosing "Skipper" must never grant a subscription.
  */
 import React from 'react';
 import { CheckIcon } from '../Icons';
-import type { SubscriptionTier } from '../../types/settings';
-import { TIER_INFO } from '../../services/SubscriptionService';
 
-/** Format a tier's annual price for the onboarding chips. Reads from
- *  TIER_INFO so changes to pricing in SubscriptionService propagate
- *  here automatically — no need to update copy in two places. */
-function tierPriceLabel(tier: SubscriptionTier): string {
-    const annual = TIER_INFO[tier].priceAnnual;
-    if (annual <= 0) return 'Free';
-    // Show whole dollars when there are no cents (e.g. $149/yr) to keep
-    // the price chip tight; show 2dp when there are cents (e.g. $49.95/yr).
-    const formatted = annual % 1 === 0 ? `$${annual}` : `$${annual.toFixed(2)}`;
-    return `${formatted}/yr`;
-}
+export type OnboardingRole = 'skipper' | 'crew' | 'deckhand';
 
 interface RoleSelectionStepProps {
-    selectedTier: SubscriptionTier;
-    onTierChange: (tier: SubscriptionTier) => void;
+    selectedRole: OnboardingRole;
+    onRoleChange: (role: OnboardingRole) => void;
     onVesselTypeChange: (type: 'sail' | 'power' | 'observer') => void;
     onNext: () => void;
 }
 
 const ROLE_OPTIONS: {
-    tier: SubscriptionTier;
+    role: OnboardingRole;
     vesselType: 'sail' | 'power' | 'observer';
     emoji: string;
     label: string;
@@ -36,54 +26,54 @@ const ROLE_OPTIONS: {
     color: string;
     borderColor: string;
     bgColor: string;
-    price: string;
+    setupLabel: string;
 }[] = [
     {
-        tier: 'owner',
+        role: 'skipper',
         vesselType: 'sail', // Will be refined in VesselDetailsStep (sail/power toggle)
         emoji: '⚓',
         label: 'Skipper',
         tagline: 'I own or skipper a vessel',
-        features: ['Route & passage planning', 'Vessel profile & boat-speed tuning', "Galley & ship's stores"],
+        features: ['Configure your vessel', 'Set crew and safety details', 'Choose offshore preferences'],
         color: 'text-amber-400',
         borderColor: 'border-amber-500',
         bgColor: 'bg-amber-500/15',
-        price: tierPriceLabel('owner'),
+        setupLabel: 'Vessel setup',
     },
     {
-        tier: 'crew',
+        role: 'crew',
         vesselType: 'observer',
         emoji: '🧭',
         label: 'First Mate',
         tagline: "I crew regularly on someone else's boat",
-        features: ['GPS tracking & DMs', 'Full weather & tide charts', 'AI weather advice'],
+        features: ['Set your crew identity', 'Prepare to join shared passages', 'Choose weather preferences'],
         color: 'text-cyan-400',
         borderColor: 'border-cyan-500',
         bgColor: 'bg-cyan-500/15',
-        price: tierPriceLabel('crew'),
+        setupLabel: 'Crew setup',
     },
     {
-        tier: 'free',
+        role: 'deckhand',
         vesselType: 'observer',
         emoji: '👀',
         label: 'Deckhand',
         tagline: 'Just here for weather and community',
-        features: ['3-day marine forecast', 'Crew Talk & community', 'Shop the Chandlery'],
+        features: ['Set weather preferences', 'Explore maps and forecasts', 'Add a vessel later'],
         color: 'text-gray-400',
         borderColor: 'border-gray-500',
         bgColor: 'bg-white/5',
-        price: 'Free',
+        setupLabel: 'Quick setup',
     },
 ];
 
 export const RoleSelectionStep: React.FC<RoleSelectionStepProps> = ({
-    selectedTier,
-    onTierChange,
+    selectedRole,
+    onRoleChange,
     onVesselTypeChange,
     onNext,
 }) => {
     const handleSelect = (option: (typeof ROLE_OPTIONS)[number]) => {
-        onTierChange(option.tier);
+        onRoleChange(option.role);
         onVesselTypeChange(option.vesselType);
     };
 
@@ -91,15 +81,17 @@ export const RoleSelectionStep: React.FC<RoleSelectionStepProps> = ({
         <div className="animate-in fade-in slide-in-from-right-8 duration-500">
             <h2 className="text-2xl font-bold text-white mb-2 text-center">What brings you to the water?</h2>
             <p className="text-sm text-gray-400 text-center mb-6">
-                Choose your role — you can change this anytime in Nav Station → Settings.
+                This personalises setup only. It does not activate or change a paid plan.
             </p>
             <div className="grid grid-cols-1 gap-3 mb-8">
                 {ROLE_OPTIONS.map((opt) => {
-                    const isSelected = selectedTier === opt.tier;
+                    const isSelected = selectedRole === opt.role;
                     return (
                         <button
-                            key={opt.tier}
+                            type="button"
+                            key={opt.role}
                             aria-label={`Select ${opt.label} role`}
+                            aria-pressed={isSelected}
                             onClick={() => handleSelect(opt)}
                             className={`relative p-5 rounded-2xl border-2 transition-all text-left group ${
                                 isSelected
@@ -127,7 +119,7 @@ export const RoleSelectionStep: React.FC<RoleSelectionStepProps> = ({
                                             <span
                                                 className={`text-xs font-bold ${isSelected ? opt.color : 'text-gray-500'}`}
                                             >
-                                                {opt.price}
+                                                {opt.setupLabel}
                                             </span>
                                             {isSelected && <CheckIcon className={`w-5 h-5 ${opt.color}`} />}
                                         </div>
@@ -150,7 +142,8 @@ export const RoleSelectionStep: React.FC<RoleSelectionStepProps> = ({
                 })}
             </div>
             <button
-                aria-label="Proceed to next step"
+                type="button"
+                aria-label="Continue after choosing your role"
                 onClick={onNext}
                 className="w-full bg-sky-500 hover:bg-sky-400 text-white font-bold py-4 rounded-xl transition-all active:scale-[0.98]"
             >

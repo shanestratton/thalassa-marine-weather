@@ -111,7 +111,7 @@ export const useSmartRefresh = ({
             if (Date.now() >= nextUpdate) {
                 // RE-GEOLOCATE CHECK
                 if (isTrackingCurrentLocation.current) {
-                    GpsService.getCurrentPosition({ staleLimitMs: 30_000, timeoutSec: 10 }).then((pos) => {
+                    GpsService.getCurrentPositionIfGranted({ staleLimitMs: 30_000, timeoutSec: 10 }).then((pos) => {
                         if (pos) {
                             fetchWeather('Current Location', true, { lat: pos.latitude, lon: pos.longitude });
                         } else {

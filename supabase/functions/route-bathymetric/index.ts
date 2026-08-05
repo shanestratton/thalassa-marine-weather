@@ -287,7 +287,9 @@ async function loadGraph(region: string): Promise<CachedGraph> {
     }
 
     console.info(
-        `[graph] Loaded "${region}": ${graph.meta.nodes} nodes, hasDepth=${hasDepth} (${(performance.now() - t0).toFixed(0)}ms)`,
+        `[graph] Loaded "${region}": ${graph.meta.nodes} nodes, hasDepth=${hasDepth} (${
+            (performance.now() - t0).toFixed(0)
+        }ms)`,
     );
 
     const entry: CachedGraph = { graph, adjacency, markerClass, obstacles, hasDepth, loadedAt: Date.now() };
@@ -650,13 +652,14 @@ function findPortEgress(
             let bestTotal = Infinity,
                 channelDist = 0;
             for (let i = snapIdx; i < port.egress.length; i++) {
-                if (i > snapIdx)
+                if (i > snapIdx) {
                     channelDist += haversineNM(
                         port.egress[i - 1].lat,
                         port.egress[i - 1].lon,
                         port.egress[i].lat,
                         port.egress[i].lon,
                     );
+                }
                 if (i >= minExit) {
                     const d = haversineNM(port.egress[i].lat, port.egress[i].lon, destination.lat, destination.lon);
                     if (channelDist + d < bestTotal) {
@@ -729,10 +732,9 @@ Deno.serve(async (req: Request) => {
     try {
         const body = await readJsonObject(req, 8192);
         if (!body) return jsonResponse({ error: 'Invalid JSON request body' }, 400);
-        const originRecord =
-            body.origin && typeof body.origin === 'object' && !Array.isArray(body.origin)
-                ? (body.origin as Record<string, unknown>)
-                : null;
+        const originRecord = body.origin && typeof body.origin === 'object' && !Array.isArray(body.origin)
+            ? (body.origin as Record<string, unknown>)
+            : null;
         const destinationRecord =
             body.destination && typeof body.destination === 'object' && !Array.isArray(body.destination)
                 ? (body.destination as Record<string, unknown>)
@@ -764,7 +766,9 @@ Deno.serve(async (req: Request) => {
         }
 
         console.info(
-            `[route] ${origin.lat.toFixed(2)},${origin.lon.toFixed(2)} -> ${destination.lat.toFixed(2)},${destination.lon.toFixed(2)} | draft=${draftM}m`,
+            `[route] ${origin.lat.toFixed(2)},${origin.lon.toFixed(2)} -> ${destination.lat.toFixed(2)},${
+                destination.lon.toFixed(2)
+            } | draft=${draftM}m`,
         );
 
         const { graph, adjacency, hasDepth, markerClass, obstacles } = await loadGraph(region);
@@ -778,14 +782,18 @@ Deno.serve(async (req: Request) => {
         if (snapStart.dist > MAX_SNAP_NM || snapEnd.dist > MAX_SNAP_NM) {
             return jsonResponse(
                 {
-                    error: `Points too far from navigable waterways (origin: ${snapStart.dist.toFixed(1)}NM, dest: ${snapEnd.dist.toFixed(1)}NM)`,
+                    error: `Points too far from navigable waterways (origin: ${snapStart.dist.toFixed(1)}NM, dest: ${
+                        snapEnd.dist.toFixed(1)
+                    }NM)`,
                 },
                 422,
             );
         }
 
         console.info(
-            `[route] Snapped: origin→node[${snapStart.idx}] (${snapStart.dist.toFixed(2)}NM), dest→node[${snapEnd.idx}] (${snapEnd.dist.toFixed(2)}NM)`,
+            `[route] Snapped: origin→node[${snapStart.idx}] (${
+                snapStart.dist.toFixed(2)
+            }NM), dest→node[${snapEnd.idx}] (${snapEnd.dist.toFixed(2)}NM)`,
         );
 
         if (via) {
@@ -873,14 +881,13 @@ Deno.serve(async (req: Request) => {
         // ── Name waypoints ──
         const waypoints = allWP.map((wp, i) => ({
             ...wp,
-            name:
-                i === 0
-                    ? 'Departure'
-                    : i === allWP.length - 1
-                      ? 'Arrival'
-                      : wp.name !== 'WP'
-                        ? wp.name
-                        : `WP-${String(i).padStart(2, '0')}`,
+            name: i === 0
+                ? 'Departure'
+                : i === allWP.length - 1
+                ? 'Arrival'
+                : wp.name !== 'WP'
+                ? wp.name
+                : `WP-${String(i).padStart(2, '0')}`,
         }));
 
         // ── Total distance ──
@@ -921,7 +928,9 @@ Deno.serve(async (req: Request) => {
         };
 
         console.info(
-            `[route] ✓ ${waypoints.length} WPs, ${totalNM.toFixed(1)} NM, ${elapsed.toFixed(0)}ms | safety: ${JSON.stringify(safetyBreakdown)}`,
+            `[route] ✓ ${waypoints.length} WPs, ${totalNM.toFixed(1)} NM, ${elapsed.toFixed(0)}ms | safety: ${
+                JSON.stringify(safetyBreakdown)
+            }`,
         );
 
         return jsonResponse({

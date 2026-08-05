@@ -2,3 +2,7 @@ source 'https://rubygems.org'
 
 gem 'cocoapods', '1.16.2'
 gem 'activesupport', '< 7.2.0'
+# Ruby 4 no longer bundles kconv. CFPropertyList (used by xcodeproj and
+# CocoaPods) still requires it, and the nkf gem provides that compatibility
+# entry point on a clean release machine.
+gem 'nkf'

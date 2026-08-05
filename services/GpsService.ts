@@ -1,9 +1,10 @@
 /**
  * GpsService — Unified GPS access for the entire app
  *
- * On native (iOS/Android): Routes through BgGeoManager's Transistorsoft plugin
- * which coalesces GPS requests through a single CLLocationManager, uses cached
- * positions, and is dramatically more battery-efficient than raw navigator.geolocation.
+ * On native (iOS/Android): explicit background-safety owners route through
+ * BgGeoManager's Transistorsoft plugin. Passive UI subscribers and ordinary
+ * foreground location actions use Capacitor Geolocation so opening a screen
+ * cannot initialize motion/background machinery or raise permission UI.
  *
  * On web: Falls back to navigator.geolocation for development/PWA.
  *
@@ -21,7 +22,9 @@
 
 import { createLogger } from '../utils/createLogger';
 import { Capacitor } from '@capacitor/core';
+import { Geolocation } from '@capacitor/geolocation';
 const log = createLogger('GPS');
+const MAX_STALE_LIMIT_MS = 0xffff_ffff; // Web IDL unsigned-long maximum.
 
 // ---------- TYPES ----------
 
@@ -40,12 +43,20 @@ export type GpsCallback = (pos: GpsPosition) => void;
 // ---------- OPTIONS ----------
 
 export interface GetPositionOptions {
-    /** Max age of cached position in ms (native only). Default: 30s */
+    /** Max age of cached position in ms. Default: 30s */
     staleLimitMs?: number;
     /** Timeout in seconds. Default: 15 */
     timeoutSec?: number;
     /** Enable high accuracy (web only — native always high). Default: true */
     enableHighAccuracy?: boolean;
+}
+
+/** Android coarse-only grants must never be upgraded by a passive fix. */
+export function canUseForegroundHighAccuracy(
+    permission: { location: string; coarseLocation: string },
+    requested: boolean,
+): boolean {
+    return requested && permission.location === 'granted';
 }
 
 // ---------- SERVICE ----------
@@ -62,33 +73,168 @@ class GpsServiceClass {
     async getCurrentPosition(options: GetPositionOptions = {}): Promise<GpsPosition | null> {
         const { staleLimitMs = 30_000, timeoutSec = 15, enableHighAccuracy = true } = options;
 
-        if (this.isNative) {
-            return this._nativeGetPosition(staleLimitMs, timeoutSec);
+        // Fail closed on a malformed freshness request. Passing a negative,
+        // infinite, or NaN maximum age through to either platform can silently
+        // become an effectively unbounded cache allowance.
+        if (!Number.isFinite(staleLimitMs) || staleLimitMs < 0 || staleLimitMs > MAX_STALE_LIMIT_MS) {
+            log.warn('[GpsService] invalid staleLimitMs; position request rejected');
+            return null;
         }
-        return this._webGetPosition(timeoutSec * 1000, enableHighAccuracy);
+        const validatedStaleLimitMs = Math.floor(staleLimitMs);
+
+        if (this.isNative) {
+            return this._nativeGetPosition(validatedStaleLimitMs, timeoutSec);
+        }
+        return this._webGetPosition(timeoutSec * 1000, enableHighAccuracy, validatedStaleLimitMs);
+    }
+
+    /**
+     * Read a foreground position only when Location permission was already
+     * granted before this call.
+     *
+     * Passive weather startup/follow/refresh uses this path. On native it
+     * deliberately bypasses BgGeoManager: even though the safety engine is
+     * configured not to request Motion & Fitness, a passive read must not
+     * initialize background-capable machinery merely because a persisted
+     * "Current Location" setting was restored. On the web, an unavailable
+     * Permissions API fails closed instead of risking a browser prompt.
+     */
+    async getCurrentPositionIfGranted(options: GetPositionOptions = {}): Promise<GpsPosition | null> {
+        const { staleLimitMs = 30_000, timeoutSec = 15, enableHighAccuracy = true } = options;
+        if (!Number.isFinite(staleLimitMs) || staleLimitMs < 0 || staleLimitMs > MAX_STALE_LIMIT_MS) {
+            log.warn('[GpsService] invalid passive staleLimitMs; position request rejected');
+            return null;
+        }
+        const validatedStaleLimitMs = Math.floor(staleLimitMs);
+
+        if (!this.isNative) {
+            if (typeof window !== 'undefined' && window.isSecureContext === false) return null;
+            if (!navigator.permissions?.query) return null;
+            try {
+                const permission = await navigator.permissions.query({ name: 'geolocation' });
+                if (permission.state !== 'granted') return null;
+            } catch {
+                return null;
+            }
+            return this._webGetPosition(timeoutSec * 1000, enableHighAccuracy, validatedStaleLimitMs);
+        }
+
+        try {
+            const permission = await Geolocation.checkPermissions();
+            if (permission.location !== 'granted' && permission.coarseLocation !== 'granted') return null;
+            return await this._nativeForegroundPosition(
+                permission,
+                validatedStaleLimitMs,
+                timeoutSec,
+                enableHighAccuracy,
+            );
+        } catch (error) {
+            log.info('[GpsService] passive native location unavailable:', error);
+            return null;
+        }
+    }
+
+    /**
+     * Explicit foreground-only location request for weather/location-picker
+     * actions. It requests coarse Location when needed and never initializes
+     * the background engine, so a simple Current Location tap remains an
+     * ordinary foreground permission action. Browsers prompt through their
+     * normal foreground geolocation API because this method is direct intent.
+     */
+    async requestCurrentForegroundPosition(options: GetPositionOptions = {}): Promise<GpsPosition | null> {
+        const { staleLimitMs = 30_000, timeoutSec = 15, enableHighAccuracy = false } = options;
+        if (!Number.isFinite(staleLimitMs) || staleLimitMs < 0 || staleLimitMs > MAX_STALE_LIMIT_MS) {
+            log.warn('[GpsService] invalid foreground staleLimitMs; position request rejected');
+            return null;
+        }
+        const validatedStaleLimitMs = Math.floor(staleLimitMs);
+        if (!this.isNative) {
+            return this._webGetPosition(timeoutSec * 1000, enableHighAccuracy, validatedStaleLimitMs);
+        }
+
+        try {
+            let permission = await Geolocation.checkPermissions();
+            if (permission.location !== 'granted' && permission.coarseLocation !== 'granted') {
+                permission = await Geolocation.requestPermissions({ permissions: ['coarseLocation'] });
+            }
+            if (permission.location !== 'granted' && permission.coarseLocation !== 'granted') return null;
+            return await this._nativeForegroundPosition(
+                permission,
+                validatedStaleLimitMs,
+                timeoutSec,
+                enableHighAccuracy,
+            );
+        } catch (error) {
+            log.info('[GpsService] foreground location unavailable:', error);
+            return null;
+        }
+    }
+
+    private async _nativeForegroundPosition(
+        permission: { location: string; coarseLocation: string },
+        staleLimitMs: number,
+        timeoutSec: number,
+        enableHighAccuracy: boolean,
+    ): Promise<GpsPosition | null> {
+        const requestedAt = Date.now();
+        const fix = await Geolocation.getCurrentPosition({
+            // Android maps a high-accuracy request to the fine-location alias
+            // and auto-requests it when missing. Approximate-only permission
+            // must therefore stay approximate on passive and foreground
+            // weather paths instead of surfacing a surprise precision prompt.
+            enableHighAccuracy: canUseForegroundHighAccuracy(permission, enableHighAccuracy),
+            timeout: timeoutSec * 1000,
+            maximumAge: staleLimitMs,
+        });
+        const receivedAt = Date.now();
+        const timestamp = fix.timestamp;
+        const timestampIsInvalid = !Number.isFinite(timestamp) || timestamp <= 0 || timestamp > receivedAt + 1_000;
+        if (timestampIsInvalid || requestedAt - timestamp > staleLimitMs) {
+            log.warn('[GpsService] foreground native geolocation returned an out-of-bound timestamp');
+            return null;
+        }
+
+        const { latitude, longitude, accuracy, altitude, heading, speed } = fix.coords;
+        if (
+            !Number.isFinite(latitude) ||
+            !Number.isFinite(longitude) ||
+            latitude < -90 ||
+            latitude > 90 ||
+            longitude < -180 ||
+            longitude > 180
+        ) {
+            log.warn('[GpsService] foreground native geolocation returned invalid coordinates');
+            return null;
+        }
+        return {
+            latitude,
+            longitude,
+            accuracy,
+            altitude,
+            heading,
+            speed: speed ?? 0,
+            timestamp,
+        };
     }
 
     /**
      * Watch position continuously.
-     * Native: Subscribes to BgGeoManager's onLocation stream (single CLLocationManager).
-     * Web: Uses navigator.geolocation.watchPosition.
+     * Native: defaults to an already-granted Capacitor foreground watch.
+     * Web: defaults to an already-granted browser foreground watch.
      * Returns an unsubscribe function.
      *
      * @param opts.ensureRunning  Native only. When true, the watcher
      *   ref-count-STARTS the GPS engine for the lifetime of the watch
-     *   (and releases on unsubscribe). Use it for a screen that must show
-     *   a LIVE position even when nothing else is tracking — e.g. The
-     *   Glass location label. Without it the plugin is merely configured,
-     *   so `onLocation` only fires if some OTHER consumer (anchor watch /
-     *   ship log / MOB) already started the engine, and the stream is
-     *   silent otherwise. Defaults to false to keep passive watchers
-     *   (status indicators) from spinning GPS up app-wide.
+     *   (and releases on unsubscribe). Reserve it for an explicit safety
+     *   feature such as MOB that genuinely owns background-capable tracking.
+     *   Defaults to foreground, already-granted-only operation so passive
+     *   status/map subscribers cannot raise Location or Motion permission UI.
      */
     watchPosition(callback: GpsCallback, opts: { ensureRunning?: boolean } = {}): () => void {
         if (this.isNative) {
             return this._nativeWatch(callback, opts.ensureRunning === true);
         }
-        return this._webWatch(callback);
+        return opts.ensureRunning === true ? this._webWatch(callback) : this._webWatchIfGranted(callback);
     }
 
     // ---------- NATIVE (Transistorsoft) ----------
@@ -114,6 +260,8 @@ class GpsServiceClass {
     }
 
     private _nativeWatch(callback: GpsCallback, ensureRunning: boolean): () => void {
+        if (!ensureRunning) return this._nativeForegroundWatchIfGranted(callback);
+
         // We need to lazy-import to avoid loading Transistorsoft on web
         let unsubscribe: (() => void) | null = null;
         let releaseEngine: (() => void) | null = null;
@@ -124,7 +272,9 @@ class GpsServiceClass {
                 const { BgGeoManager } = await import('./BgGeoManager');
                 if (cancelled) return;
 
-                // Ensure the engine is ready (idempotent — configures only).
+                // Only an explicit background-capable owner reaches this
+                // branch. Passive subscribers use Capacitor Geolocation above
+                // and never initialize the Transistorsoft engine.
                 await BgGeoManager.ensureReady();
                 if (cancelled) return;
 
@@ -136,11 +286,41 @@ class GpsServiceClass {
                 // the cancelled-check + assignment run synchronously, so an
                 // unsubscribe that landed during the await still releases.
                 if (ensureRunning) {
-                    await BgGeoManager.requestStart();
-                    releaseEngine = () => void BgGeoManager.requestStop();
+                    const leaseState = await BgGeoManager.requestStart();
+                    let releaseComplete = false;
+                    let releaseInFlight = false;
+                    let releaseAttempts = 0;
+                    const releaseLease = () => {
+                        if (releaseComplete || releaseInFlight) return;
+                        releaseInFlight = true;
+                        void BgGeoManager.requestStop()
+                            .then(() => {
+                                releaseComplete = true;
+                                releaseInFlight = false;
+                                releaseEngine = null;
+                            })
+                            .catch((error) => {
+                                // A final-stop failure retains this lease by
+                                // design. Keep the release closure live and
+                                // retry with a bounded backoff rather than
+                                // orphaning an enabled engine.
+                                releaseInFlight = false;
+                                releaseAttempts += 1;
+                                const retryMs = Math.min(30_000, 1_000 * 2 ** Math.min(releaseAttempts - 1, 5));
+                                log.error(
+                                    `[GpsService] native watch GPS release failed; retrying in ${retryMs}ms:`,
+                                    error,
+                                );
+                                setTimeout(releaseLease, retryMs);
+                            });
+                    };
+                    if (leaseState.activeLeaseCount > 0) releaseEngine = releaseLease;
+                    if (!leaseState.active || !leaseState.nativeTrackingEnabled) {
+                        releaseEngine?.();
+                        throw new Error('The background GPS safety watch could not verify continuous tracking.');
+                    }
                     if (cancelled) {
-                        releaseEngine();
-                        releaseEngine = null;
+                        releaseEngine?.();
                         return;
                     }
                 }
@@ -172,6 +352,8 @@ class GpsServiceClass {
                 }
             } catch (e) {
                 log.warn('[GpsService] native watch setup failed:', e);
+                unsubscribe?.();
+                releaseEngine?.();
             }
         })();
 
@@ -180,14 +362,83 @@ class GpsServiceClass {
             if (unsubscribe) unsubscribe();
             if (releaseEngine) {
                 releaseEngine();
-                releaseEngine = null;
+            }
+        };
+    }
+
+    private _nativeForegroundWatchIfGranted(callback: GpsCallback): () => void {
+        let watchId: string | null = null;
+        let cancelled = false;
+
+        void (async () => {
+            try {
+                const permission = await Geolocation.checkPermissions();
+                if (cancelled) return;
+                if (permission.location !== 'granted' && permission.coarseLocation !== 'granted') return;
+
+                watchId = await Geolocation.watchPosition(
+                    {
+                        enableHighAccuracy: canUseForegroundHighAccuracy(permission, true),
+                        timeout: 15_000,
+                        maximumAge: 5_000,
+                        minimumUpdateInterval: 3_000,
+                    },
+                    (position) => {
+                        if (cancelled || !position) return;
+                        const { latitude, longitude, accuracy, altitude, heading, speed } = position.coords;
+                        if (
+                            !Number.isFinite(latitude) ||
+                            !Number.isFinite(longitude) ||
+                            latitude < -90 ||
+                            latitude > 90 ||
+                            longitude < -180 ||
+                            longitude > 180 ||
+                            !Number.isFinite(position.timestamp) ||
+                            position.timestamp <= 0 ||
+                            position.timestamp > Date.now() + 1_000
+                        ) {
+                            return;
+                        }
+                        callback({
+                            latitude,
+                            longitude,
+                            accuracy,
+                            altitude,
+                            heading,
+                            speed: speed ?? 0,
+                            timestamp: position.timestamp,
+                        });
+                    },
+                );
+                if (cancelled && watchId !== null) {
+                    const id = watchId;
+                    watchId = null;
+                    await Geolocation.clearWatch({ id });
+                }
+            } catch (error) {
+                log.info('[GpsService] passive native watch unavailable:', error);
+            }
+        })();
+
+        return () => {
+            cancelled = true;
+            if (watchId !== null) {
+                const id = watchId;
+                watchId = null;
+                void Geolocation.clearWatch({ id }).catch((error) => {
+                    log.warn('[GpsService] passive native watch cleanup failed:', error);
+                });
             }
         };
     }
 
     // ---------- WEB FALLBACK ----------
 
-    private _webGetPosition(timeoutMs: number, enableHighAccuracy: boolean): Promise<GpsPosition | null> {
+    private _webGetPosition(
+        timeoutMs: number,
+        enableHighAccuracy: boolean,
+        staleLimitMs: number,
+    ): Promise<GpsPosition | null> {
         return new Promise((resolve) => {
             if (!navigator.geolocation) {
                 resolve(null);
@@ -203,8 +454,25 @@ class GpsServiceClass {
                 resolve(null);
                 return;
             }
+            const requestedAt = Date.now();
             navigator.geolocation.getCurrentPosition(
-                (pos) =>
+                (pos) => {
+                    // `maximumAge` asks the browser not to serve an older cache,
+                    // but verify the returned timestamp as well. Compare its age
+                    // at request time so a newly acquired fix remains valid even
+                    // when the provider takes time to call back (including when
+                    // the caller requested maximumAge: 0).
+                    const timestamp = pos.timestamp;
+                    const receivedAt = Date.now();
+                    const wasTooOldWhenRequested = requestedAt - timestamp > staleLimitMs;
+                    const timestampIsInvalid =
+                        !Number.isFinite(timestamp) || timestamp <= 0 || timestamp > receivedAt + 1_000;
+                    if (timestampIsInvalid || wasTooOldWhenRequested) {
+                        log.warn('[GpsService] web geolocation returned an out-of-bound timestamp');
+                        resolve(null);
+                        return;
+                    }
+
                     resolve({
                         latitude: pos.coords.latitude,
                         longitude: pos.coords.longitude,
@@ -212,10 +480,11 @@ class GpsServiceClass {
                         altitude: pos.coords.altitude,
                         heading: pos.coords.heading,
                         speed: pos.coords.speed ?? 0,
-                        timestamp: pos.timestamp,
-                    }),
+                        timestamp,
+                    });
+                },
                 () => resolve(null),
-                { enableHighAccuracy, timeout: timeoutMs, maximumAge: 30000 },
+                { enableHighAccuracy, timeout: timeoutMs, maximumAge: staleLimitMs },
             );
         });
     }
@@ -247,6 +516,27 @@ class GpsServiceClass {
             { enableHighAccuracy: true, timeout: 15000, maximumAge: 5000 },
         );
         return () => navigator.geolocation.clearWatch(id);
+    }
+
+    private _webWatchIfGranted(callback: GpsCallback): () => void {
+        let unsubscribe: (() => void) | null = null;
+        let cancelled = false;
+        void (async () => {
+            if (typeof window !== 'undefined' && window.isSecureContext === false) return;
+            if (!navigator.permissions?.query) return;
+            try {
+                const permission = await navigator.permissions.query({ name: 'geolocation' });
+                if (cancelled || permission.state !== 'granted') return;
+                unsubscribe = this._webWatch(callback);
+                if (cancelled) unsubscribe();
+            } catch {
+                // Permission state cannot be proven without risking a prompt.
+            }
+        })();
+        return () => {
+            cancelled = true;
+            unsubscribe?.();
+        };
     }
 }
 

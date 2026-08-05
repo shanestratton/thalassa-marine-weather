@@ -12,6 +12,13 @@
 import { createLogger } from '../utils/createLogger';
 import { supabase } from './supabase';
 import { getAuthIdentityScope, isAuthIdentityScopeCurrent, type AuthIdentityScope } from './authIdentityScope';
+import {
+    captureOwnedMediaAuthorization,
+    retainUncertainOwnedMedia,
+    retireOwnedMedia,
+    type OwnedMediaAuthorization,
+    type OwnedMediaBucket,
+} from './OwnedMediaCleanupService';
 const log = createLogger('CrewFinder');
 
 // --- TABLES ---
@@ -26,6 +33,59 @@ const CREW_INTRO_CONVERSATIONS_TABLE = 'crew_intro_conversations';
 const CREW_INTRO_MESSAGES_TABLE = 'crew_intro_messages';
 const CREW_LIST_BLOCKS_TABLE = 'dm_blocks';
 const CREW_LIST_REPORTS_TABLE = 'crew_list_reports';
+
+type CrewOrDatingReference = { kind: 'crew-photo' } | { kind: 'dating-photo' };
+
+function exactStringArray(value: unknown, expected: readonly string[]): boolean {
+    return (
+        Array.isArray(value) &&
+        value.length === expected.length &&
+        value.every((entry, index) => entry === expected[index])
+    );
+}
+
+function publicOwnedMediaPath(bucket: OwnedMediaBucket, value: unknown, ownerId: string): string | null {
+    if (typeof value !== 'string' || !value) return null;
+    try {
+        const url = new URL(value);
+        const marker = `/storage/v1/object/public/${bucket}/`;
+        const markerIndex = url.pathname.indexOf(marker);
+        if (markerIndex < 0) return null;
+        const path = decodeURIComponent(url.pathname.slice(markerIndex + marker.length));
+        if (bucket === 'chat-avatars') {
+            return path.startsWith(`dating/${ownerId}/`) ? path : null;
+        }
+        return path.startsWith(`${ownerId}/`) ? path : null;
+    } catch {
+        return null;
+    }
+}
+
+function uniqueManagedPaths(paths: Iterable<string | null>): string[] {
+    return [...new Set([...paths].filter((path): path is string => typeof path === 'string' && path.length > 0))];
+}
+
+async function retireMediaPaths(
+    scope: AuthIdentityScope,
+    authorization: OwnedMediaAuthorization | null,
+    bucket: OwnedMediaBucket,
+    paths: Iterable<string>,
+): Promise<void> {
+    for (const path of new Set(paths)) {
+        await retireOwnedMedia(scope, authorization, bucket, path);
+    }
+}
+
+function retainUncertainMediaPaths(
+    scope: AuthIdentityScope,
+    bucket: OwnedMediaBucket,
+    paths: Iterable<string>,
+    reference: CrewOrDatingReference,
+): void {
+    for (const path of new Set(paths)) {
+        retainUncertainOwnedMedia(scope, bucket, path, reference);
+    }
+}
 
 const CONTACT_EMAIL_PATTERN = /[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/i;
 const CONTACT_URL_PATTERN = /(?:https?:\/\/|www\.)\S+|\b(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}\b/i;
@@ -1190,6 +1250,9 @@ class LonelyHeartsServiceClass {
         }
         const fileSnapshot = file;
         const persistPrimary = options.persistPrimary !== false;
+        let uploadedPath: string | null = null;
+        let uploadDisposition: 'none' | 'uncommitted' | 'uncertain' | 'adopted' = 'none';
+        let cleanupAuthorization: OwnedMediaAuthorization | null = null;
 
         try {
             const { compressImage, moderatePhoto } = await import('./ProfilePhotoService');
@@ -1224,23 +1287,92 @@ class LonelyHeartsServiceClass {
                     ? globalThis.crypto.randomUUID()
                     : `${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
             const path = `${ownerId}/${suffix}.jpg`;
+            cleanupAuthorization = await captureOwnedMediaAuthorization(scope);
+            if (!cleanupAuthorization || !isAuthIdentityScopeCurrent(scope)) {
+                return { success: false, error: 'Not authenticated' };
+            }
             const { error: uploadError } = await supabase.storage
                 .from('crew-list-photos')
                 .upload(path, blob, { contentType: 'image/jpeg', upsert: false });
-            if (!isAuthIdentityScopeCurrent(scope)) return { success: false, error: 'Account changed' };
-            if (uploadError) return { success: false, error: uploadError.message };
-
-            const photoPaths = persistPrimary ? [path, ...retainedPaths] : [...retainedPaths, path];
-            const updated = await this.updateCrewProfileForScope(scope, ownerId, {
-                crew_photo_path: persistPrimary ? path : existingProfile?.crew_photo_path || null,
-                crew_photo_paths: photoPaths,
-            });
-            if (!updated || !isAuthIdentityScopeCurrent(scope)) {
-                if (isAuthIdentityScopeCurrent(scope)) {
-                    await supabase.storage.from('crew-list-photos').remove([path]);
-                }
+            if (uploadError) {
+                return { success: false, error: uploadError.message };
+            }
+            uploadedPath = path;
+            uploadDisposition = 'uncommitted';
+            if (!isAuthIdentityScopeCurrent(scope)) {
                 return { success: false, error: 'Account changed' };
             }
+
+            const photoPaths = persistPrimary ? [path, ...retainedPaths] : [...retainedPaths, path];
+            const primaryPath = persistPrimary ? path : existingProfile?.crew_photo_path || null;
+            const replacedPaths = existingPhotoPaths.filter((existingPath) => !photoPaths.includes(existingPath));
+            if (!isAuthIdentityScopeCurrent(scope)) {
+                return { success: false, error: 'Account changed' };
+            }
+            let profileResult: {
+                data: {
+                    user_id?: unknown;
+                    crew_photo_path?: unknown;
+                    crew_photo_paths?: unknown;
+                } | null;
+                error: { message: string } | null;
+            };
+            try {
+                profileResult = await supabase
+                    .from(CREW_PROFILES_TABLE)
+                    .upsert(
+                        {
+                            crew_photo_path: primaryPath,
+                            crew_photo_paths: photoPaths,
+                            user_id: ownerId,
+                            updated_at: new Date().toISOString(),
+                        },
+                        { onConflict: 'user_id' },
+                    )
+                    .select('user_id, crew_photo_path, crew_photo_paths')
+                    .maybeSingle();
+            } catch (error) {
+                uploadDisposition = 'uncertain';
+                retainUncertainMediaPaths(scope, 'crew-list-photos', [path, ...replacedPaths], {
+                    kind: 'crew-photo',
+                });
+                return {
+                    success: false,
+                    error: isAuthIdentityScopeCurrent(scope)
+                        ? error instanceof Error
+                            ? error.message
+                            : 'Crew List profile response was unavailable'
+                        : 'Account changed',
+                };
+            }
+            if (!isAuthIdentityScopeCurrent(scope)) {
+                uploadDisposition = 'uncertain';
+                retainUncertainMediaPaths(scope, 'crew-list-photos', [path, ...replacedPaths], {
+                    kind: 'crew-photo',
+                });
+                return { success: false, error: 'Account changed' };
+            }
+            const { data: savedProfile, error: profileError } = profileResult;
+            if (profileError) {
+                return { success: false, error: profileError.message };
+            }
+            if (
+                savedProfile?.user_id !== ownerId ||
+                savedProfile.crew_photo_path !== primaryPath ||
+                !exactStringArray(savedProfile.crew_photo_paths, photoPaths)
+            ) {
+                uploadDisposition = 'uncertain';
+                retainUncertainMediaPaths(scope, 'crew-list-photos', [path, ...replacedPaths], {
+                    kind: 'crew-photo',
+                });
+                return { success: false, error: 'Could not verify the saved Crew List photo' };
+            }
+            uploadDisposition = 'adopted';
+
+            // In particular, primary replacement makes the old primary
+            // disposable only after the returned owner row adopts this path.
+            await retireMediaPaths(scope, cleanupAuthorization, 'crew-list-photos', replacedPaths);
+            if (!isAuthIdentityScopeCurrent(scope)) return { success: false, error: 'Account changed' };
 
             const signedUrlByPath = await this.getCrewPhotoSignedUrlMapForScope(scope, [path]);
             const url = signedUrlByPath.get(path);
@@ -1251,6 +1383,10 @@ class LonelyHeartsServiceClass {
         } catch (err: unknown) {
             if (!isAuthIdentityScopeCurrent(scope)) return { success: false, error: 'Account changed' };
             return { success: false, error: err instanceof Error ? err.message : 'Upload failed' };
+        } finally {
+            if (uploadedPath && uploadDisposition === 'uncommitted') {
+                await retireOwnedMedia(scope, cleanupAuthorization, 'crew-list-photos', uploadedPath);
+            }
         }
     }
 
@@ -1273,18 +1409,48 @@ class LonelyHeartsServiceClass {
         const remainingPaths = photoPaths.filter((path) => path !== removedPath);
         const nextPrimaryPath =
             profile.crew_photo_path === removedPath ? remainingPaths[0] || null : profile.crew_photo_path || null;
-        const updated = await this.updateCrewProfileForScope(scope, ownerId, {
-            crew_photo_path: nextPrimaryPath,
-            crew_photo_paths: remainingPaths,
-        });
-        if (!updated || !isAuthIdentityScopeCurrent(scope)) return false;
+        const cleanupAuthorization = await captureOwnedMediaAuthorization(scope);
+        if (!cleanupAuthorization || !isAuthIdentityScopeCurrent(scope)) return false;
 
-        const { error } = await supabase.storage.from('crew-list-photos').remove([removedPath]);
-        if (error && isAuthIdentityScopeCurrent(scope)) {
-            // The profile no longer points to the object, so it is private and
-            // harmless if a transient storage failure needs later cleanup.
-            log.warn('Crew List photo object cleanup failed:', error);
+        let profileResult: {
+            data: {
+                user_id?: unknown;
+                crew_photo_path?: unknown;
+                crew_photo_paths?: unknown;
+            } | null;
+            error: { message: string } | null;
+        };
+        try {
+            profileResult = await supabase
+                .from(CREW_PROFILES_TABLE)
+                .update({
+                    crew_photo_path: nextPrimaryPath,
+                    crew_photo_paths: remainingPaths,
+                    updated_at: new Date().toISOString(),
+                })
+                .eq('user_id', ownerId)
+                .select('user_id, crew_photo_path, crew_photo_paths')
+                .maybeSingle();
+        } catch {
+            retainUncertainMediaPaths(scope, 'crew-list-photos', [removedPath], { kind: 'crew-photo' });
+            return false;
         }
+        if (!isAuthIdentityScopeCurrent(scope)) {
+            retainUncertainMediaPaths(scope, 'crew-list-photos', [removedPath], { kind: 'crew-photo' });
+            return false;
+        }
+        const { data: savedProfile, error } = profileResult;
+        if (error) return false;
+        if (
+            savedProfile?.user_id !== ownerId ||
+            savedProfile.crew_photo_path !== nextPrimaryPath ||
+            !exactStringArray(savedProfile.crew_photo_paths, remainingPaths)
+        ) {
+            retainUncertainMediaPaths(scope, 'crew-list-photos', [removedPath], { kind: 'crew-photo' });
+            return false;
+        }
+
+        await retireOwnedMedia(scope, cleanupAuthorization, 'crew-list-photos', removedPath);
         return isAuthIdentityScopeCurrent(scope);
     }
 
@@ -1305,16 +1471,32 @@ class LonelyHeartsServiceClass {
         const photoPaths = profile
             ? this.normalizeCrewPhotoPaths(profile.crew_photo_path, profile.crew_photo_paths)
             : [];
+        const cleanupAuthorization = await captureOwnedMediaAuthorization(scope);
+        if (!cleanupAuthorization || !isAuthIdentityScopeCurrent(scope)) return false;
 
-        const { error } = await supabase.from(CREW_PROFILES_TABLE).delete().eq('user_id', ownerId);
-        if (error || !isAuthIdentityScopeCurrent(scope)) return false;
-
-        if (photoPaths.length > 0) {
-            const { error: storageError } = await supabase.storage.from('crew-list-photos').remove(photoPaths);
-            if (storageError && isAuthIdentityScopeCurrent(scope)) {
-                log.warn('Crew List photo cleanup after profile delete failed:', storageError);
-            }
+        let deleteResult: {
+            data: { user_id?: unknown } | null;
+            error: { message: string } | null;
+        };
+        try {
+            deleteResult = await supabase
+                .from(CREW_PROFILES_TABLE)
+                .delete()
+                .eq('user_id', ownerId)
+                .select('user_id')
+                .maybeSingle();
+        } catch {
+            retainUncertainMediaPaths(scope, 'crew-list-photos', photoPaths, { kind: 'crew-photo' });
+            return false;
         }
+        if (!isAuthIdentityScopeCurrent(scope)) {
+            retainUncertainMediaPaths(scope, 'crew-list-photos', photoPaths, { kind: 'crew-photo' });
+            return false;
+        }
+        const { data: deletedProfile, error } = deleteResult;
+        if (error || deletedProfile?.user_id !== ownerId) return false;
+
+        await retireMediaPaths(scope, cleanupAuthorization, 'crew-list-photos', photoPaths);
 
         return isAuthIdentityScopeCurrent(scope);
     }
@@ -1408,6 +1590,9 @@ class LonelyHeartsServiceClass {
             return { success: false, error: 'Invalid photo position (0-5)' };
         }
         const fileSnapshot = file;
+        let uploadedPath: string | null = null;
+        let uploadDisposition: 'none' | 'uncommitted' | 'uncertain' | 'adopted' = 'none';
+        let cleanupAuthorization: OwnedMediaAuthorization | null = null;
 
         try {
             const { compressImage, moderatePhoto } = await import('./ProfilePhotoService');
@@ -1421,34 +1606,114 @@ class LonelyHeartsServiceClass {
                 return { success: false, error: modResult.reason };
             }
 
-            const path = `dating/${ownerId}/${photoPosition}_${Date.now()}.jpg`;
-            const { error: uploadError } = await supabase.storage
-                .from('chat-avatars')
-                .upload(path, blob, { contentType: 'image/jpeg', upsert: true });
-            if (!isAuthIdentityScopeCurrent(scope)) return { success: false, error: 'Account changed' };
-            if (uploadError) return { success: false, error: uploadError.message };
-
-            const { data: urlData } = supabase.storage.from('chat-avatars').getPublicUrl(path);
-            if (!isAuthIdentityScopeCurrent(scope)) return { success: false, error: 'Account changed' };
-            const url = urlData.publicUrl;
-
-            // Update photos array in dating profile
             const profile = await this.getDatingProfileForScope(scope, ownerId);
             if (!profile || !isAuthIdentityScopeCurrent(scope)) {
                 return { success: false, error: 'Profile unavailable' };
             }
+            const previousManagedPaths = uniqueManagedPaths(
+                profile.photos.map((photo) => publicOwnedMediaPath('chat-avatars', photo, ownerId)),
+            );
+
+            const path = `dating/${ownerId}/${photoPosition}_${Date.now()}.jpg`;
+            cleanupAuthorization = await captureOwnedMediaAuthorization(scope);
+            if (!cleanupAuthorization || !isAuthIdentityScopeCurrent(scope)) {
+                return { success: false, error: 'Not authenticated' };
+            }
+            const { error: uploadError } = await supabase.storage
+                .from('chat-avatars')
+                .upload(path, blob, { contentType: 'image/jpeg', upsert: true });
+            if (uploadError) {
+                return { success: false, error: uploadError.message };
+            }
+            uploadedPath = path;
+            uploadDisposition = 'uncommitted';
+            if (!isAuthIdentityScopeCurrent(scope)) {
+                return { success: false, error: 'Account changed' };
+            }
+
+            const { data: urlData } = supabase.storage.from('chat-avatars').getPublicUrl(path);
+            const url = urlData?.publicUrl;
+            if (!url || !isAuthIdentityScopeCurrent(scope)) {
+                return {
+                    success: false,
+                    error: isAuthIdentityScopeCurrent(scope) ? 'Photo URL unavailable' : 'Account changed',
+                };
+            }
+
+            // Update photos array in dating profile
             const photos = [...profile.photos];
             while (photos.length <= photoPosition) photos.push('');
             photos[photoPosition] = url;
+            const adoptedManagedPaths = uniqueManagedPaths(
+                photos.map((photo) => publicOwnedMediaPath('chat-avatars', photo, ownerId)),
+            );
+            const replacedPaths = previousManagedPaths.filter(
+                (previousPath) => !adoptedManagedPaths.includes(previousPath),
+            );
 
-            const updated = await this.updateDatingProfileForScope(scope, ownerId, { photos });
-            if (!updated || !isAuthIdentityScopeCurrent(scope)) {
+            if (!isAuthIdentityScopeCurrent(scope)) {
                 return { success: false, error: 'Account changed' };
             }
+            let profileResult: {
+                data: { user_id?: unknown; photos?: unknown } | null;
+                error: { message: string } | null;
+            };
+            try {
+                profileResult = await supabase
+                    .from(DATING_PROFILES_TABLE)
+                    .upsert(
+                        {
+                            photos,
+                            user_id: ownerId,
+                            updated_at: new Date().toISOString(),
+                        },
+                        { onConflict: 'user_id' },
+                    )
+                    .select('user_id, photos')
+                    .maybeSingle();
+            } catch (error) {
+                uploadDisposition = 'uncertain';
+                retainUncertainMediaPaths(scope, 'chat-avatars', [path, ...replacedPaths], {
+                    kind: 'dating-photo',
+                });
+                return {
+                    success: false,
+                    error: isAuthIdentityScopeCurrent(scope)
+                        ? error instanceof Error
+                            ? error.message
+                            : 'Dating profile response was unavailable'
+                        : 'Account changed',
+                };
+            }
+            if (!isAuthIdentityScopeCurrent(scope)) {
+                uploadDisposition = 'uncertain';
+                retainUncertainMediaPaths(scope, 'chat-avatars', [path, ...replacedPaths], {
+                    kind: 'dating-photo',
+                });
+                return { success: false, error: 'Account changed' };
+            }
+            const { data: savedProfile, error: profileError } = profileResult;
+            if (profileError) {
+                return { success: false, error: profileError.message };
+            }
+            if (savedProfile?.user_id !== ownerId || !exactStringArray(savedProfile.photos, photos)) {
+                uploadDisposition = 'uncertain';
+                retainUncertainMediaPaths(scope, 'chat-avatars', [path, ...replacedPaths], {
+                    kind: 'dating-photo',
+                });
+                return { success: false, error: 'Could not verify the saved dating photo' };
+            }
+            uploadDisposition = 'adopted';
+            await retireMediaPaths(scope, cleanupAuthorization, 'chat-avatars', replacedPaths);
+            if (!isAuthIdentityScopeCurrent(scope)) return { success: false, error: 'Account changed' };
             return { success: true, url };
         } catch (err: unknown) {
             if (!isAuthIdentityScopeCurrent(scope)) return { success: false, error: 'Account changed' };
             return { success: false, error: err instanceof Error ? err.message : 'Upload failed' };
+        } finally {
+            if (uploadedPath && uploadDisposition === 'uncommitted') {
+                await retireOwnedMedia(scope, cleanupAuthorization, 'chat-avatars', uploadedPath);
+            }
         }
     }
 
@@ -1465,8 +1730,49 @@ class LonelyHeartsServiceClass {
 
         const photos = [...(profile.photos || [])];
         if (photoPosition < photos.length) {
+            const removedPath = publicOwnedMediaPath('chat-avatars', photos[photoPosition], ownerId);
             photos.splice(photoPosition, 1);
-            return this.updateDatingProfileForScope(scope, ownerId, { photos });
+            const cleanupAuthorization = await captureOwnedMediaAuthorization(scope);
+            if (!cleanupAuthorization || !isAuthIdentityScopeCurrent(scope)) return false;
+
+            let profileResult: {
+                data: { user_id?: unknown; photos?: unknown } | null;
+                error: { message: string } | null;
+            };
+            try {
+                profileResult = await supabase
+                    .from(DATING_PROFILES_TABLE)
+                    .update({ photos, updated_at: new Date().toISOString() })
+                    .eq('user_id', ownerId)
+                    .select('user_id, photos')
+                    .maybeSingle();
+            } catch {
+                if (removedPath) {
+                    retainUncertainMediaPaths(scope, 'chat-avatars', [removedPath], { kind: 'dating-photo' });
+                }
+                return false;
+            }
+            if (!isAuthIdentityScopeCurrent(scope)) {
+                if (removedPath) {
+                    retainUncertainMediaPaths(scope, 'chat-avatars', [removedPath], { kind: 'dating-photo' });
+                }
+                return false;
+            }
+            const { data: savedProfile, error } = profileResult;
+            if (error) return false;
+            if (savedProfile?.user_id !== ownerId || !exactStringArray(savedProfile.photos, photos)) {
+                if (removedPath) {
+                    retainUncertainMediaPaths(scope, 'chat-avatars', [removedPath], { kind: 'dating-photo' });
+                }
+                return false;
+            }
+            if (
+                removedPath &&
+                !photos.some((photo) => publicOwnedMediaPath('chat-avatars', photo, ownerId) === removedPath)
+            ) {
+                await retireOwnedMedia(scope, cleanupAuthorization, 'chat-avatars', removedPath);
+            }
+            return isAuthIdentityScopeCurrent(scope);
         }
         return false;
     }

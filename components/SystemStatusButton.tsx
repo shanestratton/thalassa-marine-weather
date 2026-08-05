@@ -23,6 +23,7 @@ import { useFollowRoute } from '../context/FollowRouteContext';
 import { GpsService } from '../services/GpsService';
 import { piCache, type PiCacheStatus } from '../services/PiCacheService';
 import { n2kStatus, type N2kStatus } from '../services/n2kStatus';
+import { PI_INTEGRATION_ENABLED } from '../services/piPublicBetaBoundary';
 import { useFocusTrap } from '../hooks/useFocusTrap';
 
 // ── Types ──
@@ -331,38 +332,40 @@ const SystemStatusModal: React.FC<{
                     />
 
                     {/* ── Pi Cache (Offline Data) ── */}
-                    <SystemRow
-                        icon={
-                            <svg
-                                className="w-4 h-4"
-                                fill="none"
-                                viewBox="0 0 24 24"
-                                stroke="currentColor"
-                                strokeWidth={1.5}
-                            >
-                                <path
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    d="M5.25 14.25h13.5m-13.5 0a3 3 0 01-3-3m3 3a3 3 0 100 6h13.5a3 3 0 100-6m-16.5-3a3 3 0 013-3h13.5a3 3 0 013 3m-19.5 0a4.5 4.5 0 01.9-2.7L5.737 5.1a3.375 3.375 0 012.7-1.35h7.126c1.062 0 2.062.5 2.7 1.35l2.587 3.45a4.5 4.5 0 01.9 2.7m0 0h.375a2.625 2.625 0 010 5.25H3.375a2.625 2.625 0 010-5.25H3.75"
-                                />
-                            </svg>
-                        }
-                        label="Pi Cache"
-                        active={state.piCache.active}
-                        detail={
-                            state.piCache.active
-                                ? `${state.piCache.host} · ${state.piCache.latencyMs}ms${state.piCache.cacheStats ? ` · ${state.piCache.cacheStats.kvEntries} weather + ${state.piCache.cacheStats.tileEntries} tiles cached` : ''}`
-                                : 'Not connected'
-                        }
-                        dotColor={state.piCache.active ? 'bg-emerald-400' : 'bg-slate-600'}
-                        pulse={state.piCache.active}
-                    />
+                    {PI_INTEGRATION_ENABLED && (
+                        <SystemRow
+                            icon={
+                                <svg
+                                    className="w-4 h-4"
+                                    fill="none"
+                                    viewBox="0 0 24 24"
+                                    stroke="currentColor"
+                                    strokeWidth={1.5}
+                                >
+                                    <path
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                        d="M5.25 14.25h13.5m-13.5 0a3 3 0 01-3-3m3 3a3 3 0 100 6h13.5a3 3 0 100-6m-16.5-3a3 3 0 013-3h13.5a3 3 0 013 3m-19.5 0a4.5 4.5 0 01.9-2.7L5.737 5.1a3.375 3.375 0 012.7-1.35h7.126c1.062 0 2.062.5 2.7 1.35l2.587 3.45a4.5 4.5 0 01.9 2.7m0 0h.375a2.625 2.625 0 010 5.25H3.375a2.625 2.625 0 010-5.25H3.75"
+                                    />
+                                </svg>
+                            }
+                            label="Pi Cache"
+                            active={state.piCache.active}
+                            detail={
+                                state.piCache.active
+                                    ? `${state.piCache.host} · ${state.piCache.latencyMs}ms${state.piCache.cacheStats ? ` · ${state.piCache.cacheStats.kvEntries} weather + ${state.piCache.cacheStats.tileEntries} tiles cached` : ''}`
+                                    : 'Not connected'
+                            }
+                            dotColor={state.piCache.active ? 'bg-emerald-400' : 'bg-slate-600'}
+                            pulse={state.piCache.active}
+                        />
+                    )}
 
                     {/* ── NMEA 2000 Bus (PiCAN-M Hat → SignalK) ── */}
                     {/* Only render when we have anything useful to say. */}
                     {/* Reachable means we got a valid response from the */}
                     {/* Pi's /api/n2k/status endpoint at least once. */}
-                    {state.n2k.reachable && (
+                    {PI_INTEGRATION_ENABLED && state.n2k.reachable && (
                         <SystemRow
                             icon={
                                 <svg

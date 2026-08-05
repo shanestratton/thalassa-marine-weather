@@ -14,6 +14,7 @@
  */
 import React, { useRef, useCallback, useEffect, memo, useState } from 'react';
 import { triggerHaptic } from '../../utils/system';
+import { CHL_GRADIENT, CURRENT_WAVE_GRADIENT, MLD_GRADIENT, SST_GRADIENT } from './marineLayerRamps';
 import { WIND_GRADIENT } from './windRamp';
 
 // ── Layer definitions for the generic legend ──
@@ -40,7 +41,13 @@ interface LayerConfig {
     highLabel: string;
     gradient: string;
     accentColor: string;
+    honestyNote?: string;
 }
+
+export const MARINE_MOTION_HONESTY = {
+    currents: 'Colour = current speed (m/s) · particle motion = direction only (speed illustrative)',
+    waves: 'Colour = significant wave height (m) · particle motion = direction only (speed illustrative)',
+} as const;
 
 const LAYER_CONFIGS: Record<string, LayerConfig> = {
     wind: {
@@ -68,18 +75,20 @@ const LAYER_CONFIGS: Record<string, LayerConfig> = {
         label: 'Currents',
         lowLabel: 'Slack',
         highLabel: 'Rip',
-        // Matches the raster-particle color ramp in useOceanCurrentParticleLayer.ts
-        gradient: 'linear-gradient(to top, #cffafe, #22d3ee, #eab308, #f97316, #ef4444)',
+        // Exact low-to-high stops from CurrentParticleLayer's shader.
+        gradient: CURRENT_WAVE_GRADIENT,
         accentColor: '#06b6d4',
+        honestyNote: MARINE_MOTION_HONESTY.currents,
     },
     waves: {
         icon: '🌊',
         label: 'Waves',
         lowLabel: 'Calm',
         highLabel: 'Rough',
-        // Matches the speed heatmap in WaveParticleLayer.ts (shared with currents).
-        gradient: 'linear-gradient(to top, #cffafe, #22d3ee, #eab308, #f97316, #ef4444)',
+        // Exact low-to-high stops from WaveParticleLayer's shared palette.
+        gradient: CURRENT_WAVE_GRADIENT,
         accentColor: '#06b6d4',
+        honestyNote: MARINE_MOTION_HONESTY.waves,
     },
     sst: {
         icon: '🌡️',
@@ -87,7 +96,7 @@ const LAYER_CONFIGS: Record<string, LayerConfig> = {
         lowLabel: 'Cold',
         highLabel: 'Warm',
         // Matches the thermal ramp in SstRasterLayer.ts.
-        gradient: 'linear-gradient(to top, #1f1466, #2659bf, #40b2d9, #66cc73, #f2eb66, #f28c4d, #d93333)',
+        gradient: SST_GRADIENT,
         accentColor: '#fbbf24',
     },
     chl: {
@@ -96,7 +105,7 @@ const LAYER_CONFIGS: Record<string, LayerConfig> = {
         lowLabel: 'Clear',
         highLabel: 'Bloom',
         // Matches the algal log-scale ramp in ChlRasterLayer.ts.
-        gradient: 'linear-gradient(to top, #0d0538, #2e1a80, #265abf, #34a6cc, #40bf59, #ccd933, #f28c26)',
+        gradient: CHL_GRADIENT,
         accentColor: '#40bf59',
     },
     seaice: {
@@ -118,7 +127,7 @@ const LAYER_CONFIGS: Record<string, LayerConfig> = {
         // Matches the plasma ramp in MldRasterLayer.ts: pale yellow at
         // ~2m (sunlit shallow stratified) → orange → red → magenta →
         // purple → deep navy at 1000m+ (deep convective sites).
-        gradient: 'linear-gradient(to top, #f5ebcc, #fa9f33, #eb4d4d, #c72e80, #73198c, #1a0d4d)',
+        gradient: MLD_GRADIENT,
         accentColor: '#c72e80',
     },
     rain: {
@@ -464,6 +473,12 @@ export const ThalassaHelixControl: React.FC<ThalassaHelixControlProps> = memo(
                             >
                                 <span className="text-sm">{config.icon}</span>
                             </button>
+
+                            {config.honestyNote && (
+                                <p className="w-36 px-1 text-center text-[11px] font-semibold leading-snug text-white/70">
+                                    {config.honestyNote}
+                                </p>
+                            )}
                         </div>
                     )}
 
@@ -735,6 +750,11 @@ export const LegendDock: React.FC<LegendDockProps> = memo(({ layers, embedded })
                         <div className="mt-1 w-7 h-7 flex items-center justify-center rounded-lg bg-white/[0.04]">
                             <span className="text-sm">{config.icon}</span>
                         </div>
+                        {config.honestyNote && (
+                            <span className="w-36 px-1 text-center text-[11px] font-semibold normal-case leading-snug text-white/70">
+                                {config.honestyNote}
+                            </span>
+                        )}
                     </button>
                 );
             })}

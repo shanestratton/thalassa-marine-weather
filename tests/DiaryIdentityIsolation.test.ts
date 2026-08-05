@@ -40,6 +40,7 @@ import { DiaryService, type DiaryEntry } from '../services/DiaryService';
 import {
     authScopedStorageKey,
     getAuthIdentityScope,
+    isAuthIdentityScopeCurrent,
     setAuthIdentityScope,
     type AuthIdentityScope,
 } from '../services/authIdentityScope';
@@ -48,6 +49,14 @@ interface SupabaseControls {
     userId: string;
     inserts: Record<string, unknown>[];
     deletes: string[];
+}
+
+function deferred<T>() {
+    let resolve!: (value: T) => void;
+    const promise = new Promise<T>((done) => {
+        resolve = done;
+    });
+    return { promise, resolve };
 }
 
 function createSupabaseMock(controls: SupabaseControls) {
@@ -201,12 +210,102 @@ describe('DiaryService auth identity isolation', () => {
         expect(relay.submitDiaryDirect).toHaveBeenCalledWith(expect.objectContaining({ boat_id: boatId }));
     });
 
+    it('reports a durable create commit even when identity changes immediately after the outbox write', async () => {
+        const accountA = `create-commit-a-${testNumber}`;
+        const accountB = `create-commit-b-${testNumber}`;
+        setAuthIdentityScope(accountA);
+        const internals = DiaryService as unknown as {
+            _addPending(entry: DiaryEntry, scope: AuthIdentityScope): Promise<void>;
+        };
+        const originalAddPending = internals._addPending.bind(internals);
+        const addPending = vi.spyOn(internals, '_addPending').mockImplementation(async (entry, scope) => {
+            await originalAddPending(entry, scope);
+            setAuthIdentityScope(accountB);
+        });
+        try {
+            await expect(
+                DiaryService.createEntry({
+                    title: 'Committed before the watch changed',
+                    body: 'The A outbox owns this entry and its media now.',
+                    mood: 'good',
+                }),
+            ).resolves.toMatchObject({ owner_user_id: accountA });
+            expect(
+                JSON.parse(localStorage.getItem(keyFor('thalassa_diary_pending_v2', accountA)) ?? '[]'),
+            ).toMatchObject([{ title: 'Committed before the watch changed', owner_user_id: accountA }]);
+        } finally {
+            addPending.mockRestore();
+        }
+    });
+
+    it('reports durable update adoption even when its UI continuation becomes stale after the outbox write', async () => {
+        const accountA = `update-commit-a-${testNumber}`;
+        const accountB = `update-commit-b-${testNumber}`;
+        setAuthIdentityScope(accountA);
+        localStorage.setItem(
+            keyFor('thalassa_diary_entries_v2', accountA),
+            JSON.stringify([makeServerEntry('server-entry', accountA)]),
+        );
+        const operationScope = getAuthIdentityScope();
+        const internals = DiaryService as unknown as {
+            _savePending(entries: DiaryEntry[], scope?: AuthIdentityScope): boolean;
+        };
+        const originalSave = internals._savePending.bind(internals);
+        const save = vi.spyOn(internals, '_savePending').mockImplementation((entries, scope) => {
+            const persisted = originalSave(entries, scope);
+            if (persisted) setAuthIdentityScope(accountB);
+            return persisted;
+        });
+        try {
+            await expect(
+                DiaryService.updateEntry(
+                    'server-entry',
+                    { photos: [`storage:diary-photos:${accountA}/adopted.jpg`] },
+                    { shouldContinue: () => isAuthIdentityScopeCurrent(operationScope) },
+                ),
+            ).resolves.toMatchObject({ ok: true });
+            expect(
+                JSON.parse(localStorage.getItem(keyFor('thalassa_diary_pending_v2', accountA)) ?? '[]'),
+            ).toMatchObject([
+                {
+                    id: 'server-entry',
+                    owner_user_id: accountA,
+                    photos: [`storage:diary-photos:${accountA}/adopted.jpg`],
+                },
+            ]);
+            expect(localStorage.getItem(keyFor('thalassa_diary_pending_v2', accountB))).toBeNull();
+        } finally {
+            save.mockRestore();
+        }
+    });
+
+    it('does not report adoption when the authenticated server update matched no diary row', async () => {
+        const account = `update-zero-row-${testNumber}`;
+        const controls: SupabaseControls = { userId: account, inserts: [], deletes: [] };
+        mockSupabase.current = createSupabaseMock(controls);
+        setAuthIdentityScope(account);
+
+        await expect(
+            DiaryService.updateEntry('missing-server-entry', {
+                photos: [`storage:diary-photos:${account}/still-compose-owned.jpg`],
+            }),
+        ).resolves.toEqual({ ok: false });
+    });
+
     it('keeps A’s offline draft and media invisible and inert for B, then resumes it for A', async () => {
         const accountA = `account-a-${testNumber}`;
         const accountB = `account-b-${testNumber}`;
         const photo = 'data:image/jpeg;base64,QUJD';
 
         setAuthIdentityScope(accountA);
+        const internals = DiaryService as unknown as {
+            _registerMediaRef(ref: string, scope: AuthIdentityScope): void;
+        };
+        // uploadPhoto/saveUnsavedAudio register process-local refs in this
+        // owner-scoped ledger. Register the legacy data URI through that same
+        // boundary so this test exercises A/B isolation without bypassing the
+        // production media-ownership check in createEntry.
+        internals._registerMediaRef(photo, getAuthIdentityScope());
         const draft = await DiaryService.createEntry({
             title: 'A private offline log',
             body: 'Only A may read or upload this.',
@@ -314,5 +413,247 @@ describe('DiaryService auth identity isolation', () => {
         setAuthIdentityScope(accountA);
         await DiaryService.drainDeletedTombstones();
         expect(controlsA.deletes).toEqual(['server-a']);
+    });
+
+    it('persists an all-success photo handoff before relaying it and preserves the adopted object', async () => {
+        const account = `photo-handoff-${testNumber}`;
+        const controls: SupabaseControls = { userId: account, inserts: [], deletes: [] };
+        const client = createSupabaseMock(controls);
+        const remove = vi.fn().mockResolvedValue({ error: null });
+        client.storage.from = vi.fn(() => ({
+            upload: vi.fn(async () => ({ error: null })),
+            remove,
+            createSignedUrl: vi.fn(async () => ({ data: { signedUrl: 'https://signed.test/object' }, error: null })),
+        }));
+        mockSupabase.current = client;
+        Object.defineProperty(globalThis.navigator, 'onLine', { value: true, configurable: true });
+        setAuthIdentityScope(account);
+
+        const dataPhoto = 'data:image/jpeg;base64,SEFOREHANDOFF';
+        const storageRef = `storage:diary-photos:${account}/adopted.jpg`;
+        const queued: DiaryEntry = {
+            ...makeServerEntry('offline-photo-handoff', account),
+            photos: [dataPhoto],
+            client_operation_id: 'photo-handoff-op',
+            client_revision: 1,
+        };
+        localStorage.setItem(keyFor('thalassa_diary_pending_v2', account), JSON.stringify([queued]));
+
+        const internals = DiaryService as unknown as {
+            _uploadDataUri(value: string, scope: AuthIdentityScope): Promise<string | null>;
+            _savePending(entries: DiaryEntry[], scope?: AuthIdentityScope): boolean;
+        };
+        const upload = vi.spyOn(internals, '_uploadDataUri').mockResolvedValue(storageRef);
+        const originalSave = internals._savePending.bind(internals);
+        const save = vi.spyOn(internals, '_savePending').mockImplementation((entries, scope) => {
+            const persisted = originalSave(entries, scope);
+            // The read-back reference is the commit point even if a helper's
+            // ancillary success signal is lost.
+            return entries.some((entry) => entry.photos.includes(storageRef)) ? false : persisted;
+        });
+        try {
+            await DiaryService.syncPending();
+
+            const adoptionCall = save.mock.calls.findIndex(([entries]) =>
+                entries.some((entry) => entry.id === queued.id && entry.photos[0] === storageRef),
+            );
+            expect(adoptionCall).toBeGreaterThanOrEqual(0);
+            expect(save.mock.invocationCallOrder[adoptionCall]).toBeLessThan(
+                relay.submitDiaryDirect.mock.invocationCallOrder[0],
+            );
+            expect(relay.submitDiaryDirect).toHaveBeenCalledWith(expect.objectContaining({ photos: [storageRef] }));
+            expect(remove).not.toHaveBeenCalled();
+        } finally {
+            upload.mockRestore();
+            save.mockRestore();
+        }
+    });
+
+    it('removes only the fresh photo object when the transformed outbox row cannot be saved', async () => {
+        const account = `photo-handoff-fail-${testNumber}`;
+        const controls: SupabaseControls = { userId: account, inserts: [], deletes: [] };
+        const client = createSupabaseMock(controls);
+        const remove = vi.fn().mockResolvedValue({ error: null });
+        client.storage.from = vi.fn(() => ({
+            upload: vi.fn(async () => ({ error: null })),
+            remove,
+            createSignedUrl: vi.fn(async () => ({ data: { signedUrl: 'https://signed.test/object' }, error: null })),
+        }));
+        mockSupabase.current = client;
+        Object.defineProperty(globalThis.navigator, 'onLine', { value: true, configurable: true });
+        setAuthIdentityScope(account);
+
+        const dataPhoto = 'data:image/jpeg;base64,SEFOREFAIL';
+        const storageRef = `storage:diary-photos:${account}/uncommitted.jpg`;
+        const queued: DiaryEntry = {
+            ...makeServerEntry('offline-photo-handoff-fail', account),
+            photos: [dataPhoto],
+            client_operation_id: 'photo-handoff-fail-op',
+            client_revision: 1,
+        };
+        localStorage.setItem(keyFor('thalassa_diary_pending_v2', account), JSON.stringify([queued]));
+
+        const internals = DiaryService as unknown as {
+            _uploadDataUri(value: string, scope: AuthIdentityScope): Promise<string | null>;
+            _savePending(entries: DiaryEntry[], scope?: AuthIdentityScope): boolean;
+        };
+        const upload = vi.spyOn(internals, '_uploadDataUri').mockResolvedValue(storageRef);
+        const originalSave = internals._savePending.bind(internals);
+        const save = vi
+            .spyOn(internals, '_savePending')
+            .mockImplementation((entries, scope) =>
+                entries.some((entry) => entry.photos.includes(storageRef)) ? false : originalSave(entries, scope),
+            );
+        try {
+            await DiaryService.syncPending();
+
+            expect(relay.submitDiaryDirect).not.toHaveBeenCalled();
+            expect(remove).toHaveBeenCalledOnce();
+            expect(remove).toHaveBeenCalledWith([`${account}/uncommitted.jpg`]);
+            expect(
+                JSON.parse(localStorage.getItem(keyFor('thalassa_diary_pending_v2', account)) ?? '[]'),
+            ).toMatchObject([{ photos: [dataPhoto] }]);
+        } finally {
+            upload.mockRestore();
+            save.mockRestore();
+        }
+    });
+
+    it('does not adopt a data-URI voice memo when its storage ref cannot be saved to the outbox', async () => {
+        const account = `audio-handoff-fail-${testNumber}`;
+        const controls: SupabaseControls = { userId: account, inserts: [], deletes: [] };
+        const client = createSupabaseMock(controls);
+        const remove = vi.fn().mockResolvedValue({ error: null });
+        client.storage.from = vi.fn(() => ({
+            upload: vi.fn(async () => ({ error: null })),
+            remove,
+            createSignedUrl: vi.fn(async () => ({ data: { signedUrl: 'https://signed.test/object' }, error: null })),
+        }));
+        mockSupabase.current = client;
+        Object.defineProperty(globalThis.navigator, 'onLine', { value: true, configurable: true });
+        setAuthIdentityScope(account);
+
+        const dataAudio = 'data:audio/mp4;base64,SEFOREAUDIO';
+        const storageRef = `storage:diary-audio:${account}/uncommitted.m4a`;
+        const queued: DiaryEntry = {
+            ...makeServerEntry('offline-audio-handoff-fail', account),
+            audio_url: dataAudio,
+            client_operation_id: 'audio-handoff-fail-op',
+            client_revision: 1,
+        };
+        localStorage.setItem(keyFor('thalassa_diary_pending_v2', account), JSON.stringify([queued]));
+
+        const internals = DiaryService as unknown as {
+            _uploadAudioDataUri(value: string, scope: AuthIdentityScope): Promise<string | null>;
+            _savePending(entries: DiaryEntry[], scope?: AuthIdentityScope): boolean;
+        };
+        const upload = vi.spyOn(internals, '_uploadAudioDataUri').mockResolvedValue(storageRef);
+        const originalSave = internals._savePending.bind(internals);
+        const save = vi
+            .spyOn(internals, '_savePending')
+            .mockImplementation((entries, scope) =>
+                entries.some((entry) => entry.audio_url === storageRef) ? false : originalSave(entries, scope),
+            );
+        try {
+            await DiaryService.syncPending();
+
+            expect(relay.submitDiaryDirect).not.toHaveBeenCalled();
+            expect(remove).toHaveBeenCalledOnce();
+            expect(remove).toHaveBeenCalledWith([`${account}/uncommitted.m4a`]);
+            expect(
+                JSON.parse(localStorage.getItem(keyFor('thalassa_diary_pending_v2', account)) ?? '[]'),
+            ).toMatchObject([{ audio_url: dataAudio }]);
+        } finally {
+            upload.mockRestore();
+            save.mockRestore();
+        }
+    });
+
+    it('discards an unsaved private photo by exact object path', async () => {
+        const account = `photo-discard-${testNumber}`;
+        const controls: SupabaseControls = { userId: account, inserts: [], deletes: [] };
+        const client = createSupabaseMock(controls);
+        const remove = vi.fn().mockResolvedValue({ error: null });
+        client.storage.from = vi.fn(() => ({
+            upload: vi.fn(async () => ({ error: null })),
+            remove,
+            createSignedUrl: vi.fn(async () => ({ data: { signedUrl: 'https://signed.test/object' }, error: null })),
+        }));
+        mockSupabase.current = client;
+        setAuthIdentityScope(account);
+
+        await DiaryService.discardUnsavedPhoto(`storage:diary-photos:${account}/compose-only.jpg`);
+
+        expect(client.storage.from).toHaveBeenCalledWith('diary-photos');
+        expect(remove).toHaveBeenCalledWith([`${account}/compose-only.jpg`]);
+    });
+
+    it('retires the exact private photo when identity changes after upload', async () => {
+        const accountA = `photo-upload-a-${testNumber}`;
+        const controls: SupabaseControls = { userId: accountA, inserts: [], deletes: [] };
+        const client = createSupabaseMock(controls);
+        const uploaded = deferred<{ error: null }>();
+        const upload = vi.fn().mockReturnValue(uploaded.promise);
+        const remove = vi.fn().mockResolvedValue({ error: null });
+        client.storage.from = vi.fn(() => ({
+            upload,
+            remove,
+            createSignedUrl: vi.fn(async () => ({ data: { signedUrl: 'https://signed.test/object' }, error: null })),
+        }));
+        mockSupabase.current = client;
+        Object.defineProperty(globalThis.navigator, 'onLine', { value: true, configurable: true });
+        setAuthIdentityScope(accountA);
+        const scope = getAuthIdentityScope();
+        const internals = DiaryService as unknown as {
+            _compressImage(file: File): Promise<Blob>;
+            _uploadPhotoToStorage(file: File, uploadScope: AuthIdentityScope): Promise<string | null>;
+        };
+        const compress = vi
+            .spyOn(internals, '_compressImage')
+            .mockResolvedValue(new Blob(['compressed'], { type: 'image/jpeg' }));
+
+        const pending = internals._uploadPhotoToStorage(new File(['raw'], 'diary.jpg', { type: 'image/jpeg' }), scope);
+        await vi.waitFor(() => expect(upload).toHaveBeenCalledOnce());
+        const uploadedPath = upload.mock.calls[0][0] as string;
+
+        setAuthIdentityScope(`photo-upload-b-${testNumber}`);
+        uploaded.resolve({ error: null });
+
+        await expect(pending).resolves.toBeNull();
+        expect(remove).toHaveBeenCalledWith([uploadedPath]);
+        expect(uploadedPath).toMatch(new RegExp(`^${accountA}/\\d+[.]jpg$`));
+        compress.mockRestore();
+    });
+
+    it('retires the exact private audio object when identity changes after upload', async () => {
+        const accountA = `audio-upload-a-${testNumber}`;
+        const controls: SupabaseControls = { userId: accountA, inserts: [], deletes: [] };
+        const client = createSupabaseMock(controls);
+        const uploaded = deferred<{ error: null }>();
+        const upload = vi.fn().mockReturnValue(uploaded.promise);
+        const remove = vi.fn().mockResolvedValue({ error: null });
+        client.storage.from = vi.fn(() => ({
+            upload,
+            remove,
+            createSignedUrl: vi.fn(async () => ({ data: { signedUrl: 'https://signed.test/object' }, error: null })),
+        }));
+        mockSupabase.current = client;
+        Object.defineProperty(globalThis.navigator, 'onLine', { value: true, configurable: true });
+        setAuthIdentityScope(accountA);
+        const scope = getAuthIdentityScope();
+        const internals = DiaryService as unknown as {
+            _uploadAudioBlob(blob: Blob, uploadScope: AuthIdentityScope): Promise<string | null>;
+        };
+
+        const pending = internals._uploadAudioBlob(new Blob(['memo'], { type: 'audio/mp4' }), scope);
+        await vi.waitFor(() => expect(upload).toHaveBeenCalledOnce());
+        const uploadedPath = upload.mock.calls[0][0] as string;
+
+        setAuthIdentityScope(`audio-upload-b-${testNumber}`);
+        uploaded.resolve({ error: null });
+
+        await expect(pending).resolves.toBeNull();
+        expect(remove).toHaveBeenCalledWith([uploadedPath]);
+        expect(uploadedPath).toMatch(new RegExp(`^${accountA}/\\d+[.]m4a$`));
     });
 });

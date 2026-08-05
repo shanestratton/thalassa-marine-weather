@@ -114,4 +114,24 @@ describe('SlideToAction', () => {
         expect(onConfirm).not.toHaveBeenCalled();
         expect(thumbOf(track).style.transform).toBe('translateX(0px)');
     });
+
+    it.each(['Enter', ' '])('confirms from the %s key', (key) => {
+        const onConfirm = vi.fn();
+        const { track } = renderTrack(onConfirm);
+
+        expect(track).toHaveAttribute('role', 'button');
+        expect(track).toHaveAttribute('tabindex', '0');
+        fireEvent.keyDown(track, { key });
+        expect(onConfirm).toHaveBeenCalledTimes(1);
+    });
+
+    it('removes a disabled action from keyboard focus and activation', () => {
+        const onConfirm = vi.fn();
+        const { track } = renderTrack(onConfirm, { disabled: true });
+
+        expect(track).toHaveAttribute('aria-disabled', 'true');
+        expect(track).toHaveAttribute('tabindex', '-1');
+        fireEvent.keyDown(track, { key: 'Enter' });
+        expect(onConfirm).not.toHaveBeenCalled();
+    });
 });

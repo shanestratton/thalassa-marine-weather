@@ -63,13 +63,14 @@ export function useConsensusMatrix({ mapRef, passage, setIsoProgress }: Consensu
     }, [passage.routeAnalysis, passage.departureTime]);
 
     // Route-sync playhead marker
-    const handleScrubPosition = useCallback((lat: number, lon: number) => {
-        const map = mapRef.current;
-        if (!map) return;
+    const handleScrubPosition = useCallback(
+        (lat: number, lon: number) => {
+            const map = mapRef.current;
+            if (!map) return;
 
-        if (!playheadMarkerRef.current) {
-            const el = document.createElement('div');
-            el.style.cssText = `
+            if (!playheadMarkerRef.current) {
+                const el = document.createElement('div');
+                el.style.cssText = `
                 width: 20px; height: 20px;
                 background: linear-gradient(135deg, #38bdf8, #a78bfa);
                 border: 3px solid #fff;
@@ -77,13 +78,15 @@ export function useConsensusMatrix({ mapRef, passage, setIsoProgress }: Consensu
                 box-shadow: 0 0 16px rgba(56,189,248,0.5), 0 4px 12px rgba(0,0,0,0.3);
                 transition: opacity 0.2s;
             `;
-            playheadMarkerRef.current = new mapboxgl.Marker({ element: el, anchor: 'center' })
-                .setLngLat([lon, lat])
-                .addTo(map);
-        } else {
-            playheadMarkerRef.current.setLngLat([lon, lat]);
-        }
-    }, []);
+                playheadMarkerRef.current = new mapboxgl.Marker({ element: el, anchor: 'center' })
+                    .setLngLat([lon, lat])
+                    .addTo(map);
+            } else {
+                playheadMarkerRef.current.setLngLat([lon, lat]);
+            }
+        },
+        [mapRef],
+    );
 
     // Clean up playhead when consensus closes
     useEffect(() => {

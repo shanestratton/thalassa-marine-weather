@@ -2,7 +2,9 @@
 # ═══════════════════════════════════════════════════════════════
 # Thalassa Pi Cache — One-Command Install
 #
-# Just run this on your Raspberry Pi. No questions. No config.
+# Public-beta default: loopback-only health/fixed-provider cache service.
+# LAN/private routes require the explicit unsafe development flags documented
+# in pi-cache/README.md.
 #
 #   bash install.sh
 #
@@ -104,7 +106,7 @@ echo -e "  ${GREEN}✓${NC} Node.js $(node -v)"
 # Run npm as the real user to avoid root-owned node_modules
 
 echo -e "  Installing dependencies..."
-sudo -u "$REAL_USER" npm install --prefix "$INSTALL_DIR" >/dev/null 2>&1
+sudo -u "$REAL_USER" npm ci --prefix "$INSTALL_DIR" --no-audit --no-fund >/dev/null 2>&1
 echo -e "  ${GREEN}✓${NC} Dependencies installed"
 
 echo -e "  Building..."
@@ -123,8 +125,8 @@ if ! sudo -u "$REAL_USER" npm run build --prefix "$INSTALL_DIR" >"$BUILD_LOG" 2>
 fi
 echo -e "  ${GREEN}✓${NC} Built"
 
-# Remove devDependencies (typescript etc.) to save ~50MB on the Pi
-sudo -u "$REAL_USER" npm prune --production --prefix "$INSTALL_DIR" >/dev/null 2>&1
+# Remove devDependencies (typescript etc.) to save ~50MB on the Pi.
+sudo -u "$REAL_USER" npm prune --omit=dev --prefix "$INSTALL_DIR" --no-audit >/dev/null 2>&1
 
 # ── Create cache directory ──
 
@@ -132,15 +134,18 @@ mkdir -p "$INSTALL_DIR/cache"
 mkdir -p "$INSTALL_DIR/enc-charts/cells"
 chown -R "${REAL_USER}:${REAL_USER}" "$INSTALL_DIR"
 
-# ── Create minimal .env (no secrets — the app pushes config later) ──
+# ── Create minimal fail-closed .env ──
 
 if [[ ! -f "$INSTALL_DIR/.env" ]]; then
     cat > "$INSTALL_DIR/.env" <<'ENVEOF'
 # Thalassa Pi Cache — auto-generated
-# The Thalassa app on your phone will configure this.
-# You don't need to edit anything here.
+# Public-beta defaults: loopback only, no private/admin routes, no ENC watcher.
+# See README.md before enabling any unsafe development flag.
 PORT=3001
 CACHE_DIR=./cache
+THALASSA_PI_LAN_BIND=0
+THALASSA_UNSAFE_ADMIN_API=0
+ENC_WATCHER_ENABLED=false
 ENVEOF
     chown "${REAL_USER}:${REAL_USER}" "$INSTALL_DIR/.env"
 fi
@@ -177,16 +182,15 @@ systemctl daemon-reload >/dev/null 2>&1
 systemctl enable thalassa-cache >/dev/null 2>&1
 systemctl restart thalassa-cache >/dev/null 2>&1
 
-# ── Publish mDNS service record ──
-# Advertise _thalassa-cache._tcp so the iOS app can discover this Pi by
-# service type instead of guessing hostnames. This way the user can rename
-# the host to anything (bosun, helm, whatever) and discovery still works.
+# ── Publish mDNS only after explicit LAN opt-in ──
+# Do not advertise a loopback-only service to the boat LAN.
 
-if ! command -v avahi-daemon &>/dev/null; then
-    echo -e "  Installing avahi..."
-    apt-get install -y avahi-daemon avahi-utils >/dev/null 2>&1
-fi
-systemctl enable --now avahi-daemon >/dev/null 2>&1
+if grep -Eq '^THALASSA_PI_LAN_BIND=1$' "$INSTALL_DIR/.env"; then
+    if ! command -v avahi-daemon &>/dev/null; then
+        echo -e "  Installing avahi..."
+        apt-get install -y avahi-daemon avahi-utils >/dev/null 2>&1
+    fi
+    systemctl enable --now avahi-daemon >/dev/null 2>&1
 
 # ── Install GDAL for ENC (S-57) chart conversion ──
 # pi-cache exposes /api/enc/convert which shells out to ogr2ogr to
@@ -198,8 +202,8 @@ if ! command -v ogr2ogr &>/dev/null; then
     apt-get install -y gdal-bin >/dev/null 2>&1
 fi
 
-AVAHI_SERVICE_FILE="/etc/avahi/services/thalassa-cache.service"
-tee "$AVAHI_SERVICE_FILE" > /dev/null <<'AVAHIEOF'
+    AVAHI_SERVICE_FILE="/etc/avahi/services/thalassa-cache.service"
+    tee "$AVAHI_SERVICE_FILE" > /dev/null <<'AVAHIEOF'
 <?xml version="1.0" standalone='no'?>
 <!DOCTYPE service-group SYSTEM "avahi-service.dtd">
 <service-group>
@@ -213,10 +217,13 @@ tee "$AVAHI_SERVICE_FILE" > /dev/null <<'AVAHIEOF'
 </service-group>
 AVAHIEOF
 
-# Avahi watches /etc/avahi/services/ and reloads automatically, but a
-# restart guarantees the record is live before we report success.
-systemctl restart avahi-daemon >/dev/null 2>&1
-echo -e "  ${GREEN}✓${NC} mDNS published (_thalassa-cache._tcp)"
+    # Avahi watches /etc/avahi/services/ and reloads automatically, but a
+    # restart guarantees the record is live before we report success.
+    systemctl restart avahi-daemon >/dev/null 2>&1
+    echo -e "  ${GREEN}✓${NC} mDNS published (_thalassa-cache._tcp)"
+else
+    echo -e "  ${YELLOW}!${NC} LAN/mDNS disabled (public-beta safe default)"
+fi
 
 # ── Chart download permissions ──
 # pi-cache's new /api/charts/download endpoint writes chart files (NOAA
@@ -242,17 +249,14 @@ sleep 2
 
 # ── Done ──
 
-PI_IP=$(hostname -I | awk '{print $1}')
-
 if systemctl is-active --quiet thalassa-cache; then
     echo ""
     echo -e "${GREEN}${BOLD}  ✓ Done!${NC}"
     echo ""
-    echo -e "  Now open Thalassa on your phone"
-    echo -e "  Go to ${BOLD}Settings → Boat Network${NC} (or Nav Station → Boat Network)"
-    echo -e "  Flip the toggle — it'll find this Pi automatically."
+    echo -e "  Public-beta safe mode is active: loopback only, private routes disabled."
+    echo -e "  See ${BOLD}${INSTALL_DIR}/README.md${NC} for isolated development flags."
     echo ""
-    echo -e "  ${CYAN}http://${PI_IP}:3001${NC}"
+    echo -e "  ${CYAN}http://127.0.0.1:3001/health${NC}"
     echo ""
 else
     echo -e "\n${RED}  Something went wrong. Run: sudo journalctl -u thalassa-cache -f${NC}\n"

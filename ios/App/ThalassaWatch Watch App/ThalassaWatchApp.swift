@@ -14,9 +14,8 @@ struct ThalassaWatchApp: App {
     /// lifetime so we don't lose the activation state on tab switches.
     @StateObject private var session = WatchSession()
 
-    /// Reads watch-local GPS for the standalone anchor alarm logic.
-    /// (We don't trust the phone for the actual drag detection — if
-    /// the phone dies overnight, the watch must still alarm.)
+    /// Reads watch-local GPS only while the Anchor tab is visible. This is
+    /// a foreground companion check, not standalone overnight monitoring.
     @StateObject private var location = LocationManager()
 
     var body: some Scene {

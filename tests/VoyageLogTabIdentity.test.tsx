@@ -18,6 +18,7 @@ const mocks = vi.hoisted(() => ({
         filters: Array<{ column: string; value: unknown }>;
     }>,
     getConfig: vi.fn(),
+    ensureConfigured: vi.fn(),
     ensureEnabled: vi.fn(),
     setEnabled: vi.fn(),
     getHiddenVoyageIds: vi.fn(),
@@ -36,6 +37,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('../services/VoyageLogService', () => ({
     VoyageLogService: {
         getConfig: mocks.getConfig,
+        ensureConfigured: mocks.ensureConfigured,
         ensureEnabled: mocks.ensureEnabled,
         setEnabled: mocks.setEnabled,
         getHiddenVoyageIds: mocks.getHiddenVoyageIds,
@@ -194,6 +196,7 @@ describe('VoyageLogTab identity transitions', () => {
         });
         mocks.clipboardWrite.mockResolvedValue(undefined);
         mocks.getConfig.mockResolvedValue(config('account-a', 'boat-a'));
+        mocks.ensureConfigured.mockResolvedValue(config('account-a', 'boat-a', false));
         mocks.ensureEnabled.mockResolvedValue(config('account-a', 'boat-a'));
         mocks.setEnabled.mockResolvedValue(config('account-a', 'boat-a'));
         mocks.getHiddenVoyageIds.mockResolvedValue(new Set());
@@ -232,7 +235,7 @@ describe('VoyageLogTab identity transitions', () => {
         });
     });
 
-    it('synchronously hides A config, key, boats, tracks, picker, and copy state while B loads', async () => {
+    it('synchronously hides A config, boats, tracks, picker, and copy state while B loads', async () => {
         const accountBConfig = deferred<VoyageLogConfig | null>();
         mocks.getConfig
             .mockResolvedValueOnce(config('account-a', 'boat-a'))
@@ -242,10 +245,11 @@ describe('VoyageLogTab identity transitions', () => {
 
         expect(await screen.findByText('https://account-a-private-handle.thalassawx.app')).toBeInTheDocument();
         expect(await screen.findByText('Crew Boat A')).toBeInTheDocument();
-        fireEvent.click(screen.getByRole('button', { name: 'Reveal API key' }));
-        expect(screen.getByText('account-a-PRIVATE-API-KEY')).toBeInTheDocument();
-        fireEvent.click(screen.getByRole('button', { name: 'Copy API key' }));
-        await waitFor(() => expect(screen.getByRole('button', { name: 'Copy API key' })).toHaveTextContent('Copied'));
+        expect(screen.queryByText('account-a-PRIVATE-API-KEY')).not.toBeInTheDocument();
+        fireEvent.click(screen.getByRole('button', { name: 'Copy API endpoint URL' }));
+        await waitFor(() =>
+            expect(screen.getByRole('button', { name: 'Copy API endpoint URL' })).toHaveTextContent('Copied'),
+        );
         fireEvent.click(screen.getByText(/Passage: none/));
         expect(screen.getByRole('button', { name: /Plan A/ })).toBeInTheDocument();
 
@@ -267,7 +271,7 @@ describe('VoyageLogTab identity transitions', () => {
     it('discards a deferred A setup result without a B haptic or config flash', async () => {
         const accountASetup = deferred<VoyageLogConfig | null>();
         mocks.getConfig.mockResolvedValue(null);
-        mocks.ensureEnabled.mockReturnValueOnce(accountASetup.promise);
+        mocks.ensureConfigured.mockReturnValueOnce(accountASetup.promise);
         renderTab();
         fireEvent.click(await screen.findByRole('button', { name: 'Set up your voyage log' }));
 

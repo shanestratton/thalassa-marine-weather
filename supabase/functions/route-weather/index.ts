@@ -9,10 +9,10 @@ import {
     sampleWW3Shard,
     validateWW3Metadata,
     validateWW3Shard,
-    WW3_METADATA_FILE,
-    WW3ValidationError,
-    type WW3Metadata,
     type WaveConditions,
+    WW3_METADATA_FILE,
+    type WW3Metadata,
+    WW3ValidationError,
 } from '../_shared/ww3.ts';
 import {
     alignWeatherKitHours,
@@ -220,7 +220,9 @@ async function fetchSeamarks(
     // Build bounding box (~5nm around the marina)
     const latDelta = radiusNM / 60; // 1nm ≈ 1 minute of latitude
     const lonDelta = radiusNM / (60 * Math.cos(lat * DEG_TO_RAD));
-    const bbox = `${(lat - latDelta).toFixed(4)},${(lon - lonDelta).toFixed(4)},${(lat + latDelta).toFixed(4)},${(lon + lonDelta).toFixed(4)}`;
+    const bbox = `${(lat - latDelta).toFixed(4)},${(lon - lonDelta).toFixed(4)},${(lat + latDelta).toFixed(4)},${
+        (lon + lonDelta).toFixed(4)
+    }`;
 
     // Check cache
     const cacheKey = bbox;
@@ -352,8 +354,7 @@ function classifyMark(tags: Record<string, string>, region: IALARegion): string 
         if (category === 'starboard') return 'starboard';
 
         // Fall back to colour + IALA region mapping
-        const colour =
-            tags['seamark:beacon_lateral:colour'] ||
+        const colour = tags['seamark:beacon_lateral:colour'] ||
             tags['seamark:buoy_lateral:colour'] ||
             tags['seamark:lateral:colour'] ||
             '';
@@ -399,8 +400,9 @@ function parseNavMarks(elements: SeamarkElement[], originLat: number, originLon:
             !seamarkType.includes('lateral') &&
             !seamarkType.includes('cardinal') &&
             !seamarkType.includes('safe_water')
-        )
+        ) {
             continue;
+        }
 
         // Get position
         let lat = el.lat;
@@ -508,7 +510,9 @@ function buildSafeWaterCorridor(marks: NavMark[], originLat: number, originLon: 
 
     console.info(`[Pilotage] ✅ Channel polygon: ${polygonPoints.length} vertices, ${gates.length} gates`);
     console.info(
-        `[Pilotage] Handshake point: ${handshakePoint.lat.toFixed(4)}, ${handshakePoint.lon.toFixed(4)} (${lastGate.distFromOrigin.toFixed(2)} nm from marina)`,
+        `[Pilotage] Handshake point: ${handshakePoint.lat.toFixed(4)}, ${handshakePoint.lon.toFixed(4)} (${
+            lastGate.distFromOrigin.toFixed(2)
+        } nm from marina)`,
     );
 
     return {
@@ -692,8 +696,8 @@ function stitchThreeLegCenterline(
 function haversineNM(lat1: number, lon1: number, lat2: number, lon2: number): number {
     const dLat = (lat2 - lat1) * DEG_TO_RAD;
     const dLon = (lon2 - lon1) * DEG_TO_RAD;
-    const a =
-        Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * DEG_TO_RAD) * Math.cos(lat2 * DEG_TO_RAD) * Math.sin(dLon / 2) ** 2;
+    const a = Math.sin(dLat / 2) ** 2 +
+        Math.cos(lat1 * DEG_TO_RAD) * Math.cos(lat2 * DEG_TO_RAD) * Math.sin(dLon / 2) ** 2;
     return 2 * EARTH_RADIUS_NM * Math.asin(Math.sqrt(a));
 }
 
@@ -701,8 +705,7 @@ function haversineNM(lat1: number, lon1: number, lat2: number, lon2: number): nu
 function bearing(lat1: number, lon1: number, lat2: number, lon2: number): number {
     const dLon = (lon2 - lon1) * DEG_TO_RAD;
     const y = Math.sin(dLon) * Math.cos(lat2 * DEG_TO_RAD);
-    const x =
-        Math.cos(lat1 * DEG_TO_RAD) * Math.sin(lat2 * DEG_TO_RAD) -
+    const x = Math.cos(lat1 * DEG_TO_RAD) * Math.sin(lat2 * DEG_TO_RAD) -
         Math.sin(lat1 * DEG_TO_RAD) * Math.cos(lat2 * DEG_TO_RAD) * Math.cos(dLon);
     return (Math.atan2(y, x) * RAD_TO_DEG + 360) % 360;
 }
@@ -718,8 +721,7 @@ function destinationPoint(lat: number, lon: number, bearingDeg: number, distNM: 
     const lonR = lon * DEG_TO_RAD;
 
     const lat2 = Math.asin(Math.sin(latR) * Math.cos(angDist) + Math.cos(latR) * Math.sin(angDist) * Math.cos(brng));
-    const lon2 =
-        lonR +
+    const lon2 = lonR +
         Math.atan2(
             Math.sin(brng) * Math.sin(angDist) * Math.cos(latR),
             Math.cos(angDist) - Math.sin(latR) * Math.sin(lat2),
@@ -816,7 +818,9 @@ function generateCorridorMesh(
     }
 
     console.info(
-        `[WeatherRouter] Generated corridor mesh: ${nodes.length} nodes (${centerline.length} rows × ${2 * lateralSteps + 1} cols)`,
+        `[WeatherRouter] Generated corridor mesh: ${nodes.length} nodes (${centerline.length} rows × ${
+            2 * lateralSteps + 1
+        } cols)`,
     );
     return nodes;
 }
@@ -887,7 +891,9 @@ function generateCorridorMeshVariable(
     // Log row widths for debugging
     const coastalRows = perRowCorridorWidth.filter((w) => w < DEFAULT_CORRIDOR_WIDTH_NM).length;
     console.info(
-        `[WeatherRouter] Generated variable mesh: ${nodes.length} nodes (${centerline.length} rows × ${2 * lateralSteps + 1} cols, ${coastalRows} coastal rows)`,
+        `[WeatherRouter] Generated variable mesh: ${nodes.length} nodes (${centerline.length} rows × ${
+            2 * lateralSteps + 1
+        } cols, ${coastalRows} coastal rows)`,
     );
     return nodes;
 }
@@ -990,13 +996,12 @@ async function fetchElevationGrid(
         const elevation = new Int16Array(rawData.length);
         for (let i = 0; i < rawData.length; i++) {
             const value = Number(rawData[i]);
-            elevation[i] =
-                !Number.isFinite(value) ||
-                value < -12_000 ||
-                value > 9_000 ||
-                (Number.isFinite(advertisedNoData) && value === advertisedNoData)
-                    ? UNSAFE_ELEVATION_SENTINEL_M
-                    : Math.round(value);
+            elevation[i] = !Number.isFinite(value) ||
+                    value < -12_000 ||
+                    value > 9_000 ||
+                    (Number.isFinite(advertisedNoData) && value === advertisedNoData)
+                ? UNSAFE_ELEVATION_SENTINEL_M
+                : Math.round(value);
         }
 
         // Build coordinate arrays
@@ -1016,7 +1021,9 @@ async function fetchElevationGrid(
         );
         if (!Number.isFinite(maxCellNM) || maxCellNM > LANDMASK_MAX_CELL_NM) {
             console.warn(
-                `[LandMask] Requested area would produce ${maxCellNM.toFixed(2)} NM cells; maximum is ${LANDMASK_MAX_CELL_NM} NM`,
+                `[LandMask] Requested area would produce ${
+                    maxCellNM.toFixed(2)
+                } NM cells; maximum is ${LANDMASK_MAX_CELL_NM} NM`,
             );
             return null;
         }
@@ -1116,7 +1123,9 @@ async function applyLandMask(
     }
 
     console.info(
-        `[LandMask] ${blockedCount} land/shallow nodes blocked out of ${nodes.length} total (${((blockedCount / nodes.length) * 100).toFixed(1)}%)`,
+        `[LandMask] ${blockedCount} land/shallow nodes blocked out of ${nodes.length} total (${
+            ((blockedCount / nodes.length) * 100).toFixed(1)
+        }%)`,
     );
     return { blockedCount, grid };
 }
@@ -1369,7 +1378,9 @@ async function fetchWeatherGrid(nodes: MeshNode[], departureTime: Date, maxHours
     const samplePoints = buildWeatherSamplePoints(nodes, resolution);
 
     console.info(
-        `[WeatherRouter] Fetching weather for ${samplePoints.length} grid points (${(maxLat - minLat).toFixed(1)}° × ${(maxLon - minLon).toFixed(1)}°)`,
+        `[WeatherRouter] Fetching weather for ${samplePoints.length} grid points (${(maxLat - minLat).toFixed(1)}° × ${
+            (maxLon - minLon).toFixed(1)
+        }°)`,
     );
 
     // Fetch in parallel batches of 10
@@ -1641,10 +1652,9 @@ function lerpSample(a: WeatherSample, b: WeatherSample, t: number): WeatherSampl
         windDir: lerpAngle(a.windDir, b.windDir, t),
         waveHeight: a.waveHeight + (b.waveHeight - a.waveHeight) * t,
         waveDirection: lerpAngle(a.waveDirection, b.waveDirection, t),
-        swellPeriod:
-            a.swellPeriod && b.swellPeriod
-                ? a.swellPeriod + (b.swellPeriod - a.swellPeriod) * t
-                : a.swellPeriod || b.swellPeriod,
+        swellPeriod: a.swellPeriod && b.swellPeriod
+            ? a.swellPeriod + (b.swellPeriod - a.swellPeriod) * t
+            : a.swellPeriod || b.swellPeriod,
     };
 }
 
@@ -1744,22 +1754,18 @@ function estimateSpeed(vessel: VesselParams, weather: WeatherSample, courseBeari
             if (polarSpeed <= 0) return 0;
             const vmgFactor = Math.cos(twa * DEG_TO_RAD);
             speed = polarSpeed * vmgFactor;
-        }
-        // CLOSE REACH (50–70°)
+        } // CLOSE REACH (50–70°)
         else if (twa < 70) {
             speed = polarSpeedAt(twa);
             const vmgFactor = 0.8 + 0.2 * ((twa - 50) / 20);
             speed *= vmgFactor;
-        }
-        // BEAM REACH (70–120°) — optimal, full polar speed
+        } // BEAM REACH (70–120°) — optimal, full polar speed
         else if (twa <= 120) {
             speed = polarSpeedAt(twa);
-        }
-        // BROAD REACH (120–150°)
+        } // BROAD REACH (120–150°)
         else if (twa <= 150) {
             speed = polarSpeedAt(twa);
-        }
-        // DEAD RUN (150–180°)
+        } // DEAD RUN (150–180°)
         else {
             speed = polarSpeedAt(twa);
         }
@@ -1965,8 +1971,8 @@ function evaluateEdgeTraversal(
                 const arrivalSpeed = estimateSpeed(vessel, arrivalWeather, courseBrg);
                 if (midpointSpeed <= 0 || arrivalSpeed <= 0) return null;
 
-                const refinedTimeH =
-                    (sliceDistanceNM / 6) * (1 / departureSpeed + 4 / midpointSpeed + 1 / arrivalSpeed);
+                const refinedTimeH = (sliceDistanceNM / 6) *
+                    (1 / departureSpeed + 4 / midpointSpeed + 1 / arrivalSpeed);
                 if (!Number.isFinite(refinedTimeH) || refinedTimeH <= 0) return null;
                 if (Math.abs(refinedTimeH - sliceTimeH) <= 0.001) {
                     sliceTimeH = refinedTimeH;
@@ -1995,10 +2001,9 @@ function evaluateEdgeTraversal(
                 return null;
             }
 
-            const comfortPenalty =
-                (calculateComfortPenalty(departureWeather, vessel, courseBrg) +
-                    4 * calculateComfortPenalty(midpointWeather, vessel, courseBrg) +
-                    calculateComfortPenalty(arrivalWeather, vessel, courseBrg)) /
+            const comfortPenalty = (calculateComfortPenalty(departureWeather, vessel, courseBrg) +
+                4 * calculateComfortPenalty(midpointWeather, vessel, courseBrg) +
+                calculateComfortPenalty(arrivalWeather, vessel, courseBrg)) /
                 6;
             edgeCost += sliceTimeH * comfortPenalty;
             currentTimeH += sliceTimeH;
@@ -2083,7 +2088,9 @@ function corridorAStar(
         // Check if we've reached a goal
         if (goalIds.has(current.nodeId) && current.gTime <= weatherGrid.hoursAvailable) {
             console.info(
-                `[WeatherRouter] A* found path: ${expanded} expansions, ${current.gTime.toFixed(1)}h, cost=${current.gCost.toFixed(2)}`,
+                `[WeatherRouter] A* found path: ${expanded} expansions, ${current.gTime.toFixed(1)}h, cost=${
+                    current.gCost.toFixed(2)
+                }`,
             );
             return reconstructPath(nodes, parent, gTime, current.nodeId, current.gTime, current.gCost);
         }
@@ -2345,7 +2352,8 @@ Deno.serve(async (req: Request) => {
         if (maxHours > MAX_ROUTE_FORECAST_HOURS) {
             return jsonResponse(
                 {
-                    error: `Route needs at least ${maxHours} hours of forecast coverage; verified routing is limited to ${MAX_ROUTE_FORECAST_HOURS} hours`,
+                    error:
+                        `Route needs at least ${maxHours} hours of forecast coverage; verified routing is limited to ${MAX_ROUTE_FORECAST_HOURS} hours`,
                     code: 'forecast_horizon_insufficient',
                 },
                 422,
@@ -2375,7 +2383,9 @@ Deno.serve(async (req: Request) => {
         // ── Diagnostic logging ──
         const unsafeDepthNodes = meshNodes.filter((n) => n.isUnsafeDepth).length;
         console.info(
-            `[WeatherRouter] Mesh: ${meshNodes.length} nodes, ${unsafeDepthNodes} land/shallow (${((unsafeDepthNodes / meshNodes.length) * 100).toFixed(1)}%), weather grid: ${weatherGrid.data.size} pts, ${weatherGrid.hoursAvailable}h`,
+            `[WeatherRouter] Mesh: ${meshNodes.length} nodes, ${unsafeDepthNodes} land/shallow (${
+                ((unsafeDepthNodes / meshNodes.length) * 100).toFixed(1)
+            }%), weather grid: ${weatherGrid.data.size} pts, ${weatherGrid.hoursAvailable}h`,
         );
 
         const result = corridorAStar(
@@ -2465,12 +2475,11 @@ Deno.serve(async (req: Request) => {
                 coordinates: [Math.round(node.lon * 10000) / 10000, Math.round(node.lat * 10000) / 10000],
                 distance_from_start_nm: Math.round(cumulativeDistNM * 10) / 10,
                 time_offset_hours: Math.round(timeOffsetH * 10) / 10,
-                name:
-                    i === 0
-                        ? departureWp.name || 'Departure'
-                        : i === verifiedPath.length - 1
-                          ? arrivalWp.name || 'Arrival'
-                          : `WP-${String(i).padStart(2, '0')}`,
+                name: i === 0
+                    ? departureWp.name || 'Departure'
+                    : i === verifiedPath.length - 1
+                    ? arrivalWp.name || 'Arrival'
+                    : `WP-${String(i).padStart(2, '0')}`,
                 leg_type: 'ocean',
                 lateral_offset_nm: node.lateralOffset * (corridorWidth / lateralSteps),
                 conditions: {
@@ -2501,7 +2510,9 @@ Deno.serve(async (req: Request) => {
 
         console.info(`[WeatherRouter] ── COMPLETE ─────────────────────────────`);
         console.info(
-            `[WeatherRouter] ${track.length} track points (${track.filter((t) => t.leg_type === 'harbour').length} harbour, ${track.filter((t) => t.leg_type === 'ocean').length} ocean), ${routeDistNM.toFixed(1)} NM`,
+            `[WeatherRouter] ${track.length} track points (${
+                track.filter((t) => t.leg_type === 'harbour').length
+            } harbour, ${track.filter((t) => t.leg_type === 'ocean').length} ocean), ${routeDistNM.toFixed(1)} NM`,
         );
         console.info(`[WeatherRouter] ETA: ${result.totalTimeH.toFixed(1)}h, Cost: ${result.totalCost.toFixed(2)}`);
         console.info(`[WeatherRouter] Computed in ${computeMs}ms`);

@@ -258,6 +258,8 @@ interface MockReadinessProps {
     onNavChange: (value: boolean) => void;
     onVesselProfileChange: (value: boolean) => void;
     onWeatherWindowChange: (value: boolean) => void;
+    onCurrentsChange: (value: boolean) => void;
+    onProvisionedChange: (value: boolean) => void;
     onAssignCard: (cardKey: string, email: string) => void;
 }
 
@@ -288,9 +290,33 @@ vi.mock('../components/crew/ReadinessCardStack', () => ({
                         props.onCustomsChange(1, 1);
                         props.onNavChange(true);
                         props.onWeatherWindowChange(true);
+                        props.onCurrentsChange(true);
+                        props.onProvisionedChange(true);
                     }}
                 >
                     Mark passage ready
+                </button>
+                <button
+                    type="button"
+                    onClick={() => {
+                        props.onVesselProfileChange(true);
+                        props.onReservesChange(true);
+                        props.onVesselCheckChange(true);
+                        props.onMedicalChange(true);
+                        props.onWatchChange(true);
+                        props.onCommsChange(true);
+                        props.onCustomsChange(1, 1);
+                        props.onNavChange(true);
+                        props.onWeatherWindowChange(true);
+                    }}
+                >
+                    Mark core checks ready
+                </button>
+                <button type="button" onClick={() => props.onCurrentsChange(true)}>
+                    Mark currents ready
+                </button>
+                <button type="button" onClick={() => props.onProvisionedChange(true)}>
+                    Mark provisioning ready
                 </button>
                 {props.passageStatus.isOwner && (
                     <button type="button" onClick={() => props.onAssignCard('weather', 'deckhand@example.com')}>
@@ -708,16 +734,44 @@ describe('CrewManagement shared passage ownership', () => {
         expect(castOff).toBeDisabled();
 
         fireEvent.click(screen.getByRole('button', { name: 'Mark passage ready' }));
-        expect(castOff).toBeEnabled();
+        await waitFor(() => expect(castOff).toBeEnabled());
         fireEvent.click(screen.getByRole('button', { name: 'Assign card' }));
-        expect(screen.getByTestId('readiness-stack')).toHaveAttribute('data-delegation-count', '1');
+        await waitFor(() =>
+            expect(screen.getByTestId('readiness-stack')).toHaveAttribute('data-delegation-count', '1'),
+        );
 
         fireEvent.change(selector, { target: { value: second.id } });
 
-        await waitFor(() => expect(selector).toHaveValue(second.id));
-        expect(screen.getByRole('button', { name: 'Cast Off' })).toBeDisabled();
-        expect(screen.getByTestId('readiness-stack')).toHaveAttribute('data-delegation-count', '0');
-        expect(mocks.setActivePassage).toHaveBeenCalledWith(second.id);
+        await waitFor(() => {
+            expect(selector).toHaveValue(second.id);
+            expect(screen.getByRole('button', { name: 'Cast Off' })).toBeDisabled();
+            expect(screen.getByTestId('readiness-stack')).toHaveAttribute('data-delegation-count', '0');
+            expect(mocks.setActivePassage).toHaveBeenCalledWith(second.id);
+        });
+    });
+
+    it('keeps Cast Off locked until currents and provisioning are both ready', async () => {
+        const own = voyage('voyage-1', 'crew-user', 'Private passage');
+        mocks.activePassageId = own.id;
+        mocks.getDraftVoyages.mockResolvedValue([own]);
+        mocks.fetchRoutesAndTracks.mockResolvedValue({
+            routes: [route('planned-private', own.voyage_name)],
+            tracks: [],
+        });
+        mocks.getPassageStatus.mockImplementation(async (id: string | null) => (id ? statusFor(id, true) : noAccess));
+
+        renderPage();
+        await screen.findByRole('combobox');
+        const castOff = await screen.findByRole('button', { name: 'Cast Off' });
+
+        fireEvent.click(screen.getByRole('button', { name: 'Mark core checks ready' }));
+        expect(castOff).toBeDisabled();
+
+        fireEvent.click(screen.getByRole('button', { name: 'Mark currents ready' }));
+        expect(castOff).toBeDisabled();
+
+        fireEvent.click(screen.getByRole('button', { name: 'Mark provisioning ready' }));
+        expect(castOff).toBeEnabled();
     });
 
     it('isolates per-voyage delegation emails across account transitions', async () => {

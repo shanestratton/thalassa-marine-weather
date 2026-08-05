@@ -1,5 +1,5 @@
 /**
- * Lighthouse CI — measuring THE REAL APP since 2026-07-30.
+ * Lighthouse release audit — measuring THE REAL APP since 2026-07-30.
  *
  * It previously measured the legal disclaimer. index.tsx's RootGate returns
  * <DisclaimerOverlay /> ahead of the <Suspense> that lazy-loads
@@ -8,18 +8,16 @@
  * tell was arithmetic sitting in this file: `total-byte-weight <= 524288`
  * PASSED against a dist/assets of ~9.5 MB.
  *
- * scripts/lighthouse-setup.cjs seeds the acceptance key before the run, with
- * disableStorageReset so Lighthouse does not wipe it. Byte weight is now
- * ~597 KB on every run, which is how you can tell it is the app.
+ * scripts/run-lighthouse-audit.mjs invokes scripts/lighthouse-setup.cjs to seed
+ * the acceptance key before the run, with disableStorageReset so Lighthouse
+ * does not wipe it. Byte weight is now ~597 KB on every run, which is how you
+ * can tell it is the app.
  *
- * WHAT CHANGED IN THE TOOLING, because it is not obvious and it cost two red
- * builds: `puppeteerScript` makes lhci resolve Chrome THROUGH puppeteer, so
- * puppeteer must be resolvable FROM LHCI. A global `npm install -g @lhci/cli`
- * cannot see the project's node_modules, and neither can `npx @lhci/cli`, which
- * runs from its own temp tree — both fail healthcheck with "Chrome installation
- * not found / path must be of type string". @lhci/cli is therefore a
- * devDependency now and CI runs the LOCAL binary. That also pins the version in
- * package.json instead of floating on a global install.
+ * The project runs Lighthouse directly through
+ * scripts/run-lighthouse-audit.mjs. That keeps the browser, Lighthouse, and
+ * Puppeteer versions in the audited lockfile, avoids the obsolete LHCI CLI
+ * dependency chain, and keeps reports in CI artifacts rather than temporary
+ * public storage.
  *
  * The budgets below are the app's honest numbers, not aspirations. Every
  * ratcheted line records the value it must return to. They are set above the
@@ -35,13 +33,10 @@
 module.exports = {
     ci: {
         collect: {
-            url: ['http://localhost:4173/'],
-            startServerCommand: 'npm run preview',
-            startServerReadyPattern: 'Local.*http',
-            // ONE RUN, deliberately. puppeteerScript runs ONCE per lhci
-            // invocation, not once per Lighthouse run, and Lighthouse gives each
-            // run a fresh context — so with numberOfRuns > 1 the first run
-            // measures the app and the rest measure the disclaimer again. Proof:
+            url: ['http://127.0.0.1:4173/'],
+            // ONE RUN, deliberately. The seed is applied to the one browser
+            // profile audited by the direct runner. A multi-run implementation
+            // would need to reseed each fresh context. Proof from the old runner:
             // two runs of one build returned total-byte-weight 597013 and 8747.
             //
             // That also corrects what I first wrote here. I attributed the wild
@@ -54,8 +49,8 @@ module.exports = {
             // suspiciously good result.
             numberOfRuns: 1,
             // Accepts the legal disclaimer so the audit sees ApplicationShell
-            // rather than the splash screen. See the header.
-            puppeteerScript: './scripts/lighthouse-setup.cjs',
+            // rather than the splash screen. The direct runner invokes the setup
+            // script named in the header.
             // Without this, Lighthouse wipes the seeded acceptance flag.
             settings: { disableStorageReset: true },
         },
@@ -87,9 +82,6 @@ module.exports = {
                 // Observed ~597KB, rock steady. TARGET 524288.
                 'total-byte-weight': ['error', { maxNumericValue: 700000 }],
             },
-        },
-        upload: {
-            target: 'temporary-public-storage',
         },
     },
 };

@@ -20,6 +20,7 @@ import {
 import { triggerHaptic } from '../../utils/system';
 import { fetchRouteWaypointWeather, windCompass, type WaypointWeather } from '../../services/routeReportWeather';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
+import { traceVerificationSummary, type TraceReleaseGate } from '../../services/traceVerification';
 // The PDF service pulls in jsPDF (~350 KB) — lazy-imported in the export
 // handler so it never weighs down the chart's initial bundle.
 
@@ -63,6 +64,8 @@ interface Props {
     /** null while computing, '' when nothing tide-gated. */
     departureLabel: string | null;
     ackedLegs: ReadonlySet<number>;
+    /** Single geometry-bound release verdict shared with Save and Sail. */
+    releaseGate: TraceReleaseGate;
     /** Leg index currently being fixed (spinner), or null. */
     fixBusy: number | null;
     onFlyTo: (p: TracePoint) => void;
@@ -159,6 +162,7 @@ export const TraceReportModal: React.FC<Props> = ({
     tideLabels,
     departureLabel,
     ackedLegs,
+    releaseGate,
     fixBusy,
     onFlyTo,
     onFixLeg,
@@ -208,6 +212,10 @@ export const TraceReportModal: React.FC<Props> = ({
 
     const onExportPdf = React.useCallback(async () => {
         if (pins.length < 2 || exporting) return;
+        if (!releaseGate.allowed || !releaseGate.verification) {
+            setExportMsg(releaseGate.reason || 'Check the route again before exporting');
+            return;
+        }
         setExporting(true);
         setExportMsg(null);
         triggerHaptic('medium');
@@ -229,6 +237,7 @@ export const TraceReportModal: React.FC<Props> = ({
                 cruisingSpeedKts: spd,
                 departureMs,
                 nowMs: Date.now(),
+                verification: releaseGate.verification,
             });
             const outcome = await sharePdfBlob(
                 blob,
@@ -253,6 +262,7 @@ export const TraceReportModal: React.FC<Props> = ({
         spd,
         departureMs,
         exporting,
+        releaseGate,
     ]);
 
     // GPX export (Shane 2026-07-17: "export it in a gpx file for importing into
@@ -260,12 +270,18 @@ export const TraceReportModal: React.FC<Props> = ({
     // PDF. Route (not track): OpenCPN/Garmin/B&G import it as an activatable plan.
     const onExportGpx = React.useCallback(async () => {
         if (pins.length < 2 || exporting) return;
+        if (!releaseGate.allowed || !releaseGate.verification) {
+            setExportMsg(releaseGate.reason || 'Check the route again before exporting');
+            return;
+        }
         setExporting(true);
         setExportMsg(null);
         triggerHaptic('medium');
         try {
             const { shareFileBlob } = await import('../../utils/sharePdf');
-            const blob = new Blob([traceToGpx(routeName, pins)], { type: 'application/gpx+xml' });
+            const blob = new Blob([traceToGpx(routeName, pins, new Date().toISOString(), releaseGate.verification)], {
+                type: 'application/gpx+xml',
+            });
             const outcome = await shareFileBlob(
                 blob,
                 traceGpxFileName(routeName),
@@ -278,7 +294,7 @@ export const TraceReportModal: React.FC<Props> = ({
         } finally {
             setExporting(false);
         }
-    }, [pins, routeName, exporting]);
+    }, [pins, routeName, exporting, releaseGate]);
 
     if (!open) return null;
     const h = traceHealth(verdicts);
@@ -324,7 +340,7 @@ export const TraceReportModal: React.FC<Props> = ({
                     <div className="flex shrink-0 items-center gap-3">
                         <button
                             onClick={() => void onExportGpx()}
-                            disabled={exporting || pins.length < 2}
+                            disabled={exporting || pins.length < 2 || !releaseGate.allowed}
                             title="Export as GPX for a chartplotter (OpenCPN, Garmin, B&G…)"
                             className="rounded-lg bg-emerald-500/15 px-2.5 py-1.5 text-[11px] font-black uppercase tracking-wide text-emerald-300 active:scale-95 disabled:opacity-40"
                         >
@@ -332,7 +348,7 @@ export const TraceReportModal: React.FC<Props> = ({
                         </button>
                         <button
                             onClick={() => void onExportPdf()}
-                            disabled={exporting || pins.length < 2}
+                            disabled={exporting || pins.length < 2 || !releaseGate.allowed}
                             className="rounded-lg bg-sky-500/15 px-2.5 py-1.5 text-[11px] font-black uppercase tracking-wide text-sky-300 active:scale-95 disabled:opacity-40"
                         >
                             {exporting ? 'Making…' : '⬇ PDF'}
@@ -345,6 +361,25 @@ export const TraceReportModal: React.FC<Props> = ({
                 {exportMsg && (
                     <div className="shrink-0 border-b border-white/10 bg-sky-500/10 px-4 py-1.5 text-[11px] font-bold text-sky-300">
                         {exportMsg}
+                    </div>
+                )}
+                {!releaseGate.allowed && pins.length >= 2 && (
+                    <div
+                        role="status"
+                        className="shrink-0 border-b border-amber-500/20 bg-amber-500/10 px-4 py-2 text-[11px] font-bold leading-snug text-amber-200"
+                    >
+                        Export locked: {releaseGate.reason}
+                    </div>
+                )}
+                {releaseGate.verification && (
+                    <div
+                        className={`shrink-0 border-b px-4 py-2 text-[11px] font-black ${
+                            releaseGate.verification.result === 'danger-acknowledged'
+                                ? 'border-red-500/20 bg-red-500/10 text-red-200'
+                                : 'border-emerald-500/20 bg-emerald-500/10 text-emerald-200'
+                        }`}
+                    >
+                        {traceVerificationSummary(releaseGate.verification)}
                     </div>
                 )}
                 <div className="shrink-0 border-b border-white/10 px-4 py-2 text-[12px] font-bold">

@@ -21,8 +21,8 @@
  * This script does what a human orphan-audit does, but every commit:
  *   1. Parse viewRegistry.tsx → enumerate every route key.
  *   2. Grep the codebase for navigation calls referencing each key
- *      (setPage('x'), onNavigate('x'), navigate('x'), in both
- *      single- and double-quoted forms).
+ *      (setPage('x'), onNavigate('x'), navigate('x'), and audited
+ *      one-hop UI navigation adapters, in both quote styles).
  *   3. Subtract self-references (the registry itself) + test files.
  *   4. If anything has zero remaining call sites → fail.
  *
@@ -66,6 +66,24 @@ const INTENTIONAL_INDIRECT_ROUTES = new Set([
     // site, but it IS reachable in the running app.
     'glass',
 ]);
+
+// Functions whose literal arguments are genuine UI route entry points.
+// Keep this list limited to functions that immediately delegate to one of the
+// core navigation callbacks. Unlike INTENTIONAL_INDIRECT_ROUTES, adding a
+// wrapper here does not exempt any route: removing an individual button still
+// makes its route fail the audit.
+const NAVIGATION_ENTRY_POINT_CALLEES = [
+    'setPage',
+    'onNavigate',
+    'navigate',
+    // Boat Binder records that it should reopen on Back, then delegates the
+    // supplied route directly to VesselHub's onNavigate callback.
+    'navigateFromBinder',
+];
+
+const NAVIGATION_CALLEE_PATTERN = NAVIGATION_ENTRY_POINT_CALLEES.map((callee) =>
+    callee.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'),
+).join('|');
 
 // Directories to skip entirely. Anything inside these is build
 // output, dependencies, or test code where references don't count
@@ -177,13 +195,17 @@ function walkRepo(dir, hits, routeSet) {
         } catch {
             continue;
         }
-        // Build the regex once per file. Looks for any of:
+        // Build the regex once per file. Looks for any audited entry point:
         //   setPage('key')   setPage("key")
         //   onNavigate('key')   onNavigate("key")
         //   navigate('key')     navigate("key")
+        //   navigateFromBinder('key')
         for (const route of routeSet) {
             const escaped = route.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-            const re = new RegExp(`(?:setPage|onNavigate|navigate)\\s*\\(\\s*['"]${escaped}['"]\\s*[,)]`, 'g');
+            const re = new RegExp(
+                `(?:${NAVIGATION_CALLEE_PATTERN})\\s*\\(\\s*['"]${escaped}['"]\\s*[,)]`,
+                'g',
+            );
             const matches = src.matchAll(re);
             for (const m of matches) {
                 // Find line number from match index.
@@ -255,7 +277,7 @@ function main() {
         if (orphans.length > 0) {
             console.log(`❌ ${orphans.length} ORPHAN ROUTE${orphans.length === 1 ? '' : 'S'}:`);
             for (const r of orphans) {
-                console.log(`   - ${r}  (registered, no setPage/onNavigate call sites)`);
+                console.log(`   - ${r}  (registered, no audited UI navigation call sites)`);
             }
             console.log('');
         } else {

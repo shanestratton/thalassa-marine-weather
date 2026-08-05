@@ -1,13 +1,22 @@
 /**
  * MapOfflineService — Pre-download raster map tiles for offline use.
  *
- * Routing:
+ * Routing (only for a provider whose contract explicitly permits bulk/offline
+ * prefetch):
  *   - Pi available → tiles fetched through `piCache.passthroughTileUrl(url)`
  *     so they live on the boat's Pi SQLite cache and survive app reinstalls.
- *   - Pi unavailable → tiles fetched directly and cached by the service worker
- *     (see `public/sw.js` — TILE_CACHE, cache-first).
+ *   - Pi unavailable on native → tiles are written to Directory.Data and later
+ *     rendered through Capacitor's local-file bridge.
+ *   - Pi unavailable on web → tiles are explicitly written to CacheStorage
+ *     (the service worker reads the same cache while offline).
  *
- * Tile sources covered:
+ * The public OpenStreetMap and OpenSeaMap endpoints used by the interactive
+ * fallback map do not grant this app a bulk-download licence. They therefore
+ * remain render-only sources: normal browser/device caching of tiles a user
+ * views is preserved, but this service fails closed before enumerating or
+ * fetching an offline area.
+ *
+ * Render-only tile sources:
  *   - OSM raster base:  https://tile.openstreetmap.org/{z}/{x}/{y}.png
  *   - OpenSeaMap sea-marks overlay: https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png
  *
@@ -19,6 +28,8 @@
 import { piCache } from './PiCacheService';
 import { createLogger } from '../utils/createLogger';
 import { calculateDistance } from '../utils/navigationCalculations';
+import { Capacitor } from '@capacitor/core';
+import { Directory, Filesystem } from '@capacitor/filesystem';
 
 const log = createLogger('MapOffline');
 
@@ -59,7 +70,34 @@ export interface OfflineDownloadOptions {
 const TILE_TEMPLATES = [
     { name: 'osm', url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png' },
     { name: 'openseamap', url: 'https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png' },
-];
+] as const;
+
+/**
+ * Public-beta bulk-prefetch capability.
+ *
+ * This must stay fail-closed until a selected tile provider is represented by
+ * a reviewed contract that explicitly permits offline/bulk downloading. Do
+ * not flip this merely because a URL works through the Pi cache: proxying a
+ * request does not change the upstream provider's licence or usage policy.
+ */
+export const BULK_OFFLINE_PREFETCH_CAPABILITY = {
+    enabled: false,
+    providerId: 'public-osm-openseamap',
+    providerLabel: 'OpenStreetMap + OpenSeaMap public tile services',
+    reason: 'Offline-area download is unavailable because the active public map provider is not licensed for bulk prefetch. Imported MBTiles and licensed charts still work offline.',
+} as const;
+
+const NATIVE_TILE_DIRECTORY = 'offline_map_v1';
+// Must match public/sw.js so manually downloaded web tiles and ordinary map
+// requests share one cache.
+const WEB_TILE_CACHE = 'thalassa-v195-tiles';
+const nativeDirectories = new Set<string>();
+
+export interface OfflineTileTemplates {
+    osm: string;
+    openseamap: string;
+    storage: 'native-files' | 'web-cache';
+}
 
 // ── Public API ──
 
@@ -133,6 +171,80 @@ function fillTemplate(template: string, z: number, x: number, y: number): string
     return template.replace('{z}', String(z)).replace('{x}', String(x)).replace('{y}', String(y));
 }
 
+function uint8ToBase64(data: Uint8Array): string {
+    let binary = '';
+    const blockSize = 8192;
+    for (let offset = 0; offset < data.length; offset += blockSize) {
+        const block = data.subarray(offset, Math.min(offset + blockSize, data.length));
+        binary += String.fromCharCode(...block);
+    }
+    return btoa(binary);
+}
+
+async function ensureNativeDirectory(path: string): Promise<void> {
+    if (nativeDirectories.has(path)) return;
+    try {
+        await Filesystem.mkdir({ path, directory: Directory.Data, recursive: true });
+    } catch {
+        // mkdir may race another download worker or report that the directory
+        // already exists. The following write remains the source of truth.
+    }
+    nativeDirectories.add(path);
+}
+
+async function persistDirectTile(
+    source: (typeof TILE_TEMPLATES)[number]['name'],
+    coordinates: { z: number; x: number; y: number },
+    url: string,
+    response: Response,
+): Promise<void> {
+    if (Capacitor.isNativePlatform()) {
+        const directory = `${NATIVE_TILE_DIRECTORY}/${source}/${coordinates.z}/${coordinates.x}`;
+        await ensureNativeDirectory(directory);
+        const bytes = new Uint8Array(await response.arrayBuffer());
+        if (bytes.byteLength === 0) throw new Error('Tile response was empty');
+        await Filesystem.writeFile({
+            path: `${directory}/${coordinates.y}.png`,
+            data: uint8ToBase64(bytes),
+            directory: Directory.Data,
+        });
+        return;
+    }
+
+    if (!('caches' in globalThis)) throw new Error('Persistent browser cache is unavailable');
+    const cache = await caches.open(WEB_TILE_CACHE);
+    await cache.put(url, response);
+}
+
+/**
+ * Tile templates consumed by the offline raster layer. Native builds point at
+ * files in Directory.Data; web builds retain the public URLs so the service
+ * worker can satisfy them from WEB_TILE_CACHE.
+ */
+export async function getOfflineTileTemplates(): Promise<OfflineTileTemplates> {
+    if (!Capacitor.isNativePlatform()) {
+        return {
+            osm: TILE_TEMPLATES[0].url,
+            openseamap: TILE_TEMPLATES[1].url,
+            storage: 'web-cache',
+        };
+    }
+
+    const templateFor = async (source: (typeof TILE_TEMPLATES)[number]['name']): Promise<string> => {
+        const path = `${NATIVE_TILE_DIRECTORY}/${source}`;
+        await ensureNativeDirectory(path);
+        const uri = await Filesystem.getUri({ path, directory: Directory.Data });
+        const localRoot = Capacitor.convertFileSrc(uri.uri).replace(/\/$/, '');
+        return `${localRoot}/{z}/{x}/{y}.png`;
+    };
+
+    return {
+        osm: await templateFor('osm'),
+        openseamap: await templateFor('openseamap'),
+        storage: 'native-files',
+    };
+}
+
 // 30-day TTL for offline tiles on the Pi (default passthroughTileUrl TTL is 30 min).
 const OFFLINE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
@@ -148,11 +260,33 @@ export async function downloadArea(
 ): Promise<OfflineDownloadProgress> {
     const { bounds, minZoom, maxZoom, concurrency = 6, signal } = options;
 
+    // Licence boundary before enumeration, Pi proxying, CacheStorage, native
+    // writes, or network I/O. Public OSM/OpenSeaMap URLs must never become a
+    // bulk-prefetch job in a production client.
+    if (!BULK_OFFLINE_PREFETCH_CAPABILITY.enabled) {
+        const route: 'pi' | 'direct' = piCache.isAvailable() ? 'pi' : 'direct';
+        const blocked: OfflineDownloadProgress = {
+            phase: 'error',
+            current: 0,
+            total: 0,
+            failed: 0,
+            route,
+            message: BULK_OFFLINE_PREFETCH_CAPABILITY.reason,
+        };
+        onProgress(blocked);
+        log.warn(`Bulk tile prefetch blocked for ${BULK_OFFLINE_PREFETCH_CAPABILITY.providerId}`);
+        return blocked;
+    }
+
     const coords = enumerateTiles(bounds, minZoom, maxZoom);
-    const targets: string[] = [];
+    const targets: Array<{
+        source: (typeof TILE_TEMPLATES)[number]['name'];
+        coordinates: { z: number; x: number; y: number };
+        url: string;
+    }> = [];
     for (const { z, x, y } of coords) {
-        for (const { url } of TILE_TEMPLATES) {
-            targets.push(fillTemplate(url, z, x, y));
+        for (const { name, url } of TILE_TEMPLATES) {
+            targets.push({ source: name, coordinates: { z, x, y }, url: fillTemplate(url, z, x, y) });
         }
     }
 
@@ -175,22 +309,26 @@ export async function downloadArea(
     const worker = async () => {
         while (queue.length > 0) {
             if (signal?.aborted) return;
-            const url = queue.shift();
-            if (!url) return;
+            const target = queue.shift();
+            if (!target) return;
 
-            let fetchUrl = url;
+            let fetchUrl = target.url;
             if (usePi) {
-                const piUrl = piCache.passthroughTileUrl(url, OFFLINE_TTL_MS);
+                const piUrl = piCache.passthroughTileUrl(target.url, OFFLINE_TTL_MS);
                 if (piUrl) fetchUrl = piUrl;
             }
 
             try {
                 const res = await fetch(fetchUrl, { signal, cache: 'reload' });
-                if (!res.ok) failed++;
+                if (!res.ok) {
+                    failed++;
+                } else if (!usePi) {
+                    await persistDirectTile(target.source, target.coordinates, target.url, res.clone());
+                }
             } catch (err) {
                 if (signal?.aborted) return;
                 failed++;
-                log.warn(`Tile failed: ${url}`, err);
+                log.warn(`Tile failed: ${target.url}`, err);
             }
 
             current++;
@@ -224,6 +362,17 @@ export async function downloadArea(
     }
 
     const okCount = current - failed;
+    if (total > 0 && okCount === 0) {
+        emit('error', `Nothing was saved — ${failed} tiles failed`);
+        return {
+            phase: 'error',
+            current,
+            total,
+            failed,
+            route,
+            message: 'Nothing was saved',
+        };
+    }
     emit('done', `Done — ${okCount} cached${failed > 0 ? `, ${failed} failed` : ''}`);
     return { phase: 'done', current, total, failed, route, message: 'Done' };
 }
@@ -346,6 +495,10 @@ export async function autoDownloadAroundUser(opts: AutoDownloadOptions): Promise
         return { status: 'skipped', reason: 'invalid centre' };
     }
 
+    if (!BULK_OFFLINE_PREFETCH_CAPABILITY.enabled) {
+        return { status: 'skipped', reason: BULK_OFFLINE_PREFETCH_CAPABILITY.reason };
+    }
+
     if (!piCache.isAvailable()) {
         return { status: 'skipped', reason: 'no Pi — auto-cache is Pi-only' };
     }
@@ -438,5 +591,7 @@ export const MapOfflineService = {
     boundsAroundPoint,
     distanceNm,
     autoDownloadAroundUser,
+    getOfflineTileTemplates,
     DEFAULT_COVERAGE_TIERS,
+    BULK_OFFLINE_PREFETCH_CAPABILITY,
 };

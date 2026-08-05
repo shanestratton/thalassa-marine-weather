@@ -1,5 +1,6 @@
 import { Filesystem } from '@capacitor/filesystem';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { LOCAL_QUARANTINE_MAX_BYTES, LOCAL_QUARANTINE_TTL_MS } from '../utils/localPrivacyRetention';
 
 type LocalDatabaseModule = typeof import('../services/vessel/LocalDatabase');
 
@@ -615,7 +616,97 @@ describe('LocalDatabase durable outbox', () => {
             state: 'quarantined',
             ownerUserId: null,
         });
-        // Original bytes remain recoverable for an explicit future export.
+        // Small original bytes remain briefly recoverable for an explicit
+        // diagnostic export, but not as a permanent shadow database.
         expect(disk.has(legacyInventory)).toBe(true);
+
+        const claimFile = 'vessel_legacy_scope_claim.json';
+        const claim = JSON.parse(disk.get(claimFile) ?? '{}');
+        disk.set(
+            claimFile,
+            JSON.stringify({
+                ...claim,
+                claimedAt: new Date(Date.now() - LOCAL_QUARANTINE_TTL_MS - 1).toISOString(),
+            }),
+        );
+        await database.initLocalDatabase('account-c');
+        expect(disk.has(legacyInventory)).toBe(false);
+        expect(disk.has(claimFile)).toBe(false);
+
+        disk.set(
+            legacyInventory,
+            JSON.stringify({
+                ambiguous: {
+                    id: 'oversized',
+                    user_id: '',
+                    value: 'x'.repeat(LOCAL_QUARANTINE_MAX_BYTES + 1),
+                },
+            }),
+        );
+        disk.set(
+            claimFile,
+            JSON.stringify({
+                state: 'quarantined',
+                ownerUserId: null,
+                claimedAt: new Date().toISOString(),
+                reason: 'missing-owner-evidence',
+            }),
+        );
+        await database.initLocalDatabase('account-d');
+        expect(disk.has(legacyInventory)).toBe(false);
+        expect(disk.has(claimFile)).toBe(false);
+    });
+
+    it('purges a deleted account filesystem scope without disturbing a newer active identity', async () => {
+        const disk = new Map<string, string>();
+        vi.mocked(Filesystem.readdir).mockImplementation(async () => ({
+            files: Array.from(disk.keys()).map((name) => ({
+                name,
+                type: 'file',
+                size: disk.get(name)?.length ?? 0,
+                ctime: 0,
+                mtime: 0,
+                uri: `mock://${name}`,
+            })),
+        }));
+        vi.mocked(Filesystem.readFile).mockImplementation(async ({ path }) => ({
+            data: disk.get(path) ?? '',
+        }));
+        vi.mocked(Filesystem.writeFile).mockImplementation(async ({ path, data }) => {
+            disk.set(path, String(data));
+            return { uri: `mock://${path}` };
+        });
+        vi.mocked(Filesystem.deleteFile).mockImplementation(async ({ path }) => {
+            disk.delete(path);
+        });
+        vi.mocked(Filesystem.rename).mockImplementation(async ({ from, to }) => {
+            const contents = disk.get(from);
+            if (contents === undefined) throw new Error(`Missing ${from}`);
+            disk.set(to, contents);
+            disk.delete(from);
+        });
+
+        const database = await import('../services/vessel/LocalDatabase');
+        await database.initLocalDatabase('account-a');
+        await database.insertLocal('inventory_items', {
+            id: 'private-a',
+            item_name: 'Account A record',
+            quantity: 1,
+            attachment: 'idb:account-a-photo',
+        });
+        await database.initLocalDatabase('account-b');
+        await database.insertLocal('inventory_items', {
+            id: 'private-b',
+            item_name: 'Account B record',
+            quantity: 1,
+        });
+
+        const references = await database.purgeLocalDatabaseForUser('account-a');
+
+        expect(references).toContain('idb:account-a-photo');
+        expect(database.getLocalDatabaseIdentity()).toBe('account-b');
+        expect(database.getById('inventory_items', 'private-b')).toMatchObject({ item_name: 'Account B record' });
+        expect([...disk.keys()].some((path) => path.includes('user_6163636f756e742d61'))).toBe(false);
+        expect([...disk.keys()].some((path) => path.includes('user_6163636f756e742d62'))).toBe(true);
     });
 });

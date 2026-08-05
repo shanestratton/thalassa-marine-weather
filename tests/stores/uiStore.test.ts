@@ -76,6 +76,23 @@ describe('uiStore', () => {
             useUIStore.getState().setPage('vessel');
             expect(useUIStore.getState().transitionDirection).toBe('pop');
         });
+
+        it.each([
+            'guardian',
+            'radio',
+            'mob',
+            'crew',
+            'checklists',
+            'galley',
+            'avnav',
+            'encLibrary',
+            'notices',
+            'gpx-import',
+        ])('treats %s as a Vessel child for return transitions', (child) => {
+            useUIStore.setState({ currentView: child });
+            useUIStore.getState().setPage('vessel');
+            expect(useUIStore.getState().transitionDirection).toBe('pop');
+        });
     });
 
     describe('addDebugLog', () => {

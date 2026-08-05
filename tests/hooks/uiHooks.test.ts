@@ -6,8 +6,10 @@ import { renderHook, act } from '@testing-library/react';
 
 // ── useOnlineStatus ──────────────────────────────────────────
 describe('useOnlineStatus', () => {
-    beforeEach(() => {
+    beforeEach(async () => {
         Object.defineProperty(navigator, 'onLine', { value: true, writable: true, configurable: true });
+        const { useUIStore } = await import('../../stores/uiStore');
+        useUIStore.setState({ isOffline: false });
     });
 
     it('returns true when online', async () => {
@@ -28,15 +30,20 @@ describe('useOnlineStatus', () => {
         expect(result.current).toBe(false);
     });
 
-    it('responds to online event', async () => {
-        Object.defineProperty(navigator, 'onLine', { value: false, writable: true, configurable: true });
+    it('does not trust an online event until the WAN probe succeeds', async () => {
+        const { useUIStore } = await import('../../stores/uiStore');
+        useUIStore.setState({ isOffline: true });
         const { useOnlineStatus } = await import('../../hooks/useOnlineStatus');
         const { result } = renderHook(() => useOnlineStatus());
+        expect(result.current).toBe(false);
 
         act(() => {
             Object.defineProperty(navigator, 'onLine', { value: true, writable: true, configurable: true });
             window.dispatchEvent(new Event('online'));
         });
+        expect(result.current).toBe(false);
+
+        act(() => useUIStore.setState({ isOffline: false }));
         expect(result.current).toBe(true);
     });
 });

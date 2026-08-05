@@ -24,7 +24,14 @@ import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
 
 import { createLogger } from '../../utils/createLogger';
 import type { EncConversionResult } from './types';
-import { ENC_GEOJSON_DIR } from './types';
+import {
+    canonicalEncCellId,
+    ENC_CELL_BLOB_MAX_BYTES,
+    ENC_CELL_ID_PATTERN,
+    ENC_GEOJSON_DIR,
+    encCellStorageIdentity,
+    utf8ByteLength,
+} from './types';
 
 const log = createLogger('EncCellStore');
 
@@ -33,9 +40,50 @@ const log = createLogger('EncCellStore');
 const DIRECTORY = Directory.Data;
 
 function relPath(cellId: string): string {
-    // S-57 cell IDs are alphanumeric (DSID/DSNM); guard anyway.
-    const safe = cellId.replace(/[^A-Za-z0-9_-]/g, '_');
-    return `${ENC_GEOJSON_DIR}/${safe}.geojson`;
+    // Metadata, cache keys and filenames MUST share the same case-insensitive
+    // identity. Apple filesystems are normally case-insensitive, so preserving
+    // caller case here allowed `au...` and `AU...` metadata records to address
+    // one physical file while the JS cache treated them as different cells.
+    const canonical = canonicalEncCellId(cellId);
+    if (!ENC_CELL_ID_PATTERN.test(canonical)) throw new Error(`Invalid ENC cell ID: ${cellId}`);
+    return `${ENC_GEOJSON_DIR}/${encCellStorageIdentity(canonical)}.geojson`;
+}
+
+function normalizeBlobForCell(cellId: string, value: unknown): EncConversionResult | null {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+    const candidate = value as Partial<EncConversionResult>;
+    const blobCellId = candidate.cellId;
+    if (typeof blobCellId !== 'string') return null;
+    const expected = canonicalEncCellId(cellId);
+    const actual = canonicalEncCellId(blobCellId);
+    if (
+        !ENC_CELL_ID_PATTERN.test(expected) ||
+        !ENC_CELL_ID_PATTERN.test(actual) ||
+        encCellStorageIdentity(expected) !== encCellStorageIdentity(actual) ||
+        !candidate.layers ||
+        typeof candidate.layers !== 'object' ||
+        Array.isArray(candidate.layers) ||
+        !Array.isArray(candidate.bbox) ||
+        candidate.bbox.length !== 4 ||
+        !candidate.bbox.every((coordinate) => typeof coordinate === 'number' && Number.isFinite(coordinate)) ||
+        typeof candidate.sourceHO !== 'string' ||
+        !Number.isInteger(candidate.edition) ||
+        typeof candidate.issued !== 'string'
+    ) {
+        return null;
+    }
+    return (actual === blobCellId ? candidate : { ...candidate, cellId: actual }) as EncConversionResult;
+}
+
+function textWithinCellLimit(text: string): boolean {
+    // JSON cell payloads are overwhelmingly ASCII. The cheap code-unit check
+    // runs before worker transfer/JSON.parse; the exact UTF-8 check on save
+    // protects the uncommon non-ASCII case without allocating an extra 32 MB
+    // buffer on every read.
+    return (
+        text.length <= ENC_CELL_BLOB_MAX_BYTES &&
+        utf8ByteLength(text, ENC_CELL_BLOB_MAX_BYTES) <= ENC_CELL_BLOB_MAX_BYTES
+    );
 }
 
 /**
@@ -138,25 +186,28 @@ export function shouldEvictBlob(
 }
 
 function touchBlob(cellId: string): EncConversionResult | undefined {
-    const hit = blobCache.get(cellId);
+    const key = encCellStorageIdentity(cellId);
+    const hit = blobCache.get(key);
     if (hit) {
-        blobCache.delete(cellId);
-        blobCache.set(cellId, hit);
+        blobCache.delete(key);
+        blobCache.set(key, hit);
     }
     return hit?.blob;
 }
 
 function dropBlob(cellId: string): void {
-    const hit = blobCache.get(cellId);
+    const key = encCellStorageIdentity(cellId);
+    const hit = blobCache.get(key);
     if (hit) {
         blobCacheBytes -= hit.sizeBytes;
-        blobCache.delete(cellId);
+        blobCache.delete(key);
     }
 }
 
 function cacheBlob(cellId: string, blob: EncConversionResult, sizeBytes: number): void {
-    dropBlob(cellId);
-    blobCache.set(cellId, { blob, sizeBytes });
+    const key = encCellStorageIdentity(cellId);
+    dropBlob(key);
+    blobCache.set(key, { blob, sizeBytes });
     blobCacheBytes += sizeBytes;
     while (shouldEvictBlob(blobCache.size, blobCacheBytes)) {
         const oldest = blobCache.keys().next().value as string | undefined;
@@ -178,14 +229,21 @@ function cacheBlob(cellId: string, blob: EncConversionResult, sizeBytes: number)
 export async function saveCellGeoJSON(
     cellId: string,
     blob: EncConversionResult,
-    /** Pre-serialized JSON for `blob`, when the caller already holds the wire
-     *  text (cloud hydration) — skips re-stringifying a multi-MB object on
-     *  the UI thread (z10-boot audit #9). MUST parse back to `blob`. */
-    serialized?: string,
 ): Promise<{ path: string; sizeBytes: number }> {
+    const normalizedBlob = normalizeBlobForCell(cellId, blob);
+    if (!normalizedBlob) {
+        throw new Error(`ENC blob identity does not match requested cell ${cellId}`);
+    }
     await ensureDir();
     const path = relPath(cellId);
-    const data = serialized ?? JSON.stringify(blob);
+    const data = JSON.stringify(normalizedBlob);
+    const sizeBytes = utf8ByteLength(data, ENC_CELL_BLOB_MAX_BYTES);
+    if (sizeBytes > ENC_CELL_BLOB_MAX_BYTES) {
+        throw new Error(
+            `ENC cell ${canonicalEncCellId(cellId)} is ${(sizeBytes / 1_048_576).toFixed(1)} MB; ` +
+                `the per-cell limit is ${ENC_CELL_BLOB_MAX_BYTES / 1_048_576} MB.`,
+        );
+    }
     await Filesystem.writeFile({
         path,
         data,
@@ -194,9 +252,9 @@ export async function saveCellGeoJSON(
     });
     // We hold the fresh parsed blob right here — cache it instead of
     // forcing the next merge to re-read + re-parse what we just wrote.
-    cacheBlob(cellId, blob, data.length);
-    log.info(`saved cell ${cellId} → ${path} (${(data.length / 1024).toFixed(1)} KB)`);
-    return { path, sizeBytes: data.length };
+    cacheBlob(cellId, normalizedBlob, sizeBytes);
+    log.info(`saved cell ${cellId} → ${path} (${(sizeBytes / 1024).toFixed(1)} KB)`);
+    return { path, sizeBytes };
 }
 
 /** Raw read for the merge's read-ahead pipeline (z10-boot audit #11): the
@@ -268,6 +326,10 @@ function getParseWorker(): Worker | null {
  *  sync path when workers are unavailable or the worker died. Same
  *  shape-gate + LRU-cache semantics as parseAndCacheCellText. */
 export async function parseAndCacheCellTextAsync(cellId: string, text: string): Promise<EncConversionResult | null> {
+    if (!textWithinCellLimit(text)) {
+        log.warn(`parseAndCacheCellTextAsync ${cellId}: blob exceeds the per-cell limit`);
+        return null;
+    }
     const worker = getParseWorker();
     if (!worker) return parseAndCacheCellText(cellId, text);
     const blob = await new Promise<unknown>((resolve) => {
@@ -285,7 +347,11 @@ export async function parseAndCacheCellTextAsync(cellId: string, text: string): 
         // identical to the old path (and logs there).
         return parseAndCacheCellText(cellId, text);
     }
-    const parsed = blob as EncConversionResult;
+    const parsed = normalizeBlobForCell(cellId, blob);
+    if (!parsed) {
+        log.warn(`parseAndCacheCellTextAsync ${cellId}: blob identity mismatch`);
+        return null;
+    }
     cacheBlob(cellId, parsed, text.length);
     return parsed;
 }
@@ -321,9 +387,13 @@ export async function parseJsonOffThread(text: string): Promise<unknown> {
  *  text (exactly loadCellGeoJSON's semantics). Null on malformed. */
 export function parseAndCacheCellText(cellId: string, text: string): EncConversionResult | null {
     try {
-        const parsed = JSON.parse(text) as EncConversionResult;
-        if (!parsed || typeof parsed !== 'object' || !parsed.cellId) {
-            log.warn(`parseAndCacheCellText ${cellId}: malformed JSON`);
+        if (!textWithinCellLimit(text)) {
+            log.warn(`parseAndCacheCellText ${cellId}: blob exceeds the per-cell limit`);
+            return null;
+        }
+        const parsed = normalizeBlobForCell(cellId, JSON.parse(text));
+        if (!parsed) {
+            log.warn(`parseAndCacheCellText ${cellId}: malformed JSON or blob identity mismatch`);
             return null;
         }
         cacheBlob(cellId, parsed, text.length);

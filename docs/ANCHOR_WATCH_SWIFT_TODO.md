@@ -1,117 +1,123 @@
-# Anchor Watch — Remaining Swift / native work
+# Anchor Watch — native audio implementation and physical verification
 
-Status as of 2026-05-17 (commit chain `130ad5e6` → `f13178fa` → …).
-JavaScript side of the background-reliability pass landed in this
-commit chain. Two native-Swift items are still outstanding — they
-need Shane on his iPhone with a Lightning cable and Xcode open to
-test, so they're flagged here for a dedicated session.
+Status: 2026-08-05
 
-## What already landed (JS side)
+The native looping-alarm source work is complete. Public-beta sign-off still
+requires the signed physical-device matrix below. Passing simulator builds and
+source tests do not prove locked-screen audibility, route selection, interruption
+recovery, or background survival on a real iPhone.
 
-- `services/AnchorWatchService.ts` — schedules a `LocalNotifications`
-  fallback (1 immediate + 20 reminders × 30 s = 10 min coverage) at
-  `interruptionLevel: 'timeSensitive'` so the user wakes up even if
-  the looping audio gets killed by iOS thermal throttling.
-- Cancellation hooks in `stopAlarm()` and `acknowledgeAlarm()` so
-  the reminders stop the moment the user reacts.
-- Removed the JS `setInterval` haptic loop that never fired during
-  app suspension anyway.
-- `services/BgGeoManager.ts` — added `geofenceModeHighAccuracy: true`
-  so the iOS geofence uses the precise Core Location API instead of
-  the ~500 m Significant Location Changes fallback.
+## Implemented
 
-## What's still pending (Swift side)
+- `AlarmAudioPlugin.swift` retains one `AVAudioPlayer` and loops a generated
+  1.5-second PCM alarm indefinitely with `numberOfLoops = -1`. Alarm continuity
+  no longer depends on a main-run-loop `Timer`.
+- The plugin activates an `AVAudioSession` with the `.playback` category while
+  alarming. `Info.plist` declares the `audio` background mode once.
+- It observes audio-session interruptions and media-services resets, rebuilds
+  the player, and uses bounded resume retries while the alarm remains explicitly
+  requested.
+- Explicit stop cancels pending resume work, stops the player, deactivates the
+  session, and restores the previously active category, mode, and options.
+- Every Anchor Watch arming attempt now runs the real native alarm path and
+  remains disabled until the skipper explicitly confirms that the sound was
+  heard clearly.
+- `AnchorSafetyNotificationPlugin.swift` schedules the actual iOS notification
+  content with `.timeSensitive`. Before arming it verifies notification
+  authorization, Alerts, Sounds, the Time Sensitive setting, and room for the
+  complete fixed set of 21 requests. Scheduling removes prior Anchor IDs first
+  and succeeds only after every native add callback succeeds.
+- Native iOS arming explicitly requests and reads back Always Location access.
+  When-In-Use is rejected with Settings guidance, and a live NMEA feed is
+  treated as supplemental rather than proof of locked-screen phone execution.
+- The shared marine location profile sets
+  `pausesLocationUpdatesAutomatically: false` as well as
+  `disableStopDetection: true`. Explicit ref-counted tracking leases remain the
+  start/stop and battery boundary.
+- The app does not alter system volume through `MPVolumeView` or private APIs.
+  The skipper controls system volume and validates the current output route in
+  the mandatory sound check.
 
-### Step A — Replace `Timer.scheduledTimer` with `AVAudioPlayer` loop
+## Safety boundary
 
-**File:** `ios/App/App/AlarmAudioPlugin.swift`
+The looping tone is ordinary application audio, not an Apple Critical Alert.
+The `.playback` category is intended to continue through the Ring/Silent switch
+and is eligible to continue while the app is backgrounded, but it is not an
+absolute audibility guarantee. System volume, the selected route, attached
+Bluetooth or wired hardware, other audio-session owners, iOS process state, and
+system policy can still affect what is heard.
 
-Today the alarm tone is synthesised inline and re-triggered every
-N seconds via `Timer.scheduledTimer(...)` on the main run loop.
-Under full backgrounding, the main run loop pauses → the timer
-stops → the alarm goes silent within seconds, even though
-`AVAudioSession(.playback)` would happily keep playing audio
-indefinitely.
+The app has the Time Sensitive Notifications entitlement and a first-party
+native scheduling path that sets the real iOS interruption level. The signed
+profile, delivered notification, user permission, and Focus setting must still
+be verified on hardware. A Time Sensitive notification is user-controllable
+and must not be described as an unconditional Focus or Silent-mode bypass.
 
-**Fix:**
+No Critical Alerts entitlement is present and the app makes no Critical Alert
+guarantee. Do not add `com.apple.developer.usernotifications.critical-alerts` or
+schedule a critical interruption level unless Apple grants the entitlement and
+the signed profile contains it.
 
-1. Bundle a pre-rendered alarm tone at
-   `ios/App/App/Resources/anchor-alarm.caf` (CAF — Core Audio
-   Format — decodes cheaper than WAV).
-2. Replace the `Timer` with `AVAudioPlayer.numberOfLoops = -1`
-   (infinite loop). Audio thread stays alive in background-audio
-   mode.
-3. Update the plugin's `playAlarmSound` to accept a sound-file
-   parameter so future alarms (Guardian, MOB) can share the
-   loop infrastructure.
+Ordinary audio cannot survive a force-quit or an iOS-terminated process. The
+background-location and local-notification layers are separate fallbacks and
+must be tested independently; neither may be represented as proof that the
+continuous audio loop survives termination or reboot.
 
-### Step F — Audio-session interruption resilience
+## Required signed-device verification
 
-**File:** `ios/App/App/AlarmAudioPlugin.swift`
+Record the iPhone model, iOS version, build number, signing profile, date, and
+tester for every run. A blank Result cell is not a pass.
 
-Add an observer for `AVAudioSession.interruptionNotification`. If
-the alarm session is interrupted (incoming call, Siri, alarm clock),
-auto-resume on `.ended`. Also flip `AVAudioSession.options` to
-include `.mixWithOthers` so Calypso TTS / Apple Music can't kill
-the alarm by claiming the session.
+| Scenario                       | Pass criterion                                                                                                                                                                                                                         | Result  |
+| ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- |
+| Clean install and permissions  | Arming remains blocked until iOS reports Always Location, notification Alerts and Sounds, Time Sensitive Notifications enabled, and capacity for all 21 requests. When-In-Use or denial gives exact Settings guidance.                 | Pending |
+| Mandatory sound check          | Every pointer and keyboard arming attempt plays the actual alarm and requires a fresh “I Heard It Clearly” confirmation. Cancel, failure, or no confirmation cannot arm.                                                               | Pending |
+| Volume and Ring/Silent switch  | Test at low, normal, and high volume, then with Ring/Silent enabled. Record actual behaviour; no full-volume claim is acceptable.                                                                                                      | Pending |
+| Output routes                  | Verify built-in speaker, Bluetooth/headphones connected, route changes during the test, and disconnect/reconnect. The UI must make an inaudible or misrouted test fail closed.                                                         | Pending |
+| Locked screen/background       | With no NMEA source connected, arm a safe test radius, lock the phone, allow full suspension, trigger a boundary event, and verify the alarm loops until acknowledgement. Repeat with NMEA connected to prove it remains supplemental. | Pending |
+| Phone/Siri interruption        | Interrupt an active alarm with an incoming call and Siri. After the interruption ends, looping audio resumes without re-arming; acknowledgement still stops it.                                                                        | Pending |
+| In-app audio ownership         | Exercise Calypso speech and system/third-party media playback immediately before and during an alarm. They must not silently deactivate or strand active alarm playback. Thalassa's Apple Music integration remains beta-off.          | Pending |
+| Media-services reset           | If reproducible with development diagnostics, verify the player is rebuilt and resumes; otherwise retain the source contract and capture interruption tests as the practical release evidence.                                         | Pending |
+| Time Sensitive notification    | Inspect the delivered `UNNotification` interruption level on the signed build, then test with Focus both allowing and disallowing Time Sensitive notifications. Behaviour and user controls must match the UI copy.                    | Pending |
+| Long suspension                | Repeat the locked-screen boundary test after at least two hours and, separately, overnight on charge. Record trigger latency and whether audio, haptics, and notifications each occurred.                                              | Pending |
+| Acknowledge and re-arm         | Acknowledge stops audio, cancels queued alarm notifications, clears the alarm state, and requires a new sound check before the next arming.                                                                                            | Pending |
+| Process termination and reboot | Record the behaviour after OS termination, user force-quit, and reboot. Do not expect continuous audio to survive. Confirm the app exposes any degraded or stopped-watch state honestly.                                               | Pending |
+| Power and thermal conditions   | Exercise Low Power Mode and a warm device. Record battery and thermal observations from the test; do not extrapolate an unsupported hourly drain percentage.                                                                           | Pending |
 
-### Critical-alerts entitlement (optional, slow)
+## Release pass criteria
 
-To upgrade from `timeSensitive` (breaks through Focus/DND) to
-`critical` (also bypasses the silent switch), file an Apple
-Developer Support request for the entitlement
-`com.apple.developer.usernotifications.critical-alerts`. Apple
-typically takes 1–4 weeks and can refuse. Plan ships fine without
-it — `timeSensitive` is plenty for the main use case.
+Native Anchor Watch can be signed off for public beta only when:
 
-## Manual test plan (Shane's iPhone, after Swift work lands)
+1. The matrix above has evidence from the intended minimum and current iOS
+   versions on physical hardware.
+2. Locked-screen looping, interruption recovery, explicit stop, and route-change
+   behaviour pass without an unreported silent failure.
+3. The delivered local notification is confirmed to have the interruption level
+   the UI and release notes describe. If the signed build delivers it as
+   ordinary, the provisioning/scheduling defect must be corrected before
+   release.
+4. The app never promises forced maximum volume, unconditional Focus bypass, or
+   Critical Alert behaviour without the corresponding Apple capability.
 
-1. **Permissions cold start.** Delete app. Reinstall. Open. Tap "Set
-   Anchor" — verify two prompts: Location ("Allow While Using") and
-   Notifications ("Allow"). Walk 10 m from anchor — no alarm
-   (inside radius).
-2. **Background hardware geofence.** Set anchor with 30 m swing
-   radius. Lock phone. Wait 30 s for full suspension. Walk 40 m+.
-   Verify within 60 s: (a) lock-screen notification "Anchor
-   dragging — Xm from anchor", (b) loud alarm tone through speaker,
-   (c) tone loops until you unlock + acknowledge.
-3. **Silent-switch defeat.** Repeat with hardware mute switch ON.
-   Confirm audio still plays at full volume.
-4. **Do Not Disturb defeat.** Enable Focus "Do Not Disturb" before
-   locking. Repeat step 2. Notification should still break through.
-5. **Long-suspension survival.** Set anchor, leave phone idle on
-   charge overnight (or 2+ hrs). Walk 40 m+. Alarm fires within
-   60 s → confirms iOS didn't kill the BG runtime.
-6. **Acknowledge clears it.** Unlock, tap Acknowledge. Confirm
-   (a) audio stops, (b) all queued reminder notifications cancelled
-   (lock-screen empty after 30 s), (c) watch re-arms cleanly.
+## Residual risks and review notes
 
-## Risk callouts
+- Harbour multipath and GPS jitter can cause false boundary crossings. Test the
+  actual radius and confirmation logic in representative anchorages.
+- Background `location` and `audio` modes must be used only for the explicitly
+  armed marine-safety feature and explained accurately in App Review notes
+  (App Review Guideline 2.5.4).
+- Programmatic manipulation of standard system volume behaviour is intentionally
+  absent (App Review Guideline 2.5.9).
+- Battery and thermal cost must come from recorded device runs; the previous
+  unmeasured percentage-per-hour estimate is not release evidence. Automatic
+  stationary pausing is intentionally disabled while a tracking lease is live,
+  so long-device runs must measure the cost of that safety choice.
 
-- **Battery drain.** Looping `.caf` audio in background ≈ 15–20 %/h
-  on top of GPS. Auto-acknowledge after 10 min if user doesn't
-  respond — bounds the worst-case drain.
-- **GPS jitter false positives.** Harbour multi-path can drift the
-  vessel position 30 m without movement. Existing software floor
-  (`ALARM_CONFIRM_COUNT = 3` + 5-point moving average) handles this
-  for the software check, but the hardware geofence triggers on a
-  single sample. Consider raising the hardware-geofence minimum
-  radius from 20 m → 30 m to reduce false trips.
-- **App Store review.** `UIBackgroundModes: location` triggers
-  4.5.4 review. Submission notes must explain: "Anchor Watch is a
-  marine safety feature that the user explicitly arms; without
-  continuous background location, the feature cannot function."
-  Reference: ASR Guideline 4.5.4.
-- **`MPVolumeView` quirks.** `setSystemVolumeToMax()` in the plugin
-  has historically worked but is fragile across iOS major versions.
-  Test on the latest iOS before each App Store submission.
+## Remaining work
 
-## Files to touch (Swift session)
-
-- `ios/App/App/AlarmAudioPlugin.swift` — Steps A + F
-- `ios/App/App/Resources/anchor-alarm.caf` — new bundle resource
-- `ios/App/App/Info.plist` — verify `UIBackgroundModes` includes
-  `audio` exactly once (currently listed twice on line 28 per the
-  plan agent — clean up the duplicate)
-- `ios/App/App/App.entitlements` — only if/when Apple grants the
-  critical-alerts entitlement
+There is no remaining Timer-to-player, interruption-observer, Time Sensitive
+scheduling, or Always-location source TODO. The remaining release work is the
+signed-device matrix above, including confirmation of the delivered
+interruption level and locked-screen authorization behaviour, plus remediation
+of any failed row. Critical Alerts remain a separate, Apple-approved future
+capability rather than a public-beta claim.

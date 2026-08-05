@@ -72,6 +72,64 @@ describe('ToastPortal', () => {
         );
     });
 
+    it('shows native safety alerts emitted before the portal mounts', async () => {
+        act(() => {
+            toast.persistentError('Queued Watch safety warning');
+        });
+
+        render(<ToastPortal />);
+
+        expect(await screen.findByRole('alert')).toHaveTextContent('Queued Watch safety warning');
+        expect(screen.getByRole('button', { name: 'Dismiss' })).toBeInTheDocument();
+    });
+
+    it('keeps a persistent safety alert until its explicit Dismiss action', () => {
+        vi.useFakeTimers();
+        render(<ToastPortal />);
+
+        act(() => {
+            toast.persistentError('MOB was NOT marked');
+            vi.advanceTimersByTime(10 * 60_000);
+        });
+        expect(screen.getByRole('alert')).toHaveTextContent('MOB was NOT marked');
+
+        fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
+        act(() => {
+            vi.advanceTimersByTime(300);
+        });
+        expect(screen.queryByText('MOB was NOT marked')).not.toBeInTheDocument();
+    });
+
+    it('invokes an explicit persistent-error recovery action once', () => {
+        vi.useFakeTimers();
+        const onRetry = vi.fn();
+        render(<ToastPortal />);
+
+        act(() => {
+            toast.persistentError('Marine layer was switched off', { label: 'Retry', onClick: onRetry });
+        });
+        fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+        expect(onRetry).toHaveBeenCalledTimes(1);
+
+        act(() => {
+            vi.advanceTimersByTime(300);
+        });
+        expect(screen.queryByText('Marine layer was switched off')).not.toBeInTheDocument();
+    });
+
+    it('does not displace a persistent safety alert with transient resume messages', () => {
+        render(<ToastPortal />);
+
+        act(() => {
+            toast.persistentError('Watch request expired — NOT marked');
+            for (let index = 1; index <= 6; index += 1) toast.info(`Resume message ${index}`);
+        });
+
+        expect(screen.getByText('Watch request expired — NOT marked')).toBeInTheDocument();
+        expect(screen.getAllByRole('alert')).toHaveLength(1);
+        expect(screen.getAllByRole('status')).toHaveLength(4);
+    });
+
     it('displays error toast', async () => {
         render(<ToastPortal />);
 

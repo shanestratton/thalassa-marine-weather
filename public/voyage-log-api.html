@@ -130,15 +130,16 @@
             <h1>Voyage Log API</h1>
             <p class="lede">
                 A read-only JSON API for a single vessel's published voyage log — diary entries, GPS track, and the
-                latest telemetry. The default page at <code>/logs/&lt;handle&gt;</code> is built on this exact API; you
-                can build your own front-end against it however you like.
+                latest telemetry. The public page at <code>https://&lt;handle&gt;.thalassawx.app</code> is built on this
+                exact API; you can build your own front-end against it however you like.
             </p>
 
             <h2>Endpoint</h2>
-            <pre><code><span class="method">GET</span>  https://&lt;your-project&gt;.supabase.co/functions/v1/voyage-log?handle=&lt;handle&gt;&amp;key=&lt;key&gt;</code></pre>
+            <pre><code><span class="method">GET</span>  https://&lt;your-project&gt;.supabase.co/functions/v1/voyage-log?handle=&lt;handle&gt;</code></pre>
             <p>
-                The exact URL — pre-filled with your <code>handle</code> and <code>key</code> — is shown in the Thalassa
-                app under <strong>Settings → Voyage Log → API access</strong>.
+                This endpoint is intentionally public and does not use an API key. Anyone who knows or guesses an
+                enabled public handle can read the published feed. The skipper controls the page from Thalassa and can
+                unpublish individual diary entries or switch off the entire Voyage Log.
             </p>
 
             <h3>Query parameters</h3>
@@ -149,14 +150,16 @@
                 </tr>
                 <tr>
                     <td><code>handle</code></td>
-                    <td>The vessel's public handle — a slug of the vessel name, e.g. <code>serene-summer</code>.</td>
+                    <td>
+                        The vessel's public handle — a slug chosen for its public voyage page, e.g.
+                        <code>demo-vessel</code>.
+                    </td>
                 </tr>
                 <tr>
-                    <td><code>key</code></td>
+                    <td><code>trip</code></td>
                     <td>
-                        The vessel's publishable API key. It is an identifier — not a secret — so it is safe to ship in
-                        a public web page. It gates rate-limiting and can be rotated by toggling the log off and on in
-                        the app.
+                        Optional. Omit it for the full configured feed, use <code>latest</code> for the current or most
+                        recent passage, or pass a trip catalogue id returned by the API.
                     </td>
                 </tr>
             </table>
@@ -169,14 +172,14 @@
                 >), so you can call it directly from any browser front-end.
             </p>
             <pre><code>{
-  "vessel":    { "name": "Serene Summer", "type": "sail", "model": "Tayana 55" },
+  "vessel":    { "name": "Example Vessel", "type": "sail", "model": "Cruising yacht" },
   "entries":   [
     {
       "id": "…", "title": "…", "body": "…",
       "mood": "epic | good | neutral | rough | storm",
       "photos": ["https://…"],
-      "location_name": "Moreton Bay",
-      "latitude": -27.19, "longitude": 153.08,
+      "location_name": "Example anchorage",
+      "latitude": -20.00, "longitude": 170.00,
       "weather_summary": "22°C · Wind 15kts SE",
       "weather_data": { "airTemp": 22, "windSpeed": 15, "windDir": "SE", … },
       "tags": [],
@@ -184,13 +187,13 @@
     }
   ],
   "track":     [
-    { "lat": -27.19, "lon": 153.08, "timestamp": "…",
+    { "lat": -20.00, "lon": 170.00, "timestamp": "…",
       "speed_kts": 6.8, "course_deg": 45, "pressure": 1014 }
   ],
   "telemetry": {
     "sog": 6.8, "cog": 45, "baro": 1014,
     "baro_trend": "rising | falling | steady",
-    "lat": -27.19, "lon": 153.08,
+    "lat": -20.00, "lon": 170.00,
     "updated_at": "2026-05-14T09:00:00Z"
   },
   "generated_at": "2026-05-14T09:01:00Z"
@@ -239,11 +242,7 @@
                 </tr>
                 <tr>
                     <td><code>400</code></td>
-                    <td><code>handle</code> or <code>key</code> missing from the request.</td>
-                </tr>
-                <tr>
-                    <td><code>401</code></td>
-                    <td>The <code>key</code> does not match the <code>handle</code>.</td>
+                    <td><code>handle</code> is missing or invalid.</td>
                 </tr>
                 <tr>
                     <td><code>403</code></td>
@@ -258,7 +257,7 @@
             <h2>Example</h2>
             <pre><code>const res = await fetch(
   'https://your-project.supabase.co/functions/v1/voyage-log' +
-  '?handle=serene-summer&amp;key=YOUR_PUBLISHABLE_KEY'
+  '?handle=demo-vessel&amp;trip=latest'
 );
 if (!res.ok) throw new Error((await res.json()).error);
 const log = await res.json();
@@ -270,7 +269,8 @@ if (log.telemetry) {
 
             <div class="note">
                 Building something with this? It's the same data the official renderer uses — feel free to lay it out
-                however suits you. The skipper controls what's published and can switch the whole log off at any time.
+                however suits you. Treat every returned field as public. The skipper controls what's published and can
+                switch the whole log off at any time.
             </div>
         </main>
     </body>

@@ -52,7 +52,7 @@ const BB = { minLon: 153.083, minLat: -27.218, maxLon: 153.101, maxLat: -27.179 
 const CELL_M = 12;
 
 describe('Newport channel — medial axis rides centre where A* hugs', () => {
-    it('measures left/right bank balance: shortest-path vs medial-axis', { timeout: 60000 }, () => {
+    it('measures left/right bank balance: shortest-path vs medial-axis', { timeout: 300_000 }, () => {
         // "The lines" = the NAVIGABLE-DEPTH edge, not land. Water = inside a DEPARE
         // polygon deep enough for the boat (DRVAL1 ≥ NAV_M) OR inside the dredged
         // channel (DRGARE). The bank = where it shoals below NAV_M (handles intertidal

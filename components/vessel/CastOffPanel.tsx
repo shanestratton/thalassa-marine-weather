@@ -47,6 +47,9 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
     const [activeVoyage, setActiveVoyage] = useState<Voyage | null>(null);
     const [loading, setLoading] = useState(true);
     const [casting, setCasting] = useState(false);
+    const [ending, setEnding] = useState(false);
+    const [trackingRetrying, setTrackingRetrying] = useState(false);
+    const [trackingWarning, setTrackingWarning] = useState<string | null>(null);
     const [error, setError] = useState('');
     const [safetyConfirmed, setSafetyConfirmed] = useState(false);
 
@@ -69,16 +72,32 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
     const [standDownText, setStandDownText] = useState<string | null>(null);
     const vesselName = useSettingsStore((s) => s.settings.vessel?.name);
     const closeButtonRef = useRef<HTMLButtonElement>(null);
+    const mountedRef = useRef(true);
+    const endingRef = useRef(false);
+    const trackingRetryRef = useRef(false);
     const dialogRef = useFocusTrap<HTMLDivElement>(true, {
         initialFocusRef: closeButtonRef,
         onEscape: onClose,
     });
 
+    useEffect(() => {
+        mountedRef.current = true;
+        return () => {
+            // Service operations remain authoritative after this panel closes,
+            // but this particular mount may never update or close a newer
+            // panel instance when its old promise eventually settles.
+            mountedRef.current = false;
+        };
+    }, []);
+
     // Load drafts + check active
     useEffect(() => {
+        const operationScope = getAuthIdentityScope();
+        let cancelled = false;
         const load = async () => {
             setLoading(true);
             const [d, active] = await Promise.all([getDraftVoyages(), getActiveVoyage()]);
+            if (cancelled || !isAuthIdentityScopeCurrent(operationScope)) return;
             setDrafts(d);
             if (active) {
                 setActiveVoyage(active);
@@ -88,6 +107,28 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                 setCurrentLeg(activeLeg);
                 const allLegs = getLegsForVoyage(active.id).filter((l) => l.status === 'completed');
                 setCompletedLegs(allLegs);
+
+                // The server can already hold an active passage when a prior
+                // Cast Off succeeded but its native GPS start failed. Never
+                // render that state as a normal green "Live" passage: hydrate
+                // the local tracker, compare the exact voyage id, and offer a
+                // recovery on this screen.
+                try {
+                    const { ShipLogService } = await import('../../services/ShipLogService');
+                    await ShipLogService.initialize();
+                    if (cancelled || !isAuthIdentityScopeCurrent(operationScope)) return;
+                    const tracking = ShipLogService.getTrackingStatus();
+                    if (!tracking.isTracking || tracking.currentVoyageId !== active.id) {
+                        setTrackingWarning(
+                            'Passage is active, but GPS voyage logging is not recording. Retry GPS Logging now, or End Voyage if you are standing down.',
+                        );
+                    }
+                } catch {
+                    if (cancelled || !isAuthIdentityScopeCurrent(operationScope)) return;
+                    setTrackingWarning(
+                        'Passage is active, but GPS voyage logging could not be verified. Retry GPS Logging before relying on the track.',
+                    );
+                }
             } else if (initialVoyageId) {
                 // Auto-select the passage planning voyage — skip draft list
                 const match = d.find((v) => v.id === initialVoyageId);
@@ -99,7 +140,10 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
             }
             setLoading(false);
         };
-        load();
+        void load();
+        return () => {
+            cancelled = true;
+        };
     }, [initialVoyageId]);
 
     const handleSelect = useCallback((voyage: Voyage) => {
@@ -146,63 +190,137 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
     const handleCastOff = useCallback(async () => {
         if (!selected || !safetyConfirmed) return;
         const operationScope = getAuthIdentityScope();
+        const operationIsCurrent = () => mountedRef.current && isAuthIdentityScopeCurrent(operationScope);
         setCasting(true);
         setError('');
+        setTrackingWarning(null);
         triggerHaptic('heavy');
+        let activatedVoyage: Voyage | null = null;
 
-        const result = await castOff(selected.id);
-        if (!isAuthIdentityScopeCurrent(operationScope)) return;
-        if (result.ok && result.voyage) {
-            setActiveVoyage(result.voyage);
+        try {
+            const result = await castOff(selected.id);
+            if (!operationIsCurrent()) return;
+            if (result.ok && result.voyage) {
+                activatedVoyage = result.voyage;
+                // The passage is already active remotely. Reflect that truth
+                // before touching native GPS so a bridge/permission failure
+                // can never leave a retry of the destructive Cast Off action
+                // looking like the right recovery.
+                setTrackingWarning('Passage is active. GPS voyage logging is starting and has not yet been verified.');
+                setActiveVoyage(activatedVoyage);
+                setStep('active');
 
-            // Casting off and NOT starting the GPS trip log is almost
-            // never what the skipper actually wants — we used to show a
-            // separate "Log this track?" step that everyone tapped Yes
-            // on. Just start it. The Nav Station hero band's "Underway"
-            // pill keys off this; without this start, casting off
-            // would produce a stale "active" voyage with no trip log
-            // (the exact bug that motivated this change).
-            try {
+                // Casting off and NOT starting the GPS trip log is almost
+                // never what the skipper actually wants — we used to show a
+                // separate "Log this track?" step that everyone tapped Yes
+                // on. Just start it. The Nav Station hero band's "Underway"
+                // pill keys off this; without this start, casting off
+                // would produce a stale "active" voyage with no trip log.
                 const { ShipLogService } = await import('../../services/ShipLogService');
-                if (!isAuthIdentityScopeCurrent(operationScope)) return;
+                if (!operationIsCurrent()) return;
                 // freshDeparture=true — this voyage was minted a few lines up.
                 // Passing its id as continueVoyageId made cast-off look like a
                 // mid-passage resume, which skipped the cold-start fast-lock
                 // and left "Acquiring GPS fix…" starving at the dock.
-                await ShipLogService.startTracking(false, result.voyage.id, operationScope, true);
-            } catch (e) {
-                if (!isAuthIdentityScopeCurrent(operationScope)) return;
-                console.warn('[CastOffPanel] auto-start tracking failed:', e);
-                /* best effort — user can still start tracking manually
-                   from LogPage. The voyage is already cast off. */
+                await ShipLogService.startTracking(false, activatedVoyage.id, operationScope, true);
+                if (!operationIsCurrent()) return;
+                const tracking = ShipLogService.getTrackingStatus();
+                if (!tracking.isTracking || tracking.currentVoyageId !== activatedVoyage.id) {
+                    throw new Error('Background GPS did not confirm the newly active passage.');
+                }
+                setTrackingWarning(null);
+                onCastOff?.(activatedVoyage);
+            } else {
+                setError(result.error || 'Cast off failed');
             }
-
-            if (!isAuthIdentityScopeCurrent(operationScope)) return;
-            setStep('active');
-            onCastOff?.(result.voyage);
-        } else {
-            setError(result.error || 'Cast off failed');
+        } catch (cause) {
+            if (!operationIsCurrent()) return;
+            const detail =
+                cause instanceof Error && cause.message.trim()
+                    ? cause.message.trim()
+                    : 'Background GPS failed to start.';
+            if (activatedVoyage) {
+                setTrackingWarning(
+                    `Passage is active, but GPS voyage logging did not start. ${detail} Retry GPS Logging before relying on the track.`,
+                );
+            } else {
+                setError(`Cast Off could not be completed. ${detail}`);
+            }
+        } finally {
+            if (operationIsCurrent()) setCasting(false);
         }
-        setCasting(false);
     }, [selected, safetyConfirmed, onCastOff]);
 
+    const handleRetryTracking = useCallback(async () => {
+        if (!activeVoyage || casting || endingRef.current || trackingRetryRef.current) return;
+        const operationScope = getAuthIdentityScope();
+        const operationIsCurrent = () => mountedRef.current && isAuthIdentityScopeCurrent(operationScope);
+        const voyageId = activeVoyage.id;
+        trackingRetryRef.current = true;
+        setTrackingRetrying(true);
+        setError('');
+        try {
+            const { ShipLogService } = await import('../../services/ShipLogService');
+            if (!operationIsCurrent()) return;
+            await ShipLogService.startTracking(true, voyageId, operationScope);
+            if (!operationIsCurrent()) return;
+            const tracking = ShipLogService.getTrackingStatus();
+            if (!tracking.isTracking || tracking.currentVoyageId !== voyageId) {
+                throw new Error('Background GPS is still not recording this passage.');
+            }
+            setTrackingWarning(null);
+            onCastOff?.(activeVoyage);
+        } catch (cause) {
+            if (!operationIsCurrent()) return;
+            const detail = cause instanceof Error && cause.message.trim() ? ` ${cause.message.trim()}` : '';
+            setTrackingWarning(`GPS voyage logging is still off.${detail} Fix location access, then retry.`);
+        } finally {
+            trackingRetryRef.current = false;
+            if (operationIsCurrent()) setTrackingRetrying(false);
+        }
+    }, [activeVoyage, casting, onCastOff]);
+
     const handleEndVoyage = useCallback(async () => {
-        if (!activeVoyage) return;
+        if (!activeVoyage || endingRef.current || casting || trackingRetryRef.current) return;
+        const operationScope = getAuthIdentityScope();
+        const operationIsCurrent = () => mountedRef.current && isAuthIdentityScopeCurrent(operationScope);
+        const endingVoyage = activeVoyage;
+        endingRef.current = true;
+        setEnding(true);
+        setError('');
         triggerHaptic('medium');
-        const destination = activeVoyage.destination_port ?? undefined;
-        await endVoyage(activeVoyage.id, 'completed');
-        // Offered, never auto-sent: the skipper decides whether anyone is
-        // waiting on this. Composed before the voyage state is cleared.
-        setStandDownText(composeArrivalMessage({ vesselName, destination, arrivedMs: Date.now() }));
-        setShowFloatPlan(false);
-        setActiveVoyage(null);
-        setCurrentLeg(null);
-        setCompletedLegs([]);
-        setStep('select');
-        // Reload drafts
-        const d = await getDraftVoyages();
-        setDrafts(d);
-    }, [activeVoyage, vesselName]);
+        const destination = endingVoyage.destination_port ?? undefined;
+        try {
+            const ended = await endVoyage(endingVoyage.id, 'completed');
+            if (!operationIsCurrent()) return;
+            if (!ended) {
+                setError(
+                    'End Voyage was not confirmed. The passage remains active and no stand-down was created. Retry End Voyage before leaving this screen.',
+                );
+                return;
+            }
+
+            // Offered, never auto-sent: the skipper decides whether anyone is
+            // waiting on this. Compose only after both GPS teardown and the
+            // owner-scoped archive mutation are confirmed.
+            setStandDownText(composeArrivalMessage({ vesselName, destination, arrivedMs: Date.now() }));
+            setShowFloatPlan(false);
+            setActiveVoyage(null);
+            setTrackingWarning(null);
+            setCurrentLeg(null);
+            setCompletedLegs([]);
+            setStep('select');
+            const d = await getDraftVoyages();
+            if (operationIsCurrent()) setDrafts(d);
+        } catch (cause) {
+            if (!operationIsCurrent()) return;
+            const detail = cause instanceof Error && cause.message.trim() ? ` ${cause.message.trim()}` : '';
+            setError(`End Voyage could not be completed.${detail} Retry End Voyage.`);
+        } finally {
+            endingRef.current = false;
+            if (operationIsCurrent()) setEnding(false);
+        }
+    }, [activeVoyage, casting, vesselName]);
 
     // ── Passage Leg Handlers ──
 
@@ -314,8 +432,9 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                 <div className="flex items-center justify-between p-5 pb-3">
                     <div className="flex items-center gap-3">
                         <button
+                            type="button"
                             onClick={handleBack}
-                            className="w-9 h-9 -ml-1 shrink-0 rounded-full bg-white/5 text-gray-400 flex items-center justify-center hover:bg-white/10"
+                            className="-ml-1 flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-white/5 text-gray-400 hover:bg-white/10"
                             aria-label="Back"
                         >
                             <svg
@@ -361,9 +480,10 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                         </div>
                     </div>
                     <button
+                        type="button"
                         ref={closeButtonRef}
                         onClick={onClose}
-                        className="w-9 h-9 rounded-full bg-white/5 text-gray-400 flex items-center justify-center hover:bg-white/10"
+                        className="flex h-11 w-11 items-center justify-center rounded-full bg-white/5 text-gray-400 hover:bg-white/10"
                         aria-label="Close dialog"
                     >
                         ✕
@@ -386,9 +506,17 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                     <div className="p-5 pt-2 space-y-4">
                         <div className="p-4 rounded-2xl bg-emerald-500/[0.06] border border-emerald-500/15 space-y-3">
                             <div className="flex items-center gap-2">
-                                <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                                <span className="text-xs font-bold text-emerald-400 uppercase tracking-widest">
-                                    Live
+                                <div
+                                    className={`w-2 h-2 rounded-full ${
+                                        trackingWarning ? 'bg-amber-400' : 'bg-emerald-400 animate-pulse'
+                                    }`}
+                                />
+                                <span
+                                    className={`text-xs font-bold uppercase tracking-widest ${
+                                        trackingWarning ? 'text-amber-300' : 'text-emerald-400'
+                                    }`}
+                                >
+                                    {trackingWarning ? 'Passage Active · GPS Log Off' : 'Live'}
                                 </span>
                                 {currentLeg && (
                                     <span className="ml-auto px-2 py-0.5 rounded-full text-[11px] font-bold uppercase bg-sky-500/10 text-sky-400 border border-sky-500/15">
@@ -517,11 +645,33 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                             <FloatPlanSheet voyage={activeVoyage} onClose={() => setShowFloatPlan(false)} />
                         )}
 
+                        {trackingWarning && (
+                            <div
+                                role="alert"
+                                className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-400/25 space-y-3"
+                            >
+                                <p className="text-sm font-semibold text-amber-100">{trackingWarning}</p>
+                                <button
+                                    onClick={handleRetryTracking}
+                                    disabled={casting || ending || trackingRetrying}
+                                    className="w-full py-3 bg-amber-400 text-slate-950 rounded-xl text-xs font-black uppercase tracking-widest active:scale-[0.97] disabled:opacity-50 disabled:cursor-wait"
+                                >
+                                    {casting || trackingRetrying ? '⏳ Starting GPS Logging…' : '↻ Retry GPS Logging'}
+                                </button>
+                            </div>
+                        )}
+
+                        {error && (
+                            <p role="alert" className="text-sm text-red-400 text-center">
+                                {error}
+                            </p>
+                        )}
                         <button
                             onClick={handleEndVoyage}
-                            className="w-full py-3.5 bg-red-500/10 border border-red-500/20 rounded-xl text-sm font-bold text-red-400 uppercase tracking-widest hover:bg-red-500/20 transition-colors active:scale-[0.97]"
+                            disabled={ending || casting || trackingRetrying}
+                            className="w-full py-3.5 bg-red-500/10 border border-red-500/20 rounded-xl text-sm font-bold text-red-400 uppercase tracking-widest hover:bg-red-500/20 transition-colors active:scale-[0.97] disabled:opacity-40 disabled:cursor-wait"
                         >
-                            🏁 End Voyage &amp; Archive
+                            {ending ? '⏳ Ending Voyage…' : '🏁 End Voyage & Archive'}
                         </button>
                     </div>
                 )}
@@ -599,6 +749,11 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                             </div>
                         )}
 
+                        {error && (
+                            <p role="alert" className="text-sm text-red-400 text-center">
+                                {error}
+                            </p>
+                        )}
                         <div className="space-y-2">
                             <button
                                 onClick={handleDepartNextLeg}
@@ -608,9 +763,10 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                             </button>
                             <button
                                 onClick={handleEndVoyage}
-                                className="w-full py-3.5 bg-red-500/10 border border-red-500/20 rounded-xl text-sm font-bold text-red-400 uppercase tracking-widest hover:bg-red-500/20 transition-colors active:scale-[0.97]"
+                                disabled={ending || casting || trackingRetrying}
+                                className="w-full py-3.5 bg-red-500/10 border border-red-500/20 rounded-xl text-sm font-bold text-red-400 uppercase tracking-widest hover:bg-red-500/20 transition-colors active:scale-[0.97] disabled:opacity-40 disabled:cursor-wait"
                             >
-                                🏁 End Voyage Here
+                                {ending ? '⏳ Ending Voyage…' : '🏁 End Voyage Here'}
                             </button>
                         </div>
                     </div>
@@ -787,7 +943,11 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                             </div>
                         </div>
 
-                        {error && <p className="text-sm text-red-400 text-center">{error}</p>}
+                        {error && (
+                            <p role="alert" className="text-sm text-red-400 text-center">
+                                {error}
+                            </p>
+                        )}
 
                         <div className="space-y-2">
                             <button
@@ -830,17 +990,24 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
 
                         {/* Safety Confirm */}
                         <div className="p-4 rounded-xl bg-amber-500/[0.04] border border-amber-500/15">
-                            <label className="flex items-center gap-3 cursor-pointer">
-                                <div
+                            <button
+                                type="button"
+                                role="checkbox"
+                                aria-checked={safetyConfirmed}
+                                aria-label="Confirm Safety — vessel is ready to depart for this voyage"
+                                className="flex min-h-[44px] w-full cursor-pointer items-center gap-3 rounded-lg text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+                                onClick={() => {
+                                    setSafetyConfirmed((v) => !v);
+                                    triggerHaptic('medium');
+                                }}
+                            >
+                                <span
+                                    aria-hidden="true"
                                     className={`w-6 h-6 rounded-md border-2 flex items-center justify-center transition-all ${
                                         safetyConfirmed
                                             ? 'bg-amber-500 border-amber-500'
                                             : 'border-gray-600 bg-transparent'
                                     }`}
-                                    onClick={() => {
-                                        setSafetyConfirmed((v) => !v);
-                                        triggerHaptic('medium');
-                                    }}
                                 >
                                     {safetyConfirmed && (
                                         <svg
@@ -857,17 +1024,21 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                                             />
                                         </svg>
                                     )}
-                                </div>
+                                </span>
                                 <div>
                                     <p className="text-xs font-bold text-amber-300">Confirm Safety</p>
                                     <p className="text-[11px] text-gray-500">
                                         Vessel is ready to depart for this voyage
                                     </p>
                                 </div>
-                            </label>
+                            </button>
                         </div>
 
-                        {error && <p className="text-sm text-red-400 text-center">{error}</p>}
+                        {error && (
+                            <p role="alert" className="text-sm text-red-400 text-center">
+                                {error}
+                            </p>
+                        )}
 
                         {/* Actions */}
                         <div className="space-y-2">

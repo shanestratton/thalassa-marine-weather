@@ -13,6 +13,7 @@
  * caches in one namespace) so the index-cache concern owns its own state.
  */
 import type { EncSpatialIndex } from './EncSpatialIndex';
+import { encCellStorageIdentity } from './types';
 
 const indexes = new Map<string, EncSpatialIndex>();
 /** 12 covered a bay-scale window but a LONG coastal route's candidate set
@@ -24,22 +25,24 @@ const indexes = new Map<string, EncSpatialIndex>();
  *  32 holds the full candidate set + slack; the original leak this cap
  *  fixed was 30+ PINNED indexes with no eviction at all — still bounded. */
 const INDEX_CACHE_MAX = 32;
-const failedLoads = new Map<string, number>();
+const failedLoads = new Map<string, { at: number; cellId: string }>();
 
 /** Get a cached index, refreshing its LRU position (most-recently-used). */
 export function touchIndex(cellId: string): EncSpatialIndex | undefined {
-    const hit = indexes.get(cellId);
+    const key = encCellStorageIdentity(cellId);
+    const hit = indexes.get(key);
     if (hit) {
-        indexes.delete(cellId);
-        indexes.set(cellId, hit);
+        indexes.delete(key);
+        indexes.set(key, hit);
     }
     return hit;
 }
 
 /** Cache an index, evicting the least-recently-used beyond INDEX_CACHE_MAX. */
 export function cacheIndex(cellId: string, index: EncSpatialIndex): void {
-    indexes.delete(cellId);
-    indexes.set(cellId, index);
+    const key = encCellStorageIdentity(cellId);
+    indexes.delete(key);
+    indexes.set(key, index);
     while (indexes.size > INDEX_CACHE_MAX) {
         const oldest = indexes.keys().next().value as string | undefined;
         if (oldest === undefined) break;
@@ -56,28 +59,30 @@ export const INDEX_FAIL_RETRY_MS = 60_000;
 
 /** True if this cell's blob recently failed to load (cooldown running). */
 export function isIndexFailed(cellId: string): boolean {
-    const at = failedLoads.get(cellId);
-    if (at === undefined) return false;
-    if (Date.now() - at < INDEX_FAIL_RETRY_MS) return true;
-    failedLoads.delete(cellId); // cooldown over — let the next query retry
+    const key = encCellStorageIdentity(cellId);
+    const failed = failedLoads.get(key);
+    if (failed === undefined) return false;
+    if (Date.now() - failed.at < INDEX_FAIL_RETRY_MS) return true;
+    failedLoads.delete(key); // cooldown over — let the next query retry
     return false;
 }
 
 /** Record that a cell's blob failed to load (missing/corrupt). */
 export function markIndexFailed(cellId: string): void {
-    failedLoads.set(cellId, Date.now());
+    failedLoads.set(encCellStorageIdentity(cellId), { at: Date.now(), cellId });
 }
 
 /** Cells currently in the failed state — feeds the route advisory that
  *  tells the skipper charted water fell back to GEBCO. */
 export function failedCellIds(): string[] {
-    return [...failedLoads.keys()].filter((id) => isIndexFailed(id));
+    return [...failedLoads.values()].filter(({ cellId }) => isIndexFailed(cellId)).map(({ cellId }) => cellId);
 }
 
 /** Forget a cell entirely — index + failed flag (on re-import / removal). */
 export function dropIndex(cellId: string): void {
-    indexes.delete(cellId);
-    failedLoads.delete(cellId);
+    const key = encCellStorageIdentity(cellId);
+    indexes.delete(key);
+    failedLoads.delete(key);
 }
 
 /** Drop every cached index + failed flag (bulk re-import / reset). */

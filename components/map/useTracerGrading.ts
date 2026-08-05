@@ -60,11 +60,12 @@ import { legCacheKey, TRACE_CLUSTER_SPAN_M } from './mapHubHelpers';
 import { vesselDraftMetres, vesselDraftIsAssumed } from '../../services/units';
 import { getVersion as getEncRegistryVersion } from '../../services/enc/EncCellMetadata';
 import { createLogger } from '../../utils/createLogger';
+import type { TraceCheckStatus } from '../../services/traceVerification';
 
 const log = createLogger('MapHub');
 
 /** Mirrors MapHub's own tracerStatus union. */
-export type TracerStatus = 'idle' | 'loading' | 'ready' | 'marksonly' | 'toolarge' | 'nochart';
+export type TracerStatus = TraceCheckStatus;
 
 /** FLAT on purpose. The hook destructures this immediately and every dep array
  *  names the individual members, never the object — the call site passes a
@@ -446,7 +447,12 @@ export function useTracerGrading(deps: TracerGradingDeps): void {
             for (const k of Array.from(cache.keys())) if (!keep.has(k)) cache.delete(k);
             // Failures outrank the held ctx in the strip — a half-graded
             // trace must not read "ready" while legs say "load failed".
-            setTracerStatus(failStatus ?? (sawMarksOnly ? 'marksonly' : tracerCtxRef.current ? 'ready' : 'nochart'));
+            // Reaching the end with no explicit failure means every pending
+            // piece produced a real verdict. Subdivided long legs deliberately
+            // do not retain their large grids in tracerCtxRef, so using that
+            // cache slot as the truth signal mislabeled a fully checked route
+            // `nochart` and made the release gate impossible to satisfy.
+            setTracerStatus(failStatus ?? (sawMarksOnly ? 'marksonly' : 'ready'));
             // The pass is the unit of new knowledge — bank it so the NEXT
             // mount (reload, deploy, tab-bounce) re-grades nothing.
             persistLegVerdicts(cache, draftNow, draftAssumed, getEncRegistryVersion());

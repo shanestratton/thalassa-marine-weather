@@ -336,6 +336,9 @@ describe('content workflow dialog accessibility', () => {
 
         const safeAction = screen.getByRole('button', { name: 'Keep this entry private' });
         expect(screen.getByRole('dialog', { name: 'Share to your Voyage Log?' })).toContainElement(safeAction);
+        expect(screen.getByRole('dialog')).toHaveTextContent(
+            'Anyone who has or guesses your public handle can read it',
+        );
         expect(safeAction).toHaveFocus();
 
         fireEvent.click(screen.getByRole('button', { name: 'Publish this entry to your voyage log' }));
@@ -355,6 +358,7 @@ describe('content workflow dialog accessibility', () => {
 
         const done = await screen.findByRole('button', { name: 'Done' });
         expect(screen.getByRole('dialog', { name: 'Published to your Voyage Log' })).toContainElement(done);
+        expect(screen.getByRole('dialog')).toHaveTextContent('public to anyone who has or guesses your handle');
         expect(done).toHaveFocus();
         fireEvent.keyDown(done, { key: 'Escape' });
         expect(onClose).toHaveBeenCalledOnce();

@@ -15,6 +15,11 @@ import {
     isAuthIdentityScopeCurrent,
     type AuthIdentityScope,
 } from './authIdentityScope';
+import {
+    parseTraceVerificationNote,
+    traceCastOffBlockReason,
+    TRACE_VERIFICATION_NOTES_PREFIX,
+} from './traceVerification';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -325,6 +330,8 @@ export async function createVoyage(
         departure_time?: string | null;
         eta?: string | null;
         saved_route_id?: string | null;
+        /** Machine trace verification and/or skipper notes captured at plan creation. */
+        notes?: string | null;
     },
 ): Promise<{ voyage: Voyage | null; error?: string }> {
     if (!supabase) return { voyage: null, error: 'Offline — no Supabase connection' };
@@ -348,6 +355,7 @@ export async function createVoyage(
         ...(data.departure_time !== undefined ? { departure_time: data.departure_time } : {}),
         ...(data.eta !== undefined ? { eta: data.eta } : {}),
         ...(data.saved_route_id !== undefined ? { saved_route_id: data.saved_route_id } : {}),
+        ...(data.notes !== undefined ? { notes: data.notes } : {}),
         user_id: user.id,
         weather_master_id: user.id,
         status: 'planning' as const,
@@ -449,6 +457,56 @@ export async function updateVoyage(
     return { voyage: updated };
 }
 
+/**
+ * Refresh the machine verification on the exact planning row owned by a
+ * canonical saved route. This is intentionally narrower than updateVoyage:
+ * a stale/corrupt local graph link can never stamp proof onto another one of
+ * the skipper's drafts merely because its UUID exists.
+ */
+export async function refreshSavedRouteVoyageVerification(
+    voyageId: string,
+    savedRouteId: string,
+    notes: string,
+    timing: { departure_time?: string | null; eta?: string | null } = {},
+): Promise<{ voyage: Voyage | null; error?: string }> {
+    const exactVoyageId = voyageId.trim();
+    const exactRouteId = savedRouteId.trim();
+    if (!supabase || !exactVoyageId || !exactRouteId || !notes) {
+        return { voyage: null, error: 'Missing saved-route verification link' };
+    }
+    const identity = getAuthIdentityScope();
+    if (!identity.userId || !(await revalidateAuth(identity, identity.userId))) {
+        return { voyage: null, error: 'Sign in required' };
+    }
+    const ownerId = identity.userId;
+    const { data, error } = await supabase
+        .from('voyages')
+        .update({
+            notes,
+            ...(timing.departure_time !== undefined ? { departure_time: timing.departure_time } : {}),
+            ...(timing.eta !== undefined ? { eta: timing.eta } : {}),
+            updated_at: new Date().toISOString(),
+        })
+        .eq('id', exactVoyageId)
+        .eq('user_id', ownerId)
+        .eq('status', 'planning')
+        .eq('saved_route_id', exactRouteId)
+        .select()
+        .maybeSingle();
+    if (error) return { voyage: null, error: error.message };
+    if (
+        !isOwnedVoyage(data, ownerId, { id: exactVoyageId, status: 'planning' }) ||
+        data.saved_route_id !== exactRouteId ||
+        !(await revalidateAuth(identity, ownerId))
+    ) {
+        return { voyage: null, error: 'Saved-route planning link could not be verified' };
+    }
+    const updated = cloneVoyage(data);
+    const drafts = readDraftVoyageCache(identity);
+    writeDraftVoyageCache([updated, ...drafts.filter((draft) => draft.id !== updated.id)], identity);
+    return { voyage: updated };
+}
+
 async function activateVoyage(
     voyageId: string,
     identity: AuthIdentityScope = getAuthIdentityScope(),
@@ -462,6 +520,92 @@ async function activateVoyage(
     const ownerId = identity.userId;
     if (!(await revalidateAuth(identity, ownerId))) {
         return { voyage: null, error: 'Sign in required to Cast Off' };
+    }
+
+    // Preflight the exact planning row before the destructive RPC. Manual
+    // voyages remain unchanged. A Route Tracer voyage (linked or carrying a
+    // trace envelope) must prove the current saved geometry, vessel draft,
+    // chart library and departure context. The SQL RPC repeats the durable
+    // geometry/envelope checks under its row lock.
+    const preflight = await supabase
+        .from('voyages')
+        .select('id, user_id, status, saved_route_id, notes, departure_time, manifest_locked_at')
+        .eq('id', voyageId)
+        .eq('user_id', ownerId)
+        .maybeSingle();
+    if (preflight.error || !preflight.data || !identityStillOwns(identity, ownerId)) {
+        return { voyage: null, error: preflight.error?.message || 'Cast Off passage could not be verified' };
+    }
+    const candidate = preflight.data as Pick<
+        Voyage,
+        'id' | 'user_id' | 'status' | 'saved_route_id' | 'notes' | 'departure_time' | 'manifest_locked_at'
+    >;
+    // Response-loss retry: the server has already made this voyage active and
+    // immutable, so do not retroactively strand its recovery on a newer local
+    // chart/profile state.
+    if (candidate.status !== 'active') {
+        const savedRouteId = typeof candidate.saved_route_id === 'string' ? candidate.saved_route_id.trim() : '';
+        const carriesTraceEnvelope =
+            typeof candidate.notes === 'string' && candidate.notes.startsWith(TRACE_VERIFICATION_NOTES_PREFIX);
+        if (savedRouteId || carriesTraceEnvelope) {
+            let points: Array<{ lat: number; lon: number }> | undefined;
+            if (savedRouteId) {
+                const routeResult = await supabase
+                    .from('saved_routes')
+                    .select('id, user_id, points, deleted')
+                    .eq('id', savedRouteId)
+                    .eq('user_id', ownerId)
+                    .maybeSingle();
+                if (routeResult.error || !routeResult.data || routeResult.data.deleted === true) {
+                    return {
+                        voyage: null,
+                        error: 'This traced route is missing or deleted. Open Route Tracer and save/check it again.',
+                    };
+                }
+                const rawPoints = routeResult.data.points;
+                if (!Array.isArray(rawPoints)) {
+                    return {
+                        voyage: null,
+                        error: 'This traced route has invalid waypoints. Rebuild it before Cast Off.',
+                    };
+                }
+                points = rawPoints
+                    .filter(
+                        (point): point is [number, number] =>
+                            Array.isArray(point) &&
+                            point.length >= 2 &&
+                            typeof point[0] === 'number' &&
+                            Number.isFinite(point[0]) &&
+                            typeof point[1] === 'number' &&
+                            Number.isFinite(point[1]),
+                    )
+                    .map(([lat, lon]) => ({ lat, lon }));
+                if (points.length !== rawPoints.length || points.length < 2) {
+                    return {
+                        voyage: null,
+                        error: 'This traced route has invalid waypoints. Rebuild it before Cast Off.',
+                    };
+                }
+            }
+            const verification = parseTraceVerificationNote(candidate.notes, points);
+            const [{ useSettingsStore }, units, encMetadata] = await Promise.all([
+                import('../stores/settingsStore'),
+                import('./units'),
+                import('./enc/EncCellMetadata'),
+            ]);
+            if (!identityStillOwns(identity, ownerId)) {
+                return { voyage: null, error: 'Account changed while checking Cast Off' };
+            }
+            const vessel = useSettingsStore.getState().settings.vessel;
+            const blockReason = traceCastOffBlockReason(verification, points, {
+                draftM: units.vesselDraftMetres(vessel),
+                draftAssumed: units.vesselDraftIsAssumed(vessel),
+                encRegistryFingerprint: encMetadata.getRegistryFingerprint(),
+                voyageDepartureMs: candidate.departure_time ? Date.parse(candidate.departure_time) : null,
+                nowMs: Date.now(),
+            });
+            if (blockReason) return { voyage: null, error: blockReason };
+        }
     }
 
     const { data, error } = await supabase.rpc('cast_off_voyage', {
@@ -775,16 +919,21 @@ export async function endVoyage(voyageId: string, status: 'completed' | 'aborted
     // Ordered ahead of the status update deliberately: stopTracking performs
     // a final buffer flush and captures the 'Voyage End' entry against this
     // voyage id, and that work belongs to a passage that is still open.
-    // It is a no-op when this voyage is not the one being tracked.
     try {
         const { ShipLogService } = await import('./ShipLogService');
-        if (ShipLogService.getTrackingStatus().isTracking && ShipLogService.getCurrentVoyageId() === voyageId) {
-            await ShipLogService.stopTracking();
-        }
+        // Always cross the exact-voyage boundary. Cast Off can have activated
+        // the remote row while its local GPS start is still pending (including
+        // across a panel close/reopen), before getTrackingStatus() exposes an
+        // owner. This joins that matching start, then verifies/cleans its lease
+        // before the active row can be archived.
+        await ShipLogService.stopTracking(voyageId);
     } catch (error) {
-        // Never let a tracking teardown failure abandon the voyage in
-        // 'active' — a stuck row is worse than a log that stops late.
-        console.warn('[VoyageService] endVoyage trip-log teardown deferred:', error);
+        // The shared GPS manager retains ownership when native teardown is not
+        // verified. Archiving now would claim the passage ended while iOS is
+        // still tracking it, so keep the row active and let the same action
+        // retry ShipLogService's pending stop.
+        console.warn('[VoyageService] endVoyage blocked by trip-log teardown:', error);
+        return false;
     }
     if (!identityStillOwns(identity, ownerId)) return false;
 
@@ -975,11 +1124,29 @@ export async function endActiveVoyageIfNameMatches(label: string): Promise<boole
         try {
             const ok = await endVoyage(cached.id, 'aborted');
             if (ok) return true;
+            // A failed native GPS release is represented as a paused,
+            // retryable ShipLog stop. Never fall through to local-only
+            // teardown in that state: clearing the voyage cache would claim
+            // the passage had ended while iOS still owns background GPS.
+            // The same guard covers an earlier stop failure that left the
+            // service truthfully tracking. A later press retries endVoyage.
+            const { ShipLogService } = await import('./ShipLogService');
+            const trackingStatus = ShipLogService.getTrackingStatus();
+            if (
+                (trackingStatus.isTracking || trackingStatus.isPaused) &&
+                ShipLogService.getCurrentVoyageId() === cached.id
+            ) {
+                return false;
+            }
             // endVoyage returned false — fall through to local-only
             // teardown so the user still escapes Active Voyage Mode
             // even if the DB write failed.
-        } catch {
-            /* fall through */
+        } catch (error) {
+            // If the tracking boundary itself cannot be loaded or queried,
+            // fail closed. An ordinary remote DB failure is handled by the
+            // explicit inactive-state path above.
+            console.warn('[VoyageService] active-voyage teardown could not verify GPS ownership:', error);
+            return false;
         }
     }
 

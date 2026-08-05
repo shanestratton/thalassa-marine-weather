@@ -19,7 +19,6 @@ import React, { useState, useRef, useEffect, useCallback, Suspense as _Suspense 
 import { createLogger } from '../utils/createLogger';
 import { lazyRetry } from '../utils/lazyRetry';
 import { useAuthStore } from '../stores/authStore';
-import { PaywallGate } from './PaywallGate';
 
 const log = createLogger('ChatPage');
 import { ChatService, ChatChannel, DEFAULT_CHANNELS } from '../services/ChatService';

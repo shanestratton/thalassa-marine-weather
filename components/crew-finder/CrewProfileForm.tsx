@@ -366,7 +366,9 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                     <div className="space-y-2">
                         {EXPERIENCE_LEVELS.map((level) => (
                             <button
-                                aria-label="Edit item details"
+                                type="button"
+                                aria-label={`Select experience level ${level}`}
+                                aria-pressed={editExperience === level}
                                 key={level}
                                 onClick={() => setEditExperience(editExperience === level ? '' : level)}
                                 className={`w-full py-3 px-4 rounded-xl text-left text-sm font-medium transition-all ${
@@ -392,7 +394,9 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                                 const selected = editSkills.includes(skill);
                                 return (
                                     <button
-                                        aria-label="Edit item details"
+                                        type="button"
+                                        aria-label={`${selected ? 'Remove' : 'Add'} skill ${skill}`}
+                                        aria-pressed={selected}
                                         key={skill}
                                         onClick={() => toggleEditSkill(skill)}
                                         className={`px-3 py-2 rounded-full text-sm font-medium transition-all active:scale-95 ${
@@ -434,7 +438,8 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                             />
                             {editAvailTo && (
                                 <button
-                                    aria-label="Edit item details"
+                                    type="button"
+                                    aria-label="Clear availability end date"
                                     onClick={() => setEditAvailTo('')}
                                     className="text-[11px] text-emerald-400/50 hover:text-emerald-400/80 mt-1 transition-colors"
                                 >
@@ -518,20 +523,25 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                         ⚡ Sailing Style
                     </label>
                     <div className="flex gap-2 flex-wrap">
-                        {VIBE_OPTIONS.map((v) => (
-                            <button
-                                aria-label="Set mood vibe"
-                                key={v}
-                                onClick={() => toggleVibe(v)}
-                                className={`px-4 py-2.5 rounded-xl text-sm font-medium transition-all ${
-                                    editVibe.includes(v)
-                                        ? 'bg-gradient-to-r from-purple-500/25 to-pink-500/25 text-purple-200 border border-purple-400/25'
-                                        : 'bg-white/[0.03] text-white/50 border border-white/[0.05]'
-                                }`}
-                            >
-                                {v}
-                            </button>
-                        ))}
+                        {VIBE_OPTIONS.map((v) => {
+                            const selected = editVibe.includes(v);
+                            return (
+                                <button
+                                    type="button"
+                                    aria-label={`${selected ? 'Remove' : 'Add'} sailing style ${v}`}
+                                    aria-pressed={selected}
+                                    key={v}
+                                    onClick={() => toggleVibe(v)}
+                                    className={`px-4 py-2.5 rounded-xl text-sm font-medium transition-all ${
+                                        selected
+                                            ? 'bg-gradient-to-r from-purple-500/25 to-pink-500/25 text-purple-200 border border-purple-400/25'
+                                            : 'bg-white/[0.03] text-white/50 border border-white/[0.05]'
+                                    }`}
+                                >
+                                    {v}
+                                </button>
+                            );
+                        })}
                     </div>
                 </div>
 
@@ -541,20 +551,25 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                         🗣️ Languages
                     </label>
                     <div className="flex gap-2 flex-wrap">
-                        {LANGUAGE_OPTIONS.map((lang) => (
-                            <button
-                                aria-label="Select language"
-                                key={lang}
-                                onClick={() => toggleLanguage(lang)}
-                                className={`px-4 py-2.5 rounded-xl text-sm font-medium transition-all ${
-                                    editLanguages.includes(lang)
-                                        ? 'bg-gradient-to-r from-sky-500/25 to-emerald-500/25 text-sky-200 border border-sky-400/25'
-                                        : 'bg-white/[0.03] text-white/50 border border-white/[0.05]'
-                                }`}
-                            >
-                                {lang}
-                            </button>
-                        ))}
+                        {LANGUAGE_OPTIONS.map((lang) => {
+                            const selected = editLanguages.includes(lang);
+                            return (
+                                <button
+                                    type="button"
+                                    aria-label={`${selected ? 'Remove' : 'Add'} language ${lang}`}
+                                    aria-pressed={selected}
+                                    key={lang}
+                                    onClick={() => toggleLanguage(lang)}
+                                    className={`px-4 py-2.5 rounded-xl text-sm font-medium transition-all ${
+                                        selected
+                                            ? 'bg-gradient-to-r from-sky-500/25 to-emerald-500/25 text-sky-200 border border-sky-400/25'
+                                            : 'bg-white/[0.03] text-white/50 border border-white/[0.05]'
+                                    }`}
+                                >
+                                    {lang}
+                                </button>
+                            );
+                        })}
                     </div>
                 </div>
 
@@ -570,7 +585,9 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                             <div className="flex gap-1.5 flex-wrap">
                                 {SMOKING_OPTIONS.map((opt) => (
                                     <button
-                                        aria-label="Edit item details"
+                                        type="button"
+                                        aria-label={`Select smoking preference ${opt}`}
+                                        aria-pressed={editSmoking === opt}
                                         key={opt}
                                         onClick={() => setEditSmoking(editSmoking === opt ? '' : opt)}
                                         className={`px-3 py-2 rounded-xl text-xs font-medium transition-all ${
@@ -590,7 +607,9 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                             <div className="flex gap-1.5 flex-wrap">
                                 {DRINKING_OPTIONS.map((opt) => (
                                     <button
-                                        aria-label="Edit item details"
+                                        type="button"
+                                        aria-label={`Select drinking preference ${opt}`}
+                                        aria-pressed={editDrinking === opt}
                                         key={opt}
                                         onClick={() => setEditDrinking(editDrinking === opt ? '' : opt)}
                                         className={`px-3 py-2 rounded-xl text-xs font-medium transition-all ${
@@ -610,7 +629,9 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                             <div className="flex gap-1.5 flex-wrap">
                                 {PET_OPTIONS.map((opt) => (
                                     <button
-                                        aria-label="Edit item details"
+                                        type="button"
+                                        aria-label={`Select pet preference ${opt}`}
+                                        aria-pressed={editPets === opt}
                                         key={opt}
                                         onClick={() => setEditPets(editPets === opt ? '' : opt)}
                                         className={`px-3 py-2 rounded-xl text-xs font-medium transition-all ${

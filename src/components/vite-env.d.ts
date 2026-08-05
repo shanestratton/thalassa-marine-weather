@@ -14,8 +14,6 @@ interface ImportMetaEnv {
     readonly VITE_SENTRY_DSN: string;
     readonly VITE_APP_VERSION: string;
     readonly VITE_LINZ_API_KEY: string;
-    // Xweather removed 2026-04-22 — see useLightningLayer / useSquallMap.
-    readonly VITE_MAPBOX_USERNAME: string;
     readonly VITE_CMEMS_CURRENTS_ENABLED: string;
     readonly VITE_CMEMS_WAVES_ENABLED: string;
     readonly VITE_CMEMS_SST_ENABLED: string;
@@ -36,6 +34,9 @@ interface ImportMetaEnv {
     /** Compile-time release gate for native Sign in with Apple. Keep unset or
      *  false until the complete server-side token lifecycle is live. */
     readonly VITE_APPLE_SIGN_IN_ENABLED?: string;
+    /** Compile-time public-beta hold for destructive account deletion. Keep
+     *  false until durable server fencing, deployment, and live smoke pass. */
+    readonly VITE_ACCOUNT_DELETION_ENABLED?: string;
     /** Cloudflare Worker URL for the Deepgram WebSocket proxy.
      *  e.g. https://thalassa-deepgram-proxy.thalassacalypso.workers.dev */
     readonly VITE_DEEPGRAM_PROXY_URL: string;
@@ -43,8 +44,10 @@ interface ImportMetaEnv {
      *  Gmail integration. PKCE flow, no client secret. Falls back to
      *  empty string when undefined → integration shows "not configured". */
     readonly VITE_GOOGLE_OAUTH_CLIENT_ID: string;
-    /** Base URL override for the wx-server weather endpoints
-     *  (services/weather/wxServer.ts). Falls back to its DEFAULT_BASE. */
+    /** Development-only explicit opt-in for the private wx-server. Public
+     *  beta production builds force this off. */
+    readonly VITE_WX_SERVER_ENABLED?: string;
+    /** Development-only wx-server endpoint. There is no production fallback. */
     readonly VITE_WX_SERVER_BASE: string;
 
     // Standard Vite Environment Variables

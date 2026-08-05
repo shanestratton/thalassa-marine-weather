@@ -1,4 +1,4 @@
-// GEBCO / ETOPO Depth Query Edge Function
+// NOAA ETOPO Depth Query Edge Function (legacy endpoint name: gebco-depth)
 //
 // Queries bathymetric data for depth values at specified coordinates.
 // Uses NOAA ETOPO via ERDDAP (reliable, free, no auth required).
@@ -173,7 +173,8 @@ serve(async (req: Request) => {
             }
 
             // Fetch grid from ERDDAP — single server-side call (no CORS issue)
-            const gridUrl = `${ERDDAP_BASE}?altitude%5B(${south}):${stride}:(${north})%5D%5B(${west}):${stride}:(${east})%5D`;
+            const gridUrl =
+                `${ERDDAP_BASE}?altitude%5B(${south}):${stride}:(${north})%5D%5B(${west}):${stride}:(${east})%5D`;
             console.info(`[Depth] Grid query: ${gridUrl}`);
 
             const resp = await fetchWithTimeout(gridUrl, {}, 30_000);
@@ -244,14 +245,23 @@ serve(async (req: Request) => {
         const depths = await queryDepthBatch(validatedPoints);
         const elapsed_ms = Math.round(performance.now() - t0);
 
-        return new Response(JSON.stringify({ depths, elapsed_ms, source: 'noaa_etopo_erddap' }), {
-            status: 200,
-            headers: {
-                ...CORS_HEADERS,
-                'Content-Type': 'application/json',
-                'Cache-Control': 'public, max-age=86400',
+        return new Response(
+            JSON.stringify({
+                depths,
+                elapsed_ms,
+                source: 'noaa_etopo_erddap',
+                source_label: 'NOAA ETOPO global relief',
+                nominal_resolution_arc_minutes: 1,
+            }),
+            {
+                status: 200,
+                headers: {
+                    ...CORS_HEADERS,
+                    'Content-Type': 'application/json',
+                    'Cache-Control': 'public, max-age=86400',
+                },
             },
-        });
+        );
     } catch (err) {
         console.error('[Depth] Handler error:', err);
         return new Response(JSON.stringify({ error: 'Bathymetry request failed' }), {

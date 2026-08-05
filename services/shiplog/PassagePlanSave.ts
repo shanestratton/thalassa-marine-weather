@@ -13,6 +13,11 @@ import { fetchRoutesAndTracks, invalidateRoutesAndTracks } from './RoutesAndTrac
 import { collapseGeneratedTraceEndpointPair, formatPlannedRouteLabel } from './plannedRouteNaming';
 import { createLogger } from '../../utils/createLogger';
 import { getAuthIdentityScope, isAuthIdentityScopeCurrent, type AuthIdentityScope } from '../authIdentityScope';
+import {
+    normaliseTraceVerification,
+    serialiseTraceVerificationNote,
+    type TraceVerification,
+} from '../traceVerification';
 
 const log = createLogger('PassagePlanSave');
 
@@ -28,12 +33,32 @@ export const DUPLICATE_PASSAGE_PLAN_ERROR = 'DUPLICATE_PASSAGE_PLAN';
 export interface PassagePlanSaveLinks {
     /** Canonical Route Tracer id. Omit for ordinary planner-only passages. */
     savedRouteId?: string;
+    /** Exact existing graph links on a same-id saved-route overwrite. */
+    existingPassageVoyageId?: string;
+    existingPlannedRouteId?: string;
 }
 
 /** Exact ids of the two compatibility records created for a saved trace. */
 export interface PassagePlanSaveResult {
     plannedRouteId: string;
     passageVoyageId: string | null;
+}
+
+function traceVerificationFromPlan(plan: import('../../types').VoyagePlan): TraceVerification | null {
+    const route = plan.routeGeoJSON;
+    if (route?.properties?._source !== 'route-tracer' || !Array.isArray(route.geometry?.coordinates)) return null;
+    const points = route.geometry.coordinates
+        .filter(
+            (coord): coord is [number, number] =>
+                Array.isArray(coord) &&
+                coord.length >= 2 &&
+                typeof coord[0] === 'number' &&
+                Number.isFinite(coord[0]) &&
+                typeof coord[1] === 'number' &&
+                Number.isFinite(coord[1]),
+        )
+        .map(([lon, lat]) => ({ lat, lon }));
+    return normaliseTraceVerification(route.properties.traceVerification, points);
 }
 
 /** Normalise a name for case/whitespace-insensitive matching. */
@@ -258,10 +283,51 @@ export async function savePassagePlanToLogbookWithLinks(
         typeof structuredClone === 'function'
             ? structuredClone(inputPlan)
             : (JSON.parse(JSON.stringify(inputPlan)) as import('../../types').VoyagePlan);
+    const isTracePlan = plan.routeGeoJSON?.properties?._source === 'route-tracer';
+    const traceVerification = traceVerificationFromPlan(plan);
+    if (isTracePlan && !traceVerification) {
+        log.error('savePassagePlan: refusing Route Tracer plan without an exact, complete verification envelope');
+        return null;
+    }
+    const traceVerificationNote = traceVerification ? serialiseTraceVerificationNote(traceVerification) : null;
     try {
         if (!isAuthIdentityScopeCurrent(operationScope)) return null;
         const boundBoatId = await resolveBoundPlanningBoatId(operationScope);
         if (!isAuthIdentityScopeCurrent(operationScope)) return null;
+        const existingPassageVoyageId =
+            typeof options.existingPassageVoyageId === 'string' ? options.existingPassageVoyageId.trim() : '';
+        const existingPlannedRouteId =
+            typeof options.existingPlannedRouteId === 'string' ? options.existingPlannedRouteId.trim() : '';
+        // Same-id overwrite: refresh the exact planning row instead of
+        // falling into the label+day duplicate guard. The canonical
+        // saved_routes geometry is what Plan renders; this compatibility
+        // mirror keeps its existing ids while its Cast Off proof is replaced.
+        if (traceVerificationNote && savedRouteId && existingPassageVoyageId && existingPlannedRouteId) {
+            const departureMs = Date.parse(plan.departureDate || '');
+            const durationHours = parseDurationToHours(plan.durationApprox);
+            const departureTime = Number.isFinite(departureMs) ? new Date(departureMs).toISOString() : null;
+            const eta =
+                departureTime && durationHours !== null
+                    ? new Date(departureMs + durationHours * 3_600_000).toISOString()
+                    : null;
+            const { refreshSavedRouteVoyageVerification } = await import('../VoyageService');
+            if (!isAuthIdentityScopeCurrent(operationScope)) return null;
+            const refreshed = await refreshSavedRouteVoyageVerification(
+                existingPassageVoyageId,
+                savedRouteId,
+                traceVerificationNote,
+                { departure_time: departureTime, eta },
+            );
+            if (!isAuthIdentityScopeCurrent(operationScope)) return null;
+            if (refreshed.voyage) {
+                invalidateRoutesAndTracks(operationScope);
+                return {
+                    plannedRouteId: existingPlannedRouteId,
+                    passageVoyageId: existingPassageVoyageId,
+                };
+            }
+            log.warn(`savePassagePlan: exact verification refresh failed: ${refreshed.error ?? 'unknown error'}`);
+        }
         // Diagnostic: log exactly what origin/destination are at save
         // time. If the saved logbook entry comes out as "Queensland →
         // South Province" instead of "Newport QLD → Port Moselle NC",
@@ -476,6 +542,7 @@ export async function savePassagePlanToLogbookWithLinks(
                             eta: etaIso,
                             ...(boundBoatId ? { boat_id: boundBoatId } : {}),
                             ...(savedRouteId ? { saved_route_id: savedRouteId } : {}),
+                            ...(traceVerificationNote ? { notes: traceVerificationNote } : {}),
                         });
                         if (!isAuthIdentityScopeCurrent(operationScope)) return null;
                         if (draft) {

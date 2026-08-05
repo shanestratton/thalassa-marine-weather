@@ -12,10 +12,16 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
  */
 
 const PI_CELLS = [
-    { cellId: 'OC-61-051031', edition: 1, bbox: [153.0, -27.5, 153.3, -27.0], sizeBytes: 100 },
-    { cellId: 'OC-61-051032', edition: 1, bbox: [153.1, -27.4, 153.4, -26.9], sizeBytes: 100 },
-    { cellId: 'FR466870', edition: 6, bbox: [166.2, -22.65, 166.64, -22.06], sizeBytes: 200 },
-];
+    { cellId: 'OC-61-051031', sourceHO: 'OC', edition: 1, bbox: [153.0, -27.5, 153.3, -27.0], sizeBytes: 100 },
+    { cellId: 'OC-61-051032', sourceHO: 'OC', edition: 1, bbox: [153.1, -27.4, 153.4, -26.9], sizeBytes: 100 },
+    { cellId: 'FR466870', sourceHO: 'FR', edition: 6, bbox: [166.2, -22.65, 166.64, -22.06], sizeBytes: 200 },
+].map((cell) => ({
+    ...cell,
+    issued: '2026-08-01',
+    featureCount: 1,
+    installedAt: '2026-08-05T00:00:00.000Z',
+    source: 'phone-upload' as const,
+}));
 
 const h = vi.hoisted(() => ({
     get: vi.fn(),
@@ -44,7 +50,44 @@ function wireHttp(): void {
         const m = /\/api\/enc\/installed\/([^/]+)\/data$/.exec(url);
         if (m) {
             const cellId = decodeURIComponent(m[1]);
-            return { status: 200, data: { cells: [{ cellId, edition: 1, layers: {}, bbox: [0, 0, 0, 0] }] } };
+            const indexed = PI_CELLS.find((cell) => cell.cellId === cellId)!;
+            const [west, south, east, north] = indexed.bbox;
+            return {
+                status: 200,
+                data: {
+                    cells: [
+                        {
+                            cellId,
+                            sourceHO: indexed.sourceHO,
+                            edition: indexed.edition,
+                            issued: indexed.issued,
+                            bbox: indexed.bbox,
+                            layers: {
+                                DEPARE: {
+                                    type: 'FeatureCollection',
+                                    features: [
+                                        {
+                                            type: 'Feature',
+                                            properties: { DRVAL1: 2, DRVAL2: 10 },
+                                            geometry: {
+                                                type: 'Polygon',
+                                                coordinates: [
+                                                    [
+                                                        [west, south],
+                                                        [east, south],
+                                                        [east, north],
+                                                        [west, south],
+                                                    ],
+                                                ],
+                                            },
+                                        },
+                                    ],
+                                },
+                            },
+                        },
+                    ],
+                },
+            };
         }
         throw new Error(`unexpected URL ${url}`);
     });

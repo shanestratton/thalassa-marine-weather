@@ -160,13 +160,15 @@ class AnchorWatchSyncServiceClass {
         // does NOT fire when the app returns from the background — which is
         // why a backgrounded follower silently lost the share and had to
         // re-enter the code.
-        void App.addListener('appStateChange', ({ isActive }) => {
-            if (isActive && !this.connected && this.hasCurrentSession()) {
-                log.info('App active (native) — attempting reconnect');
-                this.reconnectAttempts = 0;
-                this.scheduleReconnect();
-            }
-        }).catch(() => {
+        void Promise.resolve(
+            App.addListener('appStateChange', ({ isActive }) => {
+                if (isActive && !this.connected && this.hasCurrentSession()) {
+                    log.info('App active (native) — attempting reconnect');
+                    this.reconnectAttempts = 0;
+                    this.scheduleReconnect();
+                }
+            }),
+        ).catch(() => {
             /* plugin unavailable (pure web) — visibilitychange covers it */
         });
     }

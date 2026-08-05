@@ -6,6 +6,7 @@ import React from 'react';
 import type { VoyagePlan } from '../../types';
 import { fmtCoord } from '../../utils/coords';
 import { RouteIcon, WindIcon, WaveIcon } from '../Icons';
+import { waypointDepthDisplay } from '../../utils/depthDisplay';
 
 interface RouteNodeGridProps {
     voyagePlan: VoyagePlan;
@@ -45,60 +46,69 @@ export const RouteNodeGrid: React.FC<RouteNodeGridProps> = React.memo(
 
         return (
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-                {voyagePlan.waypoints.map((wp, i) => (
-                    <div
-                        key={i}
-                        className="flex gap-3 relative group cursor-pointer select-none bg-white/5 hover:bg-white/10 border border-white/5 hover:border-sky-500/30 rounded-xl p-4 transition-all"
-                        onClick={() => setIsMapOpen(true)}
-                    >
-                        {/* Node Number Badge */}
-                        <div className="absolute -top-2 -right-2 w-6 h-6 bg-slate-800 border border-white/10 rounded-full flex items-center justify-center text-[11px] font-mono text-gray-400 shadow-lg group-hover:border-sky-500/50 group-hover:text-sky-400 transition-colors">
-                            {i + 1}
-                        </div>
+                {voyagePlan.waypoints.map((wp, i) => {
+                    const depth = waypointDepthDisplay(wp.depth_m);
+                    return (
+                        <div
+                            key={i}
+                            className="flex gap-3 relative group cursor-pointer select-none bg-white/5 hover:bg-white/10 border border-white/5 hover:border-sky-500/30 rounded-xl p-4 transition-all"
+                            onClick={() => setIsMapOpen(true)}
+                        >
+                            {/* Node Number Badge */}
+                            <div className="absolute -top-2 -right-2 w-6 h-6 bg-slate-800 border border-white/10 rounded-full flex items-center justify-center text-[11px] font-mono text-gray-400 shadow-lg group-hover:border-sky-500/50 group-hover:text-sky-400 transition-colors">
+                                {i + 1}
+                            </div>
 
-                        {/* Serial Icon */}
-                        <div className="mt-1">
-                            <div className="w-8 h-8 rounded-full bg-slate-900 border-2 border-sky-500/30 flex items-center justify-center shrink-0 shadow-lg shadow-sky-900/10 group-hover:scale-110 transition-transform">
-                                <div className="w-2.5 h-2.5 bg-sky-500 rounded-full"></div>
+                            {/* Serial Icon */}
+                            <div className="mt-1">
+                                <div className="w-8 h-8 rounded-full bg-slate-900 border-2 border-sky-500/30 flex items-center justify-center shrink-0 shadow-lg shadow-sky-900/10 group-hover:scale-110 transition-transform">
+                                    <div className="w-2.5 h-2.5 bg-sky-500 rounded-full"></div>
+                                </div>
+                            </div>
+
+                            <div className="flex-1 min-w-0">
+                                <h4 className="text-sm font-bold text-white tracking-wide truncate mb-1 pr-4">
+                                    {wp.name}
+                                </h4>
+                                <span className="text-[11px] font-mono text-gray-400 block mb-2">
+                                    {fmtCoord(wp.coordinates?.lat, wp.coordinates?.lon)}
+                                </span>
+
+                                {/* Conditions Mini-Grid */}
+                                <div className="grid grid-cols-2 gap-2">
+                                    {wp.windSpeed !== undefined && (
+                                        <div className="bg-black/20 rounded px-2 py-1 flex items-center gap-1.5">
+                                            <WindIcon className="w-3 h-3 text-sky-400" />
+                                            <span className="text-[11px] text-gray-300 font-medium">
+                                                {wp.windSpeed}kt
+                                            </span>
+                                        </div>
+                                    )}
+                                    {wp.waveHeight !== undefined && (
+                                        <div className="bg-black/20 rounded px-2 py-1 flex items-center gap-1.5">
+                                            <WaveIcon className="w-3 h-3 text-sky-400" />
+                                            <span className="text-[11px] text-gray-300 font-medium">
+                                                {displayWave(wp.waveHeight)}
+                                                {waveLabel}
+                                            </span>
+                                        </div>
+                                    )}
+                                    {depth && (
+                                        <div className="bg-black/20 rounded px-2 py-1 flex items-center gap-1.5">
+                                            <span
+                                                className={`text-[11px] font-mono font-bold ${depth.tone === 'danger' ? 'text-red-400' : depth.tone === 'caution' ? 'text-amber-400' : 'text-sky-400'}`}
+                                            >
+                                                {depth.kind === 'land'
+                                                    ? `LAND +${depth.metres}m`
+                                                    : `⚓ ${depth.metres}m`}
+                                            </span>
+                                        </div>
+                                    )}
+                                </div>
                             </div>
                         </div>
-
-                        <div className="flex-1 min-w-0">
-                            <h4 className="text-sm font-bold text-white tracking-wide truncate mb-1 pr-4">{wp.name}</h4>
-                            <span className="text-[11px] font-mono text-gray-400 block mb-2">
-                                {fmtCoord(wp.coordinates?.lat, wp.coordinates?.lon)}
-                            </span>
-
-                            {/* Conditions Mini-Grid */}
-                            <div className="grid grid-cols-2 gap-2">
-                                {wp.windSpeed !== undefined && (
-                                    <div className="bg-black/20 rounded px-2 py-1 flex items-center gap-1.5">
-                                        <WindIcon className="w-3 h-3 text-sky-400" />
-                                        <span className="text-[11px] text-gray-300 font-medium">{wp.windSpeed}kt</span>
-                                    </div>
-                                )}
-                                {wp.waveHeight !== undefined && (
-                                    <div className="bg-black/20 rounded px-2 py-1 flex items-center gap-1.5">
-                                        <WaveIcon className="w-3 h-3 text-sky-400" />
-                                        <span className="text-[11px] text-gray-300 font-medium">
-                                            {displayWave(wp.waveHeight)}
-                                            {waveLabel}
-                                        </span>
-                                    </div>
-                                )}
-                                {wp.depth_m !== undefined && (
-                                    <div className="bg-black/20 rounded px-2 py-1 flex items-center gap-1.5">
-                                        <span
-                                            className={`text-[11px] font-mono font-bold ${wp.depth_m < 10 ? 'text-red-400' : wp.depth_m < 30 ? 'text-amber-400' : 'text-sky-400'}`}
-                                        >
-                                            ⚓ {wp.depth_m}m
-                                        </span>
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-                    </div>
-                ))}
+                    );
+                })}
             </div>
         );
     },

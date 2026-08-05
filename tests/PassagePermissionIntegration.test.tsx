@@ -271,10 +271,12 @@ describe('passage permission integration', () => {
     });
 
     it('counts provisioning alongside the other three international departure-brief cards', () => {
+        const onProvisionedChange = vi.fn();
         renderStack(ownerStatus, [], {
             watchBriefed: true,
             customsCleared: true,
             navAcknowledged: true,
+            onProvisionedChange,
         });
 
         const departureBrief = screen.getByText('Departure Brief').closest('summary');
@@ -283,6 +285,7 @@ describe('passage permission integration', () => {
         fireEvent.click(screen.getByTestId('mark-provisioned'));
 
         expect(departureBrief).toHaveTextContent('4/4');
+        expect(onProvisionedChange).toHaveBeenCalledWith(true);
     });
 
     it('does not nest the full summary beneath a second accordion card', () => {

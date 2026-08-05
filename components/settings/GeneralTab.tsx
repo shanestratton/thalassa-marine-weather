@@ -6,6 +6,8 @@ import React from 'react';
 import { Section, Row, type SettingsTabProps } from './SettingsPrimitives';
 import { CompassIcon, ArrowRightIcon, TrashIcon } from '../Icons';
 import type { LengthUnit, OffshoreModel } from '../../types';
+import { betaFeedbackUrl, openExternalUrl, THALASSA_TERMS_URL } from '../../services/externalLinks';
+import { canAccess } from '../../services/SubscriptionService';
 
 interface GeneralTabProps extends SettingsTabProps {
     onLocationSelect: (location: string) => void;
@@ -149,8 +151,8 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                     </div>
                 </div>
             </Section>
-            {/* Offshore model — Skipper only */}
-            {settings.subscriptionTier === 'owner' && (
+            {/* Offshore model — unlocked during the public beta. */}
+            {canAccess(settings.subscriptionTier, 'weatherFull') && (
                 <Section title="Offshore Weather Model">
                     <div className="p-4">
                         <p className="text-xs text-gray-400 mb-4 leading-relaxed">
@@ -231,7 +233,7 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                 <div className="p-4">
                     <button
                         aria-label="Open Terms of Service and Privacy Policy"
-                        onClick={() => window.open('/terms.html', '_blank', 'noopener,noreferrer')}
+                        onClick={() => void openExternalUrl(THALASSA_TERMS_URL)}
                         className="w-full flex items-center gap-3 p-3 bg-white/[0.03] border border-white/5 rounded-xl hover:bg-white/[0.07] hover:border-white/10 transition-all active:scale-[0.98] text-left"
                     >
                         <div className="p-2 bg-white/5 rounded-lg">
@@ -256,6 +258,34 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                             </p>
                         </div>
                         <ArrowRightIcon className="w-4 h-4 text-gray-400" />
+                    </button>
+                </div>
+            </Section>
+            <Section title="Beta Support">
+                <div className="p-4">
+                    <button
+                        type="button"
+                        aria-label="Email Thalassa public beta feedback"
+                        onClick={() => void openExternalUrl(betaFeedbackUrl())}
+                        className="flex w-full items-center gap-3 rounded-xl border border-sky-500/20 bg-sky-500/10 p-3 text-left transition-all hover:border-sky-400/30 hover:bg-sky-500/15 active:scale-[0.98]"
+                    >
+                        <div className="rounded-lg bg-sky-400/15 p-2 text-sky-300" aria-hidden="true">
+                            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    strokeWidth={1.5}
+                                    d="M8.625 12a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H8.25m3.75 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0h-.375m3.75 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H15M21 12c0 4.142-4.03 7.5-9 7.5a10.2 10.2 0 01-3.36-.56L3 20.25l1.55-3.49A6.77 6.77 0 013 12c0-4.142 4.03-7.5 9-7.5s9 3.358 9 7.5z"
+                                />
+                            </svg>
+                        </div>
+                        <div className="flex-1">
+                            <p className="text-sm font-bold text-white">Send Beta Feedback</p>
+                            <p className="mt-0.5 text-xs text-gray-300">
+                                Report a bug or tell us what needs improving; version and platform are pre-filled.
+                            </p>
+                        </div>
+                        <ArrowRightIcon className="h-4 w-4 text-sky-300" />
                     </button>
                 </div>
             </Section>

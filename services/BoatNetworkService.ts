@@ -18,6 +18,7 @@
 
 import { Capacitor, CapacitorHttp } from '@capacitor/core';
 import { createLogger } from '../utils/createLogger';
+import { PI_INTEGRATION_ENABLED, PI_PUBLIC_BETA_UNAVAILABLE_MESSAGE } from './piPublicBetaBoundary';
 
 const log = createLogger('BoatNetwork');
 
@@ -280,6 +281,15 @@ async function probeHost(host: string): Promise<DiscoveredService[]> {
 
 class BoatNetworkServiceClass {
     private state: BoatNetworkState = (() => {
+        if (!PI_INTEGRATION_ENABLED) {
+            return {
+                piHost: null,
+                services: [],
+                scanning: false,
+                lastScan: 0,
+                error: PI_PUBLIC_BETA_UNAVAILABLE_MESSAGE,
+            };
+        }
         const { host, services } = loadFromStorage();
         return {
             piHost: host,
@@ -322,6 +332,7 @@ class BoatNetworkServiceClass {
      * Returns the discovered host or null.
      */
     async scan(preferredHost?: string): Promise<string | null> {
+        if (!PI_INTEGRATION_ENABLED) return null;
         if (this.state.scanning) return this.state.piHost;
 
         this.setState({ scanning: true, error: null });
@@ -432,6 +443,7 @@ class BoatNetworkServiceClass {
      * Falls back to full scan if the saved host is unreachable.
      */
     async quickProbe(): Promise<string | null> {
+        if (!PI_INTEGRATION_ENABLED) return null;
         const saved = this.state.piHost || loadFromStorage().host;
         if (!saved) return this.scan();
 
@@ -480,6 +492,7 @@ class BoatNetworkServiceClass {
         piCache?: boolean;
         onSaveSettings?: (partial: Record<string, unknown>) => void;
     }): void {
+        if (!PI_INTEGRATION_ENABLED) return;
         const host = this.state.piHost;
         if (!host) return;
 

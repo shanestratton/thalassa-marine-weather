@@ -23,7 +23,7 @@ import { useSettingsStore } from '../../stores/settingsStore';
 import { triggerHaptic } from '../../utils/system';
 import { VesselMetadataService } from '../../services/VesselMetadataService';
 import { getMmsiFlag } from '../../utils/MmsiDecoder';
-import { isFeatureLockedSync } from '../../managers/FeatureGate';
+import { canAccess } from '../../services/SubscriptionService';
 import { resolveOwnshipPosition } from '../../services/ownshipPosition';
 import { destinationPoint } from '../../utils/navigationCalculations';
 
@@ -899,7 +899,8 @@ export function useAisStreamLayer(map: mapboxgl.Map | null, enabled: boolean): v
             if (popupRef.current) popupRef.current.remove();
 
             // ── Identity — "Bingo" interception ──
-            const isPremium = !isFeatureLockedSync('vessel_intel');
+            const subscriptionTier = useSettingsStore.getState().settings.subscriptionTier ?? 'free';
+            const isPremium = canAccess(subscriptionTier, 'vesselIntel');
             const flagEmoji = getMmsiFlag(mmsi);
             const intel = isPremium ? VesselMetadataService.getVesselIntel(mmsi) : null;
 

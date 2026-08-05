@@ -122,12 +122,11 @@ function normalizeClientRevision(value: unknown): number | null {
     // envelope as revision 1, but never coerce malformed values to a revision
     // that could unexpectedly win an ordering race.
     if (value === null || value === undefined || value === '') return 1;
-    const revision =
-        typeof value === 'number'
-            ? value
-            : typeof value === 'string' && /^[1-9][0-9]{0,8}$/.test(value)
-              ? Number(value)
-              : NaN;
+    const revision = typeof value === 'number'
+        ? value
+        : typeof value === 'string' && /^[1-9][0-9]{0,8}$/.test(value)
+        ? Number(value)
+        : NaN;
     return Number.isSafeInteger(revision) && revision >= 1 && revision <= MAX_CLIENT_REVISION ? revision : null;
 }
 
@@ -141,8 +140,9 @@ function normalizeEntry(value: unknown, ownerId: string): NormalizedDiaryEntry |
 
     const mood = boundedString(raw.mood, 16, 'neutral');
     const latitude = raw.latitude === null || raw.latitude === undefined ? null : parseCoordinate(raw.latitude, 'lat');
-    const longitude =
-        raw.longitude === null || raw.longitude === undefined ? null : parseCoordinate(raw.longitude, 'lon');
+    const longitude = raw.longitude === null || raw.longitude === undefined
+        ? null
+        : parseCoordinate(raw.longitude, 'lon');
     if (
         (raw.latitude !== null && raw.latitude !== undefined && latitude === null) ||
         (raw.longitude !== null && raw.longitude !== undefined && longitude === null)

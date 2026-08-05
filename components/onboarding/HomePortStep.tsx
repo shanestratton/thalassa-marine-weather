@@ -120,9 +120,12 @@ export const HomePortStep: React.FC<HomePortStepProps> = ({
                         <div className="absolute bottom-[max(1.5rem,env(safe-area-inset-bottom))] left-1/2 -translate-x-1/2 z-[160] w-full max-w-sm px-4">
                             {tempLocation ? (
                                 <button
+                                    type="button"
                                     aria-label={`Confirm ${tempLocation.name} as home port`}
+                                    aria-busy={tempLocation.name === 'Identifying...'}
+                                    disabled={tempLocation.name === 'Identifying...'}
                                     onClick={onConfirmMapSelection}
-                                    className="w-full bg-sky-500 hover:bg-sky-400 text-white font-bold py-4 px-6 rounded-2xl shadow-2xl flex items-center justify-center gap-2 animate-in slide-in-from-bottom-4 duration-300 active:scale-[0.98] transition-all"
+                                    className="w-full bg-sky-500 hover:bg-sky-400 disabled:bg-slate-700 disabled:text-slate-300 disabled:cursor-wait text-white font-bold py-4 px-6 rounded-2xl shadow-2xl flex items-center justify-center gap-2 animate-in slide-in-from-bottom-4 duration-300 active:scale-[0.98] transition-all"
                                 >
                                     <MapPinIcon className="w-5 h-5" />
                                     <span className="truncate">
@@ -151,6 +154,9 @@ export const HomePortStep: React.FC<HomePortStepProps> = ({
                 </div>
 
                 <div className="space-y-4">
+                    <p id="onboarding-required-fields" className="text-right text-[11px] text-slate-400">
+                        <span className="text-sky-300">*</span> Required
+                    </p>
                     {/* Name — Prefix (opt) · First (req) · Surname (req) · Nickname (opt).
                     Four parts so two crew with the same first name can share a
                     boat without colliding on the public voyage-log byline. */}
@@ -165,6 +171,8 @@ export const HomePortStep: React.FC<HomePortStepProps> = ({
                         />
                         <input
                             type="text"
+                            required
+                            aria-required="true"
                             value={firstName}
                             onChange={(e) => onFirstNameChange(e.target.value)}
                             placeholder="First Name *"
@@ -175,6 +183,8 @@ export const HomePortStep: React.FC<HomePortStepProps> = ({
                     <div className="grid grid-cols-2 gap-3">
                         <input
                             type="text"
+                            required
+                            aria-required="true"
                             value={lastName}
                             onChange={(e) => onLastNameChange(e.target.value)}
                             placeholder="Surname *"
@@ -194,7 +204,7 @@ export const HomePortStep: React.FC<HomePortStepProps> = ({
                     <div className="relative flex items-center gap-4 py-1">
                         <div className="h-px bg-white/10 flex-1"></div>
                         <label htmlFor={homePortInputId} className="text-[11px] text-gray-500 font-bold uppercase">
-                            Home Port
+                            Home Port <span className="text-sky-300">*</span>
                         </label>
                         <div className="h-px bg-white/10 flex-1"></div>
                     </div>
@@ -202,6 +212,9 @@ export const HomePortStep: React.FC<HomePortStepProps> = ({
                         <input
                             id={homePortInputId}
                             type="text"
+                            required
+                            aria-required="true"
+                            aria-label="Home Port"
                             value={homePort}
                             onChange={(e) => onHomePortChange(e.target.value)}
                             placeholder="e.g. Newport, RI"
@@ -220,9 +233,12 @@ export const HomePortStep: React.FC<HomePortStepProps> = ({
 
                     <div className="grid grid-cols-2 gap-3">
                         <button
+                            type="button"
                             aria-label="Find current location"
+                            aria-busy={isLocating}
+                            disabled={isLocating}
                             onClick={onLocate}
-                            className="bg-sky-500/10 hover:bg-sky-500/20 border border-sky-500/30 text-sky-300 font-bold py-4 rounded-xl transition-all flex flex-col items-center justify-center gap-2 group"
+                            className="bg-sky-500/10 hover:bg-sky-500/20 disabled:cursor-wait disabled:opacity-70 border border-sky-500/30 text-sky-300 font-bold py-4 rounded-xl transition-all flex flex-col items-center justify-center gap-2 group"
                         >
                             {isLocating ? (
                                 <div className="w-5 h-5 border-2 border-current border-t-transparent rounded-full animate-spin"></div>
@@ -237,6 +253,7 @@ export const HomePortStep: React.FC<HomePortStepProps> = ({
                             )}
                         </button>
                         <button
+                            type="button"
                             aria-label="Pick home port on map"
                             onClick={() => onShowMap(true)}
                             className="bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/30 text-purple-300 font-bold py-4 rounded-xl transition-all flex flex-col items-center justify-center gap-2 group"
@@ -248,7 +265,9 @@ export const HomePortStep: React.FC<HomePortStepProps> = ({
                 </div>
 
                 <button
-                    aria-label="Proceed to next step"
+                    type="button"
+                    aria-label="Continue after entering skipper and home port details"
+                    aria-describedby="onboarding-required-fields"
                     onClick={onNext}
                     disabled={!homePort.trim() || !firstName.trim() || !lastName.trim()}
                     className={`w-full mt-8 font-bold py-4 rounded-xl transition-all ${

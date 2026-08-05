@@ -9,7 +9,7 @@
  * live MOB. Activation is instant — every second matters.
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { MobService, type MobState } from '../../services/MobService';
+import { MOB_PRECISE_FIX_ACCURACY_M, MobService, type MobSnapshot, type MobState } from '../../services/MobService';
 import { useSettings } from '../../context/SettingsContext';
 import { triggerHaptic } from '../../utils/system';
 import { PageHeader } from '../ui/PageHeader';
@@ -20,6 +20,8 @@ interface MobPageProps {
     onBack: () => void;
     onNavigate?: (page: string) => void;
 }
+
+type EmergencyVesselType = 'sail' | 'power' | 'observer' | undefined;
 
 // ── Formatting helpers ──────────────────────────────────────────────────────
 function formatLat(dec: number): string {
@@ -50,14 +52,38 @@ function formatElapsed(sec: number): string {
     return `${m}:${String(s).padStart(2, '0')}`;
 }
 
+/** Empty/setup placeholder values are instructions, never vessel identities. */
+function emergencyIdentity(value: unknown): string | undefined {
+    if (typeof value !== 'string') return undefined;
+    const trimmed = value.trim();
+    if (
+        !trimmed ||
+        /^(?:not\s+(?:set|configured|available)|unset|unknown|none|null|undefined|tbd|n\/?a|[-—]+)$/i.test(trimmed)
+    )
+        return undefined;
+    return trimmed;
+}
+
+function emergencyVesselType(value: unknown): EmergencyVesselType {
+    return value === 'sail' || value === 'power' || value === 'observer' ? value : undefined;
+}
+
+function spokenVesselKind(type: EmergencyVesselType): string {
+    if (type === 'sail') return 'sailing vessel';
+    if (type === 'power') return 'motor vessel';
+    return 'vessel';
+}
+
 function buildMaydayText(
-    vesselName: string,
+    vesselName: string | undefined,
+    vesselType: EmergencyVesselType,
     callSign: string | undefined,
     mmsi: string | undefined,
     pob: number | undefined,
     fixLat: number,
     fixLon: number,
     activatedAt: number,
+    fixAccuracy: number,
 ): string {
     const absLat = Math.abs(fixLat);
     const latDeg = Math.floor(absLat);
@@ -77,15 +103,21 @@ function buildMaydayText(
     // MMSI a few lines down.
     const latDegSpoken = String(latDeg).split('').join(' ');
     const lonDegSpoken = String(lonDeg).split('').join(' ');
+    const vesselKind = spokenVesselKind(vesselType);
 
     let out = 'Mayday, Mayday, Mayday. ';
-    out += `This is sailing vessel ${vesselName}, ${vesselName}, ${vesselName}. `;
+    out += vesselName
+        ? `This is ${vesselKind} ${vesselName}, ${vesselName}, ${vesselName}. `
+        : `This is ${vesselKind}. Say your vessel name three times now. `;
     if (callSign) out += `Call sign ${callSign.split('').join(' ')}. `;
     if (mmsi) out += `MMSI ${mmsi.split('').join(' ')}. `;
     out += 'Mayday. ';
-    out += `This is sailing vessel ${vesselName}. `;
-    out += `Position ${latDegSpoken} degrees ${latMin} minutes ${latDir}, `;
+    out += vesselName ? `This is ${vesselKind} ${vesselName}. ` : 'Say your vessel name once now. ';
+    out += `Man Overboard datum ${latDegSpoken} degrees ${latMin} minutes ${latDir}, `;
     out += `${lonDegSpoken} degrees ${lonMin} minutes ${lonDir}. `;
+    if (fixAccuracy > MOB_PRECISE_FIX_ACCURACY_M) {
+        out += `Position is approximate within ${Math.round(fixAccuracy)} metres. `;
+    }
     out += 'Nature of distress: Man Overboard. ';
     out += `MOB at ${utc}. `;
     if (pob !== undefined) out += `${pob} persons on board. `;
@@ -97,16 +129,24 @@ export const MobPage: React.FC<MobPageProps> = ({ onBack, onNavigate }) => {
     const { settings } = useSettings();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const vessel = (settings as any)?.vessel;
-    const vesselName = (vessel?.name as string) || 'Thalassa';
-    const callSign = vessel?.callSign as string | undefined;
-    const mmsi = vessel?.mmsi as string | undefined;
-    const pob = vessel?.crewCount as number | undefined;
+    const vesselName = emergencyIdentity(vessel?.name);
+    const vesselType = emergencyVesselType(vessel?.type);
+    const callSign = emergencyIdentity(vessel?.callSign);
+    const mmsi = emergencyIdentity(vessel?.mmsi);
+    const configuredPob = vessel?.crewCount as number | undefined;
+    const pob =
+        typeof configuredPob === 'number' && Number.isFinite(configuredPob) && configuredPob > 0
+            ? Math.round(configuredPob)
+            : undefined;
 
     const [state, setState] = useState<MobState>(() => MobService.currentState());
     const [activating, setActivating] = useState(false);
     const [activationError, setActivationError] = useState<string | null>(null);
+    const [clearError, setClearError] = useState<string | null>(null);
     const [copied, setCopied] = useState(false);
     const [speaking, setSpeaking] = useState(false);
+    const [speechError, setSpeechError] = useState<string | null>(null);
+    const [copyFailureText, setCopyFailureText] = useState<string | null>(null);
     /** Engine actually used for the most recent MAYDAY playback —
      *  shown to the skipper as a tiny caption ("Calypso voice" /
      *  "Fallback voice") so they know whether the message just went
@@ -132,7 +172,7 @@ export const MobPage: React.FC<MobPageProps> = ({ onBack, onNavigate }) => {
             const result = await MobService.activate();
             if (!result) {
                 setActivationError(
-                    'MOB position was not marked because no fresh GPS fix is available. Keep a lookout, use the chartplotter MOB control if fitted, and retry.',
+                    'MOB position was not marked because no valid GPS position is available. Keep a lookout, use the chartplotter MOB control if fitted, and retry.',
                 );
             }
         } catch {
@@ -155,7 +195,12 @@ export const MobPage: React.FC<MobPageProps> = ({ onBack, onNavigate }) => {
                 holdTimerRef.current = null;
                 setHoldProgress(0);
                 triggerHaptic('heavy');
-                MobService.clear();
+                setClearError(null);
+                void MobService.clear().catch(() => {
+                    setClearError(
+                        'MOB remains active because restart-recovery storage could not be cleared. Keep tracking the casualty and hold to retry.',
+                    );
+                });
             } else {
                 setHoldProgress(elapsed);
             }
@@ -176,47 +221,62 @@ export const MobPage: React.FC<MobPageProps> = ({ onBack, onNavigate }) => {
     );
 
     // ── Mayday actions ──
-    const maydayText =
-        state.active &&
-        buildMaydayText(
-            vesselName,
-            callSign,
-            mmsi,
-            pob,
-            state.active.fixLat,
-            state.active.fixLon,
-            state.active.activatedAt,
-        );
+    const maydayText = state.active
+        ? buildMaydayText(
+              vesselName,
+              vesselType,
+              callSign,
+              mmsi,
+              pob,
+              state.active.fixLat,
+              state.active.fixLon,
+              state.active.activatedAt,
+              state.active.fixAccuracy,
+          )
+        : '';
 
     const handleSpeakMayday = useCallback(() => {
         if (!maydayText || speaking) return;
         triggerHaptic('medium');
+        setSpeechError(null);
         // Race Calypso's ElevenLabs voice against a 4s budget; fall
         // back to the OS-level SpeechSynthesisUtterance if Calypso
         // can't deliver in time (offline, quota exhausted, slow link).
         // The fallback is the safety net — every iOS device has it.
         utteranceRef.current?.cancel();
-        const handle = speakSafetyMessage(maydayText, {
-            nativeRate: 0.8,
-            nativePitch: 0.95,
-            // Calypso voice override for emergency comms — slower
-            // and more stable than casual chat. Shane: "don't sound
-            // like introducing Taylor Swift to a concert full of
-            // prepubescent teens." Speed 0.875 = a touch quicker
-            // than the 0.85 first pass (Shane wanted slightly faster
-            // delivery without losing the calm VHF cadence);
-            // stability 0.8 = measured, low emotional variation.
-            // Falls back to native iOS speech (rate 0.8, pitch 0.95
-            // above) if ElevenLabs fails.
-            voiceSettings: { speed: 0.875, stability: 0.8 },
-            onPlaybackStart: (engine) => {
-                setSpeaking(true);
-                setLastVoiceEngine(engine);
-            },
-            onPlaybackEnd: () => setSpeaking(false),
-            onError: () => setSpeaking(false),
-        });
-        utteranceRef.current = handle;
+        try {
+            const handle = speakSafetyMessage(maydayText, {
+                nativeRate: 0.8,
+                nativePitch: 0.95,
+                // Calypso voice override for emergency comms — slower
+                // and more stable than casual chat. Shane: "don't sound
+                // like introducing Taylor Swift to a concert full of
+                // prepubescent teens." Speed 0.875 = a touch quicker
+                // than the 0.85 first pass (Shane wanted slightly faster
+                // delivery without losing the calm VHF cadence);
+                // stability 0.8 = measured, low emotional variation.
+                // Falls back to native iOS speech (rate 0.8, pitch 0.95
+                // above) if ElevenLabs fails.
+                voiceSettings: { speed: 0.875, stability: 0.8 },
+                onPlaybackStart: (engine) => {
+                    setSpeaking(true);
+                    setLastVoiceEngine(engine);
+                },
+                onPlaybackEnd: () => setSpeaking(false),
+                onError: () => {
+                    setSpeaking(false);
+                    setSpeechError(
+                        'Mayday audio stopped or could not start. Read the script below aloud; no complete playback was confirmed.',
+                    );
+                },
+            });
+            utteranceRef.current = handle;
+        } catch {
+            setSpeaking(false);
+            setSpeechError(
+                'Mayday audio stopped or could not start. Read the script below aloud; no complete playback was confirmed.',
+            );
+        }
     }, [maydayText, speaking]);
 
     // Cancel any in-flight TTS when the page unmounts so the message
@@ -230,19 +290,43 @@ export const MobPage: React.FC<MobPageProps> = ({ onBack, onNavigate }) => {
     const handleCopyMayday = useCallback(() => {
         if (!maydayText) return;
         triggerHaptic('light');
-        navigator.clipboard.writeText(maydayText).then(() => {
-            setCopied(true);
-            setTimeout(() => setCopied(false), 2500);
-        });
+        setCopied(false);
+        setCopyFailureText(null);
+
+        const failCopy = () => setCopyFailureText(maydayText);
+        try {
+            if (typeof navigator === 'undefined' || !navigator.clipboard?.writeText) {
+                failCopy();
+                return;
+            }
+            void navigator.clipboard
+                .writeText(maydayText)
+                .then(() => {
+                    setCopied(true);
+                    setTimeout(() => setCopied(false), 2500);
+                })
+                .catch(failCopy);
+        } catch {
+            failCopy();
+        }
     }, [maydayText]);
 
     const handleGoToDsc = useCallback(() => {
         triggerHaptic('light');
         if (typeof window !== 'undefined') {
-            localStorage.setItem(authScopedStorageKey('thalassa_dsc_intent'), 'distress-mob');
+            const activeSnapshot: MobSnapshot | null = state.active ? { ...state.active } : null;
+            try {
+                localStorage.setItem(
+                    authScopedStorageKey('thalassa_dsc_intent'),
+                    JSON.stringify({ version: 1, kind: 'distress-mob', snapshot: activeSnapshot }),
+                );
+            } catch {
+                // Navigation still proceeds. RadioConsole reads the live
+                // device-authoritative MobService snapshot as its fallback.
+            }
         }
         onNavigate?.('radio');
-    }, [onNavigate]);
+    }, [onNavigate, state.active]);
 
     // ── Render: idle or active ────────────────────────────────────────────
     if (!state.active) {
@@ -317,7 +401,13 @@ export const MobPage: React.FC<MobPageProps> = ({ onBack, onNavigate }) => {
     }
 
     // ── Active MOB ────────────────────────────────────────────────────────
-    const { active, distanceMeters, bearingDeg, elapsedSec, own } = state;
+    const { active, distanceMeters, bearingDeg, elapsedSec, own, ownPositionAgeMs, ownPositionFresh } = state;
+    const approximateFix = active.fixAccuracy > MOB_PRECISE_FIX_ACCURACY_M;
+    // Defend at the presentation boundary too: even if an older producer ever
+    // supplies cached vector values, a stale own-ship fix must never render them.
+    const displayedDistance = ownPositionFresh ? distanceMeters : null;
+    const displayedBearing = ownPositionFresh ? bearingDeg : null;
+    const ownPositionAgeSec = ownPositionAgeMs === null ? null : Math.floor(ownPositionAgeMs / 1000);
 
     return (
         <div
@@ -326,15 +416,59 @@ export const MobPage: React.FC<MobPageProps> = ({ onBack, onNavigate }) => {
         >
             <PageHeader
                 title="MOB ACTIVE"
-                subtitle="Return to fix"
+                subtitle={approximateFix ? 'Approximate search area' : 'Return to fix'}
                 onBack={onBack}
                 action={
-                    <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full border bg-red-500/20 border-red-400/50 text-red-200 text-[10px] font-extrabold uppercase tracking-widest animate-pulse">
-                        <span className="w-1.5 h-1.5 rounded-full bg-red-300" />
-                        <span>Live</span>
+                    <div
+                        role="status"
+                        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[10px] font-extrabold uppercase tracking-widest ${
+                            ownPositionFresh
+                                ? 'bg-emerald-500/15 border-emerald-400/40 text-emerald-200'
+                                : 'bg-amber-500/15 border-amber-400/40 text-amber-200'
+                        }`}
+                    >
+                        <span
+                            className={`w-1.5 h-1.5 rounded-full ${
+                                ownPositionFresh ? 'bg-emerald-300 animate-pulse' : 'bg-amber-300'
+                            }`}
+                        />
+                        <span>{ownPositionFresh ? 'GPS live' : own ? 'GPS stale' : 'No GPS fix'}</span>
                     </div>
                 }
             />
+
+            {approximateFix && (
+                <div
+                    role="alert"
+                    className="shrink-0 mx-5 mt-2 rounded-2xl border-2 border-amber-300/70 bg-amber-400/15 px-4 py-3 text-left text-sm font-black leading-relaxed text-amber-50 shadow-lg shadow-amber-950/30"
+                >
+                    APPROXIMATE MOB MARK — ±{Math.round(active.fixAccuracy)} m uncertainty. Search the full red circle,
+                    keep a dedicated lookout, and mark MOB on the chartplotter too. Thalassa is listening briefly for a
+                    better GPS fix; the original MOB time will not change.
+                </div>
+            )}
+
+            {!ownPositionFresh && (
+                <div
+                    role="alert"
+                    className="shrink-0 mx-5 mt-2 rounded-xl border border-amber-400/35 bg-amber-500/10 px-3 py-2 text-left text-xs font-semibold leading-relaxed text-amber-100"
+                >
+                    {ownPositionAgeSec === null
+                        ? 'No own-ship GPS fix is available.'
+                        : `Own-ship GPS is ${ownPositionAgeSec}s old.`}{' '}
+                    Bearing and distance are hidden until a fresh fix arrives. Any own position below is last known.
+                </div>
+            )}
+
+            {state.persistenceStatus === 'failed' && (
+                <div
+                    role="alert"
+                    className="shrink-0 mx-5 mt-2 rounded-xl border border-red-400/45 bg-red-500/15 px-3 py-2 text-left text-xs font-bold leading-relaxed text-red-100"
+                >
+                    MOB is active, but restart recovery is not secured. Keep Thalassa open, mark MOB on the chartplotter
+                    if fitted, and continue the physical recovery procedure.
+                </div>
+            )}
 
             {/* Headline bearing + distance — Shane wanted this whole
                 red-coloured zone smaller so the clear-MOB button is
@@ -347,7 +481,7 @@ export const MobPage: React.FC<MobPageProps> = ({ onBack, onNavigate }) => {
                     Bearing to MOB
                 </div>
                 <div className="text-[52px] font-black text-white leading-none font-mono tracking-tight">
-                    {bearingDeg !== null ? `${Math.round(bearingDeg).toString().padStart(3, '0')}°` : '—'}
+                    {displayedBearing !== null ? `${Math.round(displayedBearing).toString().padStart(3, '0')}°` : '—'}
                 </div>
                 <div className="text-[10px] font-bold tracking-widest uppercase text-red-300/70 mt-0.5">True</div>
             </div>
@@ -357,7 +491,9 @@ export const MobPage: React.FC<MobPageProps> = ({ onBack, onNavigate }) => {
                     <div className="text-[10px] font-extrabold tracking-[0.2em] uppercase text-red-300/70 mb-0.5">
                         Distance
                     </div>
-                    <div className="text-[22px] font-black text-white font-mono">{formatDistance(distanceMeters)}</div>
+                    <div className="text-[22px] font-black text-white font-mono">
+                        {formatDistance(displayedDistance)}
+                    </div>
                 </div>
                 <div className="px-3 py-2.5 text-center">
                     <div className="text-[10px] font-extrabold tracking-[0.2em] uppercase text-red-300/70 mb-0.5">
@@ -382,22 +518,41 @@ export const MobPage: React.FC<MobPageProps> = ({ onBack, onNavigate }) => {
                     </div>
                     <div className="text-[10px] text-slate-500 mt-1">
                         @ {new Date(active.activatedAt).toISOString().slice(11, 19)} UTC
-                        {active.fixAccuracy !== null && ` · ±${Math.round(active.fixAccuracy)}m`}
+                        {` · ±${Math.round(active.fixAccuracy)}m`}
                     </div>
                 </div>
                 <div className="px-4 py-3">
                     <div className="text-[10px] font-extrabold tracking-[0.2em] uppercase text-sky-400/80 mb-1.5">
-                        Own Position
+                        Own Position · {ownPositionFresh ? 'Live GPS' : 'Last Known'}
                     </div>
                     <div className="font-mono text-[15px] font-bold text-white leading-tight">
                         {own ? formatLat(own.latitude) : '—'}
                         <br />
                         {own ? formatLon(own.longitude) : '—'}
                     </div>
+                    <div className="text-[10px] text-slate-500 mt-1">
+                        {ownPositionFresh
+                            ? `Fresh fix${own && Number.isFinite(own.accuracy) ? ` · ±${Math.round(own.accuracy)}m` : ''}`
+                            : ownPositionAgeSec === null
+                              ? 'No valid own-ship fix'
+                              : `Last fix ${ownPositionAgeSec}s ago${
+                                    own && Number.isFinite(own.accuracy) ? ` · ±${Math.round(own.accuracy)}m` : ''
+                                }`}
+                    </div>
                 </div>
             </div>
 
             {/* Action grid */}
+            {!vesselName && (
+                <div
+                    role="alert"
+                    className="shrink-0 mx-5 mt-3 rounded-xl border border-amber-400/35 bg-amber-500/10 px-3 py-2 text-left text-xs font-semibold leading-relaxed text-amber-100"
+                >
+                    Vessel name is not set. The Mayday script will prompt you to say it; it will not substitute the app
+                    name as your vessel identity.
+                </div>
+            )}
+
             <div className="shrink-0 grid grid-cols-2 gap-2.5 px-5 py-5">
                 <button
                     type="button"
@@ -442,9 +597,36 @@ export const MobPage: React.FC<MobPageProps> = ({ onBack, onNavigate }) => {
                     onClick={handleGoToDsc}
                     className="col-span-2 py-3.5 px-3 rounded-xl text-[12px] font-extrabold uppercase tracking-wider border transition-all active:scale-[0.97] bg-amber-500/15 border-amber-400/40 text-amber-200 hover:bg-amber-500/25"
                 >
-                    Send DSC Distress via Radio →
+                    Open MOB Mayday Script →
                 </button>
             </div>
+
+            {(speechError || copyFailureText) && (
+                <div
+                    role="alert"
+                    className="mx-5 mb-3 rounded-xl border border-red-400/45 bg-red-500/15 px-3 py-2 text-xs font-bold leading-relaxed text-red-100"
+                >
+                    <p>
+                        {speechError ?? 'Mayday was not copied. Select the complete script below and copy it manually.'}
+                    </p>
+                    <textarea
+                        aria-label="Manual Mayday transcript"
+                        readOnly
+                        value={maydayText}
+                        onFocus={(event) => event.currentTarget.select()}
+                        className="mt-2 min-h-36 w-full resize-y rounded-lg border border-white/15 bg-slate-950/80 p-2 font-mono text-[11px] font-medium leading-relaxed text-white"
+                    />
+                </div>
+            )}
+
+            {clearError && (
+                <div
+                    role="alert"
+                    className="mx-5 mb-3 rounded-xl border border-red-400/45 bg-red-500/15 px-3 py-2 text-xs font-bold leading-relaxed text-red-100"
+                >
+                    {clearError}
+                </div>
+            )}
 
             {/* Hold-to-clear */}
             <div

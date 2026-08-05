@@ -40,6 +40,8 @@ import {
 } from '../utils/savedLocations';
 import { triggerHaptic } from '../utils/system';
 import { useMenuNavigation } from '../hooks/useMenuNavigation';
+import { GpsService } from '../services/GpsService';
+import { toast } from './Toast';
 
 const POPOVER_WIDTH = 264;
 const POPOVER_GAP = 8;
@@ -115,7 +117,13 @@ export const LocationStarMenu: React.FC = () => {
         triggerHaptic('light');
         closeAndRestore();
         if (loc === 'current') {
-            void selectLocation('Current Location');
+            void GpsService.requestCurrentForegroundPosition({ staleLimitMs: 30_000, timeoutSec: 12 }).then((pos) => {
+                if (!pos) {
+                    toast.error('Location unavailable. Check Location access or choose a saved place.');
+                    return;
+                }
+                void selectLocation('Current Location', { lat: pos.latitude, lon: pos.longitude });
+            });
             return;
         }
         const coords =

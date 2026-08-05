@@ -63,12 +63,11 @@ function optionalText(value: unknown, maxLength: number): string | null | undefi
 }
 
 function normalizeMmsi(value: unknown): number | null {
-    const parsed =
-        typeof value === 'number'
-            ? value
-            : typeof value === 'string' && /^[1-9]\d{8}$/.test(value)
-              ? Number(value)
-              : NaN;
+    const parsed = typeof value === 'number'
+        ? value
+        : typeof value === 'string' && /^[1-9]\d{8}$/.test(value)
+        ? Number(value)
+        : NaN;
     return Number.isSafeInteger(parsed) && parsed >= 100_000_000 && parsed <= 999_999_999 ? parsed : null;
 }
 
@@ -87,8 +86,7 @@ function normalizeVessel(value: unknown, nowMs: number): NormalizedVessel | null
     const heading = optionalInteger(value.heading, 0, 511);
     const navStatus = optionalInteger(value.nav_status, 0, 15);
     const updatedAtMs = typeof value.updated_at === 'string' ? Date.parse(value.updated_at) : NaN;
-    const freshTimestamp =
-        Number.isFinite(updatedAtMs) &&
+    const freshTimestamp = Number.isFinite(updatedAtMs) &&
         updatedAtMs > nowMs - 2 * 60 * 60 * 1_000 &&
         updatedAtMs <= nowMs + 2 * 60 * 1_000;
 

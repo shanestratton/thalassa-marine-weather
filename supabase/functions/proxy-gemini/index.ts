@@ -99,8 +99,7 @@ Deno.serve(async (req: Request) => {
         const hasImage = imageBase64 !== undefined || imageMimeType !== undefined;
         if (hasImage) {
             const allowedImageTypes = new Set(['image/jpeg', 'image/png', 'image/webp']);
-            const validBase64 =
-                typeof imageBase64 === 'string' &&
+            const validBase64 = typeof imageBase64 === 'string' &&
                 imageBase64.length > 0 &&
                 imageBase64.length <= 2_800_000 &&
                 imageBase64.length % 4 === 0 &&

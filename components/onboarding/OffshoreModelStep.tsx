@@ -69,16 +69,13 @@ const MODEL_OPTIONS: {
 export const OffshoreModelStep: React.FC<OffshoreModelStepProps> = ({ selected, onChange, onNext }) => (
     <div className="animate-in fade-in slide-in-from-right-8 duration-500 pt-8">
         <h2 className="text-2xl font-bold text-white mb-2 text-center">Which forecast offshore?</h2>
-        {/* Subtitle rewritten — was "When your vessel crosses the 20 nm
-            offshore boundary, Thalassa switches from Apple WeatherKit
-            to Stormglass for ocean data. Choose your preferred NWP
-            model." Five jargon hits in two sentences (offshore
-            boundary, WeatherKit, Stormglass, NWP, model). Now reads
-            like sailing copy, not engineering copy. */}
+        {/* Describe the routing rule without claiming that one provider
+            becomes inaccurate at an arbitrary line. Availability varies by
+            location and the orchestrator can still fall back automatically. */}
         <p className="text-sm text-gray-400 text-center mb-6 leading-relaxed max-w-md mx-auto">
-            Once you're more than <span className="text-white font-semibold">20 nautical miles</span> from shore,
-            Apple's built-in forecast loses accuracy. Different services predict differently out there — pick the one
-            you trust.
+            Beyond <span className="text-white font-semibold">20 nautical miles</span> from shore, Thalassa prioritises
+            your chosen offshore model for the fields it supplies. If that source is unavailable, Thalassa falls back
+            automatically and labels the source in the forecast.
         </p>
 
         <div className="space-y-3 mb-8">
@@ -86,8 +83,10 @@ export const OffshoreModelStep: React.FC<OffshoreModelStepProps> = ({ selected, 
                 const isActive = selected === opt.value;
                 return (
                     <button
+                        type="button"
                         key={opt.value}
                         aria-label={`Select ${opt.label} model`}
+                        aria-pressed={isActive}
                         onClick={() => onChange(opt.value)}
                         className={`w-full text-left p-4 rounded-xl border-2 transition-all duration-300 active:scale-[0.98] ${
                             isActive
@@ -138,6 +137,7 @@ export const OffshoreModelStep: React.FC<OffshoreModelStepProps> = ({ selected, 
         </div>
 
         <button
+            type="button"
             aria-label="Continue to next step"
             onClick={onNext}
             className="w-full bg-gradient-to-r from-sky-500 to-sky-600 hover:from-sky-400 hover:to-sky-500 text-white font-bold py-4 rounded-xl transition-all shadow-lg shadow-sky-500/20 active:scale-[0.98]"

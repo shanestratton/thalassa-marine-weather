@@ -1,21 +1,19 @@
 /**
- * wxServer — availability gate for the self-hosted Open-Meteo instance on
- * Shane's tailnet (twelve global models, 1–3 ms answers, no key, no quota).
+ * wxServer — development-only availability gate for an explicitly configured
+ * self-hosted Open-Meteo instance.
  *
- * The server is reachable ONLY over Tailscale, so for most users and most
- * network situations the probe fails and every caller silently falls back
- * to the commercial Open-Meteo API. Rules of engagement (see
+ * Private/tailnet infrastructure is not part of the public-beta dependency
+ * surface. Production builds always return unavailable and never probe a
+ * private fallback. Development requires both VITE_WX_SERVER_ENABLED=true
+ * and a valid VITE_WX_SERVER_BASE. Rules of engagement (see
  * docs/USING-THE-WEATHER-SERVER.md in the reef-recycling-social repo):
  *   - never expose the server publicly; the app only ever dials it directly
  *   - every request MUST carry an explicit `&models=` — the server returns
  *     HTTP 200 with all-null fields for unsynced default domains
  *
  * Reachability matrix:
- *   - native iOS: OK (Info.plist NSAllowsArbitraryLoads=true; CapacitorHttp
- *     goes through URLSession)
- *   - web dev (http://localhost): OK (server answers CORS with *)
- *   - deployed web (https): NEVER — mixed-content; hard-gated below so we
- *     don't burn a doomed probe on every boot
+ *   - explicit development build: configured HTTP/HTTPS endpoint only
+ *   - public web/native build: NEVER — compile-time and runtime gated below
  */
 import { CapacitorHttp, Capacitor } from '@capacitor/core';
 
@@ -23,10 +21,42 @@ import { createLogger } from '../../utils/createLogger';
 
 const log = createLogger('wxServer');
 
-const DEFAULT_BASE = 'http://100.76.191.119:8080';
+interface WxServerBuildConfig {
+    dev: boolean;
+    enabled: string | undefined;
+    base: string | undefined;
+}
+
+export function resolveWxServerBase(config: WxServerBuildConfig): string {
+    if (!config.dev || config.enabled !== 'true') return '';
+    const candidate = config.base?.trim();
+    if (!candidate) return '';
+
+    try {
+        const parsed = new URL(candidate);
+        if (
+            (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') ||
+            parsed.username ||
+            parsed.password ||
+            parsed.search ||
+            parsed.hash
+        ) {
+            return '';
+        }
+        return candidate.replace(/\/+$/, '');
+    } catch {
+        return '';
+    }
+}
+
+const CONFIGURED_BASE = resolveWxServerBase({
+    dev: import.meta.env.DEV,
+    enabled: import.meta.env.VITE_WX_SERVER_ENABLED,
+    base: import.meta.env.VITE_WX_SERVER_BASE,
+});
 
 export function wxServerBase(): string {
-    return (import.meta.env.VITE_WX_SERVER_BASE as string | undefined) || DEFAULT_BASE;
+    return CONFIGURED_BASE;
 }
 
 const PROBE_TIMEOUT_MS = 2_500;
@@ -39,18 +69,22 @@ let _inflight: Promise<boolean> | null = null;
 
 /** True when this build can never reach a plain-http tailnet host. */
 function hardBlocked(): boolean {
+    const base = wxServerBase();
+    if (!base) return true;
     if (Capacitor.isNativePlatform()) return false;
     try {
-        return window.location.protocol === 'https:' && wxServerBase().startsWith('http://');
+        return window.location.protocol === 'https:' && base.startsWith('http://');
     } catch {
         return true;
     }
 }
 
 async function probe(): Promise<boolean> {
+    const base = wxServerBase();
+    if (!base) return false;
     // Minimal real query (not just a TCP touch): proves the API answers and
     // that the dwd_icon domain is actually served.
-    const url = `${wxServerBase()}/v1/forecast?latitude=-27.2&longitude=153.1&current=temperature_2m&models=dwd_icon`;
+    const url = `${base}/v1/forecast?latitude=-27.2&longitude=153.1&current=temperature_2m&models=dwd_icon`;
     try {
         const res = await Promise.race([
             CapacitorHttp.get({ url, connectTimeout: PROBE_TIMEOUT_MS, readTimeout: PROBE_TIMEOUT_MS }),

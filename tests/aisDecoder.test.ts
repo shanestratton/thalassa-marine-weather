@@ -50,8 +50,8 @@ describe('AIS 6-bit primitives', () => {
 describe('AIS Message Type 1 (Class A Position Report)', () => {
     it('should decode a standard Class A position report', () => {
         // Real AIS sentence: vessel MMSI 227006760, under way
-        // !AIVDM,1,1,,B,15MwkT1P05Fo;H`EKP8a8:R`0@Fv,0*75
-        const result = processAisSentence('!AIVDM,1,1,,B,15MwkT1P05Fo;H`EKP8a8:R`0@Fv,0*75');
+        // !AIVDM,1,1,,B,15MwkT1P05Fo;H`EKP8a8:R`0@Fv,0*0D
+        const result = processAisSentence('!AIVDM,1,1,,B,15MwkT1P05Fo;H`EKP8a8:R`0@Fv,0*0D');
         expect(result).not.toBeNull();
         if (!result) return;
 
@@ -76,9 +76,9 @@ describe('AIS Message Type 1 (Class A Position Report)', () => {
 
     it('should reject Null Island (0,0) position as likely invalid', () => {
         // From gpsd AIVDM reference: Message type 1 with all-zero position (0°N, 0°E = Null Island)
-        // !AIVDM,1,1,,B,13u@Dt002s000000000000000000,0*40
+        // !AIVDM,1,1,,B,13u@Dt002s000000000000000000,0*63
         // The decoder correctly rejects (0,0) as an unset/default position.
-        const result = processAisSentence('!AIVDM,1,1,,B,13u@Dt002s000000000000000000,0*40');
+        const result = processAisSentence('!AIVDM,1,1,,B,13u@Dt002s000000000000000000,0*63');
         expect(result).toBeNull(); // Null Island = correctly rejected
 
         // But the payload itself should decode the MMSI before position filtering
@@ -102,8 +102,8 @@ describe('AIS Message Type 1 (Class A Position Report)', () => {
 describe('AIS Message Type 5 (Static / Voyage Data)', () => {
     it('should reassemble and decode a 2-fragment message', () => {
         // Two-part AIS sentence (message type 5)
-        const part1 = '!AIVDM,2,1,3,B,55?MbV02>H97ac<H4eEK6W@T4@Dn2222220l18F220A5v1@1340Ep4Q8,0*2C';
-        const part2 = '!AIVDM,2,2,3,B,88888888880,2*2E';
+        const part1 = '!AIVDM,2,1,3,B,55?MbV02>H97ac<H4eEK6W@T4@Dn2222220l18F220A5v1@1340Ep4Q8,0*15';
+        const part2 = '!AIVDM,2,2,3,B,88888888880,2*24';
 
         // First fragment should return null (incomplete)
         const result1 = processAisSentence(part1);
@@ -127,8 +127,8 @@ describe('AIS Message Type 5 (Static / Voyage Data)', () => {
 
 describe('AIS Message Type 18 (Class B Position Report)', () => {
     it('should decode a Class B position report', () => {
-        // !AIVDM,1,1,,B,B5MsT=0016J401Cg4D`00000000,0*6F
-        const result = processAisSentence('!AIVDM,1,1,,B,B5MsT=0016J401Cg4D`00000000,0*6F');
+        // !AIVDM,1,1,,B,B5MsT=0016J401Cg4D`00000000,0*49
+        const result = processAisSentence('!AIVDM,1,1,,B,B5MsT=0016J401Cg4D`00000000,0*49');
         // Message type B (18) — check if it processes
         if (!result) {
             // Might be null if position is at 0,0
@@ -143,8 +143,8 @@ describe('AIS Message Type 18 (Class B Position Report)', () => {
 
 describe('AIS Message Type 24 (Class B Static Data)', () => {
     it('should decode a Class B Part A (vessel name)', () => {
-        // !AIVDM,1,1,,A,H52N>V@T2rNH<I00000000000000,2*45
-        const result = processAisSentence('!AIVDM,1,1,,A,H52N>V@T2rNH<I00000000000000,2*45');
+        // !AIVDM,1,1,,A,H52N>V@T2rNH<I00000000000000,2*6A
+        const result = processAisSentence('!AIVDM,1,1,,A,H52N>V@T2rNH<I00000000000000,2*6A');
         if (!result) return;
 
         expect(result.mmsi).toBeDefined();
@@ -184,13 +184,13 @@ describe('decodePayload', () => {
 
 describe('AIS edge cases', () => {
     it('should handle sentences with channel A', () => {
-        const result = processAisSentence('!AIVDM,1,1,,A,15MwkT1P05Fo;H`EKP8a8:R`0@Fv,0*74');
+        const result = processAisSentence('!AIVDM,1,1,,A,15MwkT1P05Fo;H`EKP8a8:R`0@Fv,0*0E');
         expect(result).not.toBeNull();
     });
 
     it('should handle AIVDO (own vessel) sentences', () => {
         // AIVDO is the same format but for own vessel data
-        const result = processAisSentence('!AIVDO,1,1,,A,15MwkT1P05Fo;H`EKP8a8:R`0@Fv,0*63');
+        const result = processAisSentence('!AIVDO,1,1,,A,15MwkT1P05Fo;H`EKP8a8:R`0@Fv,0*0C');
         expect(result).not.toBeNull();
     });
 
@@ -200,8 +200,8 @@ describe('AIS edge cases', () => {
     });
 
     it('should handle multiple sequential single-part messages', () => {
-        const r1 = processAisSentence('!AIVDM,1,1,,B,15MwkT1P05Fo;H`EKP8a8:R`0@Fv,0*75');
-        const r2 = processAisSentence('!AIVDM,1,1,,A,15MwkT1P05Fo;H`EKP8a8:R`0@Fv,0*74');
+        const r1 = processAisSentence('!AIVDM,1,1,,B,15MwkT1P05Fo;H`EKP8a8:R`0@Fv,0*0D');
+        const r2 = processAisSentence('!AIVDM,1,1,,A,15MwkT1P05Fo;H`EKP8a8:R`0@Fv,0*0E');
         expect(r1).not.toBeNull();
         expect(r2).not.toBeNull();
     });

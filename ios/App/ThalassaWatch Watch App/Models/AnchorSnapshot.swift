@@ -28,6 +28,8 @@ struct AnchorSnapshot: Codable, Equatable {
         let accuracy: Double
     }
 
+    /// Epoch milliseconds when the phone generated this payload.
+    let generatedAt: Double
     let state: State
     let anchor: Coord?
     let vessel: VesselCoord?
@@ -46,8 +48,10 @@ struct AnchorSnapshot: Codable, Equatable {
 
     /// Initialise from the dictionary form WatchConnectivity delivers.
     init?(from dict: [String: Any]) {
-        guard let stateRaw = dict["state"] as? String,
+        guard let generatedAt = dict["generatedAt"] as? Double,
+              let stateRaw = dict["state"] as? String,
               let state = State(rawValue: stateRaw) else { return nil }
+        self.generatedAt = generatedAt
         self.state = state
 
         if let a = dict["anchor"] as? [String: Any],

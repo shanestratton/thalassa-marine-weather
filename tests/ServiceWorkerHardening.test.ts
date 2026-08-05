@@ -11,15 +11,23 @@ type ServiceWorkerHandler = (event: {
 
 function loadServiceWorker() {
     const listeners = new Map<string, ServiceWorkerHandler>();
-    const cache = {
+    const makeCache = () => ({
         addAll: vi.fn().mockResolvedValue(undefined),
         match: vi.fn().mockResolvedValue(undefined),
         put: vi.fn().mockResolvedValue(undefined),
         keys: vi.fn().mockResolvedValue([]),
         delete: vi.fn().mockResolvedValue(true),
+    });
+    const namedCaches = new Map<string, ReturnType<typeof makeCache>>();
+    const getCache = (name: string) => {
+        const existing = namedCaches.get(name);
+        if (existing) return existing;
+        const created = makeCache();
+        namedCaches.set(name, created);
+        return created;
     };
     const caches = {
-        open: vi.fn().mockResolvedValue(cache),
+        open: vi.fn((name: string) => Promise.resolve(getCache(name))),
         keys: vi.fn().mockResolvedValue([]),
         delete: vi.fn().mockResolvedValue(true),
         match: vi.fn().mockResolvedValue(undefined),
@@ -44,7 +52,13 @@ function loadServiceWorker() {
         },
     });
 
-    return { listeners, cache, caches, fetchMock };
+    return {
+        listeners,
+        cache: getCache('thalassa-v198-core'),
+        getCache,
+        caches,
+        fetchMock,
+    };
 }
 
 describe('production service worker', () => {
@@ -76,7 +90,7 @@ describe('production service worker', () => {
     });
 
     it('matches trusted cache hosts by DNS boundary, not substring', async () => {
-        const { listeners, cache, fetchMock } = loadServiceWorker();
+        const { listeners, getCache, fetchMock } = loadServiceWorker();
         const deceptiveRespondWith = vi.fn();
 
         listeners.get('fetch')?.({
@@ -100,6 +114,58 @@ describe('production service worker', () => {
         expect(await responsePromise).toMatchObject({ status: 200 });
         await Promise.all(pending);
         expect(fetchMock).toHaveBeenCalledOnce();
-        expect(cache.put).toHaveBeenCalledOnce();
+        expect(getCache('thalassa-v198-runtime-tiles').put).toHaveBeenCalledOnce();
+        expect(getCache('thalassa-v195-tiles').put).not.toHaveBeenCalled();
+    });
+
+    it('serves explicit offline-area tiles without evicting or rewriting them', async () => {
+        const { listeners, getCache, fetchMock } = loadServiceWorker();
+        const runtimeCache = getCache('thalassa-v198-runtime-tiles');
+        const offlineCache = getCache('thalassa-v195-tiles');
+        offlineCache.match.mockResolvedValue(new Response('offline-area'));
+
+        let responsePromise: Promise<Response> | undefined;
+        listeners.get('fetch')?.({
+            request: new Request('https://tile.openstreetmap.org/8/234/155.png'),
+            respondWith: (response) => {
+                responsePromise = response;
+            },
+            waitUntil: vi.fn(),
+        });
+
+        expect(responsePromise).toBeDefined();
+        expect(await responsePromise?.then((response) => response.text())).toBe('offline-area');
+        expect(fetchMock).not.toHaveBeenCalled();
+        expect(runtimeCache.put).not.toHaveBeenCalled();
+        expect(offlineCache.put).not.toHaveBeenCalled();
+        expect(offlineCache.delete).not.toHaveBeenCalled();
+    });
+
+    it('prunes only the ordinary browsing tile cache to its fixed limit', async () => {
+        const { listeners, getCache } = loadServiceWorker();
+        const runtimeCache = getCache('thalassa-v198-runtime-tiles');
+        const offlineCache = getCache('thalassa-v195-tiles');
+        runtimeCache.keys.mockResolvedValue(
+            Array.from(
+                { length: 2002 },
+                (_, index) => new Request(`https://tile.openstreetmap.org/8/${index}/155.png`),
+            ),
+        );
+
+        let responsePromise: Promise<Response> | undefined;
+        const pending: Promise<unknown>[] = [];
+        listeners.get('fetch')?.({
+            request: new Request('https://tile.openstreetmap.org/8/234/155.png'),
+            respondWith: (response) => {
+                responsePromise = response;
+            },
+            waitUntil: (work) => pending.push(work),
+        });
+
+        expect(await responsePromise).toMatchObject({ status: 200 });
+        await Promise.all(pending);
+        expect(runtimeCache.delete).toHaveBeenCalledTimes(2);
+        expect(offlineCache.keys).not.toHaveBeenCalled();
+        expect(offlineCache.delete).not.toHaveBeenCalled();
     });
 });

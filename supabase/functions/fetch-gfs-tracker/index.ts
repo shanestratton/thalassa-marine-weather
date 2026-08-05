@@ -232,8 +232,7 @@ Deno.serve(async (req: Request) => {
 
         // ── Source 1: ATCF Unix file (per-forecast-hour positions) ──
         try {
-            const atcfUrl =
-                `https://nomads.ncep.noaa.gov/pub/data/nccf/com/gfs/prod/` +
+            const atcfUrl = `https://nomads.ncep.noaa.gov/pub/data/nccf/com/gfs/prod/` +
                 `gfs.${date}/${cycle}/atmos/gfs.t${cycle}z.atcfunix.all`;
 
             console.info(`[fetch-gfs-tracker] Trying atcfunix: ${atcfUrl}`);
@@ -264,8 +263,7 @@ Deno.serve(async (req: Request) => {
         // ── Source 2: TCVitals fallback (T+0 only) ──
         if (result.source === 'none') {
             try {
-                const vitalsUrl =
-                    `https://nomads.ncep.noaa.gov/pub/data/nccf/com/gfs/prod/` +
+                const vitalsUrl = `https://nomads.ncep.noaa.gov/pub/data/nccf/com/gfs/prod/` +
                     `gfs.${date}/${cycle}/atmos/gfs.t${cycle}z.syndata.tcvitals.tm00`;
 
                 console.info(`[fetch-gfs-tracker] Trying tcvitals: ${vitalsUrl}`);
@@ -290,8 +288,7 @@ Deno.serve(async (req: Request) => {
         // ── If atcfunix worked, enrich with tcvitals names ──
         if (result.source === 'atcfunix') {
             try {
-                const vitalsUrl =
-                    `https://nomads.ncep.noaa.gov/pub/data/nccf/com/gfs/prod/` +
+                const vitalsUrl = `https://nomads.ncep.noaa.gov/pub/data/nccf/com/gfs/prod/` +
                     `gfs.${date}/${cycle}/atmos/gfs.t${cycle}z.syndata.tcvitals.tm00`;
                 const resp = await fetchWithTimeout(vitalsUrl, {}, 5_000);
                 if (resp.ok) {

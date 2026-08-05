@@ -302,11 +302,12 @@ test('routes avoid point obstructions with buffer', () => {
 // ── Test 6: origin entirely surrounded by land → no path ────────────
 
 test('reports failure when origin is on land with no escape', () => {
-    // Land mass that extends beyond the 5km BFS snap radius. Snap
-    // radius is hard-coded at 5,000 m — so the land block must be
-    // ≥10 km wide and ≥10 km tall (covering origin to all sides).
+    // Land mass that leaves no real navigable cell within the current
+    // 10 km endpoint snap radius of the origin. The router carves a tiny
+    // assertion bubble around each selected endpoint; classification must
+    // use the pre-carve grid so that bubble cannot masquerade as water.
     // Each degree lat ≈ 111 km, each degree lon at 32° ≈ 94 km, so
-    // 0.1° each axis is well clear of the snap radius.
+    // the nearest real water east of the origin is about 14 km away.
     const layers: InshoreLayers = {
         LNDARE: makePolygons([
             [
@@ -325,10 +326,19 @@ test('reports failure when origin is on land with no escape', () => {
         draftM: 2.5,
     });
     assert(!isSuccess(result), `expected failure, got success: ${JSON.stringify(result)}`);
-    assert(
-        result.code === 'origin-on-land' || result.code === 'destination-on-land',
-        `expected code origin-on-land or destination-on-land, got ${result.code}`,
-    );
+    assert.equal(result.code, 'origin-on-land');
+
+    // Route-specific endpoint carving must not mutate the cached base grid.
+    // The second identical request must classify exactly like the first.
+    const repeated = routeInshore(layers, {
+        fromLat: 32.0,
+        fromLon: -81.0,
+        toLat: 32.0,
+        toLon: -80.9,
+        draftM: 2.5,
+    });
+    assert(!isSuccess(repeated), `expected repeated failure, got success: ${JSON.stringify(repeated)}`);
+    assert.equal(repeated.code, 'origin-on-land');
 });
 
 // ── Test 7: snap to navigable — origin on land but water nearby ─────

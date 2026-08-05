@@ -6,7 +6,7 @@
  * paths produce the same EquasisVesselInfo shape and are rate-limited to
  * 3 s/req since Equasis is login-guarded.
  */
-import { VesselMetadataRow, upsertMetadata } from '../supabase.ts';
+import { upsertMetadata, VesselMetadataRow } from '../supabase.ts';
 import { fetchWithTimeout, readResponseTextLimited } from '../../../_shared/http-security.ts';
 
 const EQUASIS_BASE = Deno.env.get('EQUASIS_API_URL') ?? 'https://www.equasis.org/EquasisWeb/restricted';
@@ -83,7 +83,9 @@ async function queryEquasis(mmsi: number): Promise<EquasisVesselInfo | null> {
             {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                body: `j_username=${encodeURIComponent(EQUASIS_USER)}&j_password=${encodeURIComponent(EQUASIS_PASS)}&submit=Login`,
+                body: `j_username=${encodeURIComponent(EQUASIS_USER)}&j_password=${
+                    encodeURIComponent(EQUASIS_PASS)
+                }&submit=Login`,
                 redirect: 'manual',
             },
             6_000,

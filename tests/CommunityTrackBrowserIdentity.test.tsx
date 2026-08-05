@@ -14,6 +14,10 @@ const communityMocks = vi.hoisted(() => ({
     importGPXToEntries: vi.fn(),
 }));
 
+vi.mock('../utils/featureVisibility', () => ({
+    FEATURE_VISIBILITY: { communityTrackSharing: true },
+}));
+
 vi.mock('../services/TrackSharingService', () => ({
     TrackSharingService: {
         browseSharedTracks: communityMocks.browseSharedTracks,

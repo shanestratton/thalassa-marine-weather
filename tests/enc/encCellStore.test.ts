@@ -8,7 +8,12 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 
-import { shouldEvictBlob, parseJsonOffThread } from '../../services/enc/EncCellStore';
+import {
+    parseAndCacheCellText,
+    parseAndCacheCellTextAsync,
+    shouldEvictBlob,
+    parseJsonOffThread,
+} from '../../services/enc/EncCellStore';
 
 const MB = 1024 * 1024;
 
@@ -65,5 +70,31 @@ describe('parseJsonOffThread (worker-unavailable sync fallback)', () => {
     it('throws on malformed JSON, so the caller’s try/catch still fires', async () => {
         vi.stubGlobal('Worker', undefined);
         await expect(parseJsonOffThread('not json {')).rejects.toThrow();
+    });
+});
+
+describe('cell blob identity boundary', () => {
+    const cellJson = (cellId: string): string =>
+        JSON.stringify({
+            cellId,
+            sourceHO: 'AU',
+            edition: 1,
+            issued: '2026-08-01',
+            bbox: [150, -35, 151, -34],
+            layers: {},
+        });
+
+    it('accepts the requested cell case-insensitively and returns the canonical payload', () => {
+        const blob = parseAndCacheCellText('AU5MOO01', cellJson('au5moo01'));
+        expect(blob?.cellId).toBe('AU5MOO01');
+    });
+
+    it('rejects a valid blob stored under a different requested cell ID', () => {
+        expect(parseAndCacheCellText('AU5MOO01', cellJson('AU5WRONG'))).toBeNull();
+    });
+
+    it('rejects a worker/fallback parse whose payload belongs to another cell', async () => {
+        vi.stubGlobal('Worker', undefined);
+        await expect(parseAndCacheCellTextAsync('AU5MOO01', cellJson('AU5WRONG'))).resolves.toBeNull();
     });
 });

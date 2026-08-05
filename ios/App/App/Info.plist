@@ -3,11 +3,11 @@
 <plist version="1.0">
 <dict>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>Thalassa needs your location to provide local marine weather forecasts and navigation.</string>
+	<string>Thalassa uses your location while the app is open to show local marine weather, your dashboard position, navigation tools, and the anchor position you choose.</string>
 	<key>NSLocationAlwaysUsageDescription</key>
-	<string>Thalassa needs your location to provide local marine weather forecasts and navigation.</string>
+	<string>Thalassa uses your location in the background only while you explicitly arm Anchor Watch or start voyage logging, so it can detect anchor dragging and record your passage while the screen is locked.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-	<string>Thalassa needs continuous location access to automatically log your position every 15 minutes while on a voyage, even when the app is in the background.</string>
+	<string>Thalassa uses your location in the background only while you explicitly arm Anchor Watch or start voyage logging, so it can detect anchor dragging and record your passage while the screen is locked.</string>
 	<key>NSMotionUsageDescription</key>
 	<string>Thalassa uses motion detection to optimize GPS battery usage by detecting when you are stationary at anchor versus underway.</string>
 	<key>NSMicrophoneUsageDescription</key>
@@ -16,9 +16,7 @@
 	<string>Thalassa uses speech recognition to transcribe your spoken diary entries and Bosun questions, letting you capture your passage and ask the boat about weather, systems, and live state without typing.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Thalassa uses the camera to scan barcodes on inventory items and spare parts for quick identification and stock management.</string>
-	<key>NSAppleMusicUsageDescription</key>
-	<string>Thalassa uses Apple Music to let Calypso, your AI first mate, search and play music, show your playlists, and—only when you ask—create playlists or add tracks to them. Thalassa never deletes or changes your music without your request.</string>
-	<!-- audio = anchor-alarm tones + Apple Music playback; location =
+	<!-- audio = anchor-alarm tones; location =
 	     voyage tracking; fetch = diary outbox drain (BGAppRefreshTask via
 	     TSBackgroundFetch — requires the BGTaskSchedulerPermittedIdentifiers
 	     below or iOS never registers the task and background fetch silently
@@ -36,16 +34,6 @@
 	<key>BGTaskSchedulerPermittedIdentifiers</key>
 	<array>
 		<string>com.transistorsoft.fetch</string>
-	</array>
-	<!-- Bad Elf MFi protocol declaration (Shane 2026-08-02: "add the plist
-	     key, chance the app review"). Without this, EAAccessoryManager's
-	     connectedAccessories never lists the receiver, so the app could only
-	     see the Bad Elf WHILE it was actively supplying the Core Location fix
-	     — never by name, and never while merely paired. App Review may ask
-	     for MFi vendor authorization for this string; that risk is accepted. -->
-	<key>UISupportedExternalAccessoryProtocols</key>
-	<array>
-		<string>com.bad-elf.gps</string>
 	</array>
 	<key>TSLocationManagerLicense</key>
 	<string>eyJhbGciOiJFZERTQSIsImtpZCI6ImVkMjU1MTktbWFpbi12MSJ9.eyJvcyI6ImlvcyIsImFwcF9pZCI6ImNvbS50aGFsYXNzYS53ZWF0aGVyIiwib3JkZXJfbnVtYmVyIjoxNTQyOSwicmVuZXdhbF91cmwiOiJodHRwczovL3Nob3AudHJhbnNpc3RvcnNvZnQuY29tL2NhcnQvMzkzNjcwNzEyMzYxOTk6MT9ub3RlPTEwMjYzIiwiY3VzdG9tZXJfaWQiOjkzMzksInByb2R1Y3QiOiJjYXBhY2l0b3ItYmFja2dyb3VuZC1nZW9sb2NhdGlvbiIsImtleV92ZXJzaW9uIjoxLCJhbGxvd2VkX3N1ZmZpeGVzIjpbIi5kZXYiLCIuZGV2ZWxvcG1lbnQiLCIuc3RhZ2luZyIsIi5zdGFnZSIsIi5xYSIsIi51YXQiLCIudGVzdCIsIi5kZWJ1ZyJdLCJtYXhfYnVpbGRfc3RhbXAiOjIwMjcwODI4LCJncmFjZV9idWlsZHMiOjAsImVudGl0bGVtZW50cyI6WyJjb3JlIl0sImlhdCI6MTc4NTIwMDQ1Mn0.BXOLcZYe8B3kzNJojLt4i1E_vIYvjAkLtprDNZpQK1N1yCXWwPCnXYNtGq2icZpm6vz0q3M5bl6EyqXZm_IyAg</string>
@@ -92,10 +80,6 @@
     </dict>
 	<key>UIMainStoryboardFile</key>
 	<string>Main</string>
-	<key>UIRequiredDeviceCapabilities</key>
-	<array>
-		<string>armv7</string>
-	</array>
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
@@ -117,22 +101,12 @@
 	<false/>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
-    <!-- NSAllowsArbitraryLoads RESTORED 2026-08-03: the 08-02 scoping
-	     assumed numeric-IP hosts are ATS-exempt by default. FIELD-FALSIFIED
-	     on device — iOS blocked cleartext to the 100.x Tailscale IP
-	     ("App Transport Security has blocked a cleartext HTTP connection
-	     to 100.76.191.119"). CGNAT/tailnet addresses are NOT covered by
-	     NSAllowsLocalNetworking, and ATS exception domains cannot name raw
-	     IPs, so arbitrary-loads is the only mechanism that reaches the
-	     boat's Pi/Signal K/AvNav gear over Tailscale. App Review
-	     justification: communicates with user-configured marine
-	     electronics and boat-network devices that do not support TLS.
-	     All internet services (Supabase, weather APIs) remain HTTPS by
-	     construction. -->
+    <!-- Local-network HTTP is required for user-owned marine electronics
+	     discovered on the boat LAN. Public/WAN cleartext loads, including
+	     direct HTTP access to Tailscale/CGNAT addresses, remain blocked by
+	     ATS; remote devices must use HTTPS or a local relay. -->
     <key>NSAppTransportSecurity</key>
     <dict>
-        <key>NSAllowsArbitraryLoads</key>
-        <true/>
         <key>NSAllowsLocalNetworking</key>
         <true/>
     </dict>
@@ -144,16 +118,5 @@
 	</array>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Thalassa uses local network access to discover Signal K servers on your boat's network for nautical chart overlays and instrument data.</string>
-	<key>CFBundleURLTypes</key>
-	<array>
-		<dict>
-			<key>CFBundleURLName</key>
-			<string>com.thalassa.app.googleoauth</string>
-			<key>CFBundleURLSchemes</key>
-			<array>
-				<string>com.googleusercontent.apps.717700927804-t644h587eb4kaklh3cb495k2ec7q8q6v</string>
-			</array>
-		</dict>
-	</array>
 </dict>
 </plist>

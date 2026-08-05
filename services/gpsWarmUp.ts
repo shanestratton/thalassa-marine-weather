@@ -91,7 +91,16 @@ export async function warmUpGps(): Promise<void> {
             return;
         }
 
-        await BgGeoManager.requestStart();
+        const leaseState = await BgGeoManager.requestStart();
+        if (!leaseState.active || !leaseState.nativeTrackingEnabled) {
+            if (leaseState.activeLeaseCount > 0) {
+                await BgGeoManager.requestStop().catch((error) => {
+                    log.error('GPS warm-up could not release an inactive native lease:', error);
+                });
+            }
+            log.warn('GPS warm-up skipped — continuous native tracking was not verified');
+            return;
+        }
 
         // At the steady 1 m distance filter a boat on a mooring emits almost
         // nothing on iOS, so a warm-up without this would hold the engine open
@@ -106,19 +115,39 @@ export async function warmUpGps(): Promise<void> {
         // log's own fast-lock.
         const samplingToken = await BgGeoManager.setSamplingMode('fastlock').catch(() => null);
 
-        // Rule 2 — exactly one release, whichever exit fires first.
+        // Rule 2 — exactly one SUCCESSFUL release, whichever exit fires first.
+        // BgGeoManager retains the final lease when native stop cannot be
+        // verified, so a rejected release is still ours and must be retried.
         let released = false;
+        let releaseInFlight = false;
+        let cleanupDone = false;
+        let releaseRetryId: ReturnType<typeof setTimeout> | undefined;
         const release = (why: string) => {
-            if (released) return;
-            released = true;
-            clearTimeout(timer);
-            unsubscribe?.();
-            window.removeEventListener('visibilitychange', onHidden);
-            if (samplingToken !== null) {
-                void BgGeoManager.restoreSamplingModeIfCurrent(samplingToken, 'default').catch(() => {});
+            if (released || releaseInFlight) return;
+            releaseInFlight = true;
+            if (!cleanupDone) {
+                cleanupDone = true;
+                clearTimeout(timer);
+                unsubscribe?.();
+                window.removeEventListener('visibilitychange', onHidden);
+                if (samplingToken !== null) {
+                    void BgGeoManager.restoreSamplingModeIfCurrent(samplingToken, 'default').catch(() => {});
+                }
             }
-            void BgGeoManager.requestStop();
-            log.warn(`GPS warm-up released (${why})`);
+            void BgGeoManager.requestStop()
+                .then(() => {
+                    released = true;
+                    releaseInFlight = false;
+                    if (releaseRetryId) clearTimeout(releaseRetryId);
+                    log.warn(`GPS warm-up released (${why})`);
+                })
+                .catch((error) => {
+                    releaseInFlight = false;
+                    log.error(
+                        `GPS warm-up release failed; retrying: ${error instanceof Error ? error.message : error}`,
+                    );
+                    releaseRetryId = setTimeout(() => release(`${why}; teardown retry`), 1_000);
+                });
         };
 
         const timer = setTimeout(() => release('time box'), WARM_UP_MS);

@@ -56,6 +56,7 @@ export function reduceNamedAreas(
     fc: FeatureCollection | undefined,
     kind: 'water' | 'land',
     into: Map<string, Feature>,
+    extraProperties: Record<string, unknown> = {},
 ): void {
     for (const feat of fc?.features ?? []) {
         const g = feat?.geometry;
@@ -66,7 +67,7 @@ export function reduceNamedAreas(
         if (!name) continue;
         const anchor = labelAnchorFor(g);
         if (!anchor) continue;
-        const labelProps: Record<string, unknown> = { _name: name, _kind: kind };
+        const labelProps: Record<string, unknown> = { ...extraProperties, _name: name, _kind: kind };
         if (typeof props._minZoom === 'number') {
             labelProps._minZoom = Math.max(7, props._minZoom - 2.5);
         }

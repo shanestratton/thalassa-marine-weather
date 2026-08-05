@@ -13,6 +13,8 @@ const mocks = vi.hoisted(() => ({
     getCurrentVoyageId: vi.fn(),
     getTrackingStatus: vi.fn(),
     startTracking: vi.fn(),
+    stopTracking: vi.fn(),
+    pauseTracking: vi.fn(),
     archiveVoyage: vi.fn(),
     unarchiveVoyage: vi.fn(),
     deleteEntry: vi.fn(),
@@ -80,8 +82,8 @@ vi.mock('../services/ShipLogService', () => ({
         getTrackingStatus: (...args: unknown[]) => mocks.getTrackingStatus(...args),
         getGpsStatus: vi.fn(() => 'none'),
         startTracking: (...args: unknown[]) => mocks.startTracking(...args),
-        stopTracking: vi.fn().mockResolvedValue(undefined),
-        pauseTracking: vi.fn().mockResolvedValue(undefined),
+        stopTracking: (...args: unknown[]) => mocks.stopTracking(...args),
+        pauseTracking: (...args: unknown[]) => mocks.pauseTracking(...args),
         setRapidMode: vi.fn().mockResolvedValue(undefined),
         setPrecisionMode: vi.fn().mockResolvedValue(undefined),
         archiveVoyage: (...args: unknown[]) => mocks.archiveVoyage(...args),
@@ -157,6 +159,8 @@ beforeEach(() => {
         isPrecisionMode: false,
     });
     mocks.startTracking.mockResolvedValue(undefined);
+    mocks.stopTracking.mockResolvedValue(undefined);
+    mocks.pauseTracking.mockResolvedValue(undefined);
     mocks.archiveVoyage.mockResolvedValue(true);
     mocks.unarchiveVoyage.mockResolvedValue(true);
     mocks.deleteEntry.mockResolvedValue(true);
@@ -260,6 +264,46 @@ describe('useLogPageState identity boundary', () => {
         await act(async () => Promise.resolve());
         expect(result.current.state.isTracking).toBe(false);
         expect(mocks.toastError).not.toHaveBeenCalledWith('A GPS failed');
+    });
+
+    it('restores pending-stop UI and does not delete a voyage after native teardown fails', async () => {
+        mocks.stopTracking.mockRejectedValueOnce(new Error('Background GPS is still active. Retry End Voyage.'));
+        mocks.getTrackingStatus.mockReturnValue({
+            isTracking: false,
+            isPaused: true,
+            isRapidMode: false,
+            isPrecisionMode: false,
+        });
+        const { result } = renderHook(() => useLogPageState());
+        await waitFor(() => expect(result.current.state.loading).toBe(false));
+        mocks.deleteVoyage.mockClear();
+
+        await act(async () => result.current.confirmStopVoyage());
+
+        expect(result.current.state).toMatchObject({ isTracking: false, isPaused: true });
+        expect(mocks.toastError).toHaveBeenCalledWith('Background GPS is still active. Retry End Voyage.');
+        expect(mocks.deleteVoyage).not.toHaveBeenCalled();
+    });
+
+    it('surfaces a pause teardown failure and reflects the service paused state', async () => {
+        mocks.pauseTracking.mockRejectedValueOnce(
+            new Error('Voyage recording is paused, but background GPS could not be stopped.'),
+        );
+        mocks.getTrackingStatus.mockReturnValue({
+            isTracking: false,
+            isPaused: true,
+            isRapidMode: false,
+            isPrecisionMode: false,
+        });
+        const { result } = renderHook(() => useLogPageState());
+        await waitFor(() => expect(result.current.state.loading).toBe(false));
+
+        await act(async () => result.current.handlePauseTracking());
+
+        expect(result.current.state).toMatchObject({ isTracking: false, isPaused: true });
+        expect(mocks.toastError).toHaveBeenCalledWith(
+            'Voyage recording is paused, but background GPS could not be stopped.',
+        );
     });
 
     it('rejects a retained A voyage undo callback after B is active', async () => {

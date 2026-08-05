@@ -32,7 +32,9 @@ public class WatchConnectivityPlugin: CAPPlugin {
         // back to JS land (mobTriggered, alarmAck) when the watch
         // sends a reverse message.
         WatchSessionManager.shared.eventEmitter = { [weak self] eventName, payload in
-            self?.notifyListeners(eventName, data: payload)
+            // A queued MOB transfer can wake the phone before JS listeners
+            // finish attaching. Retain safety events until they are consumed.
+            self?.notifyListeners(eventName, data: payload, retainUntilConsumed: true)
         }
         // Activate eagerly so the session is ready by the time the
         // first pushAnchorState arrives.
@@ -201,8 +203,10 @@ final class WatchSessionManager: NSObject, WCSessionDelegate {
     }
 
     /**
-     * Watch → phone messages. Used for MOB trigger and alarm-ack.
-     * `replyHandler` lets the watch know the phone received the event.
+     * Watch → phone immediate messages. Used for a MOB-marker request and
+     * an alarm-acknowledgement request. The reply confirms only that the
+     * phone accepted a supported event, not that GPS marking/audio work
+     * has completed in JavaScript.
      */
     func session(
         _ session: WCSession,
@@ -210,18 +214,46 @@ final class WatchSessionManager: NSObject, WCSessionDelegate {
         replyHandler: @escaping ([String: Any]) -> Void
     ) {
         DispatchQueue.main.async { [weak self] in
-            guard let self = self else { return }
-            if let type = message["type"] as? String {
-                switch type {
-                case "mob":
-                    self.eventEmitter?("mobTriggered", message)
-                case "alarmAck":
-                    self.eventEmitter?("alarmAck", message)
-                default:
-                    NSLog("WatchSessionManager: unknown message type \(type)")
-                }
+            let received = self?.emitWatchEvent(message, deliveryChannel: "immediate") ?? false
+            var reply: [String: Any] = ["received": received]
+            // Echo the stable request ID so the Watch cannot mistake a delayed
+            // reply from an earlier hold for acknowledgement of this request.
+            if let requestId = message["mobRequestId"] as? String {
+                reply["mobRequestId"] = requestId
             }
-            replyHandler(["received": true])
+            replyHandler(reply)
+        }
+    }
+
+    /**
+     * Background transfer used when the phone is not live-reachable. There
+     * is no reply channel, so the Watch deliberately continues to show
+     * QUEUED. Retained Capacitor events prevent a cold-start listener race.
+     */
+    func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any] = [:]) {
+        DispatchQueue.main.async { [weak self] in
+            if self?.emitWatchEvent(userInfo, deliveryChannel: "queued") != true {
+                NSLog("WatchSessionManager: ignored unsupported queued Watch event")
+            }
+        }
+    }
+
+    @discardableResult
+    private func emitWatchEvent(_ message: [String: Any], deliveryChannel: String) -> Bool {
+        guard let type = message["type"] as? String, eventEmitter != nil else { return false }
+        var payload = message
+        payload["deliveryChannel"] = deliveryChannel
+        payload["phoneReceivedAtMs"] = Date().timeIntervalSince1970 * 1_000
+        switch type {
+        case "mob":
+            eventEmitter?("mobTriggered", payload)
+            return true
+        case "alarmAck":
+            eventEmitter?("alarmAck", payload)
+            return true
+        default:
+            NSLog("WatchSessionManager: unknown message type \(type)")
+            return false
         }
     }
 }

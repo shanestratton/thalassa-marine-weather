@@ -50,8 +50,8 @@ describe('EncCellMetadata notification batching', () => {
         const listener = vi.fn();
         const unsub = subscribe(listener);
 
-        putCell(cell('A'));
-        putCell(cell('B'));
+        putCell(cell('A0'));
+        putCell(cell('B0'));
 
         expect(listener).toHaveBeenCalledTimes(2);
         unsub();

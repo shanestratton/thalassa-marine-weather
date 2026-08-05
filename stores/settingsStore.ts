@@ -12,6 +12,7 @@ import { create } from 'zustand';
 import type { UserSettings } from '../types';
 import type { VesselProfile } from '../types/vessel';
 import { getSystemUnits } from '../utils';
+import { boundedLocalQuarantine } from '../utils/localPrivacyRetention';
 import { Preferences } from '@capacitor/preferences';
 import { Capacitor } from '@capacitor/core';
 import { piCache } from '../services/PiCacheService';
@@ -19,8 +20,8 @@ import { KeepAwake } from '@capacitor-community/keep-awake';
 import { supabase } from '../services/supabase';
 import { getErrorMessage } from '../utils/createLogger';
 import { tierIsPro } from '../services/SubscriptionService';
+import { getSubscriptionStatus, type SubscriptionStatus } from '../managers/SubscriptionManager';
 import { createLogger } from '../utils/createLogger';
-import { Geolocation } from '@capacitor/geolocation';
 import {
     createOwnedVesselProfile,
     defaultVesselProfile,
@@ -54,6 +55,26 @@ const SETTINGS_KEY = 'thalassa_settings';
 const SETTINGS_LEGACY_QUARANTINE_KEY = 'thalassa_settings_quarantine_v2';
 const SETTINGS_ANONYMOUS_CLAIM_KEY = 'thalassa_settings_anonymous_claim_v1';
 
+function parseQuarantine(raw: string | null): unknown {
+    if (!raw) return [];
+    try {
+        return JSON.parse(raw) as unknown;
+    } catch {
+        return {
+            quarantined_at: new Date().toISOString(),
+            reason: 'unreadable prior settings quarantine',
+            unreadable_payload: raw,
+        };
+    }
+}
+
+async function appendSettingsPreferenceQuarantine(entry: Record<string, unknown>): Promise<void> {
+    const { value } = await Preferences.get({ key: SETTINGS_LEGACY_QUARANTINE_KEY });
+    const retained = boundedLocalQuarantine(parseQuarantine(value), [entry]);
+    if (retained.length === 0) await Preferences.remove({ key: SETTINGS_LEGACY_QUARANTINE_KEY });
+    else await Preferences.set({ key: SETTINGS_LEGACY_QUARANTINE_KEY, value: JSON.stringify(retained) });
+}
+
 interface PersistedSettingsEnvelope {
     version: 2;
     owner_user_id: string | null;
@@ -67,8 +88,10 @@ interface AnonymousSettingsClaim {
 }
 
 export const DEFAULT_SETTINGS: UserSettings = {
-    subscriptionTier: 'owner', // Default to owner for development
-    isPro: true, // Backward compat — derived from subscriptionTier
+    // Entitlements fail closed. Paid access is applied only after a future
+    // receipt-validation integration; local preferences are never authority.
+    subscriptionTier: 'free',
+    isPro: false,
     alwaysOn: false,
     notifications: {
         wind: { enabled: false, threshold: 20 },
@@ -122,8 +145,6 @@ interface SettingsState {
     archiveVesselProfile: (boatId: string) => Promise<void>;
     /** Save a sparse update to the selected vessel, with an offline outbox fallback. */
     patchActiveVesselProfile: (patch: Partial<VesselProfile> | VesselProfilePatch) => Promise<void>;
-    setTier: (tier: UserSettings['subscriptionTier']) => void;
-    togglePro: () => void;
     resetSettings: () => void;
     /** @internal — called once by init to wire up auth-based cloud sync */
     _setUserId: (id: string | null) => void;
@@ -133,6 +154,48 @@ interface SettingsState {
 // authoritative; this mirrors the SettingsProvider bridge only.
 let _userId: string | null = getAuthIdentityScope().userId;
 let _addDebugLog: (msg: string) => void = () => {};
+
+/**
+ * The current server entitlement contract predates the three marketing tiers
+ * and represents one premium bundle. Map that verified bundle to the owner
+ * feature set until billing stores an explicit tier server-side.
+ */
+export function tierForVerifiedSubscriptionStatus(status: SubscriptionStatus): UserSettings['subscriptionTier'] {
+    return status === 'active' || status === 'trial' ? 'owner' : 'free';
+}
+
+function applyFreeEntitlementBoundary(): void {
+    useSettingsStore.setState((state) => ({
+        settings: {
+            ...state.settings,
+            subscriptionTier: 'free',
+            subscriptionExpiry: undefined,
+            isPro: false,
+        },
+        isPro: false,
+    }));
+}
+
+async function refreshVerifiedEntitlement(scope: AuthIdentityScope): Promise<void> {
+    try {
+        const entitlement = await getSubscriptionStatus();
+        if (!isAuthIdentityScopeCurrent(scope)) return;
+        const tier = tierForVerifiedSubscriptionStatus(entitlement.status);
+        useSettingsStore.setState((state) => ({
+            settings: {
+                ...state.settings,
+                subscriptionTier: tier,
+                subscriptionExpiry: entitlement.subscriptionExpiry ?? undefined,
+                isPro: tierIsPro(tier),
+            },
+            isPro: tierIsPro(tier),
+        }));
+    } catch (error) {
+        if (!isAuthIdentityScopeCurrent(scope)) return;
+        log.warn('[entitlement] verification failed; keeping free boundary', getErrorMessage(error));
+        applyFreeEntitlementBoundary();
+    }
+}
 /**
  * True if loadSettings() found existing `thalassa_settings` data in
  * Capacitor Preferences at cold boot. Used by pullFromCloud to decide
@@ -572,14 +635,11 @@ async function readSettingsFromPreferences(scope: AuthIdentityScope): Promise<Us
     // Raw values inside an identity-scoped key came from the first scoped
     // release. The namespace itself proves their owner.
     if (!parsed.ownerKnown || parsed.ownerUserId === scope.userId) return parsed.settings;
-    await Preferences.set({
-        key: SETTINGS_LEGACY_QUARANTINE_KEY,
-        value: JSON.stringify({
-            reason: 'scoped settings owner mismatch',
-            scoped_key: settingsPreferenceKey(scope),
-            quarantined_at: new Date().toISOString(),
-            value,
-        }),
+    await appendSettingsPreferenceQuarantine({
+        reason: 'scoped settings owner mismatch',
+        scoped_key: settingsPreferenceKey(scope),
+        quarantined_at: new Date().toISOString(),
+        value,
     });
     await Preferences.remove({ key: settingsPreferenceKey(scope) });
     return null;
@@ -605,13 +665,10 @@ async function migrateLegacyPreferences(scope: AuthIdentityScope): Promise<void>
     } catch {
         // Preserved below as opaque quarantine data.
     }
-    await Preferences.set({
-        key: SETTINGS_LEGACY_QUARANTINE_KEY,
-        value: JSON.stringify({
-            reason: 'unattributed legacy settings',
-            quarantined_at: new Date().toISOString(),
-            value,
-        }),
+    await appendSettingsPreferenceQuarantine({
+        reason: 'unattributed legacy settings',
+        quarantined_at: new Date().toISOString(),
+        value,
     });
     await Preferences.remove({ key: SETTINGS_KEY });
 }
@@ -832,39 +889,11 @@ async function pullFromCloud(scope: AuthIdentityScope): Promise<void> {
             }
         }
 
-        // Fallback: if neither cloud nor local has a defaultLocation
-        // we'd hand the weather flow nothing to fetch, and the Glass
-        // page spins forever.
-        //
-        // Default to 'Current Location' — the orchestrator's existing
-        // GPS branch picks it up. But CRITICAL: await location
-        // permission FIRST. Without this wait, the orchestrator's
-        // GPS lookup fires immediately on the settings-restored
-        // event we're about to dispatch, before iOS has shown the
-        // user the location prompt; Transistorsoft's
-        // BackgroundGeolocation then fails with kCLErrorDomain
-        // Code=1 (denied) and the orchestrator gives up. By the
-        // time the user grants permission, no one re-tries.
-        // Awaiting requestPermissions here blocks pullFromCloud
-        // until the user has dismissed the iOS sheet, so the
-        // downstream GPS lookup happens with permission already
-        // granted. Denial returns the same shape with status='denied'
-        // — we still dispatch the event, the orchestrator's GPS
-        // call will fail, but at least it fails for a reason the
-        // user can fix in iOS Settings.
-        if (!merged.defaultLocation) {
-            log.warn(
-                '[pullFromCloud] No defaultLocation found locally or in cloud — awaiting location permission before defaulting to Current Location',
-            );
-            try {
-                const perm = await Geolocation.requestPermissions();
-                log.warn(`[pullFromCloud] Geolocation permission result: ${perm.location}`);
-            } catch (err) {
-                log.warn(`[pullFromCloud] Geolocation permission threw: ${getErrorMessage(err)}`);
-            }
-            if (!isAuthIdentityScopeCurrent(scope)) return;
-            merged.defaultLocation = 'Current Location';
-        }
+        // An empty defaultLocation is intentional. Cloud restore is passive
+        // account work and must not request Location or synthesize GPS-follow
+        // intent. App.tsx renders the honest Glass empty state with explicit
+        // "Use my location" and "Choose a port" actions; those point-of-use
+        // actions own any permission prompt and the subsequent weather fetch.
 
         if (!isAuthIdentityScopeCurrent(scope)) return;
         // A fleet action (selection, edit, archive or a manual sync) may
@@ -1026,6 +1055,13 @@ async function manageScreenEffects(s: UserSettings, scope: AuthIdentityScope = g
 export const SETTINGS_MIRROR_KEY = 'thalassa_settings_mirror';
 const SETTINGS_MIRROR_QUARANTINE_KEY = `${SETTINGS_MIRROR_KEY}_quarantine_v2`;
 
+function appendSettingsMirrorQuarantine(entry: Record<string, unknown>): void {
+    const existing = parseQuarantine(localStorage.getItem(SETTINGS_MIRROR_QUARANTINE_KEY));
+    const retained = boundedLocalQuarantine(existing, [entry]);
+    if (retained.length === 0) localStorage.removeItem(SETTINGS_MIRROR_QUARANTINE_KEY);
+    else localStorage.setItem(SETTINGS_MIRROR_QUARANTINE_KEY, JSON.stringify(retained));
+}
+
 function settingsMirrorKey(scope: AuthIdentityScope): string {
     return authScopedStorageKey(SETTINGS_MIRROR_KEY, scope);
 }
@@ -1046,14 +1082,11 @@ function migrateLegacyMirror(scope: AuthIdentityScope): void {
             return;
         }
         if (parsed.ownerKnown) return;
-        localStorage.setItem(
-            SETTINGS_MIRROR_QUARANTINE_KEY,
-            JSON.stringify({
-                reason: 'unattributed legacy settings mirror',
-                quarantined_at: new Date().toISOString(),
-                value: raw,
-            }),
-        );
+        appendSettingsMirrorQuarantine({
+            reason: 'unattributed legacy settings mirror',
+            quarantined_at: new Date().toISOString(),
+            value: raw,
+        });
         localStorage.removeItem(SETTINGS_MIRROR_KEY);
     } catch {
         // A corrupt/unavailable mirror is never authoritative.
@@ -1139,7 +1172,10 @@ export function mergeSettings(parsed: Record<string, unknown>): UserSettings {
     const p = parsed as Partial<UserSettings> & Record<string, unknown>;
     const validHeroWidgets =
         Array.isArray(p.heroWidgets) && p.heroWidgets.length > 0 ? p.heroWidgets : DEFAULT_SETTINGS.heroWidgets;
-    const tier = p.subscriptionTier || (p.isPro !== false ? 'owner' : 'free');
+    // Historic builds persisted owner/isPro directly on the device. Those
+    // values are untrusted preferences, not purchase evidence, so never
+    // revive them during disk hydration.
+    const tier: UserSettings['subscriptionTier'] = 'free';
     return {
         ...DEFAULT_SETTINGS,
         ...p,
@@ -1153,7 +1189,8 @@ export function mergeSettings(parsed: Record<string, unknown>): UserSettings {
         heroWidgets: validHeroWidgets,
         rowOrder: migrateRowOrder(Array.isArray(p.rowOrder) ? p.rowOrder : [...(DEFAULT_SETTINGS.rowOrder || [])]),
         subscriptionTier: tier,
-        isPro: tierIsPro(tier),
+        subscriptionExpiry: undefined,
+        isPro: false,
     } as UserSettings;
 }
 
@@ -1165,14 +1202,12 @@ export function readSettingsMirrorSync(scope: AuthIdentityScope = getAuthIdentit
         if (!raw) return null;
         const parsed = parseEnvelope(raw);
         if (parsed.ownerKnown && parsed.ownerUserId !== scope.userId) {
-            localStorage.setItem(
-                SETTINGS_MIRROR_QUARANTINE_KEY,
-                JSON.stringify({
-                    reason: 'scoped mirror owner mismatch',
-                    scoped_key: settingsMirrorKey(scope),
-                    value: raw,
-                }),
-            );
+            appendSettingsMirrorQuarantine({
+                reason: 'scoped mirror owner mismatch',
+                scoped_key: settingsMirrorKey(scope),
+                quarantined_at: new Date().toISOString(),
+                value: raw,
+            });
             localStorage.removeItem(settingsMirrorKey(scope));
             return null;
         }
@@ -1606,14 +1641,29 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
     _setUserId: (id) => {
         _userId = id;
         const scope = getAuthIdentityScope();
-        if (!id || scope.userId !== id || _lastCloudPullGeneration === scope.generation) return;
+        if (!id || scope.userId !== id) {
+            applyFreeEntitlementBoundary();
+            return;
+        }
+        // Fail closed while this exact identity is verified. Local disk/cloud
+        // preferences never bridge this boundary.
+        applyFreeEntitlementBoundary();
+        if (_lastCloudPullGeneration === scope.generation) {
+            void refreshVerifiedEntitlement(scope);
+            return;
+        }
         _lastCloudPullGeneration = scope.generation;
         const localLoad = _scopeLoadPromises.get(scope.key) ?? Promise.resolve();
-        void localLoad.then(() => {
+        void localLoad.then(async () => {
             if (!isAuthIdentityScopeCurrent(scope)) return;
-            return pullFromCloud(scope).finally(() => {
+            try {
+                await pullFromCloud(scope);
+            } finally {
+                // Apply server entitlement last so a legacy disk/cloud payload
+                // cannot overwrite the verified result during hydration.
+                await refreshVerifiedEntitlement(scope);
                 if (isAuthIdentityScopeCurrent(scope)) void useSettingsStore.getState().syncVesselFleet();
-            });
+            }
         });
     },
 
@@ -1625,15 +1675,30 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
         const scope = getAuthIdentityScope();
         if (_hydratedScopeKey !== scope.key) return;
 
-        const updated = { ...get().settings, ...patch };
-        // Keep isPro in sync with subscriptionTier
-        updated.isPro = tierIsPro(updated.subscriptionTier);
+        const {
+            subscriptionTier: requestedTier,
+            subscriptionExpiry: requestedExpiry,
+            isPro: requestedIsPro,
+            ...clientWritablePatch
+        } = patch;
+        if (requestedTier !== undefined || requestedExpiry !== undefined || requestedIsPro !== undefined) {
+            log.warn('[updateSettings] ignored client-authored entitlement fields');
+        }
+
+        const currentSettings = get().settings;
+        const updated = {
+            ...currentSettings,
+            ...clientWritablePatch,
+            subscriptionTier: currentSettings.subscriptionTier,
+            subscriptionExpiry: currentSettings.subscriptionExpiry,
+            isPro: tierIsPro(currentSettings.subscriptionTier),
+        };
         set({ settings: updated, isPro: tierIsPro(updated.subscriptionTier) });
 
         // Keep the desired relay WAN gate locally even if the Pi is absent.
         // PiCacheService reconciles it on the next successful health check,
         // so satellite mode cannot be bypassed by a brief Boat-LAN outage.
-        if (Object.prototype.hasOwnProperty.call(patch, 'satelliteMode')) {
+        if (Object.prototype.hasOwnProperty.call(clientWritablePatch, 'satelliteMode')) {
             void piCache.setDiaryRelayInternetPolicy(updated.satelliteMode !== true);
         }
         // Mirror first (synchronous) so the very next boot paints this change.
@@ -1642,8 +1707,8 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
         try {
             await writeSettingsToPreferences(scope, updated);
             if (!isAuthIdentityScopeCurrent(scope)) return;
-            if (patch.heroWidgets) {
-                _addDebugLog(`SAVE OK: [${patch.heroWidgets.join(', ')}]`);
+            if (clientWritablePatch.heroWidgets) {
+                _addDebugLog(`SAVE OK: [${clientWritablePatch.heroWidgets.join(', ')}]`);
             } else {
                 _addDebugLog('SAVE OK: Settings Updated');
             }
@@ -1654,7 +1719,7 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
         // Profile-bearing settings travel through the fleet service as
         // field-level patches. Retain the old onSave callers (onboarding and
         // older settings panels) while giving them the new safe behaviour.
-        const fleetPatch = profilePatchFromSettingsPatch(patch);
+        const fleetPatch = profilePatchFromSettingsPatch(clientWritablePatch);
         if (fleetPatch) {
             void get()
                 .patchActiveVesselProfile(fleetPatch)
@@ -1666,16 +1731,12 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
             // Send only the caller's patch.  The server atomically merges it
             // with other-device changes; uploading `updated` here would let a
             // stale full snapshot overwrite an unrelated preference.
-            void queueSettingsSync(scope, patch).catch((error) => {
+            void queueSettingsSync(scope, clientWritablePatch).catch((error) => {
                 log.warn(`[updateSettings] generic cloud sync deferred: ${getErrorMessage(error)}`);
             });
         }
         if (isAuthIdentityScopeCurrent(scope)) void manageScreenEffects(updated, scope);
     },
-
-    togglePro: () => get().updateSettings({ subscriptionTier: 'owner', isPro: true }),
-
-    setTier: (tier) => get().updateSettings({ subscriptionTier: tier, isPro: tierIsPro(tier) }),
 
     resetSettings: async () => {
         const scope = getAuthIdentityScope();

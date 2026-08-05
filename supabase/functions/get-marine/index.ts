@@ -51,13 +51,11 @@ const BASE_URL = 'https://customer-marine-api.open-meteo.com/v1/marine';
 const MAX_UPSTREAM_BYTES = 2_000_000;
 
 /** Kept in lockstep with the Pi route so both machines answer identically. */
-const HOURLY =
-    'wave_height,wave_direction,wave_period,wind_wave_height,wind_wave_direction,wind_wave_period,' +
+const HOURLY = 'wave_height,wave_direction,wave_period,wind_wave_height,wind_wave_direction,wind_wave_period,' +
     'swell_wave_height,swell_wave_direction,swell_wave_period,secondary_swell_wave_height,secondary_swell_wave_period,' +
     'sea_surface_temperature,ocean_current_velocity,ocean_current_direction';
 
-const CURRENT =
-    'wave_height,wave_direction,wave_period,wind_wave_height,swell_wave_height,swell_wave_period,' +
+const CURRENT = 'wave_height,wave_direction,wave_period,wind_wave_height,swell_wave_height,swell_wave_period,' +
     'sea_surface_temperature,ocean_current_velocity,ocean_current_direction';
 
 function json(body: unknown, status: number) {

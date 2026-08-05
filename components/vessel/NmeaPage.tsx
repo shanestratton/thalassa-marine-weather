@@ -13,7 +13,7 @@ import { NmeaListenerService } from '../../services/NmeaListenerService';
 import { NmeaStore } from '../../services/NmeaStore';
 import { triggerHaptic } from '../../utils/system';
 import { AisStore } from '../../services/AisStore';
-import { AisHubService, type AisHubStats } from '../../services/AisHubService';
+import { FEATURE_VISIBILITY } from '../../utils/featureVisibility';
 import {
     discoverGateways,
     subnetPrefixOf,
@@ -56,13 +56,6 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
     const [lastError, setLastError] = useState<string | null>(null);
     const [aisCount, setAisCount] = useState(0);
 
-    // AISHub uplink state
-    const aisHubConfig = AisHubService.getConfig();
-    const [aisHubEnabled, setAisHubEnabled] = useState(aisHubConfig.enabled);
-    const [aisHubIp, setAisHubIp] = useState(aisHubConfig.ip);
-    const [aisHubPort, setAisHubPort] = useState(String(aisHubConfig.port || ''));
-    const [aisHubStats, setAisHubStats] = useState<AisHubStats>(AisHubService.getStats());
-
     useEffect(() => {
         const unsub = NmeaListenerService.onStatusChange((s) => {
             setConnStatus(s);
@@ -87,16 +80,10 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
             setAisCount(targets.size);
         });
 
-        // Subscribe to AISHub stats
-        const unsubHub = AisHubService.subscribe((stats) => {
-            setAisHubStats(stats);
-        });
-
         return () => {
             unsub();
             clearInterval(poll);
             unsubAis();
-            unsubHub();
         };
     }, []);
 
@@ -563,91 +550,18 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
                         </div>
                     </div>
 
-                    {/* ═══ AISHUB CONTRIBUTION ═══ */}
-                    <div className="shrink-0 mb-3 p-4 rounded-2xl border bg-white/[0.03] border-white/[0.06] transition-all">
-                        {/* Toggle row */}
-                        <label className="flex items-center gap-3 cursor-pointer">
-                            <input
-                                type="checkbox"
-                                checked={aisHubEnabled}
-                                onChange={(e) => {
-                                    const enabled = e.target.checked;
-                                    setAisHubEnabled(enabled);
-                                    AisHubService.setEnabled(enabled);
-                                    if (enabled && aisHubIp && aisHubPort) {
-                                        AisHubService.configure(aisHubIp, parseInt(aisHubPort, 10));
-                                    }
-                                    triggerHaptic('light');
-                                }}
-                                className="w-4 h-4 rounded accent-sky-500 cursor-pointer"
-                            />
-                            <div className="flex-1">
-                                <p className="text-sm font-bold text-white">Contribute to AISHub</p>
-                                <p className="text-[11px] text-gray-500">Forward AIS data to the global network</p>
-                            </div>
-                            {aisHubEnabled && aisHubStats.isActive && (
-                                <span className="flex items-center gap-1.5">
-                                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                                    <span className="text-[11px] font-bold text-emerald-400">LIVE</span>
-                                </span>
-                            )}
-                        </label>
-
-                        {/* Config fields — visible when enabled */}
-                        {aisHubEnabled && (
-                            <div className="mt-3 space-y-2">
-                                <div className="flex gap-2">
-                                    <div className="flex-1">
-                                        <FormField
-                                            label="Station IP"
-                                            value={aisHubIp}
-                                            onChange={(v) => {
-                                                setAisHubIp(v);
-                                                if (v && aisHubPort) {
-                                                    AisHubService.configure(v, parseInt(aisHubPort, 10));
-                                                }
-                                            }}
-                                            placeholder="data.aishub.net"
-                                            mono
-                                        />
-                                    </div>
-                                    <div className="w-24">
-                                        <FormField
-                                            label="Port"
-                                            value={aisHubPort}
-                                            onChange={(v) => {
-                                                setAisHubPort(v);
-                                                if (aisHubIp && v) {
-                                                    AisHubService.configure(aisHubIp, parseInt(v, 10));
-                                                }
-                                            }}
-                                            placeholder="2345"
-                                            mono
-                                            inputMode="numeric"
-                                        />
-                                    </div>
-                                </div>
-
-                                {/* Stats line */}
-                                {aisHubStats.sentenceCount > 0 && (
-                                    <div className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-sky-500/10 border border-sky-500/15">
-                                        <span className="text-sky-400 text-xs">↑</span>
-                                        <span className="text-[11px] text-sky-300 font-bold">
-                                            {aisHubStats.sentenceCount.toLocaleString()} sentences forwarded
-                                        </span>
-                                        <span className="text-[11px] text-sky-300/50 ml-auto">
-                                            {(aisHubStats.bytesSent / 1024).toFixed(1)} KB
-                                        </span>
-                                    </div>
-                                )}
-
-                                <p className="text-[11px] text-gray-500 leading-relaxed">
-                                    Register at aishub.net to get your station IP and port. Data is sent only over Wi-Fi
-                                    to manage costs.
-                                </p>
-                            </div>
-                        )}
-                    </div>
+                    {!FEATURE_VISIBILITY.aisHub && (
+                        <div
+                            className="shrink-0 mb-3 rounded-2xl border border-amber-400/20 bg-amber-500/[0.07] p-4"
+                            role="status"
+                        >
+                            <p className="text-sm font-bold text-amber-200">AISHub contribution unavailable in beta</p>
+                            <p className="mt-1 text-[11px] leading-relaxed text-amber-100/60">
+                                AIS reception and the instrument display still work. Outbound UDP contribution is held
+                                until its native bridge is compatible with this app release and device-tested.
+                            </p>
+                        </div>
+                    )}
 
                     {/* ═══ INSTRUMENT PANEL CTA ═══ */}
                     {onNavigateToGlass && (

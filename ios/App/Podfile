@@ -1,3 +1,20 @@
+require 'xcodeproj'
+
+# Xcode 16/26 can persist project object version 70 when synchronized folders
+# are present. xcodeproj 1.27 understands those objects but accidentally omits
+# 70 from its compatibility lookup (it only lists 77 for Xcode 16.0), so
+# CocoaPods fails while creating Pods.xcodeproj. Add the missing upstream
+# mapping in memory; keep App.xcodeproj at its real format instead of rewriting
+# it to an older version just to placate the gem.
+compatibility_versions = Xcodeproj::Constants::COMPATIBILITY_VERSION_BY_OBJECT_VERSION
+unless compatibility_versions.key?(70)
+  Xcodeproj::Constants.send(:remove_const, :COMPATIBILITY_VERSION_BY_OBJECT_VERSION)
+  Xcodeproj::Constants.const_set(
+    :COMPATIBILITY_VERSION_BY_OBJECT_VERSION,
+    compatibility_versions.merge(70 => 'Xcode 16.0').freeze
+  )
+end
+
 require_relative '../../node_modules/@capacitor/ios/scripts/pods_helpers'
 
 platform :ios, '17.0'
@@ -27,8 +44,6 @@ def capacitor_pods
   pod 'CapacitorScreenOrientation', :path => '../../node_modules/@capacitor/screen-orientation'
   pod 'CapacitorShare', :path => '../../node_modules/@capacitor/share'
   pod 'CapacitorStatusBar', :path => '../../node_modules/@capacitor/status-bar'
-  pod 'CodetrixStudioCapacitorGoogleAuth', :path => '../../node_modules/@codetrix-studio/capacitor-google-auth'
-  pod 'FrontallCapacitorUdp', :path => '../../node_modules/@frontall/capacitor-udp'
   pod 'TransistorsoftCapacitorBackgroundFetch', :path => '../../node_modules/@transistorsoft/capacitor-background-fetch'
   pod 'TransistorsoftCapacitorBackgroundGeolocation', :path => '../../node_modules/@transistorsoft/capacitor-background-geolocation'
   pod 'CapacitorTcpSocket', :path => '../../node_modules/capacitor-tcp-socket'
@@ -51,8 +66,8 @@ post_install do |installer|
       #
       # The verifier compiles a synthetic `Test` framework against each pod's
       # public headers to prove they are self-contained and modular. That is a
-      # bar third-party pods have never had to clear: GTMAppAuth,
-      # GTMSessionFetcher, GoogleSignIn, AppAuth and CocoaLumberjack all import
+      # bar third-party pods have never had to clear: several networking and
+      # Capacitor pods import
       # their own public headers with double quotes, which the verifier treats
       # as a hard ERROR. The tell is a build path containing `VerifyModule/`,
       # and phantom `Test` / `Test.framework` entries in the issue navigator
@@ -63,11 +78,11 @@ post_install do |installer|
       # CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = NO above (verified
       # resolving to NO on a failing target) nor
       # OTHER_CFLAGS = -Wno-quoted-include-in-framework-header reaches it —
-      # both were tried against GTMAppAuth and both still failed.
+      # both were tried against an affected pod and both still failed.
       #
       # We are not the author of these headers and cannot fix them upstream, so
-      # verifying them buys nothing: it only asks whether Google's pods are
-      # modular, and answers no. OUR OWN code is untouched — this loop is pod
+      # verifying them buys nothing: it only asks whether vendor pods are
+      # modular. OUR OWN code is untouched — this loop is pod
       # targets only, so the App target keeps whatever verification it had.
       config.build_settings['ENABLE_MODULE_VERIFIER'] = 'NO'
 
@@ -164,7 +179,7 @@ post_install do |installer|
   #
   # CocoaPods writes these umbrella headers with `#import "Foo.h"`. Inside a
   # framework the same header must be reached as `#import <Module/Foo.h>`.
-  # Eleven pods ship this shape here — AppAuth, GoogleSignIn, CocoaLumberjack,
+  # Several pods ship this shape here — CocoaLumberjack,
   # CocoaAsyncSocket and the Capacitor socket plugins among them — so fixing
   # them one build-error at a time is a long afternoon.
   #

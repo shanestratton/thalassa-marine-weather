@@ -16,8 +16,12 @@ import {
 } from './authIdentityScope';
 import { supabase } from './supabase';
 import { acquireFreshOwnshipPosition, type OwnshipPosition } from './ownshipPosition';
+import { FEATURE_VISIBILITY } from '../utils/featureVisibility';
 
 const log = createLogger('GuardianService');
+
+/** Unit suites exercise the dormant implementation; production builds do not. */
+const guardianRuntimeEnabled = (): boolean => FEATURE_VISIBILITY.guardian || import.meta.env.MODE === 'test';
 
 export interface GuardianProfile {
     user_id: string;
@@ -41,10 +45,6 @@ export interface GuardianProfile {
 export interface NearbyUser {
     user_id: string;
     vessel_name: string | null;
-    owner_name: string | null;
-    dog_name: string | null;
-    mmsi: number | null;
-    armed: boolean;
     distance_nm: number;
     last_known_at: string;
 }
@@ -174,6 +174,10 @@ class GuardianServiceClass {
     }
 
     async initialize(): Promise<void> {
+        if (!guardianRuntimeEnabled()) {
+            this.stop();
+            return;
+        }
         const scope = getAuthIdentityScope();
         if (!supabase || !scope.userId) {
             this.stop();
@@ -182,7 +186,13 @@ class GuardianServiceClass {
         if (this.initializedScopeKey === scope.key && this.initializePromise) {
             return this.initializePromise;
         }
-        if (this.initializedScopeKey === scope.key && this.heartbeatTimer && this.nearbyTimer) return;
+        if (
+            this.initializedScopeKey === scope.key &&
+            ((!this.state.armed && !this.heartbeatTimer && !this.nearbyTimer) ||
+                (this.state.armed && this.heartbeatTimer && this.nearbyTimer))
+        ) {
+            return;
+        }
 
         this.lifecycleVersion += 1;
         const version = this.lifecycleVersion;
@@ -193,23 +203,26 @@ class GuardianServiceClass {
 
         const initialization = (async () => {
             if (!(await this.remoteIdentityMatches(scope)) || !this.operationIsCurrent(scope, version)) return;
-            await Promise.all([
-                this.fetchProfileFor(scope, version),
-                this.fetchNearbyUsersFor(scope, version),
-                this.fetchAlertsFor(scope, version),
-            ]);
+            const profile = await this.fetchProfileFor(scope, version);
+            if (!this.operationIsCurrent(scope, version)) return;
+
+            // Disarmed means private: do not acquire, heartbeat, upload or poll
+            // position until the skipper explicitly arms Guardian.
+            if (profile?.armed) {
+                await this.sendHeartbeat(scope, version);
+                if (!this.operationIsCurrent(scope, version)) return;
+                await Promise.all([this.fetchNearbyUsersFor(scope, version), this.fetchAlertsFor(scope, version)]);
+            }
             if (!this.operationIsCurrent(scope, version)) return;
             this.state = { ...this.state, loading: false };
             this.notify();
-            this.startHeartbeat(scope, version);
-            this.startNearbyPolling(scope, version);
+            if (this.state.armed) {
+                this.startHeartbeat(scope, version);
+                this.startNearbyPolling(scope, version);
+            }
         })().finally(() => {
             if (this.initializePromise === initialization) this.initializePromise = null;
-            if (
-                this.operationIsCurrent(scope, version) &&
-                (!this.heartbeatTimer || !this.nearbyTimer) &&
-                this.state.loading
-            ) {
+            if (this.operationIsCurrent(scope, version) && this.state.loading) {
                 this.state = { ...this.state, loading: false };
                 this.notify();
             }
@@ -228,6 +241,7 @@ class GuardianServiceClass {
     }
 
     async fetchProfile(): Promise<GuardianProfile | null> {
+        if (!guardianRuntimeEnabled()) return null;
         const scope = getAuthIdentityScope();
         if (!scope.userId) return null;
         return this.fetchProfileFor(scope, this.lifecycleVersion);
@@ -297,7 +311,6 @@ class GuardianServiceClass {
                 {
                     user_id: ownerId,
                     mmsi,
-                    mmsi_verified: false,
                     updated_at: new Date().toISOString(),
                 },
                 { onConflict: 'user_id' },
@@ -327,6 +340,7 @@ class GuardianServiceClass {
             (await acquireFreshOwnshipPosition({
                 maxGpsAgeMs: 30_000,
                 timeoutSec: 10,
+                locationAccess: 'foreground-request',
             }));
         if (!this.operationIsCurrent(scope, version)) return false;
         if (!position || !validCoordinates(position.lat, position.lon)) {
@@ -345,6 +359,11 @@ class GuardianServiceClass {
             this.state = { ...this.state, armed: true };
             this.notify();
             await this.fetchProfileFor(scope, version);
+            if (!this.operationIsCurrent(scope, version) || !this.state.armed) return false;
+            await Promise.all([this.fetchNearbyUsersFor(scope, version), this.fetchAlertsFor(scope, version)]);
+            if (!this.operationIsCurrent(scope, version) || !this.state.armed) return false;
+            this.startHeartbeat(scope, version);
+            this.startNearbyPolling(scope, version);
             return this.operationIsCurrent(scope, version);
         } catch (error) {
             log.error('[Guardian] Arm exception:', error);
@@ -362,7 +381,8 @@ class GuardianServiceClass {
                 if (error) log.error('[Guardian] Disarm error:', error.message);
                 return false;
             }
-            this.state = { ...this.state, armed: false };
+            this.clearTimers();
+            this.state = { ...this.state, armed: false, nearbyUsers: [], nearbyCount: 0 };
             this.notify();
             await this.fetchProfileFor(scope, version);
             return this.operationIsCurrent(scope, version);
@@ -374,23 +394,55 @@ class GuardianServiceClass {
 
     async fetchNearbyUsers(): Promise<NearbyUser[]> {
         const scope = getAuthIdentityScope();
-        if (!scope.userId) return [];
+        if (!scope.userId || !this.state.armed) return [];
         return this.fetchNearbyUsersFor(scope, this.lifecycleVersion);
     }
 
     async fetchAlerts(): Promise<GuardianAlert[]> {
         const scope = getAuthIdentityScope();
-        if (!scope.userId) return [];
+        if (!scope.userId || !this.state.armed) return [];
         return this.fetchAlertsFor(scope, this.lifecycleVersion);
+    }
+
+    /** Refresh this armed vessel's heartbeat, then poll from that server-held fix. */
+    async refreshArmedPresence(positionOverride?: OwnshipPosition): Promise<boolean> {
+        const operation = await this.captureVerifiedOperation();
+        if (!operation || !supabase || !this.state.armed) return false;
+        const { scope, version } = operation;
+        const position =
+            positionOverride ??
+            (await acquireFreshOwnshipPosition({
+                maxGpsAgeMs: 60_000,
+                timeoutSec: 10,
+            }));
+        if (!this.state.armed || !this.operationIsCurrent(scope, version)) return false;
+        if (!position || !validCoordinates(position.lat, position.lon)) return false;
+
+        try {
+            const { error } = await supabase.rpc('guardian_heartbeat', { lat: position.lat, lon: position.lon });
+            if (error || !this.state.armed || !this.operationIsCurrent(scope, version)) {
+                if (error) log.warn('[Guardian] Presence refresh heartbeat failed:', error.message);
+                return false;
+            }
+            await Promise.all([this.fetchNearbyUsersFor(scope, version), this.fetchAlertsFor(scope, version)]);
+            return this.state.armed && this.operationIsCurrent(scope, version);
+        } catch (error) {
+            log.warn('[Guardian] Presence refresh failed:', error);
+            return false;
+        }
     }
 
     async reportSuspicious(description: string): Promise<{ success: boolean; notified: number }> {
         const text = normaliseText(description, MAX_ALERT_TEXT);
         const operation = await this.captureVerifiedOperation();
-        if (!text || !operation || !supabase) return { success: false, notified: 0 };
+        if (!text || !operation || !supabase || !this.state.armed) return { success: false, notified: 0 };
         const { scope, ownerId, version } = operation;
-        const position = await acquireFreshOwnshipPosition({ maxGpsAgeMs: 30_000, timeoutSec: 10 });
-        if (!this.operationIsCurrent(scope, version)) return { success: false, notified: 0 };
+        const position = await acquireFreshOwnshipPosition({
+            maxGpsAgeMs: 30_000,
+            timeoutSec: 10,
+            locationAccess: 'foreground-request',
+        });
+        if (!this.state.armed || !this.operationIsCurrent(scope, version)) return { success: false, notified: 0 };
         if (!position || !validCoordinates(position.lat, position.lon)) return { success: false, notified: 0 };
         const lat = position.lat;
         const lon = position.lon;
@@ -408,13 +460,13 @@ class GuardianServiceClass {
                 p_body: `${vesselName}: ${text}`,
                 alert_data: { description: text },
             });
-            if (error || !this.operationIsCurrent(scope, version)) {
+            if (error || !this.state.armed || !this.operationIsCurrent(scope, version)) {
                 if (error) log.error('[Guardian] Report suspicious error:', error.message);
                 return { success: false, notified: 0 };
             }
             await this.fetchAlertsFor(scope, version);
             return {
-                success: this.operationIsCurrent(scope, version),
+                success: this.state.armed && this.operationIsCurrent(scope, version),
                 notified: Number.isFinite(Number(data)) ? Number(data) : 0,
             };
         } catch (error) {
@@ -426,10 +478,14 @@ class GuardianServiceClass {
     async broadcastWeatherSpike(message: string): Promise<{ success: boolean; notified: number }> {
         const text = normaliseText(message, MAX_ALERT_TEXT);
         const operation = await this.captureVerifiedOperation();
-        if (!text || !operation || !supabase) return { success: false, notified: 0 };
+        if (!text || !operation || !supabase || !this.state.armed) return { success: false, notified: 0 };
         const { scope, ownerId, version } = operation;
-        const position = await acquireFreshOwnshipPosition({ maxGpsAgeMs: 30_000, timeoutSec: 10 });
-        if (!this.operationIsCurrent(scope, version)) return { success: false, notified: 0 };
+        const position = await acquireFreshOwnshipPosition({
+            maxGpsAgeMs: 30_000,
+            timeoutSec: 10,
+            locationAccess: 'foreground-request',
+        });
+        if (!this.state.armed || !this.operationIsCurrent(scope, version)) return { success: false, notified: 0 };
         if (!position || !validCoordinates(position.lat, position.lon)) return { success: false, notified: 0 };
         const lat = position.lat;
         const lon = position.lon;
@@ -445,13 +501,13 @@ class GuardianServiceClass {
                 p_body: text,
                 alert_data: { message: text },
             });
-            if (error || !this.operationIsCurrent(scope, version)) {
+            if (error || !this.state.armed || !this.operationIsCurrent(scope, version)) {
                 if (error) log.error('[Guardian] Weather broadcast error:', error.message);
                 return { success: false, notified: 0 };
             }
             await this.fetchAlertsFor(scope, version);
             return {
-                success: this.operationIsCurrent(scope, version),
+                success: this.state.armed && this.operationIsCurrent(scope, version),
                 notified: Number.isFinite(Number(data)) ? Number(data) : 0,
             };
         } catch (error) {
@@ -548,6 +604,7 @@ class GuardianServiceClass {
         ownerId: string;
         version: number;
     } | null> {
+        if (!guardianRuntimeEnabled()) return null;
         const scope = getAuthIdentityScope();
         const ownerId = scope.userId;
         const version = this.lifecycleVersion;
@@ -578,6 +635,7 @@ class GuardianServiceClass {
     }
 
     private async fetchProfileFor(scope: AuthIdentityScope, version: number): Promise<GuardianProfile | null> {
+        if (!guardianRuntimeEnabled()) return null;
         if (!supabase || !scope.userId || !this.operationIsCurrent(scope, version)) return null;
         const ownerId = scope.userId;
         try {
@@ -593,7 +651,15 @@ class GuardianServiceClass {
                 return null;
             }
             const profile = data && data.user_id === ownerId ? (data as GuardianProfile) : null;
-            this.state = { ...this.state, profile, armed: profile?.armed ?? false };
+            const armed = profile?.armed ?? false;
+            if (!armed) this.clearTimers();
+            this.state = {
+                ...this.state,
+                profile,
+                armed,
+                nearbyUsers: armed ? this.state.nearbyUsers : [],
+                nearbyCount: armed ? this.state.nearbyCount : 0,
+            };
             this.notify();
             return cloneProfile(profile);
         } catch (error) {
@@ -603,17 +669,11 @@ class GuardianServiceClass {
     }
 
     private async fetchNearbyUsersFor(scope: AuthIdentityScope, version: number): Promise<NearbyUser[]> {
-        if (!supabase || !scope.userId || !this.operationIsCurrent(scope, version)) return [];
-        const position = await acquireFreshOwnshipPosition({ maxGpsAgeMs: 60_000, timeoutSec: 8 });
-        if (!this.operationIsCurrent(scope, version)) return [];
-        if (!position || !validCoordinates(position.lat, position.lon)) return [];
-        const lat = position.lat;
-        const lon = position.lon;
+        if (!supabase || !scope.userId || !this.state.armed || !this.operationIsCurrent(scope, version)) return [];
         try {
             if (!(await this.remoteIdentityMatches(scope)) || !this.operationIsCurrent(scope, version)) return [];
-            const { data, error } = await supabase.rpc('thalassa_users_nearby', {
-                query_lat: lat,
-                query_lon: lon,
+            if (!this.state.armed) return [];
+            const { data, error } = await supabase.rpc('nearby_guardians', {
                 radius_nm: 5,
             });
             if (!this.operationIsCurrent(scope, version)) return [];
@@ -641,17 +701,11 @@ class GuardianServiceClass {
     }
 
     private async fetchAlertsFor(scope: AuthIdentityScope, version: number): Promise<GuardianAlert[]> {
-        if (!supabase || !scope.userId || !this.operationIsCurrent(scope, version)) return [];
-        const position = await acquireFreshOwnshipPosition({ maxGpsAgeMs: 60_000, timeoutSec: 8 });
-        if (!this.operationIsCurrent(scope, version)) return [];
-        if (!position || !validCoordinates(position.lat, position.lon)) return [];
-        const lat = position.lat;
-        const lon = position.lon;
+        if (!supabase || !scope.userId || !this.state.armed || !this.operationIsCurrent(scope, version)) return [];
         try {
             if (!(await this.remoteIdentityMatches(scope)) || !this.operationIsCurrent(scope, version)) return [];
+            if (!this.state.armed) return [];
             const { data, error } = await supabase.rpc('guardian_alerts_nearby', {
-                query_lat: lat,
-                query_lon: lon,
                 radius_nm: 10,
                 max_hours: 24,
             });
@@ -679,31 +733,35 @@ class GuardianServiceClass {
         }
     }
 
+    private async sendHeartbeat(scope: AuthIdentityScope, version: number): Promise<void> {
+        if (
+            !supabase ||
+            !this.state.armed ||
+            !this.operationIsCurrent(scope, version) ||
+            !(await this.remoteIdentityMatches(scope))
+        ) {
+            return;
+        }
+        const position = await acquireFreshOwnshipPosition({ maxGpsAgeMs: 60_000, timeoutSec: 8 });
+        if (!this.state.armed || !this.operationIsCurrent(scope, version)) return;
+        if (!position || !validCoordinates(position.lat, position.lon)) return;
+        try {
+            if (!this.state.armed || !this.operationIsCurrent(scope, version)) return;
+            await supabase.rpc('guardian_heartbeat', { lat: position.lat, lon: position.lon });
+        } catch {
+            // Heartbeats are best-effort. The next interval retries.
+        }
+    }
+
     private startHeartbeat(scope: AuthIdentityScope, version: number): void {
-        if (this.heartbeatTimer || !this.operationIsCurrent(scope, version)) return;
-        const beat = async () => {
-            if (!supabase || !this.operationIsCurrent(scope, version) || !(await this.remoteIdentityMatches(scope))) {
-                return;
-            }
-            const position = await acquireFreshOwnshipPosition({ maxGpsAgeMs: 60_000, timeoutSec: 8 });
-            if (!this.operationIsCurrent(scope, version)) return;
-            if (!position || !validCoordinates(position.lat, position.lon)) return;
-            const lat = position.lat;
-            const lon = position.lon;
-            try {
-                if (!this.operationIsCurrent(scope, version)) return;
-                await supabase.rpc('guardian_heartbeat', { lat, lon });
-            } catch {
-                // Heartbeats are best-effort. The next interval retries.
-            }
-        };
-        void beat();
-        this.heartbeatTimer = setInterval(() => void beat(), HEARTBEAT_INTERVAL_MS);
+        if (this.heartbeatTimer || !this.state.armed || !this.operationIsCurrent(scope, version)) return;
+        this.heartbeatTimer = setInterval(() => void this.sendHeartbeat(scope, version), HEARTBEAT_INTERVAL_MS);
     }
 
     private startNearbyPolling(scope: AuthIdentityScope, version: number): void {
-        if (this.nearbyTimer || !this.operationIsCurrent(scope, version)) return;
+        if (this.nearbyTimer || !this.state.armed || !this.operationIsCurrent(scope, version)) return;
         this.nearbyTimer = setInterval(() => {
+            if (!this.state.armed) return;
             void Promise.all([this.fetchNearbyUsersFor(scope, version), this.fetchAlertsFor(scope, version)]);
         }, NEARBY_POLL_INTERVAL_MS);
     }

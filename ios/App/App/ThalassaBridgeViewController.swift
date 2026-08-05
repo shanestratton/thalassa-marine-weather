@@ -60,9 +60,6 @@ public class ThalassaBridgeViewController: CAPBridgeViewController {
         // while the input route is unavailable, producing an empty memo and
         // no live dictation. Keep the app input-capable from launch, without
         // activating the session or taking ownership of the microphone.
-        // AppleMusicPlugin reasserts .playback immediately before music/TTS
-        // playback, so this does not change its output behaviour.
-        //
         // CRITICAL: do NOT call setActive(true) here. Eager activation
         // was found to block the system music player from taking the
         // audio output — confirmed by the skipper noting that pressing
@@ -73,8 +70,7 @@ public class ThalassaBridgeViewController: CAPBridgeViewController {
         // Each playback path that NEEDS the session active will
         // activate it explicitly (HTML5 Audio in WKWebView does this
         // automatically; AlarmAudioPlugin does it manually for alarm
-        // tones; AppleMusicPlugin DEACTIVATES with notifyOthers
-        // before triggering system music playback).
+        // tones).
         do {
             let session = AVAudioSession.sharedInstance()
             try session.setCategory(
@@ -95,9 +91,10 @@ public class ThalassaBridgeViewController: CAPBridgeViewController {
         bridge?.registerPluginInstance(BackgroundLocationPlugin())
         bridge?.registerPluginInstance(DataScannerPlugin())
         bridge?.registerPluginInstance(LightningPlugin())
-        bridge?.registerPluginInstance(AppleMusicPlugin())
         bridge?.registerPluginInstance(MdnsBrowserPlugin())
         bridge?.registerPluginInstance(WatchConnectivityPlugin())
+        bridge?.registerPluginInstance(AppleCredentialStatePlugin())
+        bridge?.registerPluginInstance(AnchorSafetyNotificationPlugin())
         // SshClientPlugin not added yet: its .swift/.m files exist on
         // disk but aren't in the pbxproj build graph yet (separate fix).
     }

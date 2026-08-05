@@ -2,13 +2,13 @@
 """
 CMEMS ocean-waves → GitHub Release binary pipeline.
 
-Runs daily via GitHub Action. Pulls the Copernicus Marine global wave
+Runs twice daily via GitHub Action. Pulls the Copernicus Marine global wave
 analysis+forecast (GLOBAL_ANALYSISFORECAST_WAV_001_027), significant
 height + mean direction only, area-averages to a grid matching the
 currents layer, converts direction + height into u/v components so the
 existing CurrentParticleLayer-style renderer can ingest it directly
-(same binary format, same parser), and attaches the blobs to a rolling
-`cmems-waves-latest` GitHub Release.
+(same binary format, same parser), and seals an immutable bundle for the
+separate credential-isolated publisher job.
 
 Sister pipeline to cmems-currents-pipeline; same v2 binary format so
 the frontend parser reuses all the same code paths. The only real
@@ -38,19 +38,26 @@ particles by the same vector-field math as currents — the only UI-side
 difference is the colour-ramp bounds (a 6m swell is "red" where a 1.5
 m/s current is "red").
 
-One file per forecast time step, named `h00.bin` through `h<N-1>.bin`.
-The dataset is 3-hourly, so h00 = T+0h, h01 = T+3h, etc.
+Each time step is packaged under an immutable generation filename. The
+dataset is 3-hourly, so step 0 = T+0h, step 1 = T+3h, etc.
 """
 from __future__ import annotations
 
 import logging
+import math
 import os
 import struct
-import subprocess
 import sys
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
+SCRIPTS_DIR = Path(__file__).resolve().parents[1]
+if str(SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS_DIR))
+
+from cmems_contract import validate_cmems_source, validate_thcu_payloads
+from publisher_contract import build_cmems_bundle, producer_provenance
 
 log = logging.getLogger("cmems-waves-pipeline")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -72,15 +79,83 @@ RELEASE_TAG = "cmems-waves-latest"
 
 OUT_DIR = Path(os.environ.get("CMEMS_OUT_DIR", "/tmp/cmems-waves"))
 OUT_DIR.mkdir(parents=True, exist_ok=True)
+BUNDLE_DIR = OUT_DIR / "bundle"
 
 # Same magic as currents — the frontend parser checks this; reusing it
 # means no new parsing code. "THCU" stood for Thalassa Currents but is
 # effectively now "Thalassa Cartesian-UV binary" which covers both.
 BINARY_MAGIC = b"THCU"
 BINARY_VERSION = 2
+# Below this dimensionless resultant/height ratio, a circular mean has no
+# trustworthy direction (for example, equal opposing systems).  Floating
+# point noise must not turn that cancellation into an arbitrary bearing.
+CIRCULAR_COHERENCE_EPSILON = 1e-6
 
 
 # ── Steps ─────────────────────────────────────────────────────────────────
+
+
+def dominant_wave_direction(heights: list[float], directions_from_degrees: list[float]) -> float:
+    """Direction of the tallest native system; ties use lowest [0, 360) bearing."""
+    if not heights or len(heights) != len(directions_from_degrees):
+        raise ValueError("heights and directions must be non-empty and equally sized")
+    if any(not math.isfinite(value) or value < 0 for value in heights):
+        raise ValueError("wave heights must be finite and non-negative")
+    if any(not math.isfinite(value) or value < 0 or value > 360 for value in directions_from_degrees):
+        raise ValueError("wave directions must be finite and in [0, 360]")
+    maximum = max(heights)
+    return min(direction % 360.0 for height, direction in zip(heights, directions_from_degrees) if height == maximum)
+
+
+def circular_wave_vector(heights: list[float], directions_from_degrees: list[float]) -> tuple[float, float]:
+    """Height-honest vector using a deterministic dominant-system fallback."""
+    fallback = dominant_wave_direction(heights, directions_from_degrees)
+    height = sum(heights) / len(heights)
+    sin_sum = sum(h * math.sin(math.radians(direction)) for h, direction in zip(heights, directions_from_degrees))
+    cos_sum = sum(h * math.cos(math.radians(direction)) for h, direction in zip(heights, directions_from_degrees))
+    norm = math.hypot(sin_sum, cos_sum)
+    if norm <= max(sum(heights) * CIRCULAR_COHERENCE_EPSILON, 1e-12):
+        direction = math.radians(fallback)
+        unit_sin, unit_cos = math.sin(direction), math.cos(direction)
+    else:
+        unit_sin, unit_cos = sin_sum / norm, cos_sum / norm
+    return -height * unit_sin, -height * unit_cos
+
+
+def dominant_direction_grid(height_values, direction_values, lat_block: int, lon_block: int):
+    """Select each block's tallest native system with a stable bearing tie-break."""
+    import numpy as np
+
+    heights = np.asarray(height_values)
+    directions = np.asarray(direction_values)
+    if heights.ndim != 2 or heights.shape != directions.shape or lat_block <= 0 or lon_block <= 0:
+        raise ValueError("invalid native wave grids or block shape")
+    out_height = heights.shape[0] // lat_block
+    out_width = heights.shape[1] // lon_block
+    if out_height == 0 or out_width == 0:
+        raise ValueError("wave grid is smaller than its coarsening block")
+    lat_stop = out_height * lat_block
+    lon_stop = out_width * lon_block
+    best_height = np.full((out_height, out_width), -np.inf, dtype=np.float64)
+    best_direction = np.full((out_height, out_width), np.inf, dtype=np.float64)
+    for lat_offset in range(lat_block):
+        for lon_offset in range(lon_block):
+            sample_height = heights[lat_offset:lat_stop:lat_block, lon_offset:lon_stop:lon_block]
+            sample_direction = np.mod(
+                directions[lat_offset:lat_stop:lat_block, lon_offset:lon_stop:lon_block],
+                360.0,
+            )
+            valid = np.isfinite(sample_height) & np.isfinite(sample_direction) & (sample_height >= 0)
+            choose = valid & (
+                (sample_height > best_height)
+                | ((sample_height == best_height) & (sample_direction < best_direction))
+            )
+            np.copyto(best_height, sample_height, where=choose)
+            np.copyto(best_direction, sample_direction, where=choose)
+    # Fully missing blocks are land and are zeroed later; avoid propagating an
+    # infinite placeholder through trigonometric functions in the meantime.
+    best_direction[~np.isfinite(best_direction)] = 0.0
+    return best_direction
 
 
 def fetch_cmems(start: datetime, end: datetime) -> Path:
@@ -152,47 +227,70 @@ def encode_hourly_binaries(nc_path: Path) -> list[tuple[Path, int]]:
 
     land_native = ds["VHM0"].isel(time=0).isnull().astype("float32")  # 1=land, 0=ocean
 
-    # Area-average (coarsen+mean), not nearest-neighbour. Preserves narrow
-    # swell features — same reasoning as currents (EAC was invisible under
-    # nearest-neighbour 0.5° downsampling).
-    ds = ds.coarsen(latitude=lat_block, longitude=lon_block, boundary="trim").mean()
+    # Heights can be averaged arithmetically, but directions cannot: 359° and
+    # 1° mean to 0°, not 180°. Compute a height-weighted circular direction at
+    # native resolution, then normalize it so output vector magnitude remains
+    # exactly the coarsened significant wave height.
+    height_native = ds["VHM0"]
+    direction_native = ds["VMDR"]
+    direction_radians = np.deg2rad(direction_native)
+    height_da = height_native.coarsen(latitude=lat_block, longitude=lon_block, boundary="trim").mean()
+    weighted_sin_da = (height_native * np.sin(direction_radians)).coarsen(
+        latitude=lat_block, longitude=lon_block, boundary="trim"
+    ).mean()
+    weighted_cos_da = (height_native * np.cos(direction_radians)).coarsen(
+        latitude=lat_block, longitude=lon_block, boundary="trim"
+    ).mean()
     land_frac = land_native.coarsen(latitude=lat_block, longitude=lon_block, boundary="trim").mean()
     land_da = (land_frac >= 0.5).astype("uint8")
 
     # Reverse latitude so output is row-major north→south (client convention).
-    ds = ds.reindex(latitude=ds.latitude[::-1])
+    height_da = height_da.reindex(latitude=height_da.latitude[::-1])
+    weighted_sin_da = weighted_sin_da.reindex(latitude=weighted_sin_da.latitude[::-1])
+    weighted_cos_da = weighted_cos_da.reindex(latitude=weighted_cos_da.latitude[::-1])
     land_da = land_da.reindex(latitude=land_da.latitude[::-1])
 
-    height = ds.sizes["latitude"]
-    width = ds.sizes["longitude"]
-    north = float(ds.latitude[0])
-    south = float(ds.latitude[-1])
-    west = float(ds.longitude[0])
-    east = float(ds.longitude[-1])
+    height = height_da.sizes["latitude"]
+    width = height_da.sizes["longitude"]
+    north = float(height_da.latitude[0])
+    south = float(height_da.latitude[-1])
+    west = float(height_da.longitude[0])
+    east = float(height_da.longitude[-1])
 
     land_mask = np.ascontiguousarray(land_da.values, dtype=np.uint8)
     land_count = int(land_mask.sum())
 
     # Pre-compute hour offsets from the first time step
-    times = ds.time.values
+    times = height_da.time.values
     t0 = times[0]
 
     out: list[tuple[Path, int]] = []
     for i, t in enumerate(times):
         # VHM0 = significant wave height (m)
         # VMDR = mean wave direction, "from" convention in degrees
-        H = ds["VHM0"].isel(time=i).fillna(0.0).astype(np.float32).values
-        D = ds["VMDR"].isel(time=i).fillna(0.0).astype(np.float32).values
-
-        # Convert to "to" direction and project onto east/north axes.
-        # VMDR = meteorological "from" → wave goes the OPPOSITE way.
-        # to_dir = VMDR + 180, but we can skip the +180 by negating the
-        # sin/cos:
-        #   u = H * sin((VMDR + 180) * π/180) = -H * sin(VMDR * π/180)
-        #   v = H * cos((VMDR + 180) * π/180) = -H * cos(VMDR * π/180)
-        rad = np.deg2rad(D)
-        u = (-H * np.sin(rad)).astype(np.float32)
-        v = (-H * np.cos(rad)).astype(np.float32)
+        H = height_da.isel(time=i).fillna(0.0).astype(np.float32).values
+        weighted_sin = weighted_sin_da.isel(time=i).fillna(0.0).astype(np.float32).values
+        weighted_cos = weighted_cos_da.isel(time=i).fillna(0.0).astype(np.float32).values
+        norm = np.hypot(weighted_sin, weighted_cos)
+        # A near-zero circular resultant has no meaningful mean direction.
+        # Preserve the honest arithmetic mean VHM0, but use the direction of
+        # the maximum-height native system. Equal maxima choose the smallest
+        # normalized from-bearing, making the result permutation-independent.
+        fallback_direction = dominant_direction_grid(
+            height_native.isel(time=i).values,
+            direction_native.isel(time=i).values,
+            lat_block,
+            lon_block,
+        )
+        fallback_rad = np.deg2rad(fallback_direction[::-1, :])
+        coherent = norm > np.maximum(H * CIRCULAR_COHERENCE_EPSILON, 1e-12)
+        safe_norm = np.maximum(norm, 1e-12)
+        unit_sin = np.where(coherent, weighted_sin / safe_norm, np.sin(fallback_rad))
+        unit_cos = np.where(coherent, weighted_cos / safe_norm, np.cos(fallback_rad))
+        u = (-H * unit_sin).astype(np.float32)
+        v = (-H * unit_cos).astype(np.float32)
+        u = np.where(land_mask == 1, 0.0, u).astype(np.float32)
+        v = np.where(land_mask == 1, 0.0, v).astype(np.float32)
 
         # Hour offset in whole hours from the first time step. NumPy
         # timedelta64 → float64 seconds via .astype('timedelta64[s]').
@@ -223,53 +321,6 @@ def encode_hourly_binaries(nc_path: Path) -> list[tuple[Path, int]]:
     return out
 
 
-def upload_to_github_release(entries: list[tuple[Path, int]]) -> None:
-    """Attach binary files to the rolling `cmems-waves-latest` release."""
-    repo = require_env("GITHUB_REPOSITORY")
-    token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
-    if not token:
-        log.error("Neither GH_TOKEN nor GITHUB_TOKEN set — cannot upload release assets")
-        sys.exit(2)
-    env = {**os.environ, "GH_TOKEN": token}
-
-    create = subprocess.run(
-        ["gh", "release", "view", RELEASE_TAG, "--repo", repo],
-        env=env, capture_output=True, text=True,
-    )
-    if create.returncode != 0:
-        log.info("Release %s missing — creating", RELEASE_TAG)
-        subprocess.run(
-            ["gh", "release", "create", RELEASE_TAG,
-             "--repo", repo,
-             "--title", "CMEMS waves (rolling latest)",
-             "--notes", "Updated daily. Binary VHM0+VMDR → u/v wave fields for the WebGL client."],
-            env=env, check=True,
-        )
-
-    manifest_path = OUT_DIR / "manifest.json"
-    manifest = {
-        "version": 1,
-        "generated_at": datetime.now(timezone.utc).isoformat(),
-        # `hour` is the ACTUAL forecast hour offset from issuance (0, 3,
-        # 6, 9, …) — not a sequential step index. The frontend uses this
-        # to label the scrubber with real T+Xh times.
-        "hours": [
-            {"hour": hr, "file": p.name, "bytes": p.stat().st_size}
-            for (p, hr) in entries
-        ],
-    }
-    import json as _json
-    manifest_path.write_text(_json.dumps(manifest, indent=2))
-
-    paths = [p for (p, _) in entries]
-    cmd = ["gh", "release", "upload", RELEASE_TAG,
-           "--repo", repo,
-           "--clobber"] + [str(p) for p in paths] + [str(manifest_path)]
-    log.info("$ %s", " ".join(cmd[:5] + ["<%d files>" % (len(paths) + 1)]))
-    subprocess.run(cmd, env=env, check=True)
-    log.info("✓ Uploaded %d binaries + manifest to %s release", len(paths), RELEASE_TAG)
-
-
 def require_env(name: str) -> str:
     val = os.environ.get(name)
     if not val:
@@ -288,13 +339,35 @@ def main() -> int:
 
     try:
         nc_path = fetch_cmems(now, end)
+        data_times = validate_cmems_source(
+            nc_path,
+            dataset_key="waves",
+            variables=VARIABLES,
+            expected_steps=17,
+            cadence_hours=3,
+            native_resolution=1 / 12,
+        )
         entries = encode_hourly_binaries(nc_path)
-        upload_to_github_release(entries)
+        paths = [path for path, _ in entries]
+        offsets = [offset for _, offset in entries]
+        validate_thcu_payloads(paths)
+        build_cmems_bundle(
+            dataset_key="waves",
+            source_paths=paths,
+            offsets_hours=offsets,
+            data_times=data_times,
+            bundle_dir=BUNDLE_DIR,
+            provenance=producer_provenance(),
+            metadata={
+                "attribution": "Copernicus Marine Service",
+                "encoding": "VHM0 magnitude projected toward VMDR + 180 degrees",
+            },
+        )
     except Exception:  # noqa: BLE001
         log.exception("Pipeline failed")
         return 1
 
-    log.info("✓ Pipeline complete — %d snapshots on %s", len(entries), RELEASE_TAG)
+    log.info("✓ Generated and validated %d immutable snapshots in %s", len(entries), BUNDLE_DIR)
     return 0
 
 

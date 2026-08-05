@@ -35,6 +35,7 @@ const harness = vi.hoisted(() => {
         sessionCurrent: true,
         visibleRows: new Set<string>(),
         deniedDeletes: new Set<string>(),
+        storageEntries: [] as string[],
     };
 
     return {
@@ -43,6 +44,8 @@ const harness = vi.hoisted(() => {
         rpc: vi.fn(),
         getUser: vi.fn(),
         storageUpload: vi.fn(async () => ({ error: null as { message: string } | null })),
+        storageList: vi.fn(),
+        storageRemove: vi.fn(),
         storageSign: vi.fn(async () => ({
             data: { signedUrl: 'https://storage.test/signed-file' } as { signedUrl: string } | null,
             error: null as { message: string } | null,
@@ -90,6 +93,8 @@ vi.mock('../services/supabase', () => ({
         storage: {
             from: vi.fn(() => ({
                 upload: harness.storageUpload,
+                list: harness.storageList,
+                remove: harness.storageRemove,
                 createSignedUrl: harness.storageSign,
             })),
         },
@@ -255,12 +260,30 @@ describe('SyncService durable outbox', () => {
         harness.state.sessionCurrent = true;
         harness.state.visibleRows.clear();
         harness.state.deniedDeletes.clear();
+        harness.state.storageEntries = [];
         // mockReset before mockResolvedValue: clearAllMocks() above resets call
         // records but does NOT drain a mockResolvedValueOnce queue, and a once
         // value that a run never consumed would silently satisfy the FIRST
         // upload of the next test. Only mockReset clears the queue.
         harness.storageUpload.mockReset();
         harness.storageUpload.mockResolvedValue({ error: null });
+        harness.storageList.mockReset();
+        harness.storageList.mockImplementation(
+            async (_directory: string, options: { limit?: number; offset?: number } = {}) => {
+                const offset = options.offset ?? 0;
+                const limit = options.limit ?? 100;
+                return {
+                    data: harness.state.storageEntries.slice(offset, offset + limit).map((name) => ({ name })),
+                    error: null,
+                };
+            },
+        );
+        harness.storageRemove.mockReset();
+        harness.storageRemove.mockImplementation(async (paths: string[]) => {
+            const removedNames = new Set(paths.map((path) => path.split('/').pop()));
+            harness.state.storageEntries = harness.state.storageEntries.filter((name) => !removedNames.has(name));
+            return { data: paths, error: null };
+        });
         harness.storageSign.mockResolvedValue({
             data: { signedUrl: 'https://storage.test/signed-file' },
             error: null,
@@ -506,6 +529,31 @@ describe('SyncService durable outbox', () => {
         expect(harness.state.queue).toEqual([]);
     });
 
+    it('removes a displaced attachment extension only after the replacement row is durable', async () => {
+        harness.state.queue = [
+            {
+                ...queued('document-replace', 'document-1', 'UPDATE', {
+                    id: 'document-1',
+                    file_uri: 'data:image/png;base64,iVBORw0KGgo=',
+                }),
+                table_name: 'ship_documents',
+            },
+        ];
+        harness.state.storageEntries = ['document-1.pdf', 'document-1.png', 'document-10.pdf'];
+
+        const { syncNow } = await loadSyncService();
+        const result = await syncNow();
+
+        expect(result.pushed).toBe(1);
+        expect(harness.state.events).toContain('update:ship_documents');
+        expect(harness.state.updatePayloads[0]).toMatchObject({
+            file_uri: 'supabase-storage://vessel_vault/user-1/documents/document-1.png',
+        });
+        expect(harness.storageRemove).toHaveBeenCalledWith(['user-1/documents/document-1.pdf']);
+        expect(harness.state.storageEntries).toEqual(['document-1.png', 'document-10.pdf']);
+        expect(harness.state.queue).toEqual([]);
+    });
+
     it('safely resumes an operation left syncing by an interrupted attempt', async () => {
         harness.state.queue = [
             {
@@ -659,6 +707,99 @@ describe('SyncService durable outbox', () => {
         expect(result.pushed).toBe(1);
         expect(harness.state.queue).toEqual([]);
         expect(harness.state.events).not.toContain('delete:inventory_items');
+    });
+
+    it('deletes every deterministic document extension without touching a neighbouring record', async () => {
+        harness.state.queue = [
+            {
+                ...queued('document-delete', 'document-1', 'DELETE', { id: 'document-1' }),
+                table_name: 'ship_documents',
+            },
+        ];
+        harness.state.visibleRows.add('document-1');
+        harness.state.storageEntries = ['document-1.pdf', 'document-1.jpg', 'document-10.pdf', 'other.pdf'];
+
+        const { syncNow } = await loadSyncService();
+        const result = await syncNow();
+
+        expect(result.pushed).toBe(1);
+        expect(harness.state.events).toContain('delete:ship_documents');
+        expect(harness.storageList).toHaveBeenCalledWith('user-1/documents', { limit: 100, offset: 0 });
+        expect(harness.storageRemove).toHaveBeenCalledWith([
+            'user-1/documents/document-1.pdf',
+            'user-1/documents/document-1.jpg',
+        ]);
+        expect(harness.state.storageEntries).toEqual(['document-10.pdf', 'other.pdf']);
+        expect(harness.state.queue).toEqual([]);
+    });
+
+    it('uses the owner equipment folder when deleting manual variants', async () => {
+        harness.state.queue = [
+            {
+                ...queued('equipment-delete', 'engine-1', 'DELETE', { id: 'engine-1' }),
+                table_name: 'equipment_register',
+            },
+        ];
+        harness.state.storageEntries = ['engine-1.pdf', 'engine-1.docx'];
+
+        const { syncNow } = await loadSyncService();
+        const result = await syncNow();
+
+        expect(result.pushed).toBe(1);
+        expect(harness.storageList).toHaveBeenCalledWith('user-1/equipment', { limit: 100, offset: 0 });
+        expect(harness.storageRemove).toHaveBeenCalledWith([
+            'user-1/equipment/engine-1.pdf',
+            'user-1/equipment/engine-1.docx',
+        ]);
+        expect(harness.state.queue).toEqual([]);
+    });
+
+    it('keeps an already-absent document DELETE queued when listing Storage fails', async () => {
+        harness.state.queue = [
+            {
+                ...queued('document-list-retry', 'document-gone', 'DELETE', { id: 'document-gone' }),
+                table_name: 'ship_documents',
+            },
+        ];
+        harness.storageList.mockResolvedValueOnce({ data: null, error: { message: 'list unavailable' } });
+
+        const { syncNow } = await loadSyncService();
+        const first = await syncNow();
+
+        expect(first.pushed).toBe(0);
+        expect(first.errors[0]).toContain('Attachment cleanup list failed: list unavailable');
+        expect(harness.state.events).not.toContain('delete:ship_documents');
+        expect(harness.state.queue[0]).toMatchObject({ status: 'failed', retry_count: 1 });
+
+        const retried = await syncNow();
+        expect(retried.pushed).toBe(1);
+        expect(harness.state.queue).toEqual([]);
+    });
+
+    it('retries Storage removal after the document row was already deleted', async () => {
+        harness.state.queue = [
+            {
+                ...queued('document-remove-retry', 'document-2', 'DELETE', { id: 'document-2' }),
+                table_name: 'ship_documents',
+            },
+        ];
+        harness.state.visibleRows.add('document-2');
+        harness.state.storageEntries = ['document-2.pdf'];
+        harness.storageRemove.mockResolvedValueOnce({ data: null, error: { message: 'remove unavailable' } });
+
+        const { syncNow } = await loadSyncService();
+        const first = await syncNow();
+
+        expect(first.pushed).toBe(0);
+        expect(first.errors[0]).toContain('Attachment cleanup failed: remove unavailable');
+        expect(harness.state.visibleRows.has('document-2')).toBe(false);
+        expect(harness.state.storageEntries).toEqual(['document-2.pdf']);
+        expect(harness.state.queue[0]).toMatchObject({ status: 'failed', retry_count: 1 });
+
+        const retried = await syncNow();
+        expect(retried.pushed).toBe(1);
+        expect(harness.state.storageEntries).toEqual([]);
+        expect(harness.state.queue).toEqual([]);
     });
 
     it('retries failed idempotent operations beyond the old five-attempt terminal fence', async () => {

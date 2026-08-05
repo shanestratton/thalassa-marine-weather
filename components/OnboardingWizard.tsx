@@ -4,11 +4,17 @@ import { createLogger } from '../utils/createLogger';
 const log = createLogger('OnboardingWizard');
 import { sanitizeText } from '../utils/inputValidation';
 import { toast } from './Toast';
-import { VesselDetailsStep } from './onboarding/VesselDetailsStep';
+import {
+    VesselDetailsStep,
+    roughEstimatedDimensionFields,
+    validateVesselDetails,
+    type AutoFilledVesselDimensions,
+    type VesselDimensionField,
+} from './onboarding/VesselDetailsStep';
 import { UnitPreferencesStep } from './onboarding/UnitPreferencesStep';
 import { WelcomeStep } from './onboarding/WelcomeStep';
 import { HomePortStep } from './onboarding/HomePortStep';
-import { RoleSelectionStep } from './onboarding/RoleSelectionStep';
+import { RoleSelectionStep, type OnboardingRole } from './onboarding/RoleSelectionStep';
 import { DisplayPrefsStep } from './onboarding/DisplayPrefsStep';
 import { OffshoreModelStep } from './onboarding/OffshoreModelStep';
 import {
@@ -25,7 +31,6 @@ import {
     OffshoreModel,
     DisplayMode,
 } from '../types';
-import type { SubscriptionTier } from '../types/settings';
 import { ArrowRightIcon } from './Icons';
 import { reverseGeocode, parseLocation } from '../services/weatherService';
 import { fetchWeatherByStrategy } from '../services/weather';
@@ -107,7 +112,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
 
     // Core Vessel Data
     const [vesselType, setVesselType] = useState<'sail' | 'power' | 'observer'>('sail');
-    const [subscriptionTier, setSubscriptionTier] = useState<SubscriptionTier>('owner');
+    const [selectedRole, setSelectedRole] = useState<OnboardingRole>('skipper');
     const [name, setName] = useState('');
     const [registration, setRegistration] = useState('');
     const [mmsi, setMmsi] = useState('');
@@ -162,6 +167,37 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
 
     // Yacht database selection (polar data stored for handleFinish)
     const [selectedPolar, setSelectedPolar] = useState<{ data: PolarData; model: string } | null>(null);
+    const [autoFilledDimensions, setAutoFilledDimensions] = useState<AutoFilledVesselDimensions>({});
+    const [estimatedDimensionsAcknowledged, setEstimatedDimensionsAcknowledged] = useState(false);
+
+    const feetInUnit = (feet: number, unit: LengthUnit) =>
+        unit === 'm' ? String(Math.round((feet / FEET_PER_METRE) * 10) / 10) : String(Math.round(feet));
+
+    const handleDimensionChange = (
+        field: VesselDimensionField,
+        value: string,
+        setter: React.Dispatch<React.SetStateAction<string>>,
+    ) => {
+        setter(value);
+        if (
+            field === 'length' &&
+            (autoFilledDimensions.beam === 'estimate' || autoFilledDimensions.draft === 'estimate')
+        ) {
+            const enteredLength = Number(value);
+            if (Number.isFinite(enteredLength) && enteredLength > 0) {
+                const lengthFt = lengthUnit === 'm' ? enteredLength * FEET_PER_METRE : enteredLength;
+                if (autoFilledDimensions.beam === 'estimate') setBeam(feetInUnit(lengthFt * 0.32, beamUnit));
+                if (autoFilledDimensions.draft === 'estimate') setDraft(feetInUnit(lengthFt * 0.16, draftUnit));
+            }
+            setEstimatedDimensionsAcknowledged(false);
+        }
+        setAutoFilledDimensions((current) => {
+            if (!current[field]) return current;
+            const next = { ...current };
+            delete next[field];
+            return next;
+        });
+    };
 
     const handleYachtSelect = (entry: PolarDatabaseEntry) => {
         setSelectedPolar({ data: entry.polar, model: entry.model });
@@ -174,16 +210,29 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
         // raw feet estimate into a metres field double-converts on save
         // (8.8 ft of draft labelled "m" saves as 28.9 ft). Convert each
         // estimate into its field's current unit first.
-        const estimateInUnit = (ft: number, unit: LengthUnit) =>
-            unit === 'm' ? String(Math.round((ft / FEET_PER_METRE) * 10) / 10) : String(Math.round(ft));
-        if (!length) setLength(estimateInUnit(entry.loa, lengthUnit));
-        if (!beam) setBeam(estimateInUnit(entry.loa * 0.32, beamUnit));
-        if (!draft) setDraft(estimateInUnit(entry.loa * 0.16, draftUnit));
+        const nextSources = { ...autoFilledDimensions };
+        if (!length || autoFilledDimensions.length) {
+            setLength(feetInUnit(entry.loa, lengthUnit));
+            nextSources.length = 'database';
+        }
+        if (!beam || autoFilledDimensions.beam) {
+            setBeam(feetInUnit(entry.loa * 0.32, beamUnit));
+            nextSources.beam = 'estimate';
+        }
+        if (!draft || autoFilledDimensions.draft) {
+            setDraft(feetInUnit(entry.loa * 0.16, draftUnit));
+            nextSources.draft = 'estimate';
+        }
+        setAutoFilledDimensions(nextSources);
+        if (Object.values(nextSources).includes('estimate')) setEstimatedDimensionsAcknowledged(false);
     };
 
     const handleNext = () => {
         // Step 2 requires home port + first name + surname before progress.
-        if (step === 2 && (!homePort.trim() || !firstName.trim() || !lastName.trim())) return;
+        if (step === 2 && (!sanitizeText(homePort) || !sanitizeText(firstName) || !sanitizeText(lastName))) {
+            toast.error('First name, surname, and home port are required.');
+            return;
+        }
 
         // If leaving step 2 with a manually-typed location (no coords yet), geocode + prefetch
         if (step === 2 && !prefetchRef.current && homePort.trim()) {
@@ -213,8 +262,9 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
             setVolUnit(prefVolume);
         }
 
-        // Conditional step routing: non-Skippers skip vessel details (5) + offshore model (6)
-        if (step === 4 && subscriptionTier !== 'owner') {
+        // Role personalises setup only; it never changes paid entitlement.
+        // Non-skippers skip vessel details (5) + offshore model (6).
+        if (step === 4 && selectedRole !== 'skipper') {
             setStep(7); // Jump to display preferences
             return;
         }
@@ -224,7 +274,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
 
     const handleBack = () => {
         // If going back from step 7 and non-Skipper, jump to step 4 (skip offshore + vessel)
-        if (step === 7 && subscriptionTier !== 'owner') {
+        if (step === 7 && selectedRole !== 'skipper') {
             setStep(4);
             return;
         }
@@ -281,9 +331,9 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
         setIsLocating(true);
         (async () => {
             try {
-                // Use GpsService — same unified GPS service the map page uses.
-                // Handles native (Transistorsoft BgGeo) and web (navigator.geolocation) automatically.
-                const pos = await GpsService.getCurrentPosition({
+                // Onboarding needs one foreground fix, not the background
+                // tracking engine used by voyage and safety features.
+                const pos = await GpsService.requestCurrentForegroundPosition({
                     staleLimitMs: 30_000,
                     timeoutSec: 10,
                     enableHighAccuracy: true,
@@ -348,7 +398,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
     };
 
     const confirmMapSelection = () => {
-        if (tempLocation) {
+        if (tempLocation && tempLocation.name !== 'Identifying...') {
             setHomePort(tempLocation.name);
             setShowMap(false);
             // Prefetch weather in background while user continues onboarding
@@ -414,42 +464,74 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
             toast.error('Your sign-in changed. Please reopen setup and try again.');
             return;
         }
-        let finalVesselType = vesselType;
+
+        if (selectedRole === 'skipper') {
+            const errors = validateVesselDetails({
+                name,
+                mmsi,
+                length,
+                beam,
+                draft,
+                displacement,
+                airDraft,
+                fuel,
+                water,
+                crewCount,
+            });
+            const hasUnreviewedEstimate =
+                Object.values(autoFilledDimensions).includes('estimate') && !estimatedDimensionsAcknowledged;
+            if (Object.keys(errors).length > 0 || hasUnreviewedEstimate) {
+                setStep(5);
+                toast.error(
+                    hasUnreviewedEstimate
+                        ? 'Please review the estimated vessel dimensions before continuing.'
+                        : 'Please correct the highlighted vessel details before continuing.',
+                );
+                return;
+            }
+        }
+
+        const finalVesselType = vesselType;
         // VesselProfile dimensions are stored in FEET — this is THE
         // conversion point that establishes the convention every consumer
         // (vesselDraftMetres in services/units.ts) relies on.
-        let l_ft = length ? (lengthUnit === 'm' ? parseFloat(length) * FEET_PER_METRE : parseFloat(length)) : 0;
-        let b_ft = beam ? (beamUnit === 'm' ? parseFloat(beam) * FEET_PER_METRE : parseFloat(beam)) : 0;
-        let d_ft = draft ? (draftUnit === 'm' ? parseFloat(draft) * FEET_PER_METRE : parseFloat(draft)) : 0;
+        let l_ft = length ? (lengthUnit === 'm' ? Number(length) * FEET_PER_METRE : Number(length)) : 0;
+        let b_ft = beam ? (beamUnit === 'm' ? Number(beam) * FEET_PER_METRE : Number(beam)) : 0;
+        let d_ft = draft ? (draftUnit === 'm' ? Number(draft) * FEET_PER_METRE : Number(draft)) : 0;
 
-        let disp_lbs = displacement ? parseFloat(displacement) : 0;
+        let disp_lbs = displacement ? Number(displacement) : 0;
         if (dispUnit === 'kg') disp_lbs = disp_lbs * 2.20462;
         if (dispUnit === 'tonnes') disp_lbs = disp_lbs * 2204.62;
 
-        const estimatedFields: string[] = [];
+        const estimatedFields = new Set<string>(roughEstimatedDimensionFields(autoFilledDimensions));
 
-        // AUTO-CONVERT LOGIC
-        // If NO metrics entered, convert to Observer
-        if (finalVesselType !== 'observer' && l_ft === 0 && b_ft === 0 && d_ft === 0 && disp_lbs === 0) {
-            finalVesselType = 'observer';
+        // Crew/deckhand setup deliberately carries no stale vessel geometry,
+        // even if the user went back after partially filling the skipper step.
+        if (finalVesselType === 'observer') {
+            l_ft = 0;
+            b_ft = 0;
+            d_ft = 0;
+            disp_lbs = 0;
+            estimatedFields.clear();
         }
 
-        // HALLUCINATION LOGIC (Filling in blanks)
+        // Fill non-safety-critical gaps, while retaining provenance so the
+        // Settings screen can ask the skipper to replace estimates later.
         if (finalVesselType !== 'observer') {
             if (l_ft === 0) {
                 // Infer length from Beam or Displacement if available?
                 if (b_ft > 0) {
                     l_ft = b_ft * 3;
-                    estimatedFields.push('length');
+                    estimatedFields.add('length');
                 } else {
                     l_ft = 30;
-                    estimatedFields.push('length');
+                    estimatedFields.add('length');
                 } // Last ditch default
             }
 
             if (b_ft === 0) {
                 b_ft = l_ft * 0.32; // Approx ratio
-                estimatedFields.push('beam');
+                estimatedFields.add('beam');
             }
 
             // DRAFT IS NEVER FABRICATED. Every other dimension can be guessed
@@ -467,14 +549,14 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
             if (disp_lbs === 0) {
                 // DLR Formula approximation
                 disp_lbs = Math.pow(l_ft, 3) / 2.5;
-                estimatedFields.push('displacement');
+                estimatedFields.add('displacement');
             }
         }
 
         const ad_ft = airDraft
             ? airDraftUnit === 'm'
-                ? parseFloat(airDraft) * FEET_PER_METRE
-                : parseFloat(airDraft)
+                ? Number(airDraft) * FEET_PER_METRE
+                : Number(airDraft)
             : undefined;
 
         const vesselData: VesselProfile = {
@@ -492,10 +574,10 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
             keelType,
             maxWaveHeight: vesselMaxWaveHeightFt({ length: l_ft, hullType }),
             cruisingSpeed: vesselCruisingSpeedKts({ length: l_ft, type: finalVesselType }),
-            fuelCapacity: fuel ? parseFloat(fuel) : 0,
-            waterCapacity: water ? parseFloat(water) : 0,
-            crewCount: crewCount ? parseInt(crewCount) || 2 : 2,
-            estimatedFields: estimatedFields.length > 0 ? estimatedFields : undefined,
+            fuelCapacity: finalVesselType === 'observer' ? 0 : fuel ? Number(fuel) : 0,
+            waterCapacity: finalVesselType === 'observer' ? 0 : water ? Number(water) : 0,
+            crewCount: crewCount ? Number(crewCount) || 2 : 2,
+            estimatedFields: estimatedFields.size > 0 ? [...estimatedFields] : undefined,
         };
 
         const settings: Partial<UserSettings> = {
@@ -503,7 +585,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
             firstName: sanitizeText(firstName) || undefined,
             lastName: sanitizeText(lastName) || undefined,
             nickname: sanitizeText(nickname) || undefined,
-            defaultLocation: homePort,
+            defaultLocation: sanitizeText(homePort),
             // Save the actual coords too, not just the name string.
             // Without this, the weather fetcher re-geocodes "Newport"
             // from scratch on every cold start and picks whichever
@@ -530,12 +612,12 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
             },
             preferredModel: preferredModel,
             offshoreModel: offshoreModel,
-            savedLocations: [homePort],
+            savedLocations: [sanitizeText(homePort)],
             alwaysOn: prefAlwaysOn,
             screenOrientation: prefOrientation,
             displayMode: prefDisplayMode,
             // Include polar data if a yacht was selected
-            ...(selectedPolar
+            ...(finalVesselType !== 'observer' && selectedPolar
                 ? {
                       polarData: selectedPolar.data,
                       polarBoatModel: selectedPolar.model,
@@ -583,10 +665,13 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
         if (!isAuthIdentityScopeCurrent(actionScope)) return;
         onComplete({
             ...settings,
-            subscriptionTier,
+            // Onboarding is a preferences flow, not a purchase or receipt
+            // validator. Paid entitlement must arrive from a trusted service.
+            subscriptionTier: 'free',
+            isPro: false,
             vessel: {
                 ...settings.vessel!,
-                registration: registration || undefined,
+                registration: sanitizeText(registration) || undefined,
                 mmsi: mmsi || undefined,
             },
         });
@@ -668,11 +753,11 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
                         />
                     )}
 
-                    {/* STEP 3: ROLE & TIER SELECTION */}
+                    {/* STEP 3: SETUP ROLE (not a paid entitlement) */}
                     {step === 3 && (
                         <RoleSelectionStep
-                            selectedTier={subscriptionTier}
-                            onTierChange={setSubscriptionTier}
+                            selectedRole={selectedRole}
+                            onRoleChange={setSelectedRole}
                             onVesselTypeChange={setVesselType}
                             onNext={handleNext}
                         />
@@ -716,15 +801,15 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
                             riggingType={riggingType}
                             onRiggingTypeChange={setRiggingType}
                             length={length}
-                            onLengthChange={setLength}
+                            onLengthChange={(value) => handleDimensionChange('length', value, setLength)}
                             lengthUnit={lengthUnit}
                             onToggleLengthUnit={toggleLengthUnit}
                             beam={beam}
-                            onBeamChange={setBeam}
+                            onBeamChange={(value) => handleDimensionChange('beam', value, setBeam)}
                             beamUnit={beamUnit}
                             onToggleBeamUnit={toggleBeamUnit}
                             draft={draft}
-                            onDraftChange={setDraft}
+                            onDraftChange={(value) => handleDimensionChange('draft', value, setDraft)}
                             draftUnit={draftUnit}
                             onToggleDraftUnit={toggleDraftUnit}
                             displacement={displacement}
@@ -745,6 +830,9 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
                             onCrewCountChange={setCrewCount}
                             selectedPolarModel={selectedPolar?.model}
                             onYachtSelect={handleYachtSelect}
+                            autoFilledDimensions={autoFilledDimensions}
+                            estimatedDimensionsAcknowledged={estimatedDimensionsAcknowledged}
+                            onEstimatedDimensionsAcknowledgedChange={setEstimatedDimensionsAcknowledged}
                             keyboardHeight={keyboardHeight}
                             onNext={handleNext}
                         />

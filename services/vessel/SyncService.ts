@@ -71,6 +71,13 @@ const FILE_URI_FIELDS: Partial<Record<SyncableTable, string>> = {
     equipment_register: 'manual_uri',
     ship_documents: 'file_uri',
 };
+const FILE_STORAGE_SUBFOLDERS: Partial<Record<SyncableTable, string>> = {
+    equipment_register: 'equipment',
+    ship_documents: 'documents',
+};
+const VESSEL_VAULT_BUCKET = 'vessel_vault';
+const VESSEL_VAULT_URI_PREFIX = `supabase-storage://${VESSEL_VAULT_BUCKET}/`;
+const STORAGE_LIST_PAGE_SIZE = 100;
 
 // ── Singleton state ────────────────────────────────────────────
 
@@ -441,6 +448,15 @@ async function pushSingleMutation(item: SyncQueueItem, authenticatedUserId: stri
 
             if (error) throw new Error(error.message);
             if (!data) throw new Error('Record not found or update not authorized');
+
+            // A changed attachment can use a different extension while keeping
+            // the same record ID. Once the database points at the replacement,
+            // remove every displaced deterministic variant. Cleanup failure
+            // keeps the UPDATE queued; a retry is safe after the DB commit.
+            const fileField = FILE_URI_FIELDS[table];
+            if (fileField && Object.prototype.hasOwnProperty.call(row, fileField)) {
+                await reconcileVaultObjects(table, authenticatedUserId, item.record_id, row[fileField]);
+            }
             break;
         }
 
@@ -452,28 +468,34 @@ async function pushSingleMutation(item: SyncQueueItem, authenticatedUserId: stri
                 .maybeSingle();
             if (selectError) throw new Error(selectError.message);
 
-            // If the row is already absent from the caller's visible set, the
-            // desired end state is already satisfied.
-            if (!visibleBefore) break;
+            if (visibleBefore) {
+                const { data: deleted, error: deleteError } = await supabase
+                    .from(table)
+                    .delete()
+                    .eq('id', item.record_id)
+                    .select('id')
+                    .maybeSingle();
+                if (deleteError) throw new Error(deleteError.message);
 
-            const { data: deleted, error: deleteError } = await supabase
-                .from(table)
-                .delete()
-                .eq('id', item.record_id)
-                .select('id')
-                .maybeSingle();
-            if (deleteError) throw new Error(deleteError.message);
-            if (deleted) break;
+                if (!deleted) {
+                    // A concurrent delete is success; a still-visible row
+                    // means SELECT is allowed but DELETE was denied by policy
+                    // and must stay queued.
+                    const { data: visibleAfter, error: verifyError } = await supabase
+                        .from(table)
+                        .select('id')
+                        .eq('id', item.record_id)
+                        .maybeSingle();
+                    if (verifyError) throw new Error(verifyError.message);
+                    if (visibleAfter) throw new Error('Record is visible but delete is not authorized');
+                }
+            }
 
-            // A concurrent delete is success; a still-visible row means SELECT
-            // is allowed but DELETE was denied by policy and must stay queued.
-            const { data: visibleAfter, error: verifyError } = await supabase
-                .from(table)
-                .select('id')
-                .eq('id', item.record_id)
-                .maybeSingle();
-            if (verifyError) throw new Error(verifyError.message);
-            if (visibleAfter) throw new Error('Record is visible but delete is not authorized');
+            // The row may already be absent because a prior attempt committed
+            // before its response was lost. Deterministic owner-prefixed paths
+            // let that retry finish every extension variant without needing
+            // the deleted row's payload.
+            await reconcileVaultObjects(table, authenticatedUserId, item.record_id, null);
             break;
         }
 
@@ -525,8 +547,8 @@ async function uploadFileIfNeeded(
         return;
     }
 
-    // Determine subfolder by table type
-    const subfolder = table === 'equipment_register' ? 'equipment' : 'documents';
+    const subfolder = FILE_STORAGE_SUBFOLDERS[table];
+    if (!subfolder) return;
     let bytes: Blob | Uint8Array;
     let contentType = 'application/octet-stream';
     let extension = '';
@@ -558,14 +580,68 @@ async function uploadFileIfNeeded(
         contentType = contentTypeForExtension(extension);
     }
 
-    const safeRecordId = recordId.replace(/[^a-zA-Z0-9_-]/g, '_');
+    const safeRecordId = storageSafeRecordId(recordId);
     const storagePath = `${userId}/${subfolder}/${safeRecordId}${extension ? `.${extension}` : ''}`;
-    const { error: uploadError } = await supabase!.storage.from('vessel_vault').upload(storagePath, bytes, {
+    const { error: uploadError } = await supabase!.storage.from(VESSEL_VAULT_BUCKET).upload(storagePath, bytes, {
         contentType,
         upsert: true,
     });
     if (uploadError) throw new Error(`File upload failed: ${uploadError.message}`);
-    row[field] = `supabase-storage://vessel_vault/${storagePath}`;
+    row[field] = `${VESSEL_VAULT_URI_PREFIX}${storagePath}`;
+}
+
+/**
+ * Reconcile every deterministic object for an attachment-bearing record.
+ * Passing a stable URI keeps that object and removes only displaced extension
+ * variants; passing null removes them all. List/remove errors are failures so
+ * the durable outbox retries until Storage reaches the same end state as SQL.
+ */
+async function reconcileVaultObjects(
+    table: SyncableTable,
+    userId: string,
+    recordId: string,
+    keepUri: unknown,
+): Promise<void> {
+    const subfolder = FILE_STORAGE_SUBFOLDERS[table];
+    if (!subfolder) return;
+
+    const safeRecordId = storageSafeRecordId(recordId);
+    const directory = `${userId}/${subfolder}`;
+    const keepPath =
+        typeof keepUri === 'string' && keepUri.startsWith(VESSEL_VAULT_URI_PREFIX)
+            ? keepUri.slice(VESSEL_VAULT_URI_PREFIX.length)
+            : null;
+    const bucket = supabase!.storage.from(VESSEL_VAULT_BUCKET);
+    const candidates: string[] = [];
+
+    let offset = 0;
+    for (;;) {
+        const { data, error } = await bucket.list(directory, {
+            limit: STORAGE_LIST_PAGE_SIZE,
+            offset,
+        });
+        if (error) throw new Error(`Attachment cleanup list failed: ${error.message}`);
+
+        const entries = data ?? [];
+        for (const entry of entries) {
+            if (entry.name === safeRecordId || entry.name.startsWith(`${safeRecordId}.`)) {
+                const path = `${directory}/${entry.name}`;
+                if (path !== keepPath) candidates.push(path);
+            }
+        }
+        if (entries.length < STORAGE_LIST_PAGE_SIZE) break;
+        offset += entries.length;
+    }
+
+    for (let start = 0; start < candidates.length; start += STORAGE_LIST_PAGE_SIZE) {
+        const batch = candidates.slice(start, start + STORAGE_LIST_PAGE_SIZE);
+        const { error } = await bucket.remove(batch);
+        if (error) throw new Error(`Attachment cleanup failed: ${error.message}`);
+    }
+}
+
+function storageSafeRecordId(recordId: string): string {
+    return recordId.replace(/[^a-zA-Z0-9_-]/g, '_');
 }
 
 function extensionFromUri(uri: string): string {

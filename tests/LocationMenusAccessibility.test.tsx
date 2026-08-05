@@ -1,9 +1,11 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const menuMocks = vi.hoisted(() => ({
     updateSettings: vi.fn(),
     selectLocation: vi.fn(),
+    requestCurrentForegroundPosition: vi.fn(),
+    toastError: vi.fn(),
 }));
 
 vi.mock('../context/SettingsContext', () => ({
@@ -29,12 +31,24 @@ vi.mock('../context/WeatherContext', () => ({
 }));
 
 vi.mock('../utils/system', () => ({ triggerHaptic: vi.fn() }));
+vi.mock('../services/GpsService', () => ({
+    GpsService: { requestCurrentForegroundPosition: menuMocks.requestCurrentForegroundPosition },
+}));
+vi.mock('../components/Toast', () => ({
+    toast: { error: menuMocks.toastError },
+}));
 
 import { LocationStarMenu } from '../components/LocationStarMenu';
 import { SavedLocationsPicker } from '../components/passage/SavedLocationsPicker';
 
 describe('location popover menu accessibility', () => {
-    beforeEach(() => vi.clearAllMocks());
+    beforeEach(() => {
+        vi.clearAllMocks();
+        menuMocks.requestCurrentForegroundPosition.mockResolvedValue({
+            latitude: -27.47,
+            longitude: 153.03,
+        });
+    });
 
     it('moves focus into the dashboard locations menu and restores its trigger on Escape', () => {
         render(<LocationStarMenu />);
@@ -67,5 +81,32 @@ describe('location popover menu accessibility', () => {
         fireEvent.keyDown(save, { key: 'Escape' });
         expect(screen.queryByRole('menu')).not.toBeInTheDocument();
         expect(trigger).toHaveFocus();
+    });
+
+    it('resolves Current Location from explicit foreground intent before entering GPS-follow mode', async () => {
+        render(<LocationStarMenu />);
+        fireEvent.click(screen.getByRole('button', { name: 'Saved locations' }));
+        fireEvent.click(screen.getByRole('menuitem', { name: 'Current Location' }));
+
+        await waitFor(() => {
+            expect(menuMocks.requestCurrentForegroundPosition).toHaveBeenCalledWith({
+                staleLimitMs: 30_000,
+                timeoutSec: 12,
+            });
+            expect(menuMocks.selectLocation).toHaveBeenCalledWith('Current Location', {
+                lat: -27.47,
+                lon: 153.03,
+            });
+        });
+    });
+
+    it('does not persist GPS-follow mode when an explicit foreground fix is unavailable', async () => {
+        menuMocks.requestCurrentForegroundPosition.mockResolvedValueOnce(null);
+        render(<LocationStarMenu />);
+        fireEvent.click(screen.getByRole('button', { name: 'Saved locations' }));
+        fireEvent.click(screen.getByRole('menuitem', { name: 'Current Location' }));
+
+        await waitFor(() => expect(menuMocks.toastError).toHaveBeenCalled());
+        expect(menuMocks.selectLocation).not.toHaveBeenCalled();
     });
 });

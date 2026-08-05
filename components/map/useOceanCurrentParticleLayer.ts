@@ -15,24 +15,33 @@
  * Design notes:
  *   - Binary blobs are produced by scripts/cmems-currents-pipeline/pipeline.py
  *     and attached to release `cmems-currents-latest` (one .bin per hour).
- *   - The first-use fetch loads 13 hours × ~9 MB = ~117 MB upfront; the
- *     scrubber then swaps the layer's single-timestep data on each hour
- *     change (no further network traffic).
+ *   - The scrubber fetches only its selected immutable frame (~9 MB), with
+ *     verification and a bounded browser cache instead of a 13-frame cube.
  *   - Gated by VITE_CMEMS_CURRENTS_ENABLED so the existing Xweather
  *     raster-currents layer remains the default fallback.
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type mapboxgl from 'mapbox-gl';
 import { createLogger } from '../../utils/createLogger';
 import { CurrentParticleLayer } from './CurrentParticleLayer';
-import { fetchCurrentsGrid } from '../../services/weather/api/currentsGrid';
-import type { WindGrid } from '../../services/weather/windField';
+import { fetchCurrentsGrid, releaseCurrentsGrid } from '../../services/weather/api/currentsGrid';
+import { cmemsRenderedLayerState, type CmemsRenderOutcome, useCmemsGridRefresh } from './useCmemsGridRefresh';
+import {
+    addCmemsLayerAndProveOwnership,
+    deactivateCmemsLayerAndProveSafe,
+    isCmemsLayerAbsent,
+    isCmemsLayerOwned,
+    monitorCmemsLayerDeactivation,
+    removeCmemsLayerAndProveAbsent,
+} from './cmemsLayerOwnership';
+import { isCmemsFeatureEnabled } from './cmemsFeatureAvailability';
+import { deactivateFailedCmemsRenderer } from './cmemsLayerFailure';
 
 const log = createLogger('CurrentParticleLayer');
 
 const LAYER_ID = 'cmems-currents-particles';
-const FEATURE_ENABLED = String(import.meta.env.VITE_CMEMS_CURRENTS_ENABLED ?? 'false').toLowerCase() === 'true';
+const FEATURE_ENABLED = isCmemsFeatureEnabled('currents');
 
 // ── Live-debug state mirror ────────────────────────────────────────────
 // Production builds strip `console.*` via esbuild.drop, so any log path
@@ -111,64 +120,29 @@ export function useOceanCurrentParticleLayer(
 ) {
     const layerRef = useRef<CurrentParticleLayer | null>(null);
     const currentHourRef = useRef(-1);
-    // Refs (not state) for the fetch *lifecycle* — state churn inside the
-    // effect callback was re-firing the effect on every failure, producing
-    // a 403 retry storm in prod. `attempted` becomes the one-shot latch;
-    // the user can retry by toggling the layer off then back on.
-    const inflightRef = useRef(false);
-    const attemptedRef = useRef(false);
-    // Grid itself DOES go in state so the mount-effect below re-fires the
-    // moment it loads — otherwise the effect's static dep list means the
-    // layer only mounts after some unrelated re-render (scrub, toggle),
-    // producing a "flashes on interaction then vanishes" bug.
-    const [grid, setGrid] = useState<WindGrid | null>(null);
-
-    // Lazy-load the grid the first time currents becomes visible. Reset the
-    // latch when visibility goes false→true so the user can retry manually.
-    useEffect(() => {
-        noteEvent('fetch-effect-enter', { visible }, { visible, grid: !!grid });
-        if (!FEATURE_ENABLED) return;
-        if (!visible) {
-            // Hidden again — allow a fresh attempt next time we turn on.
-            attemptedRef.current = false;
-            return;
-        }
-        if (grid || inflightRef.current || attemptedRef.current) return;
-
-        let cancelled = false;
-        inflightRef.current = true;
-        attemptedRef.current = true;
-        const d = getDebug();
-        d.fetchCount += 1;
-        noteEvent('fetch-start');
-        fetchCurrentsGrid()
-            .then((g) => {
-                inflightRef.current = false;
-                if (cancelled) {
-                    noteEvent('fetch-cancelled');
-                    return;
-                }
-                if (!g) {
-                    noteEvent('fetch-null-grid');
-                    getDebug().fetchErrors += 1;
-                    log.warn('Currents grid unavailable — giving up until next toggle');
-                    return;
-                }
-                log.info(`Currents grid cached (${g.totalHours}h × ${g.width}×${g.height})`);
-                currentHourRef.current = -1;
-                noteEvent('fetch-success', { hasGrid: true, gridDims: `${g.totalHours}h × ${g.width}×${g.height}` });
-                setGrid(g);
-            })
-            .catch((err) => {
-                inflightRef.current = false;
-                getDebug().fetchErrors += 1;
-                noteEvent('fetch-error');
-                log.warn('Failed to load currents grid', err);
-            });
-        return () => {
-            cancelled = true;
-        };
-    }, [visible, grid]);
+    const generationRef = useRef<string | undefined>();
+    const clearLayerOwnership = useCallback(() => {
+        layerRef.current = null;
+        currentHourRef.current = -1;
+        generationRef.current = undefined;
+    }, []);
+    const prepareForFrame = useCallback(() => {
+        const map = mapRef.current;
+        if (!map || !mapReady || !removeCmemsLayerAndProveAbsent(map, LAYER_ID)) return false;
+        clearLayerOwnership();
+        return true;
+    }, [clearLayerOwnership, mapReady, mapRef]);
+    const refresh = useCmemsGridRefresh(
+        FEATURE_ENABLED && mapReady,
+        visible,
+        forecastHour,
+        fetchCurrentsGrid,
+        releaseCurrentsGrid,
+        prepareForFrame,
+    );
+    const grid = refresh.grid;
+    const [renderOutcome, setRenderOutcome] = useState<CmemsRenderOutcome | null>(null);
+    const layerState = cmemsRenderedLayerState(refresh, FEATURE_ENABLED, visible, mapReady, renderOutcome);
 
     // Mount / update / unmount the custom layer based on visibility.
     useEffect(() => {
@@ -186,34 +160,101 @@ export function useOceanCurrentParticleLayer(
 
         noteEvent('mount-effect-enter', { visible, hasGrid: !!grid }, eventMeta);
 
-        // Tear down when hidden.
-        if (!visible) {
-            if (layerRef.current && map.getLayer(LAYER_ID)) {
-                try {
-                    map.removeLayer(LAYER_ID);
-                    getDebug().teardownCount += 1;
-                    noteEvent('layer-torn-down', { layerMounted: false }, eventMeta);
-                } catch {
-                    noteEvent('layer-teardown-threw', {}, eventMeta);
+        // Tear down when hidden or when a trust refresh rejects the grid.
+        if (!visible || !grid) {
+            const retainedStep = currentHourRef.current >= 0 ? currentHourRef.current : null;
+            const retainedGeneration = generationRef.current ?? null;
+            const publishSafeDeactivation = (safe: 'absent' | 'hidden') => {
+                if (safe === 'absent') {
+                    clearLayerOwnership();
+                    setRenderOutcome(null);
+                    return;
                 }
+                setRenderOutcome({
+                    phase: 'hidden',
+                    attempt: refresh.attempt,
+                    verifiedStep: retainedStep,
+                    sourceGeneration: retainedGeneration,
+                });
+            };
+            const deactivation = deactivateCmemsLayerAndProveSafe(map, LAYER_ID);
+            if (deactivation === 'absent') {
+                clearLayerOwnership();
+                getDebug().teardownCount += 1;
+                noteEvent('layer-torn-down', { layerMounted: false }, eventMeta);
+                setRenderOutcome(null);
+            } else if (deactivation === 'hidden') {
+                // A hidden ID is safe for user-off, but not reusable. Retain
+                // every ref so a later frame must remove and prove absence.
+                noteEvent('layer-teardown-hidden', {}, eventMeta);
+                publishSafeDeactivation('hidden');
+                return monitorCmemsLayerDeactivation(map, LAYER_ID, 'Currents', publishSafeDeactivation);
             } else {
-                noteEvent('teardown-noop', {}, eventMeta);
+                noteEvent('layer-teardown-failed', {}, eventMeta);
+                setRenderOutcome({
+                    phase: 'stuck-visible',
+                    attempt: refresh.attempt,
+                    verifiedStep: currentHourRef.current >= 0 ? currentHourRef.current : null,
+                    sourceGeneration: generationRef.current ?? null,
+                });
+                return monitorCmemsLayerDeactivation(map, LAYER_ID, 'Currents', publishSafeDeactivation);
             }
-            layerRef.current = null;
-            currentHourRef.current = -1;
             return;
         }
 
-        // Grid not loaded yet — the fetch effect will trigger a re-run.
-        if (!grid) return;
-
+        if (generationRef.current !== grid.sourceGeneration) {
+            generationRef.current = grid.sourceGeneration;
+            currentHourRef.current = -1;
+        }
         const wantsHour = Math.min(Math.max(0, Math.round(forecastHour)), grid.totalHours - 1);
+        if (grid.sourceStep !== wantsHour || !grid.u[wantsHour] || !grid.v[wantsHour]) {
+            log.warn('Verified currents frame does not match the requested scrubber step');
+            return deactivateFailedCmemsRenderer({
+                map,
+                layerId: LAYER_ID,
+                label: 'Currents',
+                attempt: refresh.attempt,
+                verifiedStep: currentHourRef.current >= 0 ? currentHourRef.current : null,
+                sourceGeneration: generationRef.current ?? null,
+                clearOwnership: clearLayerOwnership,
+                publish: setRenderOutcome,
+            });
+        }
+        if (!grid.landMask) {
+            log.warn('Verified currents grid has no land mask — skipping draw');
+            return deactivateFailedCmemsRenderer({
+                map,
+                layerId: LAYER_ID,
+                label: 'Currents',
+                attempt: refresh.attempt,
+                verifiedStep: currentHourRef.current >= 0 ? currentHourRef.current : null,
+                sourceGeneration: generationRef.current ?? null,
+                clearOwnership: clearLayerOwnership,
+                publish: setRenderOutcome,
+            });
+        }
 
         if (!layerRef.current) {
+            // Constructors allocate the particle trails. Prove the ID absent
+            // before creating a candidate so a duplicate cannot double memory.
+            if (!isCmemsLayerAbsent(map, LAYER_ID)) {
+                return deactivateFailedCmemsRenderer({
+                    map,
+                    layerId: LAYER_ID,
+                    label: 'Currents',
+                    attempt: refresh.attempt,
+                    verifiedStep: null,
+                    sourceGeneration: generationRef.current ?? null,
+                    clearOwnership: clearLayerOwnership,
+                    publish: setRenderOutcome,
+                });
+            }
             try {
                 const layer = new CurrentParticleLayer(LAYER_ID);
-                map.addLayer(layer);
                 layerRef.current = layer;
+                if (!addCmemsLayerAndProveOwnership(map, LAYER_ID, layer)) {
+                    throw new Error('Mapbox did not register the currents candidate');
+                }
                 currentHourRef.current = -1;
                 getDebug().mountCount += 1;
                 noteEvent('layer-mounted', { layerMounted: true }, eventMeta);
@@ -221,8 +262,31 @@ export function useOceanCurrentParticleLayer(
             } catch (err) {
                 noteEvent('layer-mount-failed', {}, eventMeta);
                 log.warn('Failed to mount particle layer', err);
-                return;
+                return deactivateFailedCmemsRenderer({
+                    map,
+                    layerId: LAYER_ID,
+                    label: 'Currents',
+                    attempt: refresh.attempt,
+                    verifiedStep: null,
+                    sourceGeneration: generationRef.current ?? null,
+                    clearOwnership: clearLayerOwnership,
+                    publish: setRenderOutcome,
+                });
             }
+        }
+
+        const ownedLayer = layerRef.current;
+        if (!ownedLayer || !isCmemsLayerOwned(map, LAYER_ID, ownedLayer)) {
+            return deactivateFailedCmemsRenderer({
+                map,
+                layerId: LAYER_ID,
+                label: 'Currents',
+                attempt: refresh.attempt,
+                verifiedStep: currentHourRef.current >= 0 ? currentHourRef.current : null,
+                sourceGeneration: generationRef.current ?? null,
+                clearOwnership: clearLayerOwnership,
+                publish: setRenderOutcome,
+            });
         }
 
         if (currentHourRef.current !== wantsHour) {
@@ -230,15 +294,9 @@ export function useOceanCurrentParticleLayer(
                 // CurrentParticleLayer is tuned for native m/s — no
                 // amplification or scratch-buffer copy needed. The land
                 // mask is required (rejection-sampled spawn AND advection
-                // kill) so currents from a v1 binary (no mask) won't draw
-                // anything useful — that's intentional, the v1 fallback is
-                // only there to avoid hard-failing during the first deploy
-                // before the pipeline has run.
-                if (!grid.landMask) {
-                    log.warn('Currents grid has no land mask (v1 binary?) — skipping draw');
-                    return;
-                }
-                layerRef.current.setCurrents(
+                // kill). The schema-v2 loader requires it; this final guard
+                // keeps the renderer fail-closed too.
+                ownedLayer.setCurrents(
                     grid.u[wantsHour],
                     grid.v[wantsHour],
                     grid.width,
@@ -259,9 +317,25 @@ export function useOceanCurrentParticleLayer(
             } catch (err) {
                 noteEvent('set-data-failed', {}, eventMeta);
                 log.warn('Failed to set currents data', err);
+                return deactivateFailedCmemsRenderer({
+                    map,
+                    layerId: LAYER_ID,
+                    label: 'Currents',
+                    attempt: refresh.attempt,
+                    verifiedStep: currentHourRef.current >= 0 ? currentHourRef.current : null,
+                    sourceGeneration: generationRef.current ?? null,
+                    clearOwnership: clearLayerOwnership,
+                    publish: setRenderOutcome,
+                });
             }
         }
-    }, [mapRef, mapReady, visible, forecastHour, grid]);
+        setRenderOutcome({
+            phase: 'ready',
+            attempt: refresh.attempt,
+            verifiedStep: wantsHour,
+            sourceGeneration: grid.sourceGeneration ?? null,
+        });
+    }, [clearLayerOwnership, mapRef, mapReady, visible, forecastHour, grid, refresh.attempt]);
 
     // Unmount cleanup
     useEffect(() => {
@@ -269,16 +343,12 @@ export function useOceanCurrentParticleLayer(
         const map = mapRef.current;
         return () => {
             if (!map) return;
-            try {
-                if (layerRef.current && map.getLayer(LAYER_ID)) {
-                    map.removeLayer(LAYER_ID);
-                }
-            } catch {
-                /* best effort */
-            }
-            layerRef.current = null;
+            const deactivation = deactivateCmemsLayerAndProveSafe(map, LAYER_ID);
+            if (deactivation === 'absent') clearLayerOwnership();
         };
-    }, [mapRef, mapReady]);
+    }, [clearLayerOwnership, mapRef, mapReady]);
+
+    return layerState;
 }
 
 /** Exposed so the legend / attribution chip can check the flag state. */

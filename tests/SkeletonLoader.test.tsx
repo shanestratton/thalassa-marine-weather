@@ -10,7 +10,7 @@ vi.mock('../components/Icons', () => ({
     WindIcon: (props: any) => <svg data-testid="wind-icon" {...props} />,
 }));
 
-import { SkeletonDashboard } from '../components/SkeletonLoader';
+import { SkeletonDashboard, SkeletonPage } from '../components/SkeletonLoader';
 
 describe('SkeletonDashboard', () => {
     it('renders without crashing', () => {
@@ -44,5 +44,15 @@ describe('SkeletonDashboard', () => {
         // Should have multiple skeleton card placeholders
         const cards = container.querySelectorAll('.rounded-2xl');
         expect(cards.length).toBeGreaterThan(2);
+    });
+});
+
+describe('SkeletonPage', () => {
+    it('uses neutral loading copy for non-weather tools', () => {
+        render(<SkeletonPage />);
+
+        expect(screen.getByRole('status', { name: 'Loading page' })).toBeInTheDocument();
+        expect(screen.getByText('Loading Thalassa page…')).toBeInTheDocument();
+        expect(screen.queryByText('Weather · Tides · Sea State')).not.toBeInTheDocument();
     });
 });

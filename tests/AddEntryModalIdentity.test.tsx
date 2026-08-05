@@ -29,7 +29,7 @@ vi.mock('../services/vessel/LocalMaintenanceService', () => ({
 
 vi.mock('../services/GpsService', () => ({
     GpsService: {
-        getCurrentPosition: mocks.getCurrentPosition,
+        requestCurrentForegroundPosition: mocks.getCurrentPosition,
     },
 }));
 

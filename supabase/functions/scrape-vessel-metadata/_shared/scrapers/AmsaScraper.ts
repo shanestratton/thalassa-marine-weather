@@ -5,7 +5,7 @@
  * verified vessel identity + dimensions straight from the Australian
  * Maritime Safety Authority.
  */
-import { VesselMetadataRow, upsertMetadata } from '../supabase.ts';
+import { upsertMetadata, VesselMetadataRow } from '../supabase.ts';
 import { fetchWithTimeout, readResponseTextLimited } from '../../../_shared/http-security.ts';
 
 const AMSA_API_BASE = Deno.env.get('AMSA_API_URL') ?? 'https://services.amsa.gov.au/arcgis/rest/services';

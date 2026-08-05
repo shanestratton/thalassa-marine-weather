@@ -229,7 +229,7 @@
                 <img src="/thalassa-icon.png" alt="Thalassa" />
                 <h1>Terms & Privacy</h1>
                 <p class="subtitle">Thalassa Marine Weather</p>
-                <p class="effective">Effective Date: 25 February 2026 &nbsp;·&nbsp; Version 2.0</p>
+                <p class="effective">Effective Date: 4 August 2026 &nbsp;·&nbsp; Version 2.1 · Public Beta</p>
             </div>
 
             <!-- Tabs -->
@@ -289,30 +289,33 @@
 
                 <h2>3. User Accounts</h2>
                 <p>
-                    Certain features require a Thalassa account via email authentication. You are responsible for
-                    maintaining the confidentiality of your credentials and for all activities under your account.
+                    Certain features require a Thalassa account. You may authenticate by email or an available platform
+                    sign-in provider. You are responsible for maintaining the confidentiality of your credentials and
+                    for all activities under your account. The destructive in-app deletion flow is temporarily
+                    unavailable during this beta while its deletion safety controls are completed and verified. To
+                    request deletion now, email
+                    <a href="mailto:privacy@thalassa.app">privacy@thalassa.app</a>. A working in-app deletion path must
+                    be verified before account-creating App Store beta distribution.
                 </p>
 
-                <h2>4. Subscription & Billing</h2>
+                <h2>4. Public Beta Access</h2>
                 <div class="gold-card">
-                    <h3>Thalassa PRO</h3>
+                    <h3>Free public beta</h3>
                     <p>
-                        The App offers a free tier and a paid subscription ("Thalassa PRO") that unlocks premium
-                        features including extended forecasts, passage planning, cloud sync, and priority support.
+                        This release is a pre-release public beta. Beta access is currently free and no in-app
+                        subscription purchase, recurring billing, or trial countdown is offered in this build.
                     </p>
                 </div>
                 <ul>
+                    <li>Beta features may change, be limited, or be withdrawn while testing is in progress.</li>
                     <li>
-                        Subscriptions are billed on a recurring basis (monthly or annually) through Apple App Store or
-                        Google Play.
+                        Some features require internet access, third-party accounts, compatible marine hardware, or a
+                        vessel-side relay.
                     </li>
-                    <li>Payment is charged to your store account at confirmation of purchase.</li>
                     <li>
-                        Subscriptions auto-renew unless cancelled at least 24 hours before the end of the current
-                        period.
+                        Any future paid plan will be presented with its price and terms before purchase and will require
+                        your express confirmation.
                     </li>
-                    <li>You may manage or cancel your subscription through your device's app store settings.</li>
-                    <li>Refunds are handled by the respective app store in accordance with their policies.</li>
                 </ul>
 
                 <h2>5. Acceptable Use</h2>
@@ -333,14 +336,33 @@
                 </p>
 
                 <h2>7. Third-Party Services</h2>
-                <p>The App integrates with third-party services including:</p>
+                <p>
+                    Depending on the features you use and the services configured for the beta, the App may integrate
+                    with:
+                </p>
                 <ul>
-                    <li><strong>Open-Meteo</strong> — Weather forecast data (open-source API)</li>
-                    <li><strong>StormGlass</strong> — Marine weather and ocean data API</li>
-                    <li><strong>Apple WeatherKit</strong> — Weather forecast and atmospheric data</li>
-                    <li><strong>Mapbox</strong> — Map rendering and geospatial services</li>
-                    <li><strong>Supabase</strong> — Authentication and cloud data storage</li>
-                    <li><strong>Google Gemini</strong> — AI-powered weather analysis</li>
+                    <li>
+                        <strong>Supabase</strong> — authentication, database, file storage, realtime sync, and server
+                        functions
+                    </li>
+                    <li><strong>Open-Meteo, StormGlass, and Apple WeatherKit</strong> — weather and ocean data</li>
+                    <li>
+                        <strong>Mapbox, MapTiler, and OpenStreetMap contributors</strong> — maps and geospatial data
+                    </li>
+                    <li>
+                        <strong>Nominatim and other configured geocoders</strong> — place search and reverse geocoding
+                    </li>
+                    <li><strong>Google Gemini and Anthropic</strong> — optional AI assistance</li>
+                    <li><strong>Deepgram and ElevenLabs</strong> — optional speech recognition and text-to-speech</li>
+                    <li><strong>Sentry</strong> — crash and limited performance diagnostics</li>
+                    <li>
+                        <strong>Apple Push Notification service</strong> — requested safety and account notifications
+                    </li>
+                    <li>
+                        <strong>Google/Gmail and Apple Music</strong> — integration code exists, but both connections
+                        are disabled in this public-beta candidate
+                    </li>
+                    <li><strong>Spoonacular</strong> — optional recipe search</li>
                 </ul>
                 <p>
                     Use of these services is subject to their respective terms and privacy policies. We are not
@@ -387,9 +409,11 @@
 
                 <h3>Account Information</h3>
                 <p>
-                    When you create an account, we collect your <strong>email address</strong> for authentication
-                    purposes. We do not collect your real name, phone number, or payment card details (payments are
-                    processed by Apple/Google).
+                    When you create an account, we collect an account identifier and your <strong>email address</strong>
+                    or information supplied by your chosen sign-in provider. We also process profile information you
+                    choose to enter, which can include your name, contact details, profile photo, vessel name, home
+                    port, crew details, and other community-profile fields. This beta does not collect payment card
+                    details or offer in-app purchases.
                 </p>
 
                 <h3>Location Data</h3>
@@ -402,39 +426,61 @@
                         <li><strong>Passage logging</strong> — GPS track recording during active voyages</li>
                     </ul>
                     <p>
-                        Location data is processed on-device and is
-                        <strong>not transmitted to our servers</strong> unless you explicitly enable cloud sync. You can
-                        disable location access at any time through your device settings.
+                        Location is processed on-device and, when needed for a feature you request, may also be sent to
+                        Thalassa's cloud services and the applicable weather, mapping, geocoding, routing, or AI
+                        provider. While signed in, voyage tracks, diary/log positions, Guardian positions while armed,
+                        and other position-bearing records can sync privately to your account. Public or community
+                        sharing occurs only when you deliberately publish, hail, report, or share. You can disable
+                        location access through device settings, but location-dependent features will stop working.
                     </p>
                 </div>
 
                 <h3>Vessel & Operational Data</h3>
                 <p>
                     Data you enter into the App — including vessel specifications, log entries, diary notes, inventory
-                    items, maintenance records, equipment details, and documents — is stored locally on your device. If
-                    you enable cloud sync (PRO feature), this data is encrypted in transit and stored securely on our
-                    cloud infrastructure.
+                    items, maintenance records, equipment details, documents, plans, and crew information — is stored
+                    locally for offline operation.
+                    <strong>While you are signed in, supported account data syncs automatically</strong> over encrypted
+                    connections to Thalassa's Supabase infrastructure so it can be restored and used across your
+                    devices. Satellite mode may defer selected uploads; it is not a master cloud-sync opt-out.
                 </p>
 
                 <h3>NMEA Instrument Data</h3>
                 <p>
-                    If you connect NMEA instruments, the App processes real-time instrument data (wind, depth, heading,
-                    etc.) on-device only. This data is <strong>never transmitted</strong> to our servers.
+                    If you connect NMEA instruments, the live sentence stream is normally processed on-device. Derived
+                    readings and positions can be saved into diary entries, ship logs, tracks, diagnostics, or plans;
+                    those records may sync while signed in. Selected vessel context can also be sent to an AI service
+                    when you deliberately ask Calypso to use it. Thalassa does not continuously upload the raw NMEA
+                    stream as a general analytics feed.
                 </p>
 
-                <h3>Usage Analytics</h3>
+                <h3>AI, Voice & Optional Integrations</h3>
                 <p>
-                    We may collect anonymous, aggregated usage statistics to improve the App, such as feature adoption
-                    rates and crash reports. This data cannot be used to identify individual users.
+                    When you invoke AI or voice features, your prompt, audio or transcribed text, and the selected
+                    weather, vessel, passage, location, or app context are sent to the configured AI, speech-to-text, or
+                    text-to-speech provider. Gmail and Apple Music connections are disabled in this public-beta
+                    candidate. If a future release enables one and you explicitly connect it, Thalassa will process the
+                    account tokens and content needed for the actions you request. You can disconnect an enabled
+                    integration in Settings and should also revoke its grant in the provider's account settings if you
+                    want the provider authorisation itself withdrawn.
+                </p>
+
+                <h3>Diagnostics</h3>
+                <p>
+                    The beta may send crash reports and a small sample of performance traces to Sentry. These reports
+                    use a pseudonymous Thalassa account ID when you are signed in. We configure telemetry to omit your
+                    email address, precise location, request query strings, authentication data, and session replay.
+                    Local diagnostic logs remain on your device unless you choose to share them for support.
                 </p>
 
                 <h2>2. How We Use Your Information</h2>
                 <ul>
                     <li>To provide and maintain the App's core functionality</li>
-                    <li>To authenticate your account and manage your subscription</li>
-                    <li>To sync your data across devices (when cloud sync is enabled)</li>
+                    <li>To authenticate your account and provide the public beta</li>
+                    <li>To sync your private account data across devices while you are signed in</li>
                     <li>To generate weather forecasts for your requested locations</li>
-                    <li>To improve the App through aggregated, anonymous analytics</li>
+                    <li>To provide AI, voice, mapping, sharing, and optional connected-account actions you request</li>
+                    <li>To investigate crashes, security events, abuse reports, and service reliability</li>
                     <li>To communicate important service updates</li>
                 </ul>
 
@@ -442,19 +488,21 @@
                 <div class="card">
                     <h3>Local-First Architecture</h3>
                     <p>
-                        Thalassa follows a <strong>local-first</strong> design philosophy. Your data is primarily stored
-                        on your device and remains fully functional offline. Cloud sync is optional and available to PRO
-                        subscribers.
+                        Thalassa follows a <strong>local-first</strong> design: supported workflows remain available
+                        offline and queue changes for later delivery. Signed-in account data also syncs automatically to
+                        the cloud; local-first does not mean device-only.
                     </p>
                 </div>
                 <ul>
                     <li>
-                        <strong>Local storage:</strong> All data is stored in your device's secure storage (localStorage
-                        / IndexedDB)
+                        <strong>Local storage:</strong> App databases, preferences, filesystem records, and IndexedDB
+                        are used for offline operation. Some authentication and integration credentials are stored in
+                        native app preferences; protect your unlocked device and disconnect integrations you no longer
+                        use.
                     </li>
                     <li>
-                        <strong>Cloud storage:</strong> If enabled, synced data is stored on Supabase infrastructure
-                        with row-level security. All data is encrypted in transit (TLS 1.3)
+                        <strong>Cloud storage:</strong> Synced data is stored on Supabase infrastructure with row-level
+                        security and is encrypted in transit using HTTPS/TLS.
                     </li>
                     <li>
                         <strong>Backups:</strong> Cloud-synced data is subject to Supabase's backup and disaster
@@ -472,8 +520,12 @@
                 <p>Your data may be shared in these limited circumstances:</p>
                 <ul>
                     <li>
-                        <strong>Service providers:</strong> Supabase (hosting), Mapbox (maps) — only as necessary to
-                        operate the App
+                        <strong>Service providers:</strong> The providers listed in section 7 of the Terms receive only
+                        the data needed for the feature, request, or diagnostic function you use.
+                    </li>
+                    <li>
+                        <strong>People you choose to share with:</strong> Crew, community members, rescue contacts, or
+                        recipients of a float plan or message.
                     </li>
                     <li>
                         <strong>Legal compliance:</strong> If required by law, court order, or governmental authority
@@ -486,15 +538,37 @@
                 <ul>
                     <li><strong>Access</strong> — Request a copy of your personal data</li>
                     <li><strong>Correction</strong> — Update or correct inaccurate data</li>
-                    <li><strong>Deletion</strong> — Request deletion of your account and associated data</li>
                     <li>
-                        <strong>Portability</strong> — Export your data (available via the App's PDF export features)
+                        <strong>Deletion</strong> — Request deletion during this beta at
+                        <a href="mailto:privacy@thalassa.app">privacy@thalassa.app</a>; the destructive in-app control
+                        remains paused pending safety verification
                     </li>
-                    <li><strong>Withdraw consent</strong> — Disable location services or cloud sync at any time</li>
+                    <li>
+                        <strong>Portability</strong> — Use available voyage, diary, float-plan, and document exports;
+                        contact us for a broader access request during beta
+                    </li>
+                    <li>
+                        <strong>Withdraw permissions</strong> — Disable location, notifications, microphone, or
+                        connected integrations at any time
+                    </li>
                 </ul>
                 <p>
                     To exercise these rights, contact us at
                     <a href="mailto:privacy@thalassa.app">privacy@thalassa.app</a>.
+                </p>
+
+                <h3>Account Deletion & Retention</h3>
+                <p>
+                    During this beta, email <a href="mailto:privacy@thalassa.app">privacy@thalassa.app</a> to request
+                    deletion. The destructive in-app flow remains paused until durable write fencing, survivor scrubs,
+                    exact backend deployment, storage verification, and live failure-path testing are complete. Once
+                    verified and enabled, that flow is designed to remove your Thalassa sign-in, private synced records,
+                    uploaded media, account-linked community content, and account-scoped device caches. Limited
+                    security, abuse-prevention, or legal audit records may be retained only after direct identifiers and
+                    free-form details are removed. Content in a shared conversation may be anonymised where deleting the
+                    entire conversation would remove other people's records. Backup copies age out under infrastructure
+                    backup schedules. If device cleanup reports a failure, uninstalling Thalassa removes the remaining
+                    app sandbox.
                 </p>
 
                 <h2>6. Children's Privacy</h2>
@@ -505,8 +579,9 @@
 
                 <h2>7. Cookies & Tracking</h2>
                 <p>
-                    The App does not use cookies or third-party tracking pixels. We do not serve advertisements. We do
-                    not build advertising profiles.
+                    The App does not serve advertisements or build advertising profiles. Authentication and embedded
+                    third-party services may use local storage, session storage, or equivalent technical identifiers
+                    needed to sign you in, secure requests, remember settings, and operate the feature.
                 </p>
 
                 <h2>8. Changes to This Policy</h2>
@@ -521,8 +596,8 @@
                     <p><strong>Email:</strong> <a href="mailto:privacy@thalassa.app">privacy@thalassa.app</a></p>
                     <p>
                         <strong>Website:</strong>
-                        <a href="https://thalassa.app" rel="noopener noreferrer" referrerpolicy="no-referrer"
-                            >thalassa.app</a
+                        <a href="https://www.thalassawx.app" rel="noopener noreferrer" referrerpolicy="no-referrer"
+                            >www.thalassawx.app</a
                         >
                     </p>
                 </div>

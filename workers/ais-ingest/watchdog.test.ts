@@ -1,5 +1,22 @@
 import { describe, expect, it } from 'vitest';
-import { parseWatchdogPosition, shouldTriggerGeofenceAlert } from './watchdog';
+import { isGuardianWatchdogEnabled, parseWatchdogPosition, shouldTriggerGeofenceAlert } from './watchdog';
+
+describe('isGuardianWatchdogEnabled', () => {
+    it('keeps the privileged watchdog default-off', () => {
+        expect(isGuardianWatchdogEnabled(undefined)).toBe(false);
+    });
+
+    it.each(['', 'false', '1', 'yes', 'TRUE', 'True', ' true ', '\ttrue', 'true\n'])(
+        'rejects ambiguous opt-in value %j',
+        (value) => {
+            expect(isGuardianWatchdogEnabled(value)).toBe(false);
+        },
+    );
+
+    it('enables only for the exact explicit opt-in value', () => {
+        expect(isGuardianWatchdogEnabled('true')).toBe(true);
+    });
+});
 
 describe('parseWatchdogPosition', () => {
     it('accepts a finite, timestamped PostGIS watchdog snapshot', () => {

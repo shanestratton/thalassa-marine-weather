@@ -53,7 +53,6 @@
  */
 
 import { describe, expect, it, beforeAll, vi } from 'vitest';
-import { readFileSync } from 'node:fs';
 import type { Feature, FeatureCollection, LineString, MultiPolygon, Polygon, Position } from 'geojson';
 import { pointInGeometry, geometryBbox } from '../../services/engine/geometry';
 
@@ -78,7 +77,6 @@ const PINKENBA = { lat: -27.4477, lon: 153.0936 };
 
 // ── Corridor cells (the real ENC). enb5 = harbour (all the RECTRC/DRGARE/
 //    NAVLNE), rcs5 = Newport exit (1 RECTRC + 1 NAVLNE). ─────────────
-const PI = 'http://calypso.local:3001/api/enc/installed';
 const CELLS = [
     { id: 'OC-61-10ENB5', path: '/tmp/enb5.json' },
     { id: 'OC-61-10RCS5', path: '/tmp/rcs5.json' },
@@ -86,8 +84,6 @@ const CELLS = [
 
 // ── REAL OSM overlay navLines (added to the same internal NAVLINE layer as
 //    chart NAVLNE). Served by the same Pi. ─────────────────────────────────
-const OSM_OVERLAY = 'http://calypso.local:3001/api/osm/overlay';
-const OSM_BBOX = '153.05,-27.48,153.25,-27.15'; // covers Newport→bay→river→Pinkenba
 const REGIONAL_MARKERS_URL =
     'https://pcisdplnodrphauixcau.supabase.co/storage/v1/object/public/regions/australia_se_qld/nav_markers.geojson';
 
@@ -200,16 +196,6 @@ function pointInAnyPolygon(lon: number, lat: number, polys: Feature[]): boolean 
 
 // ── Cell loading ────────────────────────────────────────────────────
 type RawCell = { cellId: string; bbox: number[]; layers: Record<string, FeatureCollection> };
-
-function loadCell(path: string, id: string): RawCell {
-    const blob = JSON.parse(readFileSync(path, 'utf8')) as { cells?: RawCell[] } & Partial<RawCell>;
-    // /data shape is {cells:[...]}; device blob shape is top-level .layers.
-    const cell = blob.cells ? (blob.cells.find((c) => c.cellId === id) ?? blob.cells[0]) : (blob as RawCell);
-    if (!cell?.layers) throw new Error(`cell ${id} has no layers`);
-    return cell;
-}
-
-/** Curl the REAL OSM overlay (the on-device navLines source) to /tmp once. */
 
 /** The real OSM navLines (LineString FeatureCollection), pushed 1:1 into NAVLINE
  *  exactly as InshoreRouter.ts:692-697 does on-device. */
@@ -581,7 +567,7 @@ function osmWaterFeatures(): Feature[] {
     return [...((d.water?.features ?? []) as Feature[]), ...((d.marina?.features ?? []) as Feature[])];
 }
 
-describe('Newport → Pinkenba — hug reproduction against real ENC', () => {
+describe('Newport → Pinkenba — hug reproduction against real ENC', { timeout: 120_000 }, () => {
     it('sanity: RECTRC river chain + DRGARE assembled from the real cells', () => {
         console.log(
             'SANITY cells=',

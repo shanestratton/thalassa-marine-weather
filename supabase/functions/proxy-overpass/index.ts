@@ -100,8 +100,9 @@ function deriveClass(seamarkType: string, props: Record<string, string>): string
     if (seamarkType.includes('berth')) return 'berth';
     if (seamarkType.includes('anchorage')) return 'anchorage';
     if (seamarkType.includes('harbour')) return 'harbour';
-    if (seamarkType.includes('rock') || seamarkType.includes('wreck') || seamarkType.includes('obstruction'))
+    if (seamarkType.includes('rock') || seamarkType.includes('wreck') || seamarkType.includes('obstruction')) {
         return 'danger';
+    }
     if (seamarkType.includes('fairway')) return 'fairway';
     if (seamarkType.includes('gate')) return 'gate';
     return 'other';

@@ -19,6 +19,7 @@ import { createLogger } from '../../utils/createLogger';
 import { syncEncFromPi } from '../EncImportService';
 import { piCache } from '../PiCacheService';
 import { GpsService } from '../GpsService';
+import { PI_INTEGRATION_ENABLED } from '../piPublicBetaBoundary';
 
 const log = createLogger('autoSyncFromPi');
 
@@ -70,6 +71,7 @@ if (typeof window !== 'undefined') {
  * pauses and resumes with the app lifecycle.
  */
 export function startAutoSyncPolling(): void {
+    if (!PI_INTEGRATION_ENABLED) return;
     // DEFERRED ~10 s (z10-boot audit #8): the immediate kick ran its Pi probe
     // + native GPS fix + potential multi-MB pulls right inside the boot
     // window, competing with the first chart merge for main thread + wifi.
@@ -84,6 +86,7 @@ export function startAutoSyncPolling(): void {
 }
 
 export async function autoSyncFromPiIfPossible(): Promise<void> {
+    if (!PI_INTEGRATION_ENABLED) return;
     // Coalesce concurrent calls
     if (inFlight) return inFlight;
     // Defer while the skipper is plotting — see `tracerActive`. Checked BEFORE
@@ -115,7 +118,7 @@ async function runAutoSyncOnce(): Promise<void> {
         // off or hasn't fixed yet, we still sync but without prioritisation
         // (the Pi's alphabetical order is essentially random across the chart
         // set, but the cap at AUTO_SYNC_MAX_CELLS keeps the run bounded).
-        const pos = await GpsService.getCurrentPosition().catch(() => null);
+        const pos = await GpsService.getCurrentPositionIfGranted().catch(() => null);
         const priorityCenter = pos ? { lat: pos.latitude, lon: pos.longitude } : undefined;
         if (priorityCenter) {
             log.warn(

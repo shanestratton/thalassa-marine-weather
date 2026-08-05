@@ -38,7 +38,7 @@ const OCEAN_STYLE: StyleSpecification = {
             tileSize: 256,
             maxzoom: 20,
             attribution:
-                '&copy; <a href="https://carto.com" rel="noopener noreferrer" referrerpolicy="no-referrer">CARTO</a>',
+                '&copy; <a href="https://www.openstreetmap.org/copyright" rel="noopener noreferrer" referrerpolicy="no-referrer">OpenStreetMap contributors</a> &copy; <a href="https://carto.com/attributions" rel="noopener noreferrer" referrerpolicy="no-referrer">CARTO</a>',
         },
         'gebco-bathymetry': {
             type: 'raster',
@@ -582,7 +582,7 @@ const SpatiotemporalMap: React.FC<SpatiotemporalMapProps> = ({
             onLoad={onLoad}
             mapStyle={OCEAN_STYLE}
             style={{ width: '100%', height: '100%' }}
-            attributionControl={false}
+            attributionControl
         >
             {/* Corridor polygons removed — Trip Sandwich uses simple direct lines */}
 

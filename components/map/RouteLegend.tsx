@@ -28,10 +28,21 @@ const ROUTE_LEGEND: RouteLegendEntry[] = [
 interface RouteLegendProps {
     visible: boolean;
     embedded?: boolean;
+    verificationStatus?: 'idle' | 'pending' | 'verified' | 'unverified';
 }
 
-export const RouteLegend: React.FC<RouteLegendProps> = memo(({ visible, embedded }) => {
+export const RouteLegend: React.FC<RouteLegendProps> = memo(({ visible, embedded, verificationStatus = 'idle' }) => {
     if (!visible) return null;
+    const entries: RouteLegendEntry[] =
+        verificationStatus === 'verified'
+            ? ROUTE_LEGEND
+            : [
+                  {
+                      color: '#f59e0b',
+                      label: verificationStatus === 'pending' ? 'Checking route' : 'Unverified route',
+                      dashed: true,
+                  },
+              ];
 
     return (
         <div
@@ -67,7 +78,7 @@ export const RouteLegend: React.FC<RouteLegendProps> = memo(({ visible, embedded
 
                 {/* Legend entries */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-                    {ROUTE_LEGEND.map((entry) => (
+                    {entries.map((entry) => (
                         <div key={entry.label} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                             {/* Colour swatch */}
                             <div

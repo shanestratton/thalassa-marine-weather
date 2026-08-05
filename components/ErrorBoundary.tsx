@@ -63,6 +63,12 @@ const DefaultErrorFallback: React.FC<{
                 Try Again
             </button>
         )}
+        <a
+            href="mailto:privacy@thalassa.app?subject=Thalassa%20Public%20Beta%20Crash"
+            className="mt-3 text-xs font-semibold text-sky-300 underline underline-offset-4 hover:text-sky-200"
+        >
+            Report this beta problem
+        </a>
     </div>
 );
 

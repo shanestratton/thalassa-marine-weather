@@ -148,7 +148,8 @@ export function useLiveLocationName(): string | null {
                 // nothing else is tracking — actively start the GPS engine
                 // (ref-counted; released on unmount) so onLocation actually fires.
             },
-            { ensureRunning: true },
+            // Passive dashboard subscriber: foreground and already-granted
+            // only. Explicit location actions own any permission request.
         );
 
         const intervalId = setInterval(tryReverseGeocode, POLL_INTERVAL_MS);

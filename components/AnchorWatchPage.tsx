@@ -35,6 +35,8 @@ import { PageHeader } from './ui/PageHeader';
 import { toast } from './Toast';
 import { createLogger } from '../utils/createLogger';
 import { AnchorIcon, AlertTriangleIcon, MuteIcon, CheckIcon, PhoneIcon, PowerBoatIcon } from './Icons';
+import { useAuthStore } from '../stores/authStore';
+import { SignInScreen } from './SignInScreen';
 
 import {
     navStatusColorSimple,
@@ -45,6 +47,8 @@ import {
 } from './anchor-watch/anchorUtils';
 
 const log = createLogger('AnchorWatch');
+/** Vessel positions are broadcast every five seconds; three missed updates are stale. */
+export const SHORE_DATA_STALE_MS = 15_000;
 
 // ------- TYPES -------
 
@@ -58,12 +62,15 @@ interface AnchorWatchPageProps {
 
 export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onBack }) => {
     const { weatherData } = useWeather();
+    const authedUser = useAuthStore((state) => state.user);
     const keyboardScrollRef = useKeyboardScroll<HTMLDivElement>();
 
     const [viewMode, setViewMode] = useState<ViewMode>('setup');
     const [snapshot, setSnapshot] = useState<AnchorWatchSnapshot | null>(null);
     const [syncState, setSyncState] = useState<SyncState | null>(null);
     const [shoreData, setShoreData] = useState<PositionBroadcast | null>(null);
+    const [shoreDataReceivedAt, setShoreDataReceivedAt] = useState<number | null>(null);
+    const [shoreAlarmMutedLocally, setShoreAlarmMutedLocally] = useState(false);
 
     // Setup form state
     const [rodeLength, setRodeLength] = useState(30);
@@ -72,10 +79,10 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
     const [safetyMargin, _setSafetyMargin] = useState(10);
     const [sessionCode, setSessionCode] = useState('');
     const [showShoreModal, setShowShoreModal] = useState(false);
+    const [showShoreSignIn, setShowShoreSignIn] = useState(false);
 
     // Sound check modal — shown once per session before first anchor set
     const [showSoundCheck, setShowSoundCheck] = useState(false);
-    const soundCheckShownRef = useRef(false);
 
     // AIS targets on anchor watch radar
     const [aisTargets, setAisTargets] = useState<AisTargetDot[]>([]);
@@ -91,6 +98,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
     // Canvas ref no longer needed — SwingCircleCanvas manages its own ref
 
     const [isSettingAnchor, setIsSettingAnchor] = useState(false);
+    const [isRetryingMonitoring, setIsRetryingMonitoring] = useState(false);
     const [gpsStatus, setGpsStatus] = useState<string>('Waiting for GPS...');
 
     // Weather-smart rode recommendation
@@ -126,6 +134,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
         const unsubBroadcast = AnchorWatchSyncService.onBroadcast((data: SyncBroadcast) => {
             if (data.type === 'position') {
                 setShoreData(data);
+                setShoreDataReceivedAt(Date.now());
             }
         });
 
@@ -179,27 +188,51 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                 await AnchorWatchSyncService.leaveSession();
                 setViewMode('setup');
                 setShoreData(null);
+                setShoreDataReceivedAt(null);
             }
         }, 60_000);
         return () => clearTimeout(timeout);
     }, [viewMode, shoreData]);
 
     // Shore alarm — trigger full alarm on shore watcher's phone when vessel drags
-    const shoreAlarmActiveRef = useRef(false);
+    const shoreAlarmLeaseRef = useRef<string | null>(null);
+    const shoreAlarmAttemptRef = useRef(0);
+
+    const releaseShoreAlarmLease = useCallback(async () => {
+        shoreAlarmAttemptRef.current += 1;
+        const lease = shoreAlarmLeaseRef.current;
+        if (!lease) return;
+        try {
+            await AlarmAudioService.release(lease);
+            if (shoreAlarmLeaseRef.current === lease) shoreAlarmLeaseRef.current = null;
+        } catch (error) {
+            log.error('Failed to release Shore Watch alarm audio', error);
+            throw error;
+        }
+    }, []);
+
     useEffect(() => {
         if (viewMode !== 'shore') {
-            // Stop alarm if we leave shore mode
-            if (shoreAlarmActiveRef.current) {
-                AlarmAudioService.stopAlarm();
-                shoreAlarmActiveRef.current = false;
-            }
+            void releaseShoreAlarmLease().catch(() => undefined);
+            setShoreAlarmMutedLocally(false);
             return;
         }
 
-        if (shoreData?.isAlarm && !shoreAlarmActiveRef.current) {
+        if (shoreData?.isAlarm && !shoreAlarmLeaseRef.current && !shoreAlarmMutedLocally) {
             // Vessel is dragging — sound the alarm on shore phone
-            shoreAlarmActiveRef.current = true;
-            AlarmAudioService.startAlarm();
+            const attempt = ++shoreAlarmAttemptRef.current;
+            void AlarmAudioService.acquire('shore-watch')
+                .then((lease) => {
+                    if (shoreAlarmAttemptRef.current !== attempt) {
+                        AlarmAudioService.releaseEventually(lease);
+                        return;
+                    }
+                    shoreAlarmLeaseRef.current = lease;
+                })
+                .catch((error) => {
+                    log.error('Failed to start Shore Watch alarm audio', error);
+                    toast.error('The Shore Watch alarm could not sound on this device. Check audio and volume now.');
+                });
             triggerHaptic('heavy');
 
             // Repeat haptic every 2s while alarming
@@ -208,27 +241,31 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
             }, 2000);
 
             return () => clearInterval(hapticInterval);
-        } else if (!shoreData?.isAlarm && shoreAlarmActiveRef.current) {
+        } else if (!shoreData?.isAlarm) {
             // Vessel back inside swing circle — silence
-            AlarmAudioService.stopAlarm();
-            shoreAlarmActiveRef.current = false;
+            void releaseShoreAlarmLease().catch(() => undefined);
+            setShoreAlarmMutedLocally(false);
         }
-    }, [viewMode, shoreData?.isAlarm]);
+    }, [releaseShoreAlarmLease, viewMode, shoreData?.isAlarm, shoreAlarmMutedLocally]);
 
     // Cleanup alarm on unmount
     useEffect(() => {
         return () => {
-            if (shoreAlarmActiveRef.current) {
-                AlarmAudioService.stopAlarm();
-                shoreAlarmActiveRef.current = false;
-            }
+            // The page is gone, so there is no mounted retry control left. Hand
+            // this exact owner's token to detached cleanup; never force-stop or
+            // risk silencing another active alarm owner.
+            shoreAlarmAttemptRef.current += 1;
+            const lease = shoreAlarmLeaseRef.current;
+            shoreAlarmLeaseRef.current = null;
+            if (lease) AlarmAudioService.releaseEventually(lease);
         };
     }, []);
 
-    // Elapsed time ticker (once per minute)
+    // Shore-data freshness is safety-visible, so age it each second. The local
+    // vessel view only needs its elapsed clock refreshed once per minute.
     useEffect(() => {
         if (viewMode === 'watching' || viewMode === 'shore') {
-            tickRef.current = setInterval(() => setTick((t) => t + 1), 60000);
+            tickRef.current = setInterval(() => setTick((t) => t + 1), viewMode === 'shore' ? 1000 : 60000);
         }
         return () => {
             if (tickRef.current) clearInterval(tickRef.current);
@@ -349,7 +386,10 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                 // harmless; hint will keep showing.
             }
         } else {
-            setGpsStatus('GPS fix failed. Check location permissions.');
+            setGpsStatus(
+                AnchorWatchService.getLastSetupError() ??
+                    'Anchor Watch could not start. Check location and notification permissions.',
+            );
         }
     }, [rodeLength, waterDepth, rodeType, safetyMargin]);
 
@@ -367,6 +407,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
             }
             setViewMode('setup');
             setShoreData(null);
+            setShoreDataReceivedAt(null);
             return;
         }
         // Vessel host: stopping is a SAFETY action — must never fail silently.
@@ -377,13 +418,49 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
             await AnchorWatchSyncService.leaveSession();
             setViewMode('setup');
             setShoreData(null);
+            setShoreDataReceivedAt(null);
         } catch (e) {
             log.error('Failed to stop anchor watch', e);
             toast.error('Could not stop the anchor watch — it may still be armed. Try again.');
         }
     }, [viewMode]);
 
+    const handleMuteShoreAlarm = useCallback(async () => {
+        try {
+            await releaseShoreAlarmLease();
+            setShoreAlarmMutedLocally(true);
+            triggerHaptic('medium');
+        } catch {
+            toast.error('The Shore Watch alarm could not be silenced on this device. Try again.');
+        }
+    }, [releaseShoreAlarmLease]);
+
+    const handleRetryMonitoring = useCallback(async () => {
+        if (isRetryingMonitoring) return;
+        setIsRetryingMonitoring(true);
+        try {
+            await AnchorWatchService.restoreWatchState();
+            const current = AnchorWatchService.getSnapshot();
+            if (current.state === 'paused') {
+                throw new Error(current.setupError || 'Anchor Watch safety monitoring is still blocked.');
+            }
+            if (current.state !== 'watching' && current.state !== 'alarm') {
+                throw new Error('Anchor Watch could not confirm that monitoring restarted.');
+            }
+            toast.success('Anchor Watch monitoring restarted.');
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Anchor Watch monitoring could not restart.';
+            toast.error(message);
+        } finally {
+            setIsRetryingMonitoring(false);
+        }
+    }, [isRetryingMonitoring]);
+
     const handleCreateSession = useCallback(async () => {
+        if (!authedUser) {
+            setShowShoreSignIn(true);
+            return;
+        }
         try {
             const code = await AnchorWatchSyncService.createSession();
             if (code) {
@@ -395,9 +472,14 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
             log.error('createSession failed', e);
             toast.error('Could not start a shore-watch session — check your connection.');
         }
-    }, []);
+    }, [authedUser]);
 
     const handleJoinShore = useCallback(async () => {
+        if (!authedUser) {
+            setShowShoreModal(false);
+            setShowShoreSignIn(true);
+            return;
+        }
         if (sessionCode.length !== 12) return;
         try {
             const joined = await AnchorWatchSyncService.joinSession(sessionCode);
@@ -410,7 +492,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
             log.error('joinSession failed', e);
             toast.error('Could not join the shore watch — check your connection.');
         }
-    }, [sessionCode]);
+    }, [authedUser, sessionCode]);
     // Slide-to-confirm state (must be before any early returns — React Rules of Hooks)
     const slideTrackRef = useRef<HTMLDivElement>(null);
     const [slideX, setSlideX] = useState(0);
@@ -486,17 +568,14 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
         const maxTravel = rect.width - thumbWidth;
         const ratio = slideXRef.current / maxTravel;
         if (ratio >= slideThreshold) {
-            // Show sound check modal the first time, then go straight to anchor
-            if (!soundCheckShownRef.current) {
-                setShowSoundCheck(true);
-            } else {
-                handleSetAnchor();
-            }
+            // Every arming attempt requires a fresh audible test because route,
+            // volume, Focus, and connected audio hardware can change at any time.
+            setShowSoundCheck(true);
         }
         slideXRef.current = 0;
         setSlideX(0);
         setSlideCommitted(false);
-    }, [isDragging, handleSetAnchor]);
+    }, [isDragging]);
 
     const handleSlideCancel = useCallback(() => {
         // iOS cancels (not ends) the touch for system gestures and
@@ -510,7 +589,6 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
 
     // Confirm and proceed from sound check modal
     const handleSoundCheckConfirm = useCallback(() => {
-        soundCheckShownRef.current = true;
         setShowSoundCheck(false);
         handleSetAnchor();
     }, [handleSetAnchor]);
@@ -538,7 +616,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
         return (
             <div
                 ref={keyboardScrollRef}
-                className={`h-full ${t.colors.bg.base} flex flex-col overflow-hidden slide-up-enter`}
+                className={`anchor-setup-page h-full ${t.colors.bg.base} flex flex-col overflow-hidden slide-up-enter`}
                 style={{ overscrollBehaviorY: 'none' }}
             >
                 <PageHeader
@@ -546,17 +624,19 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                     onBack={onBack}
                     action={
                         <button
-                            aria-label="Show Shore Modal"
-                            onClick={() => setShowShoreModal(true)}
-                            className="px-3 py-1 rounded-lg text-xs font-bold text-slate-400 bg-slate-800/60 border border-white/[0.06] hover:text-slate-300 transition-colors"
+                            aria-label={authedUser ? 'Open Shore Watch join' : 'Sign in to use Shore Watch'}
+                            onClick={() => (authedUser ? setShowShoreModal(true) : setShowShoreSignIn(true))}
+                            className="min-h-11 px-3 rounded-lg text-xs font-bold text-slate-400 bg-slate-800/60 border border-white/[0.06] hover:text-slate-300 transition-colors"
                         >
-                            Shore
+                            {authedUser ? 'Shore' : 'Shore · Sign in'}
                         </button>
                     }
                 />
 
-                {/* ── Content — single screen, no scroll ── */}
-                <div className="flex-1 min-h-0 flex flex-col pb-[98px]">
+                {/* Setup remains compact in portrait, but it must be a real
+                    scrollport on short landscape/keyboard viewports so the
+                    arming control can never be clipped below the screen. */}
+                <div className="anchor-setup-scroll flex-1 min-h-0 flex flex-col overflow-y-auto overscroll-y-contain pb-[98px]">
                     {/* First-time-user guidance card — added 2026-05-17.
                         Shows for users who haven't yet armed an anchor
                         watch (gated by the
@@ -574,14 +654,15 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                                 your <span className="font-semibold text-white">water depth</span>,{' '}
                                 <span className="font-semibold text-white">rode out</span>, and{' '}
                                 <span className="font-semibold text-white">tackle type</span> below — Thalassa
-                                calculates a safe swing circle. Slide the bar at the bottom to arm. You'll get a loud
-                                alarm if you drag, even with the screen off.
+                                calculates a safe swing circle. Slide the bar at the bottom to arm. Background warning
+                                depends on this device’s GPS and notification permissions, so run the Sound Check and
+                                keep Thalassa running.
                             </p>
                         </div>
                     )}
 
                     {/* ── Hero: Scope Radar ── */}
-                    <div className="flex-1 min-h-0 flex items-center justify-center px-4 py-2 relative">
+                    <div className="anchor-setup-radar flex-1 min-h-0 flex items-center justify-center px-4 py-2 relative">
                         <ScopeRadar
                             rodeLength={rodeLength}
                             waterDepth={waterDepth}
@@ -596,10 +677,10 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                         <div className="flex gap-1.5">
                             {(['chain', 'rope', 'mixed'] as const).map((type) => (
                                 <button
-                                    aria-label="Select anchor rode type"
+                                    aria-label={`Select ${type} anchor rode type`}
                                     key={type}
                                     onClick={() => setRodeType(type)}
-                                    className={`flex-1 py-2 rounded-xl text-sm font-bold transition-all ${
+                                    className={`flex-1 min-h-11 rounded-xl text-sm font-bold transition-all ${
                                         rodeType === type
                                             ? 'bg-amber-500/20 border border-amber-500/40 text-amber-400 shadow-[0_0_12px_rgba(245,158,11,0.1)]'
                                             : 'bg-slate-800/40 border border-white/[0.06] text-slate-400 hover:text-slate-400'
@@ -624,6 +705,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                                     </span>
                                 </div>
                                 <input
+                                    aria-label="Water depth in metres"
                                     type="range"
                                     min={1}
                                     max={30}
@@ -646,6 +728,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                                     </span>
                                 </div>
                                 <input
+                                    aria-label="Rode deployed in metres"
                                     type="range"
                                     min={5}
                                     max={100}
@@ -664,7 +747,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                             <button
                                 aria-label="Rode Length"
                                 onClick={() => setRodeLength(wxRecommendation.rode)}
-                                className="flex-1 flex items-center gap-1.5 text-left group"
+                                className="flex-1 min-h-11 flex items-center gap-1.5 text-left group"
                                 title={`Tap to set rode to ${wxRecommendation.rode}m (${wxRecommendation.scope}:1)`}
                             >
                                 <span className="text-base">{wxRecommendation.icon}</span>
@@ -720,6 +803,14 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
 
                         {/* ── Slide to Confirm — safety orange ── */}
                         <div className="pt-1 pb-2">
+                            {!isSettingAnchor && gpsStatus !== 'Waiting for GPS...' && (
+                                <p
+                                    role="alert"
+                                    className="mb-2 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs font-bold leading-relaxed text-red-200"
+                                >
+                                    {gpsStatus}
+                                </p>
+                            )}
                             {isSettingAnchor ? (
                                 /* Loading state */
                                 <div
@@ -748,6 +839,14 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                                     onPointerMove={handleSlideMove}
                                     onPointerUp={handleSlideEnd}
                                     onPointerCancel={handleSlideCancel}
+                                    role="button"
+                                    tabIndex={0}
+                                    aria-label="Drop anchor and arm Anchor Watch"
+                                    onKeyDown={(event) => {
+                                        if (event.key !== 'Enter' && event.key !== ' ') return;
+                                        event.preventDefault();
+                                        setShowSoundCheck(true);
+                                    }}
                                 >
                                     {/* Shimmer animation */}
                                     <div className="absolute inset-0 overflow-hidden rounded-full pointer-events-none">
@@ -835,6 +934,12 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                     />
                 )}
 
+                <SignInScreen
+                    isOpen={showShoreSignIn}
+                    onClose={() => setShowShoreSignIn(false)}
+                    prompt="Sign in to share Anchor Watch between your vessel and shore devices. Local Anchor Watch remains available without an account."
+                />
+
                 {/* Shimmer keyframe */}
                 <style>{`
                     @keyframes shimmer {
@@ -848,16 +953,41 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
 
     // ---- RENDER: SHORE MODE ----
     if (viewMode === 'shore') {
+        const shoreDataAgeMs = shoreDataReceivedAt === null ? null : Math.max(0, Date.now() - shoreDataReceivedAt);
+        const shoreDataFresh =
+            syncState?.peerConnected === true &&
+            shoreData !== null &&
+            shoreDataAgeMs !== null &&
+            shoreDataAgeMs <= SHORE_DATA_STALE_MS;
+        const shoreDataAgeLabel =
+            shoreDataAgeMs === null ? 'no update received' : `${Math.floor(shoreDataAgeMs / 1000)}s ago`;
+        const shoreStatusLabel = shoreDataFresh
+            ? shoreData?.isAlarm
+                ? 'Drag Alarm'
+                : 'Holding'
+            : shoreData?.isAlarm
+              ? 'Last-known drag alarm'
+              : 'Last-known data';
+        const shoreStatusIsAlarm = shoreData?.isAlarm === true;
+        const shoreDisconnectedWithKnownData = syncState?.peerConnected !== true && shoreData !== null;
+
         return (
             <div className={`h-full ${t.colors.bg.base} flex flex-col`}>
                 <PageHeader
                     title="Shore Watch"
                     subtitle={
                         <p className="text-[11px] flex items-center gap-1.5 mt-0.5 font-bold uppercase tracking-widest">
-                            {syncState?.peerConnected ? (
+                            {shoreDataFresh ? (
                                 <>
                                     <span className="w-2 h-2 bg-emerald-500 rounded-full inline-block animate-pulse shadow-[0_0_4px_rgba(16,185,129,0.5)]" />{' '}
-                                    <span className="text-emerald-400">Vessel Connected</span>
+                                    <span className="text-emerald-400">Vessel Data Live</span>
+                                </>
+                            ) : syncState?.peerConnected ? (
+                                <>
+                                    <span className="w-2 h-2 bg-amber-500 rounded-full inline-block" />{' '}
+                                    <span className="text-amber-400">
+                                        {shoreData ? 'Vessel Data Stale' : 'Waiting for Vessel Data'}
+                                    </span>
                                 </>
                             ) : (
                                 <>
@@ -879,44 +1009,61 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                     }
                 />
 
-                {/* Vessel connection banner. On the FIRST connect the channel
-                    is up but the vessel's first heartbeat hasn't landed yet —
-                    that's "connecting", not "lost". Only show the red "lost"
-                    state once we've actually seen the vessel and it dropped
-                    (peerDisconnectedAt is set). */}
-                {!syncState?.peerConnected && (
+                {/* Connection/freshness banner. Retained vessel values are useful,
+                    but must be unmistakably last-known whenever the peer is gone
+                    or the five-second position feed has stopped. */}
+                {!shoreDataFresh && (
                     <div
                         className={`shrink-0 mx-3 mt-1 px-3 py-2.5 flex items-center gap-2 rounded-xl border ${
-                            syncState?.peerDisconnectedAt
+                            shoreDisconnectedWithKnownData ||
+                            (!syncState?.peerConnected && syncState?.peerDisconnectedAt)
                                 ? 'bg-red-500/[0.08] border-red-500/25'
                                 : 'bg-amber-500/[0.08] border-amber-500/25'
                         }`}
                     >
                         <span
                             className={`w-2.5 h-2.5 rounded-full shrink-0 animate-pulse ${
-                                syncState?.peerDisconnectedAt
+                                shoreDisconnectedWithKnownData ||
+                                (!syncState?.peerConnected && syncState?.peerDisconnectedAt)
                                     ? 'bg-red-500 shadow-[0_0_6px_rgba(239,68,68,0.5)]'
                                     : 'bg-amber-500 shadow-[0_0_6px_rgba(245,158,11,0.5)]'
                             }`}
                         />
                         <span
                             className={`text-sm font-bold flex-1 inline-flex items-center gap-1.5 ${
-                                syncState?.peerDisconnectedAt ? 'text-red-400' : 'text-amber-400'
+                                shoreDisconnectedWithKnownData ||
+                                (!syncState?.peerConnected && syncState?.peerDisconnectedAt)
+                                    ? 'text-red-400'
+                                    : 'text-amber-400'
                             }`}
                         >
-                            {!!syncState?.peerDisconnectedAt && <AlertTriangleIcon className="w-4 h-4" />}
+                            {(shoreDisconnectedWithKnownData ||
+                                (!syncState?.peerConnected && !!syncState?.peerDisconnectedAt)) && (
+                                <AlertTriangleIcon className="w-4 h-4" />
+                            )}
                             <span>
-                                {syncState?.peerDisconnectedAt
-                                    ? `Vessel connection lost · ${formatElapsed(syncState.peerDisconnectedAt)} ago`
-                                    : 'Connecting to vessel…'}
+                                {shoreDisconnectedWithKnownData
+                                    ? `Vessel offline · showing last-known data from ${shoreDataAgeLabel}`
+                                    : !syncState?.peerConnected && syncState?.peerDisconnectedAt
+                                      ? `Vessel connection lost · no current vessel data received`
+                                      : syncState?.peerConnected && shoreData
+                                        ? `Vessel data is stale · showing last-known update from ${shoreDataAgeLabel}`
+                                        : 'Connecting to vessel · waiting for current data…'}
                             </span>
                         </span>
                         <span
                             className={`text-xs animate-pulse ${
-                                syncState?.peerDisconnectedAt ? 'text-red-500/50' : 'text-amber-500/60'
+                                shoreDisconnectedWithKnownData ||
+                                (!syncState?.peerConnected && syncState?.peerDisconnectedAt)
+                                    ? 'text-red-500/50'
+                                    : 'text-amber-500/60'
                             }`}
                         >
-                            {syncState?.peerDisconnectedAt ? 'Reconnecting...' : 'Connecting...'}
+                            {!syncState?.peerConnected
+                                ? 'Reconnecting...'
+                                : shoreData
+                                  ? 'Awaiting update...'
+                                  : 'Connecting...'}
                         </span>
                     </div>
                 )}
@@ -928,25 +1075,37 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                             {/* Status circle with glow */}
                             <div
                                 className={`w-36 h-36 rounded-full flex items-center justify-center mb-6 relative ${
-                                    shoreData.isAlarm ? 'animate-pulse' : ''
+                                    shoreData.isAlarm && shoreDataFresh ? 'animate-pulse' : ''
                                 }`}
                                 style={{
-                                    background: shoreData.isAlarm
+                                    background: shoreStatusIsAlarm
                                         ? 'radial-gradient(circle, rgba(127,29,29,0.5) 0%, rgba(69,10,10,0.3) 70%, transparent 100%)'
-                                        : 'radial-gradient(circle, rgba(6,78,59,0.3) 0%, rgba(6,78,59,0.1) 70%, transparent 100%)',
-                                    border: `3px solid ${shoreData.isAlarm ? 'rgba(239,68,68,0.5)' : 'rgba(16,185,129,0.3)'}`,
-                                    boxShadow: shoreData.isAlarm
+                                        : !shoreDataFresh
+                                          ? 'radial-gradient(circle, rgba(120,53,15,0.35) 0%, rgba(69,26,3,0.15) 70%, transparent 100%)'
+                                          : 'radial-gradient(circle, rgba(6,78,59,0.3) 0%, rgba(6,78,59,0.1) 70%, transparent 100%)',
+                                    border: `3px solid ${
+                                        shoreStatusIsAlarm
+                                            ? 'rgba(239,68,68,0.5)'
+                                            : shoreDataFresh
+                                              ? 'rgba(16,185,129,0.3)'
+                                              : 'rgba(245,158,11,0.35)'
+                                    }`,
+                                    boxShadow: shoreStatusIsAlarm
                                         ? '0 0 40px rgba(239,68,68,0.2), inset 0 0 30px rgba(239,68,68,0.1)'
-                                        : '0 0 30px rgba(16,185,129,0.1), inset 0 0 20px rgba(16,185,129,0.05)',
+                                        : !shoreDataFresh
+                                          ? '0 0 30px rgba(245,158,11,0.08), inset 0 0 20px rgba(245,158,11,0.04)'
+                                          : '0 0 30px rgba(16,185,129,0.1), inset 0 0 20px rgba(16,185,129,0.05)',
                                 }}
                             >
                                 <div className="text-center">
                                     <div
-                                        className={`text-3xl font-black font-mono ${shoreData.isAlarm ? 'text-red-400' : 'text-white'}`}
+                                        className={`text-3xl font-black font-mono ${shoreStatusIsAlarm ? 'text-red-400' : 'text-white'}`}
                                     >
                                         {shoreData.distance.toFixed(0)}m
                                     </div>
-                                    <div className="text-sm text-slate-400">from anchor</div>
+                                    <div className="text-sm text-slate-400">
+                                        {shoreDataFresh ? 'from anchor' : 'last-known from anchor'}
+                                    </div>
                                 </div>
                             </div>
 
@@ -956,27 +1115,33 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                                 aria-live="polite"
                                 aria-atomic="true"
                                 className={`px-5 py-2 rounded-full text-sm font-black tracking-wider uppercase mb-6 flex items-center gap-2 ${
-                                    shoreData.isAlarm
+                                    shoreStatusIsAlarm
                                         ? 'bg-red-500/10 text-red-400 border border-red-500/30'
-                                        : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/25'
+                                        : shoreDataFresh
+                                          ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/25'
+                                          : 'bg-amber-500/10 text-amber-300 border border-amber-500/30'
                                 }`}
                             >
                                 <span
-                                    className={`w-1.5 h-1.5 rounded-full ${shoreData.isAlarm ? 'bg-red-400' : 'bg-emerald-400'}`}
+                                    className={`w-1.5 h-1.5 rounded-full ${
+                                        shoreStatusIsAlarm
+                                            ? 'bg-red-400'
+                                            : shoreDataFresh
+                                              ? 'bg-emerald-400'
+                                              : 'bg-amber-400'
+                                    }`}
                                 />
-                                {shoreData.isAlarm ? 'Drag Alarm' : 'Holding'}
+                                {shoreStatusLabel}
                             </div>
 
                             {/* Shore silence button — only shown during alarm */}
-                            {shoreData.isAlarm && shoreAlarmActiveRef.current && (
+                            {shoreData.isAlarm && (
                                 <button
-                                    aria-label="Arm anchor watch"
-                                    onClick={() => {
-                                        AlarmAudioService.stopAlarm();
-                                        shoreAlarmActiveRef.current = false;
-                                        triggerHaptic('medium');
-                                    }}
-                                    className="px-8 py-3 rounded-2xl text-white text-base font-black mb-6 transition-all active:scale-95"
+                                    type="button"
+                                    aria-label="Mute alarm on this device only"
+                                    disabled={shoreAlarmMutedLocally}
+                                    onClick={() => void handleMuteShoreAlarm()}
+                                    className="px-8 py-3 rounded-2xl text-white text-base font-black mb-6 transition-all active:scale-95 disabled:opacity-70"
                                     style={{
                                         background: 'linear-gradient(135deg, #dc2626 0%, #991b1b 100%)',
                                         boxShadow: '0 6px 24px rgba(220, 38, 38, 0.4)',
@@ -984,7 +1149,15 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                                 >
                                     <span className="inline-flex items-center gap-2 justify-center">
                                         <MuteIcon className="w-4 h-4" />
-                                        <span>Silence Alarm</span>
+                                        <span>
+                                            {shoreAlarmMutedLocally
+                                                ? 'Muted on this device only'
+                                                : 'Mute this device only'}
+                                        </span>
+                                    </span>
+                                    <span className="block mt-1 text-[10px] font-semibold normal-case tracking-normal text-red-100/80">
+                                        This only silences this device; it does not acknowledge or change the vessel
+                                        alarm.
                                     </span>
                                 </button>
                             )}
@@ -1012,7 +1185,9 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                                     </div>
                                 </div>
                                 <div className="bg-slate-800/50 rounded-xl p-3 text-center border border-white/[0.04]">
-                                    <div className={t.typography.label}>Last Update</div>
+                                    <div className={t.typography.label}>
+                                        {shoreDataFresh ? 'Last Update' : 'Last-Known Update'}
+                                    </div>
                                     <div className="text-lg font-bold text-white">
                                         {new Date(shoreData.timestamp).toLocaleTimeString([], {
                                             hour: '2-digit',
@@ -1035,7 +1210,15 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
     }
 
     // ---- RENDER: WATCHING ----
-    const isHolding = snapshot && snapshot.distanceFromAnchor <= snapshot.swingRadius;
+    const monitoringBlocked = snapshot?.state === 'paused';
+    const foreignAccountRecovery = Boolean(
+        monitoringBlocked && !snapshot?.anchorPosition && snapshot?.setupError?.includes('Account changed'),
+    );
+    const corruptConfigRecovery = Boolean(
+        monitoringBlocked && snapshot?.setupError?.startsWith('Saved Anchor Watch is blocked'),
+    );
+    const isHolding = Boolean(snapshot && !monitoringBlocked && snapshot.distanceFromAnchor <= snapshot.swingRadius);
+    const liveStatusLabel = monitoringBlocked ? 'Not Monitoring' : isHolding ? 'Holding' : 'Drifting';
     const holdPercent =
         snapshot && snapshot.swingRadius > 0
             ? Math.min(100, (snapshot.distanceFromAnchor / snapshot.swingRadius) * 100)
@@ -1044,15 +1227,19 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
     return (
         <div className={`h-full ${t.colors.bg.base} flex flex-col overflow-hidden pb-[98px]`}>
             <PageHeader
-                title="Anchor Deployed"
+                title={monitoringBlocked ? 'Anchor Watch Blocked' : 'Anchor Deployed'}
                 subtitle={
-                    snapshot?.watchStartedAt ? `${formatElapsed(snapshot.watchStartedAt)} elapsed` : 'Monitoring...'
+                    monitoringBlocked
+                        ? 'Safety monitoring is not running'
+                        : snapshot?.watchStartedAt
+                          ? `${formatElapsed(snapshot.watchStartedAt)} elapsed`
+                          : 'Monitoring...'
                 }
                 onBack={onBack}
                 action={
                     <div className="flex items-center gap-2">
                         {/* Guardian status badge */}
-                        {snapshot?.guardianStatus && snapshot.guardianStatus !== 'idle' && (
+                        {!monitoringBlocked && snapshot?.guardianStatus && snapshot.guardianStatus !== 'idle' && (
                             <div
                                 className={`px-2 py-1 rounded-lg text-[11px] font-bold uppercase tracking-wider flex items-center gap-1 border ${
                                     snapshot.guardianStatus === 'armed' || snapshot.guardianStatus === 'already_armed'
@@ -1083,15 +1270,55 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                         )}
                         {/* Hold status dot */}
                         <div
-                            className={`w-3 h-3 rounded-full ${isHolding ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.6)]' : 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.6)] animate-pulse'}`}
+                            className={`w-3 h-3 rounded-full ${monitoringBlocked ? 'bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.6)]' : isHolding ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.6)]' : 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.6)] animate-pulse'}`}
                         />
                     </div>
                 }
             />
 
+            {monitoringBlocked && (
+                <div
+                    role="alert"
+                    className="mx-3 mt-1 shrink-0 rounded-2xl border-2 border-amber-300/60 bg-amber-950/90 px-4 py-3 shadow-[0_0_24px_rgba(245,158,11,0.18)]"
+                >
+                    <div className="flex items-start gap-3">
+                        <AlertTriangleIcon className="mt-0.5 h-5 w-5 shrink-0 text-amber-300" />
+                        <div className="min-w-0">
+                            <p className="text-sm font-black uppercase tracking-wider text-amber-200">
+                                Not monitoring — act now
+                            </p>
+                            <p className="mt-1 text-sm font-semibold leading-snug text-amber-50">
+                                {snapshot?.setupError ||
+                                    'Anchor Watch could not confirm its GPS, geofence, audio, or recovery safety path.'}
+                            </p>
+                            <p className="mt-1 text-xs text-amber-200/80">
+                                {snapshot?.anchorPosition && !corruptConfigRecovery
+                                    ? 'The anchor position below is retained reference data only. Keep a physical watch until monitoring is restarted.'
+                                    : foreignAccountRecovery
+                                      ? 'Saved watch details belong to the previous account and remain hidden. Retry Weigh Anchor until cleanup is confirmed.'
+                                      : 'Saved watch details are unavailable or corrupt. Use Weigh Anchor to clear the blocked recovery record.'}
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* Action Buttons — glassmorphism pills */}
             <div className="shrink-0 px-3 py-1.5 flex gap-2">
-                {syncState?.connected ? (
+                {monitoringBlocked && snapshot?.anchorPosition && !corruptConfigRecovery ? (
+                    <button
+                        onClick={() => void handleRetryMonitoring()}
+                        disabled={isRetryingMonitoring}
+                        className="flex-1 rounded-xl border border-amber-300/40 bg-amber-500/15 py-3 text-sm font-black text-amber-100 transition-all active:scale-[0.97] disabled:cursor-wait disabled:opacity-60"
+                        aria-label="Retry Anchor Watch monitoring"
+                    >
+                        {isRetryingMonitoring ? 'Retrying Safety Checks…' : 'Retry Monitoring'}
+                    </button>
+                ) : monitoringBlocked ? (
+                    <div className="flex-1 rounded-xl border border-amber-300/30 bg-amber-500/10 px-3 py-3 text-center text-xs font-black text-amber-100">
+                        {foreignAccountRecovery ? 'Previous account — cleanup only' : 'Blocked recovery — cleanup only'}
+                    </div>
+                ) : syncState?.connected ? (
                     <div className="flex-1 flex items-center justify-center gap-2 py-3 bg-sky-500/[0.08] border border-sky-500/20 rounded-xl">
                         <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse shadow-[0_0_4px_rgba(16,185,129,0.5)]" />
                         <span className="text-sm text-sky-400 font-mono font-bold tracking-wider">
@@ -1107,7 +1334,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                     >
                         <span className="inline-flex items-center gap-2 justify-center">
                             <PhoneIcon className="w-4 h-4" />
-                            <span>Shore Share</span>
+                            <span>{authedUser ? 'Shore Share' : 'Sign in to Shore Share'}</span>
                         </span>
                     </button>
                 )}
@@ -1123,7 +1350,8 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                         }
                         triggerHaptic('light');
                     }}
-                    className={`py-3 px-3 border rounded-xl text-sm font-bold transition-all active:scale-[0.97] ${
+                    disabled={monitoringBlocked}
+                    className={`py-3 px-3 border rounded-xl text-sm font-bold transition-all active:scale-[0.97] disabled:hidden ${
                         showAisOnRadar
                             ? 'bg-sky-500/[0.12] border-sky-500/30 text-sky-400'
                             : 'bg-white/[0.03] border-white/[0.06] text-slate-500'
@@ -1163,13 +1391,17 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                 <div className="shrink-0 flex justify-center py-2">
                     <div
                         className={`px-6 py-1.5 rounded-full text-sm font-black tracking-widest uppercase transition-all flex items-center gap-2 ${
-                            isHolding
-                                ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-400'
-                                : 'bg-red-500/10 border border-red-500/30 text-red-400 animate-pulse'
+                            monitoringBlocked
+                                ? 'bg-amber-500/15 border border-amber-300/40 text-amber-200'
+                                : isHolding
+                                  ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-400'
+                                  : 'bg-red-500/10 border border-red-500/30 text-red-400 animate-pulse'
                         }`}
                     >
-                        <span className={`w-1.5 h-1.5 rounded-full ${isHolding ? 'bg-emerald-400' : 'bg-red-400'}`} />
-                        {isHolding ? 'Holding' : 'Drifting'}
+                        <span
+                            className={`w-1.5 h-1.5 rounded-full ${monitoringBlocked ? 'bg-amber-300' : isHolding ? 'bg-emerald-400' : 'bg-red-400'}`}
+                        />
+                        {liveStatusLabel}
                     </div>
                 </div>
 
@@ -1178,7 +1410,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                     <SwingCircleCanvas
                         snapshot={snapshot}
                         aisTargets={showAisOnRadar ? aisTargets : undefined}
-                        ariaLabel={`Anchor watch radar display. ${isHolding ? 'Vessel holding position' : 'Vessel drifting'}. Current distance from anchor: ${snapshot ? formatDistance(snapshot.distanceFromAnchor) : 'unknown'}. Swing radius: ${snapshot ? formatDistance(snapshot.swingRadius) : 'unknown'}.`}
+                        ariaLabel={`Anchor watch radar display. ${monitoringBlocked ? 'Monitoring is blocked; values are retained reference data only' : isHolding ? 'Vessel holding position' : 'Vessel drifting'}. Current distance from anchor: ${snapshot ? formatDistance(snapshot.distanceFromAnchor) : 'unknown'}. Swing radius: ${snapshot ? formatDistance(snapshot.swingRadius) : 'unknown'}.`}
                     />
                 </div>
 
@@ -1233,9 +1465,11 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                 <div className="shrink-0 border-t border-white/[0.06] px-4 py-1.5 bg-slate-900/30">
                     <div className="flex items-center justify-around gap-4">
                         <div className="text-center flex-1">
-                            <div className="text-xs text-slate-400 uppercase tracking-wider">Distance</div>
+                            <div className="text-xs text-slate-400 uppercase tracking-wider">
+                                {monitoringBlocked ? 'Last-Known Distance' : 'Distance'}
+                            </div>
                             <div
-                                className={`text-xl font-black font-mono ${isHolding ? 'text-emerald-400' : 'text-red-400'}`}
+                                className={`text-xl font-black font-mono ${monitoringBlocked ? 'text-amber-300' : isHolding ? 'text-emerald-400' : 'text-red-400'}`}
                             >
                                 {snapshot ? formatDistance(snapshot.distanceFromAnchor) : '--'}
                             </div>
@@ -1271,6 +1505,12 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                     </div>
                 </div>
             </div>
+
+            <SignInScreen
+                isOpen={showShoreSignIn}
+                onClose={() => setShowShoreSignIn(false)}
+                prompt="Sign in to share Anchor Watch between your vessel and shore devices. Local Anchor Watch remains available without an account."
+            />
         </div>
     );
 });
