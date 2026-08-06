@@ -15,6 +15,7 @@ import { GpsService, type GpsPosition } from './GpsService';
 import { createLogger } from '../utils/createLogger';
 import { calculateDistance, calculateBearing } from '../utils/navigationCalculations';
 import { setLiveMobSafetyState } from './activeSafetyInterlock';
+import { getCachedOwnshipPosition } from './ownshipPosition';
 import {
     authScopedStorageKey,
     getAuthIdentityScope,
@@ -41,6 +42,16 @@ export const MOB_FIX_REFINEMENT_WINDOW_MS = 30_000;
  * drag the casualty datum down-track and falsely label it precise. */
 export const MOB_FIX_REFINEMENT_MAX_SPEED_MPS = 0.5;
 export const MOB_FIX_REFINEMENT_MAX_DISPLACEMENT_M = 15;
+/** How stale a cached fix may be and still be worth marking INSTANTLY.
+ *  Generous on purpose: at 6 kt a 90 s old fix is ~280 m out, which is poor —
+ *  but it is a starting datum and a search area, where the alternative is a
+ *  spinner and possibly nothing at all. refineApproximateFix tightens it
+ *  within seconds whenever the boat is near-stationary. */
+export const MOB_INSTANT_MARK_MAX_AGE_MS = 90_000;
+/** Assumed receiver uncertainty for a cached mark, before drift is added.
+ *  A phone fix is typically better than this; claiming better than we can
+ *  prove would paint a false pinpoint on a casualty datum. */
+export const MOB_CACHED_FIX_BASE_ACCURACY_M = 30;
 
 export interface MobSnapshot {
     /** Position where MOB was marked. */
@@ -180,7 +191,53 @@ class MobServiceClass {
             return { ...this.snapshot };
         }
 
-        const pos = await GpsService.getCurrentPosition({ staleLimitMs: 15_000, timeoutSec: 6 });
+        // ── MARK NOW, REFINE AFTER (Shane 2026-08-07) ──
+        // This used to await a fresh fix: staleLimitMs 15 s, timeoutSec 6. On a
+        // cold receiver that is a six-second stare at the screen, and if
+        // nothing lands, MOB returns NOTHING.
+        //
+        // For a man-overboard mark, waiting makes the answer worse rather than
+        // better. The boat keeps moving away from the incident while the fix
+        // resolves — at 6 kt those six seconds are ~18 m of error ADDED to the
+        // casualty's drift. A position from a few seconds ago is closer to
+        // where the person actually went in than a perfect fix taken later.
+        //
+        // So: take the best position already held and mark instantly. The
+        // refinement path (refineApproximateFix, fed by the live watch started
+        // below) then tightens it — but only while the receiver proves the boat
+        // has barely moved, which is exactly the case where refining is safe.
+        const cached = getCachedOwnshipPosition({ maxGpsAgeMs: MOB_INSTANT_MARK_MAX_AGE_MS });
+        let pos: GpsPosition | null = null;
+        if (cached && Number.isFinite(cached.lat) && Number.isFinite(cached.lon)) {
+            // OwnshipPosition carries no accuracy, and isValidSnapshot demands
+            // a finite one — so ESTIMATE it rather than invent a constant. For
+            // a cached mark the dominant error is not receiver noise, it is how
+            // far the boat travelled since that fix. Base uncertainty plus
+            // drift is both honest and self-correcting: a one-second-old fix on
+            // a stationary boat stays inside MOB_PRECISE_FIX_ACCURACY_M and is
+            // shown as precise, while a stale fix at speed correctly presents
+            // as a wide, approximate circle instead of a false pinpoint.
+            const ageMs = Math.max(0, Date.now() - cached.timestamp);
+            const sogMps = Math.max(0, cached.sog ?? 0) * 0.514444;
+            const driftM = sogMps * (ageMs / 1000);
+            pos = {
+                latitude: cached.lat,
+                longitude: cached.lon,
+                accuracy: MOB_CACHED_FIX_BASE_ACCURACY_M + driftM,
+                timestamp: cached.timestamp,
+                speed: sogMps,
+                heading: null,
+                altitude: null,
+            };
+        }
+
+        // Only pay the wait when there is genuinely nothing to mark. This is
+        // the cold-start case the warm-up exists to shrink.
+        if (!pos) {
+            log.warn('MOB: no cached fix — falling back to a live acquisition');
+            pos = await GpsService.getCurrentPosition({ staleLimitMs: 15_000, timeoutSec: 6 });
+        }
+
         // Another activation may have won while GPS was pending.
         const activeSnapshot = this.getPhysicalSnapshot();
         if (activeSnapshot) {
