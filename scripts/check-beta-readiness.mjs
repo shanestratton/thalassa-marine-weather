@@ -1531,6 +1531,7 @@ const intendedPublicBetaFeatureFlags = {
     VITE_CMEMS_MLD_ENABLED: false,
     VITE_MPA_ENABLED: true,
     VITE_APPLE_SIGN_IN_ENABLED: false,
+    VITE_APPLE_WATCH_ENABLED: false,
     VITE_GOOGLE_SIGN_IN_ENABLED: false,
     VITE_ACCOUNT_DELETION_ENABLED: false,
     VITE_GRANT_ALL_FEATURES: false,
@@ -1558,6 +1559,7 @@ check(
         publicBetaFeatureProfile.publicEndpoints.VITE_WX_SERVER_BASE === '' &&
         includesAll(publicBetaFeatureProfile.heldCapabilities.join('\n'), [
             'apple-sign-in',
+            'apple-watch-bridge',
             'account-deletion',
             'gmail',
             'grant-all-features',
@@ -2940,6 +2942,10 @@ const heldCapabilitySourceContracts = {
         publicBetaFeatureProfile.featureFlags.VITE_APPLE_SIGN_IN_ENABLED === false &&
         signInUi.includes("import.meta.env.VITE_APPLE_SIGN_IN_ENABLED === 'true'") &&
         !mainEntitlements.includes('com.apple.developer.applesignin'),
+    'apple-watch-bridge':
+        publicBetaFeatureProfile.featureFlags.VITE_APPLE_WATCH_ENABLED === false &&
+        read('index.tsx').includes("import.meta.env.VITE_APPLE_WATCH_ENABLED === 'true'") &&
+        !project.includes('Embed Watch Content'),
     'account-deletion':
         publicBetaFeatureProfile.featureFlags.VITE_ACCOUNT_DELETION_ENABLED === false &&
         accountDeletionBoundary.includes('Account deletion is temporarily unavailable'),
