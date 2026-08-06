@@ -15,7 +15,6 @@
 		504EC30F1FED79650016851F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 504EC30E1FED79650016851F /* Assets.xcassets */; };
 		504EC3121FED79650016851F /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 504EC3101FED79650016851F /* LaunchScreen.storyboard */; };
 		50B271D11FEDC1A000F3C39B /* public in Resources */ = {isa = PBXBuildFile; fileRef = 50B271D01FEDC1A000F3C39B /* public */; };
-		A5CCB7372F98653D00778C68 /* ThalassaWatch Watch App.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = A5CCB72D2F98653B00778C68 /* ThalassaWatch Watch App.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		AA000001AAAA000100000001 /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000001AAAA000100000002 /* SceneDelegate.swift */; };
 		AA000002AAAA000200000001 /* AlarmAudioPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000002AAAA000200000002 /* AlarmAudioPlugin.swift */; };
 		AA000003AAAA000300000001 /* AlarmAudioPlugin.m in Sources */ = {isa = PBXBuildFile; fileRef = AA000003AAAA000300000002 /* AlarmAudioPlugin.m */; };
@@ -29,42 +28,18 @@
 		AA000011AAAA001100000001 /* LightningPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000011AAAA001100000002 /* LightningPlugin.swift */; };
 		AA000012AAAA001200000001 /* LightningPlugin.m in Sources */ = {isa = PBXBuildFile; fileRef = AA000012AAAA001200000002 /* LightningPlugin.m */; };
 		AA000013AAAA001300000001 /* MdnsBrowserPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000013AAAA001300000002 /* MdnsBrowserPlugin.swift */; };
-		AA000019AAAA001900000001 /* PiTlsPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000019AAAA001900000002 /* PiTlsPlugin.swift */; };
-		AA00001AAAAA001A00000001 /* PiTlsPlugin.m in Sources */ = {isa = PBXBuildFile; fileRef = AA00001AAAAA001A00000002 /* PiTlsPlugin.m */; };
 		AA000014AAAA001400000001 /* MdnsBrowserPlugin.m in Sources */ = {isa = PBXBuildFile; fileRef = AA000014AAAA001400000002 /* MdnsBrowserPlugin.m */; };
 		AA000015AAAA001500000001 /* WatchConnectivityPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000015AAAA001500000002 /* WatchConnectivityPlugin.swift */; };
 		AA000016AAAA001600000001 /* WatchConnectivityPlugin.m in Sources */ = {isa = PBXBuildFile; fileRef = AA000016AAAA001600000002 /* WatchConnectivityPlugin.m */; };
 		AA000017AAAA001700000001 /* AppleCredentialStatePlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000017AAAA001700000002 /* AppleCredentialStatePlugin.swift */; };
+		AA000018AAAA001800000001 /* AnchorSafetyNotificationPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000018AAAA001800000002 /* AnchorSafetyNotificationPlugin.swift */; };
+		AA000019AAAA001900000001 /* PiTlsPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000019AAAA001900000002 /* PiTlsPlugin.swift */; };
+		AA00001AAAAA001A00000001 /* PiTlsPlugin.m in Sources */ = {isa = PBXBuildFile; fileRef = AA00001AAAAA001A00000002 /* PiTlsPlugin.m */; };
 		AA000020AAAA002000000001 /* SecureStoragePlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000020AAAA002000000002 /* SecureStoragePlugin.swift */; };
 		AA000021AAAA002100000001 /* AnchorWatchStoragePlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000021AAAA002100000002 /* AnchorWatchStoragePlugin.swift */; };
 		AA000022AAAA002200000001 /* EncryptedLargeStoragePlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000022AAAA002200000002 /* EncryptedLargeStoragePlugin.swift */; };
-		AA000018AAAA001800000001 /* AnchorSafetyNotificationPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000018AAAA001800000002 /* AnchorSafetyNotificationPlugin.swift */; };
 		B3A100012026080400000001 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = B3A100012026080400000002 /* PrivacyInfo.xcprivacy */; };
 /* End PBXBuildFile section */
-
-/* Begin PBXContainerItemProxy section */
-		A5CCB7352F98653D00778C68 /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = 504EC2FC1FED79650016851F /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = A5CCB72C2F98653B00778C68;
-			remoteInfo = "ThalassaWatch Watch App";
-		};
-/* End PBXContainerItemProxy section */
-
-/* Begin PBXCopyFilesBuildPhase section */
-		A5CCB7382F98653D00778C68 /* Embed Watch Content */ = {
-			isa = PBXCopyFilesBuildPhase;
-			buildActionMask = 2147483647;
-			dstPath = "$(CONTENTS_FOLDER_PATH)/Watch";
-			dstSubfolderSpec = 16;
-			files = (
-				A5CCB7372F98653D00778C68 /* ThalassaWatch Watch App.app in Embed Watch Content */,
-			);
-			name = "Embed Watch Content";
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		2D7BD41D52780793B3813BA5 /* Pods-App.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-App.debug.xcconfig"; path = "Target Support Files/Pods-App/Pods-App.debug.xcconfig"; sourceTree = "<group>"; };
@@ -95,16 +70,16 @@
 		AA000011AAAA001100000002 /* LightningPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LightningPlugin.swift; sourceTree = "<group>"; };
 		AA000012AAAA001200000002 /* LightningPlugin.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = LightningPlugin.m; sourceTree = "<group>"; };
 		AA000013AAAA001300000002 /* MdnsBrowserPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MdnsBrowserPlugin.swift; sourceTree = "<group>"; };
-		AA000019AAAA001900000002 /* PiTlsPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PiTlsPlugin.swift; sourceTree = "<group>"; };
-		AA00001AAAAA001A00000002 /* PiTlsPlugin.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = PiTlsPlugin.m; sourceTree = "<group>"; };
 		AA000014AAAA001400000002 /* MdnsBrowserPlugin.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = MdnsBrowserPlugin.m; sourceTree = "<group>"; };
 		AA000015AAAA001500000002 /* WatchConnectivityPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchConnectivityPlugin.swift; sourceTree = "<group>"; };
 		AA000016AAAA001600000002 /* WatchConnectivityPlugin.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = WatchConnectivityPlugin.m; sourceTree = "<group>"; };
 		AA000017AAAA001700000002 /* AppleCredentialStatePlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleCredentialStatePlugin.swift; sourceTree = "<group>"; };
+		AA000018AAAA001800000002 /* AnchorSafetyNotificationPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnchorSafetyNotificationPlugin.swift; sourceTree = "<group>"; };
+		AA000019AAAA001900000002 /* PiTlsPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PiTlsPlugin.swift; sourceTree = "<group>"; };
+		AA00001AAAAA001A00000002 /* PiTlsPlugin.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = PiTlsPlugin.m; sourceTree = "<group>"; };
 		AA000020AAAA002000000002 /* SecureStoragePlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecureStoragePlugin.swift; sourceTree = "<group>"; };
 		AA000021AAAA002100000002 /* AnchorWatchStoragePlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnchorWatchStoragePlugin.swift; sourceTree = "<group>"; };
 		AA000022AAAA002200000002 /* EncryptedLargeStoragePlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EncryptedLargeStoragePlugin.swift; sourceTree = "<group>"; };
-		AA000018AAAA001800000002 /* AnchorSafetyNotificationPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnchorSafetyNotificationPlugin.swift; sourceTree = "<group>"; };
 		B3A100012026080400000002 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -232,12 +207,10 @@
 				504EC3021FED79650016851F /* Resources */,
 				800AF659CF464942BFBB4993 /* [CP] Embed Pods Frameworks */,
 				F09AEA2100CFB4585091B97D /* [CP] Copy Pods Resources */,
-				A5CCB7382F98653D00778C68 /* Embed Watch Content */,
 			);
 			buildRules = (
 			);
 			dependencies = (
-				A5CCB7362F98653D00778C68 /* PBXTargetDependency */,
 			);
 			name = App;
 			productName = App;
@@ -431,14 +404,6 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
-
-/* Begin PBXTargetDependency section */
-		A5CCB7362F98653D00778C68 /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = A5CCB72C2F98653B00778C68 /* ThalassaWatch Watch App */;
-			targetProxy = A5CCB7352F98653D00778C68 /* PBXContainerItemProxy */;
-		};
-/* End PBXTargetDependency section */
 
 /* Begin PBXVariantGroup section */
 		504EC30B1FED79650016851F /* Main.storyboard */ = {
