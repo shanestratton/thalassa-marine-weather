@@ -14,7 +14,7 @@ Every `VITE_` value is public: Vite embeds it in the browser or native WebView b
 | `VITE_TRANSISTOR_LICENSE_KEY`                                  | Native background GPS   | Vendor/device restrictions; treat bundle extraction as possible                                      |
 | `VITE_GOOGLE_OAUTH_CLIENT_ID` and endpoint/feature-flag values | OAuth identity/config   | These are identifiers or configuration, not client secrets                                           |
 
-Paid/general-purpose credentials for Open-Meteo, StormGlass, WorldTides, Gemini, Rainbow.ai, Spoonacular, WeatherKit, voice providers, and similar services belong in server secrets. Active installed-app integrations reach them through bounded Supabase/worker proxies; provider keys are not accepted from the client. The Pi integration is held in the production public beta and its proxy paths are development-only.
+Paid/general-purpose credentials for Open-Meteo, StormGlass, WorldTides, Gemini, Rainbow.ai, Spoonacular, WeatherKit, voice providers, and similar services belong in server secrets. Active installed-app integrations reach them through bounded Supabase/worker proxies; provider keys are not accepted from the client. Native Pi integration uses a pinned HTTPS lane and a startup-constrained outbound policy; browser, old, and stripped native shells fail closed.
 
 Operationally:
 
@@ -29,12 +29,12 @@ CSP is defined in both `index.html` (meta tag) and `vercel.json` (HTTP header).
 
 ### Accepted Trade-offs
 
-| Directive                                         | Risk   | Reason                                                                                                            |
-| ------------------------------------------------- | ------ | ----------------------------------------------------------------------------------------------------------------- |
-| `script-src 'unsafe-inline'`                      | Medium | The app shell still contains inline startup/error-recovery code used before the React entry loads.                |
-| `style-src 'unsafe-inline'`                       | Medium | The shell and runtime map/UI libraries still generate inline styles.                                              |
-| `img-src https: http:` (configured hosted policy) | Medium | User-selected chart/map imagery spans many providers; active content remains blocked.                             |
-| `connect-src http:` (native shell)                | Medium | Retained for local development; the production public-beta code gate disables every Pi/boat-LAN HTTP integration. |
+| Directive                                         | Risk   | Reason                                                                                                             |
+| ------------------------------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------ |
+| `script-src 'unsafe-inline'`                      | Medium | The app shell still contains inline startup/error-recovery code used before the React entry loads.                 |
+| `style-src 'unsafe-inline'`                       | Medium | The shell and runtime map/UI libraries still generate inline styles.                                               |
+| `img-src https: http:` (configured hosted policy) | Medium | User-selected chart/map imagery spans many providers; active content remains blocked.                              |
+| `connect-src http:` (native shell)                | Medium | Retained for local development; production Pi traffic uses the native pinned-HTTPS verifier with no HTTP fallback. |
 
 ### Mitigations configured in source
 
@@ -52,13 +52,13 @@ expected headers and pass the release smoke before the HTTP policy can be descri
 
 ## Raspberry Pi public-beta boundary
 
-The production iOS/web build does not use the optional Pi integration. Pi discovery, pairing, setup, configuration,
-private diary/token handoff, Pi-hosted chart/ENC sync, generic proxying, Pi-hosted Bosun/N2K calls, and Pi controls are
-all development-only until Thalassa has an authenticated encrypted LAN transport. The separate on-device ENC Library
-accepts already-converted packs without contacting a Pi, but cannot authenticate their publisher or contents: they are
-stored as unverified reference overlays and excluded from hazard queries, route verification, Route Tracer, and Cast
-Off. This is a build boundary, not a client-visible feature flag; there is no `VITE_` override that can re-enable Pi
-integration in production.
+The native public-beta candidate can use the optional Pi integration only when `PiTlsPlugin` is present. Pairing pins
+the Pi public key, subsequent app requests use HTTPS through the native verifier, and there is no plaintext or
+unverified fallback. Browser builds and old or stripped native shells therefore cannot discover, pair, configure,
+relay private diary data, sync charts, or call Pi-hosted Signal K/AVNav/N2K surfaces. The separate on-device ENC
+Library accepts already-converted packs without contacting a Pi, but cannot authenticate their publisher or contents:
+they are stored as unverified reference overlays and excluded from hazard queries, route verification, Route Tracer,
+and Cast Off.
 
 The companion `pi-cache` server is also fail-closed by default:
 
@@ -69,8 +69,8 @@ The companion `pi-cache` server is also fail-closed by default:
   ENC-watcher surfaces require `THALASSA_UNSAFE_ADMIN_API=1`; the watcher additionally requires
   `ENC_WATCHER_ENABLED=true`.
 
-Those environment values are explicit unsafe development switches, not authentication. Never expose that mode to an
-untrusted LAN or use it as a bearer-over-HTTP substitute.
+Those environment values enable LAN/private administration; they are not authentication. Never expose that mode to an
+untrusted LAN, bypass the native certificate pin, or add a plaintext fallback.
 
 ## Production deployment and scheduled-writer boundaries
 
@@ -80,8 +80,9 @@ The checked-in manifests are deliberately deterministic, but they do not prove w
   only the production dependency tree and compiled output into a second Node 22 stage that runs as the non-root `node`
   user. Railway is configured for that Dockerfile and `node dist/index.js`. The privileged Guardian watchdog starts
   only when `GUARDIAN_WATCHDOG_ENABLED` is exactly `true`; absence, case variants, or whitespace keep it off.
-- Pi install and redeploy perform clean lockfile installs, compile, and prune to production dependencies. That does not
-  weaken the separate production client hold: Pi transport remains unavailable in the public beta.
+- Pi install and redeploy perform clean lockfile installs, compile, and prune to production dependencies. Public-beta
+  access requires the native Pi TLS verifier: pairing pins the Pi public key, requests use HTTPS, and builds without
+  that verifier fail closed with no plaintext or unverified fallback.
 - The retired Railway `vessel-scraper` cannot build or start: its Dockerfile and package start command exit 78, its
   Railway manifest has no cron/start/build command, and its watch pattern is inert. The external Railway project must
   still be inspected and disabled or deleted; source cannot establish remote service state.
@@ -137,8 +138,10 @@ smokes against the frozen versions. At this snapshot that parity is not establis
   Functions that are absent from the intended beta surface.
 - `register-apple-token` and `apple-server-notification` appeared only in local source at the latest Function inventory;
   Apple token-lifecycle capability must be treated as undeployed until remote parity and live behavior are proved.
-- Guardian is held in the candidate client, but authenticated Guardian RPCs remained live at the latest audit. An
-  explicit server-side revoke/deny hold is not yet approved or prepared; hiding its UI is insufficient.
+- Guardian is enabled in the candidate client. The linked migration ledger records
+  `20260804191000_guardian_presence_privacy.sql` and `20260804192000_guardian_broadcast_contract.sql` remotely, but
+  ledger parity is not authenticated runtime evidence: live arm/disarm/discovery/broadcast smoke remains mandatory.
+  The privileged AIS watchdog is a separate exact opt-in and must remain verified off unless deliberately deployed.
 - Account deletion remains a release blocker. The local vNext workflow deliberately deletes the auth user last, but
   that ordering alone does not quiesce already-authenticated writers: it still needs an approved durable per-user
   tombstone/write fence and complete survivor scrubbing for retained identity snapshots and owner-linked storage. The
@@ -199,8 +202,9 @@ Independently recorded package evidence uses the production runtime floors rathe
 
 - AIS ingest on Node 22: final audit reported 0 vulnerabilities and `npm ls --all` passed.
 - Deepgram proxy on Node 22: final audit reported 0 vulnerabilities and `npm ls --all` passed.
-- Pi cache on Node 20: final audit reported 0 vulnerabilities and 19/19 tests passed. The Pi package remains held from
-  the public-beta product surface despite this package-level evidence.
+- Pi cache on Node 20.20.2: the full 46/46 suite, TypeScript build, live pinned TLS/SNI request, exact-LAN allowlist,
+  and Overpass POST passed. Public-beta access remains restricted to a native shell with the Pi TLS pinning verifier;
+  web, old, and stripped shells fail closed.
 
 The release source gate additionally checks the AIS multi-stage/non-root runtime, the Pi clean-install/build/prune
 order, both retired service/debug boundaries, the LINZ locked writer boundary, workflow pins/runners/permissions, and
