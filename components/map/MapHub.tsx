@@ -5294,7 +5294,14 @@ export const MapHub: React.FC<MapHubProps> = ({
                     />
                 )}
 
-                {!isPinView && !embedded && !pickerMode && !planningSurface && (
+                {/* Also hidden during a MOB: the overlay it reports on is
+                    suppressed while a casualty is marked, so "Loading wind
+                    layer" would be narrating work whose result is deliberately
+                    never drawn — noise across the one screen that must stay
+                    readable (seen in Shane's 2026-08-07 MOB screenshot, where
+                    the pill sat over the chart with the particles already
+                    correctly gone). */}
+                {!isPinView && !embedded && !pickerMode && !planningSurface && !mobActive && (
                     <ObsLayerLoadingPill
                         activeLayers={weather.activeLayers}
                         windLoading={weather.windState.loading}

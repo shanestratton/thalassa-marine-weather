@@ -37,6 +37,7 @@ import {
 import { getCoverage as getEncCoverage, removeCell as removeEncCell } from '../../services/enc/EncHazardService';
 import type { EncCell } from '../../services/enc/types';
 import { CATZOC_LABELS, isLowConfidenceCatzoc } from '../../services/enc/types';
+import { piCache } from '../../services/PiCacheService';
 import { requestMapFit } from '../../stores/MapFitTargetStore';
 import { useUI } from '../../context/UIContext';
 import { ModalSheet } from '../ui/ModalSheet';
@@ -431,27 +432,44 @@ export const EncCellManager: React.FC = () => {
     const [piCellsSummary, setPiCellsSummary] = useState<
         { cellId: string; edition: number; sourceHO?: string; sizeBytes?: number }[] | null
     >(null);
+    const [piListBusy, setPiListBusy] = useState(false);
+    const refreshPiCells = useCallback(async () => {
+        setPiListBusy(true);
+        try {
+            const piCells = await listPiInstalledCharts();
+            setPiCellsSummary(
+                piCells.map((c) => ({
+                    cellId: c.cellId,
+                    edition: c.edition ?? 0,
+                    sourceHO: c.sourceHO,
+                    sizeBytes: c.sizeBytes,
+                })),
+            );
+        } catch {
+            setPiCellsSummary(null);
+        } finally {
+            setPiListBusy(false);
+        }
+    }, []);
+
+    // Re-list whenever the Pi becomes reachable, not just when LOCAL cells
+    // change (Shane 2026-08-07: "no sync button in there").
+    //
+    // The old dependency was [cells.length]. Pairing does not change the local
+    // cell count, so a device that listed the Pi BEFORE pairing — when the
+    // identity gate correctly reported it unreachable and the listing came
+    // back empty — never listed it again. piHasMoreThanLocal stayed false, the
+    // Sync button is gated on that, and the entire Pi-sync path stayed
+    // invisible with no way to retry. Pair, and the one affordance you need
+    // was already gone.
+    const [piReachable, setPiReachable] = useState(() => piCache.isAvailable());
     useEffect(() => {
-        let cancelled = false;
-        listPiInstalledCharts()
-            .then((piCells) => {
-                if (!cancelled)
-                    setPiCellsSummary(
-                        piCells.map((c) => ({
-                            cellId: c.cellId,
-                            edition: c.edition ?? 0,
-                            sourceHO: c.sourceHO,
-                            sizeBytes: c.sizeBytes,
-                        })),
-                    );
-            })
-            .catch(() => {
-                if (!cancelled) setPiCellsSummary(null);
-            });
-        return () => {
-            cancelled = true;
-        };
-    }, [cells.length]);
+        setPiReachable(piCache.isAvailable());
+        return piCache.onStatusChange(() => setPiReachable(piCache.isAvailable()));
+    }, []);
+    useEffect(() => {
+        void refreshPiCells();
+    }, [cells.length, piReachable, refreshPiCells]);
 
     // Find Pi cells the device is either missing OR has at a stale
     // edition. Both count as "the user has something to sync".
@@ -607,6 +625,32 @@ export const EncCellManager: React.FC = () => {
                                     <span>Upload from this device</span>
                                 </span>
                             </button>
+
+                            {/* Escape hatch when the Pi lists nothing.
+                                Without this the entire Pi path is invisible
+                                exactly when it has gone wrong — no button, no
+                                message, nothing to press. Says which of the
+                                two situations you are in, because "Pi has no
+                                charts" and "the app cannot see the Pi" need
+                                completely different fixes. */}
+                            {!piHasMoreThanLocal && (
+                                <button
+                                    onClick={() => {
+                                        triggerHaptic('light');
+                                        void refreshPiCells();
+                                    }}
+                                    disabled={piListBusy}
+                                    className="w-full py-2 rounded-xl text-[11px] font-bold uppercase tracking-wider bg-white/[0.04] border border-white/[0.08] text-white/60 hover:bg-white/[0.08] active:scale-95 transition-all disabled:opacity-50"
+                                >
+                                    {piListBusy
+                                        ? 'Checking Pi…'
+                                        : piReachable
+                                          ? (piCellsSummary?.length ?? 0) > 0
+                                              ? 'Pi charts already in sync — check again'
+                                              : 'Check Pi for charts'
+                                          : 'Pi not connected — check again'}
+                                </button>
+                            )}
 
                             {/* Sync — surfaced when Pi has cellIds the device
                             doesn't (compared by ID, not by count, so stale
