@@ -813,7 +813,16 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
                         closeMenu();
                         tacticalState.onOpenMob?.();
                     }}
-                    className={`absolute -top-16 right-0 flex min-h-[52px] min-w-[52px] flex-col items-center justify-center rounded-2xl border text-white shadow-2xl backdrop-blur-xl transition-colors active:scale-95 ${
+                    // Vertically centred between the status "i" FAB above and
+                    // the layer FAB below (Shane 2026-08-07). This CANNOT be a
+                    // constant offset: the "i" sits at `env(safe-area-inset-top)
+                    // + 8px` while this menu is anchored at a fixed top-[192px],
+                    // so the midpoint between them slides with the notch. A
+                    // fixed -top-16 was centred on a notched iPhone and visibly
+                    // off everywhere else. Halving the inset inside calc tracks
+                    // it on every device — see the derivation in the style below.
+                    style={{ top: 'calc(env(safe-area-inset-top) / 2 - 95px)' }}
+                    className={`absolute right-0 flex min-h-[52px] min-w-[52px] flex-col items-center justify-center rounded-2xl border text-white shadow-2xl backdrop-blur-xl transition-colors active:scale-95 ${
                         tacticalState.mobActive
                             ? 'border-red-300 bg-red-600 shadow-red-500/50'
                             : 'border-red-400/70 bg-red-700/95 shadow-red-950/60 hover:bg-red-600'
