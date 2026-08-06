@@ -4,6 +4,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
+import type { TLSSocket } from 'node:tls';
 import { X509Certificate } from 'node:crypto';
 
 import { loadOrCreateIdentity, readIdentityPrivateKeyPem } from './identity.js';
@@ -36,7 +37,7 @@ test('the key a client sees on a real handshake is the pinned key', async () => 
             // rejectUnauthorized:false mirrors the native delegate: system trust
             // is deliberately not consulted, the key is checked instead.
             const req = https.get({ host: '127.0.0.1', port, rejectUnauthorized: false }, (res) => {
-                const peer = res.socket.getPeerX509Certificate?.();
+                const peer = (res.socket as TLSSocket).getPeerX509Certificate();
                 res.resume();
                 if (!peer) return reject(new Error('no peer certificate'));
                 resolve(peer.publicKey.export({ type: 'spki', format: 'der' }).toString('base64'));
