@@ -14,6 +14,8 @@ const mocks = vi.hoisted(() => ({
         latencyMs: 12,
         cacheStats: null,
     },
+    /** Standing pairing offer the tab reads on mount; null = nothing on offer. */
+    pairable: null as { type: 'pairable-found'; host: string; baseUrl: string; info: unknown } | null,
 }));
 
 vi.mock('../stores/authStore', async () => {
@@ -27,6 +29,9 @@ vi.mock('../services/PiCacheService', () => ({
         configure: vi.fn(),
         onStatusChange: vi.fn(() => vi.fn()),
         onPairingEvent: vi.fn(() => vi.fn()),
+        // The tab reads the standing offer on mount; without this the mock
+        // throws before any assertion runs.
+        getPairableCandidate: vi.fn(() => mocks.pairable ?? null),
         getStatus: vi.fn(() => mocks.status),
         fetch: mocks.fetch,
         purgeCache: mocks.purgeCache,

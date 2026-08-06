@@ -160,6 +160,15 @@ const PiCacheTabDevelopment: React.FC<SettingsTabProps> = ({ settings, onSave })
     // Pairing lifecycle: a discovered-but-unpaired Pi raises the pairing card;
     // a paired Pi that fails its identity challenge raises a warning banner.
     useEffect(() => {
+        // Read the STANDING offer first. The event that announces a pairable
+        // Pi fires from checkHealth at boot, long before this tab mounts, and
+        // is then throttled for five minutes — so subscribing alone meant the
+        // card usually never appeared at all (Shane 2026-08-07: "there is no
+        // pairing button in settings that i can see").
+        const standing = piCache.getPairableCandidate();
+        if (standing?.type === 'pairable-found') {
+            setPairable({ host: standing.host, baseUrl: standing.baseUrl, info: standing.info });
+        }
         return piCache.onPairingEvent((event: PiPairingEvent) => {
             if (event.type === 'pairable-found') {
                 setPairable({ host: event.host, baseUrl: event.baseUrl, info: event.info });
