@@ -207,7 +207,13 @@ async function fetchBOMBuoy(buoyId: string): Promise<NDBCRawData | null> {
 async function fetchBOMAWS(stationId: string): Promise<NDBCRawData | null> {
     try {
         // BOM JSON endpoint pattern for individual stations
-        const url = `http://www.bom.gov.au/fwo/IDQ60801/IDQ60801.${stationId}.json`;
+        // HTTPS (2026-08-07). This was http, which iOS App Transport Security
+        // blocks outright — the request never left the phone, so BOM station
+        // observations silently never loaded on device. BOM 301-redirects
+        // http->https anyway, so the plain URL had already stopped being the
+        // real endpoint; ATS just made the staleness fatal rather than
+        // invisible.
+        const url = `https://www.bom.gov.au/fwo/IDQ60801/IDQ60801.${stationId}.json`;
 
         // Route through Pi Cache when available (15 min TTL — AWS updates frequently)
         const piUrl = piCache.passthroughUrl(url, 15 * 60 * 1000, 'bom-aws');

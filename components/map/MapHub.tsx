@@ -3655,10 +3655,23 @@ export const MapHub: React.FC<MapHubProps> = ({
                     stripped the legend and scrubber for EVERY weather layer
                     and took the planning chart with it. Keep this guard
                     narrow: this overlay alone is the whole fix. */}
+                {/* ALSO hidden while a MOB is active (Shane 2026-08-07, with a
+                    screenshot: the particle field covered the casualty marker,
+                    the vessel and the water so completely that "MOB 1:13 · last
+                    fix 15s ago" was unreadable). During a recovery the chart
+                    has one job. Nothing is unselected — this gates the RENDER
+                    on mobActive, so the skipper's wind layer returns by itself
+                    the moment MOB clears, with no state to restore and nothing
+                    to get wrong under pressure. Same narrow discipline as the
+                    plotting guard above: the overlay only, never the controls,
+                    legend or scrubber (799dc4d0 was reverted for exactly
+                    that). */}
                 {!isPinView && !embedded && !pickerMode && !planningSurface && (
                     <MapboxVelocityOverlay
                         mapboxMap={mapRef.current}
-                        visible={weather.activeLayers.has('velocity') || weather.activeLayers.has('wind')}
+                        visible={
+                            !mobActive && (weather.activeLayers.has('velocity') || weather.activeLayers.has('wind'))
+                        }
                         windHour={weather.windHour}
                         windGrid={weather.windState.grid ?? undefined}
                     />

@@ -70,9 +70,31 @@ public class ThalassaBridgeViewController: CAPBridgeViewController {
         let info = Bundle.main.infoDictionary
         let version = info?["CFBundleShortVersionString"] as? String ?? "?"
         let build = info?["CFBundleVersion"] as? String ?? "?"
+        // NEWEST of several in-bundle files, ignoring epoch-0.
+        //
+        // No single file is reliable. The .app DIRECTORY reports 1970-01-01 on
+        // device — iOS does not preserve it through install, which is what
+        // produced "built 1970-01-01 10:00:00". The EXECUTABLE only moves when
+        // Swift relinks, so a `cap sync` that replaced the whole web bundle
+        // left it reading an older build. Taking the latest of the executable,
+        // Info.plist and the web bundle's index.html covers native-only,
+        // resource-only and mixed rebuilds alike, and the epoch guard means a
+        // meaningless zero can never win.
+        var newest: Date?
+        var candidatePaths: [String] = [Bundle.main.bundlePath + "/Info.plist"]
+        if let executable = Bundle.main.executableURL { candidatePaths.append(executable.path) }
+        if let webIndex = Bundle.main.url(forResource: "public/index", withExtension: "html") {
+            candidatePaths.append(webIndex.path)
+        }
+        for path in candidatePaths {
+            guard let attributes = try? FileManager.default.attributesOfItem(atPath: path),
+                  let modified = attributes[.modificationDate] as? Date,
+                  modified.timeIntervalSince1970 > 1 else { continue }
+            if newest == nil || modified > newest! { newest = modified }
+        }
+
         var builtAt = "unknown"
-        if let attributes = try? FileManager.default.attributesOfItem(atPath: Bundle.main.bundlePath),
-           let modified = attributes[.modificationDate] as? Date {
+        if let modified = newest {
             let formatter = DateFormatter()
             formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
             formatter.timeZone = TimeZone.current

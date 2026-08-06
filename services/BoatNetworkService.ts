@@ -30,6 +30,25 @@ export interface ServiceProbe {
     path: string;
     /** Validate the response to confirm it's the right service */
     validate: (data: unknown, status: number) => boolean;
+    /**
+     * Service speaks pinned TLS rather than plain HTTP.
+     *
+     * Only pi-cache does. Signal K and AvNav are genuinely cleartext on the
+     * boat LAN and are reached under NSAllowsLocalNetworking. Probing pi-cache
+     * over http after it moved to TLS is why the Boat Network card reported
+     * "Pi found, but no weather cache service detected" while happily listing
+     * the other two (Shane 2026-08-07).
+     */
+    pinnedTls?: boolean;
+    /**
+     * Path to probe when the app is NOT yet paired. The pinned transport opens
+     * only /api/pair/info without a pin, so a paired-only path would make an
+     * unpaired app conclude the service is absent — the state every skipper is
+     * in before they pair.
+     */
+    unpairedPath?: string;
+    /** Validator for the unpaired probe, whose shape differs from /health. */
+    validateUnpaired?: (data: unknown, status: number) => boolean;
 }
 
 export interface DiscoveredService {
@@ -61,9 +80,15 @@ const SERVICES: ServiceProbe[] = [
         name: 'pi-cache',
         port: 3001,
         path: '/health',
+        pinnedTls: true,
+        unpairedPath: '/api/pair/info',
         validate: (data: unknown) => {
             const d = data as Record<string, unknown> | null;
             return d?.status === 'ok' && d?.service === 'thalassa-pi-cache';
+        },
+        validateUnpaired: (data: unknown) => {
+            const d = data as Record<string, unknown> | null;
+            return d?.service === 'thalassa-pi-cache' && typeof d?.publicKeySpki === 'string';
         },
     },
     {
@@ -214,11 +239,47 @@ import { resolveHostnameIpv4 } from '../utils/resolveHostnameIpv4';
 const resolveToIpv4 = (host: string) => resolveHostnameIpv4(host);
 
 async function probeService(host: string, service: ServiceProbe): Promise<{ found: boolean; latencyMs: number }> {
+    const start = Date.now();
+    const fail = { found: false, latencyMs: 0 };
+
+    // ── Pinned-TLS services take a different lane entirely ──
+    if (service.pinnedTls) {
+        const { getPairing, pinnedPiRequest } = await import('./PiPairingService');
+        const paired = getPairing() !== null;
+        // Unpaired, the transport opens only the pairing card — so probe THAT
+        // and treat a valid card as proof the service is up. Probing the
+        // paired-only path here would report "no weather cache" to every
+        // skipper who has not paired yet, which is all of them at first run.
+        const probePath = paired ? service.path || '/' : (service.unpairedPath ?? service.path ?? '/');
+        const validate = paired ? service.validate : (service.validateUnpaired ?? service.validate);
+        return withTimeout(
+            (async () => {
+                try {
+                    const res = await pinnedPiRequest({
+                        url: `https://${host}:${service.port}${probePath}`,
+                        connectTimeout: PROBE_TIMEOUT_MS,
+                        readTimeout: PROBE_TIMEOUT_MS,
+                        responseType: 'text',
+                    });
+                    let data: unknown = null;
+                    try {
+                        data = JSON.parse(res.data);
+                    } catch {
+                        /* non-JSON body fails validation below */
+                    }
+                    return { found: validate(data, res.status), latencyMs: Date.now() - start };
+                } catch {
+                    return { found: false, latencyMs: Date.now() - start };
+                }
+            })(),
+            PROBE_TIMEOUT_MS + 500,
+            fail,
+        );
+    }
+
     // TCP-only services (no HTTP path) — try a quick HTTP probe on the port
     const path = service.path || '/';
     const url = `http://${host}:${service.port}${path}`;
-    const start = Date.now();
-    const fail = { found: false, latencyMs: 0 };
 
     // Hard outer timeout — nothing escapes this
     return withTimeout(

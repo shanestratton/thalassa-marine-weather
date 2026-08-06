@@ -274,7 +274,13 @@ class PiProvisionServiceClass {
             }
 
             // ── Phase 4: HTTP health check ──
-            const cacheUrl = `http://${host}:${PI_CACHE_PORT}/health`;
+            // HTTPS since the boat LAN moved to pinned TLS (2026-08-07).
+            // This runs straight after install, before any pairing exists, so
+            // it cannot use the pinned transport — but it is a liveness probe
+            // over SSH-installed software on a host the skipper just typed in,
+            // not a data path, so an unverified handshake is acceptable here
+            // and nowhere else. Left on http it would simply never answer.
+            const cacheUrl = `https://${host}:${PI_CACHE_PORT}/health`;
             let healthy = false;
 
             // Retry a few times — the service might need a moment to start.
