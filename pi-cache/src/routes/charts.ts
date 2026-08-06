@@ -60,6 +60,7 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
 import { createWriteStream } from 'node:fs';
 import path from 'node:path';
+import { normaliseOutboundHttpUrl, outboundFetch } from '../outboundHttp.js';
 
 interface ChartJob {
     id: string;
@@ -106,15 +107,13 @@ export function createChartRoutes(): Router {
             return res.status(400).json({ error: 'Body must include {url, name}' });
         }
 
-        // Only allow http/https — no file://, ftp://, etc.
+        // Canonicalise structure here for an immediate 400. DNS/private-range
+        // enforcement happens again at the actual connection in outboundFetch.
         let parsedUrl: URL;
         try {
-            parsedUrl = new URL(url);
+            parsedUrl = normaliseOutboundHttpUrl(url);
         } catch {
             return res.status(400).json({ error: 'Invalid URL' });
-        }
-        if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
-            return res.status(400).json({ error: 'Only http/https URLs are allowed' });
         }
 
         // Sanitise filename — strip path separators and non-printable junk.
@@ -129,7 +128,7 @@ export function createChartRoutes(): Router {
         const jobId = randomUUID();
         const job: ChartJob = {
             id: jobId,
-            url,
+            url: parsedUrl.href,
             name: safeName,
             status: 'pending',
             progress: 0,
@@ -228,7 +227,7 @@ async function runDownload(job: ChartJob): Promise<void> {
     await fs.mkdir(CHART_DIR, { recursive: true });
     const filePath = path.join(CHART_DIR, job.name);
 
-    const response = await fetch(job.url);
+    const response = await outboundFetch(job.url);
     if (!response.ok) {
         throw new Error(`HTTP ${response.status} ${response.statusText} from ${job.url}`);
     }

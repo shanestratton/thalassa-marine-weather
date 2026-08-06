@@ -1,4 +1,4 @@
-/** Public-beta defaults for the optional Pi HTTP service. */
+/** Public-beta defaults for the optional pinned-TLS Pi service. */
 
 export const UNSAFE_ADMIN_FLAG = 'THALASSA_UNSAFE_ADMIN_API';
 export const LAN_BIND_FLAG = 'THALASSA_PI_LAN_BIND';
@@ -76,6 +76,6 @@ export function adminApiDisabledPayload(): { status: 'disabled'; code: string; e
     return {
         status: 'disabled',
         code: ADMIN_API_DISABLED_CODE,
-        error: `Pi admin/private routes are disabled. Set ${UNSAFE_ADMIN_FLAG}=1 only for explicit unsafe development.`,
+        error: `Pi admin/private routes are disabled. Set ${UNSAFE_ADMIN_FLAG}=1 only on an isolated trusted boat LAN.`,
     };
 }

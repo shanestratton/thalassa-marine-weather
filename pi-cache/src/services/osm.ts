@@ -20,6 +20,7 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import type { FeatureCollection, Feature, Polygon, LineString, Position } from 'geojson';
+import { outboundFetch } from '../outboundHttp.js';
 
 const OSM_CACHE_DIR = process.env.OSM_CACHE_DIR ?? '/opt/thalassa-pi-cache/osm-cache';
 const OVERPASS_URL = process.env.OVERPASS_URL ?? 'https://overpass-api.de/api/interpreter';
@@ -201,13 +202,13 @@ async function fetchFromOverpass(bbox: [number, number, number, number]): Promis
     const query = buildQuery(bbox);
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), OVERPASS_TIMEOUT_MS);
-    let response: Response;
+    let response: Awaited<ReturnType<typeof outboundFetch>>;
     try {
         // Overpass convention: POST with body `data=<query>` URL-encoded.
         // Raw query in body without `data=` returns 406. Apache also
         // requires a User-Agent — without one we get 406 Not Acceptable
         // from the front-end before the query even reaches Overpass.
-        response = await fetch(OVERPASS_URL, {
+        response = await outboundFetch(OVERPASS_URL, {
             method: 'POST',
             body: 'data=' + encodeURIComponent(query),
             headers: {
@@ -437,7 +438,7 @@ function assembleOverlay(osm: OverpassResponse): OsmRouteOverlay {
 }
 
 /**
- * Public entry: fetch (or load cached) OSM overlay for a route bbox.
+ * Public entry: load a fresh (or cached) OSM overlay for a route bbox.
  * Caller passes [W, S, E, N]. Returns an empty overlay on any failure so
  * the router can fall back to chart-only cleanly.
  */

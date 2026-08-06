@@ -1,8 +1,8 @@
 /**
  * Thalassa Pi Cache — Express server entry point.
  *
- * Runs on a Raspberry Pi for isolated development. Public-beta defaults are
- * loopback-only with every private/admin surface disabled; see
+ * Runs on a Raspberry Pi behind the native pinned-TLS client. Public-beta
+ * defaults are loopback-only with every private/admin surface disabled; see
  * publicBetaBoundary.ts and pi-cache/README.md.
  *
  * Default port: 3001
@@ -38,6 +38,7 @@ import { DiaryRelayOutbox, type DiaryRelayConfigInput, DiaryRelayValidationError
 import { loadOrCreateIdentity, readIdentityPrivateKeyPem } from './identity.js';
 import { ensureIdentityTls } from './tlsIdentity.js';
 import { createPairRoutes } from './routes/pair.js';
+import { assertSupabaseOriginAssertion, resolveTrustedSupabaseOrigin } from './outboundHttp.js';
 import {
     adminApiDisabledPayload,
     allowedCorsOrigins,
@@ -69,10 +70,10 @@ console.log(`[identity] ${identity.boatName} (${identity.deviceId}) fingerprint 
 // fallback: an unencrypted boat LAN is what kept this out of the beta.
 const tls = ensureIdentityTls(IDENTITY_DIR, readIdentityPrivateKeyPem(IDENTITY_DIR));
 console.log(`[tls] boat-LAN certificate valid to ${tls.notAfter} — cert fp ${tls.certFingerprint}`);
-let SUPABASE_URL = process.env.SUPABASE_URL || '';
+const SUPABASE_ORIGIN = resolveTrustedSupabaseOrigin(process.env.SUPABASE_URL);
 let SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || '';
 const proxyConfig = {
-    supabaseUrl: SUPABASE_URL,
+    supabaseUrl: SUPABASE_ORIGIN,
     supabaseAnonKey: SUPABASE_ANON_KEY,
 };
 
@@ -99,7 +100,7 @@ delete process.env[LEGACY_PROVIDER_ENV];
 // ── Bootstrap ──
 
 const cache = new Cache(CACHE_DIR);
-const diaryRelayOutbox = new DiaryRelayOutbox(CACHE_DIR);
+const diaryRelayOutbox = new DiaryRelayOutbox(CACHE_DIR, { trustedSupabaseOrigin: SUPABASE_ORIGIN });
 const app = express();
 
 app.use(
@@ -149,7 +150,7 @@ app.get('/api/admin/status', requireUnsafeAdmin, (_req, res) => {
         config: {
             port: PORT,
             cacheDir: CACHE_DIR,
-            supabaseConfigured: !!SUPABASE_URL,
+            supabaseConfigured: !!SUPABASE_ANON_KEY,
             prefetchConfigured: !!(process.env.PREFETCH_LAT && process.env.PREFETCH_LON),
             prefetchLat: process.env.PREFETCH_LAT || null,
             prefetchLon: process.env.PREFETCH_LON || null,
@@ -255,7 +256,17 @@ function applyDiaryRelayConfiguration(body: Record<string, unknown>): void {
 
 app.post('/api/configure', requireUnsafeAdmin, (req, res) => {
     const requestBody = configurationBody(req.body);
+    const { supabaseUrl, supabaseAnonKey, prefetchLat, prefetchLon, prefetchRadius, userId } = requestBody;
     try {
+        // The phone may confirm which backend it was built for, but HTTP input
+        // can never replace the process-startup Supabase authority.
+        assertSupabaseOriginAssertion(supabaseUrl, SUPABASE_ORIGIN);
+        if (
+            supabaseAnonKey !== undefined &&
+            (typeof supabaseAnonKey !== 'string' || supabaseAnonKey.length > 8_192 || /[\r\n]/.test(supabaseAnonKey))
+        ) {
+            throw new Error('supabaseAnonKey must be a bounded single-line string');
+        }
         // Validate and persist Pi-private relay configuration before changing
         // the rest of the server settings, so an invalid relay cannot leave a
         // half-applied configuration request behind.
@@ -265,12 +276,9 @@ app.post('/api/configure', requireUnsafeAdmin, (req, res) => {
         return res.status(400).json({ status: 'error', error: message });
     }
 
-    const { supabaseUrl, supabaseAnonKey, prefetchLat, prefetchLon, prefetchRadius, userId } = requestBody;
-
-    // Update in-memory values if provided (empty strings = keep existing)
-    if (typeof supabaseUrl === 'string' && supabaseUrl) SUPABASE_URL = supabaseUrl;
+    // Update mutable in-memory values if provided (empty strings = keep existing).
+    // Supabase authority is intentionally absent: it is immutable after boot.
     if (typeof supabaseAnonKey === 'string' && supabaseAnonKey) SUPABASE_ANON_KEY = supabaseAnonKey;
-    proxyConfig.supabaseUrl = SUPABASE_URL;
     proxyConfig.supabaseAnonKey = SUPABASE_ANON_KEY;
 
     if (userId) process.env.PREFETCH_USER_ID = String(userId);
@@ -288,7 +296,7 @@ app.post('/api/configure', requireUnsafeAdmin, (req, res) => {
         `PORT=${PORT}`,
         `CACHE_DIR=${CACHE_DIR}`,
     ];
-    if (SUPABASE_URL) envLines.push(`SUPABASE_URL=${SUPABASE_URL}`);
+    envLines.push(`SUPABASE_URL=${SUPABASE_ORIGIN}`);
     if (SUPABASE_ANON_KEY) envLines.push(`SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}`);
     if (process.env.PREFETCH_USER_ID) envLines.push(`PREFETCH_USER_ID=${process.env.PREFETCH_USER_ID}`);
     if (process.env.PREFETCH_LAT) {
@@ -417,7 +425,7 @@ server.listen(PORT, BIND_HOST, () => {
     console.log(`   Admin API:  ${UNSAFE_ADMIN_API_ENABLED ? 'UNSAFE DEVELOPMENT OPT-IN ENABLED' : 'disabled'}`);
     console.log(`   CORS:       ${CORS_ORIGINS.size > 0 ? [...CORS_ORIGINS].join(', ') : 'same-origin only'}\n`);
 
-    if (UNSAFE_ADMIN_API_ENABLED && SUPABASE_URL) {
+    if (UNSAFE_ADMIN_API_ENABLED && SUPABASE_ANON_KEY) {
         startScheduler(cache, proxyConfig);
     }
 

@@ -4,6 +4,9 @@
     "description": "Thalassa Pi Cache — local weather/tile/GRIB proxy for Raspberry Pi",
     "type": "module",
     "main": "dist/server.js",
+    "engines": {
+        "node": ">=20.18.1"
+    },
     "scripts": {
         "dev": "tsx watch src/server.ts",
         "build": "tsc",

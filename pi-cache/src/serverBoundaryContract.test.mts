@@ -3,6 +3,11 @@ import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 
 const source = readFileSync(new URL('./server.ts', import.meta.url), 'utf8');
+const proxySource = readFileSync(new URL('./proxy.ts', import.meta.url), 'utf8');
+const encRouteSource = readFileSync(new URL('./routes/enc.ts', import.meta.url), 'utf8');
+const chartRouteSource = readFileSync(new URL('./routes/charts.ts', import.meta.url), 'utf8');
+const diaryRelaySource = readFileSync(new URL('./diaryRelayOutbox.ts', import.meta.url), 'utf8');
+const osmServiceSource = readFileSync(new URL('./services/osm.ts', import.meta.url), 'utf8');
 
 test('server binds through the loopback-default policy and restricts CORS', () => {
     assert.match(source, /server\.listen\(PORT, BIND_HOST/);
@@ -55,4 +60,53 @@ test('public status is built only from the redacted payload helper', () => {
     const statusBlock = source.slice(statusStart, nextRoute);
     assert.match(statusBlock, /publicStatusPayload/);
     assert.doesNotMatch(statusBlock, /PREFETCH_|ownerId|diaryRelay|cacheDir/);
+});
+
+test('all user-directed upstream requests cross the pinned outbound policy', () => {
+    for (const [name, routeSource] of [
+        ['ENC', encRouteSource],
+        ['chart', chartRouteSource],
+    ] as const) {
+        assert.match(routeSource, /outboundFetch/);
+        assert.doesNotMatch(routeSource, /\bfetch\s*\(/, `${name} route retained a direct fetch sink`);
+    }
+    assert.match(proxySource, /import \{ outboundFetch \}/);
+    assert.doesNotMatch(proxySource, /\bfetch\s*\(/, 'generic proxy retained a direct fetch sink');
+    assert.match(osmServiceSource, /outboundFetch\(OVERPASS_URL/);
+    assert.doesNotMatch(osmServiceSource, /\bfetch\s*\(/, 'Overpass retained a direct fetch sink');
+});
+
+test('HTTP configuration may assert but never mutate or persist a new Supabase authority', () => {
+    assert.match(source, /const SUPABASE_ORIGIN = resolveTrustedSupabaseOrigin\(process\.env\.SUPABASE_URL\)/);
+    assert.match(source, /assertSupabaseOriginAssertion\(supabaseUrl, SUPABASE_ORIGIN\)/);
+    assert.doesNotMatch(source, /proxyConfig\.supabaseUrl\s*=/);
+    assert.equal(source.match(/SUPABASE_ORIGIN\s*=/g)?.length, 1, 'the startup trust anchor became mutable');
+    assert.match(source, /envLines\.push\(`SUPABASE_URL=\$\{SUPABASE_ORIGIN\}`\)/);
+
+    const routeStart = source.indexOf("app.post('/api/configure'");
+    const routeEnd = source.indexOf("app.post('/cache/purge'", routeStart);
+    const configureRoute = source.slice(routeStart, routeEnd);
+    assert.ok(
+        configureRoute.indexOf('assertSupabaseOriginAssertion') <
+            configureRoute.indexOf('applyDiaryRelayConfiguration'),
+        'origin validation must precede every persisted/mutable configuration side effect',
+    );
+});
+
+test('diary relay endpoint and production transport inherit the startup Supabase trust anchor', () => {
+    assert.match(source, /new DiaryRelayOutbox\(CACHE_DIR, \{ trustedSupabaseOrigin: SUPABASE_ORIGIN \}\)/);
+    assert.match(diaryRelaySource, /parsed\.href !== trustedRelayEndpoint/);
+    assert.match(diaryRelaySource, /this\.fetchImpl\s*=\s*options\.fetchImpl \?\?/);
+    assert.match(diaryRelaySource, /outboundFetch\(url,/);
+    assert.doesNotMatch(diaryRelaySource, /\bfetch\s*\(/, 'diary relay retained a direct global fetch sink');
+
+    const migration = diaryRelaySource.indexOf('this.invalidateUntrustedPersistedRelayUrls()');
+    const startupSweep = diaryRelaySource.indexOf('queueMicrotask');
+    assert.ok(migration > 0 && migration < startupSweep, 'legacy relay URLs must be invalidated before startup I/O');
+    for (const table of ['diary_relay_config', 'diary_relay_outbox', 'diary_relay_cancellations']) {
+        assert.match(
+            diaryRelaySource.slice(diaryRelaySource.indexOf('private invalidateUntrustedPersistedRelayUrls')),
+            new RegExp(`UPDATE ${table}`),
+        );
+    }
 });

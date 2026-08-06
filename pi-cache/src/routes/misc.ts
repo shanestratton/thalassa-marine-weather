@@ -14,7 +14,7 @@
 
 import { Router, Request, Response } from 'express';
 import { Cache } from '../cache.js';
-import { ProxyConfig, cachedJsonFetch, supabaseEdgeUrl, supabaseHeaders } from '../proxy.js';
+import { ProxyConfig, cachedJsonFetch, isSupabaseFunctionName, supabaseEdgeUrl, supabaseHeaders } from '../proxy.js';
 import { TTL } from '../scheduler.js';
 
 export function createMiscRoutes(cache: Cache, config: ProxyConfig): Router {
@@ -111,10 +111,13 @@ export function createMiscRoutes(cache: Cache, config: ProxyConfig): Router {
     router.get('/buoys/:stationId', async (req: Request, res: Response) => {
         try {
             const { stationId } = req.params;
+            if (typeof stationId !== 'string' || !/^[A-Za-z0-9_-]{1,16}$/.test(stationId)) {
+                return res.status(400).json({ error: 'Unsupported buoy station id' });
+            }
             const key = `buoys:station:${stationId}`;
 
             // NDBC direct — no API key needed
-            const url = `https://www.ndbc.noaa.gov/data/realtime2/${stationId}.txt`;
+            const url = `https://www.ndbc.noaa.gov/data/realtime2/${encodeURIComponent(stationId)}.txt`;
 
             const result = await cachedJsonFetch(cache, {
                 cacheKey: key,
@@ -239,6 +242,9 @@ export function createMiscRoutes(cache: Cache, config: ProxyConfig): Router {
     router.get('/proxy/:functionName', async (req: Request, res: Response) => {
         try {
             const functionName = String(req.params.functionName);
+            if (!isSupabaseFunctionName(functionName)) {
+                return res.status(400).json({ error: 'Unsupported Supabase function name' });
+            }
             // Flatten query params to strings (Express query params can be string | string[])
             const params: Record<string, string> = {};
             for (const [k, v] of Object.entries(req.query)) {
