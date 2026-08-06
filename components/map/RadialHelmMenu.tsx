@@ -196,18 +196,13 @@ function buildCategories(
     // ─────────────────────────────────────────────────────────────────
 
     // ── Threat-critical (top of the fan) ──
-    // MOB also remains first inside the tactical menu as a redundant route.
-    // The always-visible red button beside the helm below is the primary,
-    // one-tap chart affordance; emergency access must not depend on opening
-    // and navigating a layer menu.
-    if (tacticalState?.onOpenMob) {
-        tactical.push({
-            id: 'mob',
-            label: 'MOB',
-            icon: <MobIcon />,
-            action: tacticalState.onOpenMob,
-        });
-    }
+    // MOB is deliberately NOT in this list (Shane 2026-08-07: "it already has
+    // a dedicated button on the obs page"). The always-visible red button
+    // beside the helm below is the primary one-tap affordance, and it is
+    // always on screen — a duplicate two taps deep inside a layer menu added
+    // no reachability, only the risk of a skipper hunting the wrong one in an
+    // emergency. Everything else in this fan is a LAYER TOGGLE; MOB was the
+    // only navigation action among them, which is why it read as out of place.
     if (tacticalState?.onToggleLightning) {
         tactical.push({
             id: 'lightning',
@@ -739,7 +734,9 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
     const isItemActive = useCallback(
         (item: HelmMenuItem): boolean => {
             if (item.layerKey) return activeLayers.has(item.layerKey);
-            if (item.id === 'mob') return tacticalState?.mobActive ?? false;
+            // No 'mob' branch — MOB is not a menu item any more, only the
+            // always-visible button, which reads tacticalState.mobActive
+            // directly for its pulse.
             if (item.id === 'ais') return tacticalState?.aisVisible ?? false;
             if (item.id === 'cyclones') return tacticalState?.cycloneVisible ?? false;
             if (item.id === 'squall') return tacticalState?.squallVisible ?? false;

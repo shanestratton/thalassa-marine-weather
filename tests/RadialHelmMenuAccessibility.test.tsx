@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { RadialHelmMenu } from '../components/map/RadialHelmMenu';
 import type { WeatherLayer } from '../components/map/mapConstants';
@@ -39,6 +39,35 @@ describe('RadialHelmMenu accessibility', () => {
         );
 
         expect(screen.getByRole('button', { name: 'Open active Man Overboard emergency' })).toBeInTheDocument();
+    });
+
+    it('does NOT duplicate MOB inside the layer menu', async () => {
+        // Removed 2026-08-07 (Shane: "it already has a dedicated button on the
+        // obs page"). The always-visible button above is the emergency
+        // affordance; a second copy two taps deep added no reachability and
+        // risked a skipper hunting the wrong one. Everything else in this fan
+        // is a layer toggle — MOB was the only navigation action among them.
+        const onOpenMob = vi.fn();
+        render(
+            <RadialHelmMenu
+                activeLayers={new Set<WeatherLayer>()}
+                toggleLayer={vi.fn()}
+                selectInGroup={vi.fn()}
+                tacticalState={{ onOpenMob, onToggleLightning: vi.fn() }}
+            />,
+        );
+
+        // Drill into the Tactical category — MOB lived in that SUBMENU, not
+        // the top tier. Asserting against tier 1 would pass trivially even
+        // with MOB restored, which is exactly what an unverified regression
+        // test looks like.
+        fireEvent.click(screen.getByRole('button', { name: 'Open layer menu' }));
+        fireEvent.click(await screen.findByRole('menuitem', { name: /Tactical/i }));
+        const tacticalMenu = await screen.findByRole('menu', { name: /Tactical/i });
+        expect(within(tacticalMenu).queryByText('MOB')).not.toBeInTheDocument();
+        // The dedicated button must still be there, and still work.
+        fireEvent.click(screen.getByRole('button', { name: 'Open Man Overboard emergency' }));
+        expect(onOpenMob).toHaveBeenCalledOnce();
     });
 
     it('navigates both menu tiers and restores the helm trigger', async () => {
