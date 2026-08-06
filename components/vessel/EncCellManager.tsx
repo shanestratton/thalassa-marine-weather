@@ -445,8 +445,12 @@ export const EncCellManager: React.FC = () => {
                     sizeBytes: c.sizeBytes,
                 })),
             );
-        } catch {
+        } catch (err) {
+            // Surface it. An empty list and a broken list used to look
+            // identical here, which is exactly how a rejected chart index hid
+            // for a day behind "no cells imported yet".
             setPiCellsSummary(null);
+            setError(err instanceof Error ? err.message : String(err));
         } finally {
             setPiListBusy(false);
         }
