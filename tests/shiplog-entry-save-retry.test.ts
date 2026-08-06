@@ -43,11 +43,16 @@ vi.mock('../services/supabase', () => ({
     },
 }));
 
-vi.mock('@capacitor/core', () => ({
-    Capacitor: {
-        isNativePlatform: () => true,
-    },
-}));
+vi.mock('@capacitor/core', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('@capacitor/core')>();
+    return {
+        ...actual,
+        Capacitor: {
+            ...actual.Capacitor,
+            isNativePlatform: () => true,
+        },
+    };
+});
 
 vi.mock('../services/BgGeoManager', () => ({
     BgGeoManager: {

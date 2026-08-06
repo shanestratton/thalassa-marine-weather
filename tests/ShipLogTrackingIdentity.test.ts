@@ -107,9 +107,16 @@ vi.mock('@capacitor/preferences', () => ({
     },
 }));
 
-vi.mock('@capacitor/core', () => ({
-    Capacitor: { isNativePlatform: () => true },
-}));
+vi.mock('@capacitor/core', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('@capacitor/core')>();
+    return {
+        ...actual,
+        Capacitor: {
+            ...actual.Capacitor,
+            isNativePlatform: () => true,
+        },
+    };
+});
 vi.mock('../services/piTls', () => ({
     piRequest: async () => ({ status: 599, headers: {}, data: '', peerSpki: '' }),
     piPairingFetch: async () => ({ status: 599, headers: {}, data: '', peerSpki: '' }),
