@@ -97,10 +97,33 @@ function spkiOf(keyPem: string): string {
 }
 
 /**
+ * The names an existing certificate must already cover, in the vocabulary
+ * X509Certificate.subjectAltName actually uses.
+ *
+ * openssl is TOLD `IP:127.0.0.1`; Node reads that back as
+ * `IP Address:127.0.0.1`. Comparing the request form against the read-back
+ * form never matches, which silently re-issued the certificate on EVERY boot —
+ * caught on Calypso 2026-08-06 by two restarts producing two different cert
+ * fingerprints from one unchanged key. Harmless to pinning (the key is what is
+ * pinned, and that never moves) but it made the reuse path dead code.
+ *
+ * IPv6 is deliberately excluded from the comparison. Node expands and
+ * upper-cases it (`FE80:0:0:0:8AA2:...`) where the interface reports
+ * `fe80::8aa2:...`, and link-local addresses churn on their own; requiring
+ * them would reintroduce the same always-reissue behaviour by a subtler route.
+ * They are still PUT in the certificate — just not used to judge staleness.
+ */
+function requiredSanEntries(sans: string[]): string[] {
+    return sans
+        .filter((san) => san.startsWith('DNS:') || (san.startsWith('IP:') && san.includes('.')))
+        .map((san) => san.replace(/^IP:/, 'IP Address:'));
+}
+
+/**
  * True when the existing certificate still covers this Pi: same key, not near
- * expiry, and every address it currently answers on is still named. The last
- * check is what makes a DHCP move self-healing rather than a silent breakage
- * for laptop browsers.
+ * expiry, and every name/IPv4 it currently answers on is still present. The
+ * last check is what makes a DHCP move self-healing rather than a silent
+ * breakage for laptop browsers.
  */
 function certStillFits(certPem: string, expectedSpki: string, wanted: string[]): boolean {
     try {
@@ -108,7 +131,7 @@ function certStillFits(certPem: string, expectedSpki: string, wanted: string[]):
         if (cert.publicKey.export({ type: 'spki', format: 'der' }).toString('base64') !== expectedSpki) return false;
         if (new Date(cert.validTo).getTime() - Date.now() < REISSUE_WITHIN_MS) return false;
         const present = new Set((cert.subjectAltName ?? '').split(/,\s*/).map((s) => s.trim()));
-        return wanted.every((san) => present.has(san));
+        return requiredSanEntries(wanted).every((san) => present.has(san));
     } catch {
         return false;
     }

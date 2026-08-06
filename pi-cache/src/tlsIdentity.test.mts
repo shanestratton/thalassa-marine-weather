@@ -59,6 +59,20 @@ test('the certificate is a server cert with names for browsers on the boat LAN',
     assert.ok(new Date(cert.validTo).getTime() - Date.now() > 5 * 365 * 24 * 3600 * 1000);
 });
 
+test('an unchanged Pi reuses its certificate instead of re-issuing every boot', () => {
+    // Regression: openssl is told `IP:127.0.0.1` but Node reads it back as
+    // `IP Address:127.0.0.1`, so the staleness check never matched and every
+    // restart minted a new certificate. Pinning was unaffected (the key is
+    // what is pinned), but the reuse path was dead. Caught on real hardware —
+    // two restarts, two cert fingerprints, one unchanged key.
+    const { dir, tls } = freshPi();
+    const second = ensureIdentityTls(dir, readIdentityPrivateKeyPem(dir));
+    const third = ensureIdentityTls(dir, readIdentityPrivateKeyPem(dir));
+
+    assert.equal(second.certPem, tls.certPem, 'certificate should be reused across restarts');
+    assert.equal(third.certFingerprint, tls.certFingerprint);
+});
+
 test('a reissue keeps the same key, so pins survive it', () => {
     const { dir, identity, tls } = freshPi();
     const first = readFileSync(join(dir, 'identity-cert.pem'), 'utf8');
