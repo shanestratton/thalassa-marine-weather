@@ -28,6 +28,7 @@ describe('committed public-beta feature profile', () => {
             VITE_CMEMS_MLD_ENABLED: false,
             VITE_MPA_ENABLED: true,
             VITE_APPLE_SIGN_IN_ENABLED: false,
+            VITE_APPLE_WATCH_ENABLED: false,
             VITE_GOOGLE_SIGN_IN_ENABLED: false,
             VITE_ACCOUNT_DELETION_ENABLED: false,
             VITE_GRANT_ALL_FEATURES: false,
@@ -41,6 +42,7 @@ describe('committed public-beta feature profile', () => {
         });
         expect(profile.heldCapabilities).toEqual([
             'apple-sign-in',
+            'apple-watch-bridge',
             'account-deletion',
             'gmail',
             'grant-all-features',

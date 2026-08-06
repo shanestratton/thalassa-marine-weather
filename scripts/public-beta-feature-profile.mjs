@@ -14,6 +14,7 @@ export const PUBLIC_BETA_FEATURE_FLAG_KEYS = Object.freeze([
     'VITE_CMEMS_MLD_ENABLED',
     'VITE_MPA_ENABLED',
     'VITE_APPLE_SIGN_IN_ENABLED',
+    'VITE_APPLE_WATCH_ENABLED',
     'VITE_GOOGLE_SIGN_IN_ENABLED',
     'VITE_ACCOUNT_DELETION_ENABLED',
     'VITE_GRANT_ALL_FEATURES',
@@ -29,6 +30,7 @@ export const PUBLIC_BETA_ENDPOINT_KEYS = Object.freeze([
 
 export const PUBLIC_BETA_HELD_CAPABILITIES = Object.freeze([
     'apple-sign-in',
+    'apple-watch-bridge',
     'account-deletion',
     'gmail',
     'grant-all-features',

@@ -158,9 +158,10 @@ if (typeof document !== 'undefined') {
     document.addEventListener('gestureend', blockPageZoom, { passive: false });
 }
 
-// Wire Apple Watch reverse-direction events (MOB trigger, alarm ack)
-// and the weather snapshot push pipeline only on the native shell.
-if (Capacitor.isNativePlatform()) {
+// The Watch app is shelved for this public beta. Keep its reverse-direction
+// listener graph out of the iPhone artifact until the dedicated target is
+// independently restored and verified.
+if (import.meta.env.VITE_APPLE_WATCH_ENABLED === 'true' && Capacitor.isNativePlatform()) {
     void import('./services/native/watchBridgeListeners')
         .then(({ initWatchBridgeListeners }) => initWatchBridgeListeners())
         .catch((e) => {

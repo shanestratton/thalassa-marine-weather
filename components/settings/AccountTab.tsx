@@ -10,12 +10,23 @@ import { useThalassa } from '../../context/ThalassaContext';
 import { checkStormglassStatus, isStormglassKeyPresent } from '../../services/weather/keys';
 import { isGeminiConfigured } from '../../services/geminiService';
 import { isSupabaseConfigured } from '../../services/supabase';
-import { DeleteAccountDialog } from './DeleteAccountDialog';
 import {
     ACCOUNT_DELETION_PRIVACY_EMAIL,
     ACCOUNT_DELETION_PRIVACY_MAILTO,
     ACCOUNT_DELETION_PUBLIC_BETA_ENABLED,
 } from '../../services/accountDeletionPublicBetaBoundary';
+
+// Keep the unfinished destructive flow out of held public-beta artifacts. The
+// direct env check lets Vite/Rollup remove the dynamic import entirely when the
+// release profile is false, while preserving the implementation for a later
+// reviewed re-enable.
+const DeleteAccountDialog =
+    import.meta.env.VITE_ACCOUNT_DELETION_ENABLED === 'true'
+        ? React.lazy(async () => {
+              const module = await import('./DeleteAccountDialog');
+              return { default: module.DeleteAccountDialog };
+          })
+        : null;
 
 const isMapboxConfigured = () => {
     const envKey = process.env?.MAPBOX_ACCESS_TOKEN || (import.meta.env && import.meta.env.VITE_MAPBOX_ACCESS_TOKEN);
@@ -127,30 +138,32 @@ export const AccountTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => 
                 onClose={() => setAuthOpen(false)}
                 prompt="Sign in to sync your vessel, voyages, and crew across devices."
             />
-            {ACCOUNT_DELETION_PUBLIC_BETA_ENABLED && (
-                <DeleteAccountDialog
-                    isOpen={deleteAccountOpen}
-                    accountLabel={user?.email || user?.phone}
-                    onClose={() => setDeleteAccountOpen(false)}
-                    onDeleted={(result) => {
-                        setDeleteAccountOpen(false);
-                        setDeletionNotice(
-                            [
-                                result.localCleanupComplete
-                                    ? 'Your account and synced data were permanently deleted.'
-                                    : 'Your cloud account was deleted. Some unreachable device cache could not be removed; reinstall Thalassa to clear it completely.',
-                                result.appleRevocationRequired
-                                    ? 'To remove the remaining Apple authorisation, open iOS Settings → your name → Sign in with Apple → Thalassa → Delete.'
-                                    : '',
-                                result.serverFinalizationPending
-                                    ? 'Your sign-in was deleted, but the minimal server deletion receipt still needs an operational checkpoint; contact privacy@thalassa.app if this notice persists.'
-                                    : '',
-                            ]
-                                .filter(Boolean)
-                                .join(' '),
-                        );
-                    }}
-                />
+            {ACCOUNT_DELETION_PUBLIC_BETA_ENABLED && DeleteAccountDialog && (
+                <React.Suspense fallback={null}>
+                    <DeleteAccountDialog
+                        isOpen={deleteAccountOpen}
+                        accountLabel={user?.email || user?.phone}
+                        onClose={() => setDeleteAccountOpen(false)}
+                        onDeleted={(result) => {
+                            setDeleteAccountOpen(false);
+                            setDeletionNotice(
+                                [
+                                    result.localCleanupComplete
+                                        ? 'Your account and synced data were permanently deleted.'
+                                        : 'Your cloud account was deleted. Some unreachable device cache could not be removed; reinstall Thalassa to clear it completely.',
+                                    result.appleRevocationRequired
+                                        ? 'To remove the remaining Apple authorisation, open iOS Settings → your name → Sign in with Apple → Thalassa → Delete.'
+                                        : '',
+                                    result.serverFinalizationPending
+                                        ? 'Your sign-in was deleted, but the minimal server deletion receipt still needs an operational checkpoint; contact privacy@thalassa.app if this notice persists.'
+                                        : '',
+                                ]
+                                    .filter(Boolean)
+                                    .join(' '),
+                            );
+                        }}
+                    />
+                </React.Suspense>
             )}
 
             {deletionNotice && (
