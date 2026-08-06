@@ -3,9 +3,16 @@ import { Preferences } from '@capacitor/preferences';
 import { createLogger } from '../utils/createLogger';
 import { boundedLocalQuarantine, isEmptyLocalValue, removeLocalValuesOwnedBy } from '../utils/localPrivacyRetention';
 import { useAuthStore } from '../stores/authStore';
-import { getAuthIdentityScope, isAuthIdentityScopeCurrent, setAuthIdentityScope } from './authIdentityScope';
+import {
+    authScopedStorageKey,
+    getAuthIdentityScope,
+    isAuthIdentityScopeCurrent,
+    setAuthIdentityScope,
+    type AuthIdentityScope,
+} from './authIdentityScope';
 import { clearBoundAppleCredential } from './auth/appleCredentialState';
 import { deleteAudio, deletePhoto, isIdbAudio, isIdbPhoto } from './diaryPhotoStore';
+import { DATA_CACHE_KEY, deleteLargeData, HISTORY_CACHE_KEY, VOYAGE_CACHE_KEY } from './nativeStorage';
 import { PushNotificationService } from './PushNotificationService';
 import { setUser as setSentryUser } from './sentry';
 import { supabase } from './supabase';
@@ -30,6 +37,15 @@ const LEGACY_BROWSER_OWNED_JSON_KEYS = [
     'thalassa_diary_idmap_v1',
 ] as const;
 const BROWSER_QUARANTINE_KEYS = ['thalassa_settings_mirror_quarantine_v2', 'thalassa_diary_quarantine_v1'] as const;
+const GLOBAL_POINT_WEATHER_CACHE_PREFIX = 'marine_weather_cache_';
+const RETIRED_LAST_MARINE_REPORT_KEY = 'last_marine_report';
+const SCOPED_NATIVE_WEATHER_CACHE_BASE_KEYS = [
+    DATA_CACHE_KEY,
+    VOYAGE_CACHE_KEY,
+    HISTORY_CACHE_KEY,
+    'thalassa_next_update',
+    'thalassa_weather_cache_schema',
+] as const;
 
 /** Historical native Preferences keys retained only for owner-safe migration. */
 const LEGACY_NATIVE_OWNED_JSON_KEYS = [
@@ -62,6 +78,9 @@ export interface AccountDeletionResult {
     localCleanupComplete: boolean;
     /** Apple token was not retained, so Apple documents manual consent removal. */
     appleRevocationRequired: boolean;
+    /** Auth deletion succeeded but the minimal server tombstone needs an
+     * operational repair checkpoint. Local identity cleanup must still run. */
+    serverFinalizationPending?: boolean;
 }
 
 function collectMediaReferences(value: string | null | undefined, references: Set<string>): void {
@@ -88,6 +107,30 @@ function purgeWebStorage(storage: Storage | undefined, suffix: string, reference
     } catch (error) {
         throw new Error(`Could not clear browser account data: ${String(error)}`);
     }
+}
+
+/** Coordinate weather caches are deliberately global, so a user suffix is
+ * not sufficient evidence for retaining them after successful deletion. */
+function purgeGlobalPointWeatherCaches(storage: Storage | undefined): void {
+    if (!storage) return;
+    try {
+        const matchingKeys: string[] = [];
+        for (let index = 0; index < storage.length; index += 1) {
+            const key = storage.key(index);
+            if (key && (key.startsWith(GLOBAL_POINT_WEATHER_CACHE_PREFIX) || key === RETIRED_LAST_MARINE_REPORT_KEY)) {
+                matchingKeys.push(key);
+            }
+        }
+        for (const key of matchingKeys) storage.removeItem(key);
+    } catch (error) {
+        throw new Error(`Could not clear global point weather caches: ${String(error)}`);
+    }
+}
+
+async function purgeScopedNativeWeatherCaches(scope: AuthIdentityScope): Promise<void> {
+    await Promise.all(
+        SCOPED_NATIVE_WEATHER_CACHE_BASE_KEYS.map((baseKey) => deleteLargeData(authScopedStorageKey(baseKey, scope))),
+    );
 }
 
 async function purgeNativePreferences(suffix: string, references: Set<string>): Promise<void> {
@@ -210,8 +253,17 @@ export async function deleteCurrentAccount(confirmation: string): Promise<Accoun
     const { data, error } = await supabase.functions.invoke('delete-account', {
         body: { confirmation: ACCOUNT_DELETION_CONFIRMATION },
     });
+    if (data?.deletionInProgress === true) {
+        throw new Error(
+            typeof data.message === 'string'
+                ? data.message
+                : 'Account deletion is safely in progress. Some data may already be removed; retry to continue.',
+        );
+    }
     if (error || data?.deleted !== true) {
-        throw new Error('Account deletion could not be completed. Check your connection and try again.');
+        throw new Error(
+            'Account deletion could not be confirmed complete. If it started, some data may already be removed and the account is write-fenced. Check your connection and retry safely.',
+        );
     }
     // The server knows whether it successfully revoked a retained refresh
     // token. The provider fallback preserves the manual TN3194 instruction
@@ -242,6 +294,8 @@ export async function deleteCurrentAccount(confirmation: string): Promise<Accoun
     try {
         purgeWebStorage(typeof localStorage === 'undefined' ? undefined : localStorage, suffix, references);
         purgeWebStorage(typeof sessionStorage === 'undefined' ? undefined : sessionStorage, suffix, references);
+        purgeGlobalPointWeatherCaches(typeof localStorage === 'undefined' ? undefined : localStorage);
+        purgeGlobalPointWeatherCaches(typeof sessionStorage === 'undefined' ? undefined : sessionStorage);
         purgeLegacyBrowserValues(typeof localStorage === 'undefined' ? undefined : localStorage, userId, references);
         purgeLegacyBrowserValues(
             typeof sessionStorage === 'undefined' ? undefined : sessionStorage,
@@ -250,6 +304,7 @@ export async function deleteCurrentAccount(confirmation: string): Promise<Accoun
         );
         await purgeNativePreferences(suffix, references);
         await purgeLegacyNativeValues(userId, references);
+        await purgeScopedNativeWeatherCaches(deletionScope);
         const databaseReferences = await purgeLocalDatabaseForUser(userId);
         databaseReferences.forEach((reference) => references.add(reference));
         await purgeReferencedMedia(references);
@@ -279,5 +334,10 @@ export async function deleteCurrentAccount(confirmation: string): Promise<Accoun
         useAuthStore.setState({ user: null, authChecked: true });
     }
 
-    return { deleted: true, localCleanupComplete, appleRevocationRequired };
+    return {
+        deleted: true,
+        localCleanupComplete,
+        appleRevocationRequired,
+        ...(data.serverFinalizationPending === true ? { serverFinalizationPending: true } : {}),
+    };
 }

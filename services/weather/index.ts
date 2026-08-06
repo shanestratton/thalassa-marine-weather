@@ -122,7 +122,10 @@ export const fetchWeatherByStrategy = async (
     name: string,
     locationType?: 'inshore' | 'coastal' | 'offshore' | 'inland',
 ): Promise<MarineWeatherReport> => {
-    const dedupKey = `${lat.toFixed(2)},${lon.toFixed(2)}`;
+    // Coalesce only metre-scale GPS jitter. The former 0.01° identity could
+    // hand one caller another point's full weather/tide report kilometres
+    // away while the first request was in flight.
+    const dedupKey = `${lat.toFixed(4)},${lon.toFixed(4)}`;
     const existing = _inflight.get(dedupKey);
     if (existing) return existing;
 
@@ -372,7 +375,7 @@ const _fetchWeatherByStrategyImpl = async (
         report = openMeteoReport;
     } else {
         // All APIs failed — try offline cache as last resort
-        const offlineResult = getFromCacheOffline(name);
+        const offlineResult = getFromCacheOffline({ lat, lon });
         if (offlineResult) {
             const staleReport = offlineResult.data;
             staleReport._stale = true;
@@ -686,7 +689,7 @@ const _fetchWeatherByStrategyImpl = async (
         log.warn('shelter damping skipped:', (e as Error)?.message || e);
     }
 
-    saveToCache(name, report);
+    saveToCache({ lat, lon }, report);
     return report;
 };
 
@@ -742,7 +745,7 @@ export const fetchFastWeather = async (
 
     try {
         const data = await Promise.race([fetchOpenMeteo(lat, lon, name, true, model), timeoutPromise]);
-        saveToCache(name, data);
+        saveToCache({ lat, lon }, data);
         return data;
     } catch (e: unknown) {
         throw e;
@@ -784,7 +787,7 @@ export const fetchPrecisionWeather = async (
     }
 
     if (!forceRefresh) {
-        const cached = getFromCache(name);
+        const cached = getFromCache({ lat, lon });
         if (cached && cached.modelUsed.includes('sg') && cached.utcOffset !== undefined) {
             return cached;
         }
@@ -792,7 +795,7 @@ export const fetchPrecisionWeather = async (
 
     try {
         const data = await fetchStormGlassWeather(lat, lon, name, existingLocationType);
-        saveToCache(name, data);
+        saveToCache({ lat, lon }, data);
         return data;
     } catch (e) {
         throw e;

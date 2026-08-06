@@ -430,6 +430,30 @@ export function isSupabaseFunctionName(value: string): boolean {
     return /^[a-z0-9][a-z0-9_-]{0,62}$/.test(value);
 }
 
+const MAX_GENERIC_PROXY_QUERY_PARAMETERS = 32;
+const MAX_GENERIC_PROXY_QUERY_VALUE_LENGTH = 2_048;
+
+/**
+ * Bound and flatten Express query input without assigning attacker-controlled
+ * property names onto a normal object (`__proto__` must stay ordinary data).
+ */
+export function normalizeSupabaseProxyQuery(query: Record<string, unknown>): Record<string, string> {
+    const entries = Object.entries(query);
+    if (entries.length > MAX_GENERIC_PROXY_QUERY_PARAMETERS) {
+        throw new Error('Too many generic proxy query parameters');
+    }
+
+    const normalized = entries.map(([key, raw]) => {
+        if (!/^[A-Za-z0-9_.-]{1,64}$/.test(key)) throw new Error('Unsupported generic proxy query parameter');
+        const value = Array.isArray(raw) ? raw[0] : raw;
+        if (typeof value !== 'string' || value.length > MAX_GENERIC_PROXY_QUERY_VALUE_LENGTH) {
+            throw new Error('Unsupported generic proxy query value');
+        }
+        return [key, value] as const;
+    });
+    return Object.fromEntries(normalized);
+}
+
 /**
  * Default headers for Supabase Edge Function requests.
  */

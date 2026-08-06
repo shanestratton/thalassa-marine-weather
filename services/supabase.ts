@@ -3,29 +3,39 @@ import { Preferences } from '@capacitor/preferences';
 
 import { createLogger } from '../utils/createLogger';
 import { getAuthIdentityScope, isAuthIdentityScopeCurrent, type AuthIdentityScope } from './authIdentityScope';
+import {
+    getSecureValue,
+    removeSecureValue,
+    SECURE_AUTH_STORAGE_KEYS,
+    setSecureValue,
+    usesNativeSecureStorage,
+} from './auth/secureStorage';
 
 const log = createLogger('supabase');
 
 /**
- * Capacitor-Preferences-backed storage adapter for Supabase auth.
+ * Keychain-backed storage adapter for Supabase auth on iOS.
  *
  * Why: the default `window.localStorage` is evictable on iOS WKWebView
  * — under storage pressure, after ~7 days of app inactivity, or when
  * the user clears Safari data — which silently signs the user out.
- * Capacitor Preferences proxies to native iOS UserDefaults (and
- * Android SharedPreferences) which survive all of those.
+ * The native plugin uses this-device-only Keychain storage. Legacy
+ * Capacitor Preferences (UserDefaults) and localStorage copies are migrated
+ * once, read-verified, and retired; an iOS Keychain failure never falls back
+ * to a plaintext bearer-token store.
  *
  * Supabase calls these synchronously-styled but actually awaits the
  * returned promises internally. Returning a Promise from getItem /
  * setItem / removeItem is the correct shape per
  * @supabase/supabase-js's `SupportedStorage` interface.
  *
- * Web fallback: when Preferences isn't installed (browser dev), we
- * fall back to localStorage transparently — same behaviour as before
- * the swap.
+ * Web builds retain localStorage because no native Keychain exists there.
  */
 let authStorageQueue: Promise<void> = Promise.resolve();
 const authStorageCache = new Map<string, string | null>();
+const SECURE_AUTH_INSTALL_MARKER_KEY = 'thalassa-secure-auth-install-v1';
+const SECURE_AUTH_INSTALL_MARKER_VALUE = 'keychain-boundary-ready';
+let secureAuthInstallBoundaryReady = false;
 
 function enqueueAuthStorageMutation(operation: () => Promise<void>): Promise<void> {
     const result = authStorageQueue.then(operation, operation);
@@ -33,12 +43,52 @@ function enqueueAuthStorageMutation(operation: () => Promise<void>): Promise<voi
     return result;
 }
 
-function removeLocalAuthShadow(key: string): void {
-    try {
-        if (typeof localStorage !== 'undefined') localStorage.removeItem(key);
-    } catch {
-        /* storage unavailable */
+function removeLocalAuthShadowStrict(key: string): void {
+    if (typeof localStorage === 'undefined') return;
+    localStorage.removeItem(key);
+    if (localStorage.getItem(key) !== null) {
+        throw new Error('Could not clear the legacy local auth session');
     }
+}
+
+async function establishSecureAuthInstallBoundary(): Promise<void> {
+    const { value: marker } = await Preferences.get({ key: SECURE_AUTH_INSTALL_MARKER_KEY });
+    if (marker === SECURE_AUTH_INSTALL_MARKER_VALUE) {
+        secureAuthInstallBoundaryReady = true;
+        return;
+    }
+
+    // UserDefaults/localStorage disappear on a genuine reinstall while iOS
+    // Keychain records can survive it. Existing installs upgrading into this
+    // boundary still have a reviewed plaintext key and must be migrated; a
+    // marker-less install with no legacy authority must purge any orphaned
+    // bearer records before Supabase Auth can read them.
+    let hasLegacyAuthority = false;
+    for (const storageKey of SECURE_AUTH_STORAGE_KEYS) {
+        const { value: legacyNative } = await Preferences.get({ key: storageKey });
+        const local = typeof localStorage !== 'undefined' ? localStorage.getItem(storageKey) : null;
+        if (legacyNative !== null || local !== null) hasLegacyAuthority = true;
+    }
+
+    if (!hasLegacyAuthority) {
+        for (const storageKey of SECURE_AUTH_STORAGE_KEYS) {
+            await removeSecureValue(storageKey);
+            if ((await getSecureValue(storageKey)) !== null) {
+                throw new Error('Could not retire an orphaned Keychain auth record');
+            }
+            authStorageCache.set(storageKey, null);
+        }
+    }
+
+    await Preferences.set({
+        key: SECURE_AUTH_INSTALL_MARKER_KEY,
+        value: SECURE_AUTH_INSTALL_MARKER_VALUE,
+    });
+    const { value: verifiedMarker } = await Preferences.get({ key: SECURE_AUTH_INSTALL_MARKER_KEY });
+    if (verifiedMarker !== SECURE_AUTH_INSTALL_MARKER_VALUE) {
+        throw new Error('Could not establish the secure auth installation boundary');
+    }
+    secureAuthInstallBoundaryReady = true;
 }
 
 export const capacitorAuthStorage = {
@@ -48,35 +98,36 @@ export const capacitorAuthStorage = {
         // a session after sign-out has already removed it.
         await authStorageQueue;
         if (authStorageCache.has(key)) return authStorageCache.get(key) ?? null;
+        if (usesNativeSecureStorage()) {
+            if (!secureAuthInstallBoundaryReady) await establishSecureAuthInstallBoundary();
+            const resolved = await getSecureValue(key);
+            authStorageCache.set(key, resolved);
+            return resolved;
+        }
         try {
-            const { value } = await Preferences.get({ key });
-            const resolved = value ?? null;
+            const resolved = typeof localStorage !== 'undefined' ? localStorage.getItem(key) : null;
             authStorageCache.set(key, resolved);
             return resolved;
         } catch {
-            // Web / Preferences plugin missing — fall back to localStorage.
-            try {
-                const resolved = typeof localStorage !== 'undefined' ? localStorage.getItem(key) : null;
-                authStorageCache.set(key, resolved);
-                return resolved;
-            } catch {
-                authStorageCache.set(key, null);
-                return null;
-            }
+            authStorageCache.set(key, null);
+            return null;
         }
     },
     async setItem(key: string, value: string): Promise<void> {
         return enqueueAuthStorageMutation(async () => {
-            try {
-                await Preferences.set({ key, value });
-                // Retire any fallback/legacy copy after native persistence
-                // succeeds. Leaving it behind can resurrect an old account.
-                removeLocalAuthShadow(key);
-            } catch {
+            if (usesNativeSecureStorage()) {
+                if (!secureAuthInstallBoundaryReady) await establishSecureAuthInstallBoundary();
+                await setSecureValue(key, value);
+                // Retire legacy plaintext shadows only after Keychain commit.
+                // Do not report persistence complete while a previous bearer
+                // value remains in an unprotected fallback store.
+                await Preferences.remove({ key });
+                removeLocalAuthShadowStrict(key);
+            } else {
                 try {
                     if (typeof localStorage !== 'undefined') localStorage.setItem(key, value);
                 } catch {
-                    /* storage full or unavailable */
+                    throw new Error('Browser auth storage is unavailable');
                 }
             }
             // Supabase can ask for the current session repeatedly during one
@@ -88,14 +139,18 @@ export const capacitorAuthStorage = {
     },
     async removeItem(key: string): Promise<void> {
         return enqueueAuthStorageMutation(async () => {
-            try {
+            if (usesNativeSecureStorage()) {
+                // Do not report logout complete while a Keychain bearer record
+                // remains readable on the device.
+                await removeSecureValue(key);
+                // A surviving Preferences record could be migrated back into
+                // Keychain on the next launch, resurrecting a logged-out
+                // session. Treat its removal as part of the logout commit.
                 await Preferences.remove({ key });
-            } catch {
-                /* browser/native bridge unavailable; still purge fallback */
             }
             // Always delete both stores. Removing only the currently available
             // backend leaves a bearer session ready for the next fallback.
-            removeLocalAuthShadow(key);
+            removeLocalAuthShadowStrict(key);
             authStorageCache.set(key, null);
         });
     },
@@ -169,42 +224,72 @@ if (URL && KEY) {
 }
 
 /**
- * One-shot migration: copy any existing Supabase session out of
- * localStorage into Capacitor Preferences so the user doesn't get
- * bumped out by the storage swap on this update. Idempotent — only
- * copies if Preferences doesn't already have a value, and nukes
- * the localStorage copy after to stop iOS evicting the auth token
- * from there. Best-effort: failure means one extra login, then
- * we're stable.
+ * One-shot migration: copy any existing Supabase session from legacy native
+ * Preferences/localStorage into the iOS Keychain. Plaintext copies are
+ * removed only after an exact Keychain readback. The historical export name
+ * is retained because tests and rolling code import it.
  */
 export function migrateAuthSessionToCapacitor(): Promise<void> {
-    if (typeof localStorage === 'undefined') return Promise.resolve();
-    const SESSION_KEY = 'thalassa-auth-session';
     return enqueueAuthStorageMutation(async () => {
-        try {
-            const { value: existing } = await Preferences.get({ key: SESSION_KEY });
-            const local = localStorage.getItem(SESSION_KEY);
-            if (existing) {
-                // A prior copy may have succeeded just before a crash. Native
-                // storage is authoritative; purge the stale bearer duplicate.
-                if (local) removeLocalAuthShadow(SESSION_KEY);
-                authStorageCache.set(SESSION_KEY, existing);
-                return;
+        if (!usesNativeSecureStorage()) {
+            for (const storageKey of SECURE_AUTH_STORAGE_KEYS) {
+                const local = typeof localStorage !== 'undefined' ? localStorage.getItem(storageKey) : null;
+                authStorageCache.set(storageKey, local);
             }
-            if (!local) {
-                authStorageCache.set(SESSION_KEY, null);
-                return;
+            return;
+        }
+
+        await establishSecureAuthInstallBoundary();
+
+        let failedKeys = 0;
+        for (const storageKey of SECURE_AUTH_STORAGE_KEYS) {
+            try {
+                const existing = await getSecureValue(storageKey);
+                const { value: legacyNative } = await Preferences.get({ key: storageKey });
+                const local = typeof localStorage !== 'undefined' ? localStorage.getItem(storageKey) : null;
+                if (existing !== null) {
+                    await Preferences.remove({ key: storageKey });
+                    removeLocalAuthShadowStrict(storageKey);
+                    authStorageCache.set(storageKey, existing);
+                    continue;
+                }
+
+                const legacy = legacyNative ?? local;
+                if (legacy === null) {
+                    // Retire an empty legacy key as well; it must never become
+                    // an alternate authority after the migration boundary.
+                    await Preferences.remove({ key: storageKey });
+                    removeLocalAuthShadowStrict(storageKey);
+                    authStorageCache.set(storageKey, null);
+                    continue;
+                }
+
+                await setSecureValue(storageKey, legacy);
+                const verified = await getSecureValue(storageKey);
+                if (verified !== legacy) throw new Error('Keychain readback did not match migrated auth state');
+                await Preferences.remove({ key: storageKey });
+                removeLocalAuthShadowStrict(storageKey);
+                authStorageCache.set(storageKey, legacy);
+            } catch (e) {
+                // Do not copy auth material back to plaintext on failure. A
+                // subsequent secure read remains authoritative and the caller
+                // may need to restart sign-in if migration could not verify a
+                // transient PKCE verifier.
+                failedKeys += 1;
+                authStorageCache.delete(storageKey);
+                log.warn('secure auth-state migration failed', e);
             }
-            await Preferences.set({ key: SESSION_KEY, value: local });
-            removeLocalAuthShadow(SESSION_KEY);
-            authStorageCache.set(SESSION_KEY, local);
-            log.info('migrated auth session: localStorage → Capacitor Preferences');
-        } catch (e) {
-            log.warn('auth session migration failed (one-time)', e);
+        }
+        if (failedKeys === 0) {
+            log.info('migrated reviewed Supabase auth state to this-device-only Keychain storage');
+        } else {
+            log.warn(`secure auth-state migration remains incomplete for ${failedKeys} reviewed key(s)`);
         }
     });
 }
-void migrateAuthSessionToCapacitor();
+void migrateAuthSessionToCapacitor().catch((error) => {
+    log.warn('secure auth installation boundary could not be established', error);
+});
 
 // Only create client if keys are present
 export const supabase =
@@ -215,11 +300,8 @@ export const supabase =
                   storageKey: 'thalassa-auth-session', // stable key survives rebuilds
                   autoRefreshToken: true,
                   detectSessionInUrl: true,
-                  // Use native UserDefaults (via Capacitor Preferences)
-                  // instead of localStorage so iOS can't evict the
-                  // session under storage pressure or after long
-                  // inactivity. Web falls back to localStorage inside
-                  // the adapter.
+                  // Use this-device-only iOS Keychain storage. Web builds
+                  // retain localStorage inside the adapter.
                   storage: capacitorAuthStorage,
               },
           })

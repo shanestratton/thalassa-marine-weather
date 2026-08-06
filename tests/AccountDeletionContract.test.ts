@@ -18,27 +18,30 @@ describe('public-beta account deletion contract', () => {
     it('authenticates the caller, keeps service-role access server-side, removes UGC/media, and deletes auth last', () => {
         const edge = read('supabase/functions/delete-account/index.ts');
         const workflow = read('supabase/functions/delete-account/workflow.ts');
+        const durability = read('supabase/migrations/20260806120000_account_deletion_durability.sql');
         const ci = read('.github/workflows/ci.yml');
         const authLookup = edge.indexOf('caller.auth.getUser()');
-        const storageCleanup = edge.indexOf('await removeRecipePhotos');
+        const storageCleanup = edge.lastIndexOf('captureDrainAndVerifyStorage');
         const authDeletion = edge.indexOf('admin.auth.admin.deleteUser');
 
         expect(edge).toContain("const CONFIRMATION = 'DELETE'");
         expect(edge).toContain("Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')");
-        expect(edge).toContain("['diary-photos', user.id]");
-        expect(edge).toContain("['diary-audio', user.id]");
-        expect(edge).toContain("['vessel_vault', user.id]");
-        expect(edge).toContain("['chat-avatars', `crew/${user.id}`]");
-        expect(edge).toContain("admin.from('community_tracks').delete()");
+        expect(durability).toContain("'diary-photos'");
+        expect(durability).toContain("'diary-audio'");
+        expect(durability).toContain("'vessel_vault'");
+        expect(durability).toContain("split_part(object.name, '/', 1) IN ('dating', 'crew')");
+        expect(durability).toContain('DELETE FROM public.community_tracks');
         expect(edge).toContain("admin.from('enc_cell_submissions').delete()");
-        expect(edge).toContain("admin.from('guardian_alerts').delete().eq('target_user_id', user.id)");
-        expect(edge).toContain("admin.from('manifest_invites').update({ email: null })");
+        expect(durability).toContain('DELETE FROM public.guardian_alerts');
+        expect(durability).toContain('DELETE FROM public.manifest_invites');
+        expect(durability).toContain("status = 'pending'");
+        expect(edge).toContain("'scrub_account_deletion_survivors'");
         expect(authLookup).toBeGreaterThan(-1);
         expect(storageCleanup).toBeGreaterThan(authLookup);
         expect(authDeletion).toBeGreaterThan(storageCleanup);
-        expect(workflow).toContain('for (const cleanup of dependencies.cleanupOperations) await cleanup()');
+        expect(workflow).toContain('await dependencies.scrubSurvivors()');
         expect(workflow.indexOf('await dependencies.deleteAuthUser()')).toBeGreaterThan(
-            workflow.indexOf('dependencies.cleanupOperations'),
+            workflow.indexOf('await dependencies.scrubSurvivors()'),
         );
         expect(ci).toContain('deno test */*_test.ts');
     });
@@ -46,6 +49,7 @@ describe('public-beta account deletion contract', () => {
     it('exhaustively drains account storage without an object-count ceiling', () => {
         const edge = read('supabase/functions/delete-account/index.ts');
         const cleanup = read('supabase/functions/delete-account/storage-cleanup.ts');
+        const durability = read('supabase/migrations/20260806120000_account_deletion_durability.sql');
 
         expect(edge).not.toContain('MAX_STORAGE_OBJECTS');
         expect(cleanup).not.toContain('MAX_STORAGE_OBJECTS');
@@ -53,13 +57,18 @@ describe('public-beta account deletion contract', () => {
         expect(cleanup).toContain('offset: 0');
         expect(cleanup).toContain('STORAGE_REMOVE_BATCH_SIZE');
         expect(cleanup).toContain('Storage cleanup made no progress');
-        expect(edge).toContain("['recipe-photos', user.id]");
+        expect(cleanup).toContain('export async function drainExactStorageManifest');
+        expect(edge).toContain("'capture_account_deletion_storage'");
+        expect(edge).toContain("'verify_account_deletion_storage_empty'");
+        expect(durability).toContain('object.owner_id::TEXT = p_user_id::TEXT');
+        expect(durability).toContain("'legacy-recipe-row'");
     });
 
     it('durably drains both required recipe tables and fails before auth deletion when cleanup fails', () => {
         const edge = read('supabase/functions/delete-account/index.ts');
         const cleanup = read('supabase/functions/delete-account/storage-cleanup.ts');
-        const cleanupCall = edge.indexOf('await removeRecipePhotos(admin, user.id)');
+        const durability = read('supabase/migrations/20260806120000_account_deletion_durability.sql');
+        const cleanupCall = edge.indexOf('captureDrainAndVerifyStorage');
         const authDeletion = edge.indexOf('admin.auth.admin.deleteUser');
 
         expect(cleanup).toContain("for (const table of ['recipes', 'community_recipes'] as const)");
@@ -68,6 +77,9 @@ describe('public-beta account deletion contract', () => {
         expect(cleanup).toContain('`${userId}/${id}.jpg`');
         expect(cleanup).toContain('`${id}.jpg`');
         expect(cleanup).toContain('throw new Error(`Could not remove recipe media: ${error.message}`)');
+        expect(durability).toContain('FROM public.recipes AS recipe');
+        expect(durability).toContain('FROM public.community_recipes AS recipe');
+        expect(durability).toContain("recipe.id::TEXT || '.jpg'");
         expect(cleanupCall).toBeGreaterThan(-1);
         expect(authDeletion).toBeGreaterThan(cleanupCall);
     });
@@ -77,8 +89,10 @@ describe('public-beta account deletion contract', () => {
 
         expect(cleanup).toContain('MAX_STORAGE_LIST_PASSES_PER_INVOCATION');
         expect(cleanup).toContain('MAX_RECIPE_PAGES_PER_TABLE_PER_INVOCATION');
+        expect(cleanup).toContain('MAX_STORAGE_MANIFEST_PAGES_PER_INVOCATION');
         expect(cleanup).toContain('cleanup invocation budget reached; retry to resume');
         expect(cleanup).toContain('await deleteProcessedRecipeRows');
+        expect(cleanup).toContain('return { complete: false, processed }');
     });
 
     it('fails closed when a required cleanup table is absent or missing from the schema cache', () => {
@@ -99,6 +113,42 @@ describe('public-beta account deletion contract', () => {
         expect(migration).toMatch(/guardian_alerts_source_user_id_fkey[\s\S]*ON DELETE CASCADE/);
         expect(migration).toMatch(/guardian_alerts_target_user_id_fkey[\s\S]*ON DELETE CASCADE/);
         expect(migration).toMatch(/admin_audit_log_actor_id_fkey[\s\S]*ON DELETE SET NULL/);
+    });
+
+    it('installs a durable least-privilege tombstone, serialized write fences, and verified survivor scrub', () => {
+        const migration = read('supabase/migrations/20260806120000_account_deletion_durability.sql');
+        const edge = read('supabase/functions/delete-account/index.ts');
+
+        expect(migration).toContain('CREATE TABLE public.account_deletion_jobs');
+        expect(migration).not.toMatch(/account_deletion_jobs[\s\S]{0,300}REFERENCES auth\.users/);
+        expect(migration).toContain('ALTER TABLE public.account_deletion_jobs FORCE ROW LEVEL SECURITY');
+        expect(migration).toContain(
+            'REVOKE ALL ON TABLE public.account_deletion_jobs FROM PUBLIC, anon, authenticated',
+        );
+        expect(migration).toContain(
+            'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.account_deletion_jobs TO service_role',
+        );
+        expect(migration).toContain('pg_advisory_xact_lock(hashtextextended(p_user_id::TEXT, 20260806))');
+        expect(migration).toContain('Invalid account-deletion phase transition');
+        expect(migration).toContain('Apple revocation is not durably resolved');
+        expect(migration).toContain("AND phase = 'survivor_scrub'");
+        expect(migration).toContain('CREATE OR REPLACE FUNCTION public.block_tombstoned_account_write()');
+        expect(migration).toContain("constraint_row.confrelid = 'auth.users'::regclass");
+        expect(migration).toContain('Direct account identity survivor remains');
+        expect(migration).toContain('CREATE TRIGGER account_deletion_storage_write_fence');
+        expect(migration).toContain('assigned_crew_user_id UUID');
+        expect(migration).toContain('FOREIGN KEY (assigned_crew_user_id) REFERENCES auth.users(id) ON DELETE SET NULL');
+        expect(migration).toContain('device_id = NULL');
+        expect(migration).toContain("details = jsonb_build_object('account_deleted', true)");
+        expect(migration).toContain('DELETE FROM public.apple_server_notification_queue');
+        expect(migration).toContain('Account-deletion survivor verification failed');
+        expect(migration).toContain("RAISE EXCEPTION 'Auth account still exists'");
+        expect(edge).toContain("'claim_account_deletion'");
+        expect(edge).toContain("'complete_account_deletion'");
+        expect(edge).toContain('some data may already be removed');
+        expect(edge.indexOf("'scrub_account_deletion_survivors'")).toBeLessThan(
+            edge.indexOf('admin.auth.admin.deleteUser'),
+        );
     });
 
     it('holds production deletion before UI/service mutation while retaining the reviewed implementation', () => {
@@ -129,6 +179,10 @@ describe('public-beta account deletion contract', () => {
         expect(dialog).toContain('role="alertdialog"');
         expect(dialog).toContain('ACCOUNT_DELETION_CONFIRMATION');
         expect(service).toContain('purgeLocalDatabaseForUser(userId)');
+        expect(service).toContain("GLOBAL_POINT_WEATHER_CACHE_PREFIX = 'marine_weather_cache_'");
+        expect(service).toContain("RETIRED_LAST_MARINE_REPORT_KEY = 'last_marine_report'");
+        expect(service).toContain('purgeScopedNativeWeatherCaches(deletionScope)');
+        expect(service).toContain('deleteLargeData(authScopedStorageKey(baseKey, scope))');
         expect(service).toContain('Preferences.keys()');
         expect(service).toContain("supabase.auth.signOut({ scope: 'local' })");
         expect(service).toContain('PushNotificationService.clearUser()');

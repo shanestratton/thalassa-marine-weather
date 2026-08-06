@@ -73,6 +73,7 @@ import {
     weatherCacheKeysForScope,
     type OrchestratorCallbacks,
 } from '../services/WeatherOrchestrator';
+import { weatherHistoryKeyForCoordinates } from '../services/weather/cache';
 import { getAuthIdentityScope, setAuthIdentityScope } from '../services/authIdentityScope';
 
 function deferred<T>() {
@@ -204,7 +205,7 @@ describe('WeatherOrchestrator identity fences', () => {
     it('uses the reachability probe as the offline authority even when navigator reports a network interface', async () => {
         const { state, callbacks } = callbackHarness({ satelliteMode: false });
         state.isOffline = true;
-        state.history['Cached port'] = makeReport('Cached port');
+        state.history[weatherHistoryKeyForCoordinates({ lat: -27.4, lon: 153.1 })!] = makeReport('Cached port');
         const orchestrator = new WeatherOrchestrator(callbacks, getAuthIdentityScope());
 
         await orchestrator.fetchWeather('Cached port', {
@@ -217,6 +218,23 @@ describe('WeatherOrchestrator identity fences', () => {
         expect(weatherMocks.fetchPrecisionWeather).not.toHaveBeenCalled();
         expect(state.weatherData?.locationName).toBe('Cached port');
         expect(state.isFetching).toBe(false);
+    });
+
+    it('never serves the same display name from a different point while offline', async () => {
+        const { state, callbacks } = callbackHarness({ satelliteMode: false });
+        state.isOffline = true;
+        state.weatherData = makeReport('Current Location', -27.4, 153.1);
+        state.history[weatherHistoryKeyForCoordinates({ lat: -27.4, lon: 153.1 })!] = state.weatherData;
+        const orchestrator = new WeatherOrchestrator(callbacks, getAuthIdentityScope());
+
+        await orchestrator.fetchWeather('Current Location', {
+            force: true,
+            coords: { lat: -20.2, lon: 148.7 },
+        });
+
+        expect(state.weatherData).toBeNull();
+        expect(state.error).toBe('Offline Mode: No Data');
+        expect(weatherMocks.fetchWeatherByStrategy).not.toHaveBeenCalled();
     });
 
     it('does not start a WeatherKit live patch while the reachability probe says offline', async () => {
@@ -316,6 +334,20 @@ describe('WeatherOrchestrator identity fences', () => {
         expect(weatherMocks.fetchPrecisionWeather).not.toHaveBeenCalled();
         expect(state.loading).toBe(false);
         expect(state.backgroundUpdating).toBe(false);
+    });
+
+    it('does fetch a fresh same-name report when the requested point changed', async () => {
+        const { state, callbacks } = callbackHarness({ satelliteMode: false });
+        state.weatherData = makeReport('Shared Bay', -27.4, 153.1);
+        weatherMocks.fetchWeatherByStrategy.mockResolvedValueOnce(makeReport('Shared Bay', -20.2, 148.7));
+        const orchestrator = new WeatherOrchestrator(callbacks, getAuthIdentityScope());
+
+        await orchestrator.fetchWeather('Shared Bay', {
+            coords: { lat: -20.2, lon: 148.7 },
+        });
+
+        expect(weatherMocks.fetchWeatherByStrategy).toHaveBeenCalledWith(-20.2, 148.7, 'Shared Bay', undefined);
+        expect(state.weatherData?.coordinates).toEqual({ lat: -20.2, lon: 148.7 });
     });
 
     it('does not unlock the paid weather fallback when entitlement verification fails', async () => {

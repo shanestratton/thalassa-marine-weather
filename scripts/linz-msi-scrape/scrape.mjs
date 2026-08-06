@@ -27,7 +27,9 @@
 
 import { chromium } from 'playwright';
 import { createClient } from '@supabase/supabase-js';
-import { writeFile, mkdir } from 'node:fs/promises';
+import { writeFile, mkdir, mkdtemp } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 export const LINZ_URL = 'https://www.maritimenz.govt.nz/navigational-warnings/';
@@ -39,7 +41,12 @@ const CHALLENGE_TIMEOUT_MS = 60_000;
 
 // On failure, dump page state here so the GH Actions step can upload
 // it as an artifact for diagnosis (screenshot + raw HTML + body text).
-const DEBUG_DIR = '/tmp/linz-debug';
+let debugDirPromise;
+
+async function debugDir() {
+    if (!debugDirPromise) debugDirPromise = mkdtemp(join(tmpdir(), 'thalassa-linz-debug-'));
+    return debugDirPromise;
+}
 
 export const SCRAPE_SAFETY_LIMITS = Object.freeze({
     minWarnings: 2,
@@ -209,15 +216,16 @@ export function parseReferenceMatch(match) {
 
 async function dumpDebug(page, label) {
     try {
-        await mkdir(DEBUG_DIR, { recursive: true });
-        await page.screenshot({ path: `${DEBUG_DIR}/${label}.png`, fullPage: true }).catch(() => {});
+        const directory = await debugDir();
+        await mkdir(directory, { recursive: true, mode: 0o700 });
+        await page.screenshot({ path: `${directory}/${label}.png`, fullPage: true }).catch(() => {});
         const html = await page.content().catch(() => '');
-        await writeFile(`${DEBUG_DIR}/${label}.html`, html);
+        await writeFile(`${directory}/${label}.html`, html, { mode: 0o600 });
         const bodyText = await page.evaluate(() => document.body?.innerText ?? '').catch(() => '');
-        await writeFile(`${DEBUG_DIR}/${label}.txt`, bodyText);
+        await writeFile(`${directory}/${label}.txt`, bodyText, { mode: 0o600 });
         const url = page.url();
-        await writeFile(`${DEBUG_DIR}/${label}.url.txt`, url);
-        console.log(`[linz-msi] dumped page state to ${DEBUG_DIR}/${label}.* (final url: ${url})`);
+        await writeFile(`${directory}/${label}.url.txt`, url, { mode: 0o600 });
+        console.log(`[linz-msi] dumped page state to ${directory}/${label}.* (final url: ${url})`);
     } catch (e) {
         console.warn(`[linz-msi] debug dump failed: ${e.message}`);
     }

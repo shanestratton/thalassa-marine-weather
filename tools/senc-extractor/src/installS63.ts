@@ -172,10 +172,13 @@ async function collectCells(exchangeDir: string): Promise<CellFiles[]> {
         const cellId = name.slice(0, 8).toUpperCase();
         // ENC_ROOT/<CC>/<CELL>/… — the cell's own directory must match its id,
         // which drops the FRL66870-style licence files.
-        if (!path.toUpperCase().includes(`/${cellId}/`)) continue;
+        const pathParts = path.split(/[\\/]+/);
+        const cellDirectoryIndex = pathParts.findIndex(
+            (part, index) => part.toUpperCase() === cellId && /^\d{1,3}$/.test(pathParts[index + 1] ?? ''),
+        );
+        if (cellDirectoryIndex < 0) continue;
         const seq = Number(extname(name).slice(1));
-        const editionMatch = new RegExp(`/${cellId}/(\\d+)/`, 'i').exec(path);
-        const edition = editionMatch ? Number(editionMatch[1]) : 0;
+        const edition = Number(pathParts[cellDirectoryIndex + 1]);
         const entry = byCell.get(cellId) ?? { files: [], edition };
         entry.files.push({ path, seq });
         entry.edition = Math.max(entry.edition, edition);

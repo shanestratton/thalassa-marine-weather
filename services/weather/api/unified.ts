@@ -306,7 +306,10 @@ export async function fetchUnifiedWeatherRaw(
     lon: number,
     userId?: string,
 ): Promise<StandardWeatherResponse | null> {
-    const cacheKey = `${lat.toFixed(2)},${lon.toFixed(2)},${userId || ''}`;
+    // Point weather must not be reused for a nearby marina or anchorage.
+    // Five decimals keeps the short-lived memory cache aligned with the
+    // coordinate-bound persistent cache (~1 m at the equator).
+    const cacheKey = `${lat.toFixed(5)},${lon.toFixed(5)},${userId || ''}`;
     if (cached && cached.key === cacheKey && Date.now() - cached.fetchedAt < CACHE_TTL) {
         return cached.data;
     }

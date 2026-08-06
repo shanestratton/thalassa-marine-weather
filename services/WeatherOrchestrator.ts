@@ -13,6 +13,14 @@ import { createLogger } from '../utils/createLogger';
 import { MarineWeatherReport, VesselProfile, UnitPreferences, VesselDimensionUnits } from '../types';
 import { fetchPrecisionWeather, fetchWeatherByStrategy, parseLocation, reverseGeocode } from './weatherService';
 import { fetchWeatherKitRealtime } from './weather/api/weatherkit';
+import {
+    findWeatherHistoryReport,
+    normalizeWeatherHistoryCache,
+    purgeRetiredWeatherCacheEntries,
+    recordWeatherHistoryReport,
+    weatherHistoryKeyForCoordinates,
+    weatherReportMatchesRequest,
+} from './weather/cache';
 import { isStormglassKeyPresent } from './weather/keys';
 import { degreesToCardinal } from '../utils';
 import { EnvironmentService } from './EnvironmentService';
@@ -331,22 +339,16 @@ export class WeatherOrchestrator {
         let hasCachedData = false;
 
         try {
-            // Clear legacy localStorage cache
-            const keysToDelete: string[] = [];
-            for (let i = 0; i < localStorage.length; i++) {
-                const key = localStorage.key(i);
-                if (key && key.startsWith('marine_weather_cache_')) {
-                    keysToDelete.push(key);
-                }
-            }
-            if (keysToDelete.length > 0) {
+            // Retire every unsafe prior/global cache. The point-bound v9
+            // records are still used by RoutePlanner/VoyageForm offline paths.
+            const retiredCacheCount = purgeRetiredWeatherCacheEntries();
+            if (retiredCacheCount > 0) {
                 addBreadcrumb({
                     category: 'weather',
-                    message: `Clearing ${keysToDelete.length} legacy localStorage caches`,
+                    message: `Clearing ${retiredCacheCount} legacy localStorage caches`,
                     level: 'info',
                 });
             }
-            keysToDelete.forEach((key) => localStorage.removeItem(key));
             this.assertCurrent();
 
             // Load cached weather data
@@ -377,12 +379,13 @@ export class WeatherOrchestrator {
             );
             this.assertCurrent();
             if (h) {
-                this.cb.setHistoryCache(() => h);
+                const normalizedHistory = normalizeWeatherHistoryCache(h);
+                this.cb.setHistoryCache(() => normalizedHistory);
                 addBreadcrumb({
                     category: 'weather',
                     message: 'History cache loaded',
                     level: 'info',
-                    data: { count: Object.keys(h).length },
+                    data: { count: Object.keys(normalizedHistory).length },
                 });
             } else {
                 this.cb.setHistoryCache(() => ({}));
@@ -710,16 +713,11 @@ export class WeatherOrchestrator {
             const current = currentAtRequest;
             const generatedAt = current?.generatedAt ? Date.parse(current.generatedAt) : Number.NaN;
             const ageMs = Number.isFinite(generatedAt) ? Date.now() - generatedAt : Infinity;
-            const sameName = current?.locationName.trim().toLowerCase() === location.trim().toLowerCase();
-            const sameCoords =
-                !!coords &&
-                !!current?.coordinates &&
-                Math.abs(current.coordinates.lat - coords.lat) < 0.01 &&
-                Math.abs(current.coordinates.lon - coords.lon) < 0.01;
+            const samePoint = weatherReportMatchesRequest(current, location, coords);
             const currentState = current as (MarineWeatherReport & { loading?: boolean; isEstimated?: boolean }) | null;
             const usableCurrent = currentState && !currentState.loading && !currentState.isEstimated;
 
-            if (usableCurrent && ageMs >= 0 && ageMs < STALE_THRESHOLD_MS && (sameName || sameCoords)) {
+            if (usableCurrent && ageMs >= 0 && ageMs < STALE_THRESHOLD_MS && samePoint) {
                 log.info(`Fresh current report for "${location}" — skipping duplicate fetch`);
                 addBreadcrumb({
                     category: 'weather',
@@ -763,15 +761,20 @@ export class WeatherOrchestrator {
             addBreadcrumb({ category: 'weather', message: 'Offline mode detected', level: 'warning' });
             const historyCache = this.cb.getHistoryCache();
             const currentData = this.cb.getWeatherData();
-            if (historyCache[location]) {
-                this.cb.setWeatherData(historyCache[location]);
+            const cachedForPoint = findWeatherHistoryReport(historyCache, location, coords);
+            const currentMatchesPoint = weatherReportMatchesRequest(currentData, location, coords);
+            if (cachedForPoint) {
+                this.cb.setWeatherData(cachedForPoint);
                 addBreadcrumb({
                     category: 'weather',
                     message: 'Serving from history cache in offline mode',
                     level: 'info',
                     data: { cached: true },
                 });
-            } else if (!currentData) {
+            } else if (!currentMatchesPoint) {
+                // Never leave another location's tactical numbers on screen
+                // under the newly requested place while offline.
+                if (coords || !currentData) this.cb.setWeatherData(null);
                 this.cb.setError('Offline Mode: No Data');
                 addBreadcrumb({
                     category: 'weather',
@@ -790,11 +793,12 @@ export class WeatherOrchestrator {
         const settings = this.cb.getSettings();
         const currentData = this.cb.getWeatherData();
         const historyCache = this.cb.getHistoryCache();
+        const cachedForPoint = findWeatherHistoryReport(historyCache, location, coords);
 
         // Cache hit?
         let isServingFromCache = false;
-        if (!currentData && historyCache[location] && !force) {
-            this.cb.setWeatherData(historyCache[location]);
+        if (!currentData && cachedForPoint && !force) {
+            this.cb.setWeatherData(cachedForPoint);
             isServingFromCache = true;
             addBreadcrumb({
                 category: 'weather',
@@ -884,7 +888,10 @@ export class WeatherOrchestrator {
 
             if (currentReport) {
                 this.cb.setWeatherData(currentReport);
-                this.cb.setHistoryCache((prev) => ({ ...prev, [location]: currentReport! }));
+                const historyKey = currentReport.coordinates
+                    ? weatherHistoryKeyForCoordinates(currentReport.coordinates)
+                    : null;
+                if (historyKey) this.cb.setHistoryCache((prev) => recordWeatherHistoryReport(prev, currentReport!));
                 void saveLargeDataImmediate(this.cacheKeys.data, currentReport);
                 addBreadcrumb({
                     category: 'weather',
@@ -907,7 +914,7 @@ export class WeatherOrchestrator {
             // at the outer level so fire-and-forget doesn't leak promise
             // rejections.
             if (currentReport) {
-                void this.scheduleNextAndEnrich(currentReport, location, settings, force, fetchEpoch).catch((e) => {
+                void this.scheduleNextAndEnrich(currentReport, settings, force, fetchEpoch).catch((e) => {
                     if (!this.isStaleOperation(e)) log.warn('scheduleNextAndEnrich (post-render):', e);
                 });
             }
@@ -915,7 +922,9 @@ export class WeatherOrchestrator {
             if (!this.isFetchCurrent(fetchEpoch) || this.isStaleOperation(err)) return;
             const currentData2 = this.cb.getWeatherData();
             const historyCache2 = this.cb.getHistoryCache();
-            if (this.cb.getIsOffline() && (currentData2 || historyCache2[location])) {
+            const safeOfflineHistory = findWeatherHistoryReport(historyCache2, location, coords);
+            const safeOfflineCurrent = weatherReportMatchesRequest(currentData2, location, coords);
+            if (this.cb.getIsOffline() && (safeOfflineCurrent || safeOfflineHistory)) {
                 // Offline fallback — OK
                 addBreadcrumb({
                     category: 'weather',
@@ -1023,7 +1032,6 @@ export class WeatherOrchestrator {
 
     private async scheduleNextAndEnrich(
         report: MarineWeatherReport,
-        location: string,
         settings: Record<string, unknown>,
         force: boolean,
         fetchEpoch: number,
@@ -1072,7 +1080,8 @@ export class WeatherOrchestrator {
                     return;
                 }
                 this.cb.setWeatherData(enriched);
-                this.cb.setHistoryCache((prev) => ({ ...prev, [location]: enriched }));
+                const historyKey = enriched.coordinates ? weatherHistoryKeyForCoordinates(enriched.coordinates) : null;
+                if (historyKey) this.cb.setHistoryCache((prev) => recordWeatherHistoryReport(prev, enriched));
                 void saveLargeDataImmediate(this.cacheKeys.data, enriched);
             } catch (e) {
                 if (this.isStaleOperation(e)) throw e;
@@ -1227,9 +1236,8 @@ export class WeatherOrchestrator {
             }
             this.cb.setWeatherData(enriched);
             void saveLargeDataImmediate(this.cacheKeys.data, enriched);
-            if (enriched.locationName) {
-                this.cb.setHistoryCache((prev) => ({ ...prev, [enriched.locationName]: enriched }));
-            }
+            const historyKey = enriched.coordinates ? weatherHistoryKeyForCoordinates(enriched.coordinates) : null;
+            if (historyKey) this.cb.setHistoryCache((prev) => recordWeatherHistoryReport(prev, enriched));
         } catch {
             // Non-critical
         } finally {

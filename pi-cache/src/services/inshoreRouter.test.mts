@@ -464,9 +464,9 @@ test('A* prefers deep DEPARE over shallow when both navigable', () => {
     assert(southCount > northCount, `expected route biased to deep south half (S=${southCount}, N=${northCount})`);
 });
 
-// ── Test 9: too-large bbox doesn't blow up ──────────────────────────
+// ── Test 9: realistic bbox stays within the allocation budget ───────
 
-test('rejects routes that would build an oversized grid gracefully', () => {
+test('builds a realistic small grid within budget', () => {
     // 2 NM route at 50m resolution = ~74×74 cells. Test that buildNavGrid
     // doesn't crash on a realistic small bbox even with no layers.
     const result = routeInshore(

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { DEFAULT_THALASSA_SUPABASE_ORIGIN } from './outboundHttp.js';
-import { isSupabaseFunctionName, supabaseEdgeUrl } from './proxy.js';
+import { isSupabaseFunctionName, normalizeSupabaseProxyQuery, supabaseEdgeUrl } from './proxy.js';
 
 const config = {
     supabaseUrl: DEFAULT_THALASSA_SUPABASE_ORIGIN,
@@ -29,4 +29,22 @@ test('generic Edge function names cannot traverse or replace the fixed origin', 
         assert.equal(isSupabaseFunctionName(invalid), false, invalid);
         assert.throws(() => supabaseEdgeUrl(config, invalid), /Unsupported/);
     }
+});
+
+test('generic proxy query normalization bounds input and treats prototype names as ordinary data', () => {
+    const query = JSON.parse('{"__proto__":"point","lat":["-27.4","ignored"]}') as Record<string, unknown>;
+    const normalized = normalizeSupabaseProxyQuery(query);
+    assert.equal(Object.prototype.hasOwnProperty.call(normalized, '__proto__'), true);
+    assert.equal(Object.getPrototypeOf(normalized), Object.prototype);
+    assert.equal(normalized.__proto__, 'point');
+    assert.equal(normalized.lat, '-27.4');
+    assert.equal(({} as Record<string, unknown>).polluted, undefined);
+
+    assert.throws(
+        () => normalizeSupabaseProxyQuery(Object.fromEntries(Array.from({ length: 33 }, (_, i) => [`p${i}`, 'x']))),
+        /Too many/,
+    );
+    assert.throws(() => normalizeSupabaseProxyQuery({ nested: { value: 'x' } }), /value/);
+    assert.throws(() => normalizeSupabaseProxyQuery({ bad$key: 'x' }), /parameter/);
+    assert.throws(() => normalizeSupabaseProxyQuery({ huge: 'x'.repeat(2_049) }), /value/);
 });

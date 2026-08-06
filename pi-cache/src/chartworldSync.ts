@@ -1,9 +1,19 @@
 import { spawn, execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { readFile, writeFile, mkdir, stat } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import { readFile, writeFile, mkdir, rename, rm, unlink } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
+import {
+    CHARTWORLD_ARCHIVE_POLICY,
+    CHARTWORLD_DOWNLOAD_POLICY,
+    assertDownloadDestinationCapacity,
+    assertDownloadedFileWithinPolicy,
+    extractZipArchive,
+    resolveDownloadByteBudget,
+} from './resourceBoundary.js';
+import { PiWorkloadBusyError, piWorkloadGovernor, type PiWorkloadLease } from './workloadGovernor.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -53,6 +63,8 @@ const ENABLED = process.env.ENC_CHARTWORLD_ENABLED !== 'false';
 /** Poll floor — ChartWorld is a shop, not a feed; nothing changes minute to minute. */
 const MIN_POLL_MINUTES = 15;
 const DEFAULT_POLL_MINUTES = 60;
+const INSTALL_TIMEOUT_MS = 30 * 60 * 1000;
+const MAX_INSTALL_OUTPUT_BYTES = 1024 * 1024;
 
 interface ChartworldConfig {
     host: string;
@@ -116,11 +128,20 @@ async function saveState(state: SyncState): Promise<void> {
 function ftpUrl(cfg: ChartworldConfig, file = ''): string {
     const user = encodeURIComponent(cfg.licence);
     const pass = encodeURIComponent(cfg.customer);
-    return `ftp://${user}:${pass}@${cfg.host}/${cfg.licence}/${file}`;
+    const encodedFile = file ? encodeURIComponent(file) : '';
+    return `ftp://${user}:${pass}@${cfg.host}/${cfg.licence}/${encodedFile}`;
 }
 
 function redact(text: string, cfg: ChartworldConfig): string {
     return text.split(cfg.customer).join('***').split(`${cfg.licence}:`).join('***:');
+}
+
+function hasControlCharacter(value: string): boolean {
+    for (let index = 0; index < value.length; index++) {
+        const code = value.charCodeAt(index);
+        if (code < 32 || code === 127) return true;
+    }
+    return false;
 }
 
 /** List the licence directory: names plus sizes, so a re-issued file is noticed. */
@@ -142,15 +163,65 @@ async function listRemote(cfg: ChartworldConfig): Promise<RemoteFile[]> {
     return files;
 }
 
-async function download(cfg: ChartworldConfig, name: string): Promise<string> {
+async function download(cfg: ChartworldConfig, remote: RemoteFile): Promise<string> {
+    const name = remote.name;
+    if (
+        name !== basename(name) ||
+        name === '.' ||
+        name === '..' ||
+        name.includes('/') ||
+        name.includes('\\') ||
+        hasControlCharacter(name)
+    ) {
+        throw new Error('remote filename is unsafe');
+    }
     await mkdir(DOWNLOAD_DIR, { recursive: true });
     const dest = join(DOWNLOAD_DIR, name);
-    const tmp = `${dest}.partial`;
-    await execFileAsync('curl', ['-s', '--max-time', '900', '-o', tmp, ftpUrl(cfg, name)]);
-    const { size } = await stat(tmp);
-    if (size === 0) throw new Error(`downloaded ${name} was empty`);
-    await execFileAsync('mv', [tmp, dest]);
-    return dest;
+    await assertDownloadDestinationCapacity(dest, remote.sizeBytes, CHARTWORLD_DOWNLOAD_POLICY);
+    // curl streams with native backpressure. Bound it by both the global byte
+    // policy and the bytes currently available above the disk reserve, so a
+    // lying FTP listing still cannot fill the filesystem.
+    const byteBudget = await resolveDownloadByteBudget(dest, CHARTWORLD_DOWNLOAD_POLICY);
+    const tmp = `${dest}.${process.pid}.${randomUUID()}.partial`;
+    try {
+        await execFileAsync('curl', [
+            '--fail',
+            '--silent',
+            '--show-error',
+            '--max-time',
+            '900',
+            '--max-filesize',
+            String(byteBudget),
+            '-o',
+            tmp,
+            ftpUrl(cfg, name),
+        ]);
+        await assertDownloadedFileWithinPolicy(tmp, CHARTWORLD_DOWNLOAD_POLICY);
+        await rename(tmp, dest);
+        return dest;
+    } catch (error) {
+        await unlink(tmp).catch(() => {});
+        throw error;
+    }
+}
+
+/**
+ * Safely materialise a downloaded exchange set before handing it to the S-63
+ * installer. Passing a directory makes installS63 skip its generic `unzip`
+ * path, so the metadata-first limits and streamed extraction here remain the
+ * only archive boundary.
+ */
+async function materialiseDownloadedArchive(filePath: string): Promise<string> {
+    const extractionDir = `${filePath}.${process.pid}.${randomUUID()}.unpacked`;
+    try {
+        const extracted = await extractZipArchive(filePath, extractionDir, CHARTWORLD_ARCHIVE_POLICY);
+        if (extracted.files.length === 0) throw new Error('Downloaded archive contained no files');
+        return extractionDir;
+    } catch (error) {
+        await rm(extractionDir, { recursive: true, force: true }).catch(() => {});
+        await unlink(filePath).catch(() => {});
+        throw error;
+    }
 }
 
 /** Run installS63 for one exchange set against the current permit bundle. */
@@ -163,12 +234,14 @@ function runInstall(exchangePath: string, permitPath: string): Promise<string> {
                 cwd: EXTRACTOR_DIR,
                 env: { ...process.env, NODE_OPTIONS: '--max-old-space-size=4096' },
                 stdio: ['ignore', 'pipe', 'pipe'],
+                timeout: INSTALL_TIMEOUT_MS,
             },
         );
         let out = '';
         child.stdout.on('data', (c: Buffer) => {
-            out += c.toString();
-            for (const line of c.toString().split('\n')) {
+            const text = c.toString();
+            out = `${out}${text}`.slice(-MAX_INSTALL_OUTPUT_BYTES);
+            for (const line of text.split('\n')) {
                 if (/installed|skipped|Installed \d/.test(line)) console.log(`[chartworld:install] ${line.trim()}`);
             }
         });
@@ -188,6 +261,8 @@ export async function pollChartworldOnce(): Promise<string> {
     if (!cfg) return 'not configured';
 
     running = true;
+    let workloadLease: PiWorkloadLease | null = null;
+    let permitDir: string | null = null;
     try {
         const state = await loadState();
         const remote = await listRemote(cfg);
@@ -225,21 +300,30 @@ export async function pollChartworldOnce(): Promise<string> {
                 (permitChanged ? ', permit bundle updated' : ''),
         );
 
-        const permitPath = await download(cfg, permit.name);
+        // The listing is lightweight and should not make a conversion wait.
+        // Reserve the lane immediately before the first download/extraction
+        // and keep it through all installs in this poll.
+        workloadLease = await piWorkloadGovernor.admit('conversion').lease;
+        const permitPath = await download(cfg, permit);
+        permitDir = await materialiseDownloadedArchive(permitPath);
         // A reissued permit bundle can unlock cells whose exchange set we
         // already have, so reinstall everything rather than only the new sets.
         const toInstall = permitChanged ? remote.filter((f) => isExchange(f.name)) : newExchanges;
 
         let installed = 0;
         for (const file of toInstall) {
+            let exchangeDir: string | null = null;
             try {
-                const path = await download(cfg, file.name);
-                await runInstall(path, permitPath);
+                const exchangePath = await download(cfg, file);
+                exchangeDir = await materialiseDownloadedArchive(exchangePath);
+                await runInstall(exchangeDir, permitDir);
                 state.seen[file.name] = file.sizeBytes;
                 installed += 1;
             } catch (err) {
                 // Leave this file out of `seen` so the next poll retries it.
                 console.warn(`[chartworld] ${file.name} failed: ${redact((err as Error).message, cfg)}`);
+            } finally {
+                if (exchangeDir) await rm(exchangeDir, { recursive: true, force: true }).catch(() => {});
             }
         }
         state.seen[permit.name] = permit.sizeBytes;
@@ -250,10 +334,15 @@ export async function pollChartworldOnce(): Promise<string> {
         console.log(`[chartworld] ${lastResult} — encWatcher will publish them shortly`);
         return lastResult;
     } catch (err) {
-        lastResult = `poll failed: ${redact((err as Error).message, cfg)}`;
+        lastResult =
+            err instanceof PiWorkloadBusyError
+                ? `poll deferred: ${err.message}`
+                : `poll failed: ${redact((err as Error).message, cfg)}`;
         console.warn(`[chartworld] ${lastResult}`);
         return lastResult;
     } finally {
+        if (permitDir) await rm(permitDir, { recursive: true, force: true }).catch(() => {});
+        workloadLease?.release();
         running = false;
     }
 }

@@ -49,17 +49,22 @@ describe('apiCache', () => {
 
     // ── Location key rounding ────────────────────────────────
 
-    describe('location key rounding (0.1° grid)', () => {
-        it('coalesces nearby coordinates', () => {
-            apiCacheSet('openmeteo', -33.84, 151.23, { val: 1 });
-            // -33.84 rounds to -33.8, 151.23 rounds to 151.2
-            expect(apiCacheGet('openmeteo', -33.81, 151.19)).toEqual({ val: 1 });
+    describe('bounded point identity (0.001° cell)', () => {
+        it('coalesces only metre-scale GPS jitter', () => {
+            apiCacheSet('openmeteo', -33.8002, 151.2002, { val: 1 });
+            expect(apiCacheGet('openmeteo', -33.8004, 151.2004)).toEqual({ val: 1 });
         });
 
-        it('separates distant coordinates', () => {
-            apiCacheSet('openmeteo', -33.8, 151.2, { val: 1 });
-            // -34.0 is more than 0.1° away
-            expect(apiCacheGet('openmeteo', -34.0, 151.2)).toBeNull();
+        it('separates points outside the bounded cell', () => {
+            apiCacheSet('openmeteo', -33.8002, 151.2002, { val: 1 });
+            expect(apiCacheGet('openmeteo', -33.8011, 151.2002)).toBeNull();
+            expect(apiCacheGet('openmeteo', -33.81, 151.19)).toBeNull();
+        });
+
+        it('rejects invalid coordinates without writing a cache record', () => {
+            apiCacheSet('openmeteo', 91, 151.2, { val: 1 });
+            expect(apiCacheGet('openmeteo', 91, 151.2)).toBeNull();
+            expect(localStorage.length).toBe(0);
         });
     });
 
@@ -152,7 +157,7 @@ describe('apiCache', () => {
 
     describe('corrupt data', () => {
         it('returns null for corrupt JSON', () => {
-            const key = 'thalassa_apicache_v1_openmeteo_0.0_0.0';
+            const key = 'thalassa_apicache_v3_point_openmeteo_0.000_0.000';
             localStorage.setItem(key, 'not-json');
             expect(apiCacheGet('openmeteo', 0, 0)).toBeNull();
         });

@@ -503,7 +503,7 @@ export const WatchScheduleCard: React.FC<WatchScheduleCardProps> = ({
     }, [voyageId]);
 
     const handleAssign = useCallback(
-        async (email: string | null, name: string | null) => {
+        async (email: string | null, name: string | null, crewUserId: string | null) => {
             if (!voyageId || assignSheetIndex == null) return;
             const operationScope = identityScope;
             const operationGeneration = lifecycleGenerationRef.current;
@@ -534,6 +534,7 @@ export const WatchScheduleCard: React.FC<WatchScheduleCardProps> = ({
                     slot.time,
                     email,
                     name,
+                    crewUserId,
                 );
                 if (updated && isOperationCurrent()) {
                     setAssignments((prev) => {
@@ -590,6 +591,7 @@ export const WatchScheduleCard: React.FC<WatchScheduleCardProps> = ({
             return {
                 email: a?.assigned_crew_email ?? null,
                 name: a?.assigned_crew_name ?? null,
+                userId: a?.assigned_crew_user_id ?? null,
             };
         });
         return { cycleLength, cycle, remaining: total - contiguous, startFrom: contiguous };
@@ -683,6 +685,7 @@ export const WatchScheduleCard: React.FC<WatchScheduleCardProps> = ({
                     slot.time,
                     pick.email,
                     pick.name,
+                    pick.userId,
                 );
                 if (!isOperationCurrent()) return;
                 if (updated) next.set(i, updated);
@@ -1051,6 +1054,7 @@ export const WatchScheduleCard: React.FC<WatchScheduleCardProps> = ({
                     currentEmail={assignments.get(assignSheetIndex)?.assigned_crew_email ?? null}
                     crew={crew}
                     skipperEmail={skipperEmail}
+                    skipperUserId={identityScope.userId ?? undefined}
                     onAssign={handleAssign}
                 />
             )}

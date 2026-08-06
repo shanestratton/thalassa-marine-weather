@@ -29,6 +29,8 @@ describe('public-beta release gate contract', () => {
         expect(previewSmoke).toContain("if: needs.authorize.outputs.eligible == 'true'");
         expect(previewSmoke).toContain("github.actor == 'vercel[bot]'");
         expect(previewSmoke).toContain("github.event.deployment.creator.login == 'vercel[bot]'");
+        expect(previewSmoke).toContain("github.event.deployment_status.environment == 'Preview'");
+        expect(previewSmoke).toContain("github.event.deployment_status.environment == 'Production'");
         expect(previewSmoke).toContain('environment: Preview');
         expect(previewSmoke).toContain(
             'VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}',
@@ -41,7 +43,7 @@ describe('public-beta release gate contract', () => {
         expect(smoke).toContain('isTrustedThalassaVercelPreviewOrigin(new URL(PREVIEW_URL).origin)');
         expect(trust).toContain('THALASSA_VERCEL_PREVIEW_HOST.test(url.hostname.toLowerCase())');
         expect(gate).toContain(
-            'hosted preview admits only the exact default-branch candidate before using the Vercel bypass secret',
+            'hosted Vercel deploy admits only exact Preview or Production default-branch candidates before using the bypass secret',
         );
     });
 

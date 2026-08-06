@@ -26,8 +26,9 @@ interface WatchAssignSheetProps {
     /** The skipper themselves (so they can take their own watch) */
     skipperEmail?: string;
     skipperName?: string;
-    /** Called with email + display name (or null/null to clear) */
-    onAssign: (email: string | null, name: string | null) => void;
+    skipperUserId?: string;
+    /** Called with durable user identity + snapshots (all null to clear). */
+    onAssign: (email: string | null, name: string | null, userId: string | null) => void;
 }
 
 const ROLE_LABEL: Record<CrewRole, string> = {
@@ -63,6 +64,7 @@ export const WatchAssignSheet: React.FC<WatchAssignSheetProps> = ({
     crew,
     skipperEmail,
     skipperName,
+    skipperUserId,
     onAssign,
 }) => {
     const closeButtonRef = useRef<HTMLButtonElement>(null);
@@ -74,8 +76,8 @@ export const WatchAssignSheet: React.FC<WatchAssignSheetProps> = ({
     if (!open) return null;
 
     const acceptedCrew = crew.filter((c) => c.status === 'accepted');
-    const choose = (email: string | null, name: string | null) => {
-        onAssign(email, name);
+    const choose = (email: string | null, name: string | null, userId: string | null) => {
+        onAssign(email, name, userId);
         onClose();
     };
 
@@ -131,7 +133,9 @@ export const WatchAssignSheet: React.FC<WatchAssignSheetProps> = ({
                     {skipperEmail && (
                         <button
                             type="button"
-                            onClick={() => choose(skipperEmail, skipperName ?? emailToName(skipperEmail))}
+                            onClick={() =>
+                                choose(skipperEmail, skipperName ?? emailToName(skipperEmail), skipperUserId ?? null)
+                            }
                             className={`w-full text-left px-3 py-3 rounded-xl border transition-all active:scale-[0.98] mb-1.5 ${
                                 currentEmail === skipperEmail
                                     ? 'bg-amber-500/15 border-amber-500/35'
@@ -167,7 +171,7 @@ export const WatchAssignSheet: React.FC<WatchAssignSheetProps> = ({
                             <button
                                 key={c.id}
                                 type="button"
-                                onClick={() => choose(c.crew_email, displayName)}
+                                onClick={() => choose(c.crew_email, displayName, c.crew_user_id)}
                                 className={`w-full text-left px-3 py-3 rounded-xl border transition-all active:scale-[0.98] mb-1.5 ${
                                     selected
                                         ? 'bg-sky-500/15 border-sky-500/35'
@@ -196,7 +200,7 @@ export const WatchAssignSheet: React.FC<WatchAssignSheetProps> = ({
                             </div>
                             <button
                                 type="button"
-                                onClick={() => choose(null, null)}
+                                onClick={() => choose(null, null, null)}
                                 className="w-full text-left px-3 py-3 rounded-xl border border-red-500/20 bg-red-500/5 hover:bg-red-500/10 transition-all active:scale-[0.98]"
                             >
                                 <div className="flex items-center gap-3">

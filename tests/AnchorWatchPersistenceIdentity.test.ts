@@ -57,6 +57,11 @@ const watchMocks = vi.hoisted(() => ({
     scheduleSafetyNotifications: vi.fn().mockResolvedValue(true),
 }));
 
+const recoveryMocks = vi.hoisted(() => ({
+    failWrite: false,
+    failClear: false,
+}));
+
 vi.mock('@capacitor-community/keep-awake', () => ({
     KeepAwake: {
         keepAwake: watchMocks.keepAwake,
@@ -138,6 +143,39 @@ vi.mock('../services/GuardianService', () => ({
     },
 }));
 
+// Keep this service-level suite focused on Anchor Watch transition semantics.
+// The real iOS Keychain adapter and its migration/failure paths have a
+// dedicated suite; this adapter preserves the historical observable store so
+// the existing identity and crash-recovery assertions stay readable.
+vi.mock('../services/anchorWatchRecoveryStorage', () => {
+    const stateKey = 'thalassa_anchor_watch_state';
+    const deviceKey = 'thalassa_anchor_watch_device_recovery_v1';
+    const scopedKey = (identityKey: string) => `${stateKey}::${encodeURIComponent(identityKey)}`;
+    return {
+        ANCHOR_WATCH_DEVICE_RECOVERY_KEY: deviceKey,
+        readAnchorWatchRecovery: vi.fn(async (scope: { key: string }) => {
+            const device = localStorage.getItem(deviceKey);
+            if (device !== null) return { raw: device, deviceRecovery: true };
+            const scoped = localStorage.getItem(scopedKey(scope.key));
+            return scoped === null ? null : { raw: scoped, deviceRecovery: false };
+        }),
+        hasAnchorWatchRecovery: vi.fn(
+            async (scope: { key: string }) =>
+                localStorage.getItem(deviceKey) !== null || localStorage.getItem(scopedKey(scope.key)) !== null,
+        ),
+        writeAnchorWatchRecovery: vi.fn(async (scope: { key: string }, raw: string) => {
+            if (recoveryMocks.failWrite) throw new Error('secure recovery write failed');
+            localStorage.setItem(deviceKey, raw);
+            localStorage.setItem(scopedKey(scope.key), raw);
+        }),
+        clearAnchorWatchRecovery: vi.fn(async (scope: { key: string }) => {
+            if (recoveryMocks.failClear) throw new Error('secure recovery clear failed');
+            localStorage.removeItem(scopedKey(scope.key));
+            localStorage.removeItem(deviceKey);
+        }),
+    };
+});
+
 import { ANCHOR_WATCH_DEVICE_RECOVERY_KEY, AnchorWatchService } from '../services/AnchorWatchService';
 import { authScopedStorageKey, setAuthIdentityScope } from '../services/authIdentityScope';
 import { Capacitor } from '@capacitor/core';
@@ -214,9 +252,13 @@ describe('AnchorWatchService local safety persistence', () => {
         watchMocks.releaseAlarm.mockResolvedValue(undefined);
         watchMocks.forceStopAlarm.mockResolvedValue(undefined);
         watchMocks.scheduleSafetyNotifications.mockResolvedValue(true);
+        recoveryMocks.failWrite = false;
+        recoveryMocks.failClear = false;
     });
 
     afterEach(async () => {
+        recoveryMocks.failWrite = false;
+        recoveryMocks.failClear = false;
         await AnchorWatchService.stopWatch();
         setAuthIdentityScope(null);
         vi.mocked(Capacitor.isNativePlatform).mockReturnValue(false);
@@ -416,6 +458,54 @@ describe('AnchorWatchService local safety persistence', () => {
             setupError: 'Location permission is denied forever',
         });
         expect(localStorage.getItem(authScopedStorageKey(WATCH_KEY, scope))).toBeNull();
+    });
+
+    it('does not report an armed watch before secure recovery persistence succeeds', async () => {
+        setAuthIdentityScope('account-a');
+        recoveryMocks.failWrite = true;
+
+        expect(await AnchorWatchService.setAnchorAt(-27.4, 153.1, CONFIG)).toBe(false);
+
+        expect(watchMocks.requestStop).toHaveBeenCalledOnce();
+        expect(AnchorWatchService.getSnapshot()).toMatchObject({
+            state: 'idle',
+            anchorPosition: null,
+            setupError: 'secure recovery write failed',
+        });
+    });
+
+    it('keeps Weigh Anchor retryable when strict secure clear is not confirmed', async () => {
+        const accountAScope = setAuthIdentityScope('account-a');
+        const accountAKey = authScopedStorageKey(WATCH_KEY, accountAScope);
+        expect(await AnchorWatchService.setAnchorAt(-27.4, 153.1, CONFIG)).toBe(true);
+        recoveryMocks.failClear = true;
+
+        await expect(AnchorWatchService.stopWatch()).rejects.toThrow('secure recovery clear failed');
+
+        expect(AnchorWatchService.getSnapshot()).toMatchObject({
+            state: 'paused',
+            anchorPosition: { latitude: -27.4, longitude: 153.1 },
+            setupError: expect.stringContaining('crash-recovery state could not be cleared'),
+        });
+        expect(localStorage.getItem(accountAKey)).not.toBeNull();
+
+        recoveryMocks.failClear = false;
+        await AnchorWatchService.stopWatch();
+        expect(localStorage.getItem(accountAKey)).toBeNull();
+    });
+
+    it('does not silently return to idle when failed setup recovery cannot be cleared', async () => {
+        setAuthIdentityScope('account-a');
+        recoveryMocks.failWrite = true;
+        recoveryMocks.failClear = true;
+
+        expect(await AnchorWatchService.setAnchorAt(-27.4, 153.1, CONFIG)).toBe(false);
+
+        expect(AnchorWatchService.getSnapshot()).toMatchObject({
+            state: 'paused',
+            anchorPosition: { latitude: -27.4, longitude: 153.1 },
+            setupError: expect.stringContaining('secure recovery clear failed'),
+        });
     });
 
     it('rolls back when native tracking resolves but cannot be verified active', async () => {

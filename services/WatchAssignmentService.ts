@@ -35,6 +35,7 @@ export interface WatchAssignment {
     watch_time_label: string;
     assigned_crew_email: string | null;
     assigned_crew_name: string | null;
+    assigned_crew_user_id?: string | null;
     assigned_at: string | null;
     assigned_by: string | null;
     created_at: string;
@@ -144,6 +145,7 @@ export const WatchAssignmentService = {
         watchTimeLabel: string,
         crewEmail: string | null,
         crewName: string | null,
+        crewUserId: string | null = null,
     ): Promise<WatchAssignment | null> {
         if (!voyageId) return null;
         const scope = getAuthIdentityScope();
@@ -160,6 +162,7 @@ export const WatchAssignmentService = {
                         watch_time_label: watchTimeLabel,
                         assigned_crew_email: crewEmail,
                         assigned_crew_name: crewName,
+                        assigned_crew_user_id: crewUserId,
                         assigned_at: new Date().toISOString(),
                         assigned_by: scope.userId,
                     };
@@ -202,6 +205,7 @@ export const WatchAssignmentService = {
             watch_time_label: watchTimeLabel,
             assigned_crew_email: crewEmail,
             assigned_crew_name: crewName,
+            assigned_crew_user_id: crewUserId,
             assigned_at: now,
             assigned_by: scope.userId,
             created_at: cached[idx]?.created_at ?? now,

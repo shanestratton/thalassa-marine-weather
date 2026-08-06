@@ -28,6 +28,7 @@ import {
     weatherCacheKeysForScope,
     type OrchestratorCallbacks,
 } from '../services/WeatherOrchestrator';
+import { findWeatherHistoryReport, weatherReportMatchesRequest } from '../services/weather/cache';
 
 import { createLogger } from '../utils/createLogger';
 import { decideFollowAction, haversineNM, GPS_FOLLOW_POLL_MS } from '../utils/gpsFollow';
@@ -487,7 +488,7 @@ const ScopedWeatherProvider: React.FC<{ children: React.ReactNode; identityScope
 
             // Smooth transition strategy
             const cache = historyCacheRef.current;
-            const cached = cache[location];
+            const cached = findWeatherHistoryReport(cache, location, coords);
             const isCacheValid =
                 cached && cached?.coordinates && (cached.coordinates.lat !== 0 || cached.coordinates.lon !== 0);
 
@@ -498,7 +499,11 @@ const ScopedWeatherProvider: React.FC<{ children: React.ReactNode; identityScope
             // 4-5 s of "nothing happened" that has punters mashing buttons
             // (Shane 2026-07-22), and it is not the network: the sources now
             // return in 0.4-2.7 s.
-            const showingAnotherPlace = isShowingAnotherPlace(weatherDataRef.current?.locationName, location);
+            const showingAnotherPlace =
+                isShowingAnotherPlace(weatherDataRef.current?.locationName, location) ||
+                (!!coords &&
+                    !!weatherDataRef.current &&
+                    !weatherReportMatchesRequest(weatherDataRef.current, location, coords));
 
             const ageOf = (iso?: string) => (iso ? Date.now() - new Date(iso).getTime() : Infinity);
 

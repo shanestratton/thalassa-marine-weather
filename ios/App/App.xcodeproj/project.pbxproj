@@ -35,6 +35,9 @@
 		AA000015AAAA001500000001 /* WatchConnectivityPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000015AAAA001500000002 /* WatchConnectivityPlugin.swift */; };
 		AA000016AAAA001600000001 /* WatchConnectivityPlugin.m in Sources */ = {isa = PBXBuildFile; fileRef = AA000016AAAA001600000002 /* WatchConnectivityPlugin.m */; };
 		AA000017AAAA001700000001 /* AppleCredentialStatePlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000017AAAA001700000002 /* AppleCredentialStatePlugin.swift */; };
+		AA000020AAAA002000000001 /* SecureStoragePlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000020AAAA002000000002 /* SecureStoragePlugin.swift */; };
+		AA000021AAAA002100000001 /* AnchorWatchStoragePlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000021AAAA002100000002 /* AnchorWatchStoragePlugin.swift */; };
+		AA000022AAAA002200000001 /* EncryptedLargeStoragePlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000022AAAA002200000002 /* EncryptedLargeStoragePlugin.swift */; };
 		AA000018AAAA001800000001 /* AnchorSafetyNotificationPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000018AAAA001800000002 /* AnchorSafetyNotificationPlugin.swift */; };
 		B3A100012026080400000001 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = B3A100012026080400000002 /* PrivacyInfo.xcprivacy */; };
 /* End PBXBuildFile section */
@@ -98,6 +101,9 @@
 		AA000015AAAA001500000002 /* WatchConnectivityPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchConnectivityPlugin.swift; sourceTree = "<group>"; };
 		AA000016AAAA001600000002 /* WatchConnectivityPlugin.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = WatchConnectivityPlugin.m; sourceTree = "<group>"; };
 		AA000017AAAA001700000002 /* AppleCredentialStatePlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleCredentialStatePlugin.swift; sourceTree = "<group>"; };
+		AA000020AAAA002000000002 /* SecureStoragePlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecureStoragePlugin.swift; sourceTree = "<group>"; };
+		AA000021AAAA002100000002 /* AnchorWatchStoragePlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnchorWatchStoragePlugin.swift; sourceTree = "<group>"; };
+		AA000022AAAA002200000002 /* EncryptedLargeStoragePlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EncryptedLargeStoragePlugin.swift; sourceTree = "<group>"; };
 		AA000018AAAA001800000002 /* AnchorSafetyNotificationPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnchorSafetyNotificationPlugin.swift; sourceTree = "<group>"; };
 		B3A100012026080400000002 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -181,6 +187,9 @@
 				AA000015AAAA001500000002 /* WatchConnectivityPlugin.swift */,
 				AA000016AAAA001600000002 /* WatchConnectivityPlugin.m */,
 				AA000017AAAA001700000002 /* AppleCredentialStatePlugin.swift */,
+				AA000020AAAA002000000002 /* SecureStoragePlugin.swift */,
+				AA000021AAAA002100000002 /* AnchorWatchStoragePlugin.swift */,
+				AA000022AAAA002200000002 /* EncryptedLargeStoragePlugin.swift */,
 				AA000018AAAA001800000002 /* AnchorSafetyNotificationPlugin.swift */,
 				504EC30B1FED79650016851F /* Main.storyboard */,
 				504EC30E1FED79650016851F /* Assets.xcassets */,
@@ -407,6 +416,9 @@
 				AA000015AAAA001500000001 /* WatchConnectivityPlugin.swift in Sources */,
 				AA000016AAAA001600000001 /* WatchConnectivityPlugin.m in Sources */,
 				AA000017AAAA001700000001 /* AppleCredentialStatePlugin.swift in Sources */,
+				AA000020AAAA002000000001 /* SecureStoragePlugin.swift in Sources */,
+				AA000021AAAA002100000001 /* AnchorWatchStoragePlugin.swift in Sources */,
+				AA000022AAAA002200000001 /* EncryptedLargeStoragePlugin.swift in Sources */,
 				AA000018AAAA001800000001 /* AnchorSafetyNotificationPlugin.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

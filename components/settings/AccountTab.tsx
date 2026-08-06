@@ -142,6 +142,9 @@ export const AccountTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => 
                                 result.appleRevocationRequired
                                     ? 'To remove the remaining Apple authorisation, open iOS Settings → your name → Sign in with Apple → Thalassa → Delete.'
                                     : '',
+                                result.serverFinalizationPending
+                                    ? 'Your sign-in was deleted, but the minimal server deletion receipt still needs an operational checkpoint; contact privacy@thalassa.app if this notice persists.'
+                                    : '',
                             ]
                                 .filter(Boolean)
                                 .join(' '),
