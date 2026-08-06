@@ -7,6 +7,7 @@ const harness = vi.hoisted(() => ({
     setSentryUser: vi.fn(),
     initLocalDatabase: vi.fn(),
     purgeLocalDatabase: vi.fn(),
+    deleteLargeData: vi.fn(),
     deletePhoto: vi.fn(),
     deleteAudio: vi.fn(),
     preferences: {} as Record<string, string>,
@@ -49,6 +50,13 @@ vi.mock('../services/vessel/LocalDatabase', () => ({
     purgeLocalDatabaseForUser: harness.purgeLocalDatabase,
 }));
 
+vi.mock('../services/nativeStorage', () => ({
+    DATA_CACHE_KEY: 'thalassa_weather_cache_v9',
+    VOYAGE_CACHE_KEY: 'thalassa_voyage_cache_v2',
+    HISTORY_CACHE_KEY: 'thalassa_history_cache_v3',
+    deleteLargeData: harness.deleteLargeData,
+}));
+
 vi.mock('../services/diaryPhotoStore', () => ({
     isIdbAudio: (reference: string) => reference.startsWith('idb-audio:'),
     isIdbPhoto: (reference: string) => reference.startsWith('idb:'),
@@ -89,6 +97,7 @@ beforeEach(async () => {
     harness.clearPushUser.mockResolvedValue(undefined);
     harness.initLocalDatabase.mockResolvedValue(undefined);
     harness.purgeLocalDatabase.mockResolvedValue([]);
+    harness.deleteLargeData.mockResolvedValue(undefined);
     harness.deletePhoto.mockResolvedValue(undefined);
     harness.deleteAudio.mockResolvedValue(undefined);
     const identity = await import('../services/authIdentityScope');
@@ -104,7 +113,7 @@ describe('deleteCurrentAccount', () => {
         expect(harness.authState.user).toEqual(accountA);
     });
 
-    it('deletes remotely first, then purges only the deleted identity and its offline media', async () => {
+    it('deletes remotely first, then purges the deleted identity, native caches, and global point weather caches', async () => {
         const suffix = `::${encodeURIComponent(`user:${accountA.id}`)}`;
         const otherSuffix = `::${encodeURIComponent('user:account-b')}`;
         const quarantineTime = new Date().toISOString();
@@ -127,7 +136,12 @@ describe('deleteCurrentAccount', () => {
         );
         localStorage.setItem('thalassa_doc_sync_status:account-a', JSON.stringify({ 'doc-a': { status: 'error' } }));
         localStorage.setItem('thalassa_doc_sync_status:account-b', JSON.stringify({ 'doc-b': { status: 'error' } }));
+        localStorage.setItem('marine_weather_cache_v9_point_-27.47050_153.02600', 'point-cache');
+        localStorage.setItem('marine_weather_cache_v8_brisbane', 'retired-point-cache');
+        localStorage.setItem('last_marine_report', 'retired-last-report');
+        localStorage.setItem('marine-weather-cache-unrelated', 'keep');
         sessionStorage.setItem(`draft${suffix}`, JSON.stringify({ audio_url: 'idb-audio:memo-a' }));
+        sessionStorage.setItem('marine_weather_cache_v9_point_-17.73330_168.31670', 'session-point-cache');
         harness.preferences[`queue${suffix}`] = JSON.stringify({ photo: 'idb:photo-native' });
         harness.preferences[`queue${otherSuffix}`] = 'keep';
         harness.preferences['calypso:gmail:refresh_token'] = 'unowned-legacy-secret';
@@ -155,6 +169,11 @@ describe('deleteCurrentAccount', () => {
         expect(localStorage.getItem('thalassa_diary_quarantine_v1')).not.toContain('expired');
         expect(localStorage.getItem('thalassa_doc_sync_status:account-a')).toBeNull();
         expect(localStorage.getItem('thalassa_doc_sync_status:account-b')).not.toBeNull();
+        expect(localStorage.getItem('marine_weather_cache_v9_point_-27.47050_153.02600')).toBeNull();
+        expect(localStorage.getItem('marine_weather_cache_v8_brisbane')).toBeNull();
+        expect(localStorage.getItem('last_marine_report')).toBeNull();
+        expect(localStorage.getItem('marine-weather-cache-unrelated')).toBe('keep');
+        expect(sessionStorage.getItem('marine_weather_cache_v9_point_-17.73330_168.31670')).toBeNull();
         expect(harness.preferences[`queue${suffix}`]).toBeUndefined();
         expect(harness.preferences[`queue${otherSuffix}`]).toBe('keep');
         expect(harness.preferences['calypso:gmail:refresh_token']).toBeUndefined();
@@ -164,6 +183,13 @@ describe('deleteCurrentAccount', () => {
         expect(harness.preferences.ship_log_offline_queue_quarantine_v2).toContain('"private":"b"');
         expect(harness.preferences.ship_log_offline_queue_quarantine_v2).not.toContain('"private":"a"');
         expect(harness.purgeLocalDatabase).toHaveBeenCalledWith(accountA.id);
+        expect(harness.deleteLargeData.mock.calls.map(([key]) => key)).toEqual([
+            'thalassa_weather_cache_v9::user%3Aaccount-a',
+            'thalassa_voyage_cache_v2::user%3Aaccount-a',
+            'thalassa_history_cache_v3::user%3Aaccount-a',
+            'thalassa_next_update::user%3Aaccount-a',
+            'thalassa_weather_cache_schema::user%3Aaccount-a',
+        ]);
         expect(harness.deletePhoto).toHaveBeenCalledWith('idb:photo-a');
         expect(harness.deletePhoto).toHaveBeenCalledWith('idb:photo-native');
         expect(harness.deletePhoto).toHaveBeenCalledWith('idb:legacy-photo-a');
@@ -200,11 +226,33 @@ describe('deleteCurrentAccount', () => {
         harness.invoke.mockResolvedValue({ data: null, error: new Error('offline') });
         const { deleteCurrentAccount } = await import('../services/accountDeletion');
 
-        await expect(deleteCurrentAccount('DELETE')).rejects.toThrow('could not be completed');
+        await expect(deleteCurrentAccount('DELETE')).rejects.toThrow('could not be confirmed complete');
 
         expect(localStorage.getItem(`diary${suffix}`)).toBe('private');
         expect(harness.purgeLocalDatabase).not.toHaveBeenCalled();
         expect(harness.clearPushUser).not.toHaveBeenCalled();
+        expect(harness.authState.user).toEqual(accountA);
+    });
+
+    it('reports durable partial progress without signing out or erasing local recovery data', async () => {
+        const suffix = `::${encodeURIComponent(`user:${accountA.id}`)}`;
+        localStorage.setItem(`diary${suffix}`, 'private-local-recovery');
+        harness.invoke.mockResolvedValue({
+            data: {
+                deleted: false,
+                deletionInProgress: true,
+                phase: 'storage_cleanup',
+                message: 'Account deletion has started and is write-fenced. Retry to continue safely.',
+            },
+            error: null,
+        });
+        const { deleteCurrentAccount } = await import('../services/accountDeletion');
+
+        await expect(deleteCurrentAccount('DELETE')).rejects.toThrow('has started and is write-fenced');
+
+        expect(localStorage.getItem(`diary${suffix}`)).toBe('private-local-recovery');
+        expect(harness.purgeLocalDatabase).not.toHaveBeenCalled();
+        expect(harness.signOut).not.toHaveBeenCalled();
         expect(harness.authState.user).toEqual(accountA);
     });
 

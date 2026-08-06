@@ -53,6 +53,7 @@ import { homedir } from 'node:os';
 import { join, basename, dirname, extname, resolve } from 'node:path';
 import chokidar, { type FSWatcher } from 'chokidar';
 import { startChartworldSync, stopChartworldSync } from './chartworldSync.js';
+import { PiWorkloadBusyError, piWorkloadGovernor } from './workloadGovernor.js';
 
 const HOME = homedir();
 
@@ -72,6 +73,7 @@ const CHART_STORE_DIR = resolve(process.env.ENC_CHART_DIR || './enc-charts');
 const DEBOUNCE_MS = parseInt(process.env.ENC_WATCHER_DEBOUNCE_MS || '30000', 10);
 const ENABLED = process.env.ENC_WATCHER_ENABLED !== 'false';
 const DEFAULT_SOURCE_HO = process.env.ENC_DEFAULT_SOURCE_HO || 'AU';
+const EXTRACTOR_TIMEOUT_MS = 30 * 60 * 1000;
 
 const S63_SENC_DIR = process.env.ENC_S63_SENC_DIR || join(HOME, '.opencpn', 's63', 's63SENC');
 const S63_CHART_DIR = process.env.ENC_S63_CHART_DIR || join(HOME, '.opencpn', 's63', 's63charts');
@@ -205,6 +207,18 @@ async function drainPendingS63(): Promise<void> {
         await runExtractS63(cells);
     } catch (err) {
         console.warn(`[encWatcher] extractS63 failed for ${cells.join(', ')}:`, err);
+        if (err instanceof PiWorkloadBusyError) {
+            for (const cell of cells) pendingS63Cells.add(cell);
+            if (!s63PendingTimer) {
+                s63PendingTimer = setTimeout(
+                    () => {
+                        s63PendingTimer = null;
+                        void drainPendingS63();
+                    },
+                    Math.min(DEBOUNCE_MS, 5_000),
+                );
+            }
+        }
     }
 }
 
@@ -213,64 +227,72 @@ async function drainPendingS63(): Promise<void> {
  * itself from opencpn.conf and the .os63 descriptors, so nothing sensitive
  * passes through argv (and nothing lands in the process table).
  */
-function runExtractS63(cellIds: string[]): Promise<void> {
-    return new Promise((resolve, reject) => {
-        const args = [
-            'tsx',
-            join(EXTRACTOR_DIR, 'src', 'extractS63.ts'),
-            '--senc-dir',
-            S63_SENC_DIR,
-            '--chart-dir',
-            S63_CHART_DIR,
-            '--conf',
-            S63_CONF,
-            '--pi-cache-store',
-            CHART_STORE_DIR,
-            '--only',
-            cellIds.join(','),
-        ];
+async function runExtractS63(cellIds: string[]): Promise<void> {
+    const lease = await piWorkloadGovernor.admit('conversion').lease;
+    try {
+        await new Promise<void>((resolve, reject) => {
+            const args = [
+                'tsx',
+                join(EXTRACTOR_DIR, 'src', 'extractS63.ts'),
+                '--senc-dir',
+                S63_SENC_DIR,
+                '--chart-dir',
+                S63_CHART_DIR,
+                '--conf',
+                S63_CONF,
+                '--pi-cache-store',
+                CHART_STORE_DIR,
+                '--only',
+                cellIds.join(','),
+            ];
 
-        console.log(`[encWatcher] spawning extractS63 for ${cellIds.join(', ')}`);
-        const t0 = Date.now();
-        currentS63Run = cellIds.join(',');
+            console.log(`[encWatcher] spawning extractS63 for ${cellIds.join(', ')}`);
+            const t0 = Date.now();
+            currentS63Run = cellIds.join(',');
 
-        const child = spawn('npx', args, {
-            cwd: EXTRACTOR_DIR,
-            env: { ...process.env, NODE_OPTIONS: '--max-old-space-size=4096' },
-            stdio: ['ignore', 'pipe', 'pipe'],
-        });
+            const child = spawn('npx', args, {
+                cwd: EXTRACTOR_DIR,
+                env: { ...process.env, NODE_OPTIONS: '--max-old-space-size=4096' },
+                stdio: ['ignore', 'pipe', 'pipe'],
+                timeout: EXTRACTOR_TIMEOUT_MS,
+            });
 
-        let lastLine = '';
-        child.stdout.on('data', (chunk: Buffer) => {
-            for (const line of chunk.toString().split('\n')) {
-                if (!line.trim()) continue;
-                lastLine = line.trim();
-                // Surface the per-cell summary and anything the extractor
-                // flags — withheld geometry means a cell needs a human.
-                if (line.includes('emitted') || line.includes('WARNING') || line.includes('Wrote pi-cache')) {
-                    console.log(`[encWatcher:s63] ${line.trim()}`);
+            let lastLine = '';
+            child.stdout.on('data', (chunk: Buffer) => {
+                for (const line of chunk.toString().split('\n')) {
+                    if (!line.trim()) continue;
+                    lastLine = line.trim();
+                    // Surface the per-cell summary and anything the extractor
+                    // flags — withheld geometry means a cell needs a human.
+                    if (line.includes('emitted') || line.includes('WARNING') || line.includes('Wrote pi-cache')) {
+                        console.log(`[encWatcher:s63] ${line.trim()}`);
+                    }
                 }
-            }
-        });
-        child.stderr.on('data', (chunk: Buffer) => console.warn(`[encWatcher:s63] stderr: ${chunk.toString().trim()}`));
+            });
+            child.stderr.on('data', (chunk: Buffer) =>
+                console.warn(`[encWatcher:s63] stderr: ${chunk.toString().trim()}`),
+            );
 
-        child.on('exit', (code) => {
-            currentS63Run = null;
-            const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
-            if (code === 0) {
-                console.log(`[encWatcher] extractS63 finished in ${elapsed}s — ${lastLine}`);
-                resolve();
-            } else {
-                console.warn(`[encWatcher] extractS63 exited code=${code} after ${elapsed}s`);
-                reject(new Error(`extractS63 exit ${code}`));
-            }
+            child.on('exit', (code) => {
+                currentS63Run = null;
+                const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
+                if (code === 0) {
+                    console.log(`[encWatcher] extractS63 finished in ${elapsed}s — ${lastLine}`);
+                    resolve();
+                } else {
+                    console.warn(`[encWatcher] extractS63 exited code=${code} after ${elapsed}s`);
+                    reject(new Error(`extractS63 exit ${code}`));
+                }
+            });
+            child.on('error', (err) => {
+                currentS63Run = null;
+                console.warn('[encWatcher] failed to spawn extractS63:', err);
+                reject(err);
+            });
         });
-        child.on('error', (err) => {
-            currentS63Run = null;
-            console.warn('[encWatcher] failed to spawn extractS63:', err);
-            reject(err);
-        });
-    });
+    } finally {
+        lease.release();
+    }
 }
 
 /**
@@ -314,6 +336,10 @@ async function drainPending(): Promise<void> {
             await runDecryptForChartSet(chartSet);
         } catch (err) {
             console.warn(`[encWatcher] decrypt failed for ${chartSet}:`, err);
+            if (err instanceof PiWorkloadBusyError) {
+                pendingChartSets.add(chartSet);
+                scheduleDecrypt();
+            }
         }
     }
 }
@@ -323,66 +349,74 @@ async function drainPending(): Promise<void> {
  * Uses --skip-existing so already-decrypted cells are no-ops; only fresh
  * downloads get processed.
  */
-function runDecryptForChartSet(chartSet: string): Promise<void> {
-    return new Promise((resolve, reject) => {
-        const args = [
-            'tsx',
-            join(EXTRACTOR_DIR, 'src', 'decryptBatch.ts'),
-            '--charts',
-            chartSet,
-            '--source-ho',
-            DEFAULT_SOURCE_HO,
-            '--pi-cache-store',
-            CHART_STORE_DIR,
-            '--skip-existing',
-        ];
+async function runDecryptForChartSet(chartSet: string): Promise<void> {
+    const lease = await piWorkloadGovernor.admit('conversion').lease;
+    try {
+        await new Promise<void>((resolve, reject) => {
+            const args = [
+                'tsx',
+                join(EXTRACTOR_DIR, 'src', 'decryptBatch.ts'),
+                '--charts',
+                chartSet,
+                '--source-ho',
+                DEFAULT_SOURCE_HO,
+                '--pi-cache-store',
+                CHART_STORE_DIR,
+                '--skip-existing',
+            ];
 
-        console.log(`[encWatcher] spawning decryptBatch for ${chartSet}`);
-        const t0 = Date.now();
+            console.log(`[encWatcher] spawning decryptBatch for ${chartSet}`);
+            const t0 = Date.now();
 
-        const child = spawn('npx', args, {
-            cwd: EXTRACTOR_DIR,
-            env: { ...process.env, NODE_OPTIONS: '--max-old-space-size=4096' },
-            stdio: ['ignore', 'pipe', 'pipe'],
-        });
+            const child = spawn('npx', args, {
+                cwd: EXTRACTOR_DIR,
+                env: { ...process.env, NODE_OPTIONS: '--max-old-space-size=4096' },
+                stdio: ['ignore', 'pipe', 'pipe'],
+                timeout: EXTRACTOR_TIMEOUT_MS,
+            });
 
-        let lastLine = '';
-        const captureLine = (chunk: Buffer): void => {
-            const text = chunk.toString();
-            for (const line of text.split('\n')) {
-                if (!line.trim()) continue;
-                lastLine = line;
-                // Pi-cache journal is verbose enough already — emit only the
-                // summary lines, not every per-cell log.
-                if (line.startsWith('Done.') || line.includes('Wrote pi-cache') || line.includes('IMPORTED')) {
-                    console.log(`[encWatcher:decrypt] ${line}`);
+            let lastLine = '';
+            const captureLine = (chunk: Buffer): void => {
+                const text = chunk.toString();
+                for (const line of text.split('\n')) {
+                    if (!line.trim()) continue;
+                    lastLine = line;
+                    // Pi-cache journal is verbose enough already — emit only the
+                    // summary lines, not every per-cell log.
+                    if (line.startsWith('Done.') || line.includes('Wrote pi-cache') || line.includes('IMPORTED')) {
+                        console.log(`[encWatcher:decrypt] ${line}`);
+                    }
                 }
-            }
-        };
-        child.stdout.on('data', captureLine);
-        child.stderr.on('data', (chunk) => console.warn(`[encWatcher:decrypt] stderr: ${chunk.toString().trim()}`));
+            };
+            child.stdout.on('data', captureLine);
+            child.stderr.on('data', (chunk) => console.warn(`[encWatcher:decrypt] stderr: ${chunk.toString().trim()}`));
 
-        child.on('exit', (code) => {
-            const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
-            if (code === 0) {
-                console.log(`[encWatcher] decryptBatch finished in ${elapsed}s — ${lastLine}`);
-                resolve();
-            } else {
-                console.warn(`[encWatcher] decryptBatch exited code=${code} after ${elapsed}s`);
-                reject(new Error(`decryptBatch exit ${code}`));
-            }
+            child.on('exit', (code) => {
+                currentDecryptRun = null;
+                const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
+                if (code === 0) {
+                    console.log(`[encWatcher] decryptBatch finished in ${elapsed}s — ${lastLine}`);
+                    resolve();
+                } else {
+                    console.warn(`[encWatcher] decryptBatch exited code=${code} after ${elapsed}s`);
+                    reject(new Error(`decryptBatch exit ${code}`));
+                }
+            });
+
+            child.on('error', (err) => {
+                currentDecryptRun = null;
+                console.warn(`[encWatcher] failed to spawn decryptBatch:`, err);
+                reject(err);
+            });
+
+            currentDecryptRun = {
+                chartSet,
+                promise: new Promise<void>((res) => child.on('exit', () => res())),
+            };
         });
-
-        child.on('error', (err) => {
-            console.warn(`[encWatcher] failed to spawn decryptBatch:`, err);
-            reject(err);
-        });
-
-        currentDecryptRun = {
-            chartSet,
-            promise: new Promise<void>((res) => child.on('exit', () => res())),
-        };
-    });
+    } finally {
+        lease.release();
+    }
 }
 
 /** Diagnostic — what's the watcher doing right now? Used by the /api/enc/health endpoint. */

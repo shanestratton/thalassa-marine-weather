@@ -94,6 +94,9 @@ public class ThalassaBridgeViewController: CAPBridgeViewController {
         bridge?.registerPluginInstance(MdnsBrowserPlugin())
         bridge?.registerPluginInstance(WatchConnectivityPlugin())
         bridge?.registerPluginInstance(AppleCredentialStatePlugin())
+        bridge?.registerPluginInstance(SecureStoragePlugin())
+        bridge?.registerPluginInstance(AnchorWatchStoragePlugin())
+        bridge?.registerPluginInstance(EncryptedLargeStoragePlugin())
         bridge?.registerPluginInstance(AnchorSafetyNotificationPlugin())
         bridge?.registerPluginInstance(PiTlsPlugin())
         // SshClientPlugin not added yet: its .swift/.m files exist on

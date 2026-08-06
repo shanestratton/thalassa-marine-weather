@@ -14,7 +14,14 @@
 
 import { Router, Request, Response } from 'express';
 import { Cache } from '../cache.js';
-import { ProxyConfig, cachedJsonFetch, isSupabaseFunctionName, supabaseEdgeUrl, supabaseHeaders } from '../proxy.js';
+import {
+    ProxyConfig,
+    cachedJsonFetch,
+    isSupabaseFunctionName,
+    normalizeSupabaseProxyQuery,
+    supabaseEdgeUrl,
+    supabaseHeaders,
+} from '../proxy.js';
 import { TTL } from '../scheduler.js';
 
 export function createMiscRoutes(cache: Cache, config: ProxyConfig): Router {
@@ -245,11 +252,7 @@ export function createMiscRoutes(cache: Cache, config: ProxyConfig): Router {
             if (!isSupabaseFunctionName(functionName)) {
                 return res.status(400).json({ error: 'Unsupported Supabase function name' });
             }
-            // Flatten query params to strings (Express query params can be string | string[])
-            const params: Record<string, string> = {};
-            for (const [k, v] of Object.entries(req.query)) {
-                params[k] = Array.isArray(v) ? String(v[0]) : String(v);
-            }
+            const params = normalizeSupabaseProxyQuery(req.query);
 
             // Build a cache key from the function name + sorted params
             const sortedParams = Object.keys(params)

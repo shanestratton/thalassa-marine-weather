@@ -50,17 +50,24 @@
  * install.sh sets group-writable + adds skipper to the avnav group.
  *
  * Job state lives in-memory only — completed jobs purge after 1 hour.
- * If pi-cache restarts mid-download, the partial file is left on disk
- * (next attempt overwrites it). No persistent queue / resume — chart
+ * Downloads use unique adjacent partial files and atomically replace only
+ * after the bounded stream completes. No persistent queue / resume — chart
  * installs are infrequent and a one-shot retry is fine.
  */
 
 import { Router, Request, Response } from 'express';
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
-import { createWriteStream } from 'node:fs';
 import path from 'node:path';
 import { normaliseOutboundHttpUrl, outboundFetch } from '../outboundHttp.js';
+import {
+    CHART_ARCHIVE_POLICY,
+    CHART_DOWNLOAD_POLICY,
+    PiResourceBoundaryError,
+    extractZipArchive,
+    streamResponseToFile,
+} from '../resourceBoundary.js';
+import { PiWorkloadBusyError, piWorkloadGovernor, workloadBusyPayload } from '../workloadGovernor.js';
 
 interface ChartJob {
     id: string;
@@ -71,6 +78,7 @@ interface ChartJob {
     bytesTransferred: number;
     bytesTotal: number;
     error?: string;
+    errorCode?: string;
     startedAt: number;
     completedAt?: number;
     /** Final file path on disk (only set when done) */
@@ -80,6 +88,7 @@ interface ChartJob {
 const jobs = new Map<string, ChartJob>();
 
 const CHART_DIR = process.env.CHART_DIR || '/var/lib/avnav/charts';
+const CHART_DOWNLOAD_TIMEOUT_MS = 30 * 60 * 1000;
 
 // Purge old completed/errored jobs every hour so the in-memory map
 // doesn't grow unbounded across long-running pi-cache instances.
@@ -136,13 +145,24 @@ export function createChartRoutes(): Router {
             bytesTotal: 0,
             startedAt: Date.now(),
         };
+        let submission;
+        try {
+            submission = piWorkloadGovernor.submit('conversion', () => runDownload(job));
+        } catch (error) {
+            if (error instanceof PiWorkloadBusyError) {
+                res.setHeader('Retry-After', String(error.retryAfterSeconds));
+                return res.status(error.status).json(workloadBusyPayload(error));
+            }
+            throw error;
+        }
         jobs.set(jobId, job);
 
         // Run in background — the response below resolves immediately so
         // the client can switch to polling /jobs/:id for progress.
-        void runDownload(job).catch((err) => {
+        void submission.completion.catch((err) => {
             job.status = 'error';
             job.error = err instanceof Error ? err.message : String(err);
+            job.errorCode = err instanceof PiResourceBoundaryError ? err.code : undefined;
             job.completedAt = Date.now();
         });
 
@@ -226,51 +246,27 @@ async function runDownload(job: ChartJob): Promise<void> {
 
     await fs.mkdir(CHART_DIR, { recursive: true });
     const filePath = path.join(CHART_DIR, job.name);
-
-    const response = await outboundFetch(job.url);
-    if (!response.ok) {
-        throw new Error(`HTTP ${response.status} ${response.statusText} from ${job.url}`);
-    }
-
-    const contentLength = response.headers.get('content-length');
-    if (contentLength) {
-        const parsed = parseInt(contentLength, 10);
-        if (Number.isFinite(parsed) && parsed > 0) job.bytesTotal = parsed;
-    }
-
-    if (!response.body) {
-        throw new Error('Upstream response has no body');
-    }
-
-    const fileStream = createWriteStream(filePath);
-    const reader = response.body.getReader();
+    let downloadCommitted = false;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), CHART_DOWNLOAD_TIMEOUT_MS);
 
     try {
-        while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-
-            // Backpressure-aware write — wait for drain if the file
-            // stream's buffer is full so we don't OOM on a fast LAN
-            // download into a slow SD card.
-            const ok = fileStream.write(value);
-            if (!ok) {
-                await new Promise<void>((resolve) => fileStream.once('drain', () => resolve()));
-            }
-
-            job.bytesTransferred += value.length;
-            // If we knew the total, derive % from bytes; otherwise show
-            // "indeterminate" via a fixed 50% so the UI doesn't appear
-            // stuck. Most NOAA / LINZ servers send Content-Length so the
-            // determinate path is the common case.
-            job.progress = job.bytesTotal > 0 ? Math.min(job.bytesTransferred / job.bytesTotal, 0.99) : 0.5;
+        const response = await outboundFetch(job.url, { signal: controller.signal });
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status} ${response.statusText} from ${job.url}`);
         }
-
-        fileStream.end();
-        await new Promise<void>((resolve, reject) => {
-            fileStream.once('finish', () => resolve());
-            fileStream.once('error', reject);
+        const contentLength = Number(response.headers.get('content-length') ?? 0);
+        if (Number.isSafeInteger(contentLength) && contentLength > 0) job.bytesTotal = contentLength;
+        await streamResponseToFile(response, filePath, CHART_DOWNLOAD_POLICY, {
+            signal: controller.signal,
+            mode: 0o644,
+            onProgress(bytes, total) {
+                job.bytesTransferred = bytes;
+                if (total > 0) job.bytesTotal = total;
+                job.progress = total > 0 ? Math.min(bytes / total, 0.99) : 0.5;
+            },
         });
+        downloadCommitted = true;
 
         // ── Auto-extract zip packages ────────────────────────────────
         // Community chart packs (e.g. Bruce Balan's New Caledonia from
@@ -282,9 +278,8 @@ async function runDownload(job: ChartJob): Promise<void> {
         //
         // We extract the chart-shaped entries into CHART_DIR (flattened
         // — directory structure inside the zip is dropped, basename
-        // wins) and delete the original .zip. If extraction fails for
-        // any reason the .zip is left in place so the user / a future
-        // retry can deal with it manually.
+        // wins) and delete the original .zip. Unsafe or over-budget
+        // archives fail the job and are removed.
         const finalPath = await maybeExtractZip(job.name, filePath);
 
         job.status = 'done';
@@ -296,15 +291,12 @@ async function runDownload(job: ChartJob): Promise<void> {
         // numerator + denominator.
         if (job.bytesTotal === 0) job.bytesTotal = job.bytesTransferred;
     } catch (err) {
-        fileStream.destroy();
         // Clean up the partial file — leaving a half-written .mbtiles
         // would make AvNav think a corrupted chart is installed.
-        try {
-            await fs.unlink(filePath);
-        } catch {
-            /* ignore — file may not exist if we failed before write */
-        }
+        if (downloadCommitted) await fs.unlink(filePath).catch(() => {});
         throw err;
+    } finally {
+        clearTimeout(timeout);
     }
 }
 
@@ -317,71 +309,30 @@ async function runDownload(job: ChartJob): Promise<void> {
  * ship a chartlist.xml alongside .kap files.
  */
 const CHART_EXTENSIONS = new Set(['.mbtiles', '.gemf', '.kap', '.bsb', '.xml']);
-const MAX_EXTRACT_BYTES = 5 * 1024 * 1024 * 1024; // 5 GB safety cap per entry
 
 /**
  * If `name` is a `.zip`, extract the chart-shaped entries inside into
  * CHART_DIR and delete the original. Returns the path that should be
- * recorded as the final job.filePath (either the first extracted chart
- * or — on extraction failure — the original zip).
- *
- * Best-effort: any error here is logged but doesn't fail the job. The
- * download itself succeeded; the user can still see the .zip on disk
- * and extract it by hand if needed.
+ * recorded as the final job.filePath. Inspection covers every archive entry
+ * before any selected chart is inflated.
  */
 async function maybeExtractZip(name: string, filePath: string): Promise<string> {
     if (!name.toLowerCase().endsWith('.zip')) return filePath;
+    const extracted = await extractZipArchive(filePath, CHART_DIR, CHART_ARCHIVE_POLICY, {
+        select: (entry) => CHART_EXTENSIONS.has(path.extname(entry.name).toLowerCase()),
+        outputName(entry) {
+            const safeBase = path.basename(entry.name).replace(/[^a-zA-Z0-9._-]/g, '_');
+            return !safeBase || safeBase === '.' || safeBase === '..' ? null : safeBase;
+        },
+        fileMode: 0o644,
+    });
+    if (extracted.files.length === 0) throw new Error(`ZIP ${name} contained no recognised chart files`);
 
-    try {
-        // Dynamic import so adm-zip only loads when actually needed —
-        // most chart downloads are raw .mbtiles and don't need it.
-        const AdmZipMod = await import('adm-zip');
-        const AdmZip = AdmZipMod.default;
-        const zip = new AdmZip(filePath);
-        const entries = zip.getEntries();
-
-        const extracted: string[] = [];
-        for (const entry of entries) {
-            if (entry.isDirectory) continue;
-
-            const ext = path.extname(entry.entryName).toLowerCase();
-            if (!CHART_EXTENSIONS.has(ext)) continue;
-
-            // Refuse absurdly large entries — protects against zip
-            // bombs and avoids exhausting the SD card.
-            if (entry.header.size > MAX_EXTRACT_BYTES) {
-                console.warn(`[charts] Skipping oversized entry ${entry.entryName} (${entry.header.size} bytes)`);
-                continue;
-            }
-
-            // Flatten: drop any internal directory structure and
-            // sanitise the same way we sanitise the download filename.
-            const safeBase = path.basename(entry.entryName).replace(/[^a-zA-Z0-9._-]/g, '_');
-            if (!safeBase || safeBase === '.' || safeBase === '..') continue;
-
-            const outPath = path.join(CHART_DIR, safeBase);
-            await fs.writeFile(outPath, entry.getData());
-            extracted.push(outPath);
-        }
-
-        if (extracted.length === 0) {
-            console.warn(`[charts] Zip ${name} contained no recognised chart files; leaving on disk`);
-            return filePath;
-        }
-
-        // Extraction worked — drop the original .zip so AvNav's chart
-        // scanner doesn't see both the package and its contents.
-        try {
-            await fs.unlink(filePath);
-        } catch {
-            /* ignore — leaving the zip is harmless if unlink races */
-        }
-
-        console.log(`[charts] Extracted ${extracted.length} chart file(s) from ${name}`);
-        return extracted[0]!;
-    } catch (err) {
-        console.warn(`[charts] Zip extraction failed for ${name}:`, err instanceof Error ? err.message : err);
-        // Leave the .zip on disk — failing here doesn't fail the job.
-        return filePath;
-    }
+    // Extraction worked — drop the original .zip so AvNav's chart
+    // scanner doesn't see both the package and its contents.
+    await fs.unlink(filePath).catch((error) => {
+        console.warn(`[charts] Extracted ${name}, but could not remove the source ZIP:`, error);
+    });
+    console.log(`[charts] Extracted ${extracted.files.length} chart file(s) from ${name}`);
+    return extracted.files[0]!;
 }

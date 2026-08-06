@@ -1,6 +1,6 @@
 # Branch Protection — Recommended Settings
 
-Configure these settings via **GitHub → Settings → Branches → Branch protection rules** for the `main` branch.
+Configure these settings via **GitHub → Settings → Branches → Branch protection rules** for the repository's default branch.
 
 ## Required Settings
 
@@ -33,5 +33,5 @@ Add these checks as required:
 If using Vercel's GitHub integration:
 
 1. Go to **Vercel → Project → Settings → Git**
-2. Enable **"Require preview deployment to succeed"**
-3. The `preview-smoke.yml` workflow runs Playwright against preview URLs automatically
+2. Enable **"Require deployment to succeed"** for the Vercel project
+3. The `preview-smoke.yml` workflow runs Playwright against exact trusted default-branch Preview or Production deployment URLs automatically

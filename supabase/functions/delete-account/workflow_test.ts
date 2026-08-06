@@ -128,17 +128,18 @@ Deno.test('required cleanup mutations fail closed on missing-table and schema-ca
             () =>
                 runAccountDeletionWorkflow({
                     revokeAppleCredential: () => Promise.resolve(false),
-                    cleanupOperations: [
-                        () =>
-                            requireDeletionMutation(
-                                Promise.resolve({ error: { message } }),
-                                'Required survivor cleanup failed',
-                            ),
-                    ],
+                    drainStorage: () => Promise.resolve({ complete: true, processed: 0 }),
+                    scrubSurvivors: () =>
+                        requireDeletionMutation(
+                            Promise.resolve({ error: { message } }),
+                            'Required survivor cleanup failed',
+                        ),
+                    markAuthDeleting: () => Promise.resolve(),
                     deleteAuthUser: () => {
                         authDeletionRan = true;
                         return Promise.resolve();
                     },
+                    completeDeletion: () => Promise.resolve(),
                 }),
             'Required survivor cleanup failed',
         );
@@ -172,7 +173,7 @@ function workflowHarness(failAt: string | null = null): {
         events.push(name);
         if (failAt === name) throw new Error(`${name} failed`);
     };
-    const cleanup = (name: string) => (): Promise<void> => {
+    const operation = (name: string) => (): Promise<void> => {
         record(name);
         return Promise.resolve();
     };
@@ -184,8 +185,14 @@ function workflowHarness(failAt: string | null = null): {
                 record('apple-revocation');
                 return Promise.resolve(false);
             },
-            cleanupOperations: [cleanup('storage-cleanup'), cleanup('recipe-cleanup'), cleanup('row-cleanup')],
-            deleteAuthUser: cleanup('auth-deletion'),
+            drainStorage: () => {
+                record('storage-cleanup');
+                return Promise.resolve({ complete: true, processed: 3 });
+            },
+            scrubSurvivors: operation('survivor-scrub'),
+            markAuthDeleting: operation('auth-deleting-checkpoint'),
+            deleteAuthUser: operation('auth-deletion'),
+            completeDeletion: operation('tombstone-complete'),
         },
     };
 }
@@ -197,9 +204,10 @@ Deno.test('delete-account runs Apple revocation and every cleanup before deletin
     assertEquals(events, [
         'apple-revocation',
         'storage-cleanup',
-        'recipe-cleanup',
-        'row-cleanup',
+        'survivor-scrub',
+        'auth-deleting-checkpoint',
         'auth-deletion',
+        'tombstone-complete',
     ]);
     assertEquals(result, {
         deleted: true,
@@ -208,7 +216,14 @@ Deno.test('delete-account runs Apple revocation and every cleanup before deletin
     });
 });
 
-for (const failingOperation of ['apple-revocation', 'storage-cleanup', 'recipe-cleanup', 'row-cleanup']) {
+for (
+    const failingOperation of [
+        'apple-revocation',
+        'storage-cleanup',
+        'survivor-scrub',
+        'auth-deleting-checkpoint',
+    ]
+) {
     Deno.test(`delete-account ${failingOperation} failure prevents auth deletion`, async () => {
         const { events, dependencies } = workflowHarness(failingOperation);
         await assertRejects(() => runAccountDeletionWorkflow(dependencies), `${failingOperation} failed`);
@@ -220,6 +235,35 @@ Deno.test('delete-account does not report success until auth deletion succeeds',
     const { events, dependencies } = workflowHarness('auth-deletion');
     await assertRejects(() => runAccountDeletionWorkflow(dependencies), 'auth-deletion failed');
     assertEquals(events.at(-1), 'auth-deletion');
+});
+
+Deno.test('delete-account returns explicit progress without scrubbing or deleting auth at a Storage budget', async () => {
+    const { events, dependencies } = workflowHarness();
+    dependencies.drainStorage = () => {
+        events.push('storage-cleanup');
+        return Promise.resolve({ complete: false, processed: 3200 });
+    };
+
+    assertEquals(await runAccountDeletionWorkflow(dependencies), {
+        deleted: false,
+        deletionInProgress: true,
+        phase: 'storage_cleanup',
+        processedStorageObjects: 3200,
+    });
+    assertEquals(events, ['apple-revocation', 'storage-cleanup']);
+});
+
+Deno.test('delete-account reports a finalization checkpoint failure only after auth is gone', async () => {
+    const { events, dependencies } = workflowHarness('tombstone-complete');
+
+    assertEquals(await runAccountDeletionWorkflow(dependencies), {
+        deleted: true,
+        appleRevocationRequired: false,
+        appleRevocation: 'complete_or_not_applicable',
+        serverFinalizationPending: true,
+    });
+    assertEquals(events.at(-2), 'auth-deletion');
+    assertEquals(events.at(-1), 'tombstone-complete');
 });
 
 Deno.test('delete-account reports manual Apple revocation only after a successful deletion', async () => {
@@ -234,5 +278,6 @@ Deno.test('delete-account reports manual Apple revocation only after a successfu
         appleRevocationRequired: true,
         appleRevocation: 'manual_required',
     });
-    assertEquals(events.at(-1), 'auth-deletion');
+    assertEquals(events.at(-2), 'auth-deletion');
+    assertEquals(events.at(-1), 'tombstone-complete');
 });

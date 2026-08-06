@@ -89,14 +89,16 @@ describe('Sign in with Apple TN3194 token lifecycle contract', () => {
     it('revokes retained Apple consent before auth deletion and flags legacy accounts without a token', () => {
         const deletion = read('supabase/functions/delete-account/index.ts');
         const workflow = read('supabase/functions/delete-account/workflow.ts');
-        const revoke = deletion.indexOf('await revokeAppleCredentialBeforeDeletion(admin, user)');
+        const revoke = deletion.lastIndexOf('await revokeAppleCredentialBeforeDeletion(');
         const authDelete = deletion.indexOf('admin.auth.admin.deleteUser');
 
         expect(revoke).toBeGreaterThan(-1);
         expect(authDelete).toBeGreaterThan(revoke);
         expect(deletion).toContain(".from('apple_sign_in_tokens')");
         expect(deletion).toContain('await revokeAppleRefreshToken(appleConfig, refreshToken)');
-        expect(deletion).toContain('if (!data) return legacyManualRevocationRequired');
+        expect(deletion).toContain("durableState === 'complete'");
+        expect(deletion).toContain("await recordAppleState(admin, user.id, leaseToken, 'revoking'");
+        expect(deletion).toContain("await recordAppleState(admin, user.id, leaseToken, 'complete'");
         expect(workflow).toContain("appleRevocationRequired ? 'manual_required'");
     });
 
@@ -146,6 +148,9 @@ describe('Sign in with Apple TN3194 token lifecycle contract', () => {
         expect(shared).toContain('audience: clientId');
         expect(shared).toContain("algorithms: ['RS256']");
         expect(receiver).toContain(".from('apple_server_notification_queue').upsert");
+        expect(receiver).toContain("action: 'already_unlinked'");
+        expect(receiver).toContain('if (!tokenOwner?.user_id)');
+        expect(receiver).toContain('user_id: tokenOwner.user_id');
         expect(receiver).toContain("status: 'pending'");
         expect(receiver).toContain("action: 'pending_account_lifecycle'");
         expect(receiver).not.toContain('auth.admin.deleteUser');

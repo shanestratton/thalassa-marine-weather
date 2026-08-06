@@ -68,31 +68,63 @@ export interface AccountDeletionResult {
     deleted: true;
     appleRevocationRequired: boolean;
     appleRevocation: 'manual_required' | 'complete_or_not_applicable';
+    serverFinalizationPending?: boolean;
 }
+
+export interface AccountDeletionInProgressResult {
+    deleted: false;
+    deletionInProgress: true;
+    phase: 'storage_cleanup';
+    processedStorageObjects: number;
+}
+
+export type AccountDeletionWorkflowResult = AccountDeletionResult | AccountDeletionInProgressResult;
 
 export interface AccountDeletionWorkflowDependencies {
     revokeAppleCredential: () => Promise<boolean>;
-    cleanupOperations: readonly (() => Promise<void>)[];
+    drainStorage: () => Promise<{ complete: boolean; processed: number }>;
+    scrubSurvivors: () => Promise<void>;
+    markAuthDeleting: () => Promise<void>;
     deleteAuthUser: () => Promise<void>;
+    completeDeletion: () => Promise<void>;
 }
 
 /**
  * The sole destructive sequencing authority for account deletion.
  *
- * Auth deletion is deliberately last. Promise rejection from Apple
- * revocation or any cleanup operation exits the workflow before it can run.
- * A success result is created only after auth deletion resolves.
+ * Auth deletion is deliberately last. A bounded Storage pass can return an
+ * explicit in-progress result; every failure before auth deletion leaves the
+ * durable tombstone in place for a retry. Final tombstone checkpoint failure
+ * is reported separately because the auth user is already irreversibly gone.
  */
 export async function runAccountDeletionWorkflow(
     dependencies: AccountDeletionWorkflowDependencies,
-): Promise<AccountDeletionResult> {
+): Promise<AccountDeletionWorkflowResult> {
     const appleRevocationRequired = await dependencies.revokeAppleCredential();
-    for (const cleanup of dependencies.cleanupOperations) await cleanup();
+    const storage = await dependencies.drainStorage();
+    if (!storage.complete) {
+        return {
+            deleted: false,
+            deletionInProgress: true,
+            phase: 'storage_cleanup',
+            processedStorageObjects: storage.processed,
+        };
+    }
+    await dependencies.scrubSurvivors();
+    await dependencies.markAuthDeleting();
     await dependencies.deleteAuthUser();
+
+    let serverFinalizationPending = false;
+    try {
+        await dependencies.completeDeletion();
+    } catch {
+        serverFinalizationPending = true;
+    }
 
     return {
         deleted: true,
         appleRevocationRequired,
         appleRevocation: appleRevocationRequired ? 'manual_required' : 'complete_or_not_applicable',
+        ...(serverFinalizationPending ? { serverFinalizationPending: true } : {}),
     };
 }

@@ -57,13 +57,20 @@ serve(async (req: Request) => {
         console.error('[apple-server-notification] subject resolution failed:', ownerError.message);
         return json({ error: 'Apple notification could not be queued' }, 503);
     }
+    // A subject with no retained token has no live Thalassa account action.
+    // Do not create an ownerless queue row containing a provider identifier
+    // after account deletion; acknowledge the signed event so Apple need not
+    // retry it indefinitely.
+    if (!tokenOwner?.user_id) {
+        return json({ accepted: true, action: 'already_unlinked' });
+    }
 
     const { error: queueError } = await admin.from('apple_server_notification_queue').upsert(
         {
             jti: event.jti,
             event_type: event.eventType,
             apple_subject_sha256: subjectSha256,
-            user_id: tokenOwner?.user_id ?? null,
+            user_id: tokenOwner.user_id,
             event_time: event.eventTime.toISOString(),
             issued_at: event.issuedAt.toISOString(),
             status: 'pending',

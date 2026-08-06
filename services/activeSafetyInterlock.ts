@@ -10,13 +10,11 @@
 import { Preferences } from '@capacitor/preferences';
 
 import { authScopedStorageKey, getAuthIdentityScope } from './authIdentityScope';
+import { hasAnchorWatchRecovery } from './anchorWatchRecoveryStorage';
 
 export type AccountExitAction = 'sign out' | 'delete this account';
 
 const MOB_RECOVERY_KEY = 'thalassa_mob_active_v1';
-const ANCHOR_RECOVERY_KEY = 'thalassa_anchor_watch_device_recovery_v1';
-const LEGACY_ANCHOR_RECOVERY_KEY = 'thalassa_anchor_watch_state';
-
 let liveMob = false;
 let liveAnchor = false;
 
@@ -44,15 +42,13 @@ export async function assertNoActiveSafetyMonitor(action: AccountExitAction): Pr
     let mobRecoveryPresent = false;
     let anchorRecoveryPresent = false;
     try {
-        const [deviceMob, legacyMob] = await Promise.all([
+        const [deviceMob, legacyMob, secureAnchorRecoveryPresent] = await Promise.all([
             Preferences.get({ key: MOB_RECOVERY_KEY }),
             Preferences.get({ key: authScopedStorageKey(MOB_RECOVERY_KEY, scope) }),
+            hasAnchorWatchRecovery(scope),
         ]);
         mobRecoveryPresent = deviceMob.value !== null || legacyMob.value !== null;
-        anchorRecoveryPresent =
-            typeof localStorage !== 'undefined' &&
-            (localStorage.getItem(ANCHOR_RECOVERY_KEY) !== null ||
-                localStorage.getItem(authScopedStorageKey(LEGACY_ANCHOR_RECOVERY_KEY, scope)) !== null);
+        anchorRecoveryPresent = secureAnchorRecoveryPresent;
     } catch (error) {
         throw new ActiveSafetyInterlockError(
             `Thalassa could not verify whether a safety monitor is active. Open Man Overboard and Anchor Watch, ` +

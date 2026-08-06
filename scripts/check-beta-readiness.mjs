@@ -1670,7 +1670,7 @@ check(
     ]) && !read('e2e/smoke.spec.ts').includes("e.includes('Failed to fetch')"),
 );
 check(
-    'hosted preview admits only the exact default-branch candidate before using the Vercel bypass secret',
+    'hosted Vercel deploy admits only exact Preview or Production default-branch candidates before using the bypass secret',
     includesAll(previewSmokeWorkflow, [
         'ref: ${{ github.event.repository.default_branch }}',
         'DEPLOYMENT_SHA: ${{ github.event.deployment.sha }}',
@@ -1678,6 +1678,8 @@ check(
         "if: needs.authorize.outputs.eligible == 'true'",
         "github.actor == 'vercel[bot]'",
         "github.event.deployment.creator.login == 'vercel[bot]'",
+        "github.event.deployment_status.environment == 'Preview'",
+        "github.event.deployment_status.environment == 'Production'",
         'environment: Preview',
         'VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}',
     ]) &&
@@ -2233,6 +2235,7 @@ const accountStorageCleanupTest = read('supabase/functions/delete-account/storag
 const accountWorkflow = read('supabase/functions/delete-account/workflow.ts');
 const accountWorkflowTest = read('supabase/functions/delete-account/workflow_test.ts');
 const accountMigration = read('supabase/migrations/20260804190000_account_deletion_support.sql');
+const accountDurabilityMigration = read('supabase/migrations/20260806120000_account_deletion_durability.sql');
 const accountUi = read('components/settings/AccountTab.tsx');
 const accountDeletionBoundary = read('services/accountDeletionPublicBetaBoundary.ts');
 const accountDeletionHoldTest = read('tests/AccountDeletionPublicBetaHold.test.tsx');
@@ -2413,17 +2416,23 @@ check(
         'apple_subject_sha256 TEXT NOT NULL UNIQUE',
     ]) &&
         !/CREATE POLICY/i.test(appleTokenMigration) &&
-        accountFunction.indexOf('await revokeAppleCredentialBeforeDeletion(admin, user)') > -1 &&
-        accountFunction.indexOf('await revokeAppleCredentialBeforeDeletion(admin, user)') <
+        accountFunction.lastIndexOf('await revokeAppleCredentialBeforeDeletion(') > -1 &&
+        accountFunction.lastIndexOf('await revokeAppleCredentialBeforeDeletion(') <
             accountFunction.indexOf('admin.auth.admin.deleteUser') &&
         includesAll(accountFunction, [
             'await revokeAppleRefreshToken(appleConfig, refreshToken)',
-            'if (!data) return legacyManualRevocationRequired',
+            "await recordAppleState(admin, user.id, leaseToken, 'revoking'",
+            "await recordAppleState(admin, user.id, leaseToken, 'complete'",
         ]) &&
         includesAll(accountWorkflow, [
-            'for (const cleanup of dependencies.cleanupOperations) await cleanup()',
+            'await dependencies.scrubSurvivors()',
             'await dependencies.deleteAuthUser()',
             "appleRevocationRequired ? 'manual_required'",
+        ]) &&
+        includesAll(accountDurabilityMigration, [
+            "apple_revocation_state TEXT NOT NULL DEFAULT 'pending'",
+            'apple_subject_sha256 = NULL',
+            'DELETE FROM public.apple_server_notification_queue',
         ]) &&
         /\[functions\.register-apple-token\][\s\S]*?verify_jwt = true/.test(supabaseConfig) &&
         /\[functions\.delete-account\][\s\S]*?verify_jwt = true/.test(supabaseConfig),
@@ -2481,20 +2490,29 @@ check(
 );
 check(
     'account, diary, and vessel media deletion stays owner-scoped and retryable',
-    accountFunction.includes("['chat-avatars', `crew/${user.id}`]") &&
-        accountFunction.includes("['recipe-photos', user.id]") &&
+    includesAll(accountFunction, [
+        'captureDrainAndVerifyStorage',
+        "'capture_account_deletion_storage'",
+        "'verify_account_deletion_storage_empty'",
+        'drainExactStorageManifest',
+    ]) &&
         includesAll(accountStorageCleanup, [
-            'export async function drainStoragePrefix',
-            'offset: 0',
-            "for (const table of ['recipes', 'community_recipes'] as const)",
-            '`${userId}/${id}.jpg`',
-            '`${id}.jpg`',
-            'throw new Error(`Could not remove recipe media: ${error.message}`)',
-            'Storage cleanup made no progress',
+            'export async function drainExactStorageManifest',
+            'MAX_STORAGE_MANIFEST_PAGES_PER_INVOCATION',
+            'markRemoveRequested',
+            'Account Storage checkpoint did not verify the whole batch',
+            'return { complete: false, processed }',
         ]) &&
         !accountStorageCleanup.includes('MAX_STORAGE_OBJECTS') &&
-        accountFunction.indexOf('await removeRecipePhotos(admin, user.id)') <
+        accountFunction.lastIndexOf('captureDrainAndVerifyStorage') <
             accountFunction.indexOf('admin.auth.admin.deleteUser') &&
+        includesAll(accountDurabilityMigration, [
+            'CREATE TABLE public.account_deletion_storage_items',
+            'object.owner_id::TEXT = p_user_id::TEXT',
+            "'legacy-recipe-row'",
+            "split_part(object.name, '/', 1) IN ('dating', 'crew')",
+            'CREATE TRIGGER account_deletion_storage_write_fence',
+        ]) &&
         includesAll(diaryService, [
             'Diary photo cleanup failed — will retry with the tombstone',
             'Diary audio cleanup failed — will retry with the tombstone',

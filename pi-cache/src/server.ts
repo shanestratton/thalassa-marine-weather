@@ -40,6 +40,12 @@ import { ensureIdentityTls } from './tlsIdentity.js';
 import { createPairRoutes } from './routes/pair.js';
 import { assertSupabaseOriginAssertion, resolveTrustedSupabaseOrigin } from './outboundHttp.js';
 import {
+    INVALID_PI_CONFIGURATION_CODE,
+    piEnvironmentLine,
+    validatePiConfigurationFields,
+    writeEnvironmentFileAtomic,
+} from './configurationBoundary.js';
+import {
     adminApiDisabledPayload,
     allowedCorsOrigins,
     publicStatusPayload,
@@ -256,61 +262,75 @@ function applyDiaryRelayConfiguration(body: Record<string, unknown>): void {
 
 app.post('/api/configure', requireUnsafeAdmin, (req, res) => {
     const requestBody = configurationBody(req.body);
-    const { supabaseUrl, supabaseAnonKey, prefetchLat, prefetchLon, prefetchRadius, userId } = requestBody;
+    let validated: ReturnType<typeof validatePiConfigurationFields>;
     try {
+        validated = validatePiConfigurationFields(requestBody);
         // The phone may confirm which backend it was built for, but HTTP input
         // can never replace the process-startup Supabase authority.
-        assertSupabaseOriginAssertion(supabaseUrl, SUPABASE_ORIGIN);
-        if (
-            supabaseAnonKey !== undefined &&
-            (typeof supabaseAnonKey !== 'string' || supabaseAnonKey.length > 8_192 || /[\r\n]/.test(supabaseAnonKey))
-        ) {
-            throw new Error('supabaseAnonKey must be a bounded single-line string');
-        }
-        // Validate and persist Pi-private relay configuration before changing
-        // the rest of the server settings, so an invalid relay cannot leave a
-        // half-applied configuration request behind.
-        applyDiaryRelayConfiguration(requestBody);
+        assertSupabaseOriginAssertion(validated.supabaseUrl, SUPABASE_ORIGIN);
     } catch (error) {
         const message = error instanceof Error ? error.message : 'Invalid diary relay configuration';
-        return res.status(400).json({ status: 'error', error: message });
+        return res.status(400).json({ status: 'error', code: INVALID_PI_CONFIGURATION_CODE, error: message });
     }
 
-    // Update mutable in-memory values if provided (empty strings = keep existing).
-    // Supabase authority is intentionally absent: it is immutable after boot.
-    if (typeof supabaseAnonKey === 'string' && supabaseAnonKey) SUPABASE_ANON_KEY = supabaseAnonKey;
-    proxyConfig.supabaseAnonKey = SUPABASE_ANON_KEY;
+    // Build the complete future file before mutating process state. Every value
+    // crosses piEnvironmentLine, including values inherited from process startup,
+    // so no newline/control character can become a second dotenv assignment.
+    const nextAnonKey = validated.supabaseAnonKey || SUPABASE_ANON_KEY;
+    const nextUserId = validated.userId ?? process.env.PREFETCH_USER_ID;
+    const nextLat = validated.prefetchLat ?? process.env.PREFETCH_LAT;
+    const nextLon = validated.prefetchLon ?? process.env.PREFETCH_LON;
+    const nextRadius =
+        validated.prefetchLat !== undefined ? (validated.prefetchRadius ?? 5) : process.env.PREFETCH_RADIUS || 5;
+    const nextInterval = process.env.PREFETCH_INTERVAL || 15;
 
-    if (userId) process.env.PREFETCH_USER_ID = String(userId);
-
-    if (prefetchLat !== undefined && prefetchLon !== undefined) {
-        process.env.PREFETCH_LAT = String(prefetchLat);
-        process.env.PREFETCH_LON = String(prefetchLon);
-        process.env.PREFETCH_RADIUS = String(prefetchRadius || 5);
-        process.env.PREFETCH_INTERVAL = process.env.PREFETCH_INTERVAL || '15';
-    }
-
-    // Write .env with ALL current values (not just what was sent this request)
-    const envLines: string[] = [
-        '# Thalassa Pi Cache — configured by the Thalassa app',
-        `PORT=${PORT}`,
-        `CACHE_DIR=${CACHE_DIR}`,
-    ];
-    envLines.push(`SUPABASE_URL=${SUPABASE_ORIGIN}`);
-    if (SUPABASE_ANON_KEY) envLines.push(`SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}`);
-    if (process.env.PREFETCH_USER_ID) envLines.push(`PREFETCH_USER_ID=${process.env.PREFETCH_USER_ID}`);
-    if (process.env.PREFETCH_LAT) {
-        envLines.push(`PREFETCH_LAT=${process.env.PREFETCH_LAT}`);
-        envLines.push(`PREFETCH_LON=${process.env.PREFETCH_LON}`);
-        envLines.push(`PREFETCH_RADIUS=${process.env.PREFETCH_RADIUS || 5}`);
-        envLines.push(`PREFETCH_INTERVAL=${process.env.PREFETCH_INTERVAL || 15}`);
+    let envContents: string;
+    try {
+        if ((nextLat === undefined) !== (nextLon === undefined)) {
+            throw new Error('Existing prefetch coordinates are incomplete');
+        }
+        const envLines: string[] = [
+            '# Thalassa Pi Cache — configured by the Thalassa app',
+            piEnvironmentLine('PORT', PORT, 16),
+            piEnvironmentLine('CACHE_DIR', CACHE_DIR, 4_096),
+            piEnvironmentLine('SUPABASE_URL', SUPABASE_ORIGIN, 2_048),
+        ];
+        if (nextAnonKey) envLines.push(piEnvironmentLine('SUPABASE_ANON_KEY', nextAnonKey));
+        if (nextUserId) envLines.push(piEnvironmentLine('PREFETCH_USER_ID', nextUserId, 64));
+        if (nextLat !== undefined && nextLon !== undefined) {
+            envLines.push(piEnvironmentLine('PREFETCH_LAT', nextLat, 32));
+            envLines.push(piEnvironmentLine('PREFETCH_LON', nextLon, 32));
+            envLines.push(piEnvironmentLine('PREFETCH_RADIUS', nextRadius, 32));
+            envLines.push(piEnvironmentLine('PREFETCH_INTERVAL', nextInterval, 32));
+        }
+        envContents = `${envLines.join('\n')}\n`;
+    } catch (error) {
+        const message = error instanceof Error ? error.message : 'Configuration cannot be persisted safely';
+        return res.status(400).json({ status: 'error', code: INVALID_PI_CONFIGURATION_CODE, error: message });
     }
 
     try {
         const envPath = path.join(process.cwd(), '.env');
-        fs.writeFileSync(envPath, envLines.join('\n') + '\n');
+        // Validate and persist Pi-private relay configuration before changing
+        // the rest of the server settings, so an invalid relay cannot leave a
+        // half-applied configuration request behind.
+        applyDiaryRelayConfiguration(requestBody);
+        writeEnvironmentFileAtomic(envPath, envContents);
     } catch (err) {
-        console.warn('Could not write .env:', (err as Error).message);
+        const message = err instanceof Error ? err.message : 'Could not persist Pi configuration';
+        return res.status(500).json({ status: 'error', code: 'PI_CONFIGURATION_WRITE_FAILED', error: message });
+    }
+
+    // Update mutable in-memory values only after the durable replacement has
+    // succeeded. Supabase authority is intentionally absent: immutable at boot.
+    SUPABASE_ANON_KEY = nextAnonKey;
+    proxyConfig.supabaseAnonKey = SUPABASE_ANON_KEY;
+    if (nextUserId) process.env.PREFETCH_USER_ID = nextUserId;
+    if (nextLat !== undefined && nextLon !== undefined) {
+        process.env.PREFETCH_LAT = String(nextLat);
+        process.env.PREFETCH_LON = String(nextLon);
+        process.env.PREFETCH_RADIUS = String(nextRadius);
+        process.env.PREFETCH_INTERVAL = String(nextInterval);
     }
 
     // Restart pre-fetch scheduler with updated config
@@ -318,7 +338,7 @@ app.post('/api/configure', requireUnsafeAdmin, (req, res) => {
     startScheduler(cache, proxyConfig);
 
     console.log(
-        `📱 Configuration updated by Thalassa app${prefetchLat !== undefined ? ` (location: ${prefetchLat}, ${prefetchLon})` : ''}`,
+        `📱 Configuration updated by Thalassa app${validated.prefetchLat !== undefined ? ` (location: ${validated.prefetchLat}, ${validated.prefetchLon})` : ''}`,
     );
     res.json({ status: 'ok', message: 'Configuration updated', diaryRelay: diaryRelayOutbox.getConfiguration() });
 });

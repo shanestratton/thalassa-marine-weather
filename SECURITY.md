@@ -129,9 +129,11 @@ Local migrations and Edge Function source are not evidence that the live Supabas
 requires exact local/remote migration parity, an allowlisted deployed Function inventory, and authenticated live
 smokes against the frozen versions. At this snapshot that parity is not established:
 
-- `20260805103000_hold_precise_track_sharing.sql` and
-  `20260805110000_enforce_traced_route_cast_off_verification.sql` were local-only at the latest remote audit. Until they
-  are deployed, the precise-track privacy hold and database-authoritative traced-route Cast Off check are not live.
+- `20260805103000_hold_precise_track_sharing.sql`,
+  `20260805110000_enforce_traced_route_cast_off_verification.sql`, and
+  `20260806120000_account_deletion_durability.sql` were local-only at the latest remote audit. Until they are deployed,
+  the precise-track privacy hold, database-authoritative traced-route Cast Off check, and durable account-deletion
+  boundary are not live.
 - Local `float-plan` source is a `410 Gone` tombstone and local `musickit-token` source returns `503` for this beta, but
   those fail-closed revisions are not yet proved deployed. The latest remote inventory still exposed historical
   handlers, including retired `create-marketplace-payment`, `capture-escrow-payment`, and `sweep-expired-escrows`
@@ -142,11 +144,12 @@ smokes against the frozen versions. At this snapshot that parity is not establis
   `20260804191000_guardian_presence_privacy.sql` and `20260804192000_guardian_broadcast_contract.sql` remotely, but
   ledger parity is not authenticated runtime evidence: live arm/disarm/discovery/broadcast smoke remains mandatory.
   The privileged AIS watchdog is a separate exact opt-in and must remain verified off unless deliberately deployed.
-- Account deletion remains a release blocker. The local vNext workflow deliberately deletes the auth user last, but
-  that ordering alone does not quiesce already-authenticated writers: it still needs an approved durable per-user
-  tombstone/write fence and complete survivor scrubbing for retained identity snapshots and owner-linked storage. The
-  deployed Function is also older than the local source. The final boundary must be reviewed, deployed, and exercised
-  with authenticated concurrency and survivor-data checks before product or legal copy can promise complete deletion.
+- Account deletion remains a release blocker. Approved local source now contains a durable per-user tombstone, dynamic
+  write fences, exact owner-linked Storage inventory/verification, atomic survivor scrubbing, and an auth-last resumable
+  workflow. None of that is remote evidence: the migration and Function remain undeployed, and the deployed Function is
+  older than the local source. The exact boundary must be independently reviewed, deployed, and exercised against
+  authenticated concurrent writers, interrupted cleanup, Storage races, and re-authentication before account creation
+  may ship. `VITE_ACCOUNT_DELETION_ENABLED` must remain `false` until those checks pass.
 
 Apple's account-deletion guidance states that an app supporting account creation must provide deletion in-app; an
 email-only support path is not the release solution for this product. Keep account creation distribution blocked while

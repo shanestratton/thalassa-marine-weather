@@ -1,4 +1,5 @@
 import {
+    drainExactStorageManifest,
     drainStoragePrefix,
     MAX_RECIPE_PAGES_PER_TABLE_PER_INVOCATION,
     MAX_STORAGE_LIST_PASSES_PER_INVOCATION,
@@ -11,6 +12,8 @@ import {
     type StorageBucketGateway,
     type StorageEntry,
     type StorageListOptions,
+    type StorageManifestGateway,
+    type StorageManifestItem,
 } from './storage-cleanup.ts';
 import { runAccountDeletionWorkflow } from './workflow.ts';
 
@@ -388,13 +391,104 @@ Deno.test('a storage cleanup failure reaches the deletion workflow and prevents 
         () =>
             runAccountDeletionWorkflow({
                 revokeAppleCredential: () => Promise.resolve(false),
-                cleanupOperations: [() => drainStoragePrefix(storage, 'private-media', 'owner')],
+                drainStorage: async () => {
+                    await drainStoragePrefix(storage, 'private-media', 'owner');
+                    return { complete: true, processed: 1 };
+                },
+                scrubSurvivors: () => Promise.resolve(),
+                markAuthDeleting: () => Promise.resolve(),
                 deleteAuthUser: () => {
                     authDeletionRan = true;
                     return Promise.resolve();
                 },
+                completeDeletion: () => Promise.resolve(),
             }),
         'remove backend unavailable',
     );
     assert(!authDeletionRan, 'Auth deletion must not run after incomplete storage cleanup');
+});
+
+class ExactManifestHarness implements StorageManifestGateway {
+    readonly pending = new Map<string, StorageManifestItem>();
+    readonly objects = new Map<string, Set<string>>();
+    readonly removeCalls: Array<{ bucket: string; paths: string[] }> = [];
+    failRemove = false;
+    shortCheckpoint = false;
+
+    constructor(items: readonly StorageManifestItem[]) {
+        for (const item of items) {
+            this.pending.set(`${item.bucketId}\u0000${item.objectName}`, item);
+            const bucket = this.objects.get(item.bucketId) ?? new Set<string>();
+            bucket.add(item.objectName);
+            this.objects.set(item.bucketId, bucket);
+        }
+    }
+
+    listPending(limit: number): Promise<{ data: readonly StorageManifestItem[]; error: null }> {
+        return Promise.resolve({ data: [...this.pending.values()].slice(0, limit), error: null });
+    }
+
+    remove(bucket: string, paths: readonly string[]): Promise<{ error: { message: string } | null }> {
+        this.removeCalls.push({ bucket, paths: [...paths] });
+        if (this.failRemove) return Promise.resolve({ error: { message: 'storage backend unavailable' } });
+        const objects = this.objects.get(bucket);
+        for (const path of paths) objects?.delete(path);
+        return Promise.resolve({ error: null });
+    }
+
+    markRemoveRequested(
+        items: readonly StorageManifestItem[],
+    ): Promise<{ data: readonly StorageManifestItem[]; error: null }> {
+        const marked = this.shortCheckpoint ? items.slice(0, -1) : items;
+        for (const item of marked) this.pending.delete(`${item.bucketId}\u0000${item.objectName}`);
+        return Promise.resolve({ data: marked, error: null });
+    }
+}
+
+Deno.test('exact account Storage manifest drains mixed buckets and checkpoints every accepted path', async () => {
+    const items = [
+        { bucketId: 'diary-photos', objectName: 'owner/nested/a.jpg' },
+        { bucketId: 'recipe-photos', objectName: 'legacy-root.jpg' },
+        { bucketId: 'diary-photos', objectName: 'owner/b.jpg' },
+    ];
+    const gateway = new ExactManifestHarness(items);
+
+    const result = await drainExactStorageManifest(gateway);
+
+    assertEquals(result, { complete: true, processed: 3 });
+    assertEquals(gateway.pending.size, 0);
+    assert([...gateway.objects.values()].every((objects) => objects.size === 0));
+    assertEquals(gateway.removeCalls.map((call) => call.bucket).sort(), ['diary-photos', 'recipe-photos']);
+});
+
+Deno.test('exact account Storage manifest preserves retry progress at its invocation budget', async () => {
+    const items = Array.from({ length: 205 }, (_, index) => ({
+        bucketId: 'diary-photos',
+        objectName: `owner/photo-${String(index).padStart(4, '0')}.jpg`,
+    }));
+    const gateway = new ExactManifestHarness(items);
+
+    assertEquals(await drainExactStorageManifest(gateway, { maxPages: 2 }), { complete: false, processed: 200 });
+    assertEquals(gateway.pending.size, 5);
+    assertEquals(await drainExactStorageManifest(gateway, { maxPages: 1 }), { complete: false, processed: 5 });
+    assertEquals(await drainExactStorageManifest(gateway, { maxPages: 1 }), { complete: true, processed: 0 });
+});
+
+Deno.test('exact account Storage manifest fails closed before checkpoint on remove or verification failure', async () => {
+    const item = { bucketId: 'diary-photos', objectName: 'owner/private.jpg' };
+    const removeFailure = new ExactManifestHarness([item]);
+    removeFailure.failRemove = true;
+    await assertRejects(
+        () => drainExactStorageManifest(removeFailure),
+        'Could not remove diary-photos account media',
+    );
+    assertEquals(removeFailure.pending.size, 1);
+
+    const checkpointFailure = new ExactManifestHarness([item]);
+    checkpointFailure.shortCheckpoint = true;
+    await assertRejects(
+        () => drainExactStorageManifest(checkpointFailure),
+        'checkpoint did not verify the whole batch',
+    );
+    assertEquals(checkpointFailure.pending.size, 1);
 });

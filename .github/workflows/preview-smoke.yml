@@ -1,4 +1,4 @@
-name: Preview Deploy Smoke Test
+name: Hosted Deploy Smoke Test
 
 on:
     deployment_status:
@@ -9,28 +9,27 @@ permissions:
 
 jobs:
     authorize:
-        name: Authorize Preview Candidate
+        name: Authorize Hosted Candidate
         runs-on: ubuntu-24.04
         timeout-minutes: 3
         outputs:
             eligible: ${{ steps.candidate.outputs.eligible }}
             candidate_sha: ${{ steps.candidate.outputs.candidate_sha }}
-        # Only run on successful Vercel preview deployments. Must match
-        # 'Preview' EXACTLY: the old `!= 'production'` guard also matched the
-        # Railway worker env ('Thalassa Worker / production'), whose
-        # target_url is the Railway PROJECT DASHBOARD — so every master push
-        # smoke-tested the Railway console for a React #root and failed.
-        # This check had never passed (13 failures / 0 successes).
+        # Vercel labels branch deployments Preview and the default-branch
+        # deployment Production. Admit only those two exact Vercel labels;
+        # the old `!= 'production'` guard also matched the retired Railway
+        # worker environment and smoke-tested its project dashboard.
         if: >
             github.event.deployment_status.state == 'success' &&
-            github.event.deployment_status.environment == 'Preview' &&
+            (github.event.deployment_status.environment == 'Preview' ||
+             github.event.deployment_status.environment == 'Production') &&
             github.actor == 'vercel[bot]' &&
             github.event.deployment.creator.login == 'vercel[bot]'
 
         steps:
-            # Deployment-status events can originate from any preview branch.
+            # Deployment-status events can originate from any deployment.
             # Always load the trusted default-branch workflow/test code first,
-            # then admit only a preview of the exact current default-branch SHA
+            # then admit only a deployment of the exact current default-branch SHA
             # before any secret-bearing step is allowed to run.
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
               with:
@@ -45,14 +44,14 @@ jobs:
                   echo "candidate_sha=$candidate_sha" >> "$GITHUB_OUTPUT"
                   if [[ "$DEPLOYMENT_SHA" == "$candidate_sha" ]]; then
                       echo "eligible=true" >> "$GITHUB_OUTPUT"
-                      echo "Preview matches the current default-branch candidate."
+                      echo "Hosted deployment matches the current default-branch candidate."
                   else
                       echo "eligible=false" >> "$GITHUB_OUTPUT"
-                      echo "Skipping preview for non-candidate SHA $DEPLOYMENT_SHA."
+                      echo "Skipping deployment for non-candidate SHA $DEPLOYMENT_SHA."
                   fi
 
     smoke:
-        name: Smoke Test Preview
+        name: Smoke Test Hosted Candidate
         needs: authorize
         if: needs.authorize.outputs.eligible == 'true'
         runs-on: ubuntu-24.04
@@ -76,7 +75,7 @@ jobs:
             - name: Install Playwright
               run: npx playwright install chromium --with-deps
 
-            - name: Run smoke tests against preview
+            - name: Run smoke tests against hosted candidate
               env:
                   PREVIEW_URL: ${{ github.event.deployment_status.target_url }}
                   REQUIRE_HOSTED_PREVIEW: 'true'

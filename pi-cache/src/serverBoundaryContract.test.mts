@@ -8,6 +8,10 @@ const encRouteSource = readFileSync(new URL('./routes/enc.ts', import.meta.url),
 const chartRouteSource = readFileSync(new URL('./routes/charts.ts', import.meta.url), 'utf8');
 const diaryRelaySource = readFileSync(new URL('./diaryRelayOutbox.ts', import.meta.url), 'utf8');
 const osmServiceSource = readFileSync(new URL('./services/osm.ts', import.meta.url), 'utf8');
+const governorSource = readFileSync(new URL('./workloadGovernor.ts', import.meta.url), 'utf8');
+const resourceBoundarySource = readFileSync(new URL('./resourceBoundary.ts', import.meta.url), 'utf8');
+const watcherSource = readFileSync(new URL('./encWatcher.ts', import.meta.url), 'utf8');
+const chartworldSource = readFileSync(new URL('./chartworldSync.ts', import.meta.url), 'utf8');
 
 test('server binds through the loopback-default policy and restricts CORS', () => {
     assert.match(source, /server\.listen\(PORT, BIND_HOST/);
@@ -76,21 +80,98 @@ test('all user-directed upstream requests cross the pinned outbound policy', () 
     assert.doesNotMatch(osmServiceSource, /\bfetch\s*\(/, 'Overpass retained a direct fetch sink');
 });
 
+test('both ENC routing surfaces reject over-budget work before loading or routing', () => {
+    const routeStart = encRouteSource.indexOf("router.post('/route'");
+    const routePreppedStart = encRouteSource.indexOf("router.post('/route-prepped'");
+    const installPublicStart = encRouteSource.indexOf("router.post('/install-public'", routePreppedStart);
+    const routeBlock = encRouteSource.slice(routeStart, routePreppedStart);
+    const routePreppedBlock = encRouteSource.slice(routePreppedStart, installPublicStart);
+
+    assert.ok(routeStart >= 0 && routePreppedStart > routeStart && installPublicStart > routePreppedStart);
+    assert.match(routeBlock, /validateInshoreRouteBoundary\(body, \{ validateCellIds: true \}\)/);
+    assert.ok(
+        routeBlock.indexOf('validateInshoreRouteBoundary') < routeBlock.indexOf('loadInstalledIndex'),
+        'disk-backed route must reject its allocation budget before reading the chart index',
+    );
+    assert.match(routePreppedBlock, /validateInshoreRouteBoundary\(body, \{ validatePreparedLayers: true \}\)/);
+    assert.ok(
+        routePreppedBlock.indexOf('validateInshoreRouteBoundary') < routePreppedBlock.indexOf('routeInshore'),
+        'prepared route must reject feature/coordinate budgets before routing',
+    );
+    for (const block of [routeBlock, routePreppedBlock]) {
+        assert.match(block, /res\.status\(boundaryIssue\.status\)\.json\(boundaryIssue\)/);
+        assert.match(block, /acquireRequestWorkload\(req, res, 'route'\)/);
+    }
+});
+
+test('all Pi chart conversion, installation, download and routing entry points share bounded lanes', () => {
+    assert.match(governorSource, /conversion: Object\.freeze\(\{ activeLimit: 1, queueLimit: 2/);
+    assert.match(governorSource, /route: Object\.freeze\(\{ activeLimit: 1, queueLimit: 2/);
+    assert.match(governorSource, /PI_WORKLOAD_BUSY/);
+    assert.match(encRouteSource, /Retry-After/);
+    assert.match(chartRouteSource, /Retry-After/);
+
+    const convertStart = encRouteSource.indexOf("router.post('/convert'");
+    const urlInstallStart = encRouteSource.indexOf("router.post('/install-from-url'");
+    const installedStart = encRouteSource.indexOf("router.get('/installed'", urlInstallStart);
+    const publicInstallStart = encRouteSource.indexOf("router.post('/install-public'");
+    const healthStart = encRouteSource.indexOf("router.get('/health'", publicInstallStart);
+    assert.match(encRouteSource.slice(convertStart, urlInstallStart), /reserveConversionUpload, rawBodyParser/);
+    assert.ok(
+        encRouteSource.indexOf("acquireRequestWorkload(req, res, 'conversion')") <
+            encRouteSource.indexOf("router.post('/convert'"),
+        'conversion upload admission must run before the raw body parser allocates request buffers',
+    );
+    assert.match(encRouteSource.slice(urlInstallStart, installedStart), /piWorkloadGovernor\.submit\('conversion'/);
+    assert.match(
+        encRouteSource.slice(publicInstallStart, healthStart),
+        /acquireRequestWorkload\(req, res, 'conversion'\)/,
+    );
+    assert.match(chartRouteSource.slice(chartRouteSource.indexOf("router.post('/download'")), /submit\('conversion'/);
+    assert.equal(watcherSource.match(/admit\('conversion'\)/g)?.length, 2);
+    assert.match(chartworldSource, /admit\('conversion'\)/);
+});
+
+test('downloads and ZIP extraction cross centralized streaming resource boundaries', () => {
+    assert.match(encRouteSource, /streamResponseToFile\(response, downloadPath, ENC_DOWNLOAD_POLICY/);
+    assert.match(encRouteSource, /extractZipArchive\(inputPath, unzipDir, ENC_ARCHIVE_POLICY\)/);
+    assert.match(chartRouteSource, /streamResponseToFile\(response, filePath, CHART_DOWNLOAD_POLICY/);
+    assert.match(chartRouteSource, /extractZipArchive\(filePath, CHART_DIR, CHART_ARCHIVE_POLICY/);
+    assert.doesNotMatch(encRouteSource, /AdmZip|extractAllTo/);
+    assert.doesNotMatch(chartRouteSource, /AdmZip|entry\.getData\(\)/);
+
+    assert.match(chartworldSource, /--max-filesize/);
+    assert.match(chartworldSource, /assertDownloadDestinationCapacity/);
+    assert.match(chartworldSource, /extractZipArchive\(filePath, extractionDir, CHARTWORLD_ARCHIVE_POLICY\)/);
+    assert.match(chartworldSource, /materialiseDownloadedArchive\(exchangePath\)/);
+    assert.match(chartworldSource, /runInstall\(exchangeDir, permitDir\)/);
+    assert.match(resourceBoundarySource, /ZIP contains a symlink or special file/);
+    assert.match(resourceBoundarySource, /pipeline\(source, createInflateRaw\(\), integrity, output\)/);
+    assert.match(resourceBoundarySource, /\.partial/);
+});
+
 test('HTTP configuration may assert but never mutate or persist a new Supabase authority', () => {
     assert.match(source, /const SUPABASE_ORIGIN = resolveTrustedSupabaseOrigin\(process\.env\.SUPABASE_URL\)/);
-    assert.match(source, /assertSupabaseOriginAssertion\(supabaseUrl, SUPABASE_ORIGIN\)/);
+    assert.match(source, /assertSupabaseOriginAssertion\(validated\.supabaseUrl, SUPABASE_ORIGIN\)/);
     assert.doesNotMatch(source, /proxyConfig\.supabaseUrl\s*=/);
     assert.equal(source.match(/SUPABASE_ORIGIN\s*=/g)?.length, 1, 'the startup trust anchor became mutable');
-    assert.match(source, /envLines\.push\(`SUPABASE_URL=\$\{SUPABASE_ORIGIN\}`\)/);
+    assert.match(source, /piEnvironmentLine\('SUPABASE_URL', SUPABASE_ORIGIN/);
+    assert.match(source, /writeEnvironmentFileAtomic\(envPath, envContents\)/);
 
     const routeStart = source.indexOf("app.post('/api/configure'");
     const routeEnd = source.indexOf("app.post('/cache/purge'", routeStart);
     const configureRoute = source.slice(routeStart, routeEnd);
     assert.ok(
+        configureRoute.indexOf('validatePiConfigurationFields') <
+            configureRoute.indexOf('assertSupabaseOriginAssertion'),
+        'persisted request fields must be validated before the startup origin assertion and every side effect',
+    );
+    assert.ok(
         configureRoute.indexOf('assertSupabaseOriginAssertion') <
             configureRoute.indexOf('applyDiaryRelayConfiguration'),
         'origin validation must precede every persisted/mutable configuration side effect',
     );
+    assert.doesNotMatch(configureRoute, /fs\.writeFileSync/);
 });
 
 test('diary relay endpoint and production transport inherit the startup Supabase trust anchor', () => {

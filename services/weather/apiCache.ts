@@ -11,13 +11,15 @@
  * - Open-Meteo:  Aggregated models. Cache 30 min.
  * - NOAA GFS:    Same 6h cycle as StormGlass. Cache until next run.
  *
- * All caches are keyed by rounded lat/lon (0.1° ≈ 11km) to prevent
- * GPS jitter from causing separate cache misses.
+ * Caches use a bounded 0.001° point cell (roughly 111m latitude). This still
+ * absorbs ordinary GPS jitter without letting a tide or nearshore payload
+ * travel kilometres to a different requested point.
  */
 
 // ── Cache TTLs (milliseconds) ─────────────────────────────────
 
 import { createLogger } from '../../utils/createLogger';
+import { canUsePlaintextWeatherCache } from './plaintextCachePrivacy';
 
 const log = createLogger('apiCache');
 const TTL = {
@@ -81,15 +83,20 @@ export function isCycleEntryFresh(storedAt: number, now: number): boolean {
 // written before fetchWorldTides normalized the station name via
 // processResponse on the Pi path. Old entries baked in a literal
 // "WorldTides Station" stationName that surfaced on the tide graph.
-const CACHE_PREFIX = 'thalassa_apicache_v2_';
+const CACHE_PREFIX = 'thalassa_apicache_v3_point_';
+const COORDINATE_DECIMALS = 3;
 
-/** Round to 0.1° to coalesce nearby coordinates (~11km grid) */
-function locationKey(lat: number, lon: number): string {
-    return `${(Math.round(lat * 10) / 10).toFixed(1)}_${(Math.round(lon * 10) / 10).toFixed(1)}`;
+function locationKey(lat: number, lon: number): string | null {
+    if (!Number.isFinite(lat) || lat < -90 || lat > 90 || !Number.isFinite(lon) || lon < -180 || lon > 180) {
+        return null;
+    }
+    return `${lat.toFixed(COORDINATE_DECIMALS)}_${lon.toFixed(COORDINATE_DECIMALS)}`;
 }
 
-function cacheKey(provider: ApiCacheProvider, lat: number, lon: number, extra?: string): string {
-    const base = `${CACHE_PREFIX}${provider}_${locationKey(lat, lon)}`;
+function cacheKey(provider: ApiCacheProvider, lat: number, lon: number, extra?: string): string | null {
+    const point = locationKey(lat, lon);
+    if (!point) return null;
+    const base = `${CACHE_PREFIX}${provider}_${point}`;
     return extra ? `${base}_${extra}` : base;
 }
 
@@ -99,14 +106,17 @@ interface CacheEntry<T> {
     data: T;
     storedAt: number;
     provider: string;
+    coordinates: { lat: number; lon: number };
 }
 
 /**
  * Get cached API response. Returns null if expired or missing.
  */
 export function apiCacheGet<T>(provider: ApiCacheProvider, lat: number, lon: number, extra?: string): T | null {
+    if (!canUsePlaintextWeatherCache() || typeof localStorage === 'undefined') return null;
     try {
         const key = cacheKey(provider, lat, lon, extra);
+        if (!key) return null;
         const raw = localStorage.getItem(key);
         if (!raw) return null;
 
@@ -114,6 +124,10 @@ export function apiCacheGet<T>(provider: ApiCacheProvider, lat: number, lon: num
         const now = Date.now();
         const ageMs = now - entry.storedAt;
         const ttl = TTL[provider];
+        if (locationKey(entry.coordinates?.lat, entry.coordinates?.lon) !== locationKey(lat, lon)) {
+            localStorage.removeItem(key);
+            return null;
+        }
 
         // Cycle-aligned providers ignore the wall-clock TTL: they are current
         // until a NEWER model run publishes. The TTL above stays as a hard
@@ -141,12 +155,15 @@ export function apiCacheGet<T>(provider: ApiCacheProvider, lat: number, lon: num
  * Store an API response in cache.
  */
 export function apiCacheSet<T>(provider: ApiCacheProvider, lat: number, lon: number, data: T, extra?: string): void {
+    if (!canUsePlaintextWeatherCache() || typeof localStorage === 'undefined') return;
     try {
         const key = cacheKey(provider, lat, lon, extra);
+        if (!key) return;
         const entry: CacheEntry<T> = {
             data,
             storedAt: Date.now(),
             provider,
+            coordinates: { lat, lon },
         };
         localStorage.setItem(key, JSON.stringify(entry));
     } catch (e) {
@@ -155,12 +172,14 @@ export function apiCacheSet<T>(provider: ApiCacheProvider, lat: number, lon: num
         evictOldest(3);
         try {
             const key = cacheKey(provider, lat, lon, extra);
+            if (!key) return;
             localStorage.setItem(
                 key,
                 JSON.stringify({
                     data,
                     storedAt: Date.now(),
                     provider,
+                    coordinates: { lat, lon },
                 }),
             );
         } catch (e) {
@@ -174,14 +193,16 @@ export function apiCacheSet<T>(provider: ApiCacheProvider, lat: number, lon: num
  * Invalidate cache for a specific provider + location.
  */
 export function apiCacheInvalidate(provider: ApiCacheProvider, lat: number, lon: number, extra?: string): void {
+    if (!canUsePlaintextWeatherCache() || typeof localStorage === 'undefined') return;
     const key = cacheKey(provider, lat, lon, extra);
-    localStorage.removeItem(key);
+    if (key) localStorage.removeItem(key);
 }
 
 // ── Housekeeping ──────────────────────────────────────────────
 
 /** Evict N oldest cache entries to free space */
 function evictOldest(count: number): void {
+    if (!canUsePlaintextWeatherCache() || typeof localStorage === 'undefined') return;
     const entries: { key: string; storedAt: number }[] = [];
     for (let i = 0; i < localStorage.length; i++) {
         const key = localStorage.key(i);
@@ -204,6 +225,7 @@ function evictOldest(count: number): void {
 
 /** Get cache stats for debug panel */
 export function apiCacheStats(): { provider: string; count: number; oldestAge: string }[] {
+    if (!canUsePlaintextWeatherCache() || typeof localStorage === 'undefined') return [];
     const stats = new Map<string, { count: number; oldest: number }>();
 
     for (let i = 0; i < localStorage.length; i++) {

@@ -32,15 +32,17 @@ import { calculateDistance, calculateBearing } from '../utils/navigationCalculat
 import { GpsPrecision } from './shiplog/GpsPrecisionTracker';
 import { NmeaGpsProvider } from './NmeaGpsProvider';
 import { isAnchorGpsStale, GPS_LOST_THRESHOLD_MS, nextDragState } from './anchorGpsWatchdog';
-import {
-    authScopedStorageKey,
-    getAuthIdentityScope,
-    isAuthIdentityScopeCurrent,
-    type AuthIdentityScope,
-} from './authIdentityScope';
+import { getAuthIdentityScope, isAuthIdentityScopeCurrent, type AuthIdentityScope } from './authIdentityScope';
 import { FEATURE_VISIBILITY } from '../utils/featureVisibility';
 import { setLiveAnchorSafetyState } from './activeSafetyInterlock';
 import { GpsService } from './GpsService';
+import {
+    clearAnchorWatchRecovery,
+    readAnchorWatchRecovery,
+    writeAnchorWatchRecovery,
+} from './anchorWatchRecoveryStorage';
+
+export { ANCHOR_WATCH_DEVICE_RECOVERY_KEY } from './anchorWatchRecoveryStorage';
 
 // ── Local-notification IDs ─────────────────────────────────────────
 // The alarm path drops two ordinary/time-sensitive notification layers:
@@ -164,10 +166,6 @@ export const ANCHOR_WATCH_CONFIG_LIMITS: AnchorWatchConfigLimits = {
     safetyMargin: { min: 1, max: 100 },
 };
 const SCOPE_RATIO_TOLERANCE = 0.01;
-const ANCHOR_WATCH_KEY = 'thalassa_anchor_watch_state';
-/** Device-authoritative crash-recovery envelope for an active physical watch.
- * It deliberately survives logout/session expiry; Weigh Anchor removes it. */
-export const ANCHOR_WATCH_DEVICE_RECOVERY_KEY = 'thalassa_anchor_watch_device_recovery_v1';
 /** NMEA emits every five seconds; two missed emissions makes it stale. */
 const PRIMARY_SOURCE_FRESH_MS = 12_000;
 const DEFAULT_ANCHOR_CONFIG: AnchorWatchConfig = {
@@ -596,10 +594,10 @@ class AnchorWatchServiceClass {
             this.watchStartedAt = Date.now();
             this.state = 'watching';
             if (this.watchPersistenceScope && this.watchPersistenceScope.key !== persistenceScope.key) {
-                this.clearPersistedWatchState(this.watchPersistenceScope);
+                await this.clearPersistedWatchStateRequired(this.watchPersistenceScope);
             }
             this.watchPersistenceScope = persistenceScope;
-            this.persistWatchStateRequired();
+            await this.persistWatchStateRequired();
             this.startGpsWatchdog();
 
             // Auto-arm Guardian at anchor position (Tier 2 auto-arm)
@@ -664,10 +662,10 @@ class AnchorWatchServiceClass {
             this.watchStartedAt = Date.now();
             this.state = 'watching';
             if (this.watchPersistenceScope && this.watchPersistenceScope.key !== persistenceScope.key) {
-                this.clearPersistedWatchState(this.watchPersistenceScope);
+                await this.clearPersistedWatchStateRequired(this.watchPersistenceScope);
             }
             this.watchPersistenceScope = persistenceScope;
-            this.persistWatchStateRequired();
+            await this.persistWatchStateRequired();
             this.startGpsWatchdog();
             this.autoArmGuardian();
             this.notify();
@@ -711,7 +709,7 @@ class AnchorWatchServiceClass {
             if ((this.state === 'watching' || this.state === 'alarm') && this.anchorPosition) {
                 await this.updateGeofence();
             }
-            this.persistWatchStateRequired();
+            await this.persistWatchStateRequired();
             this.setupError = null;
             this.notify();
             return true;
@@ -736,7 +734,7 @@ class AnchorWatchServiceClass {
                     failures,
                 );
             }
-            this.persistWatchState();
+            await this.persistWatchState();
             this.notify();
             return false;
         }
@@ -777,13 +775,13 @@ class AnchorWatchServiceClass {
                 await this.restoreAlarmOutputs(false);
             }
             this.setupError = this.setupError ? `${stopError} ${this.setupError}` : stopError;
-            this.persistWatchState();
+            await this.persistWatchState();
             this.notify();
             throw new Error(this.setupError);
         }
 
         try {
-            this.clearPersistedWatchStateRequired();
+            await this.clearPersistedWatchStateRequired();
         } catch (error) {
             this.state = previousState === 'alarm' ? 'alarm' : 'paused';
             const persistenceError = this.failureMessage(
@@ -839,7 +837,7 @@ class AnchorWatchServiceClass {
             );
             await this.restoreAlarmOutputs(false);
             this.setupError = this.setupError ? `${cancellationError} ${this.setupError}` : cancellationError;
-            this.persistWatchState();
+            await this.persistWatchState();
             this.notify();
             throw new Error(this.setupError);
         }
@@ -852,7 +850,7 @@ class AnchorWatchServiceClass {
         this.alarmNotificationError = null;
 
         try {
-            this.persistWatchStateRequired();
+            await this.persistWatchStateRequired();
         } catch (error) {
             // A crash must never resurrect an acknowledged alarm. If the
             // acknowledgement cannot be recorded, restore the alarm and its
@@ -943,12 +941,14 @@ class AnchorWatchServiceClass {
         let persisted: PersistedWatchState | null = null;
 
         try {
-            // Prefer the explicit active-device envelope. It is the recovery
-            // authority after involuntary sign-out/account loss. Fall back to
-            // the old scoped record for migration from earlier beta builds.
-            let raw = localStorage.getItem(ANCHOR_WATCH_DEVICE_RECOVERY_KEY);
-            if (raw) {
-                deviceRecovery = true;
+            // Prefer the explicit active-device envelope. On iOS the adapter
+            // reads Keychain and migrates reviewed legacy plaintext records
+            // only after a verified secure write.
+            const recovery = await readAnchorWatchRecovery(currentScope);
+            if (!recovery) return false;
+            const raw = recovery.raw;
+            deviceRecovery = recovery.deviceRecovery;
+            if (deviceRecovery) {
                 try {
                     const candidate = JSON.parse(raw) as unknown;
                     const recoveredScope = scopeFromIdentityKey(
@@ -970,10 +970,7 @@ class AnchorWatchServiceClass {
                     );
                     return true;
                 }
-            } else {
-                raw = localStorage.getItem(authScopedStorageKey(ANCHOR_WATCH_KEY, currentScope));
             }
-            if (!raw) return false;
 
             let parsed: unknown;
             try {
@@ -1043,7 +1040,7 @@ class AnchorWatchServiceClass {
                 this.state = 'alarm';
                 this.alarmCause = persisted.alarmCause ?? 'drag';
                 this.alarmTriggeredAt = persisted.alarmTriggeredAt ?? persisted.savedAt;
-                this.persistWatchState();
+                await this.persistWatchState();
                 await this.restoreAlarmOutputs(true);
             } else {
                 // `paused` is a retained recovery state from a previous
@@ -1053,7 +1050,7 @@ class AnchorWatchServiceClass {
                 this.alarmCause = null;
                 this.alarmTriggeredAt = null;
                 this.setupError = null;
-                this.persistWatchStateRequired();
+                await this.persistWatchStateRequired();
                 this.startGpsWatchdog();
             }
 
@@ -1085,10 +1082,10 @@ class AnchorWatchServiceClass {
     // ---- PRIVATE ----
 
     /** Persist current watch state for crash recovery */
-    private persistWatchState(): boolean {
+    private async persistWatchState(): Promise<boolean> {
         if (!this.anchorPosition || this.state === 'idle') return false;
         try {
-            this.persistWatchStateRequired();
+            await this.persistWatchStateRequired();
             return true;
         } catch (e) {
             log.warn('Persist failed:', String(e));
@@ -1097,7 +1094,7 @@ class AnchorWatchServiceClass {
     }
 
     /** Safety transitions that must survive a crash use the strict variant. */
-    private persistWatchStateRequired(): void {
+    private async persistWatchStateRequired(): Promise<void> {
         if (!this.anchorPosition || this.state === 'idle') {
             throw new Error('Anchor Watch recovery state is unavailable.');
         }
@@ -1127,26 +1124,13 @@ class AnchorWatchServiceClass {
             identityKey: persistenceScope.key,
             savedAt: Date.now(),
         };
-        // Device envelope first: if the secondary account-scoped write fails,
-        // automatic logout/restart recovery still has an authoritative copy.
-        localStorage.setItem(ANCHOR_WATCH_DEVICE_RECOVERY_KEY, JSON.stringify(data));
-        localStorage.setItem(authScopedStorageKey(ANCHOR_WATCH_KEY, persistenceScope), JSON.stringify(data));
+        await writeAnchorWatchRecovery(persistenceScope, JSON.stringify(data));
     }
 
-    /** Clear persisted watch state */
-    private clearPersistedWatchState(scope = this.watchPersistenceScope ?? getAuthIdentityScope()): void {
-        try {
-            this.clearPersistedWatchStateRequired(scope);
-        } catch (e) {
-            log.warn('Clear persist failed:', String(e));
-        }
-    }
-
-    private clearPersistedWatchStateRequired(scope = this.watchPersistenceScope ?? getAuthIdentityScope()): void {
-        // Scoped record first; if its removal throws, retain the device envelope
-        // so the physical safety state cannot disappear on restart.
-        localStorage.removeItem(authScopedStorageKey(ANCHOR_WATCH_KEY, scope));
-        localStorage.removeItem(ANCHOR_WATCH_DEVICE_RECOVERY_KEY);
+    private async clearPersistedWatchStateRequired(
+        scope = this.watchPersistenceScope ?? getAuthIdentityScope(),
+    ): Promise<void> {
+        await clearAnchorWatchRecovery(scope);
     }
 
     private validatePersistedWatch(value: unknown, scope: AuthIdentityScope): PersistedWatchValidation {
@@ -1314,7 +1298,7 @@ class AnchorWatchServiceClass {
             'Saved Anchor Watch could not resume verified monitoring. Its position is retained; retry recovery or Weigh Anchor.',
             failures,
         );
-        this.persistWatchState();
+        await this.persistWatchState();
 
         if (this.state === 'alarm') {
             const recoveryError = this.setupError;
@@ -1576,7 +1560,25 @@ class AnchorWatchServiceClass {
                 `${this.asError(error).message} Setup rollback is not confirmed; Anchor Watch may still be armed.`,
                 cleanupFailures,
             );
-            this.persistWatchState();
+            await this.persistWatchState();
+            this.notify();
+            return;
+        }
+
+        try {
+            await this.clearPersistedWatchStateRequired(scope);
+        } catch (clearError) {
+            // Native outputs are down, but an existing recovery envelope must
+            // not be allowed to disappear from the UI and then resurrect on a
+            // later launch. Keep Weigh Anchor retryable until strict clear is
+            // confirmed across secure and reviewed legacy stores.
+            this.state = 'paused';
+            this.watchStartedAt ??= Date.now();
+            this.watchPersistenceScope = scope;
+            this.setupError = this.failureMessage(
+                `${this.asError(error).message} Setup rollback stopped native outputs, but recovery state could not be cleared. Retry Weigh Anchor.`,
+                [this.asError(clearError)],
+            );
             this.notify();
             return;
         }
@@ -1596,7 +1598,6 @@ class AnchorWatchServiceClass {
         this.jitterBuffer = [];
         this.resetPrimaryGpsSource();
         this.setupError = this.asError(error).message;
-        this.clearPersistedWatchState(scope);
         this.watchPersistenceScope = null;
         this.notify();
     }
@@ -1808,7 +1809,7 @@ class AnchorWatchServiceClass {
         this.alarmTriggeredAt = Date.now();
 
         // Persist alarm state — crash during alarm should restore to alarm, not watching
-        this.persistWatchState();
+        await this.persistWatchState();
 
         // Haptic burst (fires in the brief wake window iOS gives us when
         // the geofence event arrives; haptics during full suspension are

@@ -14,6 +14,11 @@
 import { createLogger } from '../utils/createLogger';
 import { withDeadline } from '../utils/deadline';
 import { passageDataFingerprint } from './passageEnvironmentReadiness';
+import {
+    canUsePlaintextWeatherCache,
+    readPlaintextWeatherCacheItem,
+    writePlaintextWeatherCacheItem,
+} from './weather/plaintextCachePrivacy';
 
 const log = createLogger('OceanCurrent');
 
@@ -179,7 +184,7 @@ export const OceanCurrentService = {
 
         // Check cache
         try {
-            const data = parseCachedBriefing(localStorage.getItem(key));
+            const data = parseCachedBriefing(readPlaintextWeatherCacheItem(key));
             if (data && Date.now() - data._cachedAt < ttl) {
                 log.info(`Using cached ${source} current data`);
                 return { ...data, retrieval: 'cached' };
@@ -365,11 +370,7 @@ export const OceanCurrentService = {
             };
 
             // Cache
-            try {
-                localStorage.setItem(key, JSON.stringify({ ...briefing, _cachedAt: Date.now() }));
-            } catch {
-                /* ignore */
-            }
+            writePlaintextWeatherCacheItem(key, JSON.stringify({ ...briefing, _cachedAt: Date.now() }));
 
             return briefing;
         } catch (err) {
@@ -383,6 +384,7 @@ export const OceanCurrentService = {
 
     /** Purge all current caches older than 30 days */
     purgeStale(): void {
+        if (!canUsePlaintextWeatherCache() || typeof localStorage === 'undefined') return;
         try {
             const keys = Object.keys(localStorage).filter((k) => k.startsWith(CACHE_KEY_PREFIX));
             for (const key of keys) {

@@ -16,6 +16,11 @@ import { createLogger } from '../utils/createLogger';
 import { vesselMaxWaveHeightMetres } from './units';
 import { circularMean } from '../utils/circularStats';
 import { passageDataFingerprint } from './passageEnvironmentReadiness';
+import {
+    canUsePlaintextWeatherCache,
+    readPlaintextWeatherCacheItem,
+    writePlaintextWeatherCacheItem,
+} from './weather/plaintextCachePrivacy';
 
 /**
  * Internal scoring shape — what scoreWindow() actually consumes.
@@ -314,7 +319,7 @@ export const WeatherWindowService = {
 
         // Check cache
         try {
-            const data = parseCachedResult(localStorage.getItem(cacheKey));
+            const data = parseCachedResult(readPlaintextWeatherCacheItem(cacheKey));
             if (data) {
                 const ageMs = analysisAgeMs(data.analysisTime);
                 if (ageMs >= 0 && ageMs <= WEATHER_WINDOW_MAX_FALLBACK_AGE_MS) fallbackCache = data;
@@ -482,11 +487,7 @@ export const WeatherWindowService = {
             };
 
             // Cache
-            try {
-                localStorage.setItem(cacheKey, JSON.stringify(result));
-            } catch {
-                /* ignore */
-            }
+            writePlaintextWeatherCacheItem(cacheKey, JSON.stringify(result));
 
             return result;
         } catch (err) {
@@ -508,6 +509,7 @@ export const WeatherWindowService = {
 
     /** Clear cached analysis */
     clearCache(): void {
+        if (!canUsePlaintextWeatherCache() || typeof localStorage === 'undefined') return;
         try {
             // Analyses are keyed by a fingerprint of coordinates, course and
             // effective limits. Remove both current and legacy variants.

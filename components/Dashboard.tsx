@@ -41,6 +41,10 @@ import { DashboardWidgetContext, DashboardWidgetContextType } from './WidgetRend
 import { UnitPreferences, SourcedWeatherMetrics } from '../types';
 import { fetchMinutelyRainWithSummary, MinutelyRain } from '../services/weather/api/weatherkit';
 import { fetchRainbowPrecip } from '../services/weather/api/rainbowPrecip';
+import {
+    readPlaintextWeatherCacheItem,
+    writePlaintextWeatherCacheItem,
+} from '../services/weather/plaintextCachePrivacy';
 import { useSettingsStore } from '../stores/settingsStore';
 import { useUIStore } from '../stores/uiStore';
 import { canAccess } from '../services/SubscriptionService';
@@ -303,7 +307,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
 
         const source = isSkipper ? 'rainbow' : 'wk';
         const cacheKey = `thalassa_rain_${source}_${lat.toFixed(2)}_${lon.toFixed(2)}`;
-        const cached = localStorage.getItem(cacheKey);
+        const cached = readPlaintextWeatherCacheItem(cacheKey);
         if (cached) {
             try {
                 const {
@@ -341,7 +345,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                             setRainSource(src);
                             setRainStatus('loaded');
                             log.info(`[rain] source=${src} minutes=${rain.length} summary="${summary}"`);
-                            localStorage.setItem(
+                            writePlaintextWeatherCacheItem(
                                 cacheKey,
                                 JSON.stringify({ ts: Date.now(), data: rain, summary, source: src }),
                             );
@@ -378,7 +382,10 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                 setRainSource(src);
                 setRainStatus('loaded');
                 log.info(`[rain] source=${src} minutes=${rain.length} summary="${summary}"`);
-                localStorage.setItem(cacheKey, JSON.stringify({ ts: Date.now(), data: rain, summary, source: src }));
+                writePlaintextWeatherCacheItem(
+                    cacheKey,
+                    JSON.stringify({ ts: Date.now(), data: rain, summary, source: src }),
+                );
             } else {
                 const fallback = synthesizeFromHourly();
                 setMinutelyRain(fallback);
@@ -405,7 +412,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                     setRainSource(src);
                     setRainStatus('loaded');
                     log.info(`[rain] source=${src} minutes=${rain.length} summary="${summary}"`);
-                    localStorage.setItem(
+                    writePlaintextWeatherCacheItem(
                         cacheKey,
                         JSON.stringify({ ts: Date.now(), data: rain, summary, source: src }),
                     );

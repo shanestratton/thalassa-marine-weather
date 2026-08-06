@@ -1,5 +1,5 @@
 import { spawn, ChildProcess, execSync } from 'node:child_process';
-import { existsSync, openSync, closeSync, writeSync } from 'node:fs';
+import { constants, existsSync, lstatSync, openSync, closeSync, writeSync } from 'node:fs';
 import { open as fsOpen, unlink, readFile } from 'node:fs/promises';
 import { randomBytes } from 'node:crypto';
 import { tmpdir } from 'node:os';
@@ -120,7 +120,8 @@ export class OexserverdClient {
 
     private async commandPipeWritable(): Promise<boolean> {
         try {
-            const fd = openSync(COMMAND_PIPE, 'r+'); // non-blocking on a FIFO existing-only check
+            assertTrustedCommandPipe();
+            const fd = openSync(COMMAND_PIPE, constants.O_RDWR | constants.O_NONBLOCK | constants.O_NOFOLLOW);
             closeSync(fd);
             return true;
         } catch {
@@ -141,9 +142,11 @@ export class OexserverdClient {
         Buffer.from(sencKey, 'utf8').copy(buf, 1 + 256 + 256, 0, Math.min(511, sencKey.length));
 
         // Open command pipe write-only, write, close.
-        const fd = openSync(COMMAND_PIPE, 'w');
+        assertTrustedCommandPipe();
+        const fd = openSync(COMMAND_PIPE, constants.O_WRONLY | constants.O_NOFOLLOW);
         try {
-            writeSync(fd, buf, 0, buf.length);
+            let written = 0;
+            while (written < buf.length) written += writeSync(fd, buf, written, buf.length - written);
         } finally {
             closeSync(fd);
         }
@@ -182,6 +185,14 @@ export class OexserverdClient {
             await handle.close().catch(() => undefined);
         }
     }
+}
+
+function assertTrustedCommandPipe(): void {
+    const stat = lstatSync(COMMAND_PIPE);
+    if (!stat.isFIFO()) throw new Error('oexserverd command endpoint is not a FIFO');
+    const uid = typeof process.getuid === 'function' ? process.getuid() : null;
+    if (uid !== null && stat.uid !== uid) throw new Error('oexserverd command FIFO has an unexpected owner');
+    if ((stat.mode & 0o022) !== 0) throw new Error('oexserverd command FIFO is writable by another user');
 }
 
 function sleep(ms: number): Promise<void> {

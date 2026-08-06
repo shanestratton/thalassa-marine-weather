@@ -1,3 +1,4 @@
+import { Capacitor } from '@capacitor/core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { OceanCurrentService } from '../services/OceanCurrentService';
 
@@ -18,9 +19,13 @@ describe('OceanCurrentService provider authority', () => {
     beforeEach(() => {
         localStorage.clear();
         vi.restoreAllMocks();
+        vi.mocked(Capacitor.getPlatform).mockReturnValue('web');
+        vi.mocked(Capacitor.isNativePlatform).mockReturnValue(false);
     });
 
     afterEach(() => {
+        vi.mocked(Capacitor.getPlatform).mockReturnValue('web');
+        vi.mocked(Capacitor.isNativePlatform).mockReturnValue(false);
         vi.restoreAllMocks();
     });
 
@@ -64,6 +69,21 @@ describe('OceanCurrentService provider authority', () => {
         });
         expect(fetchMock).toHaveBeenCalledTimes(1);
         expect(currentCacheKeys()).toHaveLength(1);
+    });
+
+    it('keeps live current fetches available on iOS without reading or writing a plaintext route cache', async () => {
+        vi.mocked(Capacitor.getPlatform).mockReturnValue('ios');
+        vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true);
+        localStorage.setItem(`${CACHE_PREFIX}legacy-route`, JSON.stringify({ private: 'old-corridor' }));
+        const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => currentResponse([]));
+
+        const first = await OceanCurrentService.fetchCurrents(BBOX, 90, 120, 6);
+        const second = await OceanCurrentService.fetchCurrents(BBOX, 90, 120, 6);
+
+        expect(first).toMatchObject({ availability: 'available', retrieval: 'live' });
+        expect(second).toMatchObject({ availability: 'available', retrieval: 'live' });
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+        expect(currentCacheKeys()).toEqual([]);
     });
 
     it('treats non-empty but unreadable provider rows as unavailable rather than calm', async () => {

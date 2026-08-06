@@ -50,14 +50,28 @@ import { Router, Request, Response } from 'express';
 import { randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import fs from 'node:fs/promises';
-import { createWriteStream } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import AdmZip from 'adm-zip';
 import { routeInshore, type InshoreLayers, type RouteRequest } from '../services/inshoreRouter.js';
 import { normaliseOutboundHttpUrl, outboundFetch } from '../outboundHttp.js';
 import { sendSignedJson, routeRequestBinding } from './pair.js';
 import type { PiIdentity } from '../identity.js';
+import { validateInshoreRouteBoundary } from '../inshoreRouteBoundary.js';
+import {
+    ENC_ARCHIVE_POLICY,
+    ENC_DOWNLOAD_POLICY,
+    PiResourceBoundaryError,
+    extractZipArchive,
+    streamResponseToFile,
+} from '../resourceBoundary.js';
+import {
+    PiWorkloadAbortedError,
+    PiWorkloadBusyError,
+    piWorkloadGovernor,
+    workloadBusyPayload,
+    type PiWorkloadClass,
+    type PiWorkloadLease,
+} from '../workloadGovernor.js';
 
 // ── Job state ─────────────────────────────────────────────────────
 
@@ -71,6 +85,8 @@ interface EncJob {
     /** Logged step for the UI ("converting DEPARE", "parsing metadata", ...). */
     step?: string;
     error?: string;
+    /** Stable machine-readable resource-boundary failure, when applicable. */
+    errorCode?: string;
     startedAt: number;
     completedAt?: number;
     /** Path to the converted JSON when done. */
@@ -349,6 +365,55 @@ function sanitiseFilename(name: string): string {
     const safe = name.replace(/[^A-Za-z0-9._-]/g, '_').replace(/^\.+/, '');
     if (!safe || safe === '.' || safe === '..') return 'cell.000';
     return safe;
+}
+
+function boundaryErrorCode(error: unknown): string | undefined {
+    return error instanceof PiResourceBoundaryError ? error.code : undefined;
+}
+
+function sendWorkloadBusy(res: Response, error: PiWorkloadBusyError): Response {
+    res.setHeader('Retry-After', String(error.retryAfterSeconds));
+    return res.status(error.status).json(workloadBusyPayload(error));
+}
+
+async function acquireRequestWorkload(
+    req: Request,
+    res: Response,
+    workloadClass: PiWorkloadClass,
+): Promise<{ lease: PiWorkloadLease; cleanup: () => void } | null> {
+    const controller = new AbortController();
+    const onAbort = (): void => controller.abort();
+    const onClose = (): void => {
+        if (!res.writableEnded) controller.abort();
+    };
+    req.once('aborted', onAbort);
+    res.once('close', onClose);
+    const cleanup = (): void => {
+        req.removeListener('aborted', onAbort);
+        res.removeListener('close', onClose);
+    };
+    let admission;
+    try {
+        admission = piWorkloadGovernor.admit(workloadClass, { signal: controller.signal });
+    } catch (error) {
+        cleanup();
+        if (error instanceof PiWorkloadBusyError) sendWorkloadBusy(res, error);
+        else throw error;
+        return null;
+    }
+    try {
+        const lease = await admission.lease;
+        if (controller.signal.aborted) {
+            lease.release();
+            cleanup();
+            return null;
+        }
+        return { lease, cleanup };
+    } catch (error) {
+        cleanup();
+        if (error instanceof PiWorkloadAbortedError) return null;
+        throw error;
+    }
 }
 
 /**
@@ -727,9 +792,9 @@ async function runConversion(job: EncJob): Promise<void> {
         await fs.mkdir(unzipDir, { recursive: true });
 
         try {
-            const zip = new AdmZip(inputPath);
-            zip.extractAllTo(unzipDir, /* overwrite */ true);
+            await extractZipArchive(inputPath, unzipDir, ENC_ARCHIVE_POLICY);
         } catch (err) {
+            if (err instanceof PiResourceBoundaryError) throw err;
             throw new Error(`Failed to unzip: ${(err as Error).message}`);
         }
 
@@ -839,6 +904,31 @@ async function runConversion(job: EncJob): Promise<void> {
 export function createEncRoutes(identity?: PiIdentity): Router {
     const router = Router();
 
+    type ReservedConversionRequest = Request & {
+        conversionWorkload?: { lease: PiWorkloadLease; cleanup: () => void };
+        conversionWorkloadTransferred?: boolean;
+    };
+
+    // Admit before reading a potentially 300 MB upload. Queued clients remain
+    // under Node stream backpressure, so concurrent requests cannot each build
+    // a full in-memory chunk list while another conversion owns the Pi.
+    const reserveConversionUpload = async (req: Request, res: Response, next: () => void): Promise<void> => {
+        const workload = await acquireRequestWorkload(req, res, 'conversion');
+        if (!workload) return;
+        const reserved = req as ReservedConversionRequest;
+        reserved.conversionWorkload = workload;
+        let released = false;
+        const releaseIfNotTransferred = (): void => {
+            if (released || reserved.conversionWorkloadTransferred) return;
+            released = true;
+            workload.lease.release();
+            workload.cleanup();
+        };
+        res.once('finish', releaseIfNotTransferred);
+        res.once('close', releaseIfNotTransferred);
+        next();
+    };
+
     // Capture raw body up to MAX_UPLOAD_BYTES for the convert endpoint.
     // We mount this only on /convert so we don't load big buffers
     // for every request to the router.
@@ -872,7 +962,7 @@ export function createEncRoutes(identity?: PiIdentity): Router {
      * Headers: X-Filename: AU530150.000
      *          X-Body-Encoding: base64  (optional)
      */
-    router.post('/convert', rawBodyParser, async (req: Request, res: Response) => {
+    router.post('/convert', reserveConversionUpload, rawBodyParser, async (req: Request, res: Response) => {
         let rawBody = (req as Request & { rawBody?: Buffer }).rawBody;
         if (!rawBody || rawBody.length === 0) {
             return res.status(400).json({ error: 'Empty body' });
@@ -915,15 +1005,30 @@ export function createEncRoutes(identity?: PiIdentity): Router {
             startedAt: Date.now(),
             workDir,
         };
+        const reserved = req as ReservedConversionRequest;
+        const workload = reserved.conversionWorkload;
+        if (!workload) {
+            await fs.rm(workDir, { recursive: true, force: true }).catch(() => {});
+            return res.status(500).json({ error: 'Conversion workload lease was not reserved' });
+        }
         jobs.set(jobId, job);
+        reserved.conversionWorkloadTransferred = true;
 
-        // Run conversion in the background so the client can poll.
-        void runConversion(job).catch((err) => {
-            job.status = 'error';
-            job.error = err instanceof Error ? err.message : String(err);
-            job.completedAt = Date.now();
-            job.progress = 0;
-        });
+        // Run conversion in the background so the client can poll. Ownership
+        // of the upload's admission lease transfers here and is released on
+        // every conversion result, including process-spawn/archive failures.
+        void runConversion(job)
+            .catch((err) => {
+                job.status = 'error';
+                job.error = err instanceof Error ? err.message : String(err);
+                job.errorCode = boundaryErrorCode(err);
+                job.completedAt = Date.now();
+                job.progress = 0;
+            })
+            .finally(() => {
+                workload.lease.release();
+                workload.cleanup();
+            });
 
         return res.json({ jobId, status: 'pending' });
     });
@@ -946,6 +1051,7 @@ export function createEncRoutes(identity?: PiIdentity): Router {
             progress: job.progress,
             step: job.step,
             error: job.error,
+            errorCode: job.errorCode,
             startedAt: job.startedAt,
             completedAt: job.completedAt,
             cellId: job.cellId,
@@ -1042,78 +1148,62 @@ export function createEncRoutes(identity?: PiIdentity): Router {
             installSource: 'url',
             installUrl: downloadUrl,
         };
-        jobs.set(jobId, job);
-
-        // Background task: download + convert + persist.
-        void (async () => {
-            try {
-                job.status = 'extracting';
-                job.step = 'downloading from upstream';
-                const ctrl = new AbortController();
-                const timer = setTimeout(() => ctrl.abort(), URL_DOWNLOAD_TIMEOUT_MS);
-                let response;
+        let submission;
+        try {
+            submission = piWorkloadGovernor.submit('conversion', async () => {
                 try {
-                    response = await outboundFetch(downloadUrl, { signal: ctrl.signal });
-                } finally {
-                    clearTimeout(timer);
-                }
-                if (!response.ok) {
-                    // o-charts (and most vendors) hand out time-limited share
-                    // links, so a dead link is the ordinary failure here, not
-                    // an exotic one. Say so plainly — the fix is to request a
-                    // fresh download from the shop, not to retry this URL.
-                    if (response.status === 404 || response.status === 410) {
-                        throw new Error(
-                            `Download link is no longer valid (HTTP ${response.status}). Chart download links expire — ` +
-                                `request a new one from your chart shop and paste the fresh link.`,
-                        );
-                    }
-                    throw new Error(`Upstream HTTP ${response.status}`);
-                }
-                const total = Number(response.headers.get('content-length') ?? 0);
-                if (total > MAX_UPLOAD_BYTES) {
-                    throw new Error(`Upstream file is ${(total / 1024 / 1024).toFixed(0)} MB — exceeds 300 MB cap`);
-                }
-                if (!response.body) throw new Error('Upstream returned no body');
-
-                const downloadPath = path.join(workDir, safeName);
-                const out = createWriteStream(downloadPath);
-                let downloaded = 0;
-                const reader = response.body.getReader();
-                while (true) {
-                    const { done, value } = await reader.read();
-                    if (done) break;
-                    if (value) {
-                        downloaded += value.byteLength;
-                        if (downloaded > MAX_UPLOAD_BYTES) {
-                            throw new Error('Upstream exceeded 300 MB during stream');
+                    job.status = 'extracting';
+                    job.step = 'downloading from upstream';
+                    const ctrl = new AbortController();
+                    const timer = setTimeout(() => ctrl.abort(), URL_DOWNLOAD_TIMEOUT_MS);
+                    try {
+                        const response = await outboundFetch(downloadUrl, { signal: ctrl.signal });
+                        if (!response.ok) {
+                            // o-charts (and most vendors) hand out time-limited share
+                            // links, so a dead link is the ordinary failure here, not
+                            // an exotic one. Say so plainly — the fix is to request a
+                            // fresh download from the shop, not to retry this URL.
+                            if (response.status === 404 || response.status === 410) {
+                                throw new Error(
+                                    `Download link is no longer valid (HTTP ${response.status}). Chart download links expire — ` +
+                                        `request a new one from your chart shop and paste the fresh link.`,
+                                );
+                            }
+                            throw new Error(`Upstream HTTP ${response.status}`);
                         }
-                        out.write(Buffer.from(value));
-                        if (total > 0) {
-                            // Reserve 0..0.05 of the progress bar
-                            // for the download portion; conversion
-                            // moves the rest.
-                            job.progress = Math.min(0.05, (downloaded / total) * 0.05);
-                        }
-                    }
-                }
-                out.end();
-                await new Promise<void>((resolve, reject) => {
-                    out.on('finish', () => resolve());
-                    out.on('error', reject);
-                });
 
-                // Hand off to the existing pipeline. runConversion
-                // checks magic bytes, unzips if needed, persists each
-                // cell to the chart store via persistCell.
-                await runConversion(job);
-            } catch (err) {
-                job.status = 'error';
-                job.error = err instanceof Error ? err.message : String(err);
-                job.completedAt = Date.now();
-                job.progress = 0;
-            }
-        })();
+                        const downloadPath = path.join(workDir, safeName);
+                        await streamResponseToFile(response, downloadPath, ENC_DOWNLOAD_POLICY, {
+                            signal: ctrl.signal,
+                            onProgress(downloaded, total) {
+                                if (total > 0) job.progress = Math.min(0.05, (downloaded / total) * 0.05);
+                            },
+                        });
+                    } finally {
+                        clearTimeout(timer);
+                    }
+
+                    // Hand off to the existing pipeline. runConversion
+                    // checks magic bytes, unzips if needed, persists each
+                    // cell to the chart store via persistCell.
+                    await runConversion(job);
+                } catch (err) {
+                    job.status = 'error';
+                    job.error = err instanceof Error ? err.message : String(err);
+                    job.errorCode = boundaryErrorCode(err);
+                    job.completedAt = Date.now();
+                    job.progress = 0;
+                }
+            });
+        } catch (error) {
+            await fs.rm(workDir, { recursive: true, force: true }).catch(() => {});
+            if (error instanceof PiWorkloadBusyError) return sendWorkloadBusy(res, error);
+            throw error;
+        }
+        jobs.set(jobId, job);
+        // Errors are recorded inside the job closure so polling retains the
+        // existing status/error contract. Consume the completion either way.
+        void submission.completion.catch(() => {});
 
         return res.json({ jobId, status: 'pending' });
     });
@@ -1280,135 +1370,137 @@ export function createEncRoutes(identity?: PiIdentity): Router {
             minComponentCells: number;
         }>;
 
-        // ── Input validation ──
-        const numericFields: (keyof typeof body)[] = ['fromLat', 'fromLon', 'toLat', 'toLon', 'draftM'];
-        for (const k of numericFields) {
-            if (typeof body[k] !== 'number' || !Number.isFinite(body[k])) {
-                return res.status(400).json({ error: `Missing or invalid number: ${k}` });
+        const boundaryIssue = validateInshoreRouteBoundary(body, { validateCellIds: true });
+        if (boundaryIssue) return res.status(boundaryIssue.status).json(boundaryIssue);
+
+        const workload = await acquireRequestWorkload(req, res, 'route');
+        if (!workload) return;
+        try {
+            const fromLat = body.fromLat as number;
+            const fromLon = body.fromLon as number;
+            const toLat = body.toLat as number;
+            const toLon = body.toLon as number;
+            const draftM = body.draftM as number;
+
+            // ── Cell selection ──
+            // Either explicit cellIds, or auto-pick cells whose bbox
+            // intersects the route's lat/lon envelope.
+            let candidates: string[] | undefined = body.cellIds;
+            const index = await loadInstalledIndex();
+            if (!candidates || candidates.length === 0) {
+                const minLat = Math.min(fromLat, toLat);
+                const maxLat = Math.max(fromLat, toLat);
+                const minLon = Math.min(fromLon, toLon);
+                const maxLon = Math.max(fromLon, toLon);
+                candidates = index.cells
+                    .filter((c) => {
+                        const [bMinLon, bMinLat, bMaxLon, bMaxLat] = c.bbox;
+                        return !(bMaxLon < minLon || bMinLon > maxLon || bMaxLat < minLat || bMinLat > maxLat);
+                    })
+                    .map((c) => c.cellId);
             }
-        }
-        const fromLat = body.fromLat as number;
-        const fromLon = body.fromLon as number;
-        const toLat = body.toLat as number;
-        const toLon = body.toLon as number;
-        const draftM = body.draftM as number;
 
-        if (Math.abs(fromLat) > 90 || Math.abs(toLat) > 90 || Math.abs(fromLon) > 180 || Math.abs(toLon) > 180) {
-            return res.status(400).json({ error: 'Coordinates out of WGS84 range' });
-        }
-        if (draftM < 0 || draftM > 30) {
-            return res.status(400).json({ error: 'draftM out of plausible range (0–30 m)' });
-        }
+            const selectedCellsIssue = validateInshoreRouteBoundary(
+                { ...body, cellIds: candidates },
+                { validateCellIds: true },
+            );
+            if (selectedCellsIssue) return res.status(selectedCellsIssue.status).json(selectedCellsIssue);
 
-        // ── Cell selection ──
-        // Either explicit cellIds, or auto-pick cells whose bbox
-        // intersects the route's lat/lon envelope.
-        let candidates: string[] | undefined = body.cellIds;
-        const index = await loadInstalledIndex();
-        if (!candidates || candidates.length === 0) {
-            const minLat = Math.min(fromLat, toLat);
-            const maxLat = Math.max(fromLat, toLat);
-            const minLon = Math.min(fromLon, toLon);
-            const maxLon = Math.max(fromLon, toLon);
-            candidates = index.cells
-                .filter((c) => {
-                    const [bMinLon, bMinLat, bMaxLon, bMaxLat] = c.bbox;
-                    return !(bMaxLon < minLon || bMinLon > maxLon || bMaxLat < minLat || bMinLat > maxLat);
-                })
-                .map((c) => c.cellId);
-        }
+            if (candidates.length === 0) {
+                return res.status(404).json({
+                    error: 'No installed ENC cells cover this route. Import a chart for this area first.',
+                    code: 'no-coverage',
+                });
+            }
 
-        if (candidates.length === 0) {
-            return res.status(404).json({
-                error: 'No installed ENC cells cover this route. Import a chart for this area first.',
-                code: 'no-coverage',
-            });
-        }
-
-        // ── Layer loading ──
-        // Load each cell's persisted blob; concat features per layer
-        // into one merged InshoreLayers struct. The router doesn't
-        // care which cell a feature came from.
-        const merged: InshoreLayers = {
-            LNDARE: { type: 'FeatureCollection', features: [] },
-            DEPARE: { type: 'FeatureCollection', features: [] },
-            OBSTRN: { type: 'FeatureCollection', features: [] },
-            WRECKS: { type: 'FeatureCollection', features: [] },
-            UWTROC: { type: 'FeatureCollection', features: [] },
-            FAIRWY: { type: 'FeatureCollection', features: [] },
-            DRGARE: { type: 'FeatureCollection', features: [] },
-            BOYLAT: { type: 'FeatureCollection', features: [] },
-            BCNLAT: { type: 'FeatureCollection', features: [] },
-        };
-        const cellsUsed: string[] = [];
-        for (const cellId of candidates) {
-            try {
-                const text = await fs.readFile(cellStorePath(cellId), 'utf8');
-                const blob = JSON.parse(text) as {
-                    cells: { layers: Record<string, { features?: unknown[] }> }[];
-                };
-                const cell = blob.cells?.[0];
-                if (!cell) continue;
-                for (const layer of [
-                    'LNDARE',
-                    'DEPARE',
-                    'OBSTRN',
-                    'WRECKS',
-                    'UWTROC',
-                    'FAIRWY',
-                    'DRGARE',
-                    'BOYLAT',
-                    'BCNLAT',
-                ] as const) {
-                    const fc = cell.layers?.[layer];
-                    if (fc?.features && Array.isArray(fc.features)) {
-                        // Features came from GDAL→GeoJSON so they conform to the
-                        // GeoJSON Feature shape; the persistence layer is just
-                        // typed `unknown[]` to avoid forcing a deep import.
-                        const target = merged[layer];
-                        if (target) {
-                            (target.features as unknown[]).push(...fc.features);
+            // ── Layer loading ──
+            // Load each cell's persisted blob; concat features per layer
+            // into one merged InshoreLayers struct. The router doesn't
+            // care which cell a feature came from.
+            const merged: InshoreLayers = {
+                LNDARE: { type: 'FeatureCollection', features: [] },
+                DEPARE: { type: 'FeatureCollection', features: [] },
+                OBSTRN: { type: 'FeatureCollection', features: [] },
+                WRECKS: { type: 'FeatureCollection', features: [] },
+                UWTROC: { type: 'FeatureCollection', features: [] },
+                FAIRWY: { type: 'FeatureCollection', features: [] },
+                DRGARE: { type: 'FeatureCollection', features: [] },
+                BOYLAT: { type: 'FeatureCollection', features: [] },
+                BCNLAT: { type: 'FeatureCollection', features: [] },
+            };
+            const cellsUsed: string[] = [];
+            for (const cellId of candidates) {
+                try {
+                    const text = await fs.readFile(cellStorePath(cellId), 'utf8');
+                    const blob = JSON.parse(text) as {
+                        cells: { layers: Record<string, { features?: unknown[] }> }[];
+                    };
+                    const cell = blob.cells?.[0];
+                    if (!cell) continue;
+                    for (const layer of [
+                        'LNDARE',
+                        'DEPARE',
+                        'OBSTRN',
+                        'WRECKS',
+                        'UWTROC',
+                        'FAIRWY',
+                        'DRGARE',
+                        'BOYLAT',
+                        'BCNLAT',
+                    ] as const) {
+                        const fc = cell.layers?.[layer];
+                        if (fc?.features && Array.isArray(fc.features)) {
+                            // Features came from GDAL→GeoJSON so they conform to the
+                            // GeoJSON Feature shape; the persistence layer is just
+                            // typed `unknown[]` to avoid forcing a deep import.
+                            const target = merged[layer];
+                            if (target) {
+                                (target.features as unknown[]).push(...fc.features);
+                            }
                         }
                     }
+                    cellsUsed.push(cellId);
+                } catch {
+                    // Cell file missing/corrupt — skip and continue with the others.
                 }
-                cellsUsed.push(cellId);
-            } catch {
-                // Cell file missing/corrupt — skip and continue with the others.
             }
-        }
 
-        if (cellsUsed.length === 0) {
-            return res.status(500).json({ error: 'Failed to load any cell GeoJSON' });
-        }
-
-        // ── Route ──
-        try {
-            const t0 = Date.now();
-            const reqRoute: RouteRequest = {
-                fromLat,
-                fromLon,
-                toLat,
-                toLon,
-                draftM,
-                resolutionM: body.resolutionM,
-                safetyM: body.safetyM,
-                obstructionBufferM: body.obstructionBufferM,
-                minComponentCells: body.minComponentCells,
-            };
-            const result = routeInshore(merged, reqRoute);
-            const elapsedMs = Date.now() - t0;
-
-            if ('error' in result) {
-                return res.status(422).json({ ...result, cellsUsed, elapsedMs });
+            if (cellsUsed.length === 0) {
+                return res.status(500).json({ error: 'Failed to load any cell GeoJSON' });
             }
-            // Signed for the same reason as /route-prepped above.
-            const payload = { ...result, cellsUsed, elapsedMs };
-            if (identity) return sendSignedJson(identity, req, res, payload, routeRequestBinding(body));
-            return res.json(payload);
-        } catch (err) {
-            return res
-                .status(500)
-                .json({ error: `Routing failed: ${err instanceof Error ? err.message : String(err)}` });
+
+            // ── Route ──
+            try {
+                const t0 = Date.now();
+                const reqRoute: RouteRequest = {
+                    fromLat,
+                    fromLon,
+                    toLat,
+                    toLon,
+                    draftM,
+                    resolutionM: body.resolutionM,
+                    safetyM: body.safetyM,
+                    obstructionBufferM: body.obstructionBufferM,
+                    minComponentCells: body.minComponentCells,
+                };
+                const result = routeInshore(merged, reqRoute);
+                const elapsedMs = Date.now() - t0;
+
+                if ('error' in result) {
+                    return res.status(422).json({ ...result, cellsUsed, elapsedMs });
+                }
+                // Signed for the same reason as /route-prepped above.
+                const payload = { ...result, cellsUsed, elapsedMs };
+                if (identity) return sendSignedJson(identity, req, res, payload, routeRequestBinding(body));
+                return res.json(payload);
+            } catch (err) {
+                return res
+                    .status(500)
+                    .json({ error: `Routing failed: ${err instanceof Error ? err.message : String(err)}` });
+            }
+        } finally {
+            workload.lease.release();
+            workload.cleanup();
         }
     });
 
@@ -1465,53 +1557,49 @@ export function createEncRoutes(identity?: PiIdentity): Router {
             minComponentCells: number;
         }>;
 
-        for (const k of ['fromLat', 'fromLon', 'toLat', 'toLon', 'draftM'] as const) {
-            if (typeof body[k] !== 'number' || !Number.isFinite(body[k])) {
-                return res.status(400).json({ error: `Missing or invalid number: ${k}` });
-            }
-        }
-        if (!body.layers || typeof body.layers !== 'object') {
-            return res.status(400).json({ error: 'Missing layers object' });
-        }
-        const fromLat = body.fromLat as number;
-        const fromLon = body.fromLon as number;
-        const toLat = body.toLat as number;
-        const toLon = body.toLon as number;
-        const draftM = body.draftM as number;
-        if (Math.abs(fromLat) > 90 || Math.abs(toLat) > 90 || Math.abs(fromLon) > 180 || Math.abs(toLon) > 180) {
-            return res.status(400).json({ error: 'Coordinates out of WGS84 range' });
-        }
-        if (draftM < 0 || draftM > 30) {
-            return res.status(400).json({ error: 'draftM out of plausible range (0-30 m)' });
-        }
+        const boundaryIssue = validateInshoreRouteBoundary(body, { validatePreparedLayers: true });
+        if (boundaryIssue) return res.status(boundaryIssue.status).json(boundaryIssue);
 
+        const workload = await acquireRequestWorkload(req, res, 'route');
+        if (!workload) return;
         try {
-            const t0 = Date.now();
-            const result = routeInshore(body.layers as InshoreLayers, {
-                fromLat,
-                fromLon,
-                toLat,
-                toLon,
-                draftM,
-                resolutionM: body.resolutionM,
-                safetyM: body.safetyM,
-                obstructionBufferM: body.obstructionBufferM,
-                minComponentCells: body.minComponentCells,
-            });
-            const elapsedMs = Date.now() - t0;
-            if ('error' in result) {
-                return res.status(422).json({ ...result, cellsUsed: [], elapsedMs });
+            const fromLat = body.fromLat as number;
+            const fromLon = body.fromLon as number;
+            const toLat = body.toLat as number;
+            const toLon = body.toLon as number;
+            const draftM = body.draftM as number;
+
+            try {
+                const t0 = Date.now();
+                const result = routeInshore(body.layers as InshoreLayers, {
+                    fromLat,
+                    fromLon,
+                    toLat,
+                    toLon,
+                    draftM,
+                    resolutionM: body.resolutionM,
+                    safetyM: body.safetyM,
+                    obstructionBufferM: body.obstructionBufferM,
+                    minComponentCells: body.minComponentCells,
+                });
+                const elapsedMs = Date.now() - t0;
+                if ('error' in result) {
+                    return res.status(422).json({ ...result, cellsUsed: [], elapsedMs });
+                }
+                // Signed: this polyline is the course the boat follows. An
+                // on-path attacker who relays the identity challenge could
+                // otherwise substitute a route across a charted hazard.
+                const payload = { ...result, cellsUsed: [], elapsedMs };
+                if (identity) return sendSignedJson(identity, req, res, payload, routeRequestBinding(body));
+                return res.json(payload);
+            } catch (err) {
+                return res
+                    .status(500)
+                    .json({ error: `Routing failed: ${err instanceof Error ? err.message : String(err)}` });
             }
-            // Signed: this polyline is the course the boat follows. An
-            // on-path attacker who relays the identity challenge could
-            // otherwise substitute a route across a charted hazard.
-            const payload = { ...result, cellsUsed: [], elapsedMs };
-            if (identity) return sendSignedJson(identity, req, res, payload, routeRequestBinding(body));
-            return res.json(payload);
-        } catch (err) {
-            return res
-                .status(500)
-                .json({ error: `Routing failed: ${err instanceof Error ? err.message : String(err)}` });
+        } finally {
+            workload.lease.release();
+            workload.cleanup();
         }
     });
 
@@ -1587,98 +1675,105 @@ export function createEncRoutes(identity?: PiIdentity): Router {
             return res.status(400).json({ error: 'FeatureCollection must contain at least one Feature' });
         }
 
-        // ── Group features by _layer ──
-        // Each Feature is required to have properties._layer naming
-        // its S-57 class. The inshore router iterates layers by
-        // their canonical name (DEPARE, LNDARE, etc.) so we must
-        // bucket them server-side.
-        const layerBuckets: Record<string, typeof features> = {};
-        let untaggedCount = 0;
-        for (const f of features) {
-            const layer = f.properties?._layer;
-            if (typeof layer !== 'string' || !/^[A-Z]{3,6}$/.test(layer)) {
-                untaggedCount++;
-                continue;
-            }
-            if (!layerBuckets[layer]) layerBuckets[layer] = [];
-            layerBuckets[layer].push(f);
-        }
-        if (untaggedCount > 0 && Object.keys(layerBuckets).length === 0) {
-            return res.status(400).json({
-                error: 'No features had a valid _layer property (expected uppercase S-57 code like DEPARE)',
-                untaggedCount,
-            });
-        }
-
-        // ── Compute union bbox ──
-        let minLon = Infinity,
-            minLat = Infinity,
-            maxLon = -Infinity,
-            maxLat = -Infinity;
-        const walk = (coords: unknown): void => {
-            if (!Array.isArray(coords)) return;
-            if (typeof coords[0] === 'number' && typeof coords[1] === 'number') {
-                const lon = coords[0] as number;
-                const lat = coords[1] as number;
-                if (lon < minLon) minLon = lon;
-                if (lon > maxLon) maxLon = lon;
-                if (lat < minLat) minLat = lat;
-                if (lat > maxLat) maxLat = lat;
-                return;
-            }
-            for (const inner of coords) walk(inner);
-        };
-        for (const f of features) walk(f.geometry?.coordinates);
-        if (!Number.isFinite(minLon)) {
-            return res.status(400).json({ error: 'Could not compute bbox — no numeric coordinates found' });
-        }
-
-        // ── Build the cell record in the same shape as NOAA imports ──
-        // Auto-bump the edition number on every re-install of the same
-        // region. Phone-side sync diffs on `cellId@edition` (see
-        // services/EncImportService.ts:415) — without a bump the device
-        // never re-pulls when we regenerate the public-data pack with
-        // new layers / finer contours / better simplification.
-        const existingIndex = await loadInstalledIndex();
-        const existing = existingIndex.cells.find((c) => c.cellId === body.region);
-        const nextEdition = existing ? existing.edition + 1 : 1;
-        const cell = {
-            cellId: body.region,
-            sourceHO: body.sourceHO || 'PUB',
-            edition: nextEdition,
-            issued: new Date().toISOString().slice(0, 10),
-            bbox: [minLon, minLat, maxLon, maxLat] as [number, number, number, number],
-            layers: Object.fromEntries(
-                Object.entries(layerBuckets).map(([layer, feats]) => [
-                    layer,
-                    { type: 'FeatureCollection' as const, features: feats },
-                ]),
-            ),
-        };
-
+        const workload = await acquireRequestWorkload(req, res, 'conversion');
+        if (!workload) return;
         try {
-            const meta = await persistCell(
-                cell as unknown as Parameters<typeof persistCell>[0],
-                features.length - untaggedCount,
-                'url', // closest existing source-type label; future: 'public-data'
-                undefined,
-            );
-            return res.json({
-                ok: true,
-                cellId: meta.cellId,
-                bbox: meta.bbox,
-                featureCount: meta.featureCount,
-                sizeBytes: meta.sizeBytes,
-                layers: Object.keys(layerBuckets).map((k) => ({
-                    layer: k,
-                    count: layerBuckets[k].length,
-                })),
-                untaggedFeatures: untaggedCount,
-            });
-        } catch (err) {
-            return res
-                .status(500)
-                .json({ error: `Failed to persist public pack: ${err instanceof Error ? err.message : String(err)}` });
+            // ── Group features by _layer ──
+            // Each Feature is required to have properties._layer naming
+            // its S-57 class. The inshore router iterates layers by
+            // their canonical name (DEPARE, LNDARE, etc.) so we must
+            // bucket them server-side.
+            const layerBuckets: Record<string, typeof features> = {};
+            let untaggedCount = 0;
+            for (const f of features) {
+                const layer = f.properties?._layer;
+                if (typeof layer !== 'string' || !/^[A-Z]{3,6}$/.test(layer)) {
+                    untaggedCount++;
+                    continue;
+                }
+                if (!layerBuckets[layer]) layerBuckets[layer] = [];
+                layerBuckets[layer].push(f);
+            }
+            if (untaggedCount > 0 && Object.keys(layerBuckets).length === 0) {
+                return res.status(400).json({
+                    error: 'No features had a valid _layer property (expected uppercase S-57 code like DEPARE)',
+                    untaggedCount,
+                });
+            }
+
+            // ── Compute union bbox ──
+            let minLon = Infinity,
+                minLat = Infinity,
+                maxLon = -Infinity,
+                maxLat = -Infinity;
+            const walk = (coords: unknown): void => {
+                if (!Array.isArray(coords)) return;
+                if (typeof coords[0] === 'number' && typeof coords[1] === 'number') {
+                    const lon = coords[0] as number;
+                    const lat = coords[1] as number;
+                    if (lon < minLon) minLon = lon;
+                    if (lon > maxLon) maxLon = lon;
+                    if (lat < minLat) minLat = lat;
+                    if (lat > maxLat) maxLat = lat;
+                    return;
+                }
+                for (const inner of coords) walk(inner);
+            };
+            for (const f of features) walk(f.geometry?.coordinates);
+            if (!Number.isFinite(minLon)) {
+                return res.status(400).json({ error: 'Could not compute bbox — no numeric coordinates found' });
+            }
+
+            // ── Build the cell record in the same shape as NOAA imports ──
+            // Auto-bump the edition number on every re-install of the same
+            // region. Phone-side sync diffs on `cellId@edition` (see
+            // services/EncImportService.ts:415) — without a bump the device
+            // never re-pulls when we regenerate the public-data pack with
+            // new layers / finer contours / better simplification.
+            const existingIndex = await loadInstalledIndex();
+            const existing = existingIndex.cells.find((c) => c.cellId === body.region);
+            const nextEdition = existing ? existing.edition + 1 : 1;
+            const cell = {
+                cellId: body.region,
+                sourceHO: body.sourceHO || 'PUB',
+                edition: nextEdition,
+                issued: new Date().toISOString().slice(0, 10),
+                bbox: [minLon, minLat, maxLon, maxLat] as [number, number, number, number],
+                layers: Object.fromEntries(
+                    Object.entries(layerBuckets).map(([layer, feats]) => [
+                        layer,
+                        { type: 'FeatureCollection' as const, features: feats },
+                    ]),
+                ),
+            };
+
+            try {
+                const meta = await persistCell(
+                    cell as unknown as Parameters<typeof persistCell>[0],
+                    features.length - untaggedCount,
+                    'url', // closest existing source-type label; future: 'public-data'
+                    undefined,
+                );
+                return res.json({
+                    ok: true,
+                    cellId: meta.cellId,
+                    bbox: meta.bbox,
+                    featureCount: meta.featureCount,
+                    sizeBytes: meta.sizeBytes,
+                    layers: Object.keys(layerBuckets).map((k) => ({
+                        layer: k,
+                        count: layerBuckets[k].length,
+                    })),
+                    untaggedFeatures: untaggedCount,
+                });
+            } catch (err) {
+                return res.status(500).json({
+                    error: `Failed to persist public pack: ${err instanceof Error ? err.message : String(err)}`,
+                });
+            }
+        } finally {
+            workload.lease.release();
+            workload.cleanup();
         }
     });
 

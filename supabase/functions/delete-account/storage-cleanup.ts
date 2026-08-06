@@ -12,6 +12,8 @@ export const STORAGE_REMOVE_BATCH_SIZE = 100;
 export const RECIPE_ID_PAGE_SIZE = 500;
 export const MAX_STORAGE_LIST_PASSES_PER_INVOCATION = 512;
 export const MAX_RECIPE_PAGES_PER_TABLE_PER_INVOCATION = 128;
+export const STORAGE_MANIFEST_PAGE_SIZE = 100;
+export const MAX_STORAGE_MANIFEST_PAGES_PER_INVOCATION = 32;
 
 const MAX_IDENTICAL_STORAGE_PASSES = 3;
 
@@ -68,6 +70,119 @@ export interface StorageDrainOptions {
 export interface RecipeDrainOptions {
     /** Test/support override; processed rows are deleted, so retries resume. */
     maxPagesPerTable?: number;
+}
+
+export interface StorageManifestItem {
+    bucketId: string;
+    objectName: string;
+}
+
+export interface StorageManifestGateway {
+    listPending(
+        limit: number,
+    ): PromiseLike<{ data: readonly StorageManifestItem[] | null; error: CleanupError | null }>;
+    remove(bucket: string, paths: readonly string[]): PromiseLike<{ error: CleanupError | null }>;
+    markRemoveRequested(
+        items: readonly StorageManifestItem[],
+    ): PromiseLike<{ data: readonly StorageManifestItem[] | null; error: CleanupError | null }>;
+}
+
+export interface StorageManifestDrainOptions {
+    maxPages?: number;
+}
+
+export interface StorageManifestDrainResult {
+    complete: boolean;
+    processed: number;
+}
+
+function validManifestItem(item: StorageManifestItem): boolean {
+    return (
+        typeof item.bucketId === 'string' &&
+        item.bucketId.length >= 1 &&
+        item.bucketId.length <= 100 &&
+        typeof item.objectName === 'string' &&
+        item.objectName.length >= 1 &&
+        item.objectName.length <= 1_024 &&
+        !/[\u0000-\u001f\u007f]/.test(item.bucketId) &&
+        !/[\u0000-\u001f\u007f]/.test(item.objectName)
+    );
+}
+
+/**
+ * Drain an exact, database-captured Storage manifest.
+ *
+ * The database tombstone serializes capture against every owner upload. An
+ * item is marked requested only after the Storage API accepts its exact path;
+ * the caller must still run the database relist verifier before considering
+ * cleanup complete. A hosted timeout therefore resumes from the first
+ * unmarked item without losing the paths of legacy root-level objects.
+ */
+export async function drainExactStorageManifest(
+    gateway: StorageManifestGateway,
+    options: StorageManifestDrainOptions = {},
+): Promise<StorageManifestDrainResult> {
+    const maxPages = options.maxPages ?? MAX_STORAGE_MANIFEST_PAGES_PER_INVOCATION;
+    if (!Number.isSafeInteger(maxPages) || maxPages <= 0) {
+        throw new Error('Storage manifest cleanup requires a positive page budget');
+    }
+
+    let processed = 0;
+    for (let page = 0; page < maxPages; page += 1) {
+        const { data, error } = await gateway.listPending(STORAGE_MANIFEST_PAGE_SIZE);
+        if (error) throw new Error(`Could not read account Storage manifest: ${error.message}`);
+        if (!Array.isArray(data)) throw new Error('Account Storage manifest returned no verifiable rows');
+        if (data.length === 0) return { complete: true, processed };
+        if (data.length > STORAGE_MANIFEST_PAGE_SIZE) {
+            throw new Error('Account Storage manifest exceeded the requested page size');
+        }
+
+        const unique = new Map<string, StorageManifestItem>();
+        for (const item of data) {
+            if (!validManifestItem(item)) throw new Error('Account Storage manifest returned an invalid object');
+            unique.set(`${item.bucketId}\u0000${item.objectName}`, item);
+        }
+        const items = [...unique.values()];
+        if (items.length !== data.length) throw new Error('Account Storage manifest returned duplicate objects');
+
+        const byBucket = new Map<string, StorageManifestItem[]>();
+        for (const item of items) {
+            const bucket = byBucket.get(item.bucketId) ?? [];
+            bucket.push(item);
+            byBucket.set(item.bucketId, bucket);
+        }
+        for (const [bucket, bucketItems] of byBucket) {
+            for (let index = 0; index < bucketItems.length; index += STORAGE_REMOVE_BATCH_SIZE) {
+                const batch = bucketItems.slice(index, index + STORAGE_REMOVE_BATCH_SIZE);
+                const { error: removeError } = await gateway.remove(
+                    bucket,
+                    batch.map((item) => item.objectName),
+                );
+                // A concurrently missing object/bucket is not proof by itself;
+                // the mandatory database relist after this loop is the proof.
+                if (removeError && !isMissingResource(removeError.message)) {
+                    throw new Error(`Could not remove ${bucket} account media: ${removeError.message}`);
+                }
+                const marked = await gateway.markRemoveRequested(batch);
+                if (marked.error) {
+                    throw new Error(`Could not checkpoint account Storage cleanup: ${marked.error.message}`);
+                }
+                if (!Array.isArray(marked.data)) {
+                    throw new Error('Account Storage checkpoint returned no verifiable rows');
+                }
+                const markedKeys = new Set(marked.data.map((item) => `${item.bucketId}\u0000${item.objectName}`));
+                if (
+                    markedKeys.size !== batch.length ||
+                    batch.some((item) => !markedKeys.has(`${item.bucketId}\u0000${item.objectName}`))
+                ) {
+                    throw new Error('Account Storage checkpoint did not verify the whole batch');
+                }
+                processed += batch.length;
+            }
+        }
+    }
+
+    return { complete: false, processed };
 }
 
 export function isMissingResource(message: string): boolean {

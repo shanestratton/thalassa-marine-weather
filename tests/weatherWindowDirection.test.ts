@@ -1,4 +1,5 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { Capacitor } from '@capacitor/core';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
     WeatherWindowService,
     WEATHER_WINDOW_MAX_FALLBACK_AGE_MS,
@@ -8,7 +9,14 @@ import {
 
 const CACHE_PREFIX = 'thalassa_weather_windows';
 
+beforeEach(() => {
+    vi.mocked(Capacitor.getPlatform).mockReturnValue('web');
+    vi.mocked(Capacitor.isNativePlatform).mockReturnValue(false);
+});
+
 afterEach(() => {
+    vi.mocked(Capacitor.getPlatform).mockReturnValue('web');
+    vi.mocked(Capacitor.isNativePlatform).mockReturnValue(false);
     vi.useRealTimers();
     vi.restoreAllMocks();
     for (let i = localStorage.length - 1; i >= 0; i--) {
@@ -68,6 +76,37 @@ describe('WeatherWindowService direction and cache handling', () => {
             expect(['forecast', 'marine']).toContain(JSON.parse(String(init?.body)).operation);
         }
         fetchMock.mockRestore();
+    });
+
+    it('keeps live analysis available on iOS without reading or writing a plaintext point cache', async () => {
+        vi.mocked(Capacitor.getPlatform).mockReturnValue('ios');
+        vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true);
+        localStorage.setItem(`${CACHE_PREFIX}:legacy-point`, JSON.stringify({ private: 'old-location' }));
+        const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(
+            async () =>
+                new Response(
+                    JSON.stringify({
+                        hourly: {
+                            time: [],
+                            wind_speed_10m: [],
+                            wind_direction_10m: [],
+                            precipitation_probability: [],
+                            wave_height: [],
+                        },
+                    }),
+                    { status: 200 },
+                ),
+        );
+
+        const first = await WeatherWindowService.analyse(-20.3, 148.7);
+        const second = await WeatherWindowService.analyse(-20.3, 148.7);
+
+        expect(first).toMatchObject({ availability: 'available', source: 'live' });
+        expect(second).toMatchObject({ availability: 'available', source: 'live' });
+        expect(fetchMock).toHaveBeenCalledTimes(4);
+        expect(
+            [...Array(localStorage.length)].filter((_, index) => localStorage.key(index)?.startsWith(CACHE_PREFIX)),
+        ).toHaveLength(0);
     });
 
     it('refuses invalid coordinates without caching or making a network request', async () => {

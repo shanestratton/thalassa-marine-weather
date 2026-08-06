@@ -50,6 +50,7 @@ import type {
     Point,
     Position,
 } from 'geojson';
+import { routeGridEnvelope, validateInshoreRouteBoundary, type RouteBoundaryCode } from '../inshoreRouteBoundary.js';
 
 // The Pi has no createLogger util (that lives in the iOS app tree); the
 // shared body logs via `engineLog`. Shim it to console so the body is
@@ -223,7 +224,8 @@ export interface RouteFailure {
         | 'origin-out-of-bounds'
         | 'destination-out-of-bounds'
         | 'empty-grid'
-        | 'hard-land-crossing';
+        | 'hard-land-crossing'
+        | RouteBoundaryCode;
     debug?: RouteDebug;
 }
 
@@ -1985,6 +1987,12 @@ function douglasPeucker(points: [number, number][], toleranceDeg: number): [numb
  * before calling this.
  */
 export function routeInshore(layers: InshoreLayers, req: RouteRequest): RouteResult | RouteFailure {
+    // HTTP handlers reject these inputs before any disk reads. Keep the same
+    // boundary here as defence in depth for direct callers and future routes:
+    // no typed routing array is allocated until the exact grid budget passes.
+    const boundaryIssue = validateInshoreRouteBoundary(req);
+    if (boundaryIssue) return { error: boundaryIssue.error, code: boundaryIssue.code };
+
     // Try strict first — LNDARE blocks land. Never retry a disconnection with
     // the former grid-wide relaxation: it could manufacture a red route across
     // real mainland. The phone engine's localized retry remains below and every
@@ -2100,14 +2108,7 @@ function routeInshoreOnce(
     // Short routes (maxSpan ≤ 0.16°) still hit the 0.08° floor; not
     // dramatically larger than before but a touch more breathing room
     // for marina exits.
-    const minLat = Math.min(req.fromLat, req.toLat);
-    const maxLat = Math.max(req.fromLat, req.toLat);
-    const minLon = Math.min(req.fromLon, req.toLon);
-    const maxLon = Math.max(req.fromLon, req.toLon);
-    const maxSpan = Math.max(maxLat - minLat, maxLon - minLon);
-    const padLat = Math.max(maxSpan * 0.5, 0.08);
-    const padLon = Math.max(maxSpan * 0.5, 0.08);
-    const bbox: [number, number, number, number] = [minLon - padLon, minLat - padLat, maxLon + padLon, maxLat + padLat];
+    const bbox = routeGridEnvelope(req);
 
     let tPhase = Date.now();
     const { grid: baseGrid, cacheHit: gridCacheHit } = buildNavGridCached(
