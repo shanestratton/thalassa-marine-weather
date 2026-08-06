@@ -60,11 +60,17 @@ export function ObsLayerLoadingPill(props: ObsLayerLoadingPillProps): React.Reac
             role="status"
             aria-live="polite"
             aria-label={label}
-            className="pointer-events-none absolute left-1/2 top-1/2 z-[520] flex -translate-x-1/2 -translate-y-1/2 items-center gap-4 rounded-full border-2 border-amber-400/40 bg-slate-950/90 px-8 py-4 text-base font-bold text-amber-200 shadow-xl shadow-amber-500/20 backdrop-blur-md"
+            // Halved 2026-08-07 (Shane). It sat dead centre of the chart at
+            // px-8/py-4 with a 24px spinner and blotted out the water you were
+            // trying to look at. Padding, gap, border and spinner are all cut
+            // in half; the text goes 16px → 12px rather than a true half,
+            // because 8px is not readable on a phone in daylight and this is
+            // the one thing on screen explaining why the chart looks empty.
+            className="pointer-events-none absolute left-1/2 top-1/2 z-[520] flex -translate-x-1/2 -translate-y-1/2 items-center gap-2 rounded-full border border-amber-400/40 bg-slate-950/90 px-4 py-2 text-xs font-bold text-amber-200 shadow-lg shadow-amber-500/20 backdrop-blur-md"
         >
             <span
                 aria-hidden
-                className="h-6 w-6 animate-spin rounded-full border-4 border-amber-300/25 border-t-amber-300"
+                className="h-3 w-3 animate-spin rounded-full border-2 border-amber-300/25 border-t-amber-300"
             />
             {label}
         </div>

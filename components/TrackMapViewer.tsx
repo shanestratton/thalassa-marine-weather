@@ -21,6 +21,7 @@ import { ShipLogEntry } from '../types';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { piCache } from '../services/PiCacheService';
+import { logBaseTiles } from './map/logMapTiles';
 import { EditIcon, MapPinIcon, SailBoatIcon, CompassIcon, DeviceIcon, WindIcon } from './Icons';
 import { isTrackworthyEntry, isPlausibleTrackPoint, calculateDistanceNM } from '../services/shiplog/helpers';
 import { deriveTurnMarkers } from '../services/shiplog/turnMarkers';
@@ -42,7 +43,10 @@ import { stripInitialTrackWarmupRebounds } from '../services/shiplog/initialTrac
 // Esri World Imagery — Shane 2026-07-10: dark carto was "too dark,
 // maybe the satellite layer?" Token-free, CSP-allowed, and the neon
 // track palette reads perfectly on imagery (same look as the tracer).
-const SATELLITE_BASE = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
+// Resolved per-render rather than hardcoded: the Log maps now follow the same
+// @2x satellite-streets tiles the OBS chart uses, with Esri as the no-token
+// fallback. See components/map/logMapTiles.ts.
+const LOG_TILES = logBaseTiles(import.meta.env.VITE_MAPBOX_ACCESS_TOKEN as string | undefined);
 
 interface TrackMapViewerProps {
     isOpen: boolean;
@@ -231,12 +235,9 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo((props) 
         // Base map — CARTO Voyager by day (clean light nautical), dark by
         // night watch. Kept on a ref so the day/night toggle can swap it
         // live without recreating the map or refitting bounds.
-        const base = L.tileLayer(piCache.leafletTileTemplate(SATELLITE_BASE), {
-            maxZoom: 19,
-            attribution:
-                'Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community',
-            // Deepen Voyager's very pale water (the "Mary Poppins" wash) —
-            // a saturation/brightness filter on the day base only.
+        const base = L.tileLayer(piCache.leafletTileTemplate(LOG_TILES.url), {
+            maxZoom: LOG_TILES.maxZoom,
+            attribution: LOG_TILES.attribution,
             className: '',
         });
         installLeafletTileSeamGuard(base);
@@ -334,8 +335,9 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo((props) 
         const map = mapInstanceRef.current;
         if (!map || !isOpen) return;
         if (baseTileRef.current) map.removeLayer(baseTileRef.current);
-        const base = L.tileLayer(piCache.leafletTileTemplate(SATELLITE_BASE), {
-            maxZoom: 19,
+        const base = L.tileLayer(piCache.leafletTileTemplate(LOG_TILES.url), {
+            maxZoom: LOG_TILES.maxZoom,
+            attribution: LOG_TILES.attribution,
             className: '',
         });
         installLeafletTileSeamGuard(base);

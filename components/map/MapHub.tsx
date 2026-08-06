@@ -1803,7 +1803,14 @@ export const MapHub: React.FC<MapHubProps> = ({
     // constants. Keep this choice session-only (no stale base haunting a later
     // boot), but make all three supported rasters reachable through the small
     // MapBaseSelector on the browsing chart.
-    const [mapBase, setMapBase] = useState<MapBaseKind>('hybrid');
+    // Default flipped hybrid → satellite (Shane 2026-08-07: "can we make
+    // satellite the default layer on the obs page as well. not hybrid").
+    // Hybrid's road and place-name furniture is drawn for land navigation and
+    // clutters the water the chart is actually about; clean imagery lets the
+    // ENC marks and the track palette read on their own. Hybrid stays one tap
+    // away in the selector. Still session-only — a base map is a default here,
+    // not a persisted setting that can haunt a later boot.
+    const [mapBase, setMapBase] = useState<MapBaseKind>('satellite');
     const baseVisibility = mapBaseVisibility(mapBase);
     const satelliteVisible = baseVisibility.satellite;
     // Chart-declutter scrubber (Shane 2026-07-14): 0 = full chart, 6 =
