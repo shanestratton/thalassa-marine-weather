@@ -27,6 +27,38 @@ function waitForExit(child) {
     return new Promise((resolve) => child.once('exit', resolve));
 }
 
+/**
+ * Puppeteer's graceful close can finish the audit and write every report, then
+ * wait forever for Chrome to exit on a hosted runner. Keep cleanup bounded so
+ * a healthy Lighthouse result cannot consume the rest of the CI job timeout.
+ */
+async function closeBrowserBounded(browser, timeoutMs = 5_000) {
+    const browserProcess = browser.process();
+    let timeout;
+    const outcome = await Promise.race([
+        browser.close().then(
+            () => 'closed',
+            () => 'failed',
+        ),
+        new Promise((resolve) => {
+            timeout = setTimeout(() => resolve('timed-out'), timeoutMs);
+        }),
+    ]);
+    if (timeout) clearTimeout(timeout);
+    if (outcome === 'closed') return;
+
+    console.warn(`Lighthouse browser cleanup ${outcome}; terminating the audit browser.`);
+    try {
+        browser.disconnect();
+    } catch {
+        /* already disconnected */
+    }
+    if (browserProcess?.exitCode === null) {
+        browserProcess.kill('SIGKILL');
+        await Promise.race([waitForExit(browserProcess), new Promise((resolve) => setTimeout(resolve, 2_000))]);
+    }
+}
+
 async function waitForPreview(child, timeoutMs = 30_000) {
     const deadline = Date.now() + timeoutMs;
     let lastError = 'preview did not answer';
@@ -143,7 +175,7 @@ try {
     if (previewOutput.trim()) console.error('Preview output was captured above.');
     throw error;
 } finally {
-    if (browser) await browser.close().catch(() => undefined);
+    if (browser) await closeBrowserBounded(browser);
     if (preview.exitCode === null) {
         preview.kill('SIGTERM');
         await Promise.race([waitForExit(preview), new Promise((resolve) => setTimeout(resolve, 2_000))]);
