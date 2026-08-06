@@ -18,6 +18,7 @@
 import type { FeatureCollection } from 'geojson';
 
 import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
+import { pinnedPiRequest } from './PiPairingService';
 import { piCache } from './PiCacheService';
 import { createLogger } from '../utils/createLogger';
 
@@ -151,12 +152,15 @@ export async function getOsmRouteOverlay(bbox: [number, number, number, number])
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
     try {
-        const res = await fetch(url, { signal: controller.signal });
-        if (!res.ok) {
+        // Pinned transport: plain fetch cannot complete the Pi's self-signed
+        // handshake, so this used to fail silently and fall back to an empty
+        // overlay on every call.
+        const res = await pinnedPiRequest({ url, readTimeout: FETCH_TIMEOUT_MS, responseType: 'text' });
+        if (res.status < 200 || res.status >= 300) {
             log.warn(`OSM overlay HTTP ${res.status} — using empty overlay`);
             return emptyOverlay();
         }
-        const raw = (await res.json()) as Partial<OsmRouteOverlay>;
+        const raw = JSON.parse(res.data) as Partial<OsmRouteOverlay>;
         // Fill any fields the Pi didn't send (older Pi versions don't
         // know about `aeroway`). Older Pis return [] for the missing
         // field, which is the same behaviour as a successful fetch over

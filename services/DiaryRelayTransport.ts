@@ -11,6 +11,7 @@
 import { CapacitorHttp } from '@capacitor/core';
 import { getConnectionState } from './ConnectionPriorityService';
 import { getAuthIdentityScope, isAuthIdentityScopeCurrent, type AuthIdentityScope } from './authIdentityScope';
+import { pinnedPiRequest } from './PiPairingService';
 import { piCache } from './PiCacheService';
 import { useSettingsStore } from '../stores/settingsStore';
 import { getAuthenticatedFunctionHeaders } from './supabaseAuth';
@@ -124,32 +125,25 @@ async function postToPi<T>(path: string, body: unknown): Promise<T | null> {
     if (!PI_INTEGRATION_ENABLED || !piCache.isAvailable()) return null;
     const url = `${piCache.baseUrl}${path}`;
     try {
+        // Pinned transport, no plain fallback (2026-08-07). This is the path
+        // that carries the diary relay token to the Pi — the single strongest
+        // reason the boat LAN went to TLS. A CapacitorHttp/fetch fallback
+        // cannot complete the pinned handshake anyway, so it would only turn
+        // a clear failure into a confusing one.
+        const response = await pinnedPiRequest({
+            url,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            data: body,
+            connectTimeout: 2_500,
+            readTimeout: 4_000,
+            responseType: 'text',
+        });
+        if (response.status < 200 || response.status >= 300) return null;
         try {
-            const response = await CapacitorHttp.post({
-                url,
-                headers: { 'Content-Type': 'application/json' },
-                data: JSON.stringify(body),
-                connectTimeout: 2_500,
-                readTimeout: 4_000,
-            });
-            if (response.status < 200 || response.status >= 300) return null;
-            if (typeof response.data === 'string') {
-                try {
-                    return JSON.parse(response.data) as T;
-                } catch {
-                    return null;
-                }
-            }
-            return response.data as T;
+            return JSON.parse(response.data) as T;
         } catch {
-            const response = await fetch(url, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(body),
-                signal: AbortSignal.timeout(4_000),
-            });
-            if (!response.ok) return null;
-            return (await response.json()) as T;
+            return null;
         }
     } catch {
         return null;

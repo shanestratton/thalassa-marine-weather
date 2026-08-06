@@ -42,7 +42,7 @@
 
 import { createLogger } from '../utils/createLogger';
 import { PI_INTEGRATION_ENABLED, PI_PUBLIC_BETA_UNAVAILABLE_MESSAGE } from './piPublicBetaBoundary';
-import { piPairingFetch, piRequest } from './piTls';
+import { piPairingFetch, piRequest, type PiTlsResponse } from './piTls';
 import { utf8ByteLength } from './enc/types';
 
 const log = createLogger('PiPairing');
@@ -309,6 +309,36 @@ export async function routeRequestBinding(body: Record<string, unknown>): Promis
  * the bytes signed. When unpaired (legacy grace window) it parses unverified,
  * matching pre-pairing behaviour.
  */
+/**
+ * A pinned request to the Pi, WITHOUT the per-payload signature check.
+ *
+ * For endpoints the Pi does not sign — /health, /api/admin/status,
+ * /api/configure, /cache/purge, tiles, OSM overlays, wind grids. Use
+ * fetchVerifiedFromPi instead for anything the app will navigate by.
+ *
+ * This exists because switching the Pi to TLS moved the goalposts for EVERY
+ * caller at once (2026-08-07). `piCache.baseUrl` became https, and the Pi's
+ * certificate is self-signed and pinned — so any call still going out through
+ * CapacitorHttp or plain fetch now fails the handshake instead of returning
+ * data. That silently killed checkHealth, which is the gate isAvailable()
+ * depends on, which is the gate the ENC sync depends on: the Pi could never
+ * become reachable, so nothing synced and the app reported no charts.
+ *
+ * Routing every caller through here is what makes the TLS switch complete.
+ */
+export async function pinnedPiRequest(options: {
+    url: string;
+    method?: 'GET' | 'POST' | 'DELETE';
+    headers?: Record<string, string>;
+    data?: unknown;
+    connectTimeout?: number;
+    readTimeout?: number;
+    responseType?: 'text' | 'arraybuffer';
+}): Promise<PiTlsResponse> {
+    if (!PI_INTEGRATION_ENABLED) throw new Error(PI_PUBLIC_BETA_UNAVAILABLE_MESSAGE);
+    return piRequest({ ...options, pinnedSpki: getPairing()?.publicKeySpki });
+}
+
 export async function fetchVerifiedFromPi<T>(options: {
     url: string;
     method?: 'GET' | 'POST';

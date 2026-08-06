@@ -54,7 +54,7 @@ const PiTls = registerPlugin<PiTlsPlugin>('PiTls');
 
 export interface PiRequestOptions {
     url: string;
-    method?: 'GET' | 'POST';
+    method?: 'GET' | 'POST' | 'DELETE';
     headers?: Record<string, string>;
     data?: unknown;
     /** Base64 SPKI DER from the pairing record. Omit ONLY for /api/pair/info. */
