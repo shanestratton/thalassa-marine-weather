@@ -295,11 +295,37 @@ export interface PiInstalledCell {
     featureCount: number;
     sizeBytes: number;
     installedAt: string;
-    source: 'phone-upload' | 'url';
+    /**
+     * How the cell reached the Pi's store. 'pi-decrypt' is the Pi's own
+     * o-charts/ChartWorld decrypt path — arguably the most trustworthy of the
+     * three, since the Pi performed the decryption itself rather than
+     * accepting bytes from a phone or a URL.
+     */
+    source: 'phone-upload' | 'url' | 'pi-decrypt';
     sourceUrl?: string;
 }
 
 const PI_INSTALLED_INDEX_MAX_CELLS = 5_000;
+/**
+ * A genuine S-57 cell name: two-letter producer code, scale digit, then the
+ * cell's own identifier — e.g. US5GA22M, FR466870, GB501494.
+ *
+ * o-charts issues its own identifiers instead (OC-61-051031, OC-677-951904),
+ * where "OC" is the o-charts SET prefix and carries no producer meaning: those
+ * cells are Australian and correctly declare sourceHO "AU". The producer-code
+ * cross-check below is a real anti-tampering property for S-57 names and
+ * simply false for o-charts IDs, so it is applied only where it means
+ * something.
+ */
+const S57_CELL_NAME_PATTERN = /^[A-Z]{2}\d[A-Z0-9]{2,5}$/;
+/** Any two-letter hydrographic-office code, for non-S-57 identifiers. */
+const HO_CODE_PATTERN = /^[A-Z]{2}$/;
+
+/** Test-only export — the index validator is the gate that silently discarded
+ *  a whole Pi chart library, so it is worth asserting on directly. */
+export function validatePiInstalledCellsForTest(value: unknown): PiInstalledCell[] {
+    return validatePiInstalledCells(value);
+}
 
 function validatePiInstalledCells(value: unknown): PiInstalledCell[] {
     if (!value || typeof value !== 'object' || !Array.isArray((value as { cells?: unknown }).cells)) {
@@ -321,7 +347,7 @@ function validatePiInstalledCells(value: unknown): PiInstalledCell[] {
         const identity = encCellStorageIdentity(cellId);
         if (
             !ENC_CELL_ID_PATTERN.test(cellId) ||
-            sourceHO !== cellId.slice(0, 2) ||
+            (S57_CELL_NAME_PATTERN.test(cellId) ? sourceHO !== cellId.slice(0, 2) : !HO_CODE_PATTERN.test(sourceHO)) ||
             !Number.isInteger(candidate.edition) ||
             (candidate.edition ?? -1) < 0 ||
             !Array.isArray(bbox) ||
@@ -338,7 +364,7 @@ function validatePiInstalledCells(value: unknown): PiInstalledCell[] {
             !Number.isInteger(candidate.sizeBytes) ||
             (candidate.sizeBytes ?? -1) <= 0 ||
             (candidate.sizeBytes ?? 0) > ENC_CELL_BLOB_MAX_BYTES ||
-            (candidate.source !== 'phone-upload' && candidate.source !== 'url') ||
+            (candidate.source !== 'phone-upload' && candidate.source !== 'url' && candidate.source !== 'pi-decrypt') ||
             identities.has(identity)
         ) {
             throw new Error(`Pi chart index entry ${index + 1} failed identity/extent/size validation`);
@@ -635,11 +661,19 @@ export async function listPiInstalledCharts(): Promise<PiInstalledCell[]> {
             readTimeout: 5000,
             responseType: 'text',
         });
-        if (res.status < 200 || res.status >= 300) return [];
+        if (res.status < 200 || res.status >= 300) {
+            throw new Error(`Pi chart index returned HTTP ${res.status}`);
+        }
         return validatePiInstalledCells(JSON.parse(res.data));
     } catch (err) {
+        // RETHROW, do not swallow (2026-08-07). This used to return [] on any
+        // failure, which is indistinguishable from "the Pi has no charts" —
+        // so when the index validator rejected all 345 of Shane's cells over a
+        // `source: 'pi-decrypt'` the allowlist did not know about, the app
+        // showed an empty list and no error, and the cause took a day to find.
+        // A validation failure is not an empty Pi and must never look like one.
         log.warn('listPiInstalledCharts failed', err);
-        return [];
+        throw err instanceof Error ? err : new Error(String(err));
     }
 }
 
