@@ -61,7 +61,13 @@ import {
 } from './encHazardParse';
 import type { EncCautionArea } from './EncSpatialIndex';
 import { mergeHazardResults, grazeOutranks } from './hazardSeverity';
-import { canonicalEncCellId, ENC_CELL_ID_PATTERN, ENC_HAZARD_DEPTH_M, encCellStorageIdentity } from './types';
+import {
+    canonicalEncCellId,
+    ENC_CELL_ID_PATTERN,
+    ENC_HAZARD_DEPTH_M,
+    encCellStorageIdentity,
+    S57_CELL_NAME_PATTERN,
+} from './types';
 import type { EncAreaGraze, EncCatzoc, EncCell, EncConversionResult, EncHazardResult } from './types';
 import { crumb } from '../../utils/flightRecorder';
 
@@ -505,8 +511,16 @@ async function importCellSerialized(
     const sourceHO = typeof blob.sourceHO === 'string' ? blob.sourceHO.trim().toUpperCase() : '';
     const issued = typeof blob.issued === 'string' ? blob.issued.trim() : '';
     const issuedDate = new Date(`${issued}T00:00:00Z`);
-    if (!/^[A-Z]{2}$/.test(sourceHO) || sourceHO !== canonicalId.slice(0, 2)) {
-        throw new Error(`${canonicalId} source office does not match its cell ID; bytes were not written.`);
+    // Two-letter office is required of every cell. The producer-code
+    // cross-check applies only to genuine S-57 names, where the first two
+    // characters ARE the office — see S57_CELL_NAME_PATTERN. This was the
+    // THIRD place the same rule was written out, and the last one still
+    // rejecting o-charts cells after the other two were scoped (2026-08-07).
+    if (!/^[A-Z]{2}$/.test(sourceHO)) {
+        throw new Error(`${canonicalId} has no valid source office; bytes were not written.`);
+    }
+    if (S57_CELL_NAME_PATTERN.test(canonicalId) && sourceHO !== canonicalId.slice(0, 2)) {
+        throw new Error(`${canonicalId} source office does not match its S-57 cell ID; bytes were not written.`);
     }
     if (!Number.isInteger(blob.edition) || blob.edition < 0 || blob.edition > 9999) {
         throw new Error(`${canonicalId} edition is invalid; bytes were not written.`);

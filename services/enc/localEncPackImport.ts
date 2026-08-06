@@ -16,6 +16,7 @@ import {
     CAUTION_AREA_CLASSES,
     canonicalEncCellId,
     ENC_CELL_ID_PATTERN,
+    S57_CELL_NAME_PATTERN,
     encCellStorageIdentity,
     S57_POINT_MARK_CLASSES,
     S57_STRUCTURE_CLASSES,
@@ -48,6 +49,7 @@ const BASE_LAYER_NAMES = [
     'M_QUAL',
     'FAIRWY',
     'RECTRC',
+    'NAVLNE',
     'SEAARE',
 ] as const;
 
@@ -90,13 +92,6 @@ interface ValidationBudget {
     features: number;
     positions: number;
 }
-
-/**
- * A genuine S-57 cell name: two-letter producer code, scale digit, then the
- * cell identifier (US5GA22M, FR466870, GB501494). o-charts identifiers such as
- * OC-61-051031 deliberately do not match — their prefix is a set code.
- */
-const S57_CELL_NAME_PATTERN = /^[A-Z]{2}\d[A-Z0-9]{2,5}$/;
 
 function isRecord(value: unknown): value is JsonRecord {
     return typeof value === 'object' && value !== null && !Array.isArray(value);

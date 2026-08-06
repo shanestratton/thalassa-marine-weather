@@ -126,6 +126,19 @@ export function isStructureClass(layer: string): boolean {
 }
 
 /** Lights + buoys/beacons → the merged NAVAIDS source (each _kind-tagged). */
+/**
+ * A genuine S-57 cell name: two-letter producer code, scale digit, then the
+ * cell identifier — US5GA22M, FR466870, GB501494.
+ *
+ * The producer code IS the first two characters there, so cross-checking it
+ * against sourceHO is real evidence against tampering. o-charts issues its own
+ * identifiers instead (OC-61-051031), where "OC" is a SET prefix and the cell
+ * is Australian with sourceHO "AU" — that check is meaningless for them and
+ * rejected 344 of Shane's 345 charts in three separate places (2026-08-07).
+ * Defined once here so the rule cannot drift between them again.
+ */
+export const S57_CELL_NAME_PATTERN = /^[A-Z]{2}\d[A-Z0-9]{2,5}$/;
+
 export const S57_NAVAID_CLASSES = [
     'LIGHTS',
     'BOYLAT',
