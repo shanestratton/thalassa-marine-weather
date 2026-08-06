@@ -1617,7 +1617,10 @@ check(
         [ciWorkflow, lighthouseWorkflow].every(
             (workflow) =>
                 workflow.includes('scripts/run-lighthouse-audit.mjs') &&
-                workflow.includes('scripts/assert-lighthouse-audited-app.mjs'),
+                workflow.includes('scripts/assert-lighthouse-audited-app.mjs') &&
+                /id:\s*lighthouse-audit\s*\n\s*timeout-minutes:\s*5\s*\n\s*run:\s*node scripts\/run-lighthouse-audit\.mjs/.test(
+                    workflow,
+                ),
         ) &&
         !/@lhci\/cli|\bnpx\s+lhci\b|treosh\/lighthouse-ci-action/.test(releaseWorkflowSources) &&
         includesAll(lighthouseRunner, [
@@ -1629,8 +1632,11 @@ check(
             'async function closeBrowserBounded(',
             "browserProcess.kill('SIGKILL')",
             'if (browser) await closeBrowserBounded(browser)',
+            "require.resolve('vite/package.json')",
+            'spawn(process.execPath, [viteCli',
             "'--strictPort'",
         ]) &&
+        !lighthouseRunner.includes("spawn('npm'") &&
         [ciWorkflow, lighthouseWorkflow].every(
             (workflow) =>
                 workflow.includes('id: lighthouse-audit') &&

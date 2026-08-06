@@ -126,6 +126,7 @@ jobs:
 
             - name: Run Lighthouse audit
               id: lighthouse-audit
+              timeout-minutes: 5
               run: node scripts/run-lighthouse-audit.mjs
 
             # A disclaimer-only audit passes every budget, so run this even when
