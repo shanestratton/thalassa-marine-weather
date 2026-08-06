@@ -51,9 +51,15 @@ describe('Pi pinned-transport boundary', () => {
     });
 
     it('routes every Pi call through the pinning transport, not CapacitorHttp', () => {
-        const pairing = read('services/PiPairingService.ts');
+        // Comments in this file explain what it deliberately does NOT use, so
+        // strip them before asserting absence.
+        const pairing = read('services/PiPairingService.ts')
+            .replace(/\/\*[\s\S]*?\*\//g, '')
+            .replace(/^\s*\/\/.*$/gm, '');
         expect(pairing).not.toContain('CapacitorHttp');
-        expect(pairing).toContain("import { piPairingFetch, piRequest } from './piTls'");
+        expect(pairing).toContain("from './piTls'");
+        expect(pairing).toContain('piPairingFetch');
+        expect(pairing).toContain('piRequest');
         // The verified-read helper must pin, or the signature check it performs
         // is running over a channel anything could have terminated.
         expect(pairing).toContain('pinnedSpki: getPairing()?.publicKeySpki');

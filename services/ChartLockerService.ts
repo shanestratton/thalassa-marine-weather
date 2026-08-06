@@ -13,6 +13,7 @@
 import { createLogger } from '../utils/createLogger';
 import { CapacitorHttp } from '@capacitor/core';
 import { Filesystem, Directory } from '@capacitor/filesystem';
+import { pinnedPiRequest } from './PiPairingService';
 import { piCache } from './PiCacheService';
 // Lazy import to avoid a circular dependency; resolved at runtime when
 // a download finishes. AvNavService imports nothing from this file, so
@@ -1444,10 +1445,12 @@ class ChartLockerServiceImpl {
 
         try {
             // ── Kick off the job on the Pi ──
-            const startRes = await CapacitorHttp.post({
+            const startRes = await pinnedPiRequest({
                 url: `${piCacheBase}/api/charts/download`,
+                method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                data: JSON.stringify({ url: downloadUrl, name: fileName }),
+                data: { url: downloadUrl, name: fileName },
+                responseType: 'text',
             });
 
             if (startRes.status < 200 || startRes.status >= 300) {
@@ -1457,10 +1460,14 @@ class ChartLockerServiceImpl {
                 );
             }
 
-            const jobId =
-                typeof startRes.data === 'object' && startRes.data !== null
-                    ? (startRes.data as { jobId?: string }).jobId
-                    : undefined;
+            // responseType 'text' now, so parse rather than duck-type: the
+            // pinned transport returns the body as a string.
+            let jobId: string | undefined;
+            try {
+                jobId = (JSON.parse(startRes.data) as { jobId?: string }).jobId;
+            } catch {
+                jobId = undefined;
+            }
             if (!jobId) throw new Error('Pi cache did not return a jobId');
 
             log.info(`[PiDirect] Started job ${jobId} for ${pkg.name}`);
@@ -1477,8 +1484,9 @@ class ChartLockerServiceImpl {
             for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
                 await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
 
-                const statusRes = await CapacitorHttp.get({
+                const statusRes = await pinnedPiRequest({
                     url: `${piCacheBase}/api/charts/jobs/${jobId}`,
+                    responseType: 'text',
                 });
 
                 if (statusRes.status === 404) {
@@ -1488,7 +1496,7 @@ class ChartLockerServiceImpl {
                     throw new Error(`Job poll failed: HTTP ${statusRes.status}`);
                 }
 
-                const job = statusRes.data as {
+                const job = JSON.parse(statusRes.data) as {
                     status: 'pending' | 'downloading' | 'done' | 'error';
                     progress: number;
                     bytesTransferred: number;

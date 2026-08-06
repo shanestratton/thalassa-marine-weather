@@ -13,7 +13,26 @@ vi.mock('@capacitor/core', () => ({
 vi.mock('../services/piTls', () => ({
     piRequest: async () => ({ status: 599, headers: {}, data: '', peerSpki: '' }),
     piPairingFetch: async () => ({ status: 599, headers: {}, data: '', peerSpki: '' }),
-    isPinnedTransportAvailable: () => false,
+    isPinnedTransportAvailable: () => true,
+}));
+// The Pi handoff moved onto the pinned transport when the boat LAN went to
+// TLS (2026-08-07). Keep driving it from `mocks.post` so the assertions below
+// still describe "what was sent to the Pi" — only the pipe changed. The
+// adapter mirrors pinnedPiRequest's contract: body as a JSON string.
+vi.mock('../services/PiPairingService', () => ({
+    pinnedPiRequest: async (options: { url: string; data?: unknown }) => {
+        const res = await mocks.post({
+            url: options.url,
+            data: typeof options.data === 'string' ? options.data : JSON.stringify(options.data),
+        });
+        return {
+            status: res?.status ?? 599,
+            headers: res?.headers ?? {},
+            data: typeof res?.data === 'string' ? res.data : JSON.stringify(res?.data ?? null),
+            peerSpki: '',
+        };
+    },
+    getPairing: () => null,
 }));
 
 vi.mock('../services/ConnectionPriorityService', () => ({
@@ -38,7 +57,7 @@ vi.mock('../services/PiCacheService', () => ({
             diaryRelayOwnerId: 'skipper',
             diaryRelayId: 'pi_test_1234567890',
         }),
-        baseUrl: 'http://calypso.local:3001',
+        baseUrl: 'https://calypso.local:3001',
         setDiaryRelayInternetPolicy: mocks.setPolicy,
     },
 }));
@@ -96,7 +115,7 @@ describe('DiaryRelayTransport paired Pi handoff', () => {
 
         expect(mocks.fetch).not.toHaveBeenCalled();
         expect(mocks.post).toHaveBeenCalledWith(
-            expect.objectContaining({ url: 'http://calypso.local:3001/api/diary/entries' }),
+            expect.objectContaining({ url: 'https://calypso.local:3001/api/diary/entries' }),
         );
         const request = mocks.post.mock.calls[0]?.[0] as { data?: string } | undefined;
         expect(request?.data).toBeTruthy();

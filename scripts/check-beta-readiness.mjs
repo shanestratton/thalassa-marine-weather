@@ -2788,7 +2788,13 @@ check(
         piCacheClient.includes('return `https://${this.config.host}:${this.config.port}`') &&
         !/`http:\/\/\$\{/.test(piCacheClient) &&
         !/`http:\/\/\$\{/.test(piPairingClient) &&
-        !piPairingClient.includes('CapacitorHttp') &&
+        // Strip comments: this file now EXPLAINS why it does not use
+        // CapacitorHttp, and matching that prose would fail for the wrong
+        // reason. The check is about code, not commentary.
+        !piPairingClient
+            .replace(/\/\*[\s\S]*?\*\//g, '')
+            .replace(/^\s*\/\/.*$/gm, '')
+            .includes('CapacitorHttp') &&
         includesAll(read('services/piTls.ts'), [
             "if (!options.url.startsWith('https://'))",
             'isPinnedTransportAvailable',

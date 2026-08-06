@@ -29,11 +29,9 @@
  *   importEncCell(file, onProgress) → EncCell
  */
 
-import { CapacitorHttp } from '@capacitor/core';
-
 import { createLogger } from '../utils/createLogger';
 import { piCache } from './PiCacheService';
-import { fetchVerifiedFromPi } from './PiPairingService';
+import { fetchVerifiedFromPi, pinnedPiRequest } from './PiPairingService';
 import * as EncHazardService from './enc/EncHazardService';
 import { canonicalEncCellId, ENC_CELL_BLOB_MAX_BYTES, ENC_CELL_ID_PATTERN, encCellStorageIdentity } from './enc/types';
 import type { EncCell, EncConversionBatch, EncConversionResult } from './enc/types';
@@ -159,10 +157,11 @@ export async function checkPiHasGdal(): Promise<string | null> {
         return "Pi not reachable. Connect to your boat's WiFi — your paired Pi reconnects automatically.";
     }
     try {
-        const res = await CapacitorHttp.get({
+        const res = await pinnedPiRequest({
             url: `${piCache.baseUrl}/api/enc/health`,
             connectTimeout: 5000,
             readTimeout: 5000,
+            responseType: 'text',
         });
         if (res.status === 404) {
             return 'This Pi cache is too old — needs the ENC integration update.';
@@ -242,14 +241,16 @@ export async function importEncCell(
         // most reliable cross-Capacitor binary upload path —
         // CapacitorHttp's binary data handling has historical
         // quirks across iOS/Android/web; ASCII base64 always works.
-        const res = await CapacitorHttp.post({
+        const res = await pinnedPiRequest({
             url: `${piBase}/api/enc/convert`,
+            method: 'POST',
             headers: {
                 'Content-Type': 'application/octet-stream',
                 'X-Filename': filename,
                 'X-Body-Encoding': 'base64',
             },
             data: base64,
+            responseType: 'text',
             connectTimeout: 10000,
             readTimeout: 60000,
         });
@@ -386,12 +387,14 @@ export async function installEncFromUrl(
 
     let jobId: string;
     try {
-        const res = await CapacitorHttp.post({
+        const res = await pinnedPiRequest({
             url: `${piBase}/api/enc/install-from-url`,
+            method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            data: JSON.stringify({ url, filename }),
+            data: { url, filename },
             connectTimeout: 5000,
             readTimeout: 15000,
+            responseType: 'text',
         });
         if (res.status < 200 || res.status >= 300) {
             const detail =
@@ -626,14 +629,14 @@ export async function syncEncFromPi(
 export async function listPiInstalledCharts(): Promise<PiInstalledCell[]> {
     if (!piCache.isAvailable()) return [];
     try {
-        const res = await CapacitorHttp.get({
+        const res = await pinnedPiRequest({
             url: `${piCache.baseUrl}/api/enc/installed`,
             connectTimeout: 3000,
             readTimeout: 5000,
-            responseType: 'json',
+            responseType: 'text',
         });
         if (res.status < 200 || res.status >= 300) return [];
-        return validatePiInstalledCells(res.data);
+        return validatePiInstalledCells(JSON.parse(res.data));
     } catch (err) {
         log.warn('listPiInstalledCharts failed', err);
         return [];
@@ -771,7 +774,7 @@ async function pollAndFetchAndStore(
         throw new Error(error);
     }
 
-    void CapacitorHttp.delete({ url: `${piBase}/api/enc/jobs/${jobId}` }).catch(() => {});
+    void pinnedPiRequest({ url: `${piBase}/api/enc/jobs/${jobId}`, method: 'DELETE' }).catch(() => {});
 
     const skipped: EncImportSkipped[] = [...(batch.skipped ?? []), ...persistFailures];
     emit({

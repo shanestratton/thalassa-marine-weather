@@ -11,7 +11,6 @@
  * Skipper-only feature (requires 'owner' subscription tier).
  */
 
-import { CapacitorHttp } from '@capacitor/core';
 import { LocationStore } from '../stores/LocationStore';
 import { resolveHostnameIpv4 } from '../utils/resolveHostnameIpv4';
 import { withDeadline } from '../utils/deadline';
@@ -23,6 +22,7 @@ import {
 } from './piPublicBetaBoundary';
 import { piRequest } from './piTls';
 import {
+    pinnedPiRequest,
     getPairing,
     fetchPairInfo,
     verifyPairedPi,
@@ -741,7 +741,24 @@ class PiCacheServiceImpl {
 
         const start = Date.now();
         try {
-            let data: {
+            // Pinned transport (2026-08-07). The Pi serves a self-signed
+            // certificate, so the raw bridge/fetch this used to call could not
+            // complete the handshake — it threw every time, checkHealth always
+            // returned false, the Pi could never become `reachable`, and every
+            // downstream feature (ENC sync included) stayed dead with no
+            // visible error.
+            const res = await withDeadline(
+                pinnedPiRequest({
+                    url: `${this.baseUrl}/api/admin/status`,
+                    connectTimeout: 2000,
+                    readTimeout: 2000,
+                    responseType: 'text',
+                }),
+                2500,
+                'pi-cache /api/admin/status',
+            );
+            if (res.status < 200 || res.status >= 300) throw new Error(`HTTP ${res.status}`);
+            const data = JSON.parse(res.data) as {
                 status: string;
                 cache?: PiCacheStatus['cacheStats'];
                 config?: {
@@ -752,24 +769,6 @@ class PiCacheServiceImpl {
                     diaryRelayAllowInternet?: boolean;
                 };
             };
-            try {
-                const res = await CapacitorHttp.get({
-                    url: `${this.baseUrl}/api/admin/status`,
-                    connectTimeout: 2000,
-                    readTimeout: 2000,
-                });
-                data = res.data;
-            } catch {
-                // AbortSignal is a no-op under the CapacitorHttp fetch patch
-                // (see utils/deadline.ts) — bound the awaiter too, or a
-                // black-holed Pi pins checkHealth for the native 600 s default.
-                const res = await withDeadline(
-                    fetch(`${this.baseUrl}/api/admin/status`, { signal: AbortSignal.timeout(2000) }),
-                    2500,
-                    'pi-cache /api/admin/status',
-                );
-                data = await res.json();
-            }
 
             // A healthy /status is necessary but no longer sufficient: the
             // responder must also pass the identity gate (pinned-key
@@ -980,23 +979,15 @@ class PiCacheServiceImpl {
         const start = Date.now();
 
         try {
-            let responseData: T;
-            let cacheHeader = '';
-
-            try {
-                const res = await CapacitorHttp.get({
-                    url,
-                    connectTimeout: 5000,
-                    readTimeout: 10000,
-                });
-                responseData = res.data as T;
-                cacheHeader = res.headers?.['x-cache'] || res.headers?.['X-Cache'] || '';
-            } catch {
-                const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
-                if (!res.ok) throw new Error(`Pi Cache ${res.status}`);
-                responseData = (await res.json()) as T;
-                cacheHeader = res.headers.get('x-cache') || '';
-            }
+            const res = await pinnedPiRequest({
+                url,
+                connectTimeout: 5000,
+                readTimeout: 10000,
+                responseType: 'text',
+            });
+            if (res.status < 200 || res.status >= 300) throw new Error(`Pi Cache ${res.status}`);
+            const responseData = JSON.parse(res.data) as T;
+            const cacheHeader = res.headers?.['x-cache'] || res.headers?.['X-Cache'] || '';
 
             const source = cacheHeader === 'STALE' ? 'pi-stale' : 'pi-cache';
             this.recordFetch(source);
@@ -1086,14 +1077,15 @@ class PiCacheServiceImpl {
     async purgeCache(): Promise<{ kvDeleted: number; tileDeleted: number } | null> {
         if (!this.isAvailable()) return null;
         try {
-            let data: { purged: { kvDeleted: number; tileDeleted: number } };
-            try {
-                const res = await CapacitorHttp.post({ url: `${this.baseUrl}/cache/purge` });
-                data = res.data;
-            } catch {
-                const res = await fetch(`${this.baseUrl}/cache/purge`, { method: 'POST' });
-                data = await res.json();
-            }
+            // No plain-fetch fallback: it cannot complete the Pi's TLS
+            // handshake, so it could only ever convert a real error into a
+            // second, more confusing one.
+            const res = await pinnedPiRequest({
+                url: `${this.baseUrl}/cache/purge`,
+                method: 'POST',
+                responseType: 'text',
+            });
+            const data = JSON.parse(res.data) as { purged?: { kvDeleted: number; tileDeleted: number } };
             return data?.purged || null;
         } catch {
             return null;
@@ -1222,30 +1214,24 @@ class PiCacheServiceImpl {
         if (!this.isAvailable()) return false;
 
         try {
+            // This POST carries the diary relay TOKEN. It was the single
+            // strongest argument for putting the boat LAN on TLS, so it must
+            // go through the pinned transport — never a plain fallback.
+            const response = await pinnedPiRequest({
+                url: `${this.baseUrl}/api/configure`,
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                data: config,
+                responseType: 'text',
+            });
+            // Treat a rejected relay credential/policy as a real failure so
+            // the app does not falsely cache a Pi pair.
+            if (response.status < 200 || response.status >= 300) return false;
             try {
-                const response = await CapacitorHttp.post({
-                    url: `${this.baseUrl}/api/configure`,
-                    headers: { 'Content-Type': 'application/json' },
-                    data: JSON.stringify(config),
-                });
-                // Capacitor resolves normal HTTP failures rather than always
-                // throwing them. Treat a rejected relay credential/policy as
-                // a real failure so the app does not falsely cache a Pi pair.
-                if (response.status < 200 || response.status >= 300) return false;
-                if (
-                    response.data &&
-                    typeof response.data === 'object' &&
-                    (response.data as { status?: unknown }).status === 'error'
-                ) {
-                    return false;
-                }
+                const body = JSON.parse(response.data) as { status?: unknown };
+                if (body?.status === 'error') return false;
             } catch {
-                const response = await fetch(`${this.baseUrl}/api/configure`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(config),
-                });
-                if (!response.ok) return false;
+                /* non-JSON 2xx — the Pi accepted it */
             }
             return true;
         } catch {
