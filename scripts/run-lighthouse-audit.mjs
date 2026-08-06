@@ -3,11 +3,13 @@
 import { spawn } from 'node:child_process';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
+import { dirname, join } from 'node:path';
 
 import lighthouse from 'lighthouse';
 import puppeteer from 'puppeteer';
 
 const require = createRequire(import.meta.url);
+const viteCli = join(dirname(require.resolve('vite/package.json')), 'bin', 'vite.js');
 const config = require('../lighthouserc.cjs');
 const seedApplicationShell = require('./lighthouse-setup.cjs');
 
@@ -121,7 +123,10 @@ function evaluateAssertions(lhr) {
 // prove only the reports produced by this run.
 await rm(reportDirectory, { recursive: true, force: true });
 
-const preview = spawn('npm', ['run', 'preview', '--', '--host', '127.0.0.1', '--strictPort'], {
+// Launch Vite directly. Killing an npm wrapper can leave its Vite child alive
+// with the runner's stdout/stderr pipes open, which prevents Node from exiting
+// even after Lighthouse has written a healthy report.
+const preview = spawn(process.execPath, [viteCli, 'preview', '--host', '127.0.0.1', '--strictPort'], {
     env: process.env,
     stdio: ['ignore', 'pipe', 'pipe'],
 });

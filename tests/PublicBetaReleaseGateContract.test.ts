@@ -384,6 +384,9 @@ describe('public-beta release gate contract', () => {
             expect(workflow).toContain('VITE_APP_VERSION: ${{ vars.VITE_APP_VERSION }}');
             expect(workflow).toContain('npm run check:beta');
             expect(workflow).toContain('id: lighthouse-audit');
+            expect(workflow).toMatch(
+                /id:\s*lighthouse-audit\s*\n\s*timeout-minutes:\s*5\s*\n\s*run:\s*node scripts\/run-lighthouse-audit\.mjs/,
+            );
             expect(workflow).toContain("if: ${{ always() && steps.lighthouse-audit.outcome != 'skipped' }}");
             expect(workflow).toContain('include-hidden-files: true');
             expect(workflow).toContain('if-no-files-found: error');
@@ -392,6 +395,9 @@ describe('public-beta release gate contract', () => {
         expect(runner).toContain('async function closeBrowserBounded(');
         expect(runner).toContain("browserProcess.kill('SIGKILL')");
         expect(runner).toContain('if (browser) await closeBrowserBounded(browser)');
+        expect(runner).toContain("require.resolve('vite/package.json')");
+        expect(runner).toContain('spawn(process.execPath, [viteCli');
+        expect(runner).not.toContain("spawn('npm'");
         expect(runner).toContain("'--strictPort'");
         expect(lighthouse).not.toContain('pull-requests: write');
         expect(preview).not.toContain('statuses: write');
