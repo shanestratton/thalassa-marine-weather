@@ -105,9 +105,17 @@ describe('public-beta privacy contract', () => {
         expect(gps).toContain("if (permission.state !== 'granted') return null");
         expect(gps).toContain('canUseForegroundHighAccuracy(permission, enableHighAccuracy)');
         expect(gps).toContain('if (!ensureRunning) return this._nativeForegroundWatchIfGranted(callback)');
-        expect(gps).toContain(
-            'return opts.ensureRunning === true ? this._webWatch(callback) : this._webWatchIfGranted(callback)',
-        );
+        // Asserted as a PROPERTY, not a literal line (2026-08-07). The
+        // privacy guarantee is the ROUTING: a passive watcher — ensureRunning
+        // anything but true — must land on _webWatchIfGranted, which cannot
+        // raise the OS permission prompt. Pinning the exact spelling made an
+        // unrelated rename of the callback variable look like a privacy
+        // regression, which trains people to "fix" the test rather than read
+        // it. The guarantee below is stricter than the old string: it also
+        // fails if the ternary is inverted.
+        expect(gps).toMatch(/return opts\.ensureRunning === true \? this\._webWatch\(\s*\w+\s*\)/);
+        expect(gps).toMatch(/:\s*this\._webWatchIfGranted\(\s*\w+\s*\)/);
+        expect(gps).not.toMatch(/return opts\.ensureRunning === true \? this\._webWatchIfGranted\(/);
         expect(dashboard).not.toContain('useLiveLocationName');
         expect(logPageState).not.toContain('BgGeoManager.ensureReady');
         expect(vesselHub).not.toContain('GpsService.getCurrentPosition(');

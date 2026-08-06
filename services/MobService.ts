@@ -231,10 +231,40 @@ class MobServiceClass {
             };
         }
 
-        // Only pay the wait when there is genuinely nothing to mark. This is
-        // the cold-start case the warm-up exists to shrink.
+        // SECOND SOURCE: the last fix any live watcher saw.
+        //
+        // getCachedOwnshipPosition reads NMEA and LocationStore, and
+        // LocationStore is written by explicit user actions rather than by the
+        // GPS stream — so on a phone with no NMEA it is usually EMPTY at the
+        // moment of need, and MOB fell straight through to the blocking
+        // acquisition. That is the 8 seconds (Shane 2026-08-07), even with the
+        // instant-mark path in place: it had nothing to be instant with.
+        //
+        // The chart's location dot, vessel tracker and status button all hold
+        // a live subscription, so a current fix has almost always just passed
+        // through GpsService — it simply was not kept. Reading it costs
+        // nothing and no extra battery.
         if (!pos) {
-            log.warn('MOB: no cached fix — falling back to a live acquisition');
+            const lastKnown = GpsService.getLastKnownPosition();
+            const ageMs = lastKnown ? Date.now() - lastKnown.timestamp : Number.POSITIVE_INFINITY;
+            if (lastKnown && ageMs <= MOB_INSTANT_MARK_MAX_AGE_MS) {
+                log.warn(`MOB: marking from the last live fix (${Math.round(ageMs / 1000)}s old)`);
+                pos = {
+                    ...lastKnown,
+                    // Widen for drift the same way the cached path does — a
+                    // held fix is no more precise than its age allows.
+                    accuracy: Math.max(
+                        lastKnown.accuracy ?? MOB_CACHED_FIX_BASE_ACCURACY_M,
+                        Math.max(0, lastKnown.speed ?? 0) * (ageMs / 1000),
+                    ),
+                };
+            }
+        }
+
+        // Only pay the wait when there is genuinely nothing to mark at all.
+        // This is the cold-start case the launch warm-up exists to shrink.
+        if (!pos) {
+            log.warn('MOB: no cached or live fix — falling back to a blocking acquisition');
             pos = await GpsService.getCurrentPosition({ staleLimitMs: 15_000, timeoutSec: 6 });
         }
 

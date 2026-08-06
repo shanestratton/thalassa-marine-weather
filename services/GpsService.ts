@@ -230,11 +230,38 @@ class GpsServiceClass {
      *   Defaults to foreground, already-granted-only operation so passive
      *   status/map subscribers cannot raise Location or Motion permission UI.
      */
+    /**
+     * The most recent fix seen by ANY watcher, or null.
+     *
+     * Free: the location dot, vessel tracker, destination flag, system status
+     * and Vessel hub all subscribe already, so fixes flow continuously
+     * whenever any of them is mounted — this only stops throwing them away.
+     *
+     * Added for MOB (Shane 2026-08-07: "still taking 8 seconds ... we need it
+     * instant"). Marking from cache only helps if a cache exists, and
+     * LocationStore is written on explicit user actions rather than by the
+     * live stream, so it was usually empty at the moment of need and MOB fell
+     * back to a blocking acquisition. Callers MUST check the timestamp: this
+     * is deliberately un-aged, so the consumer decides what "too old" means.
+     */
+    getLastKnownPosition(): GpsPosition | null {
+        return this._lastKnownFix ? { ...this._lastKnownFix } : null;
+    }
+    private _lastKnownFix: GpsPosition | null = null;
+
     watchPosition(callback: GpsCallback, opts: { ensureRunning?: boolean } = {}): () => void {
+        // Tap every delivery so the newest fix is always retained, whoever
+        // asked for it and whichever platform lane served it.
+        const retaining: GpsCallback = (pos) => {
+            if (Number.isFinite(pos?.latitude) && Number.isFinite(pos?.longitude)) {
+                this._lastKnownFix = { ...pos };
+            }
+            callback(pos);
+        };
         if (this.isNative) {
-            return this._nativeWatch(callback, opts.ensureRunning === true);
+            return this._nativeWatch(retaining, opts.ensureRunning === true);
         }
-        return opts.ensureRunning === true ? this._webWatch(callback) : this._webWatchIfGranted(callback);
+        return opts.ensureRunning === true ? this._webWatch(retaining) : this._webWatchIfGranted(retaining);
     }
 
     // ---------- NATIVE (Transistorsoft) ----------
