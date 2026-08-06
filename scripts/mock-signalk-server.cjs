@@ -44,12 +44,6 @@ const CHARTS = {
     },
 };
 
-// Upstream tile sources (the actual tile servers we proxy)
-const TILE_SOURCES = {
-    'osm-nautical': 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-    openseamap: 'https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png',
-};
-
 // ── Signal K API Responses ──
 const SIGNALK_DISCOVERY = {
     endpoints: {
@@ -85,21 +79,42 @@ function buildChartsResponse() {
 }
 
 // ── Tile Proxy ──
+function resolveTileRequest(sourceId, zText, xText, yText) {
+    const z = Number(zText);
+    const x = Number(xText);
+    const y = Number(yText);
+    if (![z, x, y].every(Number.isSafeInteger) || z < 0 || z > 18) return null;
+
+    const maximumCoordinate = 2 ** z - 1;
+    if (x < 0 || y < 0 || x > maximumCoordinate || y > maximumCoordinate) return null;
+
+    // Keep request-derived values out of the upstream authority. Explicit
+    // dispatch is intentional: a dynamic property lookup here lets a request
+    // influence the URL passed to the HTTP client and is easy to regress into
+    // an SSRF sink.
+    if (sourceId === 'osm-nautical') {
+        return { hostname: 'tile.openstreetmap.org', path: `/${z}/${x}/${y}.png` };
+    }
+    if (sourceId === 'openseamap') {
+        return { hostname: 'tiles.openseamap.org', path: `/seamark/${z}/${x}/${y}.png` };
+    }
+    return null;
+}
+
 function proxyTile(sourceId, z, x, y, res) {
-    const template = TILE_SOURCES[sourceId];
-    if (!template) {
+    const upstreamRequest = resolveTileRequest(sourceId, z, x, y);
+    if (!upstreamRequest) {
         res.writeHead(404);
-        res.end('Unknown chart source');
+        res.end('Unknown chart source or invalid tile coordinates');
         return;
     }
 
-    const url = template.replace('{z}', z).replace('{x}', x).replace('{y}', y);
-
-    const client = url.startsWith('https') ? https : http;
-
-    const req = client.get(
-        url,
+    const req = https.get(
         {
+            protocol: 'https:',
+            hostname: upstreamRequest.hostname,
+            port: 443,
+            path: upstreamRequest.path,
             headers: { 'User-Agent': 'Thalassa-Mock-SignalK/1.0' },
             timeout: 15000,
         },
@@ -203,7 +218,7 @@ const server = http.createServer((req, res) => {
     }
 
     // Tile proxy: /tiles/{source}/{z}/{x}/{y}
-    const tileMatch = path.match(/^\/tiles\/([\w-]+)\/(\d+)\/(\d+)\/(\d+)/);
+    const tileMatch = path.match(/^\/tiles\/([\w-]+)\/(\d+)\/(\d+)\/(\d+)(?:\.png)?$/);
     if (tileMatch) {
         const [, source, z, x, y] = tileMatch;
         proxyTile(source, z, x, y, res);
