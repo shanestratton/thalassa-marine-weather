@@ -44,14 +44,32 @@ import AVFoundation
 public class ThalassaBridgeViewController: CAPBridgeViewController {
 
     public override func capacitorDidLoad() {
-        // ⚠️ BUILD-MARKER — unmissable native-side proof that THIS
-        // .app bundle was just built and deployed. If you don't see
-        // this line in Xcode console at app launch, the device is
-        // running an older .app than the one Xcode just built (i.e.
-        // Xcode reported success but didn't actually push). Update
-        // the timestamp every time you push a new build so it's
-        // trivial to confirm which build is running.
-        NSLog("[BUILD-MARKER-SWIFT] thalassa 2026-05-15T22:55Z capacitorDidLoad")
+        // ⚠️ BUILD-MARKER — unmissable native-side proof of WHICH .app
+        // bundle is actually running. If you don't see this line in the
+        // Xcode console at launch, the device is running an older .app
+        // than the one Xcode just built (i.e. Xcode reported success but
+        // didn't actually push).
+        //
+        // DERIVED, never hand-written (fixed 2026-08-07). This used to be
+        // a hardcoded timestamp with a comment asking whoever built to
+        // update it. Nobody did — it read 2026-05-15 for months, so the
+        // one line whose entire job is proving freshness was itself the
+        // stalest thing on screen, and it made every fresh build look
+        // stale. The executable's modification date is stamped by the
+        // linker at build time, so it cannot drift from reality and
+        // cannot be forgotten.
+        let info = Bundle.main.infoDictionary
+        let version = info?["CFBundleShortVersionString"] as? String ?? "?"
+        let build = info?["CFBundleVersion"] as? String ?? "?"
+        var builtAt = "unknown"
+        if let executable = Bundle.main.executableURL,
+           let attributes = try? FileManager.default.attributesOfItem(atPath: executable.path),
+           let modified = attributes[.modificationDate] as? Date {
+            let formatter = ISO8601DateFormatter()
+            formatter.timeZone = TimeZone.current
+            builtAt = formatter.string(from: modified)
+        }
+        NSLog("[BUILD-MARKER-SWIFT] thalassa v\(version) (\(build)) built \(builtAt) capacitorDidLoad")
 
         // ── Audio session: input-capable, but inactive, at launch ──
         // The diary and Bosun both capture through WKWebView's

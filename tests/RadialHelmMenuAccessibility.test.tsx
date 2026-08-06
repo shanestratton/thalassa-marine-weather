@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { RadialHelmMenu } from '../components/map/RadialHelmMenu';
@@ -68,6 +70,26 @@ describe('RadialHelmMenu accessibility', () => {
         // The dedicated button must still be there, and still work.
         fireEvent.click(screen.getByRole('button', { name: 'Open Man Overboard emergency' }));
         expect(onOpenMob).toHaveBeenCalledOnce();
+    });
+
+    it('centres the MOB fab between the status and layer fabs on any device', () => {
+        // The "i" fab sits at env(safe-area-inset-top) + 8px while this menu is
+        // anchored at a fixed top-[192px], so the midpoint between them MOVES
+        // with the notch. A constant offset (the old -top-16) could only be
+        // right on one device class. Halving the inset keeps the two gaps
+        // within half a pixel of each other for every value of the inset:
+        //   gap above = 92.5 - inset/2, gap below = 92 - inset/2
+        // Asserted against SOURCE, not the DOM: jsdom's CSSOM cannot parse
+        // env() and silently drops the whole declaration, so `style.top` reads
+        // back empty and a DOM assertion here would be checking nothing.
+        const source = readFileSync(join(process.cwd(), 'components/map/RadialHelmMenu.tsx'), 'utf8');
+        const mobButton = source.slice(source.indexOf("'Open Man Overboard emergency'"));
+        expect(mobButton).toContain("top: 'calc(env(safe-area-inset-top) / 2 - 95px)'");
+        // A constant Tailwind offset on THIS button would silently un-centre
+        // it again. Scoped to its className, since sibling markup legitimately
+        // uses -top-* for badge positioning.
+        const className = mobButton.slice(mobButton.indexOf('className={`absolute'), mobButton.indexOf('animate='));
+        expect(className).not.toMatch(/-top-\d/);
     });
 
     it('navigates both menu tiers and restores the helm trigger', async () => {
