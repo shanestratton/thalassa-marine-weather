@@ -18,15 +18,15 @@ const allRequiredCredentialsPresent = Object.fromEntries(
 );
 
 describe('committed public-beta feature profile', () => {
-    it('pins the intended four map/data features on, parks three CMEMS products, and keeps every beta hold off', () => {
+    it('parks every hosted marine overlay until its publication cutover passes', () => {
         expect(profile.featureFlags).toEqual({
-            VITE_CMEMS_CURRENTS_ENABLED: true,
+            VITE_CMEMS_CURRENTS_ENABLED: false,
             VITE_CMEMS_WAVES_ENABLED: false,
-            VITE_CMEMS_SST_ENABLED: true,
-            VITE_CMEMS_CHL_ENABLED: true,
+            VITE_CMEMS_SST_ENABLED: false,
+            VITE_CMEMS_CHL_ENABLED: false,
             VITE_CMEMS_SEAICE_ENABLED: false,
             VITE_CMEMS_MLD_ENABLED: false,
-            VITE_MPA_ENABLED: true,
+            VITE_MPA_ENABLED: false,
             VITE_APPLE_SIGN_IN_ENABLED: false,
             VITE_APPLE_WATCH_ENABLED: false,
             VITE_GOOGLE_SIGN_IN_ENABLED: false,
@@ -79,14 +79,14 @@ describe('committed public-beta feature profile', () => {
         expect(
             publicBetaFeatureEnvironmentConflicts(profile, {
                 VITE_CMEMS_WAVES_ENABLED: 'true',
-                VITE_MPA_ENABLED: 'true',
+                VITE_MPA_ENABLED: 'false',
                 VITE_NATIVE_API_BASE: profile.publicEndpoints.VITE_NATIVE_API_BASE,
             }),
         ).toEqual(['VITE_CMEMS_WAVES_ENABLED']);
         expect(
             publicBetaFeatureEnvironmentConflicts(profile, {
                 VITE_CMEMS_WAVES_ENABLED: 'false',
-                VITE_MPA_ENABLED: 'true',
+                VITE_MPA_ENABLED: 'false',
             }),
         ).toEqual([]);
     });

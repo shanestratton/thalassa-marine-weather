@@ -158,13 +158,16 @@ describe('web release verification', () => {
         const artifact = createPublicBetaFeatureArtifact(profile, presence);
 
         expect(validatePublicBetaFeatureManifest(artifact)).toEqual([]);
-        artifact.featureFlags.VITE_MPA_ENABLED = false;
+        artifact.featureFlags.VITE_MPA_ENABLED = true;
         expect(validatePublicBetaFeatureManifest(artifact)).toEqual(
-            expect.arrayContaining(['VITE_MPA_ENABLED must equal true', 'feature manifest fingerprint does not match']),
+            expect.arrayContaining([
+                'VITE_MPA_ENABLED must equal false',
+                'feature manifest fingerprint does not match',
+            ]),
         );
     });
 
-    it('requires every enabled marine feed to expose a fresh schema-v2 generation and immutable asset contract', () => {
+    it('holds uncutover feeds while retaining schema-v2 validation and legacy retirement contracts', () => {
         const now = Date.parse('2026-08-05T12:00:00Z');
         const spec = HOSTED_MARINE_DATASET_SPECS.currents;
         const hashes = Array.from({ length: 13 }, () => 'b'.repeat(64));
@@ -193,7 +196,7 @@ describe('web release verification', () => {
             })),
         };
 
-        expect(ENABLED_HOSTED_MARINE_DATASETS).toEqual(['currents', 'sst', 'chl', 'mpa']);
+        expect(ENABLED_HOSTED_MARINE_DATASETS).toEqual([]);
         expect(RETIRED_LEGACY_MARINE_PATHS).toHaveLength(62);
         for (const dataset of ['currents', 'waves', 'sst', 'chl', 'seaice', 'mld'] as const) {
             expect(RETIRED_LEGACY_MARINE_PATHS).toContain(`/api/${dataset}/manifest.json`);

@@ -1523,13 +1523,13 @@ check(
         ]),
 );
 const intendedPublicBetaFeatureFlags = {
-    VITE_CMEMS_CURRENTS_ENABLED: true,
+    VITE_CMEMS_CURRENTS_ENABLED: false,
     VITE_CMEMS_WAVES_ENABLED: false,
-    VITE_CMEMS_SST_ENABLED: true,
-    VITE_CMEMS_CHL_ENABLED: true,
+    VITE_CMEMS_SST_ENABLED: false,
+    VITE_CMEMS_CHL_ENABLED: false,
     VITE_CMEMS_SEAICE_ENABLED: false,
     VITE_CMEMS_MLD_ENABLED: false,
-    VITE_MPA_ENABLED: true,
+    VITE_MPA_ENABLED: false,
     VITE_APPLE_SIGN_IN_ENABLED: false,
     VITE_APPLE_WATCH_ENABLED: false,
     VITE_GOOGLE_SIGN_IN_ENABLED: false,
