@@ -850,19 +850,30 @@ class AvNavServiceClass {
                         return;
                     }
 
+                    // Ports raced too, for the same reason as the endpoints
+                    // above: the configured port is tried first only as an
+                    // ordering preference, and any port that answers is the
+                    // answer. Serially this was 7 x the endpoint cost.
+                    nativeLog(
+                        `Probing ${tryHost === this.host ? 'LAN' : 'WAN'} ${tryHost} ports ${portsToProbe.join(',')}`,
+                    );
                     let reachable = false;
-                    for (const port of portsToProbe) {
-                        const tryUrl = `http://${tryHost}:${port}`;
-                        nativeLog(`Trying ${tryHost === this.host ? 'LAN' : 'WAN'} port ${port}: ${tryUrl}`);
-                        if (await this.probeAvNavWithImage(tryUrl)) {
-                            reachable = true;
-                            nativeLog(`Host reachable at ${tryUrl}`);
-                            break;
-                        }
-                        if (gen !== this._connGen) {
-                            nativeLog('connect(): superseded (port probe)');
-                            return;
-                        }
+                    try {
+                        const hit = await Promise.any(
+                            portsToProbe.map(async (port) => {
+                                const tryUrl = `http://${tryHost}:${port}`;
+                                if (await this.probeAvNavWithImage(tryUrl)) return tryUrl;
+                                throw new Error(`no AvNav on ${port}`);
+                            }),
+                        );
+                        reachable = true;
+                        nativeLog(`Host reachable at ${hit}`);
+                    } catch {
+                        /* no port on this host answered */
+                    }
+                    if (gen !== this._connGen) {
+                        nativeLog('connect(): superseded (port probe)');
+                        return;
                     }
 
                     // NO basic-HTTP fallback on ports 3000/3001/80. That check
@@ -990,23 +1001,37 @@ class AvNavServiceClass {
             `${baseUrl}/viewer/avnav_navi.php`,
             `${baseUrl}/api/list?type=chart`,
         ];
-        for (const url of endpoints) {
-            try {
-                const res = await CapacitorHttp.get({
-                    url,
-                    connectTimeout: 5000,
-                    readTimeout: 5000,
-                });
-                if (res.status < 200 || res.status >= 400) continue;
-                // Reject HTML error pages (Express "Cannot GET" etc.)
-                const text = typeof res.data === 'string' ? res.data : JSON.stringify(res.data ?? '');
-                if (text.includes('<!DOCTYPE') || text.includes('Cannot GET')) continue;
-                return true;
-            } catch {
-                /* try next */
-            }
+
+        // ── RACED, not serial (perf regression fix 2026-08-07) ──
+        // The caller sweeps 2 hosts x 7 ports; four serial endpoints inside
+        // that made 56 probes at 5 s each — up to ~280 s of blocking network
+        // work whenever AvNav is absent, which is every device not on the boat
+        // LAN. Invisible while Pi integration was development-only; shipped, it
+        // became the dominant startup cost.
+        //
+        // Racing them is safe because the loop had no ordering meaning: it
+        // returned true on the FIRST endpoint that answered acceptably, and
+        // any of the four answering is equally good evidence of AvNav.
+        //
+        // Timeout drops 5 s → 2 s: this only ever talks to a device on the same
+        // LAN, which answers in milliseconds or not at all. 5 s bought nothing
+        // but delay on the failure path, and the failure path is the norm.
+        const probe = async (url: string): Promise<true> => {
+            const res = await CapacitorHttp.get({ url, connectTimeout: 2000, readTimeout: 2000 });
+            if (res.status < 200 || res.status >= 400) throw new Error(`HTTP ${res.status}`);
+            // Reject HTML error pages (Express "Cannot GET" etc.)
+            const text = typeof res.data === 'string' ? res.data : JSON.stringify(res.data ?? '');
+            if (text.includes('<!DOCTYPE') || text.includes('Cannot GET')) throw new Error('not AvNav');
+            return true;
+        };
+
+        try {
+            // Resolves on the first acceptable answer; rejects only when all
+            // four fail — identical semantics to the old loop's return value.
+            return await Promise.any(endpoints.map(probe));
+        } catch {
+            return false;
         }
-        return false;
     }
 
     /**
@@ -1179,38 +1204,46 @@ class AvNavServiceClass {
      * Uses CapacitorHttp to bypass CORS.
      */
     private async detectApiVersion(baseUrl: string): Promise<'v1' | 'v2' | null> {
-        const versions: Array<{ path: string; ver: 'v2' | 'v1' }> = [
-            { path: '/signalk/v2/api', ver: 'v2' },
-            { path: '/signalk/v1/api', ver: 'v1' },
-        ];
-        for (const { path, ver } of versions) {
-            try {
-                const res = await CapacitorHttp.get({
-                    url: `${baseUrl}${path}`,
-                    connectTimeout: 5000,
-                    readTimeout: 5000,
-                });
-                if (res.status >= 200 && res.status < 300) return ver;
-            } catch {
-                /* not available */
-            }
-        }
-        // Last resort — discovery endpoint
-        try {
+        // Concurrent, but NOT Promise.any (perf 2026-08-07). Unlike the
+        // reachability sweeps, this probe has real ordering semantics: v2 is
+        // preferred over v1, so "first to answer wins" would pick v1 on a
+        // server that offers both, purely because it replied faster. Fire all
+        // three together and apply the preference to the RESULTS — one timeout
+        // instead of up to three, with the precedence intact.
+        const get = async (path: string): Promise<number> => {
             const res = await CapacitorHttp.get({
-                url: `${baseUrl}/signalk`,
+                url: `${baseUrl}${path}`,
                 connectTimeout: 5000,
                 readTimeout: 5000,
             });
-            if (res.status >= 200 && res.status < 300) {
+            return res.status;
+        };
+        const ok = (r: PromiseSettledResult<number>): boolean =>
+            r.status === 'fulfilled' && r.value >= 200 && r.value < 300;
+
+        const [v2, v1, discovery] = await Promise.allSettled([
+            get('/signalk/v2/api'),
+            get('/signalk/v1/api'),
+            // The last-resort discovery endpoint rides along rather than
+            // waiting its turn — concurrently it is free, and it is only
+            // consulted when neither versioned path answered.
+            (async () => {
+                const res = await CapacitorHttp.get({
+                    url: `${baseUrl}/signalk`,
+                    connectTimeout: 5000,
+                    readTimeout: 5000,
+                });
+                if (res.status < 200 || res.status >= 300) throw new Error(`HTTP ${res.status}`);
                 const data = typeof res.data === 'string' ? JSON.parse(res.data) : res.data;
-                if (data?.endpoints?.v2) return 'v2';
-                if (data?.endpoints?.v1) return 'v1';
-                return 'v1';
-            }
-        } catch {
-            /* no response */
-        }
+                if (data?.endpoints?.v2) return 'v2' as const;
+                if (data?.endpoints?.v1) return 'v1' as const;
+                return 'v1' as const;
+            })(),
+        ]);
+
+        if (ok(v2)) return 'v2';
+        if (ok(v1)) return 'v1';
+        if (discovery.status === 'fulfilled') return discovery.value;
         return null;
     }
 

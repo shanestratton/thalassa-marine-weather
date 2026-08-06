@@ -34,6 +34,7 @@ interface ImportMetaEnv {
     /** Compile-time release gate for native Sign in with Apple. Keep unset or
      *  false until the complete server-side token lifecycle is live. */
     readonly VITE_APPLE_SIGN_IN_ENABLED?: string;
+    readonly VITE_APPLE_MUSIC_ENABLED?: string;
     /** Compile-time release gate for the shelved Apple Watch bridge. */
     readonly VITE_APPLE_WATCH_ENABLED?: string;
     readonly VITE_GOOGLE_SIGN_IN_ENABLED?: string;

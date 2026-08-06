@@ -9,7 +9,11 @@ describe('MusicKit public-beta server boundary', () => {
         const quota = source.indexOf("requireAuthenticatedOrPublicQuota(req, 'musickit_token'");
         const key = source.indexOf("Deno.env.get('MUSICKIT_PRIVATE_KEY')");
 
-        expect(source).toContain('const MUSICKIT_PUBLIC_BETA_ENABLED = false');
+        // Server gate is a DEPLOYMENT secret, never the client's VITE_ flag —
+        // that ships in the bundle where any user can read and set it. Unset
+        // or malformed leaves the endpoint closed.
+        expect(source).toContain("Deno.env.get('MUSICKIT_ENABLED') === 'true'");
+        expect(source).not.toContain('VITE_APPLE_MUSIC_ENABLED');
         expect(hold).toBeGreaterThan(-1);
         expect(hold).toBeLessThan(quota);
         expect(hold).toBeLessThan(key);

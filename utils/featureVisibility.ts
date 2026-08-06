@@ -18,6 +18,24 @@
  * rather than social discovery. Marketplace remains held until it has the
  * inventory to feel useful.
  */
+/**
+ * Apple Music is the one entry here that is NOT a hand-edited boolean.
+ *
+ * Every other flag in this file is a product decision ("is there enough
+ * inventory to show a Marketplace?"), which a human flips in a commit. Apple
+ * Music is different: it is gated on an EXTERNAL fact — whether this build's
+ * App ID actually carries the MusicKit capability and a matching distribution
+ * profile. That fact lives in the Apple Developer portal, changes without any
+ * code changing, and must be able to differ between a local build and a
+ * release. So it reads a flag, defaulting off, exactly like
+ * VITE_APPLE_SIGN_IN_ENABLED does for Sign in with Apple.
+ *
+ * The corresponding server gate is separate and does NOT trust this value —
+ * see supabase/functions/musickit-token. A VITE_ value is user-readable and
+ * user-settable, so it may hide a UI but must never authorize token minting.
+ */
+const APPLE_MUSIC_ENABLED = import.meta.env.VITE_APPLE_MUSIC_ENABLED === 'true';
+
 export const FEATURE_VISIBILITY = {
     /** The Crew List — discreet skipper / crew introductions. */
     crewFinder: true,
@@ -27,12 +45,14 @@ export const FEATURE_VISIBILITY = {
      */
     spoonacular: false,
     /**
-     * Apple Music needs the production MusicKit capability, matching
-     * distribution profile, and a physical-device authorization smoke.
-     * Keep every route/tool hidden until that external release boundary is
-     * complete; Calypso voice itself remains available.
+     * Apple Music needs the production MusicKit capability, a matching
+     * distribution profile, and a physical-device authorization smoke. Until
+     * those exist, showing the controls gives a music page that fails at
+     * Apple — worse than not offering it. Calypso voice is unaffected either
+     * way. Set VITE_APPLE_MUSIC_ENABLED=true once the capability is live; see
+     * APPLE_MUSIC_ENABLED above for why this one is a flag and not a literal.
      */
-    appleMusic: false,
+    appleMusic: APPLE_MUSIC_ENABLED,
     /**
      * Calypso's proactive NMEA threshold monitor is foreground JavaScript:
      * iOS may suspend it in the background or terminate it, HTML audio/TTS is

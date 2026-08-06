@@ -114,7 +114,9 @@ class PiCacheServiceImpl {
     // Fail closed until the authenticated app has loaded the skipper's
     // current policy and successfully reconciled it with a reachable Pi.
     private diaryRelayAllowInternet = false;
-    private healthCheckInterval: ReturnType<typeof setInterval> | null = null;
+    /** Self-rearming steady-state health timer — a TIMEOUT handle, not an
+     *  interval, because the period backs off. See scheduleSteadyState. */
+    private healthCheckInterval: ReturnType<typeof setTimeout> | null = null;
     private retryBurstTimer: ReturnType<typeof setTimeout> | null = null;
     private discoveryListeners: Array<(status: PiCacheStatus) => void> = [];
     private pairingListeners: Array<(event: PiPairingEvent) => void> = [];
@@ -124,6 +126,13 @@ class PiCacheServiceImpl {
     private autoDiscoverTimer: ReturnType<typeof setTimeout> | null = null;
     private locationUnsub: (() => void) | null = null;
     private foregroundListenersInstalled = false;
+    /**
+     * Consecutive discovery sweeps that found nothing. Drives the backoff in
+     * scheduleSteadyState: a phone that is simply not on the boat's LAN — the
+     * overwhelmingly common case once ashore — should stop paying for a sweep
+     * every 30 s. Reset to 0 the moment a sweep succeeds.
+     */
+    private failedSweeps = 0;
 
     // ── Fetch Stats ──
     private _fetchStats: PiFetchStats = {
@@ -545,72 +554,95 @@ class PiCacheServiceImpl {
         // pairing discovery are now the same request rather than two.
         const pinnedSpki = getPairing()?.publicKeySpki;
 
-        for (const host of candidates) {
+        // ── PARALLEL, not serial (perf regression fix 2026-08-07) ──
+        // These are seven mDNS names that mostly do not exist. Probed one at a
+        // time behind a 2.5 s deadline each, a boat with no Pi — or any phone
+        // off the boat LAN — paid ~18 s per sweep, measured. That was invisible
+        // while Pi integration was development-only; the moment it shipped it
+        // became every user's startup cost, re-paid every health interval.
+        //
+        // Racing them costs one deadline instead of seven. Failures are the
+        // common case and cost nothing, so the sweep is now bounded by the
+        // slowest single probe rather than their sum.
+        const probeHost = async (host: string): Promise<{ host: string; latencyMs: number }> => {
             const base = `https://${host}:${this.config.port}`;
             const url = pinnedSpki ? `${base}/health` : `${base}/api/pair/info`;
             const start = Date.now();
+            const res = await withDeadline(
+                piRequest({ url, pinnedSpki, connectTimeout: 2000, readTimeout: 2000, responseType: 'text' }),
+                2500,
+                'pi-cache probe',
+            );
+            const data = res.status >= 200 && res.status < 300 ? JSON.parse(res.data) : null;
+            const ok = pinnedSpki
+                ? data?.status === 'ok' && data?.service === 'thalassa-pi-cache'
+                : data?.service === 'thalassa-pi-cache' && !!data?.publicKeySpki;
+            if (!ok) throw new Error(`${host} is not a pi-cache`);
+            return { host, latencyMs: Date.now() - start };
+        };
 
-            try {
-                const res = await withDeadline(
-                    piRequest({ url, pinnedSpki, connectTimeout: 2000, readTimeout: 2000, responseType: 'text' }),
-                    2500,
-                    'pi-cache probe',
-                );
-                const data = res.status >= 200 && res.status < 300 ? JSON.parse(res.data) : null;
-                const ok = pinnedSpki
-                    ? data?.status === 'ok' && data?.service === 'thalassa-pi-cache'
-                    : data?.service === 'thalassa-pi-cache' && !!data?.publicKeySpki;
+        // Promise.any resolves on the FIRST success and ignores the rest, which
+        // is exactly the semantics the old loop had — first host that answers
+        // wins — without waiting for the failures in front of it.
+        let winner: { host: string; latencyMs: number } | null = null;
+        try {
+            winner = await Promise.any(candidates.map(probeHost));
+        } catch {
+            // AggregateError: every candidate failed. Handled below.
+        }
 
-                if (ok) {
-                    // Resolve mDNS hostnames to a raw IPv4 BEFORE storing
-                    // — every subsequent /api/passthrough-tile, /status,
-                    // /api/charts/* etc. then dials the IP directly and
-                    // skips the per-socket Happy Eyeballs IPv6→IPv4 race.
-                    // That race was the source of the recurring
-                    // tcp_input flags=[R.] noise the user reported.
-                    // Fall back to the hostname on resolution failure
-                    // — connection still works, just without the noise
-                    // reduction. Mirrors BoatNetworkService's pattern.
-                    const ipv4 = await resolveHostnameIpv4(host);
-                    const effectiveHost = ipv4 ?? host;
-                    if (ipv4 && ipv4 !== host) {
-                        log.info(`Resolved ${host} → ${ipv4} for pi-cache connections`);
-                    }
-                    this.config.host = effectiveHost;
-                    // NOT reachable yet — checkHealth() below re-probes and
-                    // runs the identity gate; nothing may treat a host as
-                    // "the Pi" on a bare /health hit.
-                    this.status = {
-                        reachable: false,
-                        lastCheck: Date.now(),
-                        latencyMs: Date.now() - start,
-                        discoveredVia: effectiveHost,
-                    };
-
-                    // Persist the winning host so next boot is an instant verify
-                    // (checkHealth on a known host ≈ 100ms LAN) instead of another
-                    // 5-host discovery sweep.
-                    if (typeof localStorage !== 'undefined') {
-                        try {
-                            localStorage.setItem('thalassa_pi_cache_host', effectiveHost);
-                        } catch {
-                            /* quota/private mode — non-fatal */
-                        }
-                    }
-
-                    // Now get full status with cache stats
-                    await this.checkHealth();
-                    this.notifyListeners();
-                    this.resolveReady();
-                    return this.status;
+        {
+            const host = winner?.host;
+            const start = Date.now() - (winner?.latencyMs ?? 0);
+            if (host) {
+                // Resolve mDNS hostnames to a raw IPv4 BEFORE storing
+                // — every subsequent /api/passthrough-tile, /status,
+                // /api/charts/* etc. then dials the IP directly and
+                // skips the per-socket Happy Eyeballs IPv6→IPv4 race.
+                // That race was the source of the recurring
+                // tcp_input flags=[R.] noise the user reported.
+                // Fall back to the hostname on resolution failure
+                // — connection still works, just without the noise
+                // reduction. Mirrors BoatNetworkService's pattern.
+                const ipv4 = await resolveHostnameIpv4(host);
+                const effectiveHost = ipv4 ?? host;
+                if (ipv4 && ipv4 !== host) {
+                    log.info(`Resolved ${host} → ${ipv4} for pi-cache connections`);
                 }
-            } catch {
-                // This host didn't respond — try next
+                this.config.host = effectiveHost;
+                // NOT reachable yet — checkHealth() below re-probes and
+                // runs the identity gate; nothing may treat a host as
+                // "the Pi" on a bare /health hit.
+                this.status = {
+                    reachable: false,
+                    lastCheck: Date.now(),
+                    latencyMs: Date.now() - start,
+                    discoveredVia: effectiveHost,
+                };
+
+                // Persist the winning host so next boot is an instant verify
+                // (checkHealth on a known host ≈ 100ms LAN) instead of another
+                // 5-host discovery sweep.
+                if (typeof localStorage !== 'undefined') {
+                    try {
+                        localStorage.setItem('thalassa_pi_cache_host', effectiveHost);
+                    } catch {
+                        /* quota/private mode — non-fatal */
+                    }
+                }
+
+                // Now get full status with cache stats
+                await this.checkHealth();
+                this.notifyListeners();
+                this.resolveReady();
+                this.failedSweeps = 0;
+                return this.status;
             }
         }
 
         // Nothing found — mark ready so fetchers stop waiting and fall through
         // to direct network.
+        this.failedSweeps += 1;
         this.status = { reachable: false, lastCheck: Date.now(), latencyMs: 0 };
         this.resolveReady();
         return this.status;
@@ -834,14 +866,34 @@ class PiCacheServiceImpl {
         }
     }
 
-    /** Steady-state: 30s health-check interval. Clears any in-flight retry burst. */
+    /**
+     * Steady-state health checking, with backoff. Clears any in-flight retry
+     * burst.
+     *
+     * A self-rearming timeout rather than setInterval, because the period is
+     * not constant: 30 s is right for a Pi on the same LAN that might blink,
+     * and wrong for a phone ashore, where every tick is a guaranteed-failing
+     * discovery sweep for the rest of the session. Doubles 30 s → 5 min and
+     * stays there. Any success resets `failedSweeps`, so the next tick after
+     * the skipper steps back aboard reconnects at full rate.
+     *
+     * A fixed interval could not do this — the period has to be recomputed
+     * after each result, which is exactly what re-arming gives us.
+     */
     private scheduleSteadyState(): void {
         if (this.retryBurstTimer) {
             clearTimeout(this.retryBurstTimer);
             this.retryBurstTimer = null;
         }
-        if (this.healthCheckInterval) clearInterval(this.healthCheckInterval);
-        this.healthCheckInterval = setInterval(() => this.checkHealth(), 30_000);
+        if (this.healthCheckInterval) clearTimeout(this.healthCheckInterval);
+
+        const arm = (): void => {
+            const period = Math.min(30_000 * 2 ** Math.min(this.failedSweeps, 4), 300_000);
+            this.healthCheckInterval = setTimeout(() => {
+                void this.checkHealth().finally(arm);
+            }, period);
+        };
+        arm();
     }
 
     /**
@@ -886,7 +938,7 @@ class PiCacheServiceImpl {
 
     private stopHealthChecks(): void {
         if (this.healthCheckInterval) {
-            clearInterval(this.healthCheckInterval);
+            clearTimeout(this.healthCheckInterval);
             this.healthCheckInterval = null;
         }
         if (this.retryBurstTimer) {

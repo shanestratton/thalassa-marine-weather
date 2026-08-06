@@ -1531,6 +1531,7 @@ const intendedPublicBetaFeatureFlags = {
     VITE_CMEMS_MLD_ENABLED: false,
     VITE_MPA_ENABLED: false,
     VITE_APPLE_SIGN_IN_ENABLED: false,
+    VITE_APPLE_MUSIC_ENABLED: false,
     VITE_APPLE_WATCH_ENABLED: false,
     VITE_GOOGLE_SIGN_IN_ENABLED: false,
     VITE_ACCOUNT_DELETION_ENABLED: false,
@@ -2612,10 +2613,38 @@ check(
         alertNotifier.includes('not a background, terminated-app, or Critical Alert channel') &&
         !alertNotifier.includes('audible even when the app is backgrounded'),
 );
+// AGREEMENT, not absence (2026-08-06). Apple Music is gated on an external
+// fact — whether this build's App ID carries the MusicKit capability — so the
+// gate now checks that every surface matches the committed flag, in both
+// directions. Flag off: everything stays excised, exactly as before. Flag on:
+// the native plugin, route and now-playing bar must all be back, or the build
+// ships a music page that dies at Apple. Flipping the flag alone therefore
+// FAILS this gate, by design, and the failure names what is still missing.
+const appleMusicFlagOn = publicBetaFeatureProfile.featureFlags.VITE_APPLE_MUSIC_ENABLED === true;
+// NOTE: no entitlements-file check here, deliberately (corrected 2026-08-07).
+// AppleMusicPlugin.swift uses the on-device `import MusicKit` framework, which
+// is authorized by enabling MusicKit on the APP ID in the developer portal —
+// a provisioning-profile service. It writes no key into App.entitlements, and
+// Xcode's "+ Capability" picker does not list MusicKit at all (the "Media
+// Library" entry there is a different, older capability). Asserting an
+// entitlement key would demand something that never appears and would block
+// the flag from ever being flippable. The user-facing gate is the Info.plist
+// usage description, which IS required and IS checkable.
+const appleMusicWired =
+    project.includes('AppleMusicPlugin.m in Sources') &&
+    project.includes('AppleMusicPlugin.swift in Sources') &&
+    bridgeViewController.includes('AppleMusicPlugin') &&
+    appShell.includes('GlobalNowPlayingBar') &&
+    viewRegistry.includes("import('./components/music/MusicPage')") &&
+    infoPlist.includes('NSAppleMusicUsageDescription');
 check(
-    'Apple Music is compile-time fail-closed until MusicKit distribution capability is verified',
-    includesAll(featureVisibility, ['appleMusic: false']) &&
-        musicKitToken.includes('const MUSICKIT_PUBLIC_BETA_ENABLED = false') &&
+    'Apple Music surfaces agree with the MusicKit flag, and the server never trusts the client',
+    appleMusicWired === appleMusicFlagOn &&
+        // The server gate is a deployment secret, never the client's VITE_
+        // value: that ships in the bundle where any user can read and set it.
+        musicKitToken.includes("Deno.env.get('MUSICKIT_ENABLED') === 'true'") &&
+        !musicKitToken.includes('VITE_APPLE_MUSIC_ENABLED') &&
+        featureVisibility.includes("VITE_APPLE_MUSIC_ENABLED === 'true'") &&
         musicKitServerHold >= 0 &&
         musicKitServerHold < musicKitServerAuth &&
         musicKitServerHold < musicKitPrivateKeyRead &&
@@ -2642,12 +2671,10 @@ check(
             'disabled in this public-beta candidate',
             'If a future release enables one and you explicitly connect it',
         ]) &&
-        !appShell.includes('GlobalNowPlayingBar') &&
-        !viewRegistry.includes("import('./components/music/MusicPage')") &&
-        !project.includes('AppleMusicPlugin.m in Sources') &&
-        !project.includes('AppleMusicPlugin.swift in Sources') &&
-        !bridgeViewController.includes('AppleMusicPlugin') &&
-        !infoPlist.includes('NSAppleMusicUsageDescription'),
+        // Held-state copy is asserted only while the feature IS held; with the
+        // flag on these strings are expected to be gone.
+        (appleMusicFlagOn || !appShell.includes('GlobalNowPlayingBar')),
+    `flag=${appleMusicFlagOn ? 'on' : 'off'}, wired=${appleMusicWired ? 'yes' : 'no'}`,
 );
 check(
     'incompatible Capacitor 3 UDP uplink is absent and AISHub fails closed in beta',
@@ -2968,8 +2995,10 @@ const heldCapabilitySourceContracts = {
         /\bcommunityTrackSharing:\s*false\b/.test(featureVisibility) &&
         read('services/TrackSharingService.ts').includes('if (!FEATURE_VISIBILITY.communityTrackSharing)'),
     musickit:
-        /\bappleMusic:\s*false\b/.test(featureVisibility) &&
-        musicKitToken.includes('const MUSICKIT_PUBLIC_BETA_ENABLED = false'),
+        // Held while the flag is off. The flag itself is the source of truth
+        // now, not a literal in featureVisibility.
+        publicBetaFeatureProfile.featureFlags.VITE_APPLE_MUSIC_ENABLED === false &&
+        musicKitToken.includes("Deno.env.get('MUSICKIT_ENABLED') === 'true'"),
     'aishub-contribution':
         /\baisHub:\s*false\b/.test(featureVisibility) &&
         read('services/AisHubService.ts').includes('Intentionally inert'),

@@ -45,11 +45,18 @@ const CORS: Record<string, string> = {
     'Access-Control-Allow-Headers': 'Content-Type, Authorization, apikey',
 };
 
-// Public beta boundary. The client surface and MusicKit entitlement are held,
-// so the server must not keep minting reusable Apple developer tokens for old
-// clients or direct callers. Re-enable only with the matching signed-device,
-// capability/profile, privacy and App Review evidence.
-const MUSICKIT_PUBLIC_BETA_ENABLED = false;
+// Release boundary. This endpoint mints reusable Apple developer tokens, so it
+// stays closed until the MusicKit capability, distribution profile and
+// signed-device playback smoke are all verified.
+//
+// Deliberately a SERVER secret, never the client-side build flag. Any Vite
+// value ships inside the app bundle, where a user can read it and set it; it
+// may hide a UI, but it must never be what authorizes token minting. Set
+// MUSICKIT_ENABLED=true in the function's secrets to open this — a deployment
+// act with an audit trail, not an edit any client can forge.
+//
+// Default closed: an unset or malformed secret leaves the endpoint held.
+const MUSICKIT_PUBLIC_BETA_ENABLED = Deno.env.get('MUSICKIT_ENABLED') === 'true';
 
 /** Module-level cache. Edge functions run as long-lived workers in
  *  Supabase; the cache survives across requests on the same warm

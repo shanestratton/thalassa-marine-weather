@@ -22,5 +22,29 @@
         "noEmit": true
     },
     "include": ["./**/*"],
-    "exclude": ["supabase/**/*", "pi-cache/**/*", "cloudflare-worker/**/*", "**/scratch*.ts", "**/scratch*.tsx"]
+    "_excludeNote": [
+        "BUILD OUTPUT MUST STAY EXCLUDED. include is ./**/* with allowJs, so",
+        "without these tsc type-checks its own minified bundles: 210 files in",
+        "ios/App/App/public/assets (the cap-synced web build), 210 more inside",
+        "a committed .xcarchive, 212 in dist/ and 39 in storybook-static/.",
+        "Minified single-line bundles are pathological for the checker — this",
+        "was pushing tsc past the build's 4 GB heap and aborting `npm run",
+        "build` outright (2026-08-07). It also slowed every pre-commit hook and",
+        "CI run. No app source lives in these trees; ios/ is Swift plus",
+        "generated assets. .claude holds full worktree copies of the repo."
+    ],
+    "exclude": [
+        "supabase/**/*",
+        "pi-cache/**/*",
+        "cloudflare-worker/**/*",
+        "**/scratch*.ts",
+        "**/scratch*.tsx",
+        "dist/**/*",
+        "ios/**/*",
+        "storybook-static/**/*",
+        "coverage/**/*",
+        "playwright-report/**/*",
+        "test-results/**/*",
+        ".claude/**/*"
+    ]
 }
