@@ -28,6 +28,7 @@ describe('committed public-beta feature profile', () => {
             VITE_CMEMS_MLD_ENABLED: false,
             VITE_MPA_ENABLED: false,
             VITE_APPLE_SIGN_IN_ENABLED: false,
+            VITE_APPLE_MUSIC_ENABLED: false,
             VITE_APPLE_WATCH_ENABLED: false,
             VITE_GOOGLE_SIGN_IN_ENABLED: false,
             VITE_ACCOUNT_DELETION_ENABLED: false,
