@@ -774,6 +774,32 @@ class PiCacheServiceImpl {
             return false;
         }
 
+        // ── UNPAIRED: raise the pairing offer, do not probe status ──
+        // The pinned transport opens exactly one path without a pin,
+        // /api/pair/info. So /api/admin/status below is unreachable until a
+        // pairing exists — and this method used to reach the identity gate
+        // only AFTER that status call succeeded. The result was a deadlock:
+        // pairing needs the offer, the offer needs the identity gate, and the
+        // gate sat behind a request that pairing gates. That is why no pairing
+        // banner ever appeared (Shane 2026-08-07: "Still no banner????").
+        //
+        // Unpaired, the gate is the only thing worth running: it fetches the
+        // pairing card over the one permitted path and emits pairable-found.
+        // It returns false for a pairable-but-unpaired Pi by design — never
+        // auto-connect — so the Pi correctly stays unreachable until the
+        // skipper accepts.
+        if (!getPairing()) {
+            const identityOk = await this.passesIdentityGate();
+            this.status = {
+                ...this.status,
+                reachable: identityOk,
+                lastCheck: Date.now(),
+            };
+            this.resolveReady();
+            this.notifyListeners();
+            return identityOk;
+        }
+
         const start = Date.now();
         try {
             // Pinned transport (2026-08-07). The Pi serves a self-signed
