@@ -108,6 +108,20 @@ function seenPairableHosts(): Set<string> {
     }
 }
 
+/**
+ * True once ANY host has advertised pairing on this device.
+ *
+ * The zero-config discovery sweep is throttled to 6 h because for most users
+ * there is no Pi and sweeping is pure background noise. That reasoning stops
+ * applying the moment we know a Pi exists: from then on the skipper is trying
+ * to pair, and a 6 h wait to be asked again reads as "the banner never
+ * appears" (Shane 2026-08-07).
+ */
+export function hasEverSeenPairableHost(): boolean {
+    if (!PI_INTEGRATION_ENABLED) return false;
+    return seenPairableHosts().size > 0;
+}
+
 export function markHostPairable(host: string): void {
     try {
         const hosts = seenPairableHosts();

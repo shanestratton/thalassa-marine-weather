@@ -50,26 +50,36 @@ public class ThalassaBridgeViewController: CAPBridgeViewController {
         // than the one Xcode just built (i.e. Xcode reported success but
         // didn't actually push).
         //
-        // DERIVED, never hand-written (fixed 2026-08-07). This used to be
-        // a hardcoded timestamp with a comment asking whoever built to
-        // update it. Nobody did — it read 2026-05-15 for months, so the
-        // one line whose entire job is proving freshness was itself the
-        // stalest thing on screen, and it made every fresh build look
-        // stale. The executable's modification date is stamped by the
-        // linker at build time, so it cannot drift from reality and
-        // cannot be forgotten.
+        // DERIVED, never hand-written (2026-08-07). This used to be a
+        // hardcoded timestamp with a comment asking whoever built to update
+        // it. Nobody did — it read 2026-05-15 for months, so the one line
+        // whose entire job is proving freshness was itself the stalest thing
+        // on screen, and it made every fresh build look stale.
+        //
+        // TIMESTAMP SOURCE: the .app BUNDLE, not the executable. The
+        // executable's mtime only moves when Swift actually relinks — so a
+        // `cap sync` that swapped the whole web bundle, with no native change,
+        // left the marker reading an older build and made a genuinely fresh
+        // app look stale. That is what "the times are not correct most of the
+        // time" was. The bundle directory's mtime moves whenever ANY resource
+        // is copied in, web assets included, which is what the skipper
+        // actually wants to know.
+        //
+        // Local time, no UTC offset: this is read by a human standing next to
+        // the machine that built it, and "+10:00" is noise on that line.
         let info = Bundle.main.infoDictionary
         let version = info?["CFBundleShortVersionString"] as? String ?? "?"
         let build = info?["CFBundleVersion"] as? String ?? "?"
         var builtAt = "unknown"
-        if let executable = Bundle.main.executableURL,
-           let attributes = try? FileManager.default.attributesOfItem(atPath: executable.path),
+        if let attributes = try? FileManager.default.attributesOfItem(atPath: Bundle.main.bundlePath),
            let modified = attributes[.modificationDate] as? Date {
-            let formatter = ISO8601DateFormatter()
+            let formatter = DateFormatter()
+            formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
             formatter.timeZone = TimeZone.current
+            formatter.locale = Locale(identifier: "en_US_POSIX")
             builtAt = formatter.string(from: modified)
         }
-        NSLog("[BUILD-MARKER-SWIFT] thalassa v\(version) (\(build)) built \(builtAt) capacitorDidLoad")
+        NSLog("[BUILD-MARKER-SWIFT] thalassa v\(version) build \(build) — built \(builtAt) — capacitorDidLoad")
 
         // ── Audio session: input-capable, but inactive, at launch ──
         // The diary and Bosun both capture through WKWebView's

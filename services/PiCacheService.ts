@@ -24,6 +24,7 @@ import { piRequest } from './piTls';
 import {
     pinnedPiRequest,
     getPairing,
+    hasEverSeenPairableHost,
     fetchPairInfo,
     verifyPairedPi,
     markHostPairable,
@@ -356,12 +357,20 @@ class PiCacheServiceImpl {
     private async politeAutoDiscover(): Promise<void> {
         if (this.config.enabled) return; // something configured meanwhile
         if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
-        try {
-            const last = Number(localStorage.getItem(PiCacheServiceImpl.AUTO_DISCOVER_LAST_KEY) ?? 0);
-            if (Date.now() - last < PiCacheServiceImpl.AUTO_DISCOVER_MIN_INTERVAL_MS) return;
-            localStorage.setItem(PiCacheServiceImpl.AUTO_DISCOVER_LAST_KEY, String(Date.now()));
-        } catch {
-            /* private mode — run anyway; the per-boot timer still bounds it */
+        // The 6 h throttle is for devices with no Pi, where sweeping is pure
+        // background noise. Once a Pi has advertised pairing on this device we
+        // KNOW there is one and the skipper is trying to pair — throttling
+        // there just means the pairing banner never appears (Shane 2026-08-07:
+        // "the is no banner claude???"). Still bounded by the once-per-boot
+        // timer, so this is at most one extra hostname sweep per launch.
+        if (!hasEverSeenPairableHost()) {
+            try {
+                const last = Number(localStorage.getItem(PiCacheServiceImpl.AUTO_DISCOVER_LAST_KEY) ?? 0);
+                if (Date.now() - last < PiCacheServiceImpl.AUTO_DISCOVER_MIN_INTERVAL_MS) return;
+                localStorage.setItem(PiCacheServiceImpl.AUTO_DISCOVER_LAST_KEY, String(Date.now()));
+            } catch {
+                /* private mode — run anyway; the per-boot timer still bounds it */
+            }
         }
         log.info('no Pi paired or configured — running one background discovery sweep');
         // discover() probes the fixed hostname list only. A found-but-unpaired
