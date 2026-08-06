@@ -18,7 +18,7 @@
 | **Anchor Watch** | GPS geofencing, swing circle visualization, drag alarm with audio, and shore remote monitoring pending final physical-device verification                       |
 | **Community**    | Crew Talk real-time chat, direct messages, and crew finder profiles                                                                                             |
 | **Voyage**       | Ship's log with Gemini AI diary entries, GPS track recording, and explicitly opt-in public Voyage Logs                                                          |
-| **Guardian**     | Held and unavailable in the public beta; vessel-security source remains for a later release                                                                     |
+| **Guardian**     | Explicitly armed, identity-bound nearby-vessel watch; remote privacy migrations are recorded and authenticated beta smoke remains pending                       |
 
 ---
 
@@ -78,7 +78,7 @@ thalassa-marine-weather/
 ├── utils/                  # Shared utilities (createLogger, system, logExport)
 ├── workers/ais-ingest/     # Independently deployed Node AIS ingest service
 ├── cloudflare-worker/      # Independently deployed Deepgram voice proxy
-├── pi-cache/               # Held development-only Pi companion boundary
+├── pi-cache/               # Native pinned-TLS Pi / Boat Network companion
 ├── supabase/functions/     # Supabase Edge Functions
 ├── data/                   # Static data (customs DB, ports, country flags)
 └── public/                 # Static assets, PWA manifest, service worker
@@ -161,12 +161,13 @@ CMEMS currents are a display overlay only in this candidate. Passage routing per
 returns no current field, so current-adjusted route timing remains unavailable until a separately reviewed bounded,
 signed regional or tiled routing source exists.
 
-### Public-beta feature holds
+### Public-beta capability boundaries
 
-Raspberry Pi integration is intentionally unavailable in production public-beta builds. The app does not discover,
-configure, or exchange private data with a Pi and replaces Pi control screens with an unavailable notice. Development
-work remains in the repository, but it must not be presented as a beta feature until authenticated encrypted LAN
-transport is complete. Server-side development flags and the exact fail-closed defaults are documented in
+Raspberry Pi / Boat Network integration is enabled only in a native build that contains the Pi TLS pinning verifier.
+Pairing pins the Pi public key and native requests use HTTPS; web builds, old native shells, and stripped builds fail
+closed instead of falling back to unverified or plaintext transport. Discovery, pairing, provisioning, diary relay,
+chart sync, and Pi-hosted Signal K/AVNav/N2K therefore remain testable only through that pinned native lane. Pi service
+installation, exact fail-closed defaults, and operational cautions are documented in
 [`pi-cache/README.md`](./pi-cache/README.md).
 
 The Apple Music client and AISHub contribution are also compile-time fail-closed for this candidate. Apple Music's
@@ -174,12 +175,13 @@ local Edge Function source returns an unavailable response as well, but that ser
 MusicKit capability/profile and signed-device playback also remain unverified. Native NMEA/AIS reception remains
 available, but the retired Capacitor 3 UDP bridge has been removed and the beta does not transmit sentences to AISHub.
 
-Guardian and precise community-track sharing are also unavailable in the public beta. Their screens are held in this
-client, and the AIS ingest worker's privileged Guardian watchdog is now a strict, default-off
-`GUARDIAN_WATCHDOG_ENABLED=true` opt-in. That source hold is not a deployed server security boundary: the worker must be
-deployed and verified off, live Guardian RPCs still require an approved hold, and the precise-track hold migration must
-be deployed and verified before release. This does not affect a skipper's separate, explicitly enabled public Voyage
-Log.
+Guardian is enabled in the candidate client, while precise community-track sharing remains unavailable. The linked
+migration ledger records both `20260804191000_guardian_presence_privacy.sql` and
+`20260804192000_guardian_broadcast_contract.sql` remotely; that ledger evidence does not replace an authenticated live
+arm/disarm/discovery/broadcast smoke. The AIS ingest worker's privileged Guardian watchdog is a separate strict,
+default-off `GUARDIAN_WATCHDOG_ENABLED=true` opt-in and must be verified off unless it is deliberately deployed. The
+precise-track hold migration remains local-only. This does not affect a skipper's separate, explicitly enabled public
+Voyage Log.
 
 MPA categories are presented only as classes inferred from CAPAD metadata. A feature-gated `MPAs` control in the map's
 route/chart tools makes the overlay reachable without presenting it as a tactical danger or activity-permission layer.
@@ -243,11 +245,12 @@ computation. The table below describes representative local source, not verified
 | `check-weather-alerts`                      | Automated severe weather alert checks             |
 
 Public-beta release requires the live migration ledger and deployed Function inventory to match the frozen reviewed
-source exactly. At this snapshot, the community precise-track and Cast Off migrations are local-only; the Guardian
-worker's default-off source hold is not deployed or verified and an explicit Guardian RPC hold is not yet approved or
-prepared; and remote MusicKit, Float Plan, and account-deletion handlers predate their local boundaries. Three retired
-Marketplace handlers also remain remote-only. A green local Function check therefore does not establish backend
-release parity.
+source exactly. At this snapshot, only `20260805103000_hold_precise_track_sharing.sql` and
+`20260805110000_enforce_traced_route_cast_off_verification.sql` remain local-only. The two Guardian privacy/broadcast
+migrations are recorded remotely, but authenticated runtime smoke and verification that the worker watchdog remains
+off are still pending. Remote MusicKit, Float Plan, and account-deletion handlers predate their local boundaries, and
+three retired Marketplace handlers remain remote-only. A green local Function check therefore does not establish
+backend release parity.
 
 ---
 
