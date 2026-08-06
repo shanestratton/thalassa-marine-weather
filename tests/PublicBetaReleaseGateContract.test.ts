@@ -389,6 +389,9 @@ describe('public-beta release gate contract', () => {
             expect(workflow).toContain('if-no-files-found: error');
         }
         expect(runner).toContain('await rm(reportDirectory, { recursive: true, force: true })');
+        expect(runner).toContain('async function closeBrowserBounded(');
+        expect(runner).toContain("browserProcess.kill('SIGKILL')");
+        expect(runner).toContain('if (browser) await closeBrowserBounded(browser)');
         expect(runner).toContain("'--strictPort'");
         expect(lighthouse).not.toContain('pull-requests: write');
         expect(preview).not.toContain('statuses: write');

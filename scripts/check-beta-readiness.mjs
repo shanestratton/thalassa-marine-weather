@@ -1519,7 +1519,7 @@ check(
         includesAll(marineDevProxyContractTest, [
             'preserves every API path through the canonical shard-aware production boundary',
             "expect(marineProxyBoundary).not.toContain('rewrite')",
-            "expect(marineProxyBoundary.match(/\\btarget:\\s*/g) ?? []).toHaveLength(1)",
+            'expect(marineProxyBoundary.match(/\\btarget:\\s*/g) ?? []).toHaveLength(1)',
         ]),
 );
 const intendedPublicBetaFeatureFlags = {
@@ -1626,6 +1626,9 @@ check(
             'await seedApplicationShell(browser, { url: auditUrl })',
             'evaluateAssertions(result.lhr)',
             'await rm(reportDirectory, { recursive: true, force: true })',
+            'async function closeBrowserBounded(',
+            "browserProcess.kill('SIGKILL')",
+            'if (browser) await closeBrowserBounded(browser)',
             "'--strictPort'",
         ]) &&
         [ciWorkflow, lighthouseWorkflow].every(
@@ -2354,8 +2357,7 @@ check(
         !/gmail\.(readonly|compose|send|modify)/.test(read('services/auth/googleSignIn.ts')) &&
         includesAll(signInUi, ['GOOGLE_SIGN_IN_ENABLED', '{googleEnabled && (']) &&
         // Shell and env files must not disagree with the committed profile.
-        (googleFlagOn ||
-            (process.env.VITE_GOOGLE_SIGN_IN_ENABLED !== 'true' && googleEnabledEnvFiles.length === 0)),
+        (googleFlagOn || (process.env.VITE_GOOGLE_SIGN_IN_ENABLED !== 'true' && googleEnabledEnvFiles.length === 0)),
     `profile=${googleFlagOn ? 'enabled' : 'disabled'}, shell=${
         process.env.VITE_GOOGLE_SIGN_IN_ENABLED === 'true' ? 'enabled' : 'disabled'
     }, env-files=${googleEnabledEnvFiles.length}`,
