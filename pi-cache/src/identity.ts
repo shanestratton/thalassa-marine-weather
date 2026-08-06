@@ -61,6 +61,23 @@ function fingerprintOf(spkiDer: Buffer): string {
     return hex.slice(0, 16).replace(/(..)(?=.)/g, '$1:');
 }
 
+/**
+ * The identity private key, in PKCS#8 PEM — for `ensureIdentityTls` only.
+ *
+ * Deliberately NOT a field on PiIdentity. That object is handed to route
+ * handlers (createPairRoutes, sendSignedJson), and a private key sitting on it
+ * is one careless `res.json(identity)` away from being served to the LAN. The
+ * signing closures above are the only other thing that touches this key, and
+ * they never expose it. Call this once, at boot, in the server entry point.
+ */
+export function readIdentityPrivateKeyPem(dataDir: string): string {
+    const identityPath = resolve(dataDir, 'identity.json');
+    const parsed = JSON.parse(readFileSync(identityPath, 'utf8')) as PersistedIdentity;
+    if (!parsed?.privateKeyPem)
+        throw new Error(`No Pi identity key at ${identityPath} — call loadOrCreateIdentity first`);
+    return parsed.privateKeyPem;
+}
+
 export function loadOrCreateIdentity(dataDir: string, boatName?: string): PiIdentity {
     const identityPath = resolve(dataDir, 'identity.json');
 

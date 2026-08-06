@@ -68,8 +68,11 @@ describe('EncLibraryPage', () => {
         expect(screen.getByRole('button', { name: 'Import from Files' })).toBeEnabled();
         expect(screen.getByRole('button', { name: 'Import from HTTPS URL' })).toBeEnabled();
         expect(screen.getByText(/cannot decode S-57/i)).toHaveTextContent(/S-63.*o-charts/i);
-        expect(screen.getByText(/Pi discovery and sync remain separate and held/i)).toHaveTextContent(
-            /authenticated, encrypted boat-network transport/i,
+        // The ENC Library must stay independent of the Pi. Since 2026-08-06
+        // that is a separation statement rather than a beta hold — the Pi
+        // ships, but nothing on this page reaches it.
+        expect(screen.getByText(/Pi discovery and sync stay separate/i)).toHaveTextContent(
+            /pinned boat-network transport/i,
         );
         expect(screen.getByText(/cannot authenticate the publisher/i)).toHaveTextContent(
             /ignored by route verification/i,

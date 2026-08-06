@@ -1,6 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { triggerHaptic } from '../../utils/system';
-import { PUBLIC_BETA_ACCESS } from '../../services/SubscriptionService';
 
 export type MapBaseKind = 'hybrid' | 'satellite' | 'ocean';
 
@@ -62,11 +61,16 @@ export function MapBaseSelector({ visible, value, onChange }: MapBaseSelectorPro
 
     if (!visible) return null;
 
+    /* Centred on the SAME top row as the zoom pill (left) and the Calypso
+       mic / system-status pair (right) — Shane 2026-08-06: "smack bang in
+       the middle". h-12 on the trigger matches those two 48px controls so
+       the three read as one line; the menu is centred under the trigger by
+       items-center rather than hanging off its left edge. */
     return (
         <div
             ref={rootRef}
-            className="absolute left-4 z-[710]"
-            style={{ top: 'calc(env(safe-area-inset-top) + 68px)' }}
+            className="absolute left-1/2 z-[710] flex -translate-x-1/2 flex-col items-center"
+            style={{ top: 'calc(env(safe-area-inset-top) + 8px)' }}
             onKeyDown={(event) => {
                 if (event.key === 'Escape') {
                     event.preventDefault();
@@ -89,7 +93,7 @@ export function MapBaseSelector({ visible, value, onChange }: MapBaseSelectorPro
                     triggerHaptic('light');
                     setOpen((current) => !current);
                 }}
-                className="flex min-h-[44px] items-center gap-2 rounded-2xl border border-white/[0.10] bg-slate-900/90 px-3 text-white shadow-xl backdrop-blur-xl transition-colors hover:bg-slate-800/95 active:scale-95"
+                className="flex h-12 min-h-[44px] items-center gap-2 rounded-2xl border border-white/[0.10] bg-slate-900/90 px-3 text-white shadow-xl backdrop-blur-xl transition-colors hover:bg-slate-800/95 active:scale-95"
                 aria-label={`Map base: ${selected.label}`}
                 aria-haspopup="menu"
                 aria-expanded={open}
@@ -97,11 +101,13 @@ export function MapBaseSelector({ visible, value, onChange }: MapBaseSelectorPro
             >
                 <MapBaseIcon />
                 <span className="text-[10px] font-black uppercase tracking-wider">{selected.label}</span>
-                {PUBLIC_BETA_ACCESS.enabled && (
-                    <span className="rounded border border-cyan-300/25 bg-cyan-300/10 px-1 py-0.5 text-[8px] font-black uppercase tracking-wider text-cyan-200">
-                        Free Beta
-                    </span>
-                )}
+                {/* No beta badge here (Shane 2026-08-06: "completely remove the
+                    Free Beta wording from the OBS page altogether"). The chart
+                    is the working surface; the beta framing belongs in the app
+                    header, under Skipper, and nowhere else. Dropping it also
+                    halves this pill's width, which is what lets it sit centred
+                    between the zoom readout and the mic without crowding
+                    either. */}
                 <span className="text-[10px] text-slate-400" aria-hidden="true">
                     {open ? '▴' : '▾'}
                 </span>

@@ -10,6 +10,11 @@ const mocks = vi.hoisted(() => ({
 vi.mock('@capacitor/core', () => ({
     CapacitorHttp: { post: mocks.post },
 }));
+vi.mock('../services/piTls', () => ({
+    piRequest: async () => ({ status: 599, headers: {}, data: '', peerSpki: '' }),
+    piPairingFetch: async () => ({ status: 599, headers: {}, data: '', peerSpki: '' }),
+    isPinnedTransportAvailable: () => false,
+}));
 
 vi.mock('../services/ConnectionPriorityService', () => ({
     getConnectionState: () => ({

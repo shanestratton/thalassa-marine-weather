@@ -18,6 +18,8 @@ setGlobalDispatcher(new Agent({ connect: { family: 4 } }));
 import express from 'express';
 import cors from 'cors';
 import fs from 'fs';
+import http from 'http';
+import https from 'https';
 import path from 'path';
 import { Cache } from './cache.js';
 import { createWeatherRoutes } from './routes/weather.js';
@@ -33,7 +35,8 @@ import { cachedJsonFetch, cachedTileFetch } from './proxy.js';
 import { startScheduler, stopScheduler } from './scheduler.js';
 import { startEncWatcher, stopEncWatcher } from './encWatcher.js';
 import { DiaryRelayOutbox, type DiaryRelayConfigInput, DiaryRelayValidationError } from './diaryRelayOutbox.js';
-import { loadOrCreateIdentity } from './identity.js';
+import { loadOrCreateIdentity, readIdentityPrivateKeyPem } from './identity.js';
+import { ensureIdentityTls } from './tlsIdentity.js';
 import { createPairRoutes } from './routes/pair.js';
 import {
     adminApiDisabledPayload,
@@ -54,8 +57,18 @@ const CORS_ORIGINS = allowedCorsOrigins();
 // Pairing identity — survives redeploys (rsync excludes identity/). See
 // identity.ts for what this defends against. PI_BOAT_NAME overrides the
 // hostname shown on the app's pairing card.
-const identity = loadOrCreateIdentity(process.env.IDENTITY_DIR || './identity');
+const IDENTITY_DIR = process.env.IDENTITY_DIR || './identity';
+const identity = loadOrCreateIdentity(IDENTITY_DIR);
 console.log(`[identity] ${identity.boatName} (${identity.deviceId}) fingerprint ${identity.fingerprint}`);
+
+// ── Boat-LAN TLS ───────────────────────────────────────────────────
+// Certificate issued from the SAME key the app pinned at pairing, so the
+// encrypted channel and the pairing identity are one trust decision rather
+// than two. See tlsIdentity.ts for why self-signed is correct offshore and
+// PiTlsPlugin.swift for the pin that consumes it. There is no plaintext
+// fallback: an unencrypted boat LAN is what kept this out of the beta.
+const tls = ensureIdentityTls(IDENTITY_DIR, readIdentityPrivateKeyPem(IDENTITY_DIR));
+console.log(`[tls] boat-LAN certificate valid to ${tls.notAfter} — cert fp ${tls.certFingerprint}`);
 let SUPABASE_URL = process.env.SUPABASE_URL || '';
 let SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || '';
 const proxyConfig = {
@@ -394,8 +407,9 @@ if (UNSAFE_ADMIN_API_ENABLED && fs.existsSync(path.join(APP_DIST, 'index.html'))
 
 // ── Start ──
 
-const server = app.listen(PORT, BIND_HOST, () => {
-    console.log(`\n🌊 Thalassa Pi Cache running on http://${BIND_HOST}:${PORT}`);
+const server = https.createServer({ key: tls.keyPem, cert: tls.certPem, minVersion: 'TLSv1.2' }, app);
+server.listen(PORT, BIND_HOST, () => {
+    console.log(`\n🌊 Thalassa Pi Cache running on https://${BIND_HOST}:${PORT}`);
     console.log(`   Cache dir: ${CACHE_DIR}`);
     console.log(
         `   LAN bind:   ${BIND_HOST === '127.0.0.1' ? 'disabled (loopback only)' : 'ENABLED by explicit opt-in'}`,
@@ -415,12 +429,36 @@ const server = app.listen(PORT, BIND_HOST, () => {
     }
 });
 
+// ── Plaintext port: a signpost, never a data path ──────────────────
+// Everything that used to answer here now answers over TLS on the same port,
+// so an app or laptop from before the switch would otherwise hang on a TLS
+// handshake it never gets — the least diagnosable failure mode on a boat.
+// This listener exists ONLY to turn that hang into a sentence. It reads no
+// request body, serves no cache, and never redirects (a 30x would put the
+// requested path back on the wire in clear, which is the thing we just fixed).
+const plaintextSignpost = http.createServer((_req, res) => {
+    res.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8', Connection: 'close' });
+    res.end(
+        `This Pi speaks HTTPS now — try https://${identity.boatName}:${PORT}/\n` +
+            'The certificate is self-signed and pinned to the Pi pairing key;\n' +
+            'the Thalassa app verifies it automatically, browsers will ask once.\n',
+    );
+});
+plaintextSignpost.on('error', (err) => {
+    // Port already busy is not fatal — TLS is up, which is what matters.
+    console.warn(`[tls] plaintext signpost not listening: ${err instanceof Error ? err.message : String(err)}`);
+});
+plaintextSignpost.listen(PORT + 1, BIND_HOST, () => {
+    console.log(`   Plaintext:  port ${PORT + 1} answers "use HTTPS" and nothing else\n`);
+});
+
 // ── Graceful Shutdown ──
 
 function shutdown() {
     console.log('\n🛑 Shutting down...');
     stopScheduler();
     void stopEncWatcher();
+    plaintextSignpost.close();
     server.close(() => {
         diaryRelayOutbox.close();
         cache.close();

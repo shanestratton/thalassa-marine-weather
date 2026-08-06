@@ -24,6 +24,11 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 
 vi.mock('@capacitor/core', () => ({ CapacitorHttp: { get: async () => ({ status: 599, data: null }) } }));
+vi.mock('../services/piTls', () => ({
+    piRequest: async () => ({ status: 599, headers: {}, data: '', peerSpki: '' }),
+    piPairingFetch: async () => ({ status: 599, headers: {}, data: '', peerSpki: '' }),
+    isPinnedTransportAvailable: () => false,
+}));
 vi.mock('../services/enc/EncCellMetadata', () => ({ cellsForBBox: async () => [], listCells: () => [] }));
 vi.mock('../services/enc/EncCellStore', () => ({ loadCellGeoJSON: async () => null }));
 vi.mock('../services/PiCacheService', () => ({

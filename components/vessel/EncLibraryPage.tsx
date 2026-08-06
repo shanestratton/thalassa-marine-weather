@@ -429,7 +429,7 @@ export const EncLibraryPage: React.FC<EncLibraryPageProps> = ({ onBack, onOpenMa
                             metres. Never treat an empty or pale map area as safe water.
                         </p>
                         <p className="mt-2 text-gray-400">
-                            Pi discovery and sync remain separate and held: {PI_PUBLIC_BETA_UNAVAILABLE_MESSAGE}
+                            Pi discovery and sync stay separate from this library. {PI_PUBLIC_BETA_UNAVAILABLE_MESSAGE}
                         </p>
                     </section>
                 </div>

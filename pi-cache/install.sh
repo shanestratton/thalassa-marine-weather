@@ -256,7 +256,7 @@ if systemctl is-active --quiet thalassa-cache; then
     echo -e "  Public-beta safe mode is active: loopback only, private routes disabled."
     echo -e "  See ${BOLD}${INSTALL_DIR}/README.md${NC} for isolated development flags."
     echo ""
-    echo -e "  ${CYAN}http://127.0.0.1:3001/health${NC}"
+    echo -e "  ${CYAN}https://127.0.0.1:3001/health${NC}  (self-signed — curl needs --cacert identity/identity-cert.pem)"
     echo ""
 else
     echo -e "\n${RED}  Something went wrong. Run: sudo journalctl -u thalassa-cache -f${NC}\n"

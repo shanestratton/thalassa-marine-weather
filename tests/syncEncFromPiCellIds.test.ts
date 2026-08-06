@@ -31,8 +31,25 @@ const h = vi.hoisted(() => ({
 }));
 
 vi.mock('@capacitor/core', () => ({ CapacitorHttp: { get: h.get } }));
+// Pi reads go through the pinned transport now. Adapt the existing handler
+// rather than rewriting it: piRequest returns the body as TEXT (so the bytes
+// hashed for the signature check are exactly the bytes received), where
+// CapacitorHttp handed back parsed JSON.
+vi.mock('../services/piTls', () => ({
+    piRequest: async (options: { url: string }) => {
+        const res = await h.get({ url: options.url });
+        return {
+            status: res.status,
+            headers: res.headers ?? {},
+            data: typeof res.data === 'string' ? res.data : JSON.stringify(res.data),
+            peerSpki: '',
+        };
+    },
+    piPairingFetch: async () => ({ status: 599, headers: {}, data: '', peerSpki: '' }),
+    isPinnedTransportAvailable: () => true,
+}));
 vi.mock('../services/PiCacheService', () => ({
-    piCache: { isAvailable: h.isAvailable, baseUrl: 'http://pi.local:3001' },
+    piCache: { isAvailable: h.isAvailable, baseUrl: 'https://pi.local:3001' },
 }));
 vi.mock('../services/enc/EncHazardService', () => ({
     importCell: h.importCell,

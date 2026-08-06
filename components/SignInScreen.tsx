@@ -30,6 +30,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { signInWithApple } from '../services/auth/SocialAuthService';
+import { GOOGLE_SIGN_IN_ENABLED, signInWithGoogle, signInWithGoogleOnWeb } from '../services/auth/googleSignIn';
 import { AuthModal } from './AuthModal';
 import { triggerHaptic } from '../utils/system';
 import { XIcon } from './Icons';
@@ -79,7 +80,7 @@ interface SignInScreenProps {
 }
 
 export const SignInScreen: React.FC<SignInScreenProps> = ({ isOpen, onClose, prompt }) => {
-    const [busy, setBusy] = useState<'apple' | null>(null);
+    const [busy, setBusy] = useState<'apple' | 'google' | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [emailMode, setEmailMode] = useState(false);
     const authedUser = useAuthStore((s) => s.user);
@@ -91,6 +92,10 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({ isOpen, onClose, pro
     // Email OTP is the working web/desktop door.
     const isNative = Capacitor.isNativePlatform();
     const appleNativeEnabled = isNative && APPLE_SIGN_IN_ENABLED;
+    // Google works on BOTH lanes, unlike Apple: the native PKCE flow and the
+    // web OAuth redirect use the same Google client, so there is no
+    // Services-ID equivalent holding the browser back.
+    const googleEnabled = GOOGLE_SIGN_IN_ENABLED;
 
     // Auto-dismiss in controlled mode once authentication succeeds.
     // The Apple/email handlers push the new session into
@@ -133,6 +138,27 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({ isOpen, onClose, pro
             setBusy(null);
         }
     }, [appleNativeEnabled]);
+
+    const handleGoogle = useCallback(async () => {
+        setError(null);
+        setBusy('google');
+        try {
+            if (!googleEnabled) throw new Error('Google sign-in is not enabled in this build. Use email instead.');
+            // Native opens the system browser and awaits the redirect; web
+            // navigates away entirely and resumes via detectSessionInUrl.
+            if (isNative) {
+                await signInWithGoogle();
+                triggerHaptic('medium');
+            } else {
+                await signInWithGoogleOnWeb();
+            }
+        } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            if (msg !== 'CANCELLED') setError(msg);
+        } finally {
+            setBusy(null);
+        }
+    }, [googleEnabled, isNative]);
 
     // Controlled mode: respect isOpen.
     if (isOpen === false) return null;
@@ -295,6 +321,45 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({ isOpen, onClose, pro
                                     )}
                                 </button>
                             </>
+                        )}
+                        {/* Google — official styling: white surface with the
+                            four-colour mark, per Google's branding guidelines.
+                            Sits under Apple on iOS (Apple HIG expects the
+                            Apple button to lead) and under email on the web. */}
+                        {googleEnabled && (
+                            <button
+                                type="button"
+                                onClick={() => void handleGoogle()}
+                                disabled={busy !== null}
+                                aria-label="Sign in with Google"
+                                className="w-full h-12 rounded-xl bg-white text-[#1f1f1f] font-semibold flex items-center justify-center gap-2 active:scale-[0.98] transition-transform disabled:opacity-50 shadow-lg shadow-black/40"
+                            >
+                                {busy === 'google' ? (
+                                    <span className="text-sm">Signing in…</span>
+                                ) : (
+                                    <>
+                                        <svg className="w-5 h-5" viewBox="0 0 48 48" aria-hidden="true">
+                                            <path
+                                                fill="#EA4335"
+                                                d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"
+                                            />
+                                            <path
+                                                fill="#4285F4"
+                                                d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"
+                                            />
+                                            <path
+                                                fill="#FBBC05"
+                                                d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"
+                                            />
+                                            <path
+                                                fill="#34A853"
+                                                d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"
+                                            />
+                                        </svg>
+                                        <span>Sign in with Google</span>
+                                    </>
+                                )}
+                            </button>
                         )}
                         {!isNative && (
                             <p className="px-2 text-center text-xs leading-relaxed text-slate-400">

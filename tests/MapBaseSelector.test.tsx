@@ -17,7 +17,8 @@ describe('MapBaseSelector', () => {
     it('makes Hybrid, Satellite, and Ocean explicit reachable choices', () => {
         render(<Harness />);
 
-        expect(screen.getByText('Free Beta')).toBeInTheDocument();
+        // No beta wording on the chart at all (Shane 2026-08-06).
+        expect(screen.queryByText(/beta/i)).not.toBeInTheDocument();
         fireEvent.click(screen.getByRole('button', { name: 'Map base: Hybrid' }));
         expect(screen.getByRole('menu', { name: 'Map base' })).toHaveTextContent(
             'Visual background only — ENC safety layers stay above it.',

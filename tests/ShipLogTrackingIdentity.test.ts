@@ -110,6 +110,11 @@ vi.mock('@capacitor/preferences', () => ({
 vi.mock('@capacitor/core', () => ({
     Capacitor: { isNativePlatform: () => true },
 }));
+vi.mock('../services/piTls', () => ({
+    piRequest: async () => ({ status: 599, headers: {}, data: '', peerSpki: '' }),
+    piPairingFetch: async () => ({ status: 599, headers: {}, data: '', peerSpki: '' }),
+    isPinnedTransportAvailable: () => false,
+}));
 
 vi.mock('@capacitor/app', () => ({
     App: { addListener: vi.fn(async () => ({ remove: vi.fn() })) },
