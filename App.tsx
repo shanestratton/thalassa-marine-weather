@@ -25,6 +25,7 @@ import { canAccess, PUBLIC_BETA_ACCESS, TIER_INFO } from './services/Subscriptio
 import { AlertMonitorService } from './services/AlertMonitorService';
 import { ToastPortal, toast } from './components/Toast';
 import { GlobalAnchorAlarmGate } from './components/anchor-watch/GlobalAnchorAlarmGate';
+import { PiPairingBanner } from './components/PiPairingBanner';
 import { hasBeenDisplaced, holdsClaim, readRememberedHeld, rememberHeld } from './services/skipperDevice';
 import { PushToast } from './components/PushToast';
 import { PageTransition } from './components/ui/PageTransition';
@@ -525,6 +526,11 @@ const App: React.FC = () => {
                     covers WHATEVER page is up, not just the anchor-watch
                     page it used to be local to. */}
                 <GlobalAnchorAlarmGate />
+
+                {/* Pi pairing offer — global, because the identity gate blocks
+                    the ENC sync until the skipper pairs, and the offer used to
+                    live only inside Settings where it was never seen. */}
+                <PiPairingBanner />
 
                 {/* Departure prompts — fire on cast-off from any view. */}
                 <Suspense fallback={null}>

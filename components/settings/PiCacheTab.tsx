@@ -48,6 +48,7 @@ import {
 } from '../../services/authIdentityScope';
 import { PI_INTEGRATION_ENABLED } from '../../services/piPublicBetaBoundary';
 import { PiPublicBetaUnavailable } from '../ui/PiPublicBetaUnavailable';
+import { PiSetupWizard } from '../voice/PiSetupWizard';
 
 const SUPABASE_URL = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) || '';
 const SUPABASE_KEY =
@@ -76,6 +77,7 @@ const PiCacheTabDevelopment: React.FC<SettingsTabProps> = ({ settings, onSave })
     const [pairing, setPairing] = useState<PiPairingRecord | null>(() => getPairing());
     const [pairable, setPairable] = useState<{ host: string; baseUrl: string; info: PairInfo } | null>(null);
     const [pairingBusy, setPairingBusy] = useState(false);
+    const [piSetupOpen, setPiSetupOpen] = useState(false);
     const [identityAlert, setIdentityAlert] = useState<string | null>(null);
     const [purging, setPurging] = useState(false);
     const [purgeResult, setPurgeResult] = useState<string | null>(null);
@@ -922,6 +924,36 @@ const PiCacheTabDevelopment: React.FC<SettingsTabProps> = ({ settings, onSave })
                     </div>
                 </div>
             )}
+
+            {/* ── Brand-new Pi: join it to the boat Wi-Fi ──────────────
+                Moved here from the Calypso console 2026-08-07. This is
+                hardware onboarding, not a voice feature, and offering it as a
+                "Set up Pi" link next to an unavailable assistant made it read
+                as a fix for a missing Pi — which it is not. It talks to a NEW
+                Pi's own access point, so it only works while the phone is
+                joined to that network. Saying so up front is the difference
+                between a wizard that works and one that silently cannot
+                reach anything. */}
+            <div className="rounded-2xl border border-white/5 bg-white/[0.02] p-4">
+                <p className="text-[13px] font-bold text-white">Setting up a brand-new Pi?</p>
+                <p className="mt-1 text-[11px] leading-relaxed text-gray-400">
+                    This joins a factory-fresh Pi to your boat&apos;s Wi-Fi. First join your phone to the Pi&apos;s own{' '}
+                    <span className="font-mono text-gray-300">Calypso-Setup-…</span> network, then start the wizard. If
+                    your Pi is already on the boat network you don&apos;t need this — it will appear above on its own.
+                </p>
+                <button
+                    type="button"
+                    onClick={() => {
+                        triggerHaptic('light');
+                        setPiSetupOpen(true);
+                    }}
+                    className="mt-3 min-h-[40px] rounded-xl border border-sky-400/30 bg-sky-500/15 px-4 text-[12px] font-black text-sky-100 transition-colors hover:bg-sky-500/25"
+                >
+                    Start Wi-Fi setup
+                </button>
+            </div>
+
+            <PiSetupWizard isOpen={piSetupOpen} onClose={() => setPiSetupOpen(false)} />
         </div>
     );
 };
