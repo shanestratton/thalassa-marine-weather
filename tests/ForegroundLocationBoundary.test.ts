@@ -102,7 +102,15 @@ describe('foreground location privacy boundary', () => {
             'services/ShipLogService.ts',
         ]);
         expect(filesStartingSafetyWatch).toEqual(['services/MobService.ts']);
-        expect(warmUpCallers).toEqual([]);
+        // Was []: the warm-up existed but nothing was allowed to call it, so
+        // every cold start hunted satellites at the moment of need — which is
+        // what made the first MOB press feel slow (Shane 2026-08-07).
+        //
+        // Now permitted from exactly ONE place: the app boot hook. The list
+        // stays exact rather than becoming a free-for-all, because the reason
+        // it was closed is still real — warming up starts the location engine,
+        // and that must happen once at launch, never from arbitrary screens.
+        expect(warmUpCallers).toEqual(['hooks/useAppBootstrap.ts']);
     });
 
     it('does not initialize background GPS merely because the account identity changes', () => {

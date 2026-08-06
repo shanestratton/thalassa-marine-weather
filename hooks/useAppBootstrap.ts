@@ -190,6 +190,25 @@ export function useAppBootstrap() {
             });
     }, []);
 
+    // ── GPS warm-up ────────────────────────────────────────────────
+    // Wired 2026-08-07. gpsWarmUp has existed since 2026-08-02 but nothing
+    // ever called it, so every cold start began its satellite hunt at the
+    // moment of need — which is what made the first MOB press feel slow.
+    //
+    // MOB no longer waits for a fix (it marks from cache and refines), so this
+    // is no longer a safety dependency — it just makes that first cached fix
+    // exist sooner and be fresher. It is deliberately fire-and-forget: it
+    // never blocks boot, never prompts for permission, never reports errors,
+    // and releases the engine on the first of a good fix, its 45 s time box,
+    // or the app backgrounding.
+    useEffect(() => {
+        void import('../services/gpsWarmUp')
+            .then(({ warmUpGps }) => warmUpGps())
+            .catch(() => {
+                /* convenience only — absence changes nothing but latency */
+            });
+    }, []);
+
     // ── Local-first DB + sync engine ───────────────────────────────
     useEffect(() => {
         const actionScope = identityScope;
