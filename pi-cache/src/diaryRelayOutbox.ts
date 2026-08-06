@@ -17,6 +17,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import Database from 'better-sqlite3';
+import { normaliseExactHttpOrigin, normaliseOutboundHttpUrl, outboundFetch } from './outboundHttp.js';
 
 // The Edge Function accepts at most 160 KiB JSON. Leave ample room for the
 // `{ entry }` envelope and UTF-8 representation so a Pi never retains a
@@ -34,6 +35,8 @@ const RELAY_ID_RE = /^[A-Za-z0-9_-]{16,128}$/;
 const OPERATION_ID_RE = /^[A-Za-z0-9_-]{1,128}$/;
 const OWNER_BINDING_MISSING = 'Diary relay owner binding is missing';
 const OWNER_BINDING_MISMATCH = 'Diary relay owner does not match the configured Pi';
+const RELAY_AUTHORITY_MISMATCH = 'Diary relay authority does not match the Pi trust anchor';
+const DIARY_RELAY_PATH = '/functions/v1/diary-relay';
 
 export type DiaryRelayStatus = 'queued' | 'synced' | 'needs_repair';
 
@@ -191,6 +194,14 @@ export class DiaryRelayValidationError extends Error {
     }
 }
 
+interface DiaryRelayFetchResponse {
+    readonly ok: boolean;
+    readonly status: number;
+    text(): Promise<string>;
+}
+
+type DiaryRelayFetch = (url: string, init: RequestInit) => Promise<DiaryRelayFetchResponse>;
+
 /**
  * An upstream response that will not improve with network retries. Its public
  * message is deliberately metadata-only: no Edge response body or diary text
@@ -207,10 +218,12 @@ class DiaryRelayPermanentError extends Error {
 }
 
 export interface DiaryRelayOutboxOptions {
+    /** Exact process-startup Supabase trust anchor; never sourced from an HTTP request. */
+    trustedSupabaseOrigin: string;
     /** Tests can inject a deterministic clock. */
     now?: () => number;
     /** Tests can inject a fetch implementation without touching global fetch. */
-    fetchImpl?: (url: string, init: RequestInit) => Promise<Response>;
+    fetchImpl?: DiaryRelayFetch;
     retryIntervalMs?: number;
     requestTimeoutMs?: number;
 }
@@ -319,7 +332,13 @@ function newPiRelayId(): string {
     return `pi_${randomUUID().replace(/-/g, '')}`;
 }
 
-function validateRelay(input: unknown): RelayCredentials {
+/** Derive the only relay endpoint this process may persist or contact. */
+export function canonicalDiaryRelayEndpoint(trustedSupabaseOrigin: string): string {
+    const origin = normaliseExactHttpOrigin(trustedSupabaseOrigin);
+    return new URL(DIARY_RELAY_PATH, `${origin}/`).href;
+}
+
+function validateRelay(input: unknown, trustedRelayEndpoint: string): RelayCredentials {
     if (!isRecord(input)) throw new DiaryRelayValidationError('relay must be an object');
     const url = validText(input.url, 'url', 2_048);
     const relayId = validText(input.relayId, 'relayId', 256);
@@ -331,23 +350,21 @@ function validateRelay(input: unknown): RelayCredentials {
 
     let parsed: URL;
     try {
-        parsed = new URL(url);
+        parsed = normaliseOutboundHttpUrl(url);
     } catch {
         throw new DiaryRelayValidationError('relay.url is invalid');
     }
-    // Diary payloads are private. Do not allow a LAN caller to turn the Pi
-    // into an arbitrary HTTP/SSRF proxy, or to send diary content in cleartext.
-    if (parsed.protocol !== 'https:' || parsed.username || parsed.password) {
-        throw new DiaryRelayValidationError('relay.url must be an HTTPS URL');
+    // The authority and complete path come from process startup. A Boat-LAN
+    // request can provide credentials only for that one canonical endpoint;
+    // it cannot redirect private diary data or relay tokens to another host.
+    if (parsed.href !== trustedRelayEndpoint) {
+        throw new DiaryRelayValidationError('relay.url must exactly match the trusted diary-relay endpoint');
     }
-    const pathname = parsed.pathname.replace(/\/+$/, '');
-    if (!pathname.endsWith('/functions/v1/diary-relay')) {
-        throw new DiaryRelayValidationError('relay.url must target the diary-relay Edge Function');
-    }
-    return { url: parsed.toString(), relayId, token, ownerId };
+    return { url: trustedRelayEndpoint, relayId, token, ownerId };
 }
 
 function relayFromParts(
+    trustedRelayEndpoint: string,
     url: string | null | undefined,
     relayId: string | null | undefined,
     token: string | null | undefined,
@@ -355,7 +372,7 @@ function relayFromParts(
 ): RelayCredentials | null {
     if (!url || !relayId || !token || !ownerId) return null;
     try {
-        return validateRelay({ url, relayId, token, ownerId });
+        return validateRelay({ url, relayId, token, ownerId }, trustedRelayEndpoint);
     } catch {
         return null;
     }
@@ -399,8 +416,9 @@ function isPermanentRelayStatus(status: number): boolean {
  */
 export class DiaryRelayOutbox {
     private readonly db: Database.Database;
+    private readonly trustedRelayEndpoint: string;
     private readonly now: () => number;
-    private readonly fetchImpl: (url: string, init: RequestInit) => Promise<Response>;
+    private readonly fetchImpl: DiaryRelayFetch;
     private readonly requestTimeoutMs: number;
     /** Entry and cancellation requests must be able to run for the same id. */
     private readonly inFlight = new Set<string>();
@@ -410,7 +428,9 @@ export class DiaryRelayOutbox {
     private retryTimer: NodeJS.Timeout | null = null;
     private closed = false;
 
-    constructor(cacheDir: string, options: DiaryRelayOutboxOptions = {}) {
+    constructor(cacheDir: string, options: DiaryRelayOutboxOptions) {
+        this.trustedRelayEndpoint = canonicalDiaryRelayEndpoint(options.trustedSupabaseOrigin);
+        this.now = options.now ?? Date.now;
         const outboxDir = path.join(cacheDir, 'diary-relay');
         fs.mkdirSync(outboxDir, { recursive: true, mode: 0o700 });
         try {
@@ -517,7 +537,7 @@ export class DiaryRelayOutbox {
             | { relay_id: string | null }
             | undefined;
         if (!existing) {
-            const now = (options.now ?? Date.now)();
+            const now = this.now();
             this.db
                 .prepare(
                     'INSERT INTO diary_relay_config (singleton, relay_url, relay_id, relay_token, relay_owner_id, allow_internet, updated_at) VALUES (1, NULL, ?, NULL, NULL, 0, ?)',
@@ -528,8 +548,10 @@ export class DiaryRelayOutbox {
             // row. Give it a real Pi identity before any user pairs it.
             this.db
                 .prepare('UPDATE diary_relay_config SET relay_id = ?, updated_at = ? WHERE singleton = 1')
-                .run(newPiRelayId(), (options.now ?? Date.now)());
+                .run(newPiRelayId(), this.now());
         }
+
+        this.invalidateUntrustedPersistedRelayUrls();
 
         // The Pi cannot reliably identify an arbitrary uplink as satellite or
         // ordinary Internet on its own. Fail closed after every process boot
@@ -538,10 +560,10 @@ export class DiaryRelayOutbox {
         // private diary work over a satellite link during a restart race.
         this.db
             .prepare('UPDATE diary_relay_config SET allow_internet = 0, updated_at = ? WHERE singleton = 1')
-            .run((options.now ?? Date.now)());
+            .run(this.now());
 
-        this.now = options.now ?? Date.now;
-        this.fetchImpl = options.fetchImpl ?? ((url, init) => fetch(url, init));
+        this.fetchImpl =
+            options.fetchImpl ?? ((url, init) => outboundFetch(url, init as Parameters<typeof outboundFetch>[1]));
         this.requestTimeoutMs = options.requestTimeoutMs ?? REQUEST_TIMEOUT_MS;
         const retryInterval = options.retryIntervalMs ?? RETRY_INTERVAL_MS;
         if (retryInterval > 0) {
@@ -580,12 +602,15 @@ export class DiaryRelayOutbox {
         let nextToken = current.token;
         let nextOwnerId = current.ownerId;
         if (hasRelayField) {
-            const relay = validateRelay({
-                url: input.url ?? current.url,
-                relayId: input.relayId ?? current.relayId,
-                token: input.token ?? current.token,
-                ownerId: input.ownerId ?? current.ownerId,
-            });
+            const relay = validateRelay(
+                {
+                    url: input.url ?? current.url,
+                    relayId: input.relayId ?? current.relayId,
+                    token: input.token ?? current.token,
+                    ownerId: input.ownerId ?? current.ownerId,
+                },
+                this.trustedRelayEndpoint,
+            );
             nextUrl = relay.url;
             nextRelayId = relay.relayId;
             nextToken = relay.token;
@@ -608,7 +633,13 @@ export class DiaryRelayOutbox {
 
     getConfiguration(): DiaryRelayPublicConfiguration {
         const current = this.readConfiguration();
-        const relay = relayFromParts(current.url, current.relayId, current.token, current.ownerId);
+        const relay = relayFromParts(
+            this.trustedRelayEndpoint,
+            current.url,
+            current.relayId,
+            current.token,
+            current.ownerId,
+        );
         return {
             configured: relay !== null,
             allowInternet: current.allowInternet,
@@ -624,7 +655,8 @@ export class DiaryRelayOutbox {
         if (envelope.allowInternet !== undefined && typeof envelope.allowInternet !== 'boolean') {
             throw new DiaryRelayValidationError('allowInternet must be a boolean');
         }
-        const suppliedRelay = envelope.relay === undefined ? null : validateRelay(envelope.relay);
+        const suppliedRelay =
+            envelope.relay === undefined ? null : validateRelay(envelope.relay, this.trustedRelayEndpoint);
         const now = this.now();
         let replacedOlderRevision = false;
         const result = this.db.transaction(() => {
@@ -691,6 +723,7 @@ export class DiaryRelayOutbox {
                 // already-synced row. The Edge Function performs the matching
                 // revision check, so an interrupted old request cannot win.
                 const configuredRelay = relayFromParts(
+                    this.trustedRelayEndpoint,
                     configured.url,
                     configured.relayId,
                     configured.token,
@@ -729,6 +762,7 @@ export class DiaryRelayOutbox {
             // refresh still takes precedence when forwarding.
             const configured = this.readConfiguration();
             const configuredRelay = relayFromParts(
+                this.trustedRelayEndpoint,
                 configured.url,
                 configured.relayId,
                 configured.token,
@@ -787,13 +821,20 @@ export class DiaryRelayOutbox {
             const entry = this.readRow(validatedOperationId);
             const configured = this.readConfiguration();
             const configuredRelay = relayFromParts(
+                this.trustedRelayEndpoint,
                 configured.url,
                 configured.relayId,
                 configured.token,
                 configured.ownerId,
             );
             const entryRelay = entry
-                ? relayFromParts(entry.relay_url, entry.relay_id, entry.relay_token, entry.relay_owner_id)
+                ? relayFromParts(
+                      this.trustedRelayEndpoint,
+                      entry.relay_url,
+                      entry.relay_id,
+                      entry.relay_token,
+                      entry.relay_owner_id,
+                  )
                 : null;
 
             if (!existingCancellation) {
@@ -846,6 +887,7 @@ export class DiaryRelayOutbox {
                     this.markCancellationNeedsRepair(validatedOperationId, bindingError, null);
                 } else {
                     const existingRelay = relayFromParts(
+                        this.trustedRelayEndpoint,
                         existingCancellation.relay_url,
                         existingCancellation.relay_id,
                         existingCancellation.relay_token,
@@ -1088,7 +1130,10 @@ export class DiaryRelayOutbox {
         // for autonomous retries. Envelope snapshots still make a newly
         // received entry durable, but they cannot turn a half-configured Pi
         // into an unexpected WAN sender after a reboot.
-        if (!config.allowInternet || !relayFromParts(config.url, config.relayId, config.token, config.ownerId))
+        if (
+            !config.allowInternet ||
+            !relayFromParts(this.trustedRelayEndpoint, config.url, config.relayId, config.token, config.ownerId)
+        )
             return attempted;
         const now = this.now();
         const cancellationRows = this.db
@@ -1128,6 +1173,58 @@ export class DiaryRelayOutbox {
             this.retryTimer = null;
         }
         this.db.close();
+    }
+
+    /**
+     * Pre-hardening builds accepted any HTTPS host whose path ended with the
+     * Edge Function suffix. Scrub those persisted credentials before the
+     * startup sweep can perform network I/O, and quarantine pending work so a
+     * later policy-only update cannot revive an attacker-selected authority.
+     */
+    private invalidateUntrustedPersistedRelayUrls(): void {
+        const now = this.now();
+        this.db.transaction(() => {
+            this.db
+                .prepare(
+                    `UPDATE diary_relay_config
+                     SET relay_url = NULL, relay_token = NULL, relay_owner_id = NULL,
+                         allow_internet = 0, updated_at = ?
+                     WHERE relay_url IS NOT NULL AND relay_url <> ?`,
+                )
+                .run(now, this.trustedRelayEndpoint);
+
+            this.db
+                .prepare(
+                    `UPDATE diary_relay_outbox
+                     SET needs_repair = 1, next_attempt_at = ?, last_error = ?, updated_at = ?
+                     WHERE status = 'queued' AND needs_repair = 0
+                       AND relay_url IS NOT NULL AND relay_url <> ?`,
+                )
+                .run(now, RELAY_AUTHORITY_MISMATCH, now, this.trustedRelayEndpoint);
+            this.db
+                .prepare(
+                    `UPDATE diary_relay_outbox
+                     SET relay_url = NULL, relay_token = NULL, updated_at = ?
+                     WHERE relay_url IS NOT NULL AND relay_url <> ?`,
+                )
+                .run(now, this.trustedRelayEndpoint);
+
+            this.db
+                .prepare(
+                    `UPDATE diary_relay_cancellations
+                     SET needs_repair = 1, next_attempt_at = ?, last_error = ?, updated_at = ?
+                     WHERE status = 'queued' AND needs_repair = 0
+                       AND relay_url IS NOT NULL AND relay_url <> ?`,
+                )
+                .run(now, RELAY_AUTHORITY_MISMATCH, now, this.trustedRelayEndpoint);
+            this.db
+                .prepare(
+                    `UPDATE diary_relay_cancellations
+                     SET relay_url = NULL, relay_token = NULL, updated_at = ?
+                     WHERE relay_url IS NOT NULL AND relay_url <> ?`,
+                )
+                .run(now, this.trustedRelayEndpoint);
+        })();
     }
 
     private readConfiguration(): StoredRelayConfiguration {
@@ -1181,9 +1278,10 @@ export class DiaryRelayOutbox {
     ): OwnerBoundRelayResolution {
         const bindingError = this.ownerBindingProblem(ownerId, relayUrl, relayId, relayToken, relayOwnerId, configured);
         if (bindingError) return { relay: null, error: bindingError };
-        const rowRelay = relayFromParts(relayUrl, relayId, relayToken, relayOwnerId)!;
+        const rowRelay = relayFromParts(this.trustedRelayEndpoint, relayUrl, relayId, relayToken, relayOwnerId)!;
 
         const configuredRelay = relayFromParts(
+            this.trustedRelayEndpoint,
             configured.url,
             configured.relayId,
             configured.token,
@@ -1208,7 +1306,7 @@ export class DiaryRelayOutbox {
         configured: StoredRelayConfiguration,
         suppliedRelay?: RelayCredentials | null,
     ): DiaryRelayPermanentError | null {
-        const rowRelay = relayFromParts(relayUrl, relayId, relayToken, relayOwnerId);
+        const rowRelay = relayFromParts(this.trustedRelayEndpoint, relayUrl, relayId, relayToken, relayOwnerId);
         if (!hasImmutableOwnerBinding(rowRelay, ownerId)) {
             return new DiaryRelayPermanentError(OWNER_BINDING_MISSING);
         }

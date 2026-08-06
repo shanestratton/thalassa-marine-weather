@@ -1,8 +1,9 @@
-# Thalassa Pi Cache — development-only public-beta boundary
+# Thalassa Pi Cache — native pinned-TLS public-beta boundary
 
-The production Thalassa public beta does **not** connect to this service. The current LAN protocol is not yet an
-authenticated encrypted transport, so pairing signatures are not treated as permission to send private app data over
-HTTP. Do not claim Pi workflow coverage in public-beta testing.
+The native Thalassa public-beta candidate may connect only when its Pi TLS verifier is present. Pairing pins this
+service's public key, subsequent app traffic uses HTTPS, and browser, old, or stripped native shells fail closed rather
+than falling back to plaintext or ordinary platform trust. The service still keeps LAN/private administration off by
+default; the operator must deliberately enable the exact boundaries below.
 
 ## Safe defaults
 
@@ -18,15 +19,24 @@ With no environment flags, the server:
 `/status` never returns prefetch coordinates, user/owner IDs, Pi identity, diary relay configuration or queue detail,
 filesystem paths, or credentials.
 
-## Explicit unsafe development flags
+## Runtime
 
-These switches are not authentication and do not make HTTP safe. Use them only on an isolated trusted development
-network:
+Node.js `>=20.18.1` is required by the pinned HTTP transport. `install.sh` upgrades an older Pi runtime through the
+NodeSource 20.x repository and aborts before dependency installation or service restart if that minimum is not met.
+
+## Explicit LAN/admin flags
+
+These switches are not authentication and do not make an untrusted network safe. Use them only on an isolated trusted
+boat LAN with the native pinned-HTTPS client:
 
 ```text
 THALASSA_PI_LAN_BIND=1
 THALASSA_UNSAFE_ADMIN_API=1
 THALASSA_CORS_ORIGINS=capacitor://localhost,http://localhost:5173
+# Optional: exact private origins the admin download/proxy tools may contact.
+THALASSA_UNSAFE_PRIVATE_UPSTREAM_ORIGINS=http://chartbox.local:8080
+# Optional: exact non-production Supabase origin selected through SUPABASE_URL at startup.
+THALASSA_UNSAFE_SUPABASE_ORIGINS=http://supabase.lan:54321
 ENC_WATCHER_ENABLED=true
 ```
 
@@ -34,8 +44,17 @@ ENC_WATCHER_ENABLED=true
 - `THALASSA_UNSAFE_ADMIN_API=1` enables private/admin routes, app hosting, and prefetch scheduling.
 - `THALASSA_CORS_ORIGINS` is a comma-separated exact allowlist. Wildcards, credentialed URLs, and origins with paths
   are ignored.
+- Public chart/vendor URLs remain available, including validated cross-origin CDN redirects. Private or carrier-grade
+  destinations require an exact `THALASSA_UNSAFE_PRIVATE_UPSTREAM_ORIGINS` entry as well as unsafe-admin mode. DNS is
+  checked at connection time and on every redirect; loopback, link-local, metadata, multicast, translated/tunnelled
+  IPv6, and reserved ranges remain blocked.
+- The production Supabase origin is pinned in the service. A development origin must be selected through
+  `SUPABASE_URL` at process startup, appear exactly in `THALASSA_UNSAFE_SUPABASE_ORIGINS`, and, when private, also
+  appear in `THALASSA_UNSAFE_PRIVATE_UPSTREAM_ORIGINS`. `/api/configure` may confirm but cannot change that authority.
+  The diary relay accepts only the exact `/functions/v1/diary-relay` endpoint derived from this startup origin; legacy
+  off-origin relay credentials are scrubbed and their pending rows require repair before any startup retry.
 - `ENC_WATCHER_ENABLED=true` starts the watcher only when the unsafe-admin flag is also enabled.
 
-To exercise the complete development flow from another device, both the LAN-bind and unsafe-admin switches are
-required, plus the exact browser origin when applicable. Do not add a bearer token over HTTP as a workaround; the
-release blocker is authenticated encryption, not merely possession of a reusable secret.
+To exercise the complete flow from another device, both the LAN-bind and unsafe-admin switches are required, plus the
+exact browser origin when applicable. Do not bypass certificate pinning, expose the service to an untrusted network,
+or add a plaintext fallback.

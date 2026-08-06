@@ -55,6 +55,7 @@ import os from 'node:os';
 import path from 'node:path';
 import AdmZip from 'adm-zip';
 import { routeInshore, type InshoreLayers, type RouteRequest } from '../services/inshoreRouter.js';
+import { normaliseOutboundHttpUrl, outboundFetch } from '../outboundHttp.js';
 import { sendSignedJson, routeRequestBinding } from './pair.js';
 import type { PiIdentity } from '../identity.js';
 
@@ -1015,13 +1016,11 @@ export function createEncRoutes(identity?: PiIdentity): Router {
         }
         let parsed: URL;
         try {
-            parsed = new URL(url);
+            parsed = normaliseOutboundHttpUrl(url);
         } catch {
             return res.status(400).json({ error: 'Invalid URL' });
         }
-        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-            return res.status(400).json({ error: 'Only http/https URLs are allowed' });
-        }
+        const downloadUrl = parsed.href;
 
         const safeName = sanitiseFilename(filename ?? path.basename(parsed.pathname) ?? 'cell.zip');
 
@@ -1041,7 +1040,7 @@ export function createEncRoutes(identity?: PiIdentity): Router {
             startedAt: Date.now(),
             workDir,
             installSource: 'url',
-            installUrl: url,
+            installUrl: downloadUrl,
         };
         jobs.set(jobId, job);
 
@@ -1054,7 +1053,7 @@ export function createEncRoutes(identity?: PiIdentity): Router {
                 const timer = setTimeout(() => ctrl.abort(), URL_DOWNLOAD_TIMEOUT_MS);
                 let response;
                 try {
-                    response = await fetch(url, { signal: ctrl.signal, redirect: 'follow' });
+                    response = await outboundFetch(downloadUrl, { signal: ctrl.signal });
                 } finally {
                     clearTimeout(timer);
                 }

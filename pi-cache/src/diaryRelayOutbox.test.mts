@@ -2,12 +2,15 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import Database from 'better-sqlite3';
 import {
+    canonicalDiaryRelayEndpoint,
     DiaryRelayOperationCancelledError,
     DiaryRelayOperationConflictError,
     DiaryRelayOutbox,
     DiaryRelayValidationError,
     type DiaryRelayEnvelope,
+    type DiaryRelayOutboxOptions,
 } from './diaryRelayOutbox.js';
 
 const relay = {
@@ -26,6 +29,13 @@ const entry = {
 
 const baseEnvelope: DiaryRelayEnvelope = { entry, relay, allowInternet: false };
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'thalassa-diary-relay-test-'));
+
+function createOutbox(
+    cacheDir: string,
+    options: Omit<DiaryRelayOutboxOptions, 'trustedSupabaseOrigin'> = {},
+): DiaryRelayOutbox {
+    return new DiaryRelayOutbox(cacheDir, { trustedSupabaseOrigin: new URL(relay.url).origin, ...options });
+}
 
 function acceptedEntry(
     operationId: string,
@@ -63,9 +73,91 @@ function requestedEntry(init: RequestInit): Record<string, unknown> {
 }
 
 try {
+    assert.equal(canonicalDiaryRelayEndpoint('https://PROJECT.supabase.co:443'), relay.url);
+
+    // Relay credentials and private diary payloads may target only the exact
+    // Edge endpoint below the process-startup Supabase trust anchor.
+    const authorityBound = createOutbox(path.join(tempDir, 'authority-bound'), { retryIntervalMs: 0 });
+    for (const url of [
+        'https://attacker.invalid/functions/v1/diary-relay',
+        'https://project.supabase.co/other/functions/v1/diary-relay',
+        `${relay.url}/`,
+        `${relay.url}?redirect=https://attacker.invalid`,
+    ]) {
+        assert.throws(() => authorityBound.configure({ ...relay, url }), DiaryRelayValidationError);
+        assert.throws(
+            () =>
+                authorityBound.enqueue({
+                    entry: {
+                        ...entry,
+                        client_operation_id: `rejected-${Buffer.from(url).toString('hex').slice(0, 24)}`,
+                    },
+                    relay: { ...relay, url },
+                }),
+            DiaryRelayValidationError,
+        );
+    }
+    authorityBound.close();
+
+    // Upgrade safety: pre-hardening databases may contain an arbitrary host
+    // in config and durable entry/cancellation snapshots. Startup must scrub
+    // those credentials and quarantine pending work before its first sweep.
+    const legacyDir = path.join(tempDir, 'legacy-authority');
+    const legacyEntryId = 'diary-op-legacy-authority';
+    const legacyCancellationId = 'diary-op-legacy-cancellation';
+    const legacy = createOutbox(legacyDir, { retryIntervalMs: 0 });
+    legacy.configure({ ...relay, allowInternet: false });
+    legacy.enqueue({ entry: { ...entry, client_operation_id: legacyEntryId }, relay });
+    legacy.enqueue({ entry: { ...entry, client_operation_id: legacyCancellationId }, relay });
+    legacy.cancel(legacyCancellationId);
+    legacy.close();
+
+    const maliciousRelayUrl = 'https://attacker.invalid/prefix/functions/v1/diary-relay';
+    const legacyDbPath = path.join(legacyDir, 'diary-relay', 'outbox.db');
+    const legacyDb = new Database(legacyDbPath);
+    legacyDb
+        .prepare(
+            'UPDATE diary_relay_config SET relay_url = ?, relay_token = ?, relay_owner_id = ?, allow_internet = 1 WHERE singleton = 1',
+        )
+        .run(maliciousRelayUrl, 'legacy-config-token', relay.ownerId);
+    legacyDb
+        .prepare('UPDATE diary_relay_outbox SET relay_url = ?, relay_token = ? WHERE operation_id = ?')
+        .run(maliciousRelayUrl, 'legacy-entry-token', legacyEntryId);
+    legacyDb
+        .prepare('UPDATE diary_relay_cancellations SET relay_url = ?, relay_token = ? WHERE operation_id = ?')
+        .run(maliciousRelayUrl, 'legacy-cancellation-token', legacyCancellationId);
+    legacyDb.close();
+
+    let legacyFetchCalls = 0;
+    const migratedLegacy = createOutbox(legacyDir, {
+        retryIntervalMs: 0,
+        fetchImpl: async () => {
+            legacyFetchCalls += 1;
+            return acceptedEntry(legacyEntryId, 1);
+        },
+    });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.equal(migratedLegacy.getConfiguration().configured, false);
+    assert.equal(migratedLegacy.getConfiguration().allowInternet, false);
+    assert.equal(migratedLegacy.getStatus(legacyEntryId)?.status, 'needs_repair');
+    assert.equal(migratedLegacy.getStatus(legacyCancellationId)?.status, 'needs_repair');
+    assert.equal(legacyFetchCalls, 0);
+    migratedLegacy.close();
+
+    const scrubbedDb = new Database(legacyDbPath, { readonly: true });
+    for (const table of ['diary_relay_config', 'diary_relay_outbox', 'diary_relay_cancellations']) {
+        const row = scrubbedDb.prepare(`SELECT relay_url, relay_token FROM ${table} LIMIT 1`).get() as {
+            relay_url: string | null;
+            relay_token: string | null;
+        };
+        assert.equal(row.relay_url, null);
+        assert.equal(row.relay_token, null);
+    }
+    scrubbedDb.close();
+
     // A policy-only update occurs before initial pairing on a fresh Pi. It
     // must not erase the public, generated id that the phone uses to pair.
-    const unpaired = new DiaryRelayOutbox(path.join(tempDir, 'unpaired'), { retryIntervalMs: 0 });
+    const unpaired = createOutbox(path.join(tempDir, 'unpaired'), { retryIntervalMs: 0 });
     const generatedRelayId = unpaired.getConfiguration().relayId;
     assert.ok(generatedRelayId);
     unpaired.configure({ allowInternet: true });
@@ -88,7 +180,7 @@ try {
     // The Pi's persisted policy is the sole WAN gate. A temporary satellite
     // flag on the sending phone must not permanently strand an entry after
     // the Pi later gets ordinary internet.
-    const first = new DiaryRelayOutbox(tempDir, { fetchImpl, retryIntervalMs: 0 });
+    const first = createOutbox(tempDir, { fetchImpl, retryIntervalMs: 0 });
     first.configure({ ...relay, allowInternet: true });
     const queued = first.enqueue(baseEnvelope);
     assert.equal(queued.status, 'queued');
@@ -136,7 +228,7 @@ try {
 
     // Failed WAN attempts remain queued and are eligible for a later retry.
     let attempts = 0;
-    const retrying = new DiaryRelayOutbox(path.join(tempDir, 'retry'), {
+    const retrying = createOutbox(path.join(tempDir, 'retry'), {
         retryIntervalMs: 0,
         fetchImpl: async () => {
             attempts += 1;
@@ -154,7 +246,7 @@ try {
 
     // A generic 2xx is not enough — only the relay's explicit `{ ok: true }`
     // acknowledgement may move a row out of the durable queue.
-    const incompleteAck = new DiaryRelayOutbox(path.join(tempDir, 'incomplete-ack'), {
+    const incompleteAck = createOutbox(path.join(tempDir, 'incomplete-ack'), {
         retryIntervalMs: 0,
         fetchImpl: async () => new Response(JSON.stringify({ ok: false }), { status: 200 }),
     });
@@ -173,7 +265,7 @@ try {
     // A successful HTTP response may only acknowledge the exact durable
     // operation. A mismatched operation or accepted revision remains queued
     // rather than allowing an unrelated canonical row to retire it.
-    const invalidCanonicalAck = new DiaryRelayOutbox(path.join(tempDir, 'invalid-canonical-ack'), {
+    const invalidCanonicalAck = createOutbox(path.join(tempDir, 'invalid-canonical-ack'), {
         retryIntervalMs: 0,
         fetchImpl: async (_url, init) => {
             const sent = requestedEntry(init);
@@ -202,7 +294,7 @@ try {
     // the same operation already has an equal-or-newer canonical revision.
     // This is how a delayed Pi handoff safely yields to a newer direct-device
     // upload without retrying the stale snapshot forever.
-    const staleCanonicalAck = new DiaryRelayOutbox(path.join(tempDir, 'stale-canonical-ack'), {
+    const staleCanonicalAck = createOutbox(path.join(tempDir, 'stale-canonical-ack'), {
         retryIntervalMs: 0,
         fetchImpl: async () => acceptedEntry('diary-op-stale-canonical', 2, { id: 'newer-row' }, 'stale'),
     });
@@ -219,7 +311,7 @@ try {
     // lower revision is ignored, while same revision with different content
     // remains a conflict (it might be a stale device replay).
     const revisionBodies: string[] = [];
-    const revisions = new DiaryRelayOutbox(path.join(tempDir, 'revisions'), {
+    const revisions = createOutbox(path.join(tempDir, 'revisions'), {
         retryIntervalMs: 0,
         fetchImpl: async (_url, init) => {
             revisionBodies.push(String(init.body));
@@ -295,7 +387,7 @@ try {
     // deletes its unsent entry atomically, survives reboot, retries ahead of
     // all normal entries, and never reveals the scoped token in LAN status.
     const cancellationDir = path.join(tempDir, 'cancellation');
-    const cancellationBeforeRestart = new DiaryRelayOutbox(cancellationDir, { retryIntervalMs: 0 });
+    const cancellationBeforeRestart = createOutbox(cancellationDir, { retryIntervalMs: 0 });
     cancellationBeforeRestart.configure({ ...relay, allowInternet: false });
     cancellationBeforeRestart.enqueue({
         entry: { ...entry, client_operation_id: 'diary-op-cancelled' },
@@ -325,7 +417,7 @@ try {
     cancellationBeforeRestart.close();
 
     const cancellationCalls: Array<{ body: string; headers: Headers }> = [];
-    const cancellationAfterRestart = new DiaryRelayOutbox(cancellationDir, {
+    const cancellationAfterRestart = createOutbox(cancellationDir, {
         retryIntervalMs: 0,
         fetchImpl: async (_url, init) => {
             cancellationCalls.push({ body: String(init.body), headers: new Headers(init.headers) });
@@ -362,7 +454,7 @@ try {
     // Cancelling is just as strict as entry forwarding: an arbitrary 2xx or
     // a cancellation acknowledgement for another operation must not retire
     // this durable tombstone.
-    const invalidCancellationAck = new DiaryRelayOutbox(path.join(tempDir, 'invalid-cancellation-ack'), {
+    const invalidCancellationAck = createOutbox(path.join(tempDir, 'invalid-cancellation-ack'), {
         retryIntervalMs: 0,
         fetchImpl: async () => cancellationAcknowledgement('diary-op-someone-else'),
     });
@@ -378,7 +470,7 @@ try {
 
     // A failed cancellation remains durable and redacts a malicious upstream
     // error that tries to echo the scoped bearer token into public status.
-    const failingCancellation = new DiaryRelayOutbox(path.join(tempDir, 'failing-cancellation'), {
+    const failingCancellation = createOutbox(path.join(tempDir, 'failing-cancellation'), {
         retryIntervalMs: 0,
         fetchImpl: async () => {
             throw new Error(`upstream echo ${relay.token}`);
@@ -398,7 +490,7 @@ try {
     // They become visible metadata (`needs_repair`) and are omitted from future
     // sweep attempts until a deliberate revision/configuration repair occurs.
     let repairCalls = 0;
-    const needsRepair = new DiaryRelayOutbox(path.join(tempDir, 'needs-repair'), {
+    const needsRepair = createOutbox(path.join(tempDir, 'needs-repair'), {
         retryIntervalMs: 0,
         fetchImpl: async () => {
             repairCalls += 1;
@@ -419,7 +511,7 @@ try {
     // for the stale write: the Pi records a synced local cancellation and
     // never retries the entry itself.
     let remoteCancellationCalls = 0;
-    const remoteCancellation = new DiaryRelayOutbox(path.join(tempDir, 'remote-cancellation'), {
+    const remoteCancellation = createOutbox(path.join(tempDir, 'remote-cancellation'), {
         retryIntervalMs: 0,
         fetchImpl: async () => {
             remoteCancellationCalls += 1;
@@ -442,7 +534,7 @@ try {
     // the same rule applies to cancellation tombstones).
     const relayB = { ...relay, token: 'scoped-relay-token-for-owner-two', ownerId: 'owner-2' };
     let crossOwnerCalls = 0;
-    const crossOwner = new DiaryRelayOutbox(path.join(tempDir, 'cross-owner'), {
+    const crossOwner = createOutbox(path.join(tempDir, 'cross-owner'), {
         retryIntervalMs: 0,
         fetchImpl: async () => {
             crossOwnerCalls += 1;
@@ -469,14 +561,14 @@ try {
 
     // Old/partial Pi rows that have no verifiable relay owner are quarantined
     // rather than becoming deliverable after a later pairing.
-    const ownerless = new DiaryRelayOutbox(path.join(tempDir, 'ownerless'), { retryIntervalMs: 0 });
+    const ownerless = createOutbox(path.join(tempDir, 'ownerless'), { retryIntervalMs: 0 });
     ownerless.enqueue({ entry: { ...entry, client_operation_id: 'diary-op-ownerless' } });
     assert.equal(ownerless.getStatus('diary-op-ownerless')?.status, 'needs_repair');
     ownerless.close();
 
     // Keep the Pi below the Edge body's 160 KiB ceiling even before the extra
     // relay envelope is added.
-    const bounded = new DiaryRelayOutbox(path.join(tempDir, 'bounded'), { retryIntervalMs: 0 });
+    const bounded = createOutbox(path.join(tempDir, 'bounded'), { retryIntervalMs: 0 });
     assert.throws(
         () =>
             bounded.enqueue({
@@ -491,7 +583,7 @@ try {
     // draining the outbox over a newly selected satellite link.
     let startupCalls = 0;
     const startupDir = path.join(tempDir, 'startup');
-    const beforeRestart = new DiaryRelayOutbox(startupDir, {
+    const beforeRestart = createOutbox(startupDir, {
         retryIntervalMs: 0,
         fetchImpl: async () => {
             startupCalls += 1;
@@ -501,7 +593,7 @@ try {
     beforeRestart.configure({ ...relay, allowInternet: true });
     beforeRestart.enqueue({ entry: { ...entry, client_operation_id: 'diary-op-startup' }, relay, allowInternet: true });
     beforeRestart.close();
-    const afterRestart = new DiaryRelayOutbox(startupDir, {
+    const afterRestart = createOutbox(startupDir, {
         retryIntervalMs: 0,
         fetchImpl: async () => {
             startupCalls += 1;
@@ -516,7 +608,6 @@ try {
     assert.equal(afterRestart.getStatus('diary-op-startup')?.status, 'synced');
     assert.equal(startupCalls, 1);
     afterRestart.close();
-
 } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
 }

@@ -18,6 +18,7 @@
  */
 
 import { Cache } from './cache.js';
+import { outboundFetch } from './outboundHttp.js';
 
 /** In-flight upstream requests — deduplicates background revalidation so we
  *  don't stampede the upstream API when many concurrent requests hit a stale
@@ -30,7 +31,7 @@ const inFlight = new Map<string, Promise<unknown>>();
 const DEFAULT_STALE_WINDOW_MS = 30 * 60 * 1000;
 
 export interface ProxyConfig {
-    supabaseUrl: string;
+    readonly supabaseUrl: string;
     supabaseAnonKey: string;
 }
 
@@ -90,7 +91,7 @@ async function fetchAndCache(cache: Cache, opts: JsonProxyOptions): Promise<unkn
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), opts.timeout || 15000);
     try {
-        const res = await fetch(opts.url, {
+        const res = await outboundFetch(opts.url, {
             headers: opts.headers || {},
             method: opts.method || 'GET',
             body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
@@ -260,7 +261,7 @@ function revalidateTileInBackground(cache: Cache, opts: TileProxyOptions): void 
         try {
             const controller = new AbortController();
             const timer = setTimeout(() => controller.abort(), opts.timeout || 5000);
-            const res = await fetch(opts.url, {
+            const res = await outboundFetch(opts.url, {
                 headers: opts.headers || {},
                 signal: controller.signal,
             });
@@ -310,7 +311,7 @@ export async function cachedTileFetch(
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), opts.timeout || 5000);
 
-        const res = await fetch(opts.url, {
+        const res = await outboundFetch(opts.url, {
             headers: opts.headers || {},
             signal: controller.signal,
         });
@@ -375,7 +376,7 @@ export async function cachedBinaryPost(
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), opts.timeout || 30000);
 
-        const res = await fetch(opts.url, {
+        const res = await outboundFetch(opts.url, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -417,14 +418,16 @@ export function supabaseEdgeUrl(
     functionName: string,
     params?: Record<string, string | number | boolean>,
 ): string {
-    const base = `${config.supabaseUrl}/functions/v1/${functionName}`;
-    if (!params) return base;
-
-    const qs = new URLSearchParams();
-    for (const [k, v] of Object.entries(params)) {
-        qs.set(k, String(v));
+    if (!isSupabaseFunctionName(functionName)) throw new Error('Unsupported Supabase Edge function name');
+    const url = new URL(`/functions/v1/${encodeURIComponent(functionName)}`, `${config.supabaseUrl}/`);
+    if (params) {
+        for (const [key, value] of Object.entries(params)) url.searchParams.set(key, String(value));
     }
-    return `${base}?${qs.toString()}`;
+    return url.toString();
+}
+
+export function isSupabaseFunctionName(value: string): boolean {
+    return /^[a-z0-9][a-z0-9_-]{0,62}$/.test(value);
 }
 
 /**

@@ -3,7 +3,7 @@
 # Thalassa Pi Cache — One-Command Install
 #
 # Public-beta default: loopback-only health/fixed-provider cache service.
-# LAN/private routes require the explicit unsafe development flags documented
+# LAN/private routes require the explicit isolated-network flags documented
 # in pi-cache/README.md.
 #
 #   bash install.sh
@@ -93,14 +93,59 @@ cd "$INSTALL_DIR"
 # ── Fix ownership — everything should belong to the real user ──
 chown -R "${REAL_USER}:${REAL_USER}" "$INSTALL_DIR"
 
-# ── Install Node.js if missing ──
+# ── Enforce the supported Node.js runtime ──
+# Undici 7 is the pinned outbound transport and requires Node >=20.18.1.
+# npm's engine warning is not sufficient here because dependency output is
+# deliberately quiet; an old runtime would otherwise install and fail at boot.
 
-if ! command -v node &>/dev/null; then
-    echo -e "  Installing Node.js..."
-    curl -fsSL https://deb.nodesource.com/setup_20.x | bash - >/dev/null 2>&1
-    apt-get install -y nodejs >/dev/null 2>&1
+MIN_NODE_VERSION="20.18.1"
+
+node_meets_minimum() {
+    local candidate="$1"
+    local version major minor patch
+    version=$("$candidate" -p 'process.versions.node' 2>/dev/null) || return 1
+    if [[ ! "$version" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+) ]]; then
+        return 1
+    fi
+    major="${BASH_REMATCH[1]}"
+    minor="${BASH_REMATCH[2]}"
+    patch="${BASH_REMATCH[3]}"
+    (( major > 20 )) ||
+        (( major == 20 && minor > 18 )) ||
+        (( major == 20 && minor == 18 && patch >= 1 ))
+}
+
+NODE_BIN=$(command -v node 2>/dev/null || true)
+if [[ -z "$NODE_BIN" ]] || ! node_meets_minimum "$NODE_BIN"; then
+    DETECTED_NODE_VERSION="not installed"
+    if [[ -n "$NODE_BIN" ]]; then
+        DETECTED_NODE_VERSION=$("$NODE_BIN" -v 2>/dev/null || echo "unreadable")
+    fi
+    echo -e "  Installing/upgrading Node.js (need >=${MIN_NODE_VERSION}; found ${DETECTED_NODE_VERSION})..."
+    if ! curl -fsSL https://deb.nodesource.com/setup_20.x | bash - >/dev/null 2>&1; then
+        echo -e "  ${RED}✗${NC} Could not configure the Node.js 20 package repository."
+        exit 1
+    fi
+    if ! apt-get install -y nodejs >/dev/null 2>&1; then
+        echo -e "  ${RED}✗${NC} Could not install Node.js >=${MIN_NODE_VERSION}."
+        exit 1
+    fi
+    hash -r
+    NODE_BIN=$(command -v node 2>/dev/null || true)
 fi
-echo -e "  ${GREEN}✓${NC} Node.js $(node -v)"
+
+if [[ -z "$NODE_BIN" ]] || ! node_meets_minimum "$NODE_BIN"; then
+    DETECTED_NODE_VERSION="not installed"
+    if [[ -n "$NODE_BIN" ]]; then
+        DETECTED_NODE_VERSION=$("$NODE_BIN" -v 2>/dev/null || echo "unreadable")
+    fi
+    echo -e "  ${RED}✗${NC} Node.js >=${MIN_NODE_VERSION} is required; found ${DETECTED_NODE_VERSION}."
+    echo -e "  ${RED}Aborting before dependency installation or service restart.${NC}"
+    exit 1
+fi
+
+NODE_BIN=$(readlink -f "$NODE_BIN" 2>/dev/null || echo "$NODE_BIN")
+echo -e "  ${GREEN}✓${NC} Node.js $("$NODE_BIN" -v)"
 
 # ── Install & build ──
 # Run npm as the real user to avoid root-owned node_modules
@@ -164,7 +209,7 @@ Wants=network-online.target
 Type=simple
 User=${REAL_USER}
 WorkingDirectory=${INSTALL_DIR}
-ExecStart=/usr/bin/node dist/server.js
+ExecStart=${NODE_BIN} dist/server.js
 Restart=always
 RestartSec=10
 Environment=NODE_ENV=production
