@@ -91,6 +91,13 @@ interface ValidationBudget {
     positions: number;
 }
 
+/**
+ * A genuine S-57 cell name: two-letter producer code, scale digit, then the
+ * cell identifier (US5GA22M, FR466870, GB501494). o-charts identifiers such as
+ * OC-61-051031 deliberately do not match — their prefix is a set code.
+ */
+const S57_CELL_NAME_PATTERN = /^[A-Z]{2}\d[A-Z0-9]{2,5}$/;
+
 function isRecord(value: unknown): value is JsonRecord {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -244,8 +251,21 @@ function validateCell(value: unknown, index: number, budget: ValidationBudget): 
     if (!/^[A-Z]{2}$/.test(sourceHO)) {
         throw new Error(`${cellId}: sourceHO must be the issuing hydrographic office's two-letter code.`);
     }
-    if (sourceHO !== cellId.slice(0, 2)) {
-        throw new Error(`${cellId}: sourceHO must match the first two characters of the cell ID.`);
+    // Producer-code cross-check, scoped to GENUINE S-57 cell names (2026-08-07).
+    //
+    // For an S-57 name the first two characters ARE the issuing office —
+    // US5GA22M/US, FR466870/FR — so a mismatch is real evidence of tampering
+    // or a mislabelled pack, and stays fatal.
+    //
+    // o-charts issues its own identifiers instead, where the prefix is a SET
+    // code carrying no producer meaning: OC-61-051031 is an AUSTRALIAN cell
+    // that correctly declares sourceHO "AU". Applying the rule there rejected
+    // 344 of Shane's 345 legitimately decrypted charts — the whole Australian
+    // library plus Noumea and Port Vila — for a mismatch that is simply how
+    // o-charts names things. The two-letter-office check above still applies
+    // to every cell.
+    if (S57_CELL_NAME_PATTERN.test(cellId) && sourceHO !== cellId.slice(0, 2)) {
+        throw new Error(`${cellId}: sourceHO must match the first two characters of an S-57 cell name.`);
     }
     const edition = finiteNumber(value.edition, `${cellId}.edition`);
     if (!Number.isInteger(edition) || edition < 0 || edition > 9999) {

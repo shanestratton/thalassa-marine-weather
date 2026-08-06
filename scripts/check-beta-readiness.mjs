@@ -2164,8 +2164,15 @@ check(
             "if (permission.state !== 'granted') return null",
             'canUseForegroundHighAccuracy(permission, enableHighAccuracy)',
             'if (!ensureRunning) return this._nativeForegroundWatchIfGranted(callback)',
-            'return opts.ensureRunning === true ? this._webWatch(callback) : this._webWatchIfGranted(callback)',
         ]) &&
+        // Routing asserted as a PROPERTY, not a literal line: a passive
+        // watcher must land on _webWatchIfGranted, which cannot raise the OS
+        // permission prompt. Pinning the exact spelling made an unrelated
+        // rename of the callback variable read as a privacy regression. The
+        // inverted-ternary check below is stricter than the old string was.
+        /return opts\.ensureRunning === true \? this\._webWatch\(\s*\w+\s*\)/.test(passiveLocationService) &&
+        /:\s*this\._webWatchIfGranted\(\s*\w+\s*\)/.test(passiveLocationService) &&
+        !/return opts\.ensureRunning === true \? this\._webWatchIfGranted\(/.test(passiveLocationService) &&
         !passiveDashboard.includes('useLiveLocationName') &&
         !passiveLogPageState.includes('BgGeoManager.ensureReady') &&
         !passiveVesselHub.includes('GpsService.getCurrentPosition(') &&

@@ -15,6 +15,8 @@ const watchCallbacks: ((pos: unknown) => void)[] = [];
 
 vi.mock('../services/GpsService', () => ({
     GpsService: {
+        // Live-fix cache MOB reads before any blocking acquisition.
+        getLastKnownPosition: () => null,
         getCurrentPosition: vi.fn(async () => mockFix),
         watchPosition: vi.fn((cb: (pos: unknown) => void) => {
             watchCallbacks.push(cb);

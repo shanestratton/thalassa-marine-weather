@@ -18,10 +18,21 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
     getCurrentPosition: vi.fn(),
     cached: null as { lat: number; lon: number; sog: number; timestamp: number; cog: number; source: 'gps' } | null,
+    lastKnown: null as {
+        latitude: number;
+        longitude: number;
+        accuracy: number;
+        timestamp: number;
+        speed: number;
+        heading: null;
+        altitude: null;
+    } | null,
 }));
 
 vi.mock('../services/GpsService', () => ({
     GpsService: {
+        // Live-fix cache MOB reads before any blocking acquisition.
+        getLastKnownPosition: () => mocks.lastKnown,
         getCurrentPosition: mocks.getCurrentPosition,
         watchPosition: () => () => {},
     },
@@ -49,6 +60,7 @@ import { MobService, MOB_PRECISE_FIX_ACCURACY_M } from '../services/MobService';
 beforeEach(async () => {
     mocks.getCurrentPosition.mockReset();
     mocks.cached = null;
+    mocks.lastKnown = null;
     await MobService.clear().catch(() => {});
 });
 
@@ -84,8 +96,60 @@ describe('MOB marks instantly', () => {
         expect(Number.isFinite(snap!.fixAccuracy)).toBe(true);
     });
 
+    it('uses the last live GPS fix before ever blocking', async () => {
+        // The real 8-second case: no NMEA and LocationStore empty (it is
+        // written by user actions, not the GPS stream), but the chart's
+        // location dot has a live subscription so a fix just went past.
+        mocks.cached = null;
+        mocks.lastKnown = {
+            latitude: -27.25,
+            longitude: 153.15,
+            accuracy: 9,
+            timestamp: Date.now() - 3_000,
+            speed: 0,
+            heading: null,
+            altitude: null,
+        };
+        mocks.getCurrentPosition.mockImplementation(async () => {
+            throw new Error('must not block when a live fix is already held');
+        });
+
+        const snap = await MobService.activate();
+
+        expect(snap?.fixLat).toBeCloseTo(-27.25, 5);
+        expect(mocks.getCurrentPosition).not.toHaveBeenCalled();
+    });
+
+    it('ignores a live fix that is far too old to be a datum', async () => {
+        mocks.cached = null;
+        mocks.lastKnown = {
+            latitude: -27.25,
+            longitude: 153.15,
+            accuracy: 9,
+            timestamp: Date.now() - 10 * 60 * 1000,
+            speed: 0,
+            heading: null,
+            altitude: null,
+        };
+        mocks.getCurrentPosition.mockResolvedValue({
+            latitude: -27.4,
+            longitude: 153.3,
+            accuracy: 7,
+            timestamp: Date.now(),
+            speed: 0,
+            heading: null,
+            altitude: null,
+        });
+
+        const snap = await MobService.activate();
+
+        expect(mocks.getCurrentPosition).toHaveBeenCalledOnce();
+        expect(snap?.fixLat).toBeCloseTo(-27.4, 5);
+    });
+
     it('falls back to a live acquisition only when there is nothing cached', async () => {
         mocks.cached = null;
+        mocks.lastKnown = null;
         mocks.getCurrentPosition.mockResolvedValue({
             latitude: -27.3,
             longitude: 153.2,
