@@ -19,6 +19,7 @@ import { piCache } from '../services/PiCacheService';
 import { isTrackworthyEntry } from '../services/shiplog/helpers';
 import { addFollowedRouteLayer, FOLLOWED_ROUTE_PANE } from './map/followedRouteLayer';
 import { installLeafletTileSeamGuard } from './map/leafletTileSeamGuard';
+import { logBaseTiles } from './map/logMapTiles';
 import type { RouteCoordinate } from '../utils/routeCoordinates';
 import { stripInitialTrackWarmupRebounds } from '../services/shiplog/initialTrackWarmupGuard';
 
@@ -113,19 +114,16 @@ export const LiveMiniMap: React.FC<LiveMiniMapProps> = memo(
                 };
             }
 
-            // Esri World Imagery (Shane 2026-07-10: dark carto was too dark —
-            // "maybe we could have the satellite layer?"). Matches
-            // TrackMapViewer; the neon track palette pops on imagery.
-            const satelliteBase = L.tileLayer(
-                piCache.leafletTileTemplate(
-                    'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-                ),
-                {
-                    maxZoom: 19,
-                    attribution:
-                        'Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community',
-                },
-            );
+            // Imagery base (Shane 2026-07-10: dark carto was too dark — "maybe
+            // we could have the satellite layer?"). Upgraded 2026-08-07 from
+            // Esri to the same @2x satellite-streets tiles the OBS chart uses,
+            // so the log stops looking a decade older than the app one tab
+            // away. Falls back to Esri without a token — see logMapTiles.
+            const logTiles = logBaseTiles(import.meta.env.VITE_MAPBOX_ACCESS_TOKEN as string | undefined);
+            const satelliteBase = L.tileLayer(piCache.leafletTileTemplate(logTiles.url), {
+                maxZoom: logTiles.maxZoom,
+                attribution: logTiles.attribution,
+            });
             // The iPhone WebKit seam guard belongs on the opaque imagery
             // only — overscanning the transparent seamark symbols would make
             // an icon at a tile edge draw twice.
