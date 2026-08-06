@@ -29,6 +29,8 @@
 		AA000011AAAA001100000001 /* LightningPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000011AAAA001100000002 /* LightningPlugin.swift */; };
 		AA000012AAAA001200000001 /* LightningPlugin.m in Sources */ = {isa = PBXBuildFile; fileRef = AA000012AAAA001200000002 /* LightningPlugin.m */; };
 		AA000013AAAA001300000001 /* MdnsBrowserPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000013AAAA001300000002 /* MdnsBrowserPlugin.swift */; };
+		AA000019AAAA001900000001 /* PiTlsPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000019AAAA001900000002 /* PiTlsPlugin.swift */; };
+		AA00001AAAAA001A00000001 /* PiTlsPlugin.m in Sources */ = {isa = PBXBuildFile; fileRef = AA00001AAAAA001A00000002 /* PiTlsPlugin.m */; };
 		AA000014AAAA001400000001 /* MdnsBrowserPlugin.m in Sources */ = {isa = PBXBuildFile; fileRef = AA000014AAAA001400000002 /* MdnsBrowserPlugin.m */; };
 		AA000015AAAA001500000001 /* WatchConnectivityPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000015AAAA001500000002 /* WatchConnectivityPlugin.swift */; };
 		AA000016AAAA001600000001 /* WatchConnectivityPlugin.m in Sources */ = {isa = PBXBuildFile; fileRef = AA000016AAAA001600000002 /* WatchConnectivityPlugin.m */; };
@@ -90,6 +92,8 @@
 		AA000011AAAA001100000002 /* LightningPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LightningPlugin.swift; sourceTree = "<group>"; };
 		AA000012AAAA001200000002 /* LightningPlugin.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = LightningPlugin.m; sourceTree = "<group>"; };
 		AA000013AAAA001300000002 /* MdnsBrowserPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MdnsBrowserPlugin.swift; sourceTree = "<group>"; };
+		AA000019AAAA001900000002 /* PiTlsPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PiTlsPlugin.swift; sourceTree = "<group>"; };
+		AA00001AAAAA001A00000002 /* PiTlsPlugin.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = PiTlsPlugin.m; sourceTree = "<group>"; };
 		AA000014AAAA001400000002 /* MdnsBrowserPlugin.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = MdnsBrowserPlugin.m; sourceTree = "<group>"; };
 		AA000015AAAA001500000002 /* WatchConnectivityPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchConnectivityPlugin.swift; sourceTree = "<group>"; };
 		AA000016AAAA001600000002 /* WatchConnectivityPlugin.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = WatchConnectivityPlugin.m; sourceTree = "<group>"; };
@@ -171,6 +175,8 @@
 				AA000011AAAA001100000002 /* LightningPlugin.swift */,
 				AA000012AAAA001200000002 /* LightningPlugin.m */,
 				AA000013AAAA001300000002 /* MdnsBrowserPlugin.swift */,
+				AA000019AAAA001900000002 /* PiTlsPlugin.swift */,
+				AA00001AAAAA001A00000002 /* PiTlsPlugin.m */,
 				AA000014AAAA001400000002 /* MdnsBrowserPlugin.m */,
 				AA000015AAAA001500000002 /* WatchConnectivityPlugin.swift */,
 				AA000016AAAA001600000002 /* WatchConnectivityPlugin.m */,
@@ -395,6 +401,8 @@
 				AA000011AAAA001100000001 /* LightningPlugin.swift in Sources */,
 				AA000012AAAA001200000001 /* LightningPlugin.m in Sources */,
 				AA000013AAAA001300000001 /* MdnsBrowserPlugin.swift in Sources */,
+				AA000019AAAA001900000001 /* PiTlsPlugin.swift in Sources */,
+				AA00001AAAAA001A00000001 /* PiTlsPlugin.m in Sources */,
 				AA000014AAAA001400000001 /* MdnsBrowserPlugin.m in Sources */,
 				AA000015AAAA001500000001 /* WatchConnectivityPlugin.swift in Sources */,
 				AA000016AAAA001600000001 /* WatchConnectivityPlugin.m in Sources */,

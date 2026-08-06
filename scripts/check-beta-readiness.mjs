@@ -1531,6 +1531,7 @@ const intendedPublicBetaFeatureFlags = {
     VITE_CMEMS_MLD_ENABLED: false,
     VITE_MPA_ENABLED: true,
     VITE_APPLE_SIGN_IN_ENABLED: false,
+    VITE_GOOGLE_SIGN_IN_ENABLED: false,
     VITE_ACCOUNT_DELETION_ENABLED: false,
     VITE_GRANT_ALL_FEATURES: false,
     VITE_ENABLE_ENC_DEMO_SAMPLES: false,
@@ -1562,9 +1563,7 @@ check(
             'grant-all-features',
             'enc-demo-samples',
             'private-weather-server',
-            'guardian',
             'community-precise-track-sharing',
-            'pi-integration',
             'musickit',
             'aishub-contribution',
             'retired-public-float-plan',
@@ -2306,8 +2305,10 @@ check(
     signInUi.includes('Apple sign-in is not enabled in this beta build; use email.') &&
         !signInUi.includes('import { signInWithApple, signInWithAppleOnWeb }'),
 );
+const appleFlagOn = publicBetaFeatureProfile.featureFlags.VITE_APPLE_SIGN_IN_ENABLED === true;
+const appleEntitled = mainEntitlements.includes('<key>com.apple.developer.applesignin</key>');
 check(
-    'Apple sign-in is compile-time fail-closed until its external lifecycle is live',
+    'Apple sign-in stays compile-time gated on its flag',
     includesAll(signInUi, [
         "const APPLE_SIGN_IN_ENABLED = import.meta.env.VITE_APPLE_SIGN_IN_ENABLED === 'true'",
         'const appleNativeEnabled = isNative && APPLE_SIGN_IN_ENABLED',
@@ -2315,13 +2316,49 @@ check(
         '{!appleNativeEnabled && (',
         'Apple sign-in is not enabled in this beta build; use email.',
     ]) &&
-        process.env.VITE_APPLE_SIGN_IN_ENABLED !== 'true' &&
-        appleEnabledEnvFiles.length === 0,
-    `shell=${process.env.VITE_APPLE_SIGN_IN_ENABLED === 'true' ? 'enabled' : 'disabled'}, env-files=${appleEnabledEnvFiles.length}`,
+        // The shell and env files must not disagree with the committed
+        // profile: a build that turns Apple on locally would ship a button the
+        // release manifest says is absent.
+        (appleFlagOn || (process.env.VITE_APPLE_SIGN_IN_ENABLED !== 'true' && appleEnabledEnvFiles.length === 0)),
+    `profile=${appleFlagOn ? 'enabled' : 'disabled'}, shell=${
+        process.env.VITE_APPLE_SIGN_IN_ENABLED === 'true' ? 'enabled' : 'disabled'
+    }, env-files=${appleEnabledEnvFiles.length}`,
 );
 check(
-    'beta artifact omits the Sign in with Apple entitlement while Apple auth is disabled',
-    !mainEntitlements.includes('<key>com.apple.developer.applesignin</key>'),
+    // AGREEMENT, not absence. Flag on without the entitlement is a button that
+    // dies at Apple; the entitlement without the flag is a capability we claim
+    // and never use, which App Review asks about. Both are caught here.
+    'the Sign in with Apple entitlement agrees with the Apple sign-in flag',
+    appleEntitled === appleFlagOn,
+    `flag=${appleFlagOn ? 'on' : 'off'}, entitlement=${appleEntitled ? 'present' : 'absent'}`,
+);
+const googleFlagOn = publicBetaFeatureProfile.featureFlags.VITE_GOOGLE_SIGN_IN_ENABLED === true;
+const googleEnabledEnvFiles = appleProductionEnvFiles.filter(
+    (relative) =>
+        exists(relative) &&
+        /^\s*VITE_GOOGLE_SIGN_IN_ENABLED\s*=\s*(?:true|"true"|'true')\s*(?:#.*)?$/m.test(read(relative)),
+);
+check(
+    // Same shape as Apple. The extra clause is the client ID: Google sign-in
+    // cannot work without one, and GOOGLE_SIGN_IN_ENABLED requires it at
+    // runtime, so a flag-on build with no client ID would ship a dead button.
+    'Google sign-in stays gated on its flag and a configured client ID',
+    includesAll(read('services/auth/googleSignIn.ts'), [
+        "import.meta.env.VITE_GOOGLE_SIGN_IN_ENABLED === 'true'",
+        "GOOGLE_OAUTH_CLIENT_ID !== ''",
+        "provider: 'google'",
+    ]) &&
+        // Identity scopes only — a sign-in must never quietly acquire mailbox
+        // access. Gmail is a separate, separately-consented integration.
+        read('services/auth/googleSignIn.ts').includes("const SCOPES = 'openid email profile'") &&
+        !/gmail\.(readonly|compose|send|modify)/.test(read('services/auth/googleSignIn.ts')) &&
+        includesAll(signInUi, ['GOOGLE_SIGN_IN_ENABLED', '{googleEnabled && (']) &&
+        // Shell and env files must not disagree with the committed profile.
+        (googleFlagOn ||
+            (process.env.VITE_GOOGLE_SIGN_IN_ENABLED !== 'true' && googleEnabledEnvFiles.length === 0)),
+    `profile=${googleFlagOn ? 'enabled' : 'disabled'}, shell=${
+        process.env.VITE_GOOGLE_SIGN_IN_ENABLED === 'true' ? 'enabled' : 'disabled'
+    }, env-files=${googleEnabledEnvFiles.length}`,
 );
 check(
     'native Apple auth retains a revocable credential only through the authenticated server',
@@ -2645,18 +2682,22 @@ check(
 
 const piClientBoundary = read('services/piPublicBetaBoundary.ts');
 const piCacheClient = read('services/PiCacheService.ts');
+const piPairingClient = read('services/PiPairingService.ts');
 const piBoatNetwork = read('services/BoatNetworkService.ts');
 const piDiaryClient = read('services/DiaryRelayTransport.ts');
 const piBootstrap = read('hooks/useAppBootstrap.ts');
 const piServer = read('pi-cache/src/server.ts');
 const piServerBoundary = read('pi-cache/src/publicBetaBoundary.ts');
 check(
-    'production Pi integration is fail-closed for public beta',
+    'Pi integration opens only for a build carrying the pinning verifier',
     includesAll(piClientBoundary, [
-        'resolvePiIntegrationEnabled({ dev: import.meta.env.DEV })',
+        'pinnedTransport: isPinnedTransportAvailable()',
+        'return pinnedTransport === true || dev === true',
         'PI_DISABLED_BASE_URL',
-        'authenticated, encrypted boat-network transport',
     ]) &&
+        // No build-time string may authorize the transport — every VITE_ value
+        // is user-readable and user-settable.
+        !/import\.meta\.env\.VITE_PI/.test(piClientBoundary) &&
         includesAll(piCacheClient, [
             "this.configure({ enabled: false, host: '', port: 3001 })",
             'return PI_INTEGRATION_ENABLED && this.config.enabled && this.status.reachable',
@@ -2677,9 +2718,43 @@ check(
         ]),
 );
 check(
-    'production Pi controls are replaced by an unavailable notice',
+    'boat-LAN traffic is TLS pinned to the Pi pairing key, with no cleartext lane',
+    // The certificate is issued from the key the app already pinned, so the
+    // encrypted channel and the pairing identity are ONE trust decision.
+    includesAll(read('pi-cache/src/tlsIdentity.ts'), [
+        'TLS certificate public key does not match the Pi pairing identity',
+        'ensureIdentityTls',
+    ]) &&
+        includesAll(piServer, ['https.createServer(', "minVersion: 'TLSv1.2'"]) &&
+        // Private key stays off the object handed to route handlers.
+        read('pi-cache/src/identity.ts').includes('export function readIdentityPrivateKeyPem') &&
+        !read('pi-cache/src/routes/pair.ts').includes('privateKey') &&
+        // Client: https only, every call through the pinning transport.
+        piCacheClient.includes('return `https://${this.config.host}:${this.config.port}`') &&
+        !/`http:\/\/\$\{/.test(piCacheClient) &&
+        !/`http:\/\/\$\{/.test(piPairingClient) &&
+        !piPairingClient.includes('CapacitorHttp') &&
+        includesAll(read('services/piTls.ts'), [
+            "if (!options.url.startsWith('https://'))",
+            'isPinnedTransportAvailable',
+        ]) &&
+        // Pairing is bound to the channel that carried it.
+        includesAll(piPairingClient, ['res.peerSpki !== data.publicKeySpki', 'if (!res.peerSpki)']) &&
+        // Native: exactly one unpinned path, key-only trust, no app-wide ATS relaxation.
+        includesAll(read('ios/App/App/PiTlsPlugin.swift'), [
+            'private static let unpinnedPath = "/api/pair/info"',
+            'if pin == nil && url.path != Self.unpinnedPath',
+            'constantTimeEquals(presented, pinnedSpki)',
+        ]) &&
+        !read('ios/App/App/Info.plist').includes('NSAllowsArbitraryLoads') &&
+        read('ios/App/App/ThalassaBridgeViewController.swift').includes(
+            'bridge?.registerPluginInstance(PiTlsPlugin())',
+        ),
+);
+check(
+    'Pi controls are replaced by an unavailable notice where the pin cannot be checked',
     includesAll(read('components/ui/PiPublicBetaUnavailable.tsx'), [
-        'Pi integration unavailable in public beta',
+        'Pi integration unavailable in this build',
         'No Pi discovery, setup,',
     ]) &&
         read('components/settings/PiCacheTab.tsx').includes('<PiPublicBetaUnavailable') &&
@@ -2694,7 +2769,8 @@ check(
         'publicStatusPayload',
     ]) &&
         includesAll(piServer, [
-            'app.listen(PORT, BIND_HOST',
+            'https.createServer(',
+            'server.listen(PORT, BIND_HOST',
             "app.post('/api/configure', requireUnsafeAdmin",
             "app.post('/cache/purge', requireUnsafeAdmin",
             "app.get('/api/passthrough', requireUnsafeAdmin",
@@ -2856,15 +2932,9 @@ const heldCapabilitySourceContracts = {
         publicBetaFeatureProfile.featureFlags.VITE_WX_SERVER_ENABLED === false &&
         publicBetaFeatureProfile.publicEndpoints.VITE_WX_SERVER_BASE === '' &&
         wxServerSource.includes("if (!config.dev || config.enabled !== 'true') return ''"),
-    guardian:
-        /\bguardian:\s*false\b/.test(featureVisibility) &&
-        read('services/GuardianService.ts').includes('FEATURE_VISIBILITY.guardian || import.meta.env.MODE'),
     'community-precise-track-sharing':
         /\bcommunityTrackSharing:\s*false\b/.test(featureVisibility) &&
         read('services/TrackSharingService.ts').includes('if (!FEATURE_VISIBILITY.communityTrackSharing)'),
-    'pi-integration':
-        piClientBoundary.includes('return dev === true') &&
-        piCacheClient.includes('return PI_INTEGRATION_ENABLED && this.config.enabled && this.status.reachable'),
     musickit:
         /\bappleMusic:\s*false\b/.test(featureVisibility) &&
         musicKitToken.includes('const MUSICKIT_PUBLIC_BETA_ENABLED = false'),

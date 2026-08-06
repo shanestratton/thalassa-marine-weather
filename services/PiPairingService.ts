@@ -1,12 +1,11 @@
 /**
  * Trust-on-first-use pairing with the boat's Pi.
  *
- * Threat model (APP_AUDIT_2026-08-03, boat-LAN data integrity): everything
- * between app and Pi is plain HTTP to an mDNS name on whatever Wi-Fi the
- * phone happens to be on. Anyone on a shared marina network can answer
- * `calypso.local` and speak the pi-cache API — including feeding this app
- * wrong depth data. Auto-connecting makes that worse, so auto-connect is
- * gated on the two checks in this file:
+ * Threat model (APP_AUDIT_2026-08-03, boat-LAN data integrity): the app
+ * reaches the Pi by mDNS name on whatever Wi-Fi the phone happens to be on.
+ * Anyone on a shared marina network can answer `calypso.local` and speak the
+ * pi-cache API — including feeding this app wrong depth data. Auto-connecting
+ * makes that worse, so auto-connect is gated on the two checks in this file:
  *
  *  1. IDENTITY, at connect time. Pairing pins the Pi's P-256 public key
  *     (SSH-style TOFU: the one human decision is "is this my boat's Pi?"
@@ -21,10 +20,19 @@
  *     modifying responses): a tampered body no longer matches its hash, a
  *     replayed response for a different cell no longer matches its path.
  *
+ *  3. CONFIDENTIALITY, per connection (added 2026-08-06). The transport is TLS
+ *     terminated by a certificate issued from that same pinned key, verified
+ *     natively against the pin — see services/piTls.ts. Before this, the two
+ *     checks above meant nobody could FORGE Pi data, but anyone on the Wi-Fi
+ *     could read it, including the diary relay token. Pairing is now bound to
+ *     the channel: the key on the pairing card must be the key that terminated
+ *     the session, so a relay cannot front for the real Pi.
+ *
  * What this deliberately does NOT defend: a user who pairs with an attacker's
  * box the very first time (TOFU's inherent limit — the fingerprint on the
  * pairing card is the mitigation, same as SSH), and non-ENC traffic such as
- * weather tiles, which stays unsigned until the Pi signs everything.
+ * weather tiles, which stays unsigned until the Pi signs everything (now
+ * encrypted in transit, but still not individually signed).
  *
  * No-downgrade rule: once a host has EVER offered pairing, or the app has
  * paired with anyone, unpaired plain connections to that host are refused —
@@ -32,9 +40,9 @@
  * into the pre-pairing world.
  */
 
-import { CapacitorHttp } from '@capacitor/core';
 import { createLogger } from '../utils/createLogger';
 import { PI_INTEGRATION_ENABLED, PI_PUBLIC_BETA_UNAVAILABLE_MESSAGE } from './piPublicBetaBoundary';
+import { piPairingFetch, piRequest } from './piTls';
 import { utf8ByteLength } from './enc/types';
 
 const log = createLogger('PiPairing');
@@ -176,15 +184,29 @@ async function sha256Hex(text: string): Promise<string> {
 export async function fetchPairInfo(baseUrl: string): Promise<PairInfo | null> {
     if (!PI_INTEGRATION_ENABLED) return null;
     try {
-        const res = await CapacitorHttp.get({
-            url: `${baseUrl}/api/pair/info`,
-            connectTimeout: 4000,
-            readTimeout: 4000,
-            responseType: 'json',
-        });
+        const res = await piPairingFetch(baseUrl);
         if (res.status < 200 || res.status >= 300) return null;
-        const data = res.data as Partial<PairInfo> & { service?: string };
+        const data = JSON.parse(res.data) as Partial<PairInfo> & { service?: string };
         if (data?.service !== 'thalassa-pi-cache' || !data.deviceId || !data.publicKeySpki) return null;
+
+        // CHANNEL BINDING. The pairing card advertises a key; `peerSpki` is the
+        // key that actually terminated the TLS session. Requiring them to match
+        // is what stops a box from relaying a genuine Pi's pairing card while
+        // holding the connection itself — it would have to present the real
+        // Pi's certificate, which it cannot do without the private key.
+        //
+        // Empty peerSpki means the browser lane, where script cannot see the
+        // peer certificate at all. Refuse to pair there rather than pretend:
+        // an unbound pairing would pin a key nobody proved they hold on this
+        // connection.
+        if (!res.peerSpki) {
+            log.warn('refusing to pair without an observable TLS peer key — pair from the app on the boat network');
+            return null;
+        }
+        if (res.peerSpki !== data.publicKeySpki) {
+            log.warn('refusing to pair — the pairing card advertises a key that did not terminate the TLS session');
+            return null;
+        }
         return data as PairInfo;
     } catch {
         return null;
@@ -199,16 +221,21 @@ export async function verifyPairedPi(baseUrl: string, pairing: PiPairingRecord):
     if (!PI_INTEGRATION_ENABLED) return false;
     const nonce = randomNonceHex();
     try {
-        const res = await CapacitorHttp.post({
+        // Pinned: the transport itself now refuses anything that did not
+        // terminate TLS with this key, so a relay cannot even carry the
+        // challenge to the real Pi and hand back its answer.
+        const res = await piRequest({
             url: `${baseUrl}/api/pair/challenge`,
+            method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             data: { nonce },
+            pinnedSpki: pairing.publicKeySpki,
             connectTimeout: 4000,
             readTimeout: 4000,
-            responseType: 'json',
+            responseType: 'text',
         });
         if (res.status < 200 || res.status >= 300) return false;
-        const data = res.data as { deviceId?: string; timestamp?: number; signature?: string };
+        const data = JSON.parse(res.data) as { deviceId?: string; timestamp?: number; signature?: string };
         if (!data?.signature || data.deviceId !== pairing.deviceId) return false;
         return await verifyFields(
             pairing.publicKeySpki,
@@ -306,17 +333,20 @@ export async function fetchVerifiedFromPi<T>(options: {
         maxResponseBytes,
     } = options;
 
-    const res =
-        method === 'POST'
-            ? await CapacitorHttp.post({
-                  url,
-                  headers: { 'Content-Type': 'application/json' },
-                  data,
-                  connectTimeout,
-                  readTimeout,
-                  responseType: 'text',
-              })
-            : await CapacitorHttp.get({ url, connectTimeout, readTimeout, responseType: 'text' });
+    // Pinned transport, always. There is no unpinned lane to fall back to:
+    // this function exists so navigation data cannot be read from anything
+    // that is not the paired Pi, and an unverified channel would undo that
+    // before the signature check ever ran.
+    const res = await piRequest({
+        url,
+        method,
+        headers: method === 'POST' ? { 'Content-Type': 'application/json' } : undefined,
+        data: method === 'POST' ? data : undefined,
+        pinnedSpki: getPairing()?.publicKeySpki,
+        connectTimeout,
+        readTimeout,
+        responseType: 'text',
+    });
 
     if (res.status < 200 || res.status >= 300) throw new Error(`HTTP ${res.status}`);
     const body = typeof res.data === 'string' ? res.data : JSON.stringify(res.data);

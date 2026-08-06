@@ -31,9 +31,14 @@ function makeSigner() {
 
 const DEVICE_ID = 'test-device-1';
 
-// CapacitorHttp is mocked per-test to serve pair endpoints.
-const http = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn() }));
-vi.mock('@capacitor/core', () => ({ CapacitorHttp: { get: http.get, post: http.post } }));
+// The pinned transport is mocked per-test to serve the pair endpoints.
+// `peerSpki` is the key that terminated TLS — the channel binding under test.
+const tls = vi.hoisted(() => ({ pairingFetch: vi.fn(), request: vi.fn() }));
+vi.mock('../services/piTls', () => ({
+    piPairingFetch: tls.pairingFetch,
+    piRequest: tls.request,
+    isPinnedTransportAvailable: () => true,
+}));
 
 import {
     getPairing,
@@ -142,52 +147,57 @@ describe('PiPairingService — challenge/response', () => {
     it('accepts a Pi that signs the exact nonce it was sent', async () => {
         const pi = makeSigner();
         const rec = record({ publicKeySpki: pi.spkiB64 });
-        http.post.mockImplementation(async ({ data }: { data: { nonce: string } }) => {
+        tls.request.mockImplementation(async ({ data }: { data: { nonce: string } }) => {
             const timestamp = 1785800000000;
             return {
                 status: 200,
-                data: {
+                peerSpki: pi.spkiB64,
+                data: JSON.stringify({
                     deviceId: DEVICE_ID,
                     timestamp,
                     signature: pi.signFields(['challenge', data.nonce, String(timestamp), DEVICE_ID]),
-                },
+                }),
             };
         });
-        expect(await verifyPairedPi('http://calypso.local:3001', rec)).toBe(true);
+        expect(await verifyPairedPi('https://calypso.local:3001', rec)).toBe(true);
+        // The challenge must ride a pinned channel, not an open one.
+        expect(tls.request.mock.calls[0][0].pinnedSpki).toBe(pi.spkiB64);
     });
 
     it('rejects a Pi that signs a DIFFERENT nonce (replay of an old challenge)', async () => {
         const pi = makeSigner();
         const rec = record({ publicKeySpki: pi.spkiB64 });
-        http.post.mockImplementation(async () => {
+        tls.request.mockImplementation(async () => {
             const timestamp = 1785800000000;
             return {
                 status: 200,
-                data: {
+                peerSpki: pi.spkiB64,
+                data: JSON.stringify({
                     deviceId: DEVICE_ID,
                     timestamp,
                     signature: pi.signFields(['challenge', 'stale-nonce', String(timestamp), DEVICE_ID]),
-                },
+                }),
             };
         });
-        expect(await verifyPairedPi('http://calypso.local:3001', rec)).toBe(false);
+        expect(await verifyPairedPi('https://calypso.local:3001', rec)).toBe(false);
     });
 
     it('rejects a wrong deviceId even with a valid-looking signature', async () => {
         const pi = makeSigner();
         const rec = record({ publicKeySpki: pi.spkiB64 });
-        http.post.mockImplementation(async ({ data }: { data: { nonce: string } }) => {
+        tls.request.mockImplementation(async ({ data }: { data: { nonce: string } }) => {
             const timestamp = 1785800000000;
             return {
                 status: 200,
-                data: {
+                peerSpki: pi.spkiB64,
+                data: JSON.stringify({
                     deviceId: 'someone-else',
                     timestamp,
                     signature: pi.signFields(['challenge', data.nonce, String(timestamp), 'someone-else']),
-                },
+                }),
             };
         });
-        expect(await verifyPairedPi('http://calypso.local:3001', rec)).toBe(false);
+        expect(await verifyPairedPi('https://calypso.local:3001', rec)).toBe(false);
     });
 });
 
@@ -196,29 +206,76 @@ describe('PiPairingService — pairWithPi challenges before trusting', () => {
         const real = makeSigner();
         const impostor = makeSigner();
         // info advertises the REAL key…
-        http.get.mockResolvedValue({
+        tls.pairingFetch.mockResolvedValue({
             status: 200,
-            data: {
+            // TLS was terminated by the real key, so the binding check passes
+            // and the challenge is what has to catch this.
+            peerSpki: real.spkiB64,
+            data: JSON.stringify({
                 service: 'thalassa-pi-cache',
                 deviceId: DEVICE_ID,
                 boatName: 'Serene Summer',
                 publicKeySpki: real.spkiB64,
                 fingerprint: real.fingerprint,
-            },
+            }),
         });
         // …but the challenge is answered by the IMPOSTOR's private key.
-        http.post.mockImplementation(async ({ data }: { data: { nonce: string } }) => {
+        tls.request.mockImplementation(async ({ data }: { data: { nonce: string } }) => {
             const timestamp = 1785800000000;
             return {
                 status: 200,
-                data: {
+                peerSpki: real.spkiB64,
+                data: JSON.stringify({
                     deviceId: DEVICE_ID,
                     timestamp,
                     signature: impostor.signFields(['challenge', data.nonce, String(timestamp), DEVICE_ID]),
-                },
+                }),
             };
         });
-        expect(await pairWithPi('http://calypso.local:3001', 'calypso.local')).toBeNull();
+        expect(await pairWithPi('https://calypso.local:3001', 'calypso.local')).toBeNull();
+        expect(getPairing()).toBeNull();
+    });
+
+    it('refuses to pair when the advertised key did not terminate the TLS session', async () => {
+        const real = makeSigner();
+        const relay = makeSigner();
+        // A relay fronting for the real Pi: it can forward the genuine pairing
+        // card, but it holds the connection with its OWN certificate. Before
+        // TLS this was invisible; the binding is what exposes it, BEFORE any
+        // challenge is even attempted.
+        tls.pairingFetch.mockResolvedValue({
+            status: 200,
+            peerSpki: relay.spkiB64,
+            data: JSON.stringify({
+                service: 'thalassa-pi-cache',
+                deviceId: DEVICE_ID,
+                boatName: 'Serene Summer',
+                publicKeySpki: real.spkiB64,
+                fingerprint: real.fingerprint,
+            }),
+        });
+        expect(await pairWithPi('https://calypso.local:3001', 'calypso.local')).toBeNull();
+        expect(getPairing()).toBeNull();
+        expect(tls.request).not.toHaveBeenCalled();
+    });
+
+    it('refuses to pair over a channel whose peer key cannot be observed', async () => {
+        const real = makeSigner();
+        // The browser lane: script cannot see the peer certificate, so the
+        // pairing cannot be bound to it. Pinning a key nobody proved they hold
+        // on THIS connection is worse than not pairing.
+        tls.pairingFetch.mockResolvedValue({
+            status: 200,
+            peerSpki: '',
+            data: JSON.stringify({
+                service: 'thalassa-pi-cache',
+                deviceId: DEVICE_ID,
+                boatName: 'Serene Summer',
+                publicKeySpki: real.spkiB64,
+                fingerprint: real.fingerprint,
+            }),
+        });
+        expect(await pairWithPi('https://calypso.local:3001', 'calypso.local')).toBeNull();
         expect(getPairing()).toBeNull();
     });
 });

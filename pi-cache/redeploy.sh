@@ -33,8 +33,13 @@ NC='\033[0m'
 SOURCE_DIR="$(cd "$(dirname "$0")" && pwd)"
 INSTALL_DIR="/opt/thalassa-pi-cache"
 SERVICE_NAME="thalassa-cache"
-HEALTH_URL="http://localhost:3001/health"
-PROBE_URL="http://localhost:3001/api/enc/route-prepped"
+HEALTH_URL="https://localhost:3001/health"
+PROBE_URL="https://localhost:3001/api/enc/route-prepped"
+# The Pi serves TLS with a certificate issued from its pairing key. Validating
+# the probes AGAINST that certificate — rather than passing -k — makes this a
+# real check that the cert the app will pin is the one being served, on every
+# redeploy. WorkingDirectory is INSTALL_DIR, so IDENTITY_DIR resolves here.
+PI_CERT="${INSTALL_DIR}/identity/identity-cert.pem"
 
 echo ""
 echo -e "${CYAN}${BOLD}  🌊  Thalassa Pi Cache — Redeploy${NC}"
@@ -111,16 +116,31 @@ fi
 # ── Health probe ───────────────────────────────────────────────
 echo -e "  ${CYAN}5/5${NC} Probing endpoints..."
 
-HEALTH_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$HEALTH_URL")
+if [[ -f "$PI_CERT" ]]; then
+    CURL_TLS=(--cacert "$PI_CERT")
+    echo -e "      ${GREEN}✓${NC} probing over TLS against $(basename "$PI_CERT")"
+else
+    # First redeploy after the TLS switch: the cert is minted at startup, so a
+    # missing file here means the service never got that far.
+    echo -e "${YELLOW}      ⚠ no certificate at ${PI_CERT} — did the service start?${NC}"
+    CURL_TLS=(--insecure)
+fi
+
+HEALTH_CODE=$(curl -s "${CURL_TLS[@]}" -o /dev/null -w "%{http_code}" "$HEALTH_URL")
 if [[ "$HEALTH_CODE" == "200" ]]; then
     echo -e "      ${GREEN}✓${NC} /health → HTTP 200"
+elif [[ "$HEALTH_CODE" == "000" ]]; then
+    echo -e "${RED}      ✗ /health → no TLS handshake.${NC}"
+    echo -e "        The service may still be serving plain HTTP, or openssl is missing."
+    echo -e "        Check: ${BOLD}sudo journalctl -u ${SERVICE_NAME} -n 30 --no-pager${NC}"
+    exit 1
 else
     echo -e "${YELLOW}      ⚠ /health → HTTP ${HEALTH_CODE}${NC}"
 fi
 
 # Private route — 503 is the public-beta safe default. An explicitly unsafe
 # development server returns 400 for this intentionally empty body.
-PROBE_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+PROBE_CODE=$(curl -s "${CURL_TLS[@]}" -o /dev/null -w "%{http_code}" \
     -X POST "$PROBE_URL" \
     -H "Content-Type: application/json" \
     -d '{}')

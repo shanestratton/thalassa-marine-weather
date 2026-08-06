@@ -140,10 +140,10 @@ describe('useAppBootstrap', () => {
             // 'compass' = the anchor-watch page (alarm UI + silence control);
             // 'map' had no alarm surface at all (2026-08-03 audit fix).
             ['anchor_alarm', 'compass'],
-            // Guardian is held for public beta. A stale notification or older
-            // server payload must not bypass the view-registry hold.
-            ['bolo_alert', 'dashboard'],
-            ['hail', 'dashboard'],
+            // Guardian shipped 2026-08-06 (its presence-privacy migration
+            // closed the hold), so a bolo now routes to the page itself.
+            ['bolo_alert', 'guardian'],
+            ['hail', 'guardian'],
             ['unknown', 'dashboard'],
         ];
         act(() => {
@@ -153,8 +153,7 @@ describe('useAppBootstrap', () => {
         });
         const routedPages = boot.setPage.mock.calls.slice(-destinations.length).map(([page]) => page);
         expect(routedPages).toEqual(destinations.map(([, page]) => page));
-        expect(routedPages.slice(3, 5)).toEqual(['dashboard', 'dashboard']);
-        expect(routedPages).not.toContain('guardian');
+        expect(routedPages.slice(3, 5)).toEqual(['guardian', 'guardian']);
 
         boot.clearBadge.mockClear();
         act(() => {

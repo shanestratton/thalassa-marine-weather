@@ -8,7 +8,8 @@ import { FEATURE_VISIBILITY } from '../utils/featureVisibility';
 describe('beta feature disablement', () => {
     it('keeps launch-gated integrations off by default', () => {
         expect(FEATURE_VISIBILITY.spoonacular).toBe(false);
-        expect(FEATURE_VISIBILITY.guardian).toBe(false);
+        // Guardian moved out of this list on 2026-08-06 — its lift and the
+        // server properties that justify it live in GuardianPublicBetaHold.
     });
 
     it('shows offline meal ideas without exposing the online generator', () => {

@@ -564,9 +564,16 @@ describe('public-beta release gate contract', () => {
             'native Apple auth retains a revocable credential only through the authenticated server',
         );
         expect(gate).toContain('Apple refresh tokens are service-role-only and revoked before account deletion');
-        expect(gate).toContain('Apple sign-in is compile-time fail-closed until its external lifecycle is live');
-        expect(gate).toContain('beta artifact omits the Sign in with Apple entitlement while Apple auth is disabled');
-        expect(entitlements).not.toContain('<key>com.apple.developer.applesignin</key>');
+        expect(gate).toContain('Apple sign-in stays compile-time gated on its flag');
+        // AGREEMENT replaced ABSENCE on 2026-08-06 so the gate stays honest in
+        // both directions: flag on without the entitlement is a button that
+        // dies at Apple, the entitlement without the flag is a capability
+        // claimed and never used. The entitlement must therefore track the
+        // committed flag rather than simply be missing.
+        expect(gate).toContain('the Sign in with Apple entitlement agrees with the Apple sign-in flag');
+        const appleFlagOn =
+            JSON.parse(read('config/public-beta-features.json')).featureFlags.VITE_APPLE_SIGN_IN_ENABLED === true;
+        expect(entitlements.includes('<key>com.apple.developer.applesignin</key>')).toBe(appleFlagOn);
         expect(gate).toContain('native Apple credential revocation is identity-matched and fences the local session');
         expect(gate).toContain(
             'Apple server notifications are signature-verified and durably queued without claiming deletion',

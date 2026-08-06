@@ -598,9 +598,25 @@ const App: React.FC = () => {
                                             Thalassa
                                         </h2>
                                         {PUBLIC_BETA_ACCESS.enabled ? (
-                                            <span className="shrink-0 whitespace-nowrap rounded border border-cyan-300/30 bg-cyan-400/15 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-cyan-100 shadow-lg">
-                                                <span className="sm:hidden">Beta · Free</span>
-                                                <span className="hidden sm:inline">Public Beta · Free</span>
+                                            /* SKIPPER is the headline word again, with the
+                                               beta framing demoted to a 7px sub-line beneath
+                                               it (Shane 2026-08-06: "put back the skipper
+                                               word, with beta - free underneath it in very
+                                               small writing, so that it is not impacting
+                                               anything else"). The beta unlocks every gate
+                                               (canAccess returns true for all), so Skipper is
+                                               the honest label for what the punter actually
+                                               has. leading-none on both lines keeps the stack
+                                               at ~26px — inside the text-xl wordmark's own
+                                               line box, so the brand row height and the
+                                               truncating h2 beside it are untouched. */
+                                            <span className="flex shrink-0 flex-col items-center whitespace-nowrap rounded border border-amber-300/30 bg-amber-400/15 px-1.5 py-0.5 text-amber-100 shadow-lg">
+                                                <span className="text-[10px] font-bold uppercase leading-none tracking-wider">
+                                                    Skipper
+                                                </span>
+                                                <span className="mt-[1px] text-[7px] font-semibold uppercase leading-none tracking-wide text-amber-200/70">
+                                                    Beta · Free
+                                                </span>
                                             </span>
                                         ) : settings.subscriptionTier && settings.subscriptionTier !== 'free' ? (
                                             <span

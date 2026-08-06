@@ -21,6 +21,7 @@ import {
     PI_INTEGRATION_ENABLED,
     PI_PUBLIC_BETA_UNAVAILABLE_MESSAGE,
 } from './piPublicBetaBoundary';
+import { piRequest } from './piTls';
 import {
     getPairing,
     fetchPairInfo,
@@ -444,7 +445,10 @@ class PiCacheServiceImpl {
     /** Base URL for the Pi Cache server. */
     get baseUrl(): string {
         if (!PI_INTEGRATION_ENABLED) return PI_DISABLED_BASE_URL;
-        return `http://${this.config.host}:${this.config.port}`;
+        // HTTPS only. The Pi's certificate is pinned to its pairing key
+        // (services/piTls.ts), so this is verifiable offline with no CA — and
+        // there is deliberately no plaintext fallback to slip back to.
+        return `https://${this.config.host}:${this.config.port}`;
     }
 
     /**
@@ -533,30 +537,29 @@ class PiCacheServiceImpl {
             candidates.unshift(this.config.host);
         }
 
+        // Probe over the pinned channel. When already paired, /health is
+        // reachable with the pin and a stranger answering `calypso.local`
+        // cannot complete the handshake at all. When not yet paired, the only
+        // path the transport will open unpinned is the pairing card — which is
+        // also a perfectly good "is this a pi-cache?" probe, so discovery and
+        // pairing discovery are now the same request rather than two.
+        const pinnedSpki = getPairing()?.publicKeySpki;
+
         for (const host of candidates) {
-            const url = `http://${host}:${this.config.port}/health`;
+            const base = `https://${host}:${this.config.port}`;
+            const url = pinnedSpki ? `${base}/health` : `${base}/api/pair/info`;
             const start = Date.now();
 
             try {
-                let ok = false;
-                try {
-                    const res = await CapacitorHttp.get({
-                        url,
-                        connectTimeout: 2000,
-                        readTimeout: 2000,
-                    });
-                    ok = res.data?.status === 'ok' && res.data?.service === 'thalassa-pi-cache';
-                } catch {
-                    // AbortSignal is a no-op under the CapacitorHttp fetch
-                    // patch (see utils/deadline.ts) — bound the awaiter too.
-                    const res = await withDeadline(
-                        fetch(url, { signal: AbortSignal.timeout(2000) }),
-                        2500,
-                        'pi-cache /health',
-                    );
-                    const data = await res.json();
-                    ok = data?.status === 'ok' && data?.service === 'thalassa-pi-cache';
-                }
+                const res = await withDeadline(
+                    piRequest({ url, pinnedSpki, connectTimeout: 2000, readTimeout: 2000, responseType: 'text' }),
+                    2500,
+                    'pi-cache probe',
+                );
+                const data = res.status >= 200 && res.status < 300 ? JSON.parse(res.data) : null;
+                const ok = pinnedSpki
+                    ? data?.status === 'ok' && data?.service === 'thalassa-pi-cache'
+                    : data?.service === 'thalassa-pi-cache' && !!data?.publicKeySpki;
 
                 if (ok) {
                     // Resolve mDNS hostnames to a raw IPv4 BEFORE storing
