@@ -427,7 +427,13 @@ export const VIEW_REGISTRY: Record<string, ViewConfig> = {
         boundaryName: 'MobPage',
         group: 'vessel',
         getProps: (ctx) => ({
-            onBack: () => ctx.setPage('vessel'),
+            // Return where MOB was OPENED from, not always Vessel (Shane
+            // 2026-08-07). MOB is reachable from the OBS chart's always-visible
+            // red button as well as the Vessel safety row, and being thrown to
+            // Vessel after marking from the chart loses the chart you were
+            // working — exactly when you least want to go hunting for it.
+            // Falls back to Vessel, which is where the feature lives.
+            onBack: () => ctx.setPage(ctx.previousView || 'vessel'),
             onNavigate: (page: string) => ctx.setPage(page),
         }),
     },

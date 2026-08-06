@@ -122,6 +122,18 @@ class PiCacheServiceImpl {
     private pairingListeners: Array<(event: PiPairingEvent) => void> = [];
     /** Throttle for the pairable-found event so the tab isn't re-prompted every health tick. */
     private lastPairableEmitAt = 0;
+    /**
+     * The pairable Pi currently on offer, retained as STATE rather than only
+     * announced as an event (2026-08-07).
+     *
+     * The event fires from checkHealth, which runs at boot — long before the
+     * skipper opens Settings. Any listener mounting later missed it entirely,
+     * and the 5-minute throttle then suppressed the next one, so the pairing
+     * card simply never appeared and the Pi looked permanently unpairable.
+     * A subscriber can now ASK what is on offer instead of having to have been
+     * listening at the right instant.
+     */
+    private pairableCandidate: PiPairingEvent | null = null;
     /** Timer for the polite background discovery that replaced the manual toggle. */
     private autoDiscoverTimer: ReturnType<typeof setTimeout> | null = null;
     private locationUnsub: (() => void) | null = null;
@@ -666,6 +678,7 @@ class PiCacheServiceImpl {
         const host = this.config.host;
         const pairing = getPairing();
         if (pairing) {
+            this.pairableCandidate = null;
             const ok = await verifyPairedPi(this.baseUrl, pairing);
             if (!ok) {
                 log.warn(
@@ -680,9 +693,12 @@ class PiCacheServiceImpl {
         if (info) {
             markHostPairable(host);
             const now = Date.now();
+            const offer: PiPairingEvent = { type: 'pairable-found', host, baseUrl: this.baseUrl, info };
+            // Retained unconditionally; only the NOTIFICATION is throttled.
+            this.pairableCandidate = offer;
             if (now - this.lastPairableEmitAt > 5 * 60 * 1000) {
                 this.lastPairableEmitAt = now;
-                this.emitPairing({ type: 'pairable-found', host, baseUrl: this.baseUrl, info });
+                this.emitPairing(offer);
             }
             log.info(`pairable Pi "${info.boatName}" at ${host} — blocked until the skipper pairs`);
             return false;
@@ -691,6 +707,16 @@ class PiCacheServiceImpl {
         if (isLegacyPlainConnectionAllowed(host)) return true;
         log.warn(`refusing plain connection to ${host} — pairing exists or this host once offered pairing`);
         return false;
+    }
+
+    /**
+     * The pairing offer currently outstanding, if any.
+     *
+     * Read this on mount BEFORE subscribing: onPairingEvent only delivers
+     * future events, and the offer is usually made at boot.
+     */
+    getPairableCandidate(): PiPairingEvent | null {
+        return this.pairableCandidate;
     }
 
     /** Subscribe to pairing lifecycle events (pairing card, identity warnings). */
