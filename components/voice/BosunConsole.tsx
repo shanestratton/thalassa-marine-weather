@@ -24,7 +24,6 @@
 import { Haptics, ImpactStyle } from '@capacitor/haptics';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { PageHeader } from '../ui/PageHeader';
-import { PiSetupWizard } from './PiSetupWizard';
 import { TalkButton, type TalkButtonState } from './TalkButton';
 import { isAudioRecordingSupported, startRecording } from '../../services/voice/audioRecorder';
 import { askBosunText, askBosunVoice, isBosunReachable } from '../../services/voice/bosunVoice';
@@ -464,7 +463,6 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
      * header CTA when the Pi is unreachable. The wizard owns its own
      * step state internally — we just track open/closed here.
      */
-    const [piSetupOpen, setPiSetupOpen] = useState(false);
 
     /**
      * Last few [SR] events for the on-device debug strip. Visible to the
@@ -614,7 +612,6 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
             setActiveRecognizerKind(null);
             setPrewarmReady(false);
             setPrewarmDegraded(false);
-            setPiSetupOpen(false);
             setSrEventLog([]);
             setIdentityGeneration(next.generation);
         });
@@ -1973,17 +1970,20 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
                     </div>
                 }
             />
-            {/* Pi-setup CTA — surfaces only when no Pi is discovered. */}
-            {PI_INTEGRATION_ENABLED && bosunAvailable === false && (
-                <div className="shrink-0 px-4 pb-2">
-                    <button
-                        onClick={() => setPiSetupOpen(true)}
-                        className="text-[10px] uppercase tracking-widest text-sky-400 hover:text-sky-300 underline-offset-2 hover:underline"
-                    >
-                        Set up Pi →
-                    </button>
-                </div>
-            )}
+            {/* The "Set up Pi" CTA lived here and was removed 2026-08-07
+                (Shane: "this does not work???? ... i suspect that is for
+                connecting via wifi when you have never connected the pi
+                before. however, this should belong in the settings").
+
+                He was right on both counts. PiSetupWizard is FIRST-TIME WI-FI
+                PROVISIONING: it talks to a brand-new Pi's own
+                `Calypso-Setup-XXXX` access point, so it can only work while
+                the phone is joined to THAT network. Offered here it read as
+                "fix my missing Pi", and for anyone whose Pi is already on the
+                boat Wi-Fi it silently could not reach anything — the failure
+                he hit. It is hardware onboarding, not a voice feature, and it
+                now lives in Settings → Boat Network with its precondition
+                stated. */}
 
             {/* ── Conversation log ───────────────────────── */}
             <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
@@ -2150,8 +2150,6 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
             </form>
 
             {/* Pi-provisioning wizard — overlays the console when open. */}
-            {/* Renders nothing when piSetupOpen=false, so no perf cost. */}
-            {PI_INTEGRATION_ENABLED && <PiSetupWizard isOpen={piSetupOpen} onClose={() => setPiSetupOpen(false)} />}
         </div>
     );
 };
