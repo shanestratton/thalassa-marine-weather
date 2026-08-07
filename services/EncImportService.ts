@@ -483,6 +483,28 @@ export interface SyncEncFromPiOptions {
     cellIds?: string[];
 }
 
+/**
+ * The identity that decides whether a Pi cell is ALREADY on this device.
+ *
+ * Exported because the ENC Charts UI has to answer the same question, and
+ * answering it differently is worse than not answering it at all. It keyed on
+ * `cellId@edition` alone, so a cell the Pi had RE-EXTRACTED — same id, same
+ * chart edition, different bytes — looked identical to one already held. The
+ * sheet said "Pi charts already in sync", the Sync button never appeared, and
+ * the per-chart picker is gated on the same flag, so there was no way to pull
+ * it either. (Shane 2026-08-07, after the S-63 mesh fix re-extracted Noumea
+ * and Port Vila: the improved charts sat on the Pi, unreachable, while the app
+ * insisted everything was current.)
+ *
+ * `sizeBytes` is the re-extraction signal: the S-57 edition doesn't change
+ * when OUR extractor improves, but the byte count does. Unknown size sorts as
+ * its own value, so a legacy cell that predates the field re-imports once
+ * rather than being pinned forever.
+ */
+export function encCellSyncKey(cellId: string, edition: number, sizeBytes?: number): string {
+    return `${encCellStorageIdentity(cellId)}@${edition}@${sizeBytes ?? 'unknown'}`;
+}
+
 export async function syncEncFromPi(
     onProgress?: (p: EncImportProgress) => void,
     options: SyncEncFromPiOptions = {},
@@ -530,9 +552,8 @@ export async function syncEncFromPi(
     // chart-edition stays unchanged but the byte count shifts. Without
     // this guard, iOS would never pick up the cleaner version.
     const localCells = EncHazardService.getCoverage();
-    const localKey = (id: string, ed: number, sz?: number): string =>
-        `${encCellStorageIdentity(id)}@${ed}@${sz ?? 'unknown'}`;
-    const localKeys = new Set(localCells.map((c) => localKey(c.id, c.edition, c.sizeBytes)));
+    const localKeys = new Set(localCells.map((c) => encCellSyncKey(c.id, c.edition, c.sizeBytes)));
+    const localKey = encCellSyncKey;
     let toFetch = installed.filter((c) => !localKeys.has(localKey(c.cellId, c.edition, c.sizeBytes)));
 
     // Explicit selection wins over both proximity ordering and the cap — the
