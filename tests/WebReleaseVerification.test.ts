@@ -167,7 +167,7 @@ describe('web release verification', () => {
         );
     });
 
-    it('holds uncutover feeds while retaining schema-v2 validation and legacy retirement contracts', () => {
+    it('enables only cut-over feeds while retaining schema-v2 validation and legacy retirement contracts', () => {
         const now = Date.parse('2026-08-05T12:00:00Z');
         const spec = HOSTED_MARINE_DATASET_SPECS.currents;
         const hashes = Array.from({ length: 13 }, () => 'b'.repeat(64));
@@ -196,7 +196,10 @@ describe('web release verification', () => {
             })),
         };
 
-        expect(ENABLED_HOSTED_MARINE_DATASETS).toEqual([]);
+        // Cut over 2026-08-07 once their manifest-v2 endpoints actually
+        // served. Waves/seaice/mld remain held (and are separately parked from
+        // the pickers); mpa's pipeline has not re-run since the publisher fix.
+        expect(ENABLED_HOSTED_MARINE_DATASETS).toEqual(['currents', 'sst', 'chl']);
         expect(RETIRED_LEGACY_MARINE_PATHS).toHaveLength(62);
         for (const dataset of ['currents', 'waves', 'sst', 'chl', 'seaice', 'mld'] as const) {
             expect(RETIRED_LEGACY_MARINE_PATHS).toContain(`/api/${dataset}/manifest.json`);
