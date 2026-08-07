@@ -9,6 +9,33 @@ import { useSettingsStore } from '../stores/settingsStore';
 import { vesselDraftIsAssumed, vesselDraftMetres } from './units';
 import { getRegistryFingerprint } from './enc/EncCellMetadata';
 
+/**
+ * The geometry that should actually be STEERED for a route.
+ *
+ * For a trace-linked voyage this is the saved trace's own waypoints, not the
+ * line the Log assembled. Those differ for a mundane reason: a log group is
+ * built from ship-log ENTRIES, which include recorder rows the tracer never
+ * drew — `Voyage Start`, `Voyage End`, `Latest Position`. Following that line
+ * would steer a route with the boat's current position spliced into it.
+ *
+ * Substituting here rather than at the check is the whole point. The gate
+ * verifies the geometry it is handed, so as long as callers steer what they
+ * verified, the two can never disagree — which is the bug this replaces, where
+ * the check bound to one line and follow steered another. Callers must pass
+ * the SAME object to this, to the gate, and to startFollowing.
+ *
+ * Falls through to the route untouched when there is no trace, or the trace is
+ * unusable — the gate then refuses it on its own terms rather than this
+ * silently inventing geometry.
+ */
+export function tracedRouteFollowGeometry<T extends Pick<RouteOrTrack, 'savedRouteId' | 'points'>>(route: T): T {
+    const routeId = route.savedRouteId?.trim();
+    if (!routeId) return route;
+    const saved = loadSavedTraces().find((trace) => trace.id === routeId);
+    if (!saved || saved.points.length < 2) return route;
+    return { ...route, points: saved.points };
+}
+
 export function tracedRouteDirectUseBlockReason(
     route: Pick<RouteOrTrack, 'savedRouteId' | 'points'>,
     nowMs: number = Date.now(),
