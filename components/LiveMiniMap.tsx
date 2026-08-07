@@ -120,7 +120,7 @@ export const LiveMiniMap: React.FC<LiveMiniMapProps> = memo(
             // so the log stops looking a decade older than the app one tab
             // away. Falls back to Esri without a token — see logMapTiles.
             const logTiles = logBaseTiles(import.meta.env.VITE_MAPBOX_ACCESS_TOKEN as string | undefined);
-            const satelliteBase = L.tileLayer(piCache.leafletTileTemplate(logTiles.url), {
+            const satelliteBase = L.tileLayer(piCache.leafletTileTemplate(logTiles.url, undefined, 'image/jpeg'), {
                 maxZoom: logTiles.maxZoom,
                 attribution: logTiles.attribution,
             });

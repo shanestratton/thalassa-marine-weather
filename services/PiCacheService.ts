@@ -1127,9 +1127,24 @@ class PiCacheServiceImpl {
      * @param originalTemplate — Leaflet tile URL template, e.g. 'https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png'
      * @param ttlMs — Cache TTL in milliseconds (default: 30 min)
      */
-    leafletTileTemplate(originalTemplate: string, ttlMs = 1_800_000): string {
+    leafletTileTemplate(originalTemplate: string, ttlMs = 1_800_000, contentType = 'image/png'): string {
         if (!this.isAvailable()) return originalTemplate;
-        return `${this.baseUrl}/api/passthrough-tile?url=${originalTemplate}&ttl=${ttlMs}&ct=image/png`;
+        // ENCODE the upstream template. It may carry its own query string —
+        // Mapbox requires ?access_token= — and interpolating it raw made
+        // Express on the Pi parse that token as one of the PASSTHROUGH's own
+        // params, truncating `url` at the '?'. The Pi then fetched a tokenless
+        // Mapbox URL, got 401, and every tile came back empty: a silently
+        // white map with working attribution underneath it (Shane 2026-08-07,
+        // Log page). Esri has no query string, which is why this only appeared
+        // when these maps moved to Mapbox.
+        //
+        // The {z}/{x}/{y} placeholders must survive encoding — Leaflet
+        // substitutes them in the FINAL string, after this wrapping.
+        const encoded = encodeURIComponent(originalTemplate).replace(/%7B([zxy])%7D/gi, (_m, axis) => `{${axis}}`);
+        // Content type is not cosmetic here: the Pi stamps the cached response
+        // with it. Satellite tiles are JPEG; labelling them image/png cached
+        // and served a lie.
+        return `${this.baseUrl}/api/passthrough-tile?url=${encoded}&ttl=${ttlMs}&ct=${encodeURIComponent(contentType)}`;
     }
 
     // ── Maintenance ──

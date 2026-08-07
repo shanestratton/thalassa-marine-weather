@@ -65,11 +65,22 @@ describe('traced route direct-use gate', () => {
         const { trace } = saveTrace('Checked trace', points, { verification });
 
         expect(tracedRouteDirectUseBlockReason({ savedRouteId: trace.id, points }, now)).toBeNull();
-        expect(
-            tracedRouteDirectUseBlockReason(
-                { savedRouteId: trace.id, points: [points[0], { ...points[1], lon: points[1].lon + 0.01 }] },
-                now,
-            ),
-        ).toMatch(/current waypoints/i);
+
+        // Geometry that was NOT the checked line stays blocked — Log follow
+        // steers route.points, so allowing this would verify one line and
+        // follow another.
+        const divergent = tracedRouteDirectUseBlockReason(
+            { savedRouteId: trace.id, points: [points[0], { ...points[1], lon: points[1].lon + 0.01 }] },
+            now,
+        );
+        expect(divergent).not.toBeNull();
+        // ...but it must name the real cause. This case previously reported
+        // "no valid check for its current waypoints — open Route Tracer and
+        // check it again", which is false (the trace IS checked) and
+        // unsatisfiable (re-checking cannot change a voyage's recorded track).
+        // LogPage builds route.points from ship-log ENTRIES, so a linked
+        // voyage hits this every time.
+        expect(divergent).toMatch(/recorded track/i);
+        expect(divergent).not.toMatch(/check it again/i);
     });
 });
