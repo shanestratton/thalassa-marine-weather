@@ -101,6 +101,28 @@ echo -e "      ${GREEN}✓${NC} dist/ rebuilt"
 npm prune --omit=dev --silent --no-audit
 echo -e "      ${GREEN}✓${NC} development deps pruned"
 
+# ── LAN reachability opt-in ────────────────────────────────────
+# THALASSA_PI_LAN_BIND arrived with the public-beta boundary, AFTER some Pis
+# were installed. install.sh writes it (=0) for fresh installs, and this script
+# deliberately excludes .env from the rsync so local settings survive — so a Pi
+# installed before that flag existed simply has no line for it, and
+# resolveBindHost() falls through to its 127.0.0.1 default. The service then
+# starts perfectly, reports itself healthy, and is unreachable from the boat.
+#
+# Shane lost an hour to exactly that on 2026-08-07: the phone said "Pi not
+# connected" while systemctl said active (running), because the only trace was
+# one line of the startup banner. Say it here instead.
+if [[ -f "$INSTALL_DIR/.env" ]] && ! grep -Eq '^THALASSA_PI_LAN_BIND=1$' "$INSTALL_DIR/.env"; then
+    echo ""
+    echo -e "${YELLOW}  ⚠  LAN access is OFF — this Pi will only answer on localhost.${NC}"
+    echo -e "     Nothing on the boat network (the app included) can reach it."
+    echo -e "     To enable:"
+    echo -e "       ${BOLD}echo 'THALASSA_PI_LAN_BIND=1' | sudo tee -a ${INSTALL_DIR}/.env${NC}"
+    echo -e "       ${BOLD}sudo systemctl enable --now avahi-daemon${NC}   # for calypso.local"
+    echo -e "       ${BOLD}sudo systemctl restart ${SERVICE_NAME}${NC}"
+    echo ""
+fi
+
 # ── Restart ────────────────────────────────────────────────────
 echo -e "  ${CYAN}4/5${NC} Restarting ${SERVICE_NAME}..."
 sudo systemctl restart "${SERVICE_NAME}"
