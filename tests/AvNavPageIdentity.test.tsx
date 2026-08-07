@@ -22,18 +22,6 @@ const provisionMocks = vi.hoisted(() => ({
     provision: vi.fn(),
 }));
 
-const chartLockerMocks = vi.hoisted(() => ({
-    deleteLocalChart: vi.fn(),
-    downloadChart: vi.fn(),
-    downloadToPhoneOnly: vi.fn(),
-    getFullCatalog: vi.fn(() => []),
-    getLocalCharts: vi.fn().mockResolvedValue([]),
-    getRegions: vi.fn(() => []),
-    pickAndSaveToPhone: vi.fn(),
-    pickAndUpload: vi.fn(),
-    uploadLocalChart: vi.fn(),
-}));
-
 vi.mock('../services/AvNavService', () => ({
     AvNavService: avNavMocks,
 }));
@@ -71,9 +59,6 @@ vi.mock('../stores/settingsStore', () => ({
 vi.mock('../stores/LocationStore', () => ({
     LocationStore: { getState: () => ({ lat: -27.47, lon: 153.02 }) },
 }));
-vi.mock('../services/ChartLockerService', () => ({
-    ChartLockerService: chartLockerMocks,
-}));
 vi.mock('../utils/system', () => ({
     triggerHaptic: vi.fn(),
 }));
@@ -98,7 +83,6 @@ describe('AvNavPage credential identity boundary', () => {
         localStorage.clear();
         localStorage.setItem('thalassa_avnav_setup_dismissed', 'true');
         setAuthIdentityScope(`avnav-a-${crypto.randomUUID()}`);
-        chartLockerMocks.getLocalCharts.mockResolvedValue([]);
     });
 
     it('synchronously replaces account A SSH fields on an A→B transition', async () => {
@@ -118,7 +102,6 @@ describe('AvNavPage credential identity boundary', () => {
         expect(screen.getByPlaceholderText('Password')).toHaveValue('');
         expect(screen.queryByDisplayValue('account-a-admin')).not.toBeInTheDocument();
         expect(screen.queryByDisplayValue('account-a-ssh-secret')).not.toBeInTheDocument();
-        await waitFor(() => expect(chartLockerMocks.getLocalCharts).toHaveBeenCalled());
     });
 
     it('scrubs the password when provisioning starts and ignores stale progress and success', async () => {
