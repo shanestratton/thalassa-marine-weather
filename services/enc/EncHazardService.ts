@@ -1676,6 +1676,16 @@ async function hydrateMissingCells(cellIds: string[]): Promise<void> {
     const supersededIds: string[] = [];
     try {
         const { downloadCloudCell } = await import('./cloudCellSync');
+        const { downloadPersonalCell } = await import('./personalCellSync');
+        // Curated first, then the skipper's OWN published cells. This walk
+        // does NOT go through loadCellGeoJSON, so it does not inherit that
+        // function's remote-fallback ladder — a personal-only cell (Noumea,
+        // Port Vila: licensed to one account, never in the curated bucket)
+        // would register as pending, fail its cloud download, and sit in the
+        // failure cooldown forever. Visible to the skipper as a chart that
+        // lists but never draws.
+        const downloadRemoteCell = async (id: string): Promise<boolean> =>
+            (await downloadCloudCell(id)) || downloadPersonalCell(id);
         // PARALLEL, pool of 3 (z10-boot audit #5): one-at-a-time downloads
         // made the cold walk O(N) on the slowest cell — one stalled socket
         // (30 s deadline) head-of-line blocked the entire coast. Three slots
@@ -1685,7 +1695,7 @@ async function hydrateMissingCells(cellIds: string[]): Promise<void> {
         let done = 0;
         const runOne = async (id: string): Promise<void> => {
             const manifestVersionAtStart = cellMeta.getRegisteredCell(id)?.cloudManifestVersion;
-            const ok = await downloadCloudCell(id);
+            const ok = await downloadRemoteCell(id);
             if (ok) {
                 hydrationCooldownUntil.delete(id);
                 // Guarantee a notify even when the download didn't patch
