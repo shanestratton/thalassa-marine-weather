@@ -235,7 +235,7 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo((props) 
         // Base map — CARTO Voyager by day (clean light nautical), dark by
         // night watch. Kept on a ref so the day/night toggle can swap it
         // live without recreating the map or refitting bounds.
-        const base = L.tileLayer(piCache.leafletTileTemplate(LOG_TILES.url), {
+        const base = L.tileLayer(piCache.leafletTileTemplate(LOG_TILES.url, undefined, 'image/jpeg'), {
             maxZoom: LOG_TILES.maxZoom,
             attribution: LOG_TILES.attribution,
             className: '',
@@ -335,7 +335,7 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo((props) 
         const map = mapInstanceRef.current;
         if (!map || !isOpen) return;
         if (baseTileRef.current) map.removeLayer(baseTileRef.current);
-        const base = L.tileLayer(piCache.leafletTileTemplate(LOG_TILES.url), {
+        const base = L.tileLayer(piCache.leafletTileTemplate(LOG_TILES.url, undefined, 'image/jpeg'), {
             maxZoom: LOG_TILES.maxZoom,
             attribution: LOG_TILES.attribution,
             className: '',

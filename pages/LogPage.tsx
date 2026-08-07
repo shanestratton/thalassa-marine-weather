@@ -272,6 +272,13 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
      *  an unmount mid-question re-asks, so a remount must re-check too. */
     const followLinkPrecheckRef = React.useRef<string | null>(null);
     const followPromptDismissRef = React.useRef<HTMLButtonElement>(null);
+    /** Why the last follow attempt was refused, shown INSIDE the sheet.
+     *  Was a toast (Shane 2026-08-07: "i literally hate toast messages"), which
+     *  is the wrong surface for this: the sheet is still open, the message is
+     *  two lines of chart-safety reasoning, and a toast slides away while the
+     *  skipper is still reading the row it refers to. */
+    const [followBlockNotice, setFollowBlockNotice] = React.useState<string | null>(null);
+
     const dismissFollowPrompt = React.useCallback(() => {
         if (followPromptLoadingId !== null) return;
         if (!isAuthIdentityScopeCurrent(identityScope)) return;
@@ -2135,6 +2142,27 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                     Pick one to show on your public page — or just record the track.
                                 </div>
                             </div>
+                            {followBlockNotice && (
+                                <div
+                                    role="alert"
+                                    className="mx-3 mt-3 flex items-start gap-2.5 rounded-xl border border-amber-500/25 bg-amber-500/[0.08] px-3 py-2.5"
+                                >
+                                    <span aria-hidden="true" className="mt-px text-[13px] leading-none text-amber-300">
+                                        {'\u26A0\uFE0F'}
+                                    </span>
+                                    <p className="flex-1 text-[12px] leading-relaxed text-amber-100">
+                                        {followBlockNotice}
+                                    </p>
+                                    <button
+                                        type="button"
+                                        aria-label="Dismiss"
+                                        onClick={() => setFollowBlockNotice(null)}
+                                        className="-mr-1 -mt-1 shrink-0 rounded-lg px-2 py-1 text-[13px] leading-none text-amber-200/60 active:scale-95 hover:text-amber-100"
+                                    >
+                                        {'\u00D7'}
+                                    </button>
+                                </div>
+                            )}
                             <div className="min-h-0 flex-1 space-y-1.5 overflow-y-auto px-3 py-3">
                                 {followPromptChoices.map(({ summary: s, reversible }) => (
                                     <FollowRouteChoice
@@ -2147,6 +2175,10 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                             const actionScope = identityScope;
                                             if (!isAuthIdentityScopeCurrent(actionScope)) return;
                                             const promptVid = followPromptVoyageId;
+                                            // A new attempt supersedes the last
+                                            // refusal — never leave a stale reason
+                                            // sitting above a different row.
+                                            setFollowBlockNotice(null);
                                             setFollowPromptLoadingId(s.voyageId);
                                             void (async () => {
                                                 try {
@@ -2209,7 +2241,9 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                                         });
                                                         return;
                                                     }
-                                                    toast.error('Couldn’t load this saved route — please try again');
+                                                    setFollowBlockNotice(
+                                                        'Couldn’t load this saved route — please try again',
+                                                    );
                                                 } finally {
                                                     if (isAuthIdentityScopeCurrent(actionScope)) {
                                                         setFollowPromptLoadingId(null);
@@ -2223,7 +2257,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                                         error.message.startsWith(TRACE_ROUTE_USE_BLOCK_PREFIX)
                                                             ? error.message.slice(TRACE_ROUTE_USE_BLOCK_PREFIX.length)
                                                             : 'Couldn’t load this saved route — please try again';
-                                                    toast.error(message);
+                                                    setFollowBlockNotice(message);
                                                     setFollowPromptLoadingId(null);
                                                 }
                                             });
