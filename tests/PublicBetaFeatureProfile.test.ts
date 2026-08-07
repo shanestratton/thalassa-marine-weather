@@ -19,11 +19,23 @@ const allRequiredCredentialsPresent = Object.fromEntries(
 
 describe('committed public-beta feature profile', () => {
     it('parks every hosted marine overlay until its publication cutover passes', () => {
+        // Cutover state, 2026-08-07. Currents/SST/CHL are ON because their
+        // manifest-v2 endpoints now actually serve (verified 200 with real
+        // generations); they were held while the publisher deadlocked on a
+        // missing-asset message it did not recognise, so every pipeline failed
+        // and the API answered 502 "No valid dataset manifest slot".
+        //
+        // Waves, sea ice and MLD stay OFF and are additionally in
+        // PARKED_SEA_LAYERS — Shane parked them from the pickers on
+        // 2026-07-18 as irrelevant to a coastal passage. Two independent
+        // reasons; turning the flag on alone would not surface them.
+        //
+        // MPA stays OFF: its pipeline has not been re-run since the fix.
         expect(profile.featureFlags).toEqual({
-            VITE_CMEMS_CURRENTS_ENABLED: false,
+            VITE_CMEMS_CURRENTS_ENABLED: true,
             VITE_CMEMS_WAVES_ENABLED: false,
-            VITE_CMEMS_SST_ENABLED: false,
-            VITE_CMEMS_CHL_ENABLED: false,
+            VITE_CMEMS_SST_ENABLED: true,
+            VITE_CMEMS_CHL_ENABLED: true,
             VITE_CMEMS_SEAICE_ENABLED: false,
             VITE_CMEMS_MLD_ENABLED: false,
             VITE_MPA_ENABLED: false,
