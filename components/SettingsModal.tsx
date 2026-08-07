@@ -366,7 +366,7 @@ const MENU_ITEMS: {
     {
         id: 'boatNetwork',
         label: 'Boat Network',
-        description: 'Pi cache, Signal K & AvNav — held in public beta',
+        description: 'Pi cache, Signal K & AvNav',
         icon: (c) => (
             <svg className={c} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8}>
                 <path

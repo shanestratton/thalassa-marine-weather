@@ -11,7 +11,7 @@
  *   Inventory & Maint.:  Stores · Equipment · Repairs & Maintenance
  *   Reference:           Checklists · Polars · Documents
  *   Atmosphere:          Music (Apple Music) — "music on watch", non-essential
- *   Connect:             NMEA Gateway · ENC Library · Boat Network
+ *   Connect:             NMEA Gateway · Boat Network
  *   Account:             Settings + tier
  *
  * Recipe Library has moved to the Galley; keeping it in two places
@@ -1216,23 +1216,18 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                     onNavigate('nmea');
                                 }}
                             />
-                            <ListDivider />
-                            <OfficeRow
-                                icon={<MapChartIcon color="#7dd3fc" />}
-                                label="ENC Library"
-                                status="Unverified reference overlays"
-                                statusColor="#7dd3fc"
-                                onClick={() => {
-                                    triggerHaptic('light');
-                                    onNavigate('encLibrary');
-                                }}
-                            />
+                            {/* ENC Library removed from Connect (Shane 2026-08-07:
+                                "less is more"). The page and its route still
+                                exist — the map's no-coverage affordance in
+                                ChartDepthControls still opens it, which is where
+                                it is actually useful. This menu is for things a
+                                punter picks deliberately. */}
                             <ListDivider />
                             <OfficeRow
                                 icon={<MapChartIcon color="#cbd5e1" />}
                                 label="Boat Network"
-                                status="Pi held in public beta"
-                                statusColor="#fbbf24"
+                                status="Pi cache, Signal K & AvNav"
+                                statusColor="#94a3b8"
                                 onClick={() => {
                                     triggerHaptic('light');
                                     onNavigate('avnav');
