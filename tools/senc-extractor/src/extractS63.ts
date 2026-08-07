@@ -207,6 +207,25 @@ async function main(): Promise<void> {
                 ` (${stats.linesMultiPart} multi-part)` +
                 `, withheld: ${stats.linesBboxMismatch} mismatched + ${stats.linesStructuralBreak} damaged`,
         );
+        // Areas get their own line. Without it the ONLY way to tell whether a
+        // chart came out as real polygons or as raw triangle soup is to parse
+        // the emitted JSON — which is exactly the "a silent fallback looks
+        // identical to success" trap this whole ENC saga kept falling into.
+        const areaTotal = stats.areasWithPolygons + stats.areasMeshFallback;
+        if (areaTotal > 0) {
+            console.log(
+                `      areas: ${stats.areasWithPolygons}/${areaTotal} dissolved to polygons` +
+                    (stats.areasMeshFallback > 0
+                        ? `, ${stats.areasMeshFallback} kept as triangles`
+                        : ' (no triangle fallback)'),
+            );
+        }
+        if (stats.areasMeshFallback > 0) {
+            console.warn(
+                `      ${stats.areasMeshFallback} area feature(s) render as triangle meshes —` +
+                    ` outline withheld because it could not be verified against the mesh area`,
+            );
+        }
         if (stats.linesBboxMismatch > 0 || stats.linesStructuralBreak > 0) {
             console.warn(
                 `      WARNING: ${stats.linesBboxMismatch + stats.linesStructuralBreak} line feature(s)` +
