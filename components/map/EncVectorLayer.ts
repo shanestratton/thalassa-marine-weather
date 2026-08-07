@@ -350,25 +350,29 @@ function mountPointMarkLayers(
     const hazardIconSize = ['interpolate', ['linear'], ['zoom'], 7, 0.3, 11, 0.45, 15, 0.62] as unknown;
 
     // ── Danger-symbol decluttering ────────────────────────────────
-    // At and above this zoom a danger symbol NEVER yields to the collision
-    // engine: you are close enough that every mark is separately readable,
-    // and close enough to be navigating on it. Below it, they declutter.
+    // Danger symbols declutter at EVERY zoom. This is a paper-chart rule: two
+    // symbols cannot be printed on the same piece of paper, and two symbols
+    // drawn on the same pixels convey no more than one — they convey LESS,
+    // because the merged white halos read as a blob rather than as marks.
     //
-    // Shane 2026-08-07, looking at the New Caledonia barrier reef: "they are
-    // a little hard to follow, unless you zoom right in." Unconditional
-    // `icon-allow-overlap: true` is right for a handful of marks and wrong
-    // for a reef — UWTROC alone runs to thousands of points along the
-    // barrier, and drawn all at once they merge into a solid blob that hides
-    // the reef it is warning about. The safety intent inverts: occlusion
-    // CONCEALS the danger instead of advertising it.
-    const HAZARD_DECLUTTER_MAX_ZOOM = 13;
-    const hazardAllowOverlap = [
-        'step',
-        ['zoom'],
-        false,
-        HAZARD_DECLUTTER_MAX_ZOOM,
-        true,
-    ] as unknown as mapboxgl.ExpressionSpecification;
+    // Mapbox only drops a symbol whose box collides with one already placed,
+    // so nothing is hidden that had room to draw. Zooming in spreads the marks
+    // apart and they reappear of their own accord; the chart resolves
+    // progressively instead of switching between "blob" and "everything".
+    //
+    // Shane 2026-08-07, twice — first on the New Caledonia barrier reef, then
+    // on Port Vila: "I am unsure if it is any better." The first attempt made
+    // this a zoom step that went unconditional at z13, on the assumption that
+    // by then every mark is separately readable. It isn't: UWTROC on a reef
+    // sits metres apart, so at z14+ the blobs were exactly as before. There is
+    // no zoom at which drawing them all is legible, which is why the threshold
+    // is gone rather than raised.
+    //
+    // The safety reasoning that argued for `true` ("a danger symbol never
+    // yields") inverts in this case: occlusion CONCEALS the danger. What
+    // survives a collision is chosen by hazardSortKey below, so the mark left
+    // standing is the shallowest one present, not an arbitrary one.
+    const hazardAllowOverlap = false;
 
     // Shallowest first, so the mark that survives a collision at low zoom is
     // the WORST hazard in the cluster rather than whichever one the source

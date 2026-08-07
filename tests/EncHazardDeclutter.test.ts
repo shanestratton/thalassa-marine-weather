@@ -46,17 +46,19 @@ describe('ENC danger-symbol decluttering', () => {
         }
     });
 
-    it('keeps danger symbols absolute at and above the threshold', () => {
-        // A `step` whose upper arm is not `true` would mean dangers can be
-        // culled while you are actually navigating on them.
+    it('declutters at every zoom, with no threshold that turns it back off', () => {
+        // The first fix made this a zoom step going unconditional at z13, on
+        // the assumption that by then every mark is separately readable.
+        // Measured on Port Vila at z14+: it is not — reef UWTROC sits metres
+        // apart, so the blobs came back identically above the threshold.
+        // There is no zoom at which drawing them all is legible, so any
+        // reintroduced step is a regression, not a tuning choice.
         const expr = code.slice(code.indexOf('const hazardAllowOverlap'));
         const body = expr.slice(0, expr.indexOf(';'));
-        expect(body).toContain("'step'");
-        expect(body).toContain("['zoom']");
-        expect(body).toContain('HAZARD_DECLUTTER_MAX_ZOOM');
-        // false below the stop, true at/above it — order is the whole point.
-        expect(body.indexOf('false')).toBeLessThan(body.indexOf('HAZARD_DECLUTTER_MAX_ZOOM'));
-        expect(body.indexOf('HAZARD_DECLUTTER_MAX_ZOOM')).toBeLessThan(body.indexOf('true'));
+        expect(body).toContain('false');
+        expect(body, 'a zoom step here means the blobs return above it').not.toContain("'step'");
+        expect(body).not.toContain("['zoom']");
+        expect(body).not.toContain('true');
     });
 
     it('lets the shallowest hazard win a collision, not an arbitrary one', () => {
