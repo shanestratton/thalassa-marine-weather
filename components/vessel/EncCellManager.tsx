@@ -32,6 +32,7 @@ import {
     installEncFromUrl,
     syncEncFromPi,
     listPiInstalledCharts,
+    encCellSyncKey,
     type EncImportProgress,
 } from '../../services/EncImportService';
 import { getCoverage as getEncCoverage, removeCell as removeEncCell } from '../../services/enc/EncHazardService';
@@ -478,9 +479,22 @@ export const EncCellManager: React.FC = () => {
 
     // Find Pi cells the device is either missing OR has at a stale
     // edition. Both count as "the user has something to sync".
-    const localCellKeys = useMemo(() => new Set(cells.map((c) => `${c.id}@${c.edition ?? 0}`)), [cells]);
+    // encCellSyncKey is the SERVICE's definition of "already on this device",
+    // shared rather than re-derived. This used to key on `cellId@edition`,
+    // which silently disagreed with syncEncFromPi: a cell the Pi re-extracted
+    // (same id, same chart edition, different bytes) read as already-held, so
+    // the sheet claimed "Pi charts already in sync", the Sync button stayed
+    // hidden, and the picker — gated on the same flag — was hidden too. The
+    // improved charts were unreachable with the Pi sitting right there.
+    const localCellKeys = useMemo(
+        () => new Set(cells.map((c) => encCellSyncKey(c.id, c.edition ?? 0, c.sizeBytes))),
+        [cells],
+    );
     const missingOnDevice = useMemo(
-        () => (piCellsSummary ?? []).filter(({ cellId, edition }) => !localCellKeys.has(`${cellId}@${edition}`)),
+        () =>
+            (piCellsSummary ?? []).filter(
+                ({ cellId, edition, sizeBytes }) => !localCellKeys.has(encCellSyncKey(cellId, edition, sizeBytes)),
+            ),
         [piCellsSummary, localCellKeys],
     );
     const piHasMoreThanLocal = missingOnDevice.length > 0;
