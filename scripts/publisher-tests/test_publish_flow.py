@@ -271,3 +271,60 @@ class ManifestSlotTrustTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DownloadAssetAbsenceTests(unittest.TestCase):
+    """`download_asset` must tell "not there" apart from "went wrong".
+
+    read_manifest_slots asks for BOTH v2 manifest slots before it can write
+    either one, so a missing-asset reply mistaken for an error deadlocks the
+    publisher: it cannot create the slots because it insists on reading them
+    first. That is exactly what happened on the v2 cutover — gh answers
+    "no assets match the file pattern", which the original phrase list did not
+    recognise, and every CMEMS pipeline plus MPA failed on every scheduled run
+    from then on. The grids kept uploading; the manifests never did.
+
+    The existing flow tests all patch download_asset wholesale, so the message
+    matching itself had no coverage. That is why this survived.
+    """
+
+    @staticmethod
+    def failed(stderr: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess([], 1, stdout="", stderr=stderr)
+
+    def test_absent_asset_reports_false_rather_than_raising(self) -> None:
+        for stderr in (
+            "release download failed: no assets match the file pattern",
+            "no assets found",
+            "release not found",
+            "HTTP 404: Not Found",
+            "the release does not exist",
+        ):
+            with self.subTest(stderr=stderr):
+                with patch.object(publisher, "run_gh", return_value=self.failed(stderr)):
+                    self.assertIs(
+                        publisher.download_asset("tag", "owner/repo", "manifest-v2-a.json", Path("/tmp/x")),
+                        False,
+                    )
+
+    def test_real_failures_still_raise(self) -> None:
+        # A gate that swallows auth/network/rate-limit errors would publish a
+        # manifest that silently drops previously-live slots.
+        for stderr in (
+            "HTTP 401: Bad credentials",
+            "API rate limit exceeded",
+            "dial tcp: lookup api.github.com: no such host",
+        ):
+            with self.subTest(stderr=stderr):
+                with patch.object(publisher, "run_gh", return_value=self.failed(stderr)):
+                    with self.assertRaises(RuntimeError):
+                        publisher.download_asset("tag", "owner/repo", "manifest-v2-a.json", Path("/tmp/x"))
+
+    def test_first_v2_publish_can_bootstrap_with_neither_slot_present(self) -> None:
+        # The end-to-end shape of the deadlock: both slots absent must yield
+        # "nothing valid, nothing present", not an exception.
+        with patch.object(publisher, "run_gh", return_value=self.failed("no assets match the file pattern")):
+            with tempfile.TemporaryDirectory() as tmp:
+                valid, present = publisher.read_manifest_slots("tag", "owner/repo", "currents", Path(tmp))
+        self.assertEqual(valid, {})
+        self.assertEqual(present, set())
