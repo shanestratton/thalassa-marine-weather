@@ -38,7 +38,12 @@ export function tracedRouteDirectUseBlockReason(
     // Still blocked — following an unchecked line is the thing the gate exists
     // to prevent — but now with a cause that is true and an action that works.
     if (!verification && normaliseTraceVerification(saved.verification, saved.points)) {
-        return 'This voyage’s recorded track is not the line Route Tracer checked. Open the route in Route Tracer to follow the checked version.';
+        // Name the CONTROL, not just the screen. "Open Route Tracer" left the
+        // skipper hunting; Sail is the button that actually starts following,
+        // and it steers capturedCoords — the checked line — through its own
+        // release gate, which is why it is the supported path rather than a
+        // workaround. (Shane 2026-08-07: "how do i get past that message.")
+        return 'This voyage’s recorded track is not the line Route Tracer checked. Open the route in Route Tracer and tap Sail to follow the checked line — or choose “Just recording” to log this passage without a route.';
     }
 
     const vessel = useSettingsStore.getState().settings.vessel;
