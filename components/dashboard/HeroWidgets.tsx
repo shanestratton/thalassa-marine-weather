@@ -18,6 +18,13 @@ const MetricDeepDiveModal = lazyRetry(
     () => import('./hero/MetricDeepDiveModal').then((module) => ({ default: module.MetricDeepDiveModal })),
     'MetricDeepDiveModal',
 );
+// Pressure gets its own screen rather than the shared deep-dive modal: it is
+// the one metric the phone can MEASURE, and the sensor plumbing that makes
+// that possible has no business loading for anyone who never taps HPA.
+const BarometerPlus = lazyRetry(
+    () => import('./hero/BarometerPlus').then((module) => ({ default: module.BarometerPlus })),
+    'BarometerPlus',
+);
 
 /**
  * DraggableMetricCell — thin wrapper that makes a grid cell long-pressable
@@ -451,6 +458,9 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
 }) => {
     // Metric deep-dive modal — only armed on the live NOW card.
     const [deepDive, setDeepDive] = useState<MetricKey | null>(null);
+    // Barometer screen — takes over the grid box in place, rather than
+    // opening a sheet over it.
+    const [showBarometer, setShowBarometer] = useState(false);
     // Both rows now use the same data (activeDayData — updates on scroll)
     const topRowData = data;
 
@@ -561,6 +571,28 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
     // modal / offshore grid-tap don't stack on top of the chart it opened.
     const suppressTapUntilRef = useRef(0);
 
+    // The barometer has to be LOGGING long before anyone taps HPA: a
+    // three-hour tendency needs three hours of record, and a sensor that only
+    // wakes when the panel opens would show "collecting" forever. Started
+    // here, with the Glass page, via a dynamic import so the sensor plumbing
+    // still isn't in the initial chunk. No-ops on anything without a barometer.
+    useEffect(() => {
+        let cancelled = false;
+        void import('../../services/native/barometer').then((m) => {
+            if (!cancelled) void m.startLogging();
+        });
+        return () => {
+            cancelled = true;
+        };
+    }, []);
+
+    // Scrolling off the live NOW card takes the barometer with it — the panel
+    // reads a live sensor, so leaving it open over a future hour's card would
+    // be showing "now" while the grid behind it means "Thursday".
+    useEffect(() => {
+        if (!isLive) setShowBarometer(false);
+    }, [isLive]);
+
     useEffect(() => {
         if (!spreadMetric) return;
         suppressTapUntilRef.current = Date.now() + 600;
@@ -583,13 +615,14 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
 
     // Offshore → entire grid is tappable to open the model matrix.
     // Previously only the Wind cell was — user had to hunt for it.
-    const gridOnClick = isOffshore
-        ? () => {
-              if (Date.now() < suppressTapUntilRef.current) return;
-              setMatrixParam(undefined);
-              setShowMatrix(true);
-          }
-        : undefined;
+    const gridOnClick =
+        isOffshore && !showBarometer
+            ? () => {
+                  if (Date.now() < suppressTapUntilRef.current) return;
+                  setMatrixParam(undefined);
+                  setShowMatrix(true);
+              }
+            : undefined;
 
     return (
         <MetricTapContext.Provider
@@ -597,13 +630,19 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                 isLive
                     ? (id) => {
                           if (Date.now() < suppressTapUntilRef.current) return;
+                          // HPA opens the barometer screen in the grid box
+                          // instead of the shared metric sheet.
+                          if (id === 'pressure') {
+                              setShowBarometer(true);
+                              return;
+                          }
                           setDeepDive(id as MetricKey);
                       }
                     : null
             }
         >
             <div
-                className={`w-full rounded-xl overflow-hidden bg-white/[0.08] border border-white/[0.15] shadow-2xl ${isOffshore ? 'cursor-pointer active:scale-[0.995] transition-transform' : ''}`}
+                className={`relative w-full rounded-xl overflow-hidden bg-white/[0.08] border border-white/[0.15] shadow-2xl ${isOffshore ? 'cursor-pointer active:scale-[0.995] transition-transform' : ''}`}
                 role="region"
                 aria-label={
                     isOffshore ? 'Offshore weather metrics — tap to compare models' : 'Weather metrics dashboard'
@@ -835,6 +874,19 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                         )}
                     </DraggableMetricCell>
                 </div>
+
+                {/* Barometer screen — fills the grid box exactly (see
+                    GLASS_HERO_WIDGETS_OUTER_HEIGHT_PX; this panel must never
+                    change the card's height). */}
+                {showBarometer && (
+                    <Suspense fallback={null}>
+                        <BarometerPlus
+                            onClose={() => setShowBarometer(false)}
+                            hourly={hourly}
+                            forecastPressure={data.pressure}
+                        />
+                    </Suspense>
+                )}
 
                 {/* Model Comparison Matrix — offshore grid-tap or any-cell long-press */}
                 {showMatrix && (
