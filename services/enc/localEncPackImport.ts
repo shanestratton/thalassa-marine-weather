@@ -36,6 +36,27 @@ const LOCAL_ENC_PACK_MAX_GEOMETRY_DEPTH = 32;
 const LOCAL_ENC_PACK_MAX_SKIPPED = 1_000;
 const URL_TIMEOUT_MS = 45_000;
 
+/**
+ * How far chart geometry may legitimately overhang its declared bbox.
+ *
+ * ~0.001 deg is about 110 m. Was 1e-6 (roughly 10 cm), which is a
+ * floating-point epsilon rather than a hydrographic one — it rejected
+ * FR466870 (Noumea) and GB501494 (Port Vila) outright over overhangs of 4 m
+ * and 43 m (measured 2026-08-07). Features sitting ON a cell boundary, and
+ * coordinate rounding in the source, routinely put a vertex a few metres past
+ * the rectangle; that is normal S-57, not corruption.
+ *
+ * The check still does its real job. It exists to catch a cell whose geometry
+ * belongs somewhere else entirely — a mislabelled or tampered pack — and those
+ * failures are kilometres or degrees out, thousands of times this tolerance.
+ * Deliberately ABSOLUTE rather than a fraction of cell size, so a large cell
+ * cannot quietly earn a large allowance.
+ *
+ * Note this bounds only OVERHANG. A bbox larger than its geometry — the
+ * direction that would overstate coverage — is unaffected either way.
+ */
+const BBOX_EDGE_TOLERANCE_DEG = 0.001;
+
 const DIRECT_PACK_SUFFIX = /\.(?:thalassaenc|json|geojson)$/i;
 const RAW_OR_ENCRYPTED_CHART_SUFFIX = /\.(?:00\d|zip|es57|oesenc|oesu|s63)$/i;
 
@@ -306,12 +327,11 @@ function validateCell(value: unknown, index: number, budget: ValidationBudget): 
         throw new Error(`${cellId}: no DEPARE/DRGARE depth-area coverage; the pack cannot verify water depths.`);
     }
     if (bounds.positions === 0) throw new Error(`${cellId}: the pack contains no usable chart geometry.`);
-    const epsilon = 1e-6;
     if (
-        bounds.minLon < bbox[0] - epsilon ||
-        bounds.minLat < bbox[1] - epsilon ||
-        bounds.maxLon > bbox[2] + epsilon ||
-        bounds.maxLat > bbox[3] + epsilon
+        bounds.minLon < bbox[0] - BBOX_EDGE_TOLERANCE_DEG ||
+        bounds.minLat < bbox[1] - BBOX_EDGE_TOLERANCE_DEG ||
+        bounds.maxLon > bbox[2] + BBOX_EDGE_TOLERANCE_DEG ||
+        bounds.maxLat > bbox[3] + BBOX_EDGE_TOLERANCE_DEG
     ) {
         throw new Error(`${cellId}: chart geometry lies outside its declared bbox; nothing was imported.`);
     }
