@@ -40,6 +40,15 @@ export interface AreaGeometry {
     type: 'Area';
     triangles: [[number, number], [number, number], [number, number]][];
     rings?: [number, number][][];
+    /**
+     * Multiple disjoint polygons, each `[outer, ...holes]`. Set by the S-63
+     * path, where an AREA feature is recovered from its triangle mesh
+     * (meshOutline) and routinely resolves to several separate islands or
+     * basins — `rings` cannot express that, because its first entry is the
+     * outer and everything after it is a HOLE in that outer. Emitting two
+     * islands through `rings` would punch the second one out of the first.
+     */
+    polygons?: [number, number][][][];
     extent: { sLat: number; nLat: number; wLon: number; eLon: number };
 }
 

@@ -1,5 +1,6 @@
 import { HeaderInfo, SencFeature, AttributeValue } from './featureParser.js';
 import { latLonToMerc, MercXY, smVertexToLatLon } from './mercator.js';
+import { meshToPolygons } from './meshOutline.js';
 import { loadS57Classes } from './s57Classes.js';
 
 /**
@@ -88,6 +89,19 @@ export interface ParsedS63Senc {
          * MultiLine. Informational — these are valid chart features.
          */
         linesMultiPart: number;
+        /**
+         * AREA features whose triangle mesh was successfully dissolved back
+         * into polygon rings (meshOutline). This is the number that should be
+         * ~100% of areas; a large `areasMeshFallback` beside it means the
+         * chart still renders as raw triangles.
+         */
+        areasWithPolygons: number;
+        /**
+         * AREA features whose mesh could NOT be resolved — outline withheld,
+         * triangles kept. Fails closed on purpose: a wrongly-shaped depth area
+         * is a grounding, not a cosmetic bug.
+         */
+        areasMeshFallback: number;
         /** OGRFeature blocks whose acronym is not in the S-57 catalogue. */
         unknownClasses: Record<string, number>;
     };
@@ -111,7 +125,40 @@ function parseAttributeValue(typeTag: string, raw: string): AttributeValue {
         const n = Number(value);
         return Number.isFinite(n) ? n : value;
     }
-    return value;
+    return repairUtf8(value);
+}
+
+/**
+ * Undo the latin1 carry on a string attribute.
+ *
+ * The feature block is decoded as latin1 ON PURPOSE — text and binary are
+ * interleaved and every offset in this parser is a byte offset, which only
+ * holds while one char == one byte. The side effect is that a UTF-8 name
+ * arrives as its individual bytes reinterpreted as Latin-1 characters: the
+ * SENC's "Îlot" (C3 8E 6C 6F 74) becomes "Ã\x8elot". Measured on FR466870,
+ * 2026-08-07: 94 mangled OBJNAMs, e.g. "Ãle Ange (Ãle YagÃ©)" and
+ * "Rocher Ã\xa0 la Voile".
+ *
+ * Reversing it is exact — re-encode as latin1 to recover the original bytes,
+ * then decode them as UTF-8. The guards make it safe on charts that really do
+ * carry Latin-1:
+ *   • pure ASCII is returned untouched;
+ *   • anything above U+00FF cannot have come from a latin1 decode, so it is
+ *     already correct and is left alone;
+ *   • `fatal: true` means a byte sequence that is NOT valid UTF-8 throws
+ *     rather than producing U+FFFD, and we keep the original. A genuine
+ *     Latin-1 "Café" (…66 E9) is invalid UTF-8 and so survives unchanged.
+ */
+function repairUtf8(value: string): string {
+    if (!/[\u0080-\u00FF]/.test(value)) return value;
+    for (const ch of value) {
+        if ((ch.codePointAt(0) ?? 0) > 0xff) return value;
+    }
+    try {
+        return new TextDecoder('utf-8', { fatal: true }).decode(Buffer.from(value, 'latin1'));
+    } catch {
+        return value;
+    }
 }
 
 function parseHeader(buf: Buffer, end: number): HeaderInfo {
@@ -565,7 +612,26 @@ function parseFeatureBlock(block: Buffer, index: number, ctx: FeatureContext): S
             const start = gm.index + gm[0].length;
             const triangles = parseTriangles(block.subarray(start, start + nrecl), refMerc);
             if (triangles.length > 0) {
-                feature.geometry = { type: 'Area', triangles, extent: extentOf(triangles.flat()) };
+                // Recover the outline from the mesh. A SENC has no edge-vector
+                // index for us to walk (the oeSENC path in featureParser uses
+                // one; S-63 ships none), so the triangles are all we have —
+                // but they are enough: cancelling interior edges leaves
+                // exactly the boundary. Without this, every area feature
+                // reaches the app as raw triangles (FR466870: 101,033 of them
+                // for DEPARE alone) and renders as shattered, streaky water.
+                //
+                // meshToPolygons fails CLOSED — null keeps the triangles, so a
+                // mesh it cannot resolve degrades to today's behaviour rather
+                // than to a wrongly-shaped depth area.
+                const polygons = meshToPolygons(triangles) ?? undefined;
+                if (polygons) ctx.stats.areasWithPolygons++;
+                else ctx.stats.areasMeshFallback++;
+                feature.geometry = {
+                    type: 'Area',
+                    triangles,
+                    polygons,
+                    extent: extentOf(triangles.flat()),
+                };
             }
         }
     }
@@ -584,6 +650,8 @@ export function parseS63Senc(buf: Buffer): ParsedS63Senc {
         linesBboxMismatch: 0,
         linesStructuralBreak: 0,
         linesMultiPart: 0,
+        areasWithPolygons: 0,
+        areasMeshFallback: 0,
         unknownClasses: {},
     };
     const skippedGeometry: Record<string, number> = {};

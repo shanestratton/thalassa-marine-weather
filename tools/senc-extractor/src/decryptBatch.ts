@@ -70,7 +70,12 @@ function parseArgs(argv: string[]): Args | null {
     let onlyBboxStr: string | undefined;
     let limit: number | undefined;
     let skipExisting = false;
-    let sourceHO = 'AU';
+    // No default HO. It used to be 'AU', which silently stamped every cell in a
+    // run with the wrong producer — a Noumea/Port Vila set (one FR cell, one
+    // GB) came out labelled AU, and the app's producer-code check compares
+    // sourceHO against the cell-id prefix. Left unset, each cell derives its
+    // own from its name below, exactly as extractS63 already does.
+    let sourceHO = '';
     let fileExt = '.geojson';
     let piCacheStore: string | undefined;
 
@@ -220,7 +225,12 @@ async function main() {
                     }
                 }
 
-                const cell = emitCell(header, features, { cellId: baseName, sourceHO: args.sourceHO });
+                // Per-cell, not per-run: one chart set legitimately holds cells from
+                // different producers. `--source-ho` still overrides when given.
+                const cell = emitCell(header, features, {
+                    cellId: baseName,
+                    sourceHO: args.sourceHO || baseName.slice(0, 2),
+                });
                 // Pi-cache mode wraps each cell in {cells: [single]} so the file
                 // matches the wire format `EncImportService.syncEncFromPi`
                 // already understands. Plain mode emits the raw cell.

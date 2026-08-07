@@ -213,6 +213,30 @@ function featureToGeoJson(f: SencFeature): GeoJsonFeature | null {
             //
             // Fall back to the triangle safety net per-feature when the rings
             // either weren't assembled or failed the sanity check.
+            // Disjoint polygons (S-63 mesh reconstruction) first: this is the
+            // only form that can carry more than one outer ring, so collapsing
+            // it into `rings` would turn a second island into a hole.
+            if (f.geometry.polygons && f.geometry.polygons.length > 0) {
+                const polygons = f.geometry.polygons
+                    .map((rings) => rings.map((ring) => ring.map(roundPt)))
+                    .filter((rings) => rings.length > 0 && rings[0].length >= 4);
+                if (polygons.length === 1) {
+                    return {
+                        type: 'Feature',
+                        id: f.rcid,
+                        geometry: { type: 'Polygon', coordinates: polygons[0] },
+                        properties,
+                    };
+                }
+                if (polygons.length > 1) {
+                    return {
+                        type: 'Feature',
+                        id: f.rcid,
+                        geometry: { type: 'MultiPolygon', coordinates: polygons },
+                        properties,
+                    };
+                }
+            }
             if (f.geometry.rings && f.geometry.rings.length > 0) {
                 const rings = f.geometry.rings.map((ring) => ring.map(roundPt));
                 if (rings[0].length >= 4) {
