@@ -238,6 +238,9 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo((props) 
         const base = L.tileLayer(piCache.leafletTileTemplate(LOG_TILES.url, undefined, 'image/jpeg'), {
             maxZoom: LOG_TILES.maxZoom,
             attribution: LOG_TILES.attribution,
+            // /tiles/512/ uses a zoom scheme offset by one from Leaflet's 256
+            // default. See LiveMiniMap for the same pairing.
+            ...(LOG_TILES.isMapbox ? { tileSize: 512, zoomOffset: -1 } : {}),
             className: '',
         });
         installLeafletTileSeamGuard(base);
@@ -338,6 +341,9 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo((props) 
         const base = L.tileLayer(piCache.leafletTileTemplate(LOG_TILES.url, undefined, 'image/jpeg'), {
             maxZoom: LOG_TILES.maxZoom,
             attribution: LOG_TILES.attribution,
+            // /tiles/512/ uses a zoom scheme offset by one from Leaflet's 256
+            // default. See LiveMiniMap for the same pairing.
+            ...(LOG_TILES.isMapbox ? { tileSize: 512, zoomOffset: -1 } : {}),
             className: '',
         });
         installLeafletTileSeamGuard(base);

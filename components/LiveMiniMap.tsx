@@ -123,6 +123,12 @@ export const LiveMiniMap: React.FC<LiveMiniMapProps> = memo(
             const satelliteBase = L.tileLayer(piCache.leafletTileTemplate(logTiles.url, undefined, 'image/jpeg'), {
                 maxZoom: logTiles.maxZoom,
                 attribution: logTiles.attribution,
+                // The Mapbox URL asks for /tiles/512/, whose zoom scheme is
+                // offset by one from Leaflet's 256 default. Without these the
+                // layer renders one zoom level's worth of imagery at the wrong
+                // scale — the standard pairing for Mapbox raster styles. Esri
+                // is a true 256 grid, so this only applies to the Mapbox base.
+                ...(logTiles.isMapbox ? { tileSize: 512, zoomOffset: -1 } : {}),
             });
             // The iPhone WebKit seam guard belongs on the opaque imagery
             // only — overscanning the transparent seamark symbols would make
