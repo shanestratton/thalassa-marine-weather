@@ -540,17 +540,23 @@ function mountSoundingLabelLayers(
                 id: ENC_VEC_LAYERS.SOUNDG,
                 type: 'symbol',
                 source: ENC_VEC_SRC.SOUNDG,
-                // z12, was z4 (Shane 2026-07-22: "that is way too busy ... we
-                // dont need all of that on the chart page"). At z10 over a bay
-                // this drew every sounding in every cell — hundreds of numbers
-                // far too small to read and dense enough to bury the marks and
-                // the imagery underneath. A sounding is close-in piloting
-                // information; nobody navigates off individual depths at
-                // overview zoom, they read the contours and the bands.
+                // z10 (Shane 2026-08-07: "can we have the depth numbers arrive
+                // at zoom 10"). History matters here: this was z4, then z12 on
+                // 2026-07-22 — "that is way too busy ... we dont need all of
+                // that on the chart page".
+                //
+                // z10 is not a partial walk back to z4. The density ladder
+                // holds CONSTANT SCREEN density, and its cell size is 40 px for
+                // every zoom from 10 to 12 (soundingDensity.cellPxAt) — so a
+                // z10 screen carries the same COUNT of numbers a z12 screen
+                // does, just spread over more water, and the ladder's
+                // shallowest-first assignment means the ones that survive are
+                // the scary ones. What made z4 unreadable was the rungs below
+                // 10, where one number stands for tens of miles.
                 //
                 // SCAMIN still applies ON TOP of this floor, so cells that ask
-                // to retire earlier than z12 still do.
-                minzoom: 12,
+                // to retire earlier than z10 still do.
+                minzoom: 10,
                 filter: mapFilter(SCAMIN_CLAUSE),
                 layout: {
                     // Paper-chart sounding typography: sub-10 m depths carry
