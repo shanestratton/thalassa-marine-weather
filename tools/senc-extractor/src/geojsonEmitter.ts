@@ -163,7 +163,7 @@ function parseCodeList(v: unknown): number[] | null {
     return codes;
 }
 
-function featureToGeoJson(f: SencFeature): GeoJsonFeature | null {
+export function featureToGeoJson(f: SencFeature): GeoJsonFeature | null {
     const properties: Record<string, unknown> = {
         classCode: f.classCode,
         acronym: f.acronym,
