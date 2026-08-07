@@ -98,6 +98,10 @@ vi.mock('../services/shiplog/publishFollowedRoute', () => ({
 
 vi.mock('../services/traceDirectUseGate', () => ({
     tracedRouteDirectUseBlockReason: traceDirectUseBlockReasonMock,
+    // Identity: these tests exercise the gate's VERDICT, not the geometry
+    // substitution (that has its own suite). Returning the route unchanged
+    // keeps them asserting what they were written to assert.
+    tracedRouteFollowGeometry: <T,>(route: T): T => route,
 }));
 
 vi.mock('../hooks/useGpsHealth', () => ({

@@ -72,7 +72,7 @@ import {
 } from '../services/authIdentityScope';
 import type { RouteCoordinate } from '../utils/routeCoordinates';
 import { FEATURE_VISIBILITY } from '../utils/featureVisibility';
-import { tracedRouteDirectUseBlockReason } from '../services/traceDirectUseGate';
+import { tracedRouteDirectUseBlockReason, tracedRouteFollowGeometry } from '../services/traceDirectUseGate';
 
 const NO_FOLLOWED_ROUTE: readonly RouteCoordinate[] = [];
 const FOLLOW_ROUTE_HYDRATION_TIMEOUT_MS = 10_000;
@@ -417,13 +417,20 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                     current.startedAt === initialFingerprint.startedAt;
                 if (!expectedFollowStillCurrent) return false;
 
-                const exactRoute = fetchedRoute ?? residentRoute;
-                if (!exactRoute) return false;
-                const traceBlock = tracedRouteDirectUseBlockReason(exactRoute);
+                const logRoute = fetchedRoute ?? residentRoute;
+                if (!logRoute) return false;
+                // A trace-linked voyage steers the TRACE's waypoints, not the
+                // line assembled from its log entries — those carry recorder
+                // rows (Voyage Start / End, Latest Position) the tracer never
+                // drew. One object from here on: verified, planned and
+                // followed are the same geometry by construction, which is
+                // what stops the check and the follow disagreeing.
+                const steerRoute = tracedRouteFollowGeometry(logRoute);
+                const traceBlock = tracedRouteDirectUseBlockReason(steerRoute);
                 if (traceBlock) throw new Error(`${TRACE_ROUTE_USE_BLOCK_PREFIX}${traceBlock}`);
-                const exactPlan = buildFollowRoutePlanFromRoute(exactRoute);
+                const exactPlan = buildFollowRoutePlanFromRoute(steerRoute);
                 if (!exactPlan) return false;
-                current.startFollowing(exactPlan, voyageId, exactRoute.points);
+                current.startFollowing(exactPlan, voyageId, steerRoute.points);
                 return true;
             } catch (error) {
                 if (error instanceof Error && error.message.startsWith(TRACE_ROUTE_USE_BLOCK_PREFIX)) throw error;
@@ -433,32 +440,6 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         },
         [identityScope, state.entries],
     );
-    /**
-     * Voyages linked to a Route Tracer trace. They are NOT offerable here.
-     *
-     * Log follow steers route.points, which is built from a voyage's ship-log
-     * ENTRIES — the recorded fixes. A trace's verification is signed over the
-     * tracer's waypoints, so the two geometries never match and
-     * tracedRouteDirectUseBlockReason refuses every one of them. Offering a
-     * row whose only possible outcome is a refusal is worse than not offering
-     * it: the skipper taps it at cast-off, waits, and gets prose.
-     *
-     * Following a trace is Route Tracer's SAIL button, which steers the line
-     * that was actually checked. (This flow worked before 2026-08-06 because
-     * the gate did not exist — the beta-candidate hardening closed a real
-     * bypass, but welded this door shut in the process.)
-     */
-    const traceLinkedVoyageIds = React.useMemo(
-        () =>
-            new Set(
-                state.entries
-                    .filter((entry) => typeof entry.savedRouteId === 'string' && entry.savedRouteId.trim().length > 0)
-                    .map((entry) => entry.voyageId)
-                    .filter((voyageId): voyageId is string => typeof voyageId === 'string' && voyageId.length > 0),
-            ),
-        [state.entries],
-    );
-
     React.useEffect(() => {
         if (!isAuthIdentityScopeCurrent(identityScope)) return;
         const vid = state.currentVoyageId;
@@ -491,12 +472,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         // Freeze the choice list at open. The live list reshuffles as data
         // lands (the ⇄ fold re-picks direction when the first fix arrives),
         // which flipped rows under the skipper's thumb.
-        const followable = plannedChoices.filter(({ summary }) => !traceLinkedVoyageIds.has(summary.voyageId));
-        // Every candidate was trace-linked: there is nothing this sheet can
-        // offer, so do not ask. Leaving it to open empty would be a dialog
-        // whose only content is a dismiss button.
-        if (followable.length === 0) return;
-        setFollowPromptChoices(followable);
+        setFollowPromptChoices(plannedChoices);
         setFollowPromptVoyageId(vid);
         // NOT marked "asked" here — only an ANSWER (pick or explicit
         // dismissal) suppresses future prompts. An unmount mid-question
@@ -538,7 +514,6 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         state.entries,
         plannedSummaries.length,
         plannedChoices,
-        traceLinkedVoyageIds,
         followPromptVoyageId,
     ]);
 
