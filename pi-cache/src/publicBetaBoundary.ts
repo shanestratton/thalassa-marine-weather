@@ -1,13 +1,49 @@
 /** Public-beta defaults for the optional pinned-TLS Pi service. */
 
 export const UNSAFE_ADMIN_FLAG = 'THALASSA_UNSAFE_ADMIN_API';
+export const APP_API_FLAG = 'THALASSA_PI_APP_API';
 export const LAN_BIND_FLAG = 'THALASSA_PI_LAN_BIND';
 export const CORS_ORIGINS_FLAG = 'THALASSA_CORS_ORIGINS';
 
 export const ADMIN_API_DISABLED_CODE = 'PI_ADMIN_API_DISABLED';
+export const APP_API_DISABLED_CODE = 'PI_APP_API_DISABLED';
 
 export function unsafeAdminApiEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
     return env[UNSAFE_ADMIN_FLAG] === '1';
+}
+
+/**
+ * The routes the APP needs to work at all: pairing, ENC charts, the OSM
+ * overlay and the diary relay.
+ *
+ * Split out of UNSAFE_ADMIN_API on 2026-08-07. Those four sat behind the same
+ * flag as `/api/misc/proxy` (an unbounded outbound proxy), the raster-chart
+ * download/delete API and a 100 MB JSON body limit — so the only way to pair a
+ * phone with a Pi was to also expose all of that, on a flag whose own error
+ * message says "only on an isolated trusted boat LAN". Pairing and chart sync
+ * are the product, not administration.
+ *
+ * DEFAULTS ON, unlike every other flag here, and the asymmetry is deliberate:
+ *   • Network exposure is already gated by LAN_BIND, which is opt-in and off
+ *     by default. Mounted routes on a loopback-only server reach nobody.
+ *   • These routes are defended in their own right — TLS with a pinned
+ *     self-signed cert, TOFU pairing, and a per-payload signature.
+ *   • Defaulting it off would repeat the exact trap this replaces: a flag
+ *     added after a Pi was installed is absent from that Pi's .env, so the
+ *     next redeploy silently switches the feature off while everything still
+ *     reports healthy. Shane lost an hour to that on 2026-08-07.
+ * Opt OUT explicitly with THALASSA_PI_APP_API=0.
+ */
+export function appApiEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+    return env[APP_API_FLAG] !== '0';
+}
+
+export function appApiDisabledPayload(): { status: string; code: string; error: string } {
+    return {
+        status: 'disabled',
+        code: APP_API_DISABLED_CODE,
+        error: 'Pi app routes are disabled. Unset THALASSA_PI_APP_API (or set it to 1) to allow pairing and chart sync.',
+    };
 }
 
 export function resolveBindHost(env: NodeJS.ProcessEnv = process.env): '127.0.0.1' | '0.0.0.0' {

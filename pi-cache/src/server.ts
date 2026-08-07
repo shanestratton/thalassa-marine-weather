@@ -51,6 +51,8 @@ import {
     publicStatusPayload,
     resolveBindHost,
     unsafeAdminApiEnabled,
+    appApiEnabled,
+    appApiDisabledPayload,
 } from './publicBetaBoundary.js';
 
 // ── Config (mutable only after explicit unsafe-development opt-in) ──
@@ -59,6 +61,7 @@ const PORT = parseInt(process.env.PORT || '3001', 10);
 const CACHE_DIR = process.env.CACHE_DIR || './cache';
 const BIND_HOST = resolveBindHost();
 const UNSAFE_ADMIN_API_ENABLED = unsafeAdminApiEnabled();
+const APP_API_ENABLED = appApiEnabled();
 const CORS_ORIGINS = allowedCorsOrigins();
 
 // Pairing identity — survives redeploys (rsync excludes identity/). See
@@ -128,6 +131,11 @@ app.use(express.json({ limit: UNSAFE_ADMIN_API_ENABLED ? '100mb' : '64kb' }));
 const requireUnsafeAdmin: express.RequestHandler = (_req, res, next) => {
     if (UNSAFE_ADMIN_API_ENABLED) return next();
     return res.status(503).json(adminApiDisabledPayload());
+};
+
+const requireAppApi: express.RequestHandler = (_req, res, next) => {
+    if (APP_API_ENABLED) return next();
+    return res.status(503).json(appApiDisabledPayload());
 };
 
 // ── Health & Status ──
@@ -400,16 +408,30 @@ app.use('/api/tides', createTideRoutes(cache, proxyConfig));
 // proxy below does not, so block it before the harmless misc allowlist.
 app.use('/api/misc/proxy', requireUnsafeAdmin);
 app.use('/api/misc', createMiscRoutes(cache, proxyConfig));
-if (UNSAFE_ADMIN_API_ENABLED) {
-    app.use('/api/charts', createChartRoutes());
+// ── App routes vs admin routes ──
+// These used to share ONE flag, which meant pairing a phone required also
+// exposing /api/misc/proxy, the raster-chart download/delete API and a 100 MB
+// body limit. Pairing and chart sync are the product, not administration, and
+// they carry their own defences (pinned TLS, TOFU pairing, per-payload
+// signature). Network exposure is gated separately and restrictively by
+// THALASSA_PI_LAN_BIND, so mounting these on a loopback-only server reaches
+// nobody. See publicBetaBoundary.appApiEnabled for why this one defaults ON.
+if (APP_API_ENABLED) {
     app.use('/api/enc', createEncRoutes(identity));
     app.use('/api/osm', createOsmRoutes());
     app.use('/api/pair', createPairRoutes(identity));
     app.use('/api/diary', createDiaryRelayRoutes(diaryRelayOutbox));
 } else {
-    for (const prefix of ['/api/charts', '/api/enc', '/api/osm', '/api/pair', '/api/diary']) {
-        app.use(prefix, requireUnsafeAdmin);
+    for (const prefix of ['/api/enc', '/api/osm', '/api/pair', '/api/diary']) {
+        app.use(prefix, requireAppApi);
     }
+}
+// Raster chart download/delete stays admin-only: it fetches arbitrary chart
+// sets and removes files, and the app never calls it.
+if (UNSAFE_ADMIN_API_ENABLED) {
+    app.use('/api/charts', createChartRoutes());
+} else {
+    app.use('/api/charts', requireUnsafeAdmin);
 }
 
 // ── Boat-LAN app hosting (Shane 2026-07-09: "if the Pi serves charts
@@ -443,6 +465,12 @@ server.listen(PORT, BIND_HOST, () => {
         `   LAN bind:   ${BIND_HOST === '127.0.0.1' ? 'disabled (loopback only)' : 'ENABLED by explicit opt-in'}`,
     );
     console.log(`   Admin API:  ${UNSAFE_ADMIN_API_ENABLED ? 'UNSAFE DEVELOPMENT OPT-IN ENABLED' : 'disabled'}`);
+    // Say this out loud. When these routes were folded into the admin flag,
+    // the ONLY symptom of them being off was the app reporting "Pi not
+    // connected" — which reads as a network fault, not a config one.
+    console.log(
+        `   App API:    ${APP_API_ENABLED ? 'pairing, ENC charts, OSM, diary' : 'DISABLED — the app cannot pair or sync charts'}`,
+    );
     console.log(`   CORS:       ${CORS_ORIGINS.size > 0 ? [...CORS_ORIGINS].join(', ') : 'same-origin only'}\n`);
 
     if (UNSAFE_ADMIN_API_ENABLED && SUPABASE_ANON_KEY) {

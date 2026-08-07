@@ -37,7 +37,10 @@ test('the plaintext port is a signpost, never a data path or a redirect', () => 
     assert.doesNotMatch(signpost, /Location/);
 });
 
-test('all mutable/private Pi surfaces share the unsafe-admin gate', () => {
+test('every mutable Pi surface keeps the unsafe-admin gate', () => {
+    // These MUTATE the Pi or proxy arbitrary upstreams. They are administration
+    // in the real sense and stay behind the flag whose message says "isolated
+    // trusted boat LAN".
     for (const route of [
         "app.post('/api/configure', requireUnsafeAdmin",
         "app.post('/cache/purge', requireUnsafeAdmin",
@@ -47,10 +50,33 @@ test('all mutable/private Pi surfaces share the unsafe-admin gate', () => {
     ]) {
         assert.equal(source.includes(route), true, `${route} is not guarded`);
     }
-    for (const prefix of ['/api/charts', '/api/enc', '/api/osm', '/api/pair', '/api/diary']) {
-        assert.equal(source.includes(`'${prefix}'`), true, `${prefix} is absent from the disabled prefix list`);
+    // Raster chart download/delete fetches arbitrary chart sets and removes
+    // files. The app never calls it, so it stays admin-side.
+    assert.match(source, /app\.use\('\/api\/charts', requireUnsafeAdmin\)/);
+});
+
+test('app routes are gated separately from admin, and never left ungated', () => {
+    // Split 2026-08-07. Pairing and chart sync ARE the product; requiring the
+    // unsafe-admin flag for them meant the only way to pair a phone was to
+    // also expose /api/misc/proxy and a 100 MB body limit. They keep their own
+    // gate — the invariant is that each prefix is guarded by SOMETHING, and
+    // specifically not by the admin flag.
+    for (const prefix of ['/api/enc', '/api/osm', '/api/pair', '/api/diary']) {
+        assert.equal(source.includes(`'${prefix}'`), true, `${prefix} is absent from the gated prefix list`);
     }
-    assert.match(source, /app\.use\(prefix, requireUnsafeAdmin\)/);
+    assert.match(source, /app\.use\(prefix, requireAppApi\)/);
+    assert.match(source, /if \(APP_API_ENABLED\) \{/);
+    // The old shared loop must be gone, or the split is cosmetic.
+    assert.doesNotMatch(source, /app\.use\(prefix, requireUnsafeAdmin\)/);
+});
+
+test('the app gate is a real gate — it can still refuse', () => {
+    // Defaulting ON is a deliberate choice (see publicBetaBoundary), but a
+    // gate that cannot say no is not a boundary. THALASSA_PI_APP_API=0 must
+    // still shut these routes with their own distinct code.
+    assert.match(source, /const requireAppApi: express\.RequestHandler/);
+    assert.match(source, /appApiDisabledPayload\(\)/);
+    assert.match(source, /res\.status\(503\)\.json\(appApiDisabledPayload\(\)\)/);
 });
 
 test('ENC watcher and app hosting require unsafe opt-in', () => {

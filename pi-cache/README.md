@@ -40,8 +40,18 @@ THALASSA_UNSAFE_SUPABASE_ORIGINS=http://supabase.lan:54321
 ENC_WATCHER_ENABLED=true
 ```
 
-- `THALASSA_PI_LAN_BIND=1` changes the listener from loopback to `0.0.0.0`.
-- `THALASSA_UNSAFE_ADMIN_API=1` enables private/admin routes, app hosting, and prefetch scheduling.
+- `THALASSA_PI_LAN_BIND=1` changes the listener from loopback to `0.0.0.0`. **This is the flag that decides whether
+  anything on the boat network can reach the Pi at all** — without it the service starts, reports itself healthy, and
+  answers nobody but localhost. An existing Pi whose `.env` predates this flag will not have it: `redeploy.sh`
+  preserves `.env` by design, so the line has to be added by hand once.
+- `THALASSA_UNSAFE_ADMIN_API=1` enables the mutable/private surfaces — `/api/configure`, `/cache/purge`, the
+  passthrough tools, `/api/misc/proxy`, the raster-chart download/delete API, `/api/admin/status`, the ENC watcher,
+  app hosting, prefetch scheduling, and a 100 MB JSON body limit.
+- `THALASSA_PI_APP_API` gates the routes the **app** needs — pairing, ENC charts, the OSM overlay and the diary relay.
+  It is the one flag here that **defaults ON**; set it to `0` to turn those off. Those four used to sit behind
+  `THALASSA_UNSAFE_ADMIN_API`, which meant pairing a phone required also exposing an unbounded outbound proxy. They
+  carry their own defences (pinned TLS, trust-on-first-use pairing, per-payload signatures), and network exposure is
+  already gated by `THALASSA_PI_LAN_BIND`, so mounting them on a loopback-only server reaches nobody.
 - `THALASSA_CORS_ORIGINS` is a comma-separated exact allowlist. Wildcards, credentialed URLs, and origins with paths
   are ignored.
 - Public chart/vendor URLs remain available, including validated cross-origin CDN redirects. Private or carrier-grade

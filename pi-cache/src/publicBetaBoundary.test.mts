@@ -7,6 +7,9 @@ import {
     publicStatusPayload,
     resolveBindHost,
     unsafeAdminApiEnabled,
+    APP_API_DISABLED_CODE,
+    appApiDisabledPayload,
+    appApiEnabled,
 } from './publicBetaBoundary.js';
 
 test('Pi server is loopback/admin-off/CORS-closed by default', () => {
@@ -21,6 +24,37 @@ test('LAN and unsafe admin each require their exact explicit opt-in', () => {
     assert.equal(resolveBindHost({ THALASSA_PI_LAN_BIND: '1' }), '0.0.0.0');
     assert.equal(unsafeAdminApiEnabled({ THALASSA_UNSAFE_ADMIN_API: 'true' }), false);
     assert.equal(unsafeAdminApiEnabled({ THALASSA_UNSAFE_ADMIN_API: '1' }), true);
+});
+
+test('app routes default ON so pairing and chart sync work out of the box', () => {
+    // Deliberately the opposite default to every other flag here. These four
+    // route groups ARE the product; network exposure is gated separately by
+    // LAN_BIND (off by default), so mounting them on a loopback-only server
+    // reaches nobody. Defaulting off would repeat the 2026-08-07 trap: a flag
+    // absent from an existing Pi's .env silently kills the feature on the next
+    // redeploy while everything still reports healthy.
+    assert.equal(appApiEnabled({} as NodeJS.ProcessEnv), true);
+    assert.equal(appApiEnabled({ THALASSA_PI_APP_API: '1' }), true);
+    assert.equal(appApiEnabled({ THALASSA_PI_APP_API: '' }), true);
+    // Opting out is explicit and exact.
+    assert.equal(appApiEnabled({ THALASSA_PI_APP_API: '0' }), false);
+    assert.equal(appApiEnabled({ THALASSA_PI_APP_API: 'false' }), true);
+});
+
+test('app routes do not depend on the unsafe admin flag', () => {
+    // The whole point of the split: pairing a phone must not require exposing
+    // /api/misc/proxy, the raster-chart download/delete API, and a 100 MB body
+    // limit — on a flag whose own message says "isolated trusted boat LAN".
+    const adminOff = { THALASSA_UNSAFE_ADMIN_API: '0' } as NodeJS.ProcessEnv;
+    assert.equal(unsafeAdminApiEnabled(adminOff), false);
+    assert.equal(appApiEnabled(adminOff), true);
+});
+
+test('disabled app-API response names the flag that fixes it', () => {
+    const payload = appApiDisabledPayload();
+    assert.equal(payload.code, APP_API_DISABLED_CODE);
+    assert.notEqual(payload.code, ADMIN_API_DISABLED_CODE);
+    assert.match(payload.error, /THALASSA_PI_APP_API/);
 });
 
 test('CORS uses exact origins and never accepts wildcard/credentials/paths', () => {
