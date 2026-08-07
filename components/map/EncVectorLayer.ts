@@ -349,6 +349,34 @@ function mountPointMarkLayers(
     // routes around.
     const hazardIconSize = ['interpolate', ['linear'], ['zoom'], 7, 0.3, 11, 0.45, 15, 0.62] as unknown;
 
+    // ── Danger-symbol decluttering ────────────────────────────────
+    // At and above this zoom a danger symbol NEVER yields to the collision
+    // engine: you are close enough that every mark is separately readable,
+    // and close enough to be navigating on it. Below it, they declutter.
+    //
+    // Shane 2026-08-07, looking at the New Caledonia barrier reef: "they are
+    // a little hard to follow, unless you zoom right in." Unconditional
+    // `icon-allow-overlap: true` is right for a handful of marks and wrong
+    // for a reef — UWTROC alone runs to thousands of points along the
+    // barrier, and drawn all at once they merge into a solid blob that hides
+    // the reef it is warning about. The safety intent inverts: occlusion
+    // CONCEALS the danger instead of advertising it.
+    const HAZARD_DECLUTTER_MAX_ZOOM = 13;
+    const hazardAllowOverlap = [
+        'step',
+        ['zoom'],
+        false,
+        HAZARD_DECLUTTER_MAX_ZOOM,
+        true,
+    ] as unknown as mapboxgl.ExpressionSpecification;
+
+    // Shallowest first, so the mark that survives a collision at low zoom is
+    // the WORST hazard in the cluster rather than whichever one the source
+    // happened to list first. A missing VALSOU sorts as 0 — an unknown-depth
+    // rock is treated as the most dangerous thing present, matching the
+    // fail-safe stance encHazardParse takes on absent WATLEV.
+    const hazardSortKey = ['to-number', ['get', 'VALSOU'], 0] as unknown as mapboxgl.ExpressionSpecification;
+
     if (!map.getLayer(ENC_VEC_LAYERS.OBSTRN)) {
         map.addLayer(
             {
@@ -369,7 +397,8 @@ function mountPointMarkLayers(
                         'sm-hazard-obstruction',
                     ]),
                     'icon-size': hazardIconSize as mapboxgl.ExpressionSpecification,
-                    'icon-allow-overlap': true, // a danger symbol never yields to declutter
+                    'icon-allow-overlap': hazardAllowOverlap,
+                    'symbol-sort-key': hazardSortKey,
                 },
                 paint: { 'icon-opacity': opacity },
             },
@@ -403,7 +432,8 @@ function mountPointMarkLayers(
                         'sm-hazard-wreck-dangerous',
                     ]),
                     'icon-size': hazardIconSize as mapboxgl.ExpressionSpecification,
-                    'icon-allow-overlap': true,
+                    'icon-allow-overlap': hazardAllowOverlap,
+                    'symbol-sort-key': hazardSortKey,
                 },
                 paint: { 'icon-opacity': opacity },
             },
@@ -432,7 +462,8 @@ function mountPointMarkLayers(
                         UWTROC_ROCK_GLYPH_DEFAULT,
                     ]),
                     'icon-size': hazardIconSize as mapboxgl.ExpressionSpecification,
-                    'icon-allow-overlap': true,
+                    'icon-allow-overlap': hazardAllowOverlap,
+                    'symbol-sort-key': hazardSortKey,
                 },
                 paint: { 'icon-opacity': opacity },
             },
