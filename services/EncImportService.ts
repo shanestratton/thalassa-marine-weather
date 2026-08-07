@@ -644,6 +644,17 @@ export async function syncEncFromPi(
         cellCount: toFetch.length,
         cellsDone: persisted.length,
     });
+
+    // Keep the skipper's own cloud current, so charts pulled off the Pi on the
+    // boat are in the browser by the time they're planning ashore. Opt-in only
+    // (see publishNewCellsIfEnabled) and deliberately not awaited: the sync is
+    // finished and reported, and a slow upstream must not hold it open.
+    if (persisted.length > 0) {
+        void import('./enc/personalCellSync')
+            .then(({ publishNewCellsIfEnabled }) => publishNewCellsIfEnabled())
+            .catch(() => {});
+    }
+
     return { cells: persisted, skipped };
 }
 

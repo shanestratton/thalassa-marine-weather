@@ -449,6 +449,14 @@ export async function loadCellGeoJSON(cellId: string, remoteFallback = true): Pr
         // Rung 2: the cloud bucket.
         const { downloadCloudCell } = await import('./cloudCellSync');
         if (await downloadCloudCell(cellId)) return loadCellGeoJSON(cellId, false);
+        // Rung 3: the skipper's OWN published cells. Last because it is the
+        // narrowest — it only ever has what this account uploaded — and
+        // because the curated copy of a shared cell is the cheaper fetch.
+        // This is the rung that serves a browser off the boat: no Pi on the
+        // LAN, nothing curated for Nouméa or Port Vila, but the owner's cells
+        // are one signed-in download away.
+        const { downloadPersonalCell } = await import('./personalCellSync');
+        if (await downloadPersonalCell(cellId)) return loadCellGeoJSON(cellId, false);
     }
     return null;
 }

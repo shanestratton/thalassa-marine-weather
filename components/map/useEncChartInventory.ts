@@ -166,6 +166,12 @@ export function useEncChartInventory(
         void import('../../services/enc/cloudCellSync')
             .then(({ registerCloudCells }) => registerCloudCells())
             .catch(() => {});
+        // And the skipper's OWN published cells, which the curated bucket will
+        // never hold: Shane's S-63 Nouméa and Port Vila titles are licensed to
+        // him, so they can only ever reach this browser from his own folder.
+        void import('../../services/enc/personalCellSync')
+            .then(({ syncPersonalCells }) => syncPersonalCells())
+            .catch(() => {});
         // A punter who lands signed OUT and signs in on the page gets the
         // charts the moment auth flips — without needing to open the tracer.
         let unsubAuth: (() => void) | undefined;
@@ -176,6 +182,17 @@ export function useEncChartInventory(
                     if (event !== 'SIGNED_IN') return;
                     void import('../../services/enc/cloudCellSync')
                         .then(({ registerCloudCells }) => registerCloudCells())
+                        .catch(() => {});
+                    void import('../../services/enc/personalCellSync')
+                        .then(({ resetPersonalCellSync, syncPersonalCells }) => {
+                            // Drop any manifest cached for the PREVIOUS account
+                            // before reading — otherwise a second skipper signing
+                            // in on the same browser inherits the first one's
+                            // cell list until the 5-minute freshness window ages
+                            // out.
+                            resetPersonalCellSync();
+                            return syncPersonalCells();
+                        })
                         .catch(() => {});
                 });
                 unsubAuth = () => data.subscription.unsubscribe();

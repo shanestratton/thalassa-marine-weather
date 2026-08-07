@@ -654,6 +654,13 @@ export interface EncCell {
      * blob. Binds saved route checks to corrected extractor output even when
      * S-57 edition/date and byte metadata otherwise stay unchanged. */
     cloudManifestVersion?: number;
+    /** Version of the OWNER'S personal manifest (`u/<uid>/manifest.json`) that
+     * supplied this blob. Deliberately a SEPARATE field from
+     * `cloudManifestVersion`: the curated-manifest reconcile sweep retires
+     * every cell carrying that marker but absent from the shared manifest, so
+     * reusing it would make each personal cell delete itself on the next
+     * curated sync. Two publishers, two markers. */
+    personalManifestVersion?: number;
 }
 
 // ── Query result ───────────────────────────────────────────────────
