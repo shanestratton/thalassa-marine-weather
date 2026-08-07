@@ -124,6 +124,28 @@ def resolve_tag_commit(tag: str, repo: str) -> str | None:
     raise ContractError(f"tag {tag} exceeds the annotated-tag depth limit")
 
 
+# Phrases gh uses when the thing simply is not there, as opposed to a real
+# failure (auth, network, rate limit). Getting this list wrong is not a
+# cosmetic bug: read_manifest_slots asks for BOTH v2 slots before it can write
+# either, so a missing-asset reply that is mistaken for an error deadlocks the
+# publisher — it cannot create the slots because it insists on reading them
+# first.
+#
+# "no assets match the file pattern" is what `gh release download --pattern`
+# actually says, and it matches none of the three phrases this list originally
+# held. Every CMEMS pipeline (currents, waves, sst, chl, seaice, mld) plus MPA
+# shares this publisher, so all seven died on the v2 cutover and stayed dead:
+# the grids kept uploading, the v2 manifests never appeared, and the API
+# answered 502 "No valid dataset manifest slot" for months.
+_ABSENT_ASSET_PHRASES = (
+    "no assets found",
+    "no assets match",
+    "release not found",
+    "not found",
+    "does not exist",
+)
+
+
 def download_asset(tag: str, repo: str, filename: str, destination: Path) -> bool:
     result = run_gh(
         ["release", "download", tag, "--repo", repo, "--pattern", filename, "--output", str(destination)],
@@ -132,7 +154,7 @@ def download_asset(tag: str, repo: str, filename: str, destination: Path) -> boo
     if result.returncode == 0:
         return True
     message = (result.stderr + result.stdout).lower()
-    if "no assets found" in message or "not found" in message or "does not exist" in message:
+    if any(phrase in message for phrase in _ABSENT_ASSET_PHRASES):
         return False
     raise RuntimeError(f"gh release download failed for {filename}: {result.stderr.strip()}")
 
