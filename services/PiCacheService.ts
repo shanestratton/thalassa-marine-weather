@@ -1127,8 +1127,30 @@ class PiCacheServiceImpl {
      * @param originalTemplate — Leaflet tile URL template, e.g. 'https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png'
      * @param ttlMs — Cache TTL in milliseconds (default: 30 min)
      */
+    /**
+     * FALSE while the Pi speaks pinned self-signed TLS.
+     *
+     * Leaflet fetches tiles as <img src>, which goes through WKWebView's
+     * ordinary image loader — NOT through PiTlsPlugin, which is what holds the
+     * pin for the Pi's self-signed certificate. The webview has no CA for that
+     * cert, so every tile request dies in the handshake and renders nothing:
+     * the Log page's maps went white the moment the Pi moved to HTTPS on
+     * 2026-08-07. Over the old http:// base an <img> was fine, which is why
+     * this worked for months and then stopped.
+     *
+     * The cost of leaving it off is real — no Pi tile cache offshore — but a
+     * cached tile that can never be displayed is worth nothing, and a white
+     * chart is a worse failure than an uncached one.
+     *
+     * Flipping this back on requires the tiles to travel over a transport that
+     * can present the pin: a native WKURLSchemeHandler serving a custom
+     * scheme, or a certificate the webview already trusts. The wrapper below
+     * is kept, and correct, for that day.
+     */
+    private static readonly PI_TILE_PROXY_USABLE = false;
+
     leafletTileTemplate(originalTemplate: string, ttlMs = 1_800_000, contentType = 'image/png'): string {
-        if (!this.isAvailable()) return originalTemplate;
+        if (!PiCacheServiceImpl.PI_TILE_PROXY_USABLE || !this.isAvailable()) return originalTemplate;
         // ENCODE the upstream template. It may carry its own query string —
         // Mapbox requires ?access_token= — and interpolating it raw made
         // Express on the Pi parse that token as one of the PASSTHROUGH's own
