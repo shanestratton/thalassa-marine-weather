@@ -502,7 +502,11 @@ export async function querySegmentCautions(
  */
 async function importCellSerialized(
     blob: EncConversionResult,
-    options: { usage?: 'navigation' | 'reference' | 'demo'; cloudManifestVersion?: number } = {},
+    options: {
+        usage?: 'navigation' | 'reference' | 'demo';
+        cloudManifestVersion?: number;
+        personalManifestVersion?: number;
+    } = {},
 ): Promise<EncCell> {
     const canonicalId = canonicalEncCellId(blob.cellId);
     if (!ENC_CELL_ID_PATTERN.test(canonicalId)) {
@@ -561,6 +565,12 @@ async function importCellSerialized(
         (!Number.isInteger(options.cloudManifestVersion) || options.cloudManifestVersion < 0)
     ) {
         throw new Error(`${canonicalId} cloud manifest version is invalid; bytes were not written.`);
+    }
+    if (
+        options.personalManifestVersion !== undefined &&
+        (!Number.isInteger(options.personalManifestVersion) || options.personalManifestVersion < 0)
+    ) {
+        throw new Error(`${canonicalId} personal manifest version is invalid; bytes were not written.`);
     }
     const storageIdentity = encCellStorageIdentity(canonicalId);
     const installedDisplayCell =
@@ -655,6 +665,9 @@ async function importCellSerialized(
         ...(Number.isInteger(options.cloudManifestVersion)
             ? { cloudManifestVersion: options.cloudManifestVersion }
             : {}),
+        ...(Number.isInteger(options.personalManifestVersion)
+            ? { personalManifestVersion: options.personalManifestVersion }
+            : {}),
     };
     // Only the validated byte-import transaction may raise metadata authority.
     // putCell otherwise preserves any existing reference/demo classification,
@@ -673,7 +686,11 @@ async function importCellSerialized(
 
 export function importCell(
     blob: EncConversionResult,
-    options: { usage?: 'navigation' | 'reference' | 'demo'; cloudManifestVersion?: number } = {},
+    options: {
+        usage?: 'navigation' | 'reference' | 'demo';
+        cloudManifestVersion?: number;
+        personalManifestVersion?: number;
+    } = {},
 ): Promise<EncCell> {
     return serializeCellMutation(typeof blob?.cellId === 'string' ? blob.cellId : '', () =>
         importCellSerialized(blob, options),
