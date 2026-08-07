@@ -568,6 +568,36 @@ export async function publishPersonalCells(
     return { uploaded: landed.size, failed, cancelled: Boolean(signal?.aborted), available: true };
 }
 
+/**
+ * Corridor fill from the owner's own cells — the personal counterpart to
+ * `downloadCloudCellsForBBox`.
+ *
+ * Needed because that function filters on `cloudManifestVersion !== undefined`,
+ * so a personal cell is invisible to it by construction. Without this, ⚡ Auto
+ * route over Nouméa or Port Vila would report no chart coverage while the cells
+ * sat registered and one download away.
+ */
+export async function downloadPersonalCellsForBBox(bbox: [number, number, number, number]): Promise<{
+    downloaded: number;
+    needed: number;
+    available: boolean;
+}> {
+    if (!isSupabaseConfigured() || !supabase) return { downloaded: 0, needed: 0, available: false };
+    await syncPersonalCells();
+    if (!activeManifest) return { downloaded: 0, needed: 0, available: false };
+    const [west, south, east, north] = bbox;
+    const covering = listRegisteredCells().filter((cell) => {
+        if (cell.usage !== 'pending' || cell.personalManifestVersion === undefined) return false;
+        const [cellWest, cellSouth, cellEast, cellNorth] = cell.bbox;
+        return !(cellEast < west || cellWest > east || cellNorth < south || cellSouth > north);
+    });
+    let downloaded = 0;
+    for (const cell of covering) {
+        if (await downloadPersonalCell(cell.id)) downloaded++;
+    }
+    return { downloaded, needed: covering.length, available: true };
+}
+
 // ── Staying in sync after the first publish ───────────────────────────────
 
 const AUTO_PUBLISH_KEY = 'thalassa_enc_auto_publish';

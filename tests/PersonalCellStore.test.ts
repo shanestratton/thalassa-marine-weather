@@ -129,6 +129,50 @@ describe('personal ENC cell store', () => {
         expect(personal, 'personal rung missing').toBeGreaterThan(cloud);
     });
 
+    /**
+     * Every path that fetches a remote cell needs the personal rung — there
+     * are THREE, and they do not share one ladder. Adding it to
+     * loadCellGeoJSON alone left published charts registering and never
+     * drawing: the hydration walk calls downloadCloudCell directly, so a
+     * personal-only cell failed its cloud fetch and sat in the failure
+     * cooldown. Found 2026-08-07 after a clean publish showed nothing on
+     * /plan.
+     */
+    describe('all three remote-fetch paths know about personal cells', () => {
+        it('hydrates pending cells from the personal store when the curated fetch misses', () => {
+            const hazard = codeOf('services/enc/EncHazardService.ts');
+            const walk = hazard.slice(hazard.indexOf('async function hydrateMissingCells'));
+            expect(walk).toContain('downloadPersonalCell');
+            // The walk must actually CALL it, not merely import it.
+            expect(walk).toContain('(await downloadCloudCell(id)) || downloadPersonalCell(id)');
+            expect(walk).toContain('const ok = await downloadRemoteCell(id);');
+        });
+
+        it('fills a route corridor from personal cells too', () => {
+            // downloadCloudCellsForBBox filters on cloudManifestVersion, which
+            // a personal cell never carries — so it is invisible there by
+            // construction and needs its own pass.
+            const cloud = codeOf('services/enc/cloudCellSync.ts');
+            const fill = cloud.slice(cloud.indexOf('export async function downloadCloudCellsForBBox'));
+            expect(fill).toContain('downloadPersonalCellsForBBox');
+            expect(service).toContain('export async function downloadPersonalCellsForBBox');
+            const personalFill = service.slice(service.indexOf('export async function downloadPersonalCellsForBBox'));
+            expect(personalFill.slice(0, 900)).toContain('cell.personalManifestVersion === undefined');
+        });
+
+        it('stops reporting "no bucket" for an account with only its own charts', () => {
+            // The old unconditional `if (!activeManifest) return
+            // bucketAvailable: false` reads to callers as "sign in / offline",
+            // which is wrong for someone whose only charts are their own.
+            const cloud = codeOf('services/enc/cloudCellSync.ts');
+            const fill = cloud.slice(cloud.indexOf('export async function downloadCloudCellsForBBox'));
+            expect(fill).toContain('bucketAvailable: Boolean(activeManifest) || personal.available');
+            expect(fill).not.toContain(
+                'if (!activeManifest) return { downloaded: 0, needed: 0, bucketAvailable: false };',
+            );
+        });
+    });
+
     it('does not auto-publish before the skipper has opted in', () => {
         // Run one is ~400 MB and there is no Wi-Fi/cellular signal available
         // in this app, so it must never fire on its own.

@@ -480,16 +480,29 @@ export interface CloudBBoxFillResult {
 export async function downloadCloudCellsForBBox(bbox: [number, number, number, number]): Promise<CloudBBoxFillResult> {
     if (!isSupabaseConfigured() || !supabase) return { downloaded: 0, needed: 0, bucketAvailable: false };
     await registerCloudCells(); // ensure the manifest is registered (bboxes known)
-    if (!activeManifest) return { downloaded: 0, needed: 0, bucketAvailable: false };
-    const [west, south, east, north] = bbox;
-    const covering = listRegisteredCells().filter((cell) => {
-        if (cell.usage !== 'pending' || cell.cloudManifestVersion === undefined) return false;
-        const [cellWest, cellSouth, cellEast, cellNorth] = cell.bbox;
-        return !(cellEast < west || cellWest > east || cellNorth < south || cellSouth > north);
-    });
     let downloaded = 0;
-    for (const c of covering) {
-        if (await downloadCloudCell(c.id)) downloaded++;
+    let needed = 0;
+    // A curated manifest may legitimately be absent now — an account whose only
+    // charts are its OWN published cells has nothing in the shared bucket. The
+    // old unconditional early return here reported "no bucket" for exactly that
+    // case, which reads to the caller as "sign in / you're offline".
+    if (activeManifest) {
+        const [west, south, east, north] = bbox;
+        const covering = listRegisteredCells().filter((cell) => {
+            if (cell.usage !== 'pending' || cell.cloudManifestVersion === undefined) return false;
+            const [cellWest, cellSouth, cellEast, cellNorth] = cell.bbox;
+            return !(cellEast < west || cellWest > east || cellNorth < south || cellSouth > north);
+        });
+        needed += covering.length;
+        for (const c of covering) {
+            if (await downloadCloudCell(c.id)) downloaded++;
+        }
     }
-    return { downloaded, needed: covering.length, bucketAvailable: true };
+    // Then the skipper's own cells, which the curated filter above can never
+    // match (they carry personalManifestVersion, not cloudManifestVersion).
+    const { downloadPersonalCellsForBBox } = await import('./personalCellSync');
+    const personal = await downloadPersonalCellsForBBox(bbox);
+    downloaded += personal.downloaded;
+    needed += personal.needed;
+    return { downloaded, needed, bucketAvailable: Boolean(activeManifest) || personal.available };
 }
