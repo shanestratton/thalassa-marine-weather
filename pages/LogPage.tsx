@@ -433,6 +433,32 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         },
         [identityScope, state.entries],
     );
+    /**
+     * Voyages linked to a Route Tracer trace. They are NOT offerable here.
+     *
+     * Log follow steers route.points, which is built from a voyage's ship-log
+     * ENTRIES — the recorded fixes. A trace's verification is signed over the
+     * tracer's waypoints, so the two geometries never match and
+     * tracedRouteDirectUseBlockReason refuses every one of them. Offering a
+     * row whose only possible outcome is a refusal is worse than not offering
+     * it: the skipper taps it at cast-off, waits, and gets prose.
+     *
+     * Following a trace is Route Tracer's SAIL button, which steers the line
+     * that was actually checked. (This flow worked before 2026-08-06 because
+     * the gate did not exist — the beta-candidate hardening closed a real
+     * bypass, but welded this door shut in the process.)
+     */
+    const traceLinkedVoyageIds = React.useMemo(
+        () =>
+            new Set(
+                state.entries
+                    .filter((entry) => typeof entry.savedRouteId === 'string' && entry.savedRouteId.trim().length > 0)
+                    .map((entry) => entry.voyageId)
+                    .filter((voyageId): voyageId is string => typeof voyageId === 'string' && voyageId.length > 0),
+            ),
+        [state.entries],
+    );
+
     React.useEffect(() => {
         if (!isAuthIdentityScopeCurrent(identityScope)) return;
         const vid = state.currentVoyageId;
@@ -465,7 +491,12 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         // Freeze the choice list at open. The live list reshuffles as data
         // lands (the ⇄ fold re-picks direction when the first fix arrives),
         // which flipped rows under the skipper's thumb.
-        setFollowPromptChoices(plannedChoices);
+        const followable = plannedChoices.filter(({ summary }) => !traceLinkedVoyageIds.has(summary.voyageId));
+        // Every candidate was trace-linked: there is nothing this sheet can
+        // offer, so do not ask. Leaving it to open empty would be a dialog
+        // whose only content is a dismiss button.
+        if (followable.length === 0) return;
+        setFollowPromptChoices(followable);
         setFollowPromptVoyageId(vid);
         // NOT marked "asked" here — only an ANSWER (pick or explicit
         // dismissal) suppresses future prompts. An unmount mid-question
@@ -507,6 +538,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         state.entries,
         plannedSummaries.length,
         plannedChoices,
+        traceLinkedVoyageIds,
         followPromptVoyageId,
     ]);
 
