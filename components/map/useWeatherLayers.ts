@@ -1394,8 +1394,7 @@ export function useWeatherLayers(
         } else if (hasWind) {
             // Wind particle overlay needs enough pixels on screen to look right,
             // while still allowing the chart to reach wind's authoritative
-            // opening frame on a wide tablet/desktop canvas. Max stays at
-            // standard tile depth.
+            // opening frame on a wide tablet/desktop canvas.
             //
             // With the isobar overlay riding wind, the floor drops to
             // pressure's 2.0 — isobars are a synoptic read and the user must
@@ -1405,8 +1404,18 @@ export function useWeatherLayers(
             // the default zoom level") — including when the isobar overlay
             // rides along. Solo pressure (branch above) keeps its deliberate
             // z2 synoptic frame.
+            //
+            // The CEILING is z9 (Shane 2026-08-08: "the punter can zoom
+            // between 3-9 only"). It used to be 18, which let the chart run
+            // four levels past anything the wind field could actually
+            // resolve: the particles are seeded from a global forecast grid,
+            // so past synoptic scale you are watching interpolation, drawn
+            // with total confidence, over a street map. Mapbox clamps the
+            // live camera the moment this is set, so activating wind while
+            // zoomed deeper pulls back to z9 rather than leaving the map
+            // outside its own limit.
             map.setMinZoom(Math.max(LAYER_FRAME_ZOOM.wind ?? 3, 3));
-            map.setMaxZoom(18);
+            map.setMaxZoom(9);
             map.setMaxBounds(undefined!);
         } else {
             // No weather layer → full zoom-in depth, but the zoom-out floor

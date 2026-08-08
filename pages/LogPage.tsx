@@ -59,6 +59,7 @@ import { formatEndpointCoordinates } from './log/useEndpointNames';
 import { VoyageChoiceDialog, StopVoyageDialog } from './log/VoyageDialogs';
 import { ExportSheet } from './log/ExportSheet';
 import { GpsDisclaimerModal } from './log/GpsDisclaimerModal';
+import { SkipperClaimNotice } from './log/SkipperClaimNotice';
 import { ImportSheet } from './log/ImportSheet';
 import { ShareSheet } from './log/ShareSheet';
 import { ShareFormSheet } from './log/ShareFormSheet';
@@ -1250,6 +1251,11 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                             </div>
                         }
                     />
+
+                    {/* The trickle's single-publisher veto, said out loud. It
+                        used to be console-only, which is how a healthy-looking
+                        chain published nothing for a whole day, twice. */}
+                    <SkipperClaimNotice isTracking={state.isTracking} onOpenVessel={() => _setPage('vessel')} />
 
                     {/* ── Voyage Totals — three hero gauge tiles ──
                         Polished 2026-05-17 — gradient backdrops per
