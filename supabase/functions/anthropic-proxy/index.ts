@@ -131,7 +131,19 @@ Deno.serve(async (req: Request) => {
         });
     }
 
+    // Set during validation above; drives the SSE passthrough below.
+    const isStreaming = (() => {
+        try {
+            return (JSON.parse(bodyText) as { stream?: unknown }).stream === true;
+        } catch {
+            return false;
+        }
+    })();
+
     const ctrl = new AbortController();
+    // A stream can legitimately stay open longer than a buffered call: the
+    // watchdog bounds time-to-FIRST-BYTE, and aborting it mid-body would cut
+    // a reply off in the middle of a sentence.
     const watchdog = setTimeout(() => ctrl.abort(), ANTHROPIC_TIMEOUT_MS);
     const t0 = Date.now();
 
@@ -158,6 +170,31 @@ Deno.serve(async (req: Request) => {
         });
     } finally {
         clearTimeout(watchdog);
+    }
+
+    // ── Streaming passthrough ──────────────────────────────────────
+    // A voice assistant's felt latency is time-to-first-WORD, not total
+    // generation time. Buffering the whole reply here made Calypso wait for
+    // the last token before saying the first one (Shane 2026-08-08: "can you
+    // also speed up the responses"). When the caller asks for a stream, hand
+    // the SSE body straight through — the body is never read here, so the
+    // client sees deltas as Anthropic emits them.
+    //
+    // The byte cap and usage logging below both require a fully-buffered
+    // body, so neither applies on this path; the client's own deadline and
+    // Anthropic's max_tokens bound it instead. Streaming is opt-in per
+    // request, so the buffered path stays exactly as it was for every other
+    // caller.
+    if (isStreaming && upstream.ok && upstream.body) {
+        return new Response(upstream.body, {
+            status: upstream.status,
+            headers: {
+                ...CORS,
+                'Content-Type': 'text/event-stream',
+                'Cache-Control': 'no-cache',
+                Connection: 'keep-alive',
+            },
+        });
     }
 
     const responseText = await readResponseTextLimited(upstream, 2_000_000);
