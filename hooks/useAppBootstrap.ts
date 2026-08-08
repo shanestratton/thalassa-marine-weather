@@ -200,9 +200,24 @@ export function useAppBootstrap() {
     // PI_INTEGRATION_ENABLED: that gate is about probing the boat LAN for a
     // Pi, and this is a direct connection to a gateway the skipper
     // configured by hand.
+    //
+    // The store is started HERE too, and that half was missing (Shane
+    // 2026-08-09: "the ydwg-02 is connected, the gps is working, however there
+    // is nothing showing on the instrument panel"). Restoring the socket
+    // without the store that consumes it produced exactly that: a healthy
+    // gateway streaming into nothing, because NmeaStore was only ever started
+    // by tapping Connect on the NMEA page. The instrument panel gates every
+    // tile on the store's own connectionStatus, which stayed 'disconnected'.
+    //
+    // Store first, socket second — the store must be subscribed in time to
+    // catch the initial 'connecting' status.
     useEffect(() => {
-        import('../services/NmeaListenerService')
-            .then(({ NmeaListenerService }) => NmeaListenerService.autoStart())
+        Promise.all([import('../services/NmeaListenerService'), import('../services/NmeaStore')])
+            .then(([{ NmeaListenerService }, { NmeaStore }]) => {
+                if (!NmeaListenerService.getSavedConfig()) return;
+                NmeaStore.start();
+                NmeaListenerService.autoStart();
+            })
             .catch((err) => console.error('[Boot] NMEA autoStart failed:', err?.message || err));
     }, []);
 

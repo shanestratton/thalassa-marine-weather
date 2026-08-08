@@ -33,11 +33,25 @@ describe('NMEA instrument honesty', () => {
     });
 
     it('does not describe a disconnected live panel as demo data', () => {
-        expect(source).toContain("? 'No feed'");
-        expect(source).toContain("? 'Stale'");
-        expect(source).toContain("? 'Live'");
-        expect(source).toContain(": 'Waiting'");
+        // The four-way ternary that used to live here moved into
+        // utils/instrumentPanelStatus.ts on 2026-08-09, where it grew the
+        // no-gateway and error cases and a sentence for each. The guarantee is
+        // unchanged: a panel with no feed says so, and never calls itself Demo.
+        expect(source).toContain('diagnosePanel(');
         expect(source).not.toContain("{isConnected ? 'Live' : 'Demo'}");
+        expect(source).not.toContain('Demo');
+
+        const status = readFileSync('utils/instrumentPanelStatus.ts', 'utf8');
+        for (const label of ['No feed', 'Stale', 'Live', 'Waiting', 'No gateway', 'No data']) {
+            expect(status, label).toContain(`'${label}'`);
+        }
+    });
+
+    it('tells the skipper WHY the panel is blank, not merely that it is', () => {
+        // 2026-08-09: a healthy YDWG-02 streamed into an unstarted store and
+        // the panel showed nothing at all. Five causes had one appearance.
+        expect(source).toContain('diagnosis.detail &&');
+        expect(source).toContain('missingInstruments(');
     });
 
     it('masks dead readings and labels the declared depth reference', () => {

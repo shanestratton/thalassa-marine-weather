@@ -25,6 +25,9 @@ import { PageHeader } from '../ui/PageHeader';
 import { useDeviceClass, pickByDevice } from '../../utils/useDeviceClass';
 import type { TimestampedMetric, DataFreshness } from '../../services/NmeaStore';
 import { nmeaDepthReferenceLabel } from '../../services/nmea/nmeaSentence';
+import { NmeaStore } from '../../services/NmeaStore';
+import { NmeaListenerService } from '../../services/NmeaListenerService';
+import { diagnosePanel, missingInstruments } from '../../utils/instrumentPanelStatus';
 
 interface TheGlassPageProps {
     onBack: () => void;
@@ -493,6 +496,33 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
     const state = useNmeaStore();
     const deviceClass = useDeviceClass();
 
+    // The panel owns its own data source rather than trusting that some other
+    // page started it. Every tile is gated on the store's connectionStatus, so
+    // an unstarted store renders a completely blank panel while the gateway is
+    // connected and streaming — which is exactly what happened on 2026-08-09.
+    // start() is idempotent, and this page is never opened for any other
+    // reason, so claiming the store here costs nothing and removes an ordering
+    // dependency on which screen the skipper happened to visit first.
+    useEffect(() => {
+        if (NmeaListenerService.getSavedConfig()) NmeaStore.start();
+    }, []);
+
+    // How long the socket has been up, so "waiting" can become "no data" once
+    // patience stops being the right answer.
+    const [connectedAt, setConnectedAt] = useState<number | null>(null);
+    const [nowMs, setNowMs] = useState(() => Date.now());
+    useEffect(() => {
+        if (state.connectionStatus !== 'connected') {
+            setConnectedAt(null);
+            return;
+        }
+        setConnectedAt((prev) => prev ?? Date.now());
+    }, [state.connectionStatus]);
+    useEffect(() => {
+        const timer = setInterval(() => setNowMs(Date.now()), 1000);
+        return () => clearInterval(timer);
+    }, []);
+
     // Tablet-aware sizing — scales the instrument-panel chrome up so a
     // 12" iPad reads as a real bridge instrument, not a centred phone
     // layout floating in white space. Values picked to roughly preserve
@@ -617,19 +647,35 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
         state.hdop,
         state.satellites,
     ].filter((metric) => metric.value !== null && metric.freshness !== 'dead');
-    const panelStatus = !isConnected
-        ? 'No feed'
-        : panelMetrics.some((metric) => metric.freshness === 'stale')
-          ? 'Stale'
-          : panelMetrics.some((metric) => metric.freshness === 'live')
-            ? 'Live'
-            : 'Waiting';
+    // A blank panel had four causes and one appearance. The diagnosis names
+    // which one, because "nothing is showing" is the least actionable thing an
+    // instrument can tell a skipper.
+    const diagnosis = diagnosePanel({
+        gatewayConfigured: NmeaListenerService.getSavedConfig() !== null,
+        connectionStatus: state.connectionStatus,
+        metrics: panelMetrics,
+        secondsSinceConnect: connectedAt === null ? null : (nowMs - connectedAt) / 1000,
+    });
+    const panelStatus = diagnosis.label;
     const panelStatusDot =
-        panelStatus === 'Live'
+        diagnosis.state === 'live'
             ? 'bg-emerald-400 animate-pulse'
-            : panelStatus === 'Stale'
+            : diagnosis.state === 'stale'
               ? 'bg-amber-400'
-              : 'bg-slate-500';
+              : diagnosis.actionable
+                ? 'bg-rose-400'
+                : 'bg-slate-500';
+
+    // Which transducer is quiet while the rest of the boat reports? Naming it
+    // turns "why is the wind rose empty" into a job on the boat rather than a
+    // suspicion about the app.
+    const quietInstruments = missingInstruments([
+        { name: 'Wind', metrics: [state.tws, state.twa, state.aws, state.awa, state.twd] },
+        { name: 'Depth', metrics: [state.depth] },
+        { name: 'Heading', metrics: [state.heading] },
+        { name: 'GPS', metrics: [state.latitude, state.longitude, state.sog] },
+        { name: 'Water temp', metrics: [state.waterTemp] },
+    ]);
 
     return (
         <div className="relative h-full bg-slate-950 overflow-hidden slide-up-enter">
@@ -652,6 +698,34 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                     className={`flex-1 min-h-0 overflow-y-auto ${containerPx} pb-4`}
                     style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}
                 >
+                    {/* Why the panel looks the way it does. Shown only when
+                        there is something to explain — a live panel says
+                        nothing, because a banner that is always there is a
+                        banner nobody reads. */}
+                    {diagnosis.detail && (
+                        <div
+                            role="status"
+                            className={`${containerMb} rounded-xl border p-3 ${
+                                diagnosis.actionable
+                                    ? 'border-rose-500/25 bg-rose-500/[0.07]'
+                                    : 'border-white/10 bg-white/[0.03]'
+                            }`}
+                        >
+                            <p className="text-[12px] leading-snug text-gray-300">{diagnosis.detail}</p>
+                        </div>
+                    )}
+                    {quietInstruments.length > 0 && (
+                        <div
+                            role="status"
+                            className={`${containerMb} rounded-xl border border-amber-500/20 bg-amber-500/[0.06] p-3`}
+                        >
+                            <p className="text-[12px] leading-snug text-gray-300">
+                                Not reporting: {quietInstruments.join(', ')}. The rest of the backbone is fine, so check
+                                the transducer or the gateway's sentence output.
+                            </p>
+                        </div>
+                    )}
+
                     {/* ── ROW 1: SOG (left) + TWS GAUGE (center overlap) + AWS (right) ── */}
                     <div className={`relative ${containerMb}`}>
                         <div className={`grid grid-cols-2 ${containerGap}`}>
