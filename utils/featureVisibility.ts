@@ -54,11 +54,43 @@ export const FEATURE_VISIBILITY = {
      */
     appleMusic: APPLE_MUSIC_ENABLED,
     /**
+     * Calypso's conversational voice console. PARKED 2026-08-09.
+     *
+     * Not a latency hold — that was fixable and partly fixed. The blocker is
+     * that a skipper cannot tell a misheard question from a heard one. The
+     * reply arrives spoken, fluent and confident either way, so a wrong answer
+     * and a right answer are indistinguishable at the moment of use. On a boat
+     * that is a hazard, and no amount of streaming or prompt work addresses
+     * it: the failure is in the ear, not the mouth.
+     *
+     * Shipping it flaky also cost more than itself. A skipper who learns the
+     * voice assistant is unreliable has no way to know the anchor watch and
+     * the MOB button are not — and those work.
+     *
+     * WHAT STAYS ON, deliberately: services/voice/safetyTts.ts. MAYDAY, DSC
+     * and radio position reports are not Calypso. They are scripted text the
+     * skipper has already read on screen, spoken through a path that races
+     * ElevenLabs against a budget and falls back to the OS voice — designed
+     * from the start to survive exactly the failures that parked the console.
+     * Nothing in that path routes through here.
+     *
+     * Also still on: ttsClient (safetyTts depends on it) and every alarm chime.
+     *
+     * TO BRING HIM BACK the ear has to be fixed first — on-device recognition
+     * with a confidence floor, and a spoken read-back of what was heard before
+     * anything is answered. The offline helm grammar
+     * (services/voice/helmGrammar.ts) is the shape the return should take: it
+     * refuses rather than guesses. It currently has no entry point of its own,
+     * so it is dark while this flag is false.
+     */
+    calypsoConsole: false,
+    /**
      * Calypso's proactive NMEA threshold monitor is foreground JavaScript:
      * iOS may suspend it in the background or terminate it, HTML audio/TTS is
      * not a Critical Alert, and no native watchdog currently owns its rules.
      * Keep it fail-closed for public beta so it cannot be mistaken for an
-     * independent vessel alarm. Calypso's on-demand voice console remains on.
+     * independent vessel alarm. The on-demand console is parked too — see
+     * calypsoConsole above.
      */
     calypsoAlerts: false,
     /**

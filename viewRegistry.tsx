@@ -68,10 +68,43 @@ const AnchorWatchPage = lazyRetry(
     'AnchorWatchPage',
 );
 const ChatPage = lazyRetry(() => import('./components/ChatPage').then((m) => ({ default: m.ChatPage })), 'ChatPage');
-const BosunConsolePage = lazyRetry(
+const LiveBosunConsolePage = lazyRetry(
     () => import('./components/voice/BosunConsole').then((m) => ({ default: m.BosunConsole })),
     'BosunConsole',
 );
+/**
+ * Calypso is parked (FEATURE_VISIBILITY.calypsoConsole, 2026-08-09). The mic
+ * buttons are hidden, but a persisted `currentView` or a stale `previousView`
+ * can still resolve to 'voice', so the route itself must be closed rather than
+ * merely unreachable — otherwise a returning skipper lands on a live console
+ * that is supposed to be off.
+ *
+ * Deliberately explicit about what is NOT affected. "Voice is off" would read
+ * as MAYDAY read-out being off too, and it is not.
+ */
+const CalypsoParkedPage: React.FC<{ onBack: () => void }> = ({ onBack }) => (
+    <div className="mx-auto max-w-2xl p-5 sm:p-8" role="status">
+        <div className="rounded-2xl border border-sky-400/25 bg-sky-500/10 p-6 text-center">
+            <h2 className="text-lg font-bold text-white">Calypso is having a lie down</h2>
+            <p className="mx-auto mt-2 max-w-lg text-sm leading-relaxed text-sky-100/80">
+                The voice assistant is parked while its listening is rebuilt. It mishears often enough that a wrong
+                answer and a right one sound the same, which is not good enough to steer by.
+            </p>
+            <p className="mx-auto mt-3 max-w-lg text-sm leading-relaxed text-sky-100/80">
+                Calypso&rsquo;s voice still reads MAYDAY calls, DSC and radio position reports aloud — those are on the
+                Radio and MOB pages and are unaffected.
+            </p>
+            <button
+                type="button"
+                onClick={onBack}
+                className="mt-5 min-h-[44px] rounded-xl border border-white/10 bg-white/[0.06] px-5 text-sm font-bold text-white"
+            >
+                Back
+            </button>
+        </div>
+    </div>
+);
+const BosunConsolePage = FEATURE_VISIBILITY.calypsoConsole ? LiveBosunConsolePage : CalypsoParkedPage;
 const MusicPageView: React.FC<{ onBack: () => void }> = ({ onBack }) => (
     <div className="mx-auto max-w-2xl p-5 sm:p-8" role="status">
         <div className="rounded-2xl border border-amber-400/25 bg-amber-500/10 p-6 text-center">
