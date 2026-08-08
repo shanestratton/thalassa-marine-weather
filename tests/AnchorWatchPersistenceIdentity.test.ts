@@ -33,6 +33,10 @@ const watchMocks = vi.hoisted(() => ({
     subscribeGeofence: vi.fn(),
     removeGeofence: vi.fn().mockResolvedValue(undefined),
     addGeofence: vi.fn().mockResolvedValue(undefined),
+    // Mirrors the real delegation: the arm path's best-effort removal still
+    // goes THROUGH removeGeofence, so every existing call-count assertion here
+    // keeps meaning what it meant — it just no longer aborts the arm.
+    geofenceExists: vi.fn().mockResolvedValue(true),
     requestStart: vi.fn().mockResolvedValue({
         supported: true,
         active: true,
@@ -86,6 +90,15 @@ vi.mock('../services/BgGeoManager', () => ({
         subscribeLocation: watchMocks.subscribeLocation,
         subscribeGeofence: watchMocks.subscribeGeofence,
         removeGeofence: watchMocks.removeGeofence,
+        tryRemoveGeofence: async (id: string) => {
+            try {
+                await watchMocks.removeGeofence(id);
+                return true;
+            } catch {
+                return false;
+            }
+        },
+        geofenceExists: watchMocks.geofenceExists,
         addGeofence: watchMocks.addGeofence,
         requestStart: watchMocks.requestStart,
         requestStop: watchMocks.requestStop,
