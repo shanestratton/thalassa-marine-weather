@@ -32,6 +32,7 @@ import { publishTurn, startConversationSync, type ConversationSyncHandle } from 
 import { askHaiku, consumeLastTtsError, synthesiseSpeech } from '../../services/voice/orchestrator';
 import { startSpokenReply, type SpokenReply } from '../../services/voice/spokenReplyQueue';
 import { consumeTtsClientError } from '../../services/voice/ttsClient';
+import { tryHelmCommand } from '../../services/voice/helmVoice';
 import { FEATURE_VISIBILITY } from '../../utils/featureVisibility';
 import { selectVoiceQueryRoute } from '../../services/voice/voiceQueryRouting';
 import {
@@ -1341,6 +1342,31 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
                 let response: VoiceQueryResponse;
                 const route = selectVoiceQueryRoute(to, preTranscribed);
                 if (route.kind === 'cloud-text') {
+                    // ── HELM PATH ─────────────────────────────────────────
+                    // "What's the depth" is answered here, from the vessel's
+                    // own instruments, spoken by the OS synthesiser, with no
+                    // network call at all. Offshore in weather — which is when
+                    // a skipper most wants to ask without letting go of the
+                    // tiller — there is marginal signal or none, and the cloud
+                    // path is four round trips. Anything open-ended returns
+                    // null and falls through to Calypso below.
+                    const helm = tryHelmCommand(route.text);
+                    if (helm) {
+                        if (!isVoiceOperationCurrent(operation)) return;
+                        // Already spoken natively; no audio for the player.
+                        handleResponse(
+                            {
+                                transcript: route.text,
+                                answer_text: helm.answer,
+                                source: 'cloud',
+                                tool_calls: [{ name: `helm:${helm.query}`, args: {}, status: 'success' }],
+                            },
+                            to,
+                            operation,
+                        );
+                        return;
+                    }
+
                     // FAST PATH: live Deepgram/Apple SR has already produced
                     // a transcript, so run the tool-loop directly rather
                     // than making the edge function transcribe a blob again.
