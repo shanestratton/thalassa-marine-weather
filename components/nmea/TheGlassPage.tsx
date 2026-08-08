@@ -4,14 +4,22 @@
  * Premium multimeter view with:
  *   - SOG + AWS top row (2-col with sparklines)
  *   - TWS hero arc gauge (center, bezeled mechanical frame)
- *   - Depth Sounder + COG Compass + Heel Angle (3-col)
- *   - NMEA Data (sensor status + voltage) + Voyage (trip dist) bottom row
+ *   - Depth Sounder + Heading compass (2-col)
+ *   - Wind rose (true + apparent) + Voyage bottom row
+ *
+ * Rebuilt 2026-08-08. It previously carried a Heel Angle tile wired to a
+ * literal 0 with no sensor behind it, and an NMEA Data tile whose three emoji
+ * repeated the header's own LIVE/Stale verdict. Both are gone; the space went
+ * to the wind, which had none — and the compass now shows HEADING rather than
+ * COG, because COG below a knot is GPS noise.
  *
  * All data is live from the NmeaStore via useNmeaStore(), with dummy fallback
  * values when no live NMEA data is connected so the panel remains testable.
  */
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useNmeaStore } from './useNmeaStore';
+import { WindRose } from './gauges/WindRose';
+import { useUnwrappedAngle } from './gauges/useUnwrappedAngle';
 import { triggerHaptic } from '../../utils/system';
 import { PageHeader } from '../ui/PageHeader';
 import { useDeviceClass, pickByDevice } from '../../utils/useDeviceClass';
@@ -114,7 +122,10 @@ const HeroCompass: React.FC<{ value: number | null; isLive: boolean; accentColor
     isLive,
     accentColor = '#22d3ee',
 }) => {
-    const rotation = value === null ? 0 : -value;
+    // Unwrapped, so the card takes the short way across north instead of
+    // spinning 358 degrees backwards through south every time the bow wanders
+    // over 000 — which is precisely where this boat sits at anchor.
+    const rotation = useUnwrappedAngle(value === null ? null : -value);
     const opacity = value === null ? 0.25 : isLive ? 1 : 0.4;
 
     const ticks = useMemo(() => {
@@ -154,9 +165,15 @@ const HeroCompass: React.FC<{ value: number | null; isLive: boolean; accentColor
             <circle cx="60" cy="60" r="48" fill="none" stroke="rgba(255,255,255,0.04)" strokeWidth="0.5" />
 
             {/* Rotating compass card */}
+            {/* CSS transitions animate the transform PROPERTY, not the SVG
+                transform ATTRIBUTE — the old `transform={...}` plus a
+                transition style was a no-op, and the card snapped. */}
             <g
-                transform={`rotate(${rotation} 60 60)`}
-                style={{ transition: 'transform 0.6s cubic-bezier(0.4, 0, 0.2, 1)' }}
+                style={{
+                    transform: `rotate(${rotation}deg)`,
+                    transformOrigin: '60px 60px',
+                    transition: 'transform 900ms cubic-bezier(0.22, 1, 0.36, 1)',
+                }}
                 opacity={opacity}
             >
                 {ticks.map(({ deg, label, isCardinal, isMajor }) => {
@@ -436,87 +453,6 @@ const HeroArcGauge: React.FC<HeroArcGaugeProps> = ({
     );
 };
 
-// ── Vertical heel capsule (artificial horizon style) ──
-const HeelCapsule: React.FC<{ degrees: number; isLive: boolean }> = ({ degrees, isLive }) => {
-    const side = degrees >= 0 ? 'STBD' : 'PORT';
-    const absAngle = Math.abs(degrees);
-
-    return (
-        <div className="flex flex-col items-center gap-1.5">
-            {/* Vertical capsule */}
-            <div
-                className="relative w-14 h-24 rounded-full overflow-hidden border border-white/10"
-                style={{
-                    background: 'radial-gradient(ellipse at 50% 30%, #1e293b 0%, #020617 80%)',
-                    boxShadow: 'inset 0 2px 8px rgba(0,0,0,0.6), 0 0 12px rgba(34,211,238,0.08)',
-                }}
-            >
-                <svg viewBox="0 0 56 96" className="w-full h-full">
-                    {/* Mast (vertical centerline) */}
-                    <line
-                        x1="28"
-                        y1="10"
-                        x2="28"
-                        y2="86"
-                        stroke="rgba(255,255,255,0.18)"
-                        strokeWidth="1"
-                        strokeDasharray="2 3"
-                    />
-                    {/* Horizon group — tilts opposite to heel */}
-                    <g transform={`rotate(${-degrees} 28 48)`}>
-                        {/* Water below horizon */}
-                        <rect x="-30" y="48" width="116" height="80" fill="rgba(34,211,238,0.12)" />
-                        {/* Horizon line */}
-                        <line
-                            x1="-30"
-                            y1="48"
-                            x2="86"
-                            y2="48"
-                            stroke={isLive ? '#22d3ee' : '#475569'}
-                            strokeWidth="2.5"
-                            strokeLinecap="round"
-                        />
-                    </g>
-                    {/* Top centre tick */}
-                    <line x1="28" y1="6" x2="28" y2="14" stroke="white" strokeWidth="2" strokeLinecap="round" />
-                    {/* Side reference ticks */}
-                    <line x1="6" y1="48" x2="12" y2="48" stroke="rgba(255,255,255,0.4)" strokeWidth="1" />
-                    <line x1="44" y1="48" x2="50" y2="48" stroke="rgba(255,255,255,0.4)" strokeWidth="1" />
-                </svg>
-            </div>
-            <div className="text-center">
-                <div className="flex items-baseline justify-center gap-0.5">
-                    <span className="text-2xl font-black text-white tabular-nums font-mono">{absAngle.toFixed(0)}</span>
-                    <span className="text-sm font-bold text-gray-400">°</span>
-                </div>
-                <p className="text-[9px] font-bold uppercase tracking-widest text-cyan-400">{side}</p>
-            </div>
-        </div>
-    );
-};
-
-// ── Sensor status icon ──
-const SensorIcon: React.FC<{ icon: string; label: string; active: boolean; stale?: boolean }> = ({
-    icon,
-    label,
-    active,
-    stale = false,
-}) => (
-    <div
-        className="flex flex-col items-center gap-0.5"
-        aria-label={`${label} data ${!active ? 'unavailable' : stale ? 'stale' : 'live'}`}
-    >
-        <span className={`text-lg ${active ? 'opacity-100' : 'opacity-30'}`}>{icon}</span>
-        <span
-            className={`text-[9px] font-bold uppercase tracking-wider ${
-                !active ? 'text-gray-400' : stale ? 'text-amber-400' : 'text-cyan-400'
-            }`}
-        >
-            {label}
-        </span>
-    </div>
-);
-
 // ── Helper: track real-data history per metric ──
 function useMetricHistory(metric: TimestampedMetric): { history: number[]; max: number; min: number } {
     const [history, setHistory] = useState<number[]>([]);
@@ -575,8 +511,6 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
     const depthSparkHeight = pickByDevice(deviceClass, 55, 75);
     const heroGaugeSize = pickByDevice(deviceClass, 180, 280);
     const compassMaxWidth = pickByDevice(deviceClass, 110, 160);
-    const sensorIconSize = pickByDevice(deviceClass, 'text-lg', 'text-2xl');
-    const voltageValueClass = pickByDevice(deviceClass, 'text-xl', 'text-3xl');
 
     // Resolve all metrics — values may be null when no NMEA data has
     // arrived yet. Render sites use fmt() to show "—" in that case.
@@ -585,13 +519,21 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
     const depth = resolveMetric(state.depth);
     const cog = resolveMetric(state.cog);
     const voltage = resolveMetric(state.voltage);
+    const heading = resolveMetric(state.heading);
+    // Real now. The gateway has been broadcasting MWV,R and MWD all along —
+    // the parser dropped both, so this used to be a hardcoded null (2026-08-08).
+    const aws = resolveMetric(state.aws);
+    const awa = resolveMetric(state.awa);
+    const twd = resolveMetric(state.twd);
+    const twaSigned = resolveMetric(state.twaSigned);
 
-    // AWS — no field in NmeaStore yet. Always reads as "no data"
-    // until the apparent-wind topic is wired up.
-    const aws = useMemo<{ value: number | null; freshness: DataFreshness }>(
-        () => ({ value: null, freshness: 'dead' }),
-        [],
-    );
+    // COG is a GPS-derived course made good. Below a knot it is noise — a
+    // moored boat's fixes wander, and the compass card was reporting 053 while
+    // the bow sat on north (Shane 2026-08-08). Heading is what "which way am I
+    // pointing" means, and HDG/HDT are on the wire; show that, and only add COG
+    // once the boat is genuinely making way.
+    const MAKING_WAY_KTS = 1;
+    const makingWay = sog.value !== null && sog.value >= MAKING_WAY_KTS;
 
     // Real-data sparkline histories.
     const sogReal = useMetricHistory(state.sog);
@@ -647,17 +589,13 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
     const isConnected = state.connectionStatus === 'connected';
     const metricIsAvailable = (metric: TimestampedMetric): boolean =>
         isConnected && metric.value !== null && metric.freshness !== 'dead';
-    const metricIsStale = (metric: TimestampedMetric): boolean =>
-        metricIsAvailable(metric) && metric.freshness === 'stale';
-    const gpsAvailable =
-        metricIsAvailable(state.latitude) && metricIsAvailable(state.longitude) && state.gpsFixQuality !== 0;
-    const gpsStale = gpsAvailable && (metricIsStale(state.latitude) || metricIsStale(state.longitude));
-    const windAvailable = metricIsAvailable(state.tws) || metricIsAvailable(state.twa);
+    // Wind liveness now spans the apparent and direction metrics too — the
+    // rose is dimmed as a whole, so a boat sending only MWV,R must still count
+    // as having wind.
+    const windMetrics = [state.tws, state.twa, state.aws, state.awa, state.twd];
+    const windAvailable = windMetrics.some(metricIsAvailable);
     const windStale =
-        windAvailable &&
-        [state.tws, state.twa].filter(metricIsAvailable).every((metric) => metric.freshness === 'stale');
-    const depthAvailable = metricIsAvailable(state.depth);
-    const depthStale = metricIsStale(state.depth);
+        windAvailable && windMetrics.filter(metricIsAvailable).every((metric) => metric.freshness === 'stale');
 
     // A connected socket is not itself evidence that the numbers are live.
     // If any retained (3–10s) reading is stale, label the whole panel Stale;
@@ -860,8 +798,8 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                         </div>
                     </div>
 
-                    {/* ── ROW 2: DEPTH + COG COMPASS + HEEL ANGLE (3-col) ── */}
-                    <div className={`grid grid-cols-3 ${containerGap} ${containerMb}`}>
+                    {/* ── ROW 2: DEPTH + HEADING (2-col) ── */}
+                    <div className={`grid grid-cols-2 ${containerGap} ${containerMb}`}>
                         {/* Depth Sounder */}
                         <div className={`${cardPad} rounded-2xl bg-white/[0.03] border border-white/[0.06]`}>
                             <p className="text-[9px] font-black uppercase tracking-[0.15em] text-gray-400 mb-1">
@@ -894,54 +832,45 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                             </div>
                         </div>
 
-                        {/* COG Compass */}
+                        {/* Heading — with COG only once actually moving */}
                         <div
                             className={`${cardPad} rounded-2xl bg-white/[0.03] border border-white/[0.06] flex flex-col items-center`}
                         >
                             <p className="text-[9px] font-black uppercase tracking-[0.15em] text-gray-400 mb-1">
-                                COG Compass
+                                Heading
                             </p>
                             <div style={{ width: '100%', maxWidth: `${compassMaxWidth}px`, aspectRatio: '1' }}>
                                 <HeroCompass
-                                    value={cog.value}
-                                    isLive={cog.value !== null && cog.freshness === 'live'}
+                                    value={heading.value}
+                                    isLive={heading.value !== null && heading.freshness === 'live'}
                                 />
                             </div>
-                        </div>
-
-                        {/* Heel Angle */}
-                        <div
-                            className={`${cardPad} rounded-2xl bg-white/[0.03] border border-white/[0.06] flex flex-col items-center`}
-                        >
-                            <p className="text-[9px] font-black uppercase tracking-[0.15em] text-gray-400 mb-2">
-                                Heel Angle
+                            <p className="mt-1 font-mono text-[10px] font-bold tabular-nums text-gray-400">
+                                {makingWay && cog.value !== null
+                                    ? `COG ${Math.round(cog.value)}°`
+                                    : 'COG — not making way'}
                             </p>
-                            {/* Heel: NmeaStore doesn't track heel yet, so always
-                             *  the no-data fallback. When the field is added,
-                             *  swap in the real metric and isLive flips on its own. */}
-                            <HeelCapsule degrees={0} isLive={false} />
                         </div>
                     </div>
 
-                    {/* ── ROW 3: NMEA DATA + VOYAGE (2-col) ── */}
+                    {/* ── ROW 3: WIND + VOYAGE (2-col) ──
+                        The sensor-status tile that used to sit here said the
+                        same thing as the LIVE/Stale header, three emoji at a
+                        time. Its one real number (battery volts) moved into
+                        Voyage; the space went to the wind, which had none. */}
                     <div className={`grid grid-cols-2 ${containerGap}`}>
-                        {/* NMEA Data */}
+                        {/* Wind */}
                         <div className={`${cardPad} rounded-2xl bg-white/[0.03] border border-white/[0.06]`}>
-                            <p className="text-[9px] font-black uppercase tracking-[0.15em] text-gray-400 mb-2">
-                                NMEA Data
-                            </p>
-                            <div className="flex items-center justify-around mb-2">
-                                <SensorIcon icon="📍" label="GPS" active={gpsAvailable} stale={gpsStale} />
-                                <SensorIcon icon="💨" label="Wind" active={windAvailable} stale={windStale} />
-                                <SensorIcon icon="🔵" label="Depth" active={depthAvailable} stale={depthStale} />
-                            </div>
-                            <div className="flex items-center gap-2 mt-1">
-                                <span className={sensorIconSize}>🔋</span>
-                                <span className={`${voltageValueClass} font-black tabular-nums font-mono text-white`}>
-                                    {fmt(voltage.value)}
-                                </span>
-                                <span className="text-xs font-bold text-gray-500">V</span>
-                            </div>
+                            <p className="text-[9px] font-black uppercase tracking-[0.15em] text-gray-400 mb-1">Wind</p>
+                            <WindRose
+                                twd={twd.value}
+                                twaSigned={twaSigned.value}
+                                awa={awa.value}
+                                heading={heading.value}
+                                tws={tws.value}
+                                aws={aws.value}
+                                isLive={windAvailable && !windStale}
+                            />
                         </div>
 
                         {/* Voyage */}
@@ -956,14 +885,48 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                 </span>
                                 <span className="text-xs font-bold text-gray-500">NM</span>
                             </div>
-                            <p className="text-[10px] font-bold text-gray-500 mt-2">Avg Speed:</p>
-                            <div className="flex items-baseline gap-1">
-                                <span
-                                    className={`${voltageValueClass} font-black tabular-nums font-mono text-cyan-400`}
-                                >
-                                    {fmt(sog.value)}
+                            <div className="mt-1.5 grid grid-cols-2 gap-1">
+                                <div className="rounded-lg bg-white/[0.04] px-1.5 py-1">
+                                    <div className="text-[8px] font-black uppercase tracking-widest text-gray-500">
+                                        Speed
+                                    </div>
+                                    <div className="font-mono text-sm font-black tabular-nums text-cyan-400">
+                                        {fmt(sog.value)}
+                                        <span className="text-[8px] font-bold text-gray-500">kt</span>
+                                    </div>
+                                </div>
+                                <div className="rounded-lg bg-white/[0.04] px-1.5 py-1">
+                                    <div className="text-[8px] font-black uppercase tracking-widest text-gray-500">
+                                        Best
+                                    </div>
+                                    {/* Peak SOG of the session. A passage's fastest
+                                        moment is the bit worth retelling, and it costs
+                                        nothing — the sparkline history is already here. */}
+                                    <div className="font-mono text-sm font-black tabular-nums text-emerald-300">
+                                        {sogReal.history.length > 0 ? sogReal.max.toFixed(1) : '--'}
+                                        <span className="text-[8px] font-bold text-gray-500">kt</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="mt-1">
+                                <Sparkline
+                                    history={sogChart.history}
+                                    min={sogChart.min}
+                                    max={sogChart.max}
+                                    color="#22d3ee"
+                                    width={depthSparkWidth}
+                                    height={depthSparkHeight}
+                                    label="speed"
+                                />
+                            </div>
+                            {/* The one number worth keeping from the retired
+                                NMEA Data tile. */}
+                            <div className="mt-2 flex items-center gap-1.5 border-t border-white/[0.06] pt-1.5">
+                                <span className="text-[10px]">🔋</span>
+                                <span className="font-mono text-xs font-black tabular-nums text-white">
+                                    {fmt(voltage.value)}
                                 </span>
-                                <span className="text-xs font-bold text-gray-500">kts</span>
+                                <span className="text-[10px] font-bold text-gray-500">V</span>
                             </div>
                         </div>
                     </div>

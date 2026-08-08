@@ -58,7 +58,11 @@ export function reconcileNmeaMetricFreshness(metric: TimestampedMetric, now: num
 export interface NmeaStoreState {
     // Navigation
     tws: TimestampedMetric; // True Wind Speed (kts)
-    twa: TimestampedMetric; // True Wind Angle (°)
+    twa: TimestampedMetric; // True Wind Angle off the bow, 0-180 magnitude (°)
+    twaSigned: TimestampedMetric; // Same angle, signed, negative to port (°)
+    twd: TimestampedMetric; // True Wind Direction — compass bearing (°T)
+    aws: TimestampedMetric; // Apparent Wind Speed (kts)
+    awa: TimestampedMetric; // Apparent Wind Angle, signed, negative to port (°)
     stw: TimestampedMetric; // Speed Through Water (kts)
     heading: TimestampedMetric; // Heading (°)
     depth: TimestampedMetric; // Referenced depth (m); see depthReference
@@ -184,6 +188,12 @@ class NmeaStoreClass {
 
         if (sample.tws !== null) this.updateMetric(this.state.tws, sample.tws, now);
         if (sample.twa !== null) this.updateMetric(this.state.twa, sample.twa, now);
+        // Optional on the sample for backward compatibility with saved/test
+        // fixtures written before the wind rose existed.
+        if (sample.twaSigned != null) this.updateMetric(this.state.twaSigned, sample.twaSigned, now);
+        if (sample.twd != null) this.updateMetric(this.state.twd, sample.twd, now);
+        if (sample.aws != null) this.updateMetric(this.state.aws, sample.aws, now);
+        if (sample.awa != null) this.updateMetric(this.state.awa, sample.awa, now);
         if (sample.stw !== null) this.updateMetric(this.state.stw, sample.stw, now);
         if (sample.heading !== null) this.updateMetric(this.state.heading, sample.heading, now);
         if (sample.rpm !== null) this.updateMetric(this.state.rpm, sample.rpm, now);
@@ -222,6 +232,10 @@ class NmeaStoreClass {
         const metrics: TimestampedMetric[] = [
             this.state.tws,
             this.state.twa,
+            this.state.twaSigned,
+            this.state.twd,
+            this.state.aws,
+            this.state.awa,
             this.state.stw,
             this.state.heading,
             this.state.depth,
@@ -265,6 +279,10 @@ class NmeaStoreClass {
         const metrics: TimestampedMetric[] = [
             this.state.tws,
             this.state.twa,
+            this.state.twaSigned,
+            this.state.twd,
+            this.state.aws,
+            this.state.awa,
             this.state.stw,
             this.state.heading,
             this.state.depth,
@@ -303,6 +321,10 @@ class NmeaStoreClass {
         return {
             tws: emptyMetric(),
             twa: emptyMetric(),
+            twaSigned: emptyMetric(),
+            twd: emptyMetric(),
+            aws: emptyMetric(),
+            awa: emptyMetric(),
             stw: emptyMetric(),
             heading: emptyMetric(),
             depth: emptyMetric(),

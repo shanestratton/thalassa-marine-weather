@@ -213,7 +213,17 @@ export type NmeaDepthReference = 'below-transducer' | 'below-waterline' | 'below
 export interface NmeaSample {
     timestamp: number;
     tws: number | null;
+    /** True wind angle off the bow, 0-180 MAGNITUDE. SmartPolarStore buckets
+     *  on this and polars are symmetric, so it must stay unsigned. */
     twa: number | null;
+    /** The same angle, signed, negative to port. Drawable; `twa` is not. */
+    twaSigned?: number | null;
+    /** True wind DIRECTION as a compass bearing (deg true), from MWD. */
+    twd?: number | null;
+    /** Apparent wind speed, knots. */
+    aws?: number | null;
+    /** Apparent wind angle off the bow, signed, negative to port. */
+    awa?: number | null;
     stw: number | null;
     heading: number | null;
     rpm: number | null;
