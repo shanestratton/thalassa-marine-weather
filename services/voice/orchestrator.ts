@@ -53,6 +53,7 @@ import {
 } from './integrations/appleMusic';
 import { draftEmail, inboxSummary, readEmail, searchEmails, sendDraft } from './integrations/gmail';
 import { getAuthenticatedFunctionHeaders } from '../supabaseAuth';
+import { createSseAccumulator } from './sseMessage';
 
 const SUPABASE_URL = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) || '';
 const SUPABASE_KEY =
@@ -910,6 +911,79 @@ async function postAnthropicAttempt(
     }
 }
 
+/**
+ * Streaming variant of postAnthropicAttempt.
+ *
+ * Same return shape as the buffered attempt, so the 429 retry logic wraps it
+ * unchanged — the only difference is that text arrives through `onTextDelta`
+ * as it is generated instead of all at once at the end.
+ *
+ * This is the whole latency fix. Haiku at max_tokens:200 takes a couple of
+ * seconds to finish; buffering means the skipper waits for generation AND
+ * synthesis AND playback start before hearing a word. Streaming lets the first
+ * sentence go to the voice while the rest is still being written.
+ *
+ * The SSE events are re-assembled into an ordinary AnthropicResponse because
+ * the tool loop needs `content` blocks and `stop_reason` exactly as before —
+ * streaming must not become a second, divergent code path through the loop.
+ */
+async function postAnthropicStreamAttempt(
+    body: object,
+    signal: AbortSignal | undefined,
+    onTextDelta: (delta: string) => void,
+): Promise<{ kind: 'ok'; response: AnthropicResponse } | { kind: 'err'; status: number; message: string }> {
+    signal?.throwIfAborted();
+    if (!SUPABASE_URL || !SUPABASE_KEY) {
+        return { kind: 'err', status: 0, message: 'Anthropic proxy not configured (missing Supabase credentials).' };
+    }
+    const url = `${SUPABASE_URL}/functions/v1/anthropic-proxy`;
+    const ctrl = new AbortController();
+    const abortFromCaller = () => ctrl.abort(signal?.reason);
+    if (signal?.aborted) abortFromCaller();
+    else signal?.addEventListener('abort', abortFromCaller, { once: true });
+    const watchdog = setTimeout(() => ctrl.abort(), ANTHROPIC_REQUEST_TIMEOUT_MS);
+    try {
+        const headers = await getAuthenticatedFunctionHeaders();
+        const r = await fetch(url, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({ ...body, stream: true }),
+            signal: ctrl.signal,
+        });
+        if (!r.ok) {
+            const errText = await r.text();
+            return { kind: 'err', status: r.status, message: errText.slice(0, 300) };
+        }
+        if (!r.body) return { kind: 'err', status: 0, message: 'Proxy returned no stream body.' };
+
+        const acc = createSseAccumulator(onTextDelta);
+
+        const reader = r.body.getReader();
+        const decoder = new TextDecoder();
+        for (;;) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            acc.feed(decoder.decode(value, { stream: true }));
+        }
+
+        return { kind: 'ok', response: acc.result() as AnthropicResponse };
+    } catch (err) {
+        const e = err as Error;
+        if (e.name === 'AbortError') {
+            if (signal?.aborted) throw e;
+            return {
+                kind: 'err',
+                status: 0,
+                message: `Haiku request timed out after ${Math.round(ANTHROPIC_REQUEST_TIMEOUT_MS / 1000)}s.`,
+            };
+        }
+        return { kind: 'err', status: 0, message: e.message || 'Unknown transport error' };
+    } finally {
+        clearTimeout(watchdog);
+        signal?.removeEventListener('abort', abortFromCaller);
+    }
+}
+
 function abortableDelay(delayMs: number, signal?: AbortSignal): Promise<void> {
     if (signal?.aborted) return Promise.reject(signal.reason ?? new DOMException('Aborted', 'AbortError'));
     return new Promise((resolve, reject) => {
@@ -925,8 +999,18 @@ function abortableDelay(delayMs: number, signal?: AbortSignal): Promise<void> {
     });
 }
 
-async function postAnthropic(body: object, signal?: AbortSignal): Promise<AnthropicResponse> {
-    let result = await postAnthropicAttempt(body, signal);
+async function postAnthropic(
+    body: object,
+    signal?: AbortSignal,
+    onTextDelta?: (delta: string) => void,
+): Promise<AnthropicResponse> {
+    // A retry re-runs the whole turn, so any text already streamed to the
+    // caller is void. Retries only happen on 429 — before a single byte of
+    // content has arrived — so the deltas seen by the caller stay a prefix of
+    // exactly one attempt.
+    const attempt = () =>
+        onTextDelta ? postAnthropicStreamAttempt(body, signal, onTextDelta) : postAnthropicAttempt(body, signal);
+    let result = await attempt();
     // 429 = rate-limited. Two retries with increasing backoff smooth
     // over transient throttle without burning the skipper. Beyond two
     // retries we surface the actual proxy message so they can see
@@ -934,7 +1018,7 @@ async function postAnthropic(body: object, signal?: AbortSignal): Promise<Anthro
     for (const delayMs of RATE_LIMIT_BACKOFFS_MS) {
         if (result.kind !== 'err' || result.status !== 429) break;
         await abortableDelay(delayMs, signal);
-        result = await postAnthropicAttempt(body, signal);
+        result = await attempt();
     }
     if (result.kind === 'ok') return result.response;
     // Friendly, source-specific error messages so the skipper knows
@@ -1250,6 +1334,21 @@ export interface AskHaikuInput {
     };
     /** Optional owner/lifecycle cancellation propagated to every proxy request. */
     signal?: AbortSignal;
+    /**
+     * Receive answer text as it is generated, rather than only at the end.
+     *
+     * Supplying this switches the proxy call to SSE. Deltas are answer text
+     * only — tool-use turns produce no user-facing prose, so nothing arrives
+     * from them. Callers use it to start speaking the first sentence while
+     * Haiku is still writing the rest.
+     */
+    onTextDelta?: (delta: string) => void;
+    /**
+     * Called when a tool-use turn ends, i.e. the text so far is a complete
+     * utterance even if it has no full stop. Lets a spoken consumer say the
+     * preamble instead of gluing it onto the answer.
+     */
+    onTurnEnd?: () => void;
 }
 
 /**
@@ -1374,6 +1473,7 @@ export async function askHaiku(input: AskHaikuInput): Promise<OrchestratorResult
                 ...(isFinalIteration ? { tool_choice: { type: 'none' } } : {}),
             },
             input.signal,
+            input.onTextDelta,
         );
 
         // Append the assistant turn verbatim so reasoning chain is
@@ -1388,6 +1488,10 @@ export async function askHaiku(input: AskHaikuInput): Promise<OrchestratorResult
                 .trim();
             return { answerText: text, toolCalls, iterations, piWasReachable: piReachable };
         }
+
+        // This turn asked for tools, so whatever prose it produced is a
+        // preamble and complete in itself.
+        input.onTurnEnd?.();
 
         // Dispatch each tool_use block; assemble matching tool_result blocks.
         const toolResults: ContentBlock[] = [];

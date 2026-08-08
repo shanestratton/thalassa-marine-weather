@@ -29,7 +29,8 @@ import { isAudioRecordingSupported, startRecording } from '../../services/voice/
 import { askBosunText, askBosunVoice, isBosunReachable } from '../../services/voice/bosunVoice';
 import { askCloudVoice } from '../../services/voice/cloudFallback';
 import { publishTurn, startConversationSync, type ConversationSyncHandle } from '../../services/voice/conversationSync';
-import { askHaiku, synthesiseSpeech } from '../../services/voice/orchestrator';
+import { askHaiku, consumeLastTtsError, synthesiseSpeech } from '../../services/voice/orchestrator';
+import { startSpokenReply, type SpokenReply } from '../../services/voice/spokenReplyQueue';
 import { FEATURE_VISIBILITY } from '../../utils/featureVisibility';
 import { selectVoiceQueryRoute } from '../../services/voice/voiceQueryRouting';
 import {
@@ -390,6 +391,8 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
     const stoppingDeepgramRecognizerRef = useRef<DeepgramRecognizerHandle | null>(null);
     const audioRef = useRef<HTMLAudioElement | null>(null);
     const audioUrlsRef = useRef<string[]>([]);
+    /** The in-flight spoken reply, so a new turn or a teardown can silence it. */
+    const spokenReplyRef = useRef<SpokenReply | null>(null);
     const voiceTimeoutsRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
     const requestControllersRef = useRef<Set<AbortController>>(new Set());
     const lifecycleGenerationRef = useRef(0);
@@ -581,6 +584,8 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
         // native AVAudioPlayer or its input-capable audio session behind.
         // Stop TTS first; after the web capture resources are gone, release
         // the native session so other audio apps can take ownership again.
+        spokenReplyRef.current?.cancel();
+        spokenReplyRef.current = null;
         void getAppleMusicNativeBridge()
             ?.cancelTtsAudio?.()
             .catch(() => undefined);
@@ -1208,20 +1213,90 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
     );
 
     const runOrchestrator = useCallback(
-        async (text: string, operation: VoiceOperation, signal: AbortSignal): Promise<VoiceQueryResponse> => {
+        async (
+            text: string,
+            operation: VoiceOperation,
+            signal: AbortSignal,
+            /**
+             * Speak the reply as it streams. True for a turn the skipper
+             * started with their voice — asking out loud and getting silent
+             * text back is the complaint this fixes. A TYPED question stays
+             * text-only: someone at the keyboard, possibly with guests aboard,
+             * did not ask to be talked at.
+             */
+            spoken: boolean,
+        ): Promise<VoiceQueryResponse> => {
             if (!isVoiceOperationCurrent(operation)) throw new Error('Voice operation cancelled');
             const context = gatherThalassaContext();
             const history = buildHistory(turns);
-            const result = await askHaiku({
-                text,
-                context,
-                history,
-                integrations: integrationsEnabled,
-                signal,
-            });
-            if (!isVoiceOperationCurrent(operation)) throw new Error('Voice operation cancelled');
+
+            // Speak sentence-by-sentence off the stream. Time-to-first-word
+            // becomes "first sentence written" instead of "whole reply
+            // written, then synthesised, then played".
+            // A new spoken turn silences the previous one. Speech outlives
+            // the request that produced it, so without this the answer to the
+            // last question talks over the next one.
+            spokenReplyRef.current?.cancel();
+            const reply = spoken ? startSpokenReply() : null;
+            spokenReplyRef.current = reply;
+            // Stays attached until playback finishes, not just until the
+            // request does — an abort mid-sentence has to stop the audio.
+            const abortSpeech = () => reply?.cancel();
+            signal.addEventListener('abort', abortSpeech, { once: true });
+            const detachAbort = () => signal.removeEventListener('abort', abortSpeech);
+
+            let result;
+            try {
+                result = await askHaiku({
+                    text,
+                    context,
+                    history,
+                    integrations: integrationsEnabled,
+                    signal,
+                    onTextDelta: reply ? (delta) => reply.push(delta) : undefined,
+                    onTurnEnd: reply ? () => reply.flush() : undefined,
+                });
+            } catch (err) {
+                reply?.cancel();
+                detachAbort();
+                throw err;
+            }
+            if (!isVoiceOperationCurrent(operation)) {
+                reply?.cancel();
+                detachAbort();
+                throw new Error('Voice operation cancelled');
+            }
+            if (!reply) detachAbort();
+
+            if (reply) {
+                // Don't await — the text belongs on screen now, while the
+                // remaining sentences are still being spoken.
+                void reply.end().then(() => {
+                    detachAbort();
+                    if (spokenReplyRef.current === reply) spokenReplyRef.current = null;
+                    const ttsError = consumeLastTtsError();
+                    if (ttsError && isVoiceOperationCurrent(operation)) setErrorMessage(ttsError);
+                });
+                return {
+                    transcript: text,
+                    answer_text: result.answerText,
+                    // Already spoken by the queue — handing audio to
+                    // playResponseAudio as well would say it twice.
+                    audio_b64: undefined,
+                    source: 'cloud',
+                    tool_calls: result.toolCalls.map((name) => ({ name, args: {}, status: 'success' as const })),
+                };
+            }
+
             const audio_b64 = await synthesiseSpeech(result.answerText, signal);
             if (!isVoiceOperationCurrent(operation)) throw new Error('Voice operation cancelled');
+            // A null here means ElevenLabs refused — quota, auth, or
+            // unreachable. Saying nothing turned every one of those into
+            // "Calypso just writes now" with no way to tell why.
+            if (!audio_b64) {
+                const ttsError = consumeLastTtsError();
+                if (ttsError) setErrorMessage(ttsError);
+            }
             return {
                 transcript: text,
                 answer_text: result.answerText,
@@ -1234,7 +1309,7 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
                 })),
             };
         },
-        [turns, integrationsEnabled, isVoiceOperationCurrent],
+        [turns, integrationsEnabled, isVoiceOperationCurrent, setErrorMessage],
     );
 
     const sendVoiceQuery = useCallback(
@@ -1263,7 +1338,7 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
                     // FAST PATH: live Deepgram/Apple SR has already produced
                     // a transcript, so run the tool-loop directly rather
                     // than making the edge function transcribe a blob again.
-                    response = await runOrchestrator(route.text, operation, controller.signal);
+                    response = await runOrchestrator(route.text, operation, controller.signal, true);
                 } else if (route.kind === 'bosun-text') {
                     // The boat-side path gets the same benefit. It can run
                     // its local RAG/LLM immediately instead of asking the Pi
@@ -1317,7 +1392,7 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
                 const response =
                     to === 'bosun'
                         ? await askBosunText({ text }, controller.signal)
-                        : await runOrchestrator(text, operation, controller.signal);
+                        : await runOrchestrator(text, operation, controller.signal, false);
                 if (!isVoiceOperationCurrent(operation)) return;
                 handleResponse(response, to, operation);
             } catch (err) {
