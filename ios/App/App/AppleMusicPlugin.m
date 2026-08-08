@@ -5,6 +5,10 @@
 // plugin. Methods exposed to JS via registerPlugin('AppleMusic').
 
 CAP_PLUGIN(AppleMusicPlugin, "AppleMusic",
+    // Audio output route — current speaker, and the system picker.
+    // iOS exposes no way to LIST outputs; the picker is the sanctioned surface.
+    CAP_PLUGIN_METHOD(getAudioRoute, CAPPluginReturnPromise);
+    CAP_PLUGIN_METHOD(showRoutePicker, CAPPluginReturnPromise);
     // Authorization
     CAP_PLUGIN_METHOD(requestMusicKitAuthorization, CAPPluginReturnPromise);
     CAP_PLUGIN_METHOD(getMusicKitAuthorizationStatus, CAPPluginReturnPromise);

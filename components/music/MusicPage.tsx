@@ -43,6 +43,8 @@ import {
     type PlaylistTrack,
     type PlaylistTrackPreview,
     type CatalogSongResult,
+    getAudioRoute,
+    showRoutePicker,
 } from '../../services/voice/integrations/appleMusic';
 import { triggerHaptic } from '../../utils/system';
 import { markMusicEngaged } from '../../services/musicEngagement';
@@ -75,6 +77,11 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
     const [loadError, setLoadError] = useState<string | null>(null);
     const [activePlaylistId, setActivePlaylistId] = useState<string | null>(null);
     const [nowPlaying, setNowPlaying] = useState<NowPlaying | null>(null);
+    // WHICH speaker is playing. iOS exposes no way to list available outputs
+    // (there is no `availableOutputs` to match `availableInputs` — Apple keeps
+    // that list for the system picker), so the honest surface is: show the
+    // current route, and let the picker do the choosing.
+    const [speaker, setSpeaker] = useState<{ name: string; icon: string } | null>(null);
     // Every library refresh has a generation. Both metadata and preview
     // responses must still be current before they are allowed to repaint
     // the UI; MusicKit calls cannot be cancelled once they cross the bridge.
@@ -240,6 +247,32 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
         return () => {
             cancelled = true;
             if (timer !== undefined) window.clearTimeout(timer);
+        };
+    }, []);
+
+    useEffect(() => {
+        let alive = true;
+        const read = () => {
+            void getAudioRoute().then((route) => {
+                if (!alive) return;
+                const primary = route?.outputs?.[0];
+                if (!primary?.name) {
+                    setSpeaker(null);
+                    return;
+                }
+                setSpeaker({
+                    name: primary.name,
+                    icon: primary.isAirPlay ? '📡' : primary.isBluetooth ? '🔊' : primary.isBuiltIn ? '📱' : '🎚️',
+                });
+            });
+        };
+        read();
+        // Routes change when a speaker is picked, or when the boat's stereo
+        // comes and goes on Bluetooth — neither fires a JS event.
+        const timer = setInterval(read, 5_000);
+        return () => {
+            alive = false;
+            clearInterval(timer);
         };
     }, []);
 
@@ -673,12 +706,18 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
                     subtitle="Soundtrack for the watch"
                     onBack={onBack}
                     status={
-                        authGranted === true ? (
-                            <span className="hidden sm:inline-flex items-center gap-1.5 rounded-full border border-sky-400/20 bg-sky-500/10 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.16em] text-sky-200">
-                                <span className="h-1.5 w-1.5 rounded-full bg-sky-400" />
-                                Linked
-                            </span>
-                        ) : null
+                        <button
+                            type="button"
+                            onClick={() => {
+                                triggerHaptic('light');
+                                void showRoutePicker();
+                            }}
+                            aria-label={speaker ? `Playing on ${speaker.name}. Choose a speaker` : 'Choose a speaker'}
+                            className="inline-flex max-w-[9.5rem] items-center gap-1.5 rounded-full border border-sky-400/20 bg-sky-500/10 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.12em] text-sky-200 active:scale-95 transition"
+                        >
+                            <span aria-hidden="true">{speaker?.icon ?? '🔈'}</span>
+                            <span className="truncate">{speaker?.name ?? 'Speaker'}</span>
+                        </button>
                     }
                     action={
                         authGranted === true ? (

@@ -1690,6 +1690,81 @@ public class AppleMusicPlugin: CAPPlugin {
     // MARK: - Playback control
 
     @available(iOS 15.0, *)
+    // MARK: - Audio output route (AirPlay / Bluetooth speakers)
+
+    /**
+     * Which speaker is playing right now.
+     *
+     * iOS has NO public API to ENUMERATE available outputs. `availableInputs`
+     * exists; there is no `availableOutputs`, and that omission is deliberate
+     * — Apple reserves the list for the system route picker so an app cannot
+     * inventory the speakers in your house. So the honest split is: this
+     * method reports the CURRENT route, and `showRoutePicker` hands the
+     * choosing to the same system sheet Control Centre uses.
+     */
+    @objc func getAudioRoute(_ call: CAPPluginCall) {
+        let route = AVAudioSession.sharedInstance().currentRoute
+        let outputs = route.outputs.map { output -> [String: Any] in
+            [
+                "name": output.portName,
+                "type": output.portType.rawValue,
+                // Enough for the UI to pick an icon without string-matching
+                // port types in TypeScript.
+                "isAirPlay": output.portType == .airPlay,
+                "isBluetooth": output.portType == .bluetoothA2DP || output.portType == .bluetoothHFP
+                    || output.portType == .bluetoothLE,
+                "isBuiltIn": output.portType == .builtInSpeaker || output.portType == .builtInReceiver,
+            ]
+        }
+        call.resolve([
+            "outputs": outputs,
+            "primaryName": route.outputs.first?.portName ?? "",
+        ])
+    }
+
+    /**
+     * Present the system route picker — the same speaker list as Control
+     * Centre, including AirPlay, HomePods, Bluetooth and the boat's stereo.
+     *
+     * Implemented by planting a hidden AVRoutePickerView in the key window and
+     * tapping its own button. That is the sanctioned way to open the picker
+     * programmatically: the sheet, the list and the selection all stay inside
+     * Apple's UI, which is exactly why enumeration is not needed.
+     */
+    @objc func showRoutePicker(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            guard
+                let window = UIApplication.shared.connectedScenes
+                    .compactMap({ $0 as? UIWindowScene })
+                    .flatMap({ $0.windows })
+                    .first(where: { $0.isKeyWindow })
+            else {
+                call.reject("No key window is available to present the route picker")
+                return
+            }
+
+            let picker = AVRoutePickerView(frame: .zero)
+            picker.isHidden = true
+            picker.prioritizesVideoDevices = false
+            window.addSubview(picker)
+
+            guard let button = picker.subviews.compactMap({ $0 as? UIButton }).first else {
+                picker.removeFromSuperview()
+                call.reject("The system route picker could not be opened")
+                return
+            }
+            button.sendActions(for: .touchUpInside)
+
+            // The sheet is the system's now; this view has done its only job.
+            // Leaving it parented would litter the window with one hidden
+            // picker per tap.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                picker.removeFromSuperview()
+            }
+            call.resolve(["presented": true])
+        }
+    }
+
     @objc func pause(_ call: CAPPluginCall) {
         ApplicationMusicPlayer.shared.pause()
         call.resolve(["status": "paused"])

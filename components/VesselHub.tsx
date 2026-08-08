@@ -1179,14 +1179,35 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                 {/* features (ambient sounds for sleep, reading */}
                 {/* lists, podcasts) belong here too.           */}
                 {/* ═══════════════════════════════════════════ */}
-                {/* ATMOSPHERE (Music) REMOVED — Shane 2026-07-19: "it is not
-                    really part of the app and it can be accessed via the mic at the
-                    top anyway". Verified before deleting: the voice orchestrator
-                    has play_music / pause_music / resume_music, so the mic really
-                    can start playback, and GlobalNowPlayingBar then routes to the
-                    Music page. The 'music' view stays registered — only this entry
-                    point goes. (This row and the now-playing bar were the ONLY two
-                    routes in, so it was worth checking rather than assuming.) */}
+                {/* ATMOSPHERE (Music) — removed 2026-07-19 ("it is not really
+                    part of the app and it can be accessed via the mic at the top
+                    anyway"), RESTORED 2026-08-08 at Shane's ask. The page and its
+                    route were never deleted, only this entry; the mic and the
+                    now-playing bar remained the only ways in, and neither helps
+                    if you want to go and choose something. */}
+                <div className="mb-6">
+                    <SectionHeader
+                        color="#f0abfc"
+                        label="Atmosphere"
+                        id="atmosphere"
+                        expanded={expanded.has('atmosphere')}
+                        onToggle={toggleSection}
+                    />
+                    <CollapsibleContent open={expanded.has('atmosphere')}>
+                        <div style={GLASS.listContainer}>
+                            <OfficeRow
+                                icon={<span style={{ fontSize: 18 }}>🎧</span>}
+                                label="Music"
+                                status="Apple Music & speakers"
+                                statusColor="#94a3b8"
+                                onClick={() => {
+                                    triggerHaptic('light');
+                                    onNavigate('music');
+                                }}
+                            />
+                        </div>
+                    </CollapsibleContent>
+                </div>
 
                 {/* ═══════════════════════════════════════════ */}
                 {/* SETTINGS & CONNECT                          */}
