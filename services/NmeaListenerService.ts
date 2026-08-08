@@ -233,6 +233,10 @@ class NmeaListenerServiceClass {
 
     private async connectTcp() {
         try {
+            // Never stack a second socket on top of a live one. Any path that
+            // reaches connect while a client is still held would otherwise
+            // burn one of the gateway's three slots per attempt.
+            await this.releaseTcpClient();
             const { TcpSocket } = await import('capacitor-tcp-socket');
             const result = await TcpSocket.connect({
                 ipAddress: this.host,
@@ -305,27 +309,59 @@ class NmeaListenerServiceClass {
             log.warn('TCP plugin import error:', importErr);
         }
 
-        // If we exited the loop and we're still enabled, reconnect
+        // CLOSE THE SOCKET BEFORE RECONNECTING. This used to drop the handle
+        // (`this.tcpClientId = null`) and open a fresh one, which leaks the
+        // native socket: the gateway still holds it open, and nothing ever
+        // closes it.
+        //
+        // That is fatal against a YDWG-02, because its TCP server has exactly
+        // THREE usable client slots. Measured on Serene Summer's gateway
+        // 2026-08-08: connections four, five and six complete the handshake
+        // and are then reset by the gateway — accepted, never fed. So three
+        // read errors are enough for the app to fill every slot with its own
+        // orphans and lock ITSELF out. From there it is self-sustaining:
+        // connect succeeds at the TCP layer, the gateway resets it, the read
+        // loop errors, another slot leaks, repeat. The skipper sees "won't
+        // connect" from a gateway that is streaming perfectly, and the only
+        // escape was the manual Disconnect button — the one path that did
+        // close properly (disconnectTcp) — or power-cycling the gateway.
+        //
+        // A read error means this socket is finished either way, so closing it
+        // costs nothing and returns the slot immediately.
+        await this.releaseTcpClient();
         if (this.enabled) {
-            this.tcpClientId = null;
             this.setStatus('disconnected');
             this.scheduleReconnect();
         }
     }
 
+    /**
+     * Hand this client's slot back to the gateway. Safe to call when there is
+     * nothing open, and never throws — a gateway that has already reset the
+     * socket will reject the close, which is fine: the point is that we always
+     * ASK, so a healthy gateway reclaims the slot at once rather than waiting
+     * out its own idle timeout.
+     */
+    private async releaseTcpClient(): Promise<void> {
+        const client = this.tcpClientId;
+        this.tcpClientId = null;
+        this.tcpLineBuffer = '';
+        if (client === null) return;
+        try {
+            const { TcpSocket } = await import('capacitor-tcp-socket');
+            await TcpSocket.disconnect({ client });
+            log.info(`TCP slot released (client ${client})`);
+        } catch (e) {
+            log.warn('TCP slot release failed (socket already gone?):', e);
+        }
+    }
+
     private async disconnectTcp() {
         this.tcpReadLoop = false;
-        if (this.tcpClientId !== null) {
-            try {
-                const { TcpSocket } = await import('capacitor-tcp-socket');
-                await TcpSocket.disconnect({ client: this.tcpClientId });
-                log.info(`TCP disconnected (client ${this.tcpClientId})`);
-            } catch (e) {
-                log.warn('TCP disconnect error:', e);
-            }
-            this.tcpClientId = null;
-        }
-        this.tcpLineBuffer = '';
+        // One closer, shared with the read-loop exit. Two of them is how the
+        // manual Disconnect button ended up being the only path that actually
+        // returned a gateway slot.
+        await this.releaseTcpClient();
     }
 
     // ═══════════════════════════════════════════════════════════════
