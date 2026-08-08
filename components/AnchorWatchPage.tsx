@@ -361,7 +361,16 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
 
     const handleSetAnchor = useCallback(async () => {
         setIsSettingAnchor(true);
-        setGpsStatus('Acquiring GPS fix...');
+        // Arming is five steps, only one of which is the fix. This used to
+        // print 'Acquiring GPS fix...' once and never change, so a stall in
+        // permissions, the geofence or the background lease all read as a GPS
+        // failure — and the skipper went looking at satellites (Shane
+        // 2026-08-08). Poll the service for the step actually in flight.
+        setGpsStatus('Starting…');
+        const stagePoll = setInterval(() => {
+            const stage = AnchorWatchService.getSetupStage();
+            if (stage) setGpsStatus(`${stage}…`);
+        }, 250);
 
         const config: Partial<AnchorWatchConfig> = {
             rodeLength,
@@ -372,6 +381,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
         };
 
         const success = await AnchorWatchService.setAnchor(config);
+        clearInterval(stagePoll);
         setIsSettingAnchor(false);
 
         if (success) {

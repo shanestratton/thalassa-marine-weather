@@ -36,6 +36,7 @@ import { getAuthIdentityScope, isAuthIdentityScopeCurrent, type AuthIdentityScop
 import { FEATURE_VISIBILITY } from '../utils/featureVisibility';
 import { setLiveAnchorSafetyState } from './activeSafetyInterlock';
 import { GpsService } from './GpsService';
+import { withDeadline, DeadlineExceeded } from '../utils/deadline';
 import {
     clearAnchorWatchRecovery,
     readAnchorWatchRecovery,
@@ -412,6 +413,8 @@ class AnchorWatchServiceClass {
     /** True only after this process installed/replaced the native swing fence. */
     private anchorGeofenceOwned = false;
     private setupError: string | null = null;
+    /** Human-readable name of the arming step in flight. */
+    private setupStage: string | null = null;
     private alarmNotificationError: string | null = null;
 
     /**
@@ -478,6 +481,44 @@ class AnchorWatchServiceClass {
     }
 
     /**
+     * Which step of arming is running right now, in the skipper's words.
+     *
+     * The setup page used to print 'Acquiring GPS fix...' once and never touch
+     * it again, so EVERY later step — permissions, geofence, the background
+     * lease — wore the GPS label if it stalled. Shane hit exactly that
+     * 2026-08-08: the watch hung with the plugin logging "deleted 0 of 1
+     * geofences", which happens well AFTER the fix is in hand, and the screen
+     * still blamed GPS. He went looking at satellites; the satellites were
+     * fine.
+     */
+    getSetupStage(): string | null {
+        return this.setupStage;
+    }
+
+    /**
+     * Run one arming step under a name and a wall-clock bound.
+     *
+     * Nothing in this sequence may hang forever. `setAnchor` awaits native
+     * permission dialogs, the geolocation plugin and the geofence engine —
+     * any of which can fail to settle, and when one does the page sits on its
+     * spinner with `isSettingAnchor` still true, so the skipper cannot even
+     * retry without force-quitting. A deadline turns a dead arm into an
+     * honest, named error.
+     */
+    private async stage<T>(name: string, ms: number, run: () => Promise<T>): Promise<T> {
+        this.setupStage = name;
+        this.notify();
+        try {
+            return await withDeadline(run(), ms, name);
+        } catch (error) {
+            if (error instanceof DeadlineExceeded) {
+                throw new Error(`${name} did not respond within ${Math.round(ms / 1000)}s. Try again.`);
+            }
+            throw error;
+        }
+    }
+
+    /**
      * Request iOS local-notification permission. Idempotent. Called
      * before setAnchor so the user grants permission BEFORE they're
      * relying on it during a drag emergency (when there's no time
@@ -541,10 +582,14 @@ class AnchorWatchServiceClass {
         try {
             // A screen-off alarm is part of the advertised native safety path.
             // Permission must be proved before the skipper can rely on it.
-            await this.requireNotificationPermission();
-            await BgGeoManager.requireAlwaysLocationAuthorization('anchor-watch');
+            await this.stage('Checking notification permission', 25_000, () => this.requireNotificationPermission());
+            await this.stage('Checking location permission', 40_000, () =>
+                BgGeoManager.requireAlwaysLocationAuthorization('anchor-watch'),
+            );
 
             // Prefer NMEA/external GPS if available (more accurate)
+            this.setupStage = 'Getting a position fix';
+            this.notify();
             const nmeaPos = NmeaGpsProvider.getPosition();
             let anchorLat: number;
             let anchorLon: number;
@@ -557,8 +602,10 @@ class AnchorWatchServiceClass {
                 anchorTs = nmeaPos.timestamp;
             } else {
                 // Fall back to phone GPS
-                await BgGeoManager.ensureReady();
-                const pos = await BgGeoManager.getFreshPosition(5_000, 15);
+                const pos = await this.stage('Getting a position fix', 30_000, async () => {
+                    await BgGeoManager.ensureReady();
+                    return BgGeoManager.getFreshPosition(5_000, 15);
+                });
                 if (!pos) throw new Error('Could not acquire GPS position for anchor');
                 anchorLat = pos.latitude;
                 anchorLon = pos.longitude;
@@ -580,9 +627,10 @@ class AnchorWatchServiceClass {
             this.alarmCause = null;
             this.alarmNotificationError = null;
 
-            // Keep screen awake during anchor watch
+            // Keep screen awake during anchor watch. Bounded: a nicety must
+            // never be the thing that stalls arming a safety watch.
             try {
-                await KeepAwake.keepAwake();
+                await withDeadline(KeepAwake.keepAwake(), 5_000, 'Keeping the screen awake');
             } catch (e) {
                 log.warn('Web fallback:', e);
             }
@@ -590,22 +638,24 @@ class AnchorWatchServiceClass {
             // This throws unless a native background-GPS path or a live NMEA
             // feed has actually started. Do not expose/persist "watching"
             // before that proof succeeds.
-            await this.startGpsMonitoring();
+            await this.stage('Starting the watch', 40_000, () => this.startGpsMonitoring());
             this.watchStartedAt = Date.now();
             this.state = 'watching';
             if (this.watchPersistenceScope && this.watchPersistenceScope.key !== persistenceScope.key) {
                 await this.clearPersistedWatchStateRequired(this.watchPersistenceScope);
             }
             this.watchPersistenceScope = persistenceScope;
-            await this.persistWatchStateRequired();
+            await this.stage('Saving the watch', 15_000, () => this.persistWatchStateRequired());
             this.startGpsWatchdog();
 
             // Auto-arm Guardian at anchor position (Tier 2 auto-arm)
             this.autoArmGuardian();
 
+            this.setupStage = null;
             this.notify();
             return true;
         } catch (error) {
+            this.setupStage = null;
             await this.rollbackFailedSetup(persistenceScope, error);
             return false;
         }
@@ -1474,8 +1524,12 @@ class AnchorWatchServiceClass {
         this.normalizeOperationalConfigOrThrow();
         this.requireValidAnchorPosition();
 
-        // Remove existing geofence first
-        await BgGeoManager.removeGeofence(GEOFENCE_ID);
+        // Clearing the previous fence is BEST EFFORT. It used to be strict, so
+        // a stale fence the SDK declined to delete ("deleted 0 of 1 geofences")
+        // aborted the whole arm and left the skipper with no anchor watch —
+        // over a fence the very next call was about to supersede anyway. The
+        // add below registers the same identifier and is the authority.
+        await BgGeoManager.tryRemoveGeofence(GEOFENCE_ID);
         this.anchorGeofenceOwned = false;
 
         // Add new geofence centered on anchor with swing radius
@@ -1488,6 +1542,15 @@ class AnchorWatchServiceClass {
             notifyOnExit: true,
             notifyOnDwell: false,
         });
+
+        // What DOES stay strict is the result. Relaxing the removal must not
+        // relax the guarantee: read the identifier back, and only claim
+        // ownership of a fence that is genuinely registered. A watch that
+        // believes it is fenced when it is not is the one outcome worse than
+        // refusing to arm.
+        if (!(await BgGeoManager.geofenceExists(GEOFENCE_ID))) {
+            throw new Error('The anchor swing-circle geofence could not be registered. Anchor Watch was not armed.');
+        }
         this.anchorGeofenceOwned = true;
     }
 

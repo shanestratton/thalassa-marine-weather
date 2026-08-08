@@ -668,6 +668,34 @@ class BgGeoManagerClass {
         await BackgroundGeolocation.addGeofence(params);
     }
 
+    /** Is the fixed anchor identifier registered natively right now? */
+    async geofenceExists(id: string): Promise<boolean> {
+        if (!this.isNativeSupported()) return false;
+        await this.ensureReady();
+        return BackgroundGeolocation.geofenceExists(id);
+    }
+
+    /**
+     * Best-effort removal, for the ARM path only.
+     *
+     * `removeGeofence` is deliberately strict because a fence surviving a
+     * teardown is a safety problem. Re-arming is the opposite case: the very
+     * next call registers a fence under the same identifier, which supersedes
+     * whatever was there. Refusing to arm because a stale fence would not
+     * delete leaves the skipper with NO anchor watch at all — which is how a
+     * "deleted 0 of 1 geofences" plugin string ended up as the whole of
+     * Anchor Watch's failure UI (2026-08-08).
+     */
+    async tryRemoveGeofence(id: string): Promise<boolean> {
+        try {
+            await this.removeGeofence(id);
+            return true;
+        } catch (error) {
+            log.warn(`tryRemoveGeofence(${id}) failed; the add that follows supersedes it:`, String(error));
+            return false;
+        }
+    }
+
     async removeGeofence(id: string): Promise<void> {
         if (!this.isNativeSupported()) return;
         await this.ensureReady();
