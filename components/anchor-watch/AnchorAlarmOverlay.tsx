@@ -99,8 +99,15 @@ export const AnchorAlarmOverlay: React.FC<AnchorAlarmOverlayProps> = React.memo(
                             Anchor watch can&apos;t see your position
                         </div>
                         <div className="text-sm text-red-300/70">
-                            No GPS fix is arriving — dragging can no longer be detected. Check your position and GPS
-                            signal now.
+                            {/* Name the CAUSE, not the symptom. "No GPS fix is
+                                arriving" covers two situations needing opposite
+                                responses — a phone indoors producing fixes too
+                                coarse to use, versus a dead feed producing none
+                                — and reporting both the same way sent a skipper
+                                hunting satellites on a boat whose GPS was
+                                healthy (2026-08-08). */}
+                            {snapshot.blindGpsReason ??
+                                'No GPS fix is arriving — dragging can no longer be detected. Check your position and GPS signal now.'}
                         </div>
                         <div className="text-xs text-red-200/90 mt-3 font-mono">
                             last known {formatDistance(snapshot.distanceFromAnchor)} from anchor
