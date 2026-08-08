@@ -133,12 +133,32 @@ class NmeaListenerServiceClass {
      * Auto-start on app boot if host/port were previously saved.
      * Silently does nothing if no config exists.
      */
-    autoStart() {
+    /**
+     * The saved gateway, or null if the skipper has never configured one.
+     *
+     * Exposed so app bootstrap can start NmeaStore BEFORE the socket opens
+     * without duplicating the localStorage keys. Ordering matters: the store
+     * has to be subscribed in time to catch the initial 'connecting' status,
+     * or the instrument panel believes there is no feed while the gateway is
+     * connected and streaming.
+     */
+    getSavedConfig(): { host: string; port: number } | null {
         const savedHost = localStorage.getItem('nmea_host');
         const savedPort = localStorage.getItem('nmea_port');
-        if (!savedHost && !savedPort) return; // No NMEA config saved — skip
-        this.configure(savedHost || DEFAULT_HOST, parseInt(savedPort || String(DEFAULT_PORT), 10));
+        if (!savedHost && !savedPort) return null;
+        return {
+            host: savedHost || DEFAULT_HOST,
+            port: parseInt(savedPort || String(DEFAULT_PORT), 10),
+        };
+    }
+
+    /** Reconnect to the saved gateway. Returns false when none is saved. */
+    autoStart(): boolean {
+        const config = this.getSavedConfig();
+        if (!config) return false; // No NMEA config saved — skip
+        this.configure(config.host, config.port);
         this.start();
+        return true;
     }
 
     start() {
