@@ -127,7 +127,11 @@ const App: React.FC = () => {
     // Gated to Skipper (owner) tier — top tier only, since the voice
     // console wraps the most expensive features (Pi AI, cloud Haiku,
     // ElevenLabs TTS, Cloudflare Worker proxy + Deepgram).
-    const canUseBosunVoice = canAccess(settings.subscriptionTier, 'bosunVoice');
+    // Calypso's console is parked (FEATURE_VISIBILITY.calypsoConsole, 2026-08-09).
+    // Tier access is still evaluated so bringing him back is one flag, not an
+    // archaeology exercise. MAYDAY and radio position reports are unaffected —
+    // they go through safetyTts, which has never touched this console.
+    const canUseBosunVoice = FEATURE_VISIBILITY.calypsoConsole && canAccess(settings.subscriptionTier, 'bosunVoice');
 
     // Standalone planner page (Shane 2026-07-17: "boat-name.thalassawx.app/plan
     // is a standalone page like the diary — the user should not have access to

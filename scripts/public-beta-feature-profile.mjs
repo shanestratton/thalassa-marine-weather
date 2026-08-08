@@ -41,6 +41,11 @@ export const PUBLIC_BETA_HELD_CAPABILITIES = Object.freeze([
     'musickit',
     'aishub-contribution',
     'retired-public-float-plan',
+    // Calypso's conversational console, parked 2026-08-09: it mishears often
+    // enough that a wrong answer and a right one sound identical. His voice
+    // still reads MAYDAY, DSC and radio position reports — that path is
+    // safetyTts and is not held.
+    'calypso-voice-console',
     'calypso-proactive-alerts',
     'billing',
     'private-recipe-photos',

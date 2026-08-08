@@ -65,6 +65,9 @@ describe('committed public-beta feature profile', () => {
             'musickit',
             'aishub-contribution',
             'retired-public-float-plan',
+            // Parked 2026-08-09. Note this is the CONSOLE only — MAYDAY, DSC
+            // and radio position read-out go through safetyTts and are not held.
+            'calypso-voice-console',
             'calypso-proactive-alerts',
             'billing',
             'private-recipe-photos',
