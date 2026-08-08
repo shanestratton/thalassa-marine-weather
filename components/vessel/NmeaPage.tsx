@@ -22,6 +22,7 @@ import {
     type ScanPhase,
 } from '../../services/nmea/gatewayScan';
 import { nativeTcpProbe, detectSubnetPrefix } from '../../services/nmea/nativeTcpProbe';
+import { VpnHairpinNotice } from '../network/VpnHairpinNotice';
 import { NMEA_DEVICE_PROFILES } from '../../services/NmeaDeviceProfiles';
 import { GpsReceiverStatusService, type GpsReceiverStatus } from '../../services/GpsReceiverStatusService';
 
@@ -340,6 +341,12 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
                                 </span>
                             )}
                         </div>
+
+                        {/* A VPN hairpinning boat-LAN traffic makes a healthy
+                            gateway look broken — laggy, dropping, "won't
+                            connect". Name it here rather than let it be
+                            rediagnosed as hardware (2026-08-08). */}
+                        <VpnHairpinNotice hostIp={host} hostLabel="the NMEA gateway" className="mb-3" />
 
                         {/* Reconnect status message */}
                         {isConnecting && reconnectAttempts > 0 && (

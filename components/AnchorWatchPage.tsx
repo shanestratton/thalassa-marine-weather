@@ -28,6 +28,7 @@ import { AlarmAudioService } from '../services/AlarmAudioService';
 import { triggerHaptic } from '../utils/system';
 import { SwingCircleCanvas, type AisTargetDot } from './anchor-watch/SwingCircleCanvas';
 import { ScopeRadar } from './anchor-watch/ScopeRadar';
+import { VpnHairpinNotice } from './network/VpnHairpinNotice';
 import { SoundCheckModal } from './anchor-watch/SoundCheckModal';
 import { ShoreWatchModal } from './anchor-watch/ShoreWatchModal';
 import { AisStreamService } from '../services/AisStreamService';
@@ -100,6 +101,15 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
     const [isSettingAnchor, setIsSettingAnchor] = useState(false);
     const [isRetryingMonitoring, setIsRetryingMonitoring] = useState(false);
     const [gpsStatus, setGpsStatus] = useState<string>('Waiting for GPS...');
+    // The gateway the NMEA GPS source is configured against, for the
+    // hairpin check. Read once — it only changes on the NMEA page.
+    const [nmeaHost] = useState<string | null>(() => {
+        try {
+            return localStorage.getItem('nmea_host');
+        } catch {
+            return null;
+        }
+    });
 
     // Weather-smart rode recommendation
     const wxRecommendation = useMemo(() => {
@@ -813,6 +823,11 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
 
                         {/* ── Slide to Confirm — safety orange ── */}
                         <div className="pt-1 pb-2">
+                            {/* Arming against the boat's own GPS means the feed
+                                has to be sound. A VPN hairpinning boat-LAN
+                                traffic degrades it into exactly the dropouts
+                                that make a watch go blind. */}
+                            <VpnHairpinNotice hostIp={nmeaHost} hostLabel="the NMEA gateway" className="mb-2" />
                             {!isSettingAnchor && gpsStatus !== 'Waiting for GPS...' && (
                                 <p
                                     role="alert"
