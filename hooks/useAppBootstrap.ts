@@ -190,6 +190,22 @@ export function useAppBootstrap() {
             });
     }, []);
 
+    // ── NMEA gateway: reconnect on launch ──────────────────────────
+    // autoStart() has existed on NmeaListenerService since the beginning and
+    // NOTHING ever called it — AvNav's namesake above was wired up, this one
+    // never was. So a saved gateway was silently forgotten on every cold
+    // start and the skipper had to go to the NMEA page and press Connect
+    // (Shane 2026-08-08). It no-ops when no host/port was ever saved, so a
+    // punter with no gateway is unaffected. Deliberately NOT behind
+    // PI_INTEGRATION_ENABLED: that gate is about probing the boat LAN for a
+    // Pi, and this is a direct connection to a gateway the skipper
+    // configured by hand.
+    useEffect(() => {
+        import('../services/NmeaListenerService')
+            .then(({ NmeaListenerService }) => NmeaListenerService.autoStart())
+            .catch((err) => console.error('[Boot] NMEA autoStart failed:', err?.message || err));
+    }, []);
+
     // ── GPS warm-up ────────────────────────────────────────────────
     // Wired 2026-08-07. gpsWarmUp has existed since 2026-08-02 but nothing
     // ever called it, so every cold start began its satellite hunt at the

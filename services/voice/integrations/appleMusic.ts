@@ -25,7 +25,17 @@ import { Capacitor, registerPlugin } from '@capacitor/core';
 
 // ── Native plugin bridge ────────────────────────────────────────────
 
+export interface AudioOutput {
+    name: string;
+    type: string;
+    isAirPlay: boolean;
+    isBluetooth: boolean;
+    isBuiltIn: boolean;
+}
+
 interface AppleMusicPluginInterface {
+    getAudioRoute(): Promise<{ outputs: AudioOutput[]; primaryName: string }>;
+    showRoutePicker(): Promise<{ presented: boolean }>;
     // Authorization
     requestMusicKitAuthorization(): Promise<{ status: string; granted: boolean }>;
     getMusicKitAuthorizationStatus(): Promise<{ status: string; granted: boolean }>;
@@ -963,5 +973,36 @@ export async function nowPlaying(): Promise<{ content: string; isError: boolean 
         };
     } catch (err) {
         return { content: `ERROR: nowPlaying failed — ${(err as Error).message}`, isError: true };
+    }
+}
+
+// ── Audio output route ──────────────────────────────────────────────────
+
+/**
+ * Which speaker is playing right now.
+ *
+ * There is no iOS API to LIST available outputs — `availableInputs` exists,
+ * `availableOutputs` does not, and Apple withholds it on purpose so an app
+ * cannot inventory the speakers around you. Hence the split: read the current
+ * route here, and hand the CHOOSING to the system picker below, which is the
+ * same list Control Centre shows.
+ */
+export async function getAudioRoute(): Promise<{ outputs: AudioOutput[]; primaryName: string } | null> {
+    if (Capacitor.getPlatform() !== 'ios') return null;
+    try {
+        return await AppleMusicNative.getAudioRoute();
+    } catch {
+        return null;
+    }
+}
+
+/** Open the system speaker picker (AirPlay, HomePod, Bluetooth, the boat stereo). */
+export async function showRoutePicker(): Promise<boolean> {
+    if (Capacitor.getPlatform() !== 'ios') return false;
+    try {
+        const result = await AppleMusicNative.showRoutePicker();
+        return !!result?.presented;
+    } catch {
+        return false;
     }
 }

@@ -9,6 +9,10 @@ const music = vi.hoisted(() => ({
     resumeMusic: vi.fn(),
     skipNext: vi.fn(),
     skipPrevious: vi.fn(),
+    // Route helpers added 2026-08-08 (speaker chip). Null/no-op keeps these
+    // accessibility tests about focus and dialogs, not audio routing.
+    getAudioRoute: vi.fn(async () => null),
+    showRoutePicker: vi.fn(async () => false),
     getNowPlaying: vi.fn(),
     requestAuthorization: vi.fn(),
     getAuthorizationStatus: vi.fn(),
