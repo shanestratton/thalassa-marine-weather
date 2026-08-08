@@ -578,8 +578,15 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
     // still isn't in the initial chunk. No-ops on anything without a barometer.
     useEffect(() => {
         let cancelled = false;
-        void import('../../services/native/barometer').then((m) => {
-            if (!cancelled) void m.startLogging();
+        void import('../../services/native/barometer').then(async (m) => {
+            if (cancelled) return;
+            void m.startLogging();
+            // Hand the module to the offline helm voice so "what's the
+            // barometer" can be answered with no network. helmVoice does not
+            // import it itself — asking the depth must not be the thing that
+            // starts pressure logging.
+            const helm = await import('../../services/voice/helmVoice');
+            if (!cancelled) helm.registerBarometerModule(m);
         });
         return () => {
             cancelled = true;
