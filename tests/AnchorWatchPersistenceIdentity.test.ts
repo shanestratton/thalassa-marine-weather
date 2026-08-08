@@ -129,6 +129,7 @@ vi.mock('../services/AlarmAudioService', () => ({
 
 vi.mock('../services/NmeaGpsProvider', () => ({
     NmeaGpsProvider: {
+        getFeedStatus: () => 'unavailable' as const,
         getPosition: watchMocks.nmeaPosition,
         onPosition: vi.fn((callback) => {
             watchMocks.nmeaLocationCallback = callback;

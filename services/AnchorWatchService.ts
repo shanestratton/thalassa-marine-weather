@@ -31,7 +31,13 @@ import { createLogger } from '../utils/createLogger';
 import { calculateDistance, calculateBearing } from '../utils/navigationCalculations';
 import { GpsPrecision } from './shiplog/GpsPrecisionTracker';
 import { NmeaGpsProvider } from './NmeaGpsProvider';
-import { isAnchorGpsStale, GPS_LOST_THRESHOLD_MS, nextDragState } from './anchorGpsWatchdog';
+import {
+    isAnchorGpsStale,
+    GPS_LOST_THRESHOLD_MS,
+    nextDragState,
+    describeBlindGps,
+    type GpsRejection,
+} from './anchorGpsWatchdog';
 import { getAuthIdentityScope, isAuthIdentityScopeCurrent, type AuthIdentityScope } from './authIdentityScope';
 import { FEATURE_VISIBILITY } from '../utils/featureVisibility';
 import { setLiveAnchorSafetyState } from './activeSafetyInterlock';
@@ -141,6 +147,8 @@ export interface AnchorWatchSnapshot {
     setupError: string | null;
     /** A live alarm could not confirm its locked-screen notification layer. */
     alarmNotificationError?: string | null;
+    /** For a 'gps-lost' alarm: WHY the watch went blind, and what to do. */
+    blindGpsReason?: string | null;
 }
 
 export type AnchorWatchListener = (snapshot: AnchorWatchSnapshot) => void;
@@ -408,6 +416,10 @@ class AnchorWatchServiceClass {
     // Blind-watch watchdog: fires if no usable GPS fix arrives while watching
     private gpsWatchdog: ReturnType<typeof setInterval> | null = null;
     private lastUsableFixAt: number | null = null;
+    /** Most recent fix the gates REFUSED, and why. A rejected fix used to
+     *  vanish without trace, so a blind watch could not say whether fixes
+     *  were absent or merely too coarse — opposite problems, opposite fixes. */
+    private lastGpsRejection: GpsRejection | null = null;
     /** True only after this service acquired a BgGeoManager start lease. */
     private bgGeoLeaseHeld = false;
     /** True only after this process installed/replaced the native swing fence. */
@@ -472,7 +484,38 @@ class AnchorWatchServiceClass {
             guardianStatus: this.guardianStatus,
             setupError: this.setupError,
             alarmNotificationError: this.alarmNotificationError,
+            blindGpsReason: this.alarmCause === 'gps-lost' ? this.describeBlindGps() : null,
         };
+    }
+
+    /**
+     * Why the watch is blind, in one actionable sentence.
+     *
+     * Never throws. This is reached from getSnapshot(), which every notify()
+     * calls — and it only runs while an alarm is FIRING. A diagnostic string
+     * that can take the alarm UI down with it is worse than no diagnostic at
+     * all, so a failure here degrades to the plain wording.
+     */
+    private describeBlindGps(): string | null {
+        try {
+            let nmeaFeedStatus: 'live' | 'stale' | 'unavailable' = 'unavailable';
+            try {
+                nmeaFeedStatus = NmeaGpsProvider.getFeedStatus();
+            } catch {
+                /* provider unavailable — treat as no feed */
+            }
+            return describeBlindGps({
+                nowMs: Date.now(),
+                lastUsableFixAt: { ...this.lastSourceFixAt },
+                lastRejection: this.lastGpsRejection,
+                nmeaFeedStatus,
+                swingRadiusM: this.swingRadius,
+                accuracyLimitM: MIN_GPS_ACCURACY,
+            });
+        } catch (error) {
+            log.warn('describeBlindGps failed; falling back to the plain wording', error);
+            return null;
+        }
     }
 
     /** Actionable failure from the last arm/restore attempt, for setup UI. */
@@ -1678,20 +1721,31 @@ class AnchorWatchServiceClass {
     }
 
     private handleGpsUpdate(position: VesselPosition, source: GpsSource): void {
-        // Filter poor accuracy readings
-        if (
+        // Filter poor accuracy readings. Rejections are RECORDED, not just
+        // dropped: "no fix is arriving" and "fixes are arriving but are ±140 m"
+        // look identical from here, and they need opposite responses from the
+        // skipper.
+        const coordsBad =
             !Number.isFinite(position.latitude) ||
             !Number.isFinite(position.longitude) ||
             !Number.isFinite(position.accuracy) ||
-            position.accuracy <= 0 ||
-            position.accuracy > MIN_GPS_ACCURACY
-        ) {
+            position.accuracy <= 0;
+        if (coordsBad) {
+            this.lastGpsRejection = { source, reason: 'invalid', accuracy: null, at: Date.now() };
+            return;
+        }
+        if (position.accuracy > MIN_GPS_ACCURACY) {
+            this.lastGpsRejection = { source, reason: 'accuracy', accuracy: position.accuracy, at: Date.now() };
             return;
         }
 
         const now = Date.now();
         const fixMs = Math.min(position.timestamp || now, now);
-        if (fixMs <= 0 || now - fixMs > PRIMARY_SOURCE_FRESH_MS) return;
+        if (fixMs <= 0 || now - fixMs > PRIMARY_SOURCE_FRESH_MS) {
+            this.lastGpsRejection = { source, reason: 'stale', accuracy: position.accuracy, at: now };
+            return;
+        }
+        this.lastGpsRejection = null;
         this.lastSourceFixAt[source] = Math.max(this.lastSourceFixAt[source] ?? 0, fixMs);
 
         if (!this.shouldUseGpsSource(source, now)) return;
