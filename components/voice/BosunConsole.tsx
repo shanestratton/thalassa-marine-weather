@@ -31,6 +31,7 @@ import { askCloudVoice } from '../../services/voice/cloudFallback';
 import { publishTurn, startConversationSync, type ConversationSyncHandle } from '../../services/voice/conversationSync';
 import { askHaiku, consumeLastTtsError, synthesiseSpeech } from '../../services/voice/orchestrator';
 import { startSpokenReply, type SpokenReply } from '../../services/voice/spokenReplyQueue';
+import { consumeTtsClientError } from '../../services/voice/ttsClient';
 import { FEATURE_VISIBILITY } from '../../utils/featureVisibility';
 import { selectVoiceQueryRoute } from '../../services/voice/voiceQueryRouting';
 import {
@@ -1274,7 +1275,12 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
                 void reply.end().then(() => {
                     detachAbort();
                     if (spokenReplyRef.current === reply) spokenReplyRef.current = null;
-                    const ttsError = consumeLastTtsError();
+                    // TWO channels, because there are two TTS clients. The
+                    // spoken queue goes through ttsClient.speak, which records
+                    // its failures in its own module-level slot — checking only
+                    // the orchestrator's meant the path that actually went
+                    // quiet was the one path that never reported why.
+                    const ttsError = consumeTtsClientError() ?? consumeLastTtsError();
                     if (ttsError && isVoiceOperationCurrent(operation)) setErrorMessage(ttsError);
                 });
                 return {

@@ -1986,23 +1986,18 @@ const NavStationHero: React.FC<{
     // Anchor watch and drag alarms deliberately retain the full card because
     // their swing/status information is safety-critical. A fresh install and
     // a drafted passage also retain their purposeful full-card states.
+    //
+    // At Rest / Underway used to collapse the hero to a bare strip of weather
+    // chips. It went, 2026-08-09: the same numbers are already on The Glass,
+    // which is one tab away and is where you look for them. A band of
+    // duplicated conditions across the top of the Vessel page bought nothing
+    // and pushed the actual vessel content down the screen.
+    //
+    // The FULL card below keeps its chips — there they sit beside swing and
+    // anchor state, where the conditions are context for something rather
+    // than the whole payload.
     const weatherOnlySlim = (state.label === 'At Rest' || state.label === 'Underway') && !showSwing && vesselNameSet;
-    if (weatherOnlySlim) {
-        if (metricChips.length === 0) return null;
-        return (
-            <div
-                className="mb-3 overflow-hidden"
-                style={{
-                    ...GLASS.card,
-                    background:
-                        'var(--vessel-hero-bg, linear-gradient(135deg, rgba(20,25,35,0.7) 0%, rgba(14,165,233,0.05) 100%))',
-                    borderColor: 'var(--vessel-hero-border, rgba(255,255,255,0.10))',
-                }}
-            >
-                <MetricChipStrip showTopBorder={false} chips={metricChips} />
-            </div>
-        );
-    }
+    if (weatherOnlySlim) return null;
 
     return (
         <div
