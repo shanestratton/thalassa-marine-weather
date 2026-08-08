@@ -17,6 +17,10 @@ import { NmeaRateTracker } from './NmeaRateTracker';
 import { getNmeaDeviceLabel } from './NmeaDeviceProfiles';
 import { parseNmeaDepth, parseNmeaNumber, validateNmeaSentence, type ParsedNmeaDepth } from './nmea/nmeaSentence';
 import { NMEA_SAMPLE_INTERVAL_MS } from './nmea/nmeaCadence';
+// Bearings cannot be averaged arithmetically: the mean of 359 and 001 is 180,
+// which points a north-facing boat due south. That trap sits exactly where
+// Serene Summer was moored when the compass was reported wrong (2026-08-08).
+import { circularMean } from '../utils/circularStats';
 const log = createLogger('NMEA');
 
 // Count rejected framing/checksum boundaries — surfaced occasionally so a
@@ -53,6 +57,13 @@ export interface NmeaConnectionInfo {
 interface RawAccumulator {
     tws: number[];
     twa: number[];
+    /** Signed true wind angle, negative to port. Drawable; `twa` is not. */
+    twaSigned: number[];
+    /** True wind DIRECTION as a compass bearing (deg true), from MWD. */
+    twd: number[];
+    /** Apparent wind speed (kts) and signed angle off the bow, from MWV,R. */
+    aws: number[];
+    awa: number[];
     stw: number[];
     heading: number[];
     rpm: number[];
@@ -493,7 +504,10 @@ class NmeaListenerServiceClass {
         switch (type) {
             case 'MWV':
                 this.parseMWV(parts);
-                break; // Wind
+                break; // Wind (apparent + true)
+            case 'MWD':
+                this.parseMWD(parts);
+                break; // True wind direction
             case 'VHW':
                 this.parseVHW(parts);
                 break; // Water speed
@@ -531,25 +545,72 @@ class NmeaListenerServiceClass {
     }
 
     /** $xxMWV — Wind Speed and Angle */
+    /** Wind speed in whatever unit the sentence declared → knots. */
+    private windSpeedToKnots(speed: number, unit: string): number {
+        if (unit === 'K') return speed / 1.852; // km/h
+        if (unit === 'M') return speed * 1.94384; // m/s
+        return speed; // 'N' — already knots
+    }
+
     private parseMWV(parts: string[]) {
         // $xxMWV,angle,R/T,speed,unit,status
-        if (parts[2] !== 'T') return; // Only true wind (not relative)
+        //
+        // This used to open `if (parts[2] !== 'T') return;` — apparent wind was
+        // read off the wire and thrown straight in the bin, which is why the
+        // panel's APPARENT WINDS tile was permanently blank on a boat whose
+        // gateway broadcasts $YDMWV,...,R every second (2026-08-08).
         if (parts[5] !== 'A') return; // A = valid
+        const reference = parts[2];
+        if (reference !== 'T' && reference !== 'R') return;
         const angle = parseNmeaNumber(parts[1]);
         const speed = parseNmeaNumber(parts[3]);
-        const unit = parts[4]; // K=km/h, N=knots, M=m/s
         if (angle === null || speed === null) return;
+        const knots = this.windSpeedToKnots(speed, parts[4]);
 
-        // Normalize to 0-180 (sailing polars use absolute angle)
-        const twa = angle > 180 ? 360 - angle : angle;
+        // Signed angle off the bow, negative to port. The 0–360 form the wire
+        // uses cannot be averaged arithmetically and cannot be drawn without
+        // knowing which side the wind is on.
+        const signed = angle > 180 ? angle - 360 : angle;
 
-        // Convert to knots
-        let tws = speed;
-        if (unit === 'K') tws = speed / 1.852;
-        else if (unit === 'M') tws = speed * 1.94384;
+        if (reference === 'R') {
+            this.accumulator.awa.push(signed);
+            this.accumulator.aws.push(knots);
+            return;
+        }
 
-        this.accumulator.twa.push(twa);
-        this.accumulator.tws.push(tws);
+        // TRUE. `twa` stays a 0–180 magnitude because SmartPolarStore buckets
+        // on it and polars are symmetric — changing it would silently
+        // re-bucket every learned polar. The signed form is carried
+        // separately for anything that has to draw the wind.
+        this.accumulator.twa.push(angle > 180 ? 360 - angle : angle);
+        this.accumulator.twaSigned.push(signed);
+        this.accumulator.tws.push(knots);
+    }
+
+    /**
+     * $xxMWD — true wind DIRECTION and speed.
+     *
+     * `$YDMWD,128.1,T,117.1,M,5.7,N,2.9,M` — 128.1°T / 117.1°M, 5.7 kts. This
+     * is the only sentence that gives the wind as a compass bearing rather
+     * than an angle off the bow, which is what a wind rose needs. Prefer the
+     * true field; fall back to magnetic when a device omits true.
+     */
+    private parseMWD(parts: string[]) {
+        const trueDir = parts[2] === 'T' ? parseNmeaNumber(parts[1]) : null;
+        const magDir = parts[4] === 'M' ? parseNmeaNumber(parts[3]) : null;
+        const direction = trueDir ?? magDir;
+        if (direction !== null && Number.isFinite(direction)) {
+            this.accumulator.twd.push(((direction % 360) + 360) % 360);
+        }
+        // MWD also carries wind speed in knots (field 5) and m/s (field 7).
+        // Only used when MWV,T is absent — a boat that sends both should not
+        // have its true-wind speed averaged from two sources at two cadences.
+        if (this.accumulator.tws.length === 0) {
+            const knots = parts[6] === 'N' ? parseNmeaNumber(parts[5]) : null;
+            const ms = parts[8] === 'M' ? parseNmeaNumber(parts[7]) : null;
+            if (knots !== null) this.accumulator.tws.push(knots);
+            else if (ms !== null) this.accumulator.tws.push(ms * 1.94384);
+        }
     }
 
     /** $xxVHW — Water Speed and Heading */
@@ -687,8 +748,12 @@ class NmeaListenerServiceClass {
             timestamp: Date.now(),
             tws: avg(this.accumulator.tws),
             twa: avg(this.accumulator.twa),
+            twaSigned: avgSigned(this.accumulator.twaSigned),
+            twd: circularMean(this.accumulator.twd),
+            aws: avg(this.accumulator.aws),
+            awa: avgSigned(this.accumulator.awa),
             stw: avg(this.accumulator.stw),
-            heading: avg(this.accumulator.heading),
+            heading: circularMean(this.accumulator.heading),
             rpm: avg(this.accumulator.rpm),
             voltage: avg(this.accumulator.voltage),
             depth: depthReading?.depthM ?? null,
@@ -696,7 +761,7 @@ class NmeaListenerServiceClass {
             depthReference: depthReading?.reference ?? null,
             depthOffsetM: depthReading?.offsetM ?? null,
             sog: avg(this.accumulator.sog),
-            cog: avg(this.accumulator.cog),
+            cog: circularMean(this.accumulator.cog),
             waterTemp: avg(this.accumulator.waterTemp),
             // GPS — use last values (not averaged)
             latitude: this.accumulator.latitude,
@@ -715,6 +780,15 @@ class NmeaListenerServiceClass {
         const hasInstruments = [
             sample.tws,
             sample.twa,
+            // The new wind fields must be listed here too. A gateway that sends
+            // apparent wind but no true wind produces a sample whose every
+            // previously-gated field is null — so without these it would be
+            // dropped on the floor and never reach the store, which is the same
+            // blank tile the parser fix was meant to end.
+            sample.twaSigned ?? null,
+            sample.twd ?? null,
+            sample.aws ?? null,
+            sample.awa ?? null,
             sample.stw,
             sample.heading,
             sample.rpm,
@@ -734,6 +808,10 @@ class NmeaListenerServiceClass {
         return {
             tws: [],
             twa: [],
+            twaSigned: [],
+            twd: [],
+            aws: [],
+            awa: [],
             stw: [],
             heading: [],
             rpm: [],
@@ -755,6 +833,17 @@ class NmeaListenerServiceClass {
 function avg(arr: number[]): number | null {
     if (arr.length === 0) return null;
     return arr.reduce((a, b) => a + b, 0) / arr.length;
+}
+
+/**
+ * Mean of signed angles in (-180, 180]. Goes through the circular mean for the
+ * same reason bearings do — the arithmetic mean of -179 and 179 is 0, i.e. dead
+ * ahead, when the wind is in fact dead astern.
+ */
+function avgSigned(arr: number[]): number | null {
+    const mean = circularMean(arr);
+    if (mean === null) return null;
+    return mean > 180 ? mean - 360 : mean;
 }
 
 /** Convert NMEA DDMM.MMMM + N/S/E/W to decimal degrees. Returns null for a

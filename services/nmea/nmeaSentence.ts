@@ -2,6 +2,12 @@ import type { NmeaDepthReference, NmeaDepthSource } from '../../types/navigation
 
 const SUPPORTED_INSTRUMENT_SENTENCES = new Set([
     'MWV',
+    // MWD carries true wind DIRECTION as a compass bearing. Without it the app
+    // only ever knew the wind's angle off the bow, which cannot be drawn on a
+    // compass card. Serene Summer's YDWG-02 has been broadcasting
+    // `$YDMWD,128.1,T,117.1,M,5.7,N,2.9,M` the whole time; it was rejected here
+    // before it ever reached a parser (2026-08-08).
+    'MWD',
     'VHW',
     'HDT',
     'HDG',
