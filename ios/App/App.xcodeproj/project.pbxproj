@@ -40,6 +40,8 @@
 		AA000022AAAA002200000001 /* EncryptedLargeStoragePlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000022AAAA002200000002 /* EncryptedLargeStoragePlugin.swift */; };
 		AA000023AAAA002300000001 /* BarometerPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000023AAAA002300000002 /* BarometerPlugin.swift */; };
 		AA000024AAAA002400000001 /* BarometerPlugin.m in Sources */ = {isa = PBXBuildFile; fileRef = AA000024AAAA002400000002 /* BarometerPlugin.m */; };
+		AA000025AAAA002500000001 /* NetworkInterfacesPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000025AAAA002500000002 /* NetworkInterfacesPlugin.swift */; };
+		AA000026AAAA002600000001 /* NetworkInterfacesPlugin.m in Sources */ = {isa = PBXBuildFile; fileRef = AA000026AAAA002600000002 /* NetworkInterfacesPlugin.m */; };
 		B3A100012026080400000001 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = B3A100012026080400000002 /* PrivacyInfo.xcprivacy */; };
 /* End PBXBuildFile section */
 
@@ -84,6 +86,8 @@
 		AA000022AAAA002200000002 /* EncryptedLargeStoragePlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EncryptedLargeStoragePlugin.swift; sourceTree = "<group>"; };
 		AA000023AAAA002300000002 /* BarometerPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BarometerPlugin.swift; sourceTree = "<group>"; };
 		AA000024AAAA002400000002 /* BarometerPlugin.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = BarometerPlugin.m; sourceTree = "<group>"; };
+		AA000025AAAA002500000002 /* NetworkInterfacesPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkInterfacesPlugin.swift; sourceTree = "<group>"; };
+		AA000026AAAA002600000002 /* NetworkInterfacesPlugin.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = NetworkInterfacesPlugin.m; sourceTree = "<group>"; };
 		B3A100012026080400000002 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -164,6 +168,8 @@
 				AA00001AAAAA001A00000002 /* PiTlsPlugin.m */,
 				AA000023AAAA002300000002 /* BarometerPlugin.swift */,
 				AA000024AAAA002400000002 /* BarometerPlugin.m */,
+				AA000025AAAA002500000002 /* NetworkInterfacesPlugin.swift */,
+				AA000026AAAA002600000002 /* NetworkInterfacesPlugin.m */,
 				AA000014AAAA001400000002 /* MdnsBrowserPlugin.m */,
 				AA000015AAAA001500000002 /* WatchConnectivityPlugin.swift */,
 				AA000016AAAA001600000002 /* WatchConnectivityPlugin.m */,
@@ -393,6 +399,8 @@
 				AA00001AAAAA001A00000001 /* PiTlsPlugin.m in Sources */,
 				AA000023AAAA002300000001 /* BarometerPlugin.swift in Sources */,
 				AA000024AAAA002400000001 /* BarometerPlugin.m in Sources */,
+				AA000025AAAA002500000001 /* NetworkInterfacesPlugin.swift in Sources */,
+				AA000026AAAA002600000001 /* NetworkInterfacesPlugin.m in Sources */,
 				AA000014AAAA001400000001 /* MdnsBrowserPlugin.m in Sources */,
 				AA000015AAAA001500000001 /* WatchConnectivityPlugin.swift in Sources */,
 				AA000016AAAA001600000001 /* WatchConnectivityPlugin.m in Sources */,
