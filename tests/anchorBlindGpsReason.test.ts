@@ -84,3 +84,89 @@ describe('describeBlindGps', () => {
         expect(msg).toContain('this phone');
     });
 });
+
+// ── Cross-source handover ───────────────────────────────────────────────
+
+import { checkSourceHandover, SOURCE_HANDOVER_WINDOW_MS } from '../services/anchorGpsWatchdog';
+
+/** Metres between two points, good enough at these distances. */
+const metres = (aLat: number, aLon: number, bLat: number, bLon: number): number => {
+    const R = 6_371_000;
+    const dLat = ((bLat - aLat) * Math.PI) / 180;
+    const dLon = ((bLon - aLon) * Math.PI) / 180;
+    const mLat = ((aLat + bLat) / 2) * (Math.PI / 180);
+    const x = dLon * Math.cos(mLat);
+    return Math.sqrt(dLat * dLat + x * x) * R;
+};
+
+const ANCHORAGE = { latitude: -27.2085, longitude: 153.0875 };
+/** Roughly 3 km away — a house ashore. */
+const ASHORE = { latitude: -27.2355, longitude: 153.0875 };
+
+const handover = (over: Partial<Parameters<typeof checkSourceHandover>[0]> = {}) =>
+    checkSourceHandover({
+        nowMs: NOW,
+        lastNmea: { ...ANCHORAGE, at: NOW - 20_000 },
+        candidate: { ...ANCHORAGE, accuracy: 8 },
+        swingRadiusM: 35,
+        distanceM: metres,
+        ...over,
+    });
+
+describe('checkSourceHandover', () => {
+    it('allows the phone to take over when it is on the boat', () => {
+        expect(handover()).toBeNull();
+    });
+
+    it('refuses a phone sitting ashore, kilometres from the vessel', () => {
+        // THE case this exists for: the socket dies when the screen locks, and
+        // twelve seconds later the watch would be measuring the house.
+        const result = handover({ candidate: { ...ASHORE, accuracy: 8 } });
+        expect(result).not.toBeNull();
+        expect(result!.separationM).toBeGreaterThan(2_000);
+    });
+
+    it('refuses a phone NEAR the anchorage but outside the plausible circle', () => {
+        // The dangerous one — close enough to look reasonable, far enough that
+        // it would mask a drag rather than report one.
+        const nearby = { latitude: -27.2095, longitude: 153.0875, accuracy: 8 }; // ~110 m
+        expect(handover({ candidate: nearby })).not.toBeNull();
+    });
+
+    it('never blocks a phone-only watch, which has no boat GPS to compare with', () => {
+        expect(handover({ lastNmea: null, candidate: { ...ASHORE, accuracy: 8 } })).toBeNull();
+    });
+
+    it('widens the allowance while the feed was dark, so a real drag is not refused', () => {
+        // Five minutes dark at up to 6 kt is ~900 m of possible movement.
+        const drifted = { latitude: -27.2125, longitude: 153.0875, accuracy: 8 }; // ~445 m
+        expect(handover({ lastNmea: { ...ANCHORAGE, at: NOW - 300_000 }, candidate: drifted })).toBeNull();
+    });
+
+    it('stops calling it a failover once the boat has been dark too long', () => {
+        // Beyond the window the phone is evidence about the phone, even if it
+        // happens to be sitting right where the boat last was.
+        const result = handover({ lastNmea: { ...ANCHORAGE, at: NOW - SOURCE_HANDOVER_WINDOW_MS - 1_000 } });
+        expect(result).not.toBeNull();
+        expect(result!.allowanceM).toBe(0);
+    });
+});
+
+describe('describeBlindGps — refused handover', () => {
+    it('explains that the fix was refused on purpose, and why', () => {
+        const msg = describeBlindGps(
+            facts({
+                lastRejection: {
+                    source: 'native',
+                    reason: 'source-mismatch',
+                    accuracy: 8,
+                    at: NOW,
+                    separationM: 3_020,
+                },
+            }),
+        );
+        expect(msg).toContain('3.0 km');
+        expect(msg).toMatch(/not being used/i);
+        expect(msg).toMatch(/where YOU are, not the boat/);
+    });
+});

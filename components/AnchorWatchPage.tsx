@@ -1427,8 +1427,22 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                 {/* Stats Grid — 2×3 */}
                 <div className="shrink-0 px-2.5 pb-1.5">
                     <div className="grid grid-cols-3 gap-1.5">
+                        {/* WHICH receiver the watch believes, not just how
+                            accurate it is. 'BOAT' means the vessel's own GPS;
+                            'PHONE' means this device — and if this device is
+                            ashore, the swing circle is being measured from the
+                            wrong place. Those two must never look alike
+                            (Shane 2026-08-08, monitoring over Tailscale). */}
                         <div className="bg-slate-800/50 rounded-lg px-2 py-1.5 text-center border border-white/[0.04]">
-                            <div className={t.typography.labelSm}>GPS</div>
+                            <div className={t.typography.labelSm}>
+                                {snapshot?.gpsSource === 'nmea' ? (
+                                    <span className="text-cyan-300">⚓ BOAT GPS</span>
+                                ) : snapshot?.gpsSource === 'native' ? (
+                                    <span className="text-amber-300">📱 PHONE GPS</span>
+                                ) : (
+                                    'GPS'
+                                )}
+                            </div>
                             <div
                                 className={`text-sm font-black font-mono ${(snapshot?.gpsAccuracy ?? 99) < 10 ? 'text-emerald-400' : (snapshot?.gpsAccuracy ?? 99) < 20 ? 'text-amber-400' : 'text-red-400'}`}
                             >
