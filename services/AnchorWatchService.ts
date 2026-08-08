@@ -36,6 +36,7 @@ import {
     GPS_LOST_THRESHOLD_MS,
     nextDragState,
     describeBlindGps,
+    checkSourceHandover,
     type GpsRejection,
 } from './anchorGpsWatchdog';
 import { getAuthIdentityScope, isAuthIdentityScopeCurrent, type AuthIdentityScope } from './authIdentityScope';
@@ -149,6 +150,9 @@ export interface AnchorWatchSnapshot {
     alarmNotificationError?: string | null;
     /** For a 'gps-lost' alarm: WHY the watch went blind, and what to do. */
     blindGpsReason?: string | null;
+    /** Which receiver the watch is actually believing right now. 'nmea' means
+     *  it is watching the BOAT; 'native' means it is watching THIS PHONE. */
+    gpsSource?: 'native' | 'nmea' | null;
 }
 
 export type AnchorWatchListener = (snapshot: AnchorWatchSnapshot) => void;
@@ -420,6 +424,9 @@ class AnchorWatchServiceClass {
      *  vanish without trace, so a blind watch could not say whether fixes
      *  were absent or merely too coarse — opposite problems, opposite fixes. */
     private lastGpsRejection: GpsRejection | null = null;
+    /** Last position accepted from the BOAT's GPS — the reference a phone fix
+     *  must be plausible against before it may stand in for the vessel. */
+    private lastNmeaFix: { latitude: number; longitude: number; at: number } | null = null;
     /** True only after this service acquired a BgGeoManager start lease. */
     private bgGeoLeaseHeld = false;
     /** True only after this process installed/replaced the native swing fence. */
@@ -485,6 +492,7 @@ class AnchorWatchServiceClass {
             setupError: this.setupError,
             alarmNotificationError: this.alarmNotificationError,
             blindGpsReason: this.alarmCause === 'gps-lost' ? this.describeBlindGps() : null,
+            gpsSource: this.primaryGpsSource,
         };
     }
 
@@ -903,6 +911,7 @@ class AnchorWatchServiceClass {
         this.outsideCircleCount = 0;
         this.jitterBuffer = [];
         this.resetPrimaryGpsSource();
+        this.lastNmeaFix = null;
         this.watchPersistenceScope = null;
 
         // Auto-disarm Guardian when anchor watch stops
@@ -1341,6 +1350,7 @@ class AnchorWatchServiceClass {
         this.outsideCircleCount = 0;
         this.jitterBuffer = [];
         this.resetPrimaryGpsSource();
+        this.lastNmeaFix = null;
         this.watchPersistenceScope = scope;
         this.setupError = `Saved Anchor Watch is blocked and was not armed. ${error} Use Weigh Anchor to clear it, then set the anchor again.`;
         this.notify();
@@ -1375,6 +1385,7 @@ class AnchorWatchServiceClass {
         this.outsideCircleCount = 0;
         this.jitterBuffer = [];
         this.resetPrimaryGpsSource();
+        this.lastNmeaFix = null;
         this.stopGpsWatchdog();
 
         if (persisted.state === 'alarm') {
@@ -1451,6 +1462,7 @@ class AnchorWatchServiceClass {
         this.outsideCircleCount = 0;
         this.jitterBuffer = [];
         this.resetPrimaryGpsSource();
+        this.lastNmeaFix = null;
         this.watchPersistenceScope = null;
         this.setupError = 'Account changed while restoring Anchor Watch. The saved watch was not discarded.';
         this.notify();
@@ -1470,6 +1482,7 @@ class AnchorWatchServiceClass {
         // Remove any leftover subscriptions
         this.cleanupSubscriptions();
         this.resetPrimaryGpsSource();
+        this.lastNmeaFix = null;
         let nmeaMonitoringVerified = false;
         let nativeMonitoringVerified = false;
 
@@ -1703,6 +1716,7 @@ class AnchorWatchServiceClass {
         this.outsideCircleCount = 0;
         this.jitterBuffer = [];
         this.resetPrimaryGpsSource();
+        this.lastNmeaFix = null;
         this.setupError = this.asError(error).message;
         this.watchPersistenceScope = null;
         this.notify();
@@ -1744,6 +1758,38 @@ class AnchorWatchServiceClass {
         if (fixMs <= 0 || now - fixMs > PRIMARY_SOURCE_FRESH_MS) {
             this.lastGpsRejection = { source, reason: 'stale', accuracy: position.accuracy, at: now };
             return;
+        }
+        // A phone fix may only stand in for the boat's GPS if it is somewhere
+        // the boat could plausibly be. Without this the watch silently swaps
+        // "where the vessel is" for "where this phone is" twelve seconds after
+        // the feed drops — which, monitoring from ashore, can read all-clear
+        // while the boat drags.
+        if (source === 'native') {
+            const handover = checkSourceHandover({
+                nowMs: now,
+                lastNmea: this.lastNmeaFix,
+                candidate: {
+                    latitude: position.latitude,
+                    longitude: position.longitude,
+                    accuracy: position.accuracy,
+                },
+                swingRadiusM: this.swingRadius,
+                distanceM: haversineDistance,
+            });
+            if (handover) {
+                this.lastGpsRejection = {
+                    source,
+                    reason: 'source-mismatch',
+                    accuracy: position.accuracy,
+                    at: now,
+                    separationM: handover.separationM,
+                };
+                return;
+            }
+        }
+
+        if (source === 'nmea') {
+            this.lastNmeaFix = { latitude: position.latitude, longitude: position.longitude, at: fixMs };
         }
         this.lastGpsRejection = null;
         this.lastSourceFixAt[source] = Math.max(this.lastSourceFixAt[source] ?? 0, fixMs);

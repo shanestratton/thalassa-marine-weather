@@ -62,7 +62,7 @@ export function nextDragState(
 // ── Why the watch went blind ────────────────────────────────────────────
 
 /** Why a fix was refused by handleGpsUpdate's accuracy/age gates. */
-export type GpsRejectReason = 'accuracy' | 'stale' | 'invalid';
+export type GpsRejectReason = 'accuracy' | 'stale' | 'invalid' | 'source-mismatch';
 
 export interface GpsRejection {
     source: 'native' | 'nmea';
@@ -70,6 +70,9 @@ export interface GpsRejection {
     /** Reported accuracy in metres, when that is what disqualified it. */
     accuracy: number | null;
     at: number;
+    /** For 'source-mismatch': how far the phone was from the vessel's last
+     *  known position. */
+    separationM?: number;
 }
 
 export interface BlindGpsFacts {
@@ -110,6 +113,20 @@ const ago = (nowMs: number, thenMs: number | null): string | null => {
 export function describeBlindGps(facts: BlindGpsFacts): string {
     const { nowMs, lastUsableFixAt, lastRejection, nmeaFeedStatus, swingRadiusM, accuracyLimitM } = facts;
 
+    // The phone is somewhere the boat cannot be. Name this first: it is the
+    // only case where going blind is the SAFE outcome, and the skipper needs
+    // to understand that the watch refused a fix on purpose rather than
+    // failing to get one.
+    if (lastRejection?.reason === 'source-mismatch') {
+        const km = lastRejection.separationM != null ? lastRejection.separationM / 1000 : null;
+        const howFar = km == null ? 'a long way' : km >= 1 ? `${km.toFixed(1)} km` : `${Math.round(km * 1000)} m`;
+        return (
+            `This phone is ${howFar} from where your boat last reported, so its GPS is not being used — ` +
+            `it would measure where YOU are, not the boat. The boat’s GPS feed has dropped: check the ` +
+            `gateway, or keep a device aboard as the watch host.`
+        );
+    }
+
     // A fix that arrives but is too coarse is the commonest case and the most
     // misread, so it is named first and in the skipper's terms: the number
     // that matters is the accuracy against the circle, not the fix count.
@@ -146,4 +163,73 @@ export function describeBlindGps(facts: BlindGpsFacts): string {
         `Fixes have stopped reaching the watch` +
         `${nmeaAgo || nativeAgo ? ` (last usable ${nmeaAgo ?? nativeAgo})` : ''}. Check your position now.`
     );
+}
+
+// ── Cross-source handover plausibility ──────────────────────────────────
+
+/**
+ * The window in which falling back from the boat's GPS to the phone's is a
+ * FAILOVER rather than a guess.
+ *
+ * On the boat the two receivers are metres apart, so when the NMEA feed drops
+ * the phone is a sound backup — but only while we still know roughly where the
+ * vessel was. Once the boat's last known position is this old, the phone is no
+ * longer evidence about the boat; it is evidence about the phone.
+ */
+export const SOURCE_HANDOVER_WINDOW_MS = 10 * 60_000;
+
+/**
+ * Generous drift allowance while the feed was dark: 3 m/s is about 6 knots,
+ * faster than any anchored boat drags. Being generous here is deliberate —
+ * this guard exists to catch a phone in a different POSTCODE, not to
+ * second-guess a boat that moved.
+ */
+const MAX_DRIFT_MPS = 3;
+
+export interface SourceHandoverCheck {
+    /** Metres between the phone's fix and the vessel's last known position. */
+    separationM: number;
+    /** How far apart they could legitimately be by now. */
+    allowanceM: number;
+    nmeaAgeMs: number;
+}
+
+/**
+ * May a phone fix stand in for the boat's, given where the boat last was?
+ *
+ * Shane connected the anchor watch to the boat's GPS over Tailscale and asked
+ * whether it replaced his two-device shore setup (2026-08-08). Not on its own:
+ * iOS suspends the app when the screen locks, which kills the socket to the
+ * gateway, and twelve seconds later the watch was quietly measuring the
+ * distance from the anchor to WHEREVER THE PHONE WAS. Ashore and far away that
+ * is a false drag alarm; ashore and near the anchorage it is worse — the phone
+ * sits inside the swing circle and the watch reports all clear while the boat
+ * drags across the bay.
+ *
+ * Returns null when the handover is fine (or when there is nothing to compare
+ * against — a phone-only watch must keep working). Otherwise returns the
+ * numbers that disqualified it.
+ */
+export function checkSourceHandover(params: {
+    nowMs: number;
+    /** Last position accepted from the boat's GPS, if any. */
+    lastNmea: { latitude: number; longitude: number; at: number } | null;
+    candidate: { latitude: number; longitude: number; accuracy: number };
+    swingRadiusM: number;
+    distanceM: (aLat: number, aLon: number, bLat: number, bLon: number) => number;
+}): SourceHandoverCheck | null {
+    const { nowMs, lastNmea, candidate, swingRadiusM, distanceM } = params;
+    // Never had the boat's GPS — this watch is phone-only by design.
+    if (!lastNmea) return null;
+
+    const nmeaAgeMs = Math.max(0, nowMs - lastNmea.at);
+    const separationM = distanceM(lastNmea.latitude, lastNmea.longitude, candidate.latitude, candidate.longitude);
+
+    // Too long dark to call this a failover at all.
+    if (nmeaAgeMs > SOURCE_HANDOVER_WINDOW_MS) {
+        return { separationM, allowanceM: 0, nmeaAgeMs };
+    }
+
+    const allowanceM = swingRadiusM + Math.max(candidate.accuracy, 0) + (MAX_DRIFT_MPS * nmeaAgeMs) / 1000;
+    return separationM > allowanceM ? { separationM, allowanceM, nmeaAgeMs } : null;
 }

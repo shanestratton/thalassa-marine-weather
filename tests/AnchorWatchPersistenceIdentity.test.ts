@@ -797,17 +797,24 @@ describe('AnchorWatchService local safety persistence', () => {
             longitude: 153.101,
         });
 
+        // The takeover fix has to be somewhere the BOAT could be. It used to
+        // be 149 m from the last NMEA position, which is a fine way to prove
+        // the source changed but is not two receivers on one hull — and the
+        // cross-source guard now refuses that, because ashore it is exactly
+        // how the watch ends up measuring the wrong object. ~30 m offset
+        // keeps the test's intent (source switches after the freshness
+        // window, filtering resets) with a physically possible separation.
         vi.advanceTimersByTime(12_001);
         watchMocks.nativeLocationCallback?.({
-            latitude: -27.4,
-            longitude: 153.1,
+            latitude: -27.4012,
+            longitude: 153.1008,
             accuracy: 8,
             speed: 0,
             timestamp: Date.now(),
         });
         expect(AnchorWatchService.getSnapshot().vesselPosition).toMatchObject({
-            latitude: -27.4,
-            longitude: 153.1,
+            latitude: -27.4012,
+            longitude: 153.1008,
         });
         expect(AnchorWatchService.getSnapshot().state).toBe('watching');
     });
