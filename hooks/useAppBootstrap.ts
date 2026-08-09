@@ -237,10 +237,8 @@ export function useAppBootstrap() {
         let cancelled = false;
         void (async () => {
             try {
-                const [{ armSessionWatch }, { useUIStore, readLastView }] = await Promise.all([
-                    import('../services/webContentKill'),
-                    import('../stores/uiStore'),
-                ]);
+                const [{ armSessionWatch, shouldRestore, noteRestored }, { useUIStore, readLastView }] =
+                    await Promise.all([import('../services/webContentKill'), import('../stores/uiStore')]);
                 const crumb = readLastView();
                 const died = armSessionWatch(crumb?.view ?? null);
                 if (cancelled || !died) return;
@@ -253,7 +251,18 @@ export function useAppBootstrap() {
                 // Put the skipper back. Losing the leg they were drawing is
                 // the part of this that actually costs them something.
                 if (!died.view || died.view === useUIStore.getState().currentView) return;
+                if (!shouldRestore(died.view)) {
+                    // We already sent them there once and it died again.
+                    // Restoring into the screen that kills the app is a loop
+                    // the skipper cannot escape to reach Settings or the chart
+                    // cache. Leave them somewhere that works.
+                    console.warn(
+                        `[WebContentKill] NOT restoring to '${died.view}' — it died again after the last restore`,
+                    );
+                    return;
+                }
                 console.warn(`[WebContentKill] restoring the skipper to '${died.view}'`);
+                noteRestored(died.view);
                 useUIStore.getState().setPage(died.view);
             } catch (err) {
                 // A diagnostic must never be the thing that breaks boot.
