@@ -43,6 +43,43 @@ import {
     takeCensus,
 } from '../services/memoryCensus';
 
+/**
+ * The test environment has no WebGL, so a real getContext('webgl') returns
+ * null and nothing would ever be counted as created.
+ *
+ * This must patch the PROTOTYPE, and must run before any test calls
+ * startCensus(): the probe wraps whatever getContext it finds at install time.
+ * An instance-level override would sit ABOVE the probe and shadow it, which is
+ * how the first attempt at this test silently measured nothing.
+ *
+ * A canvas only gets a context if it is marked, so refusals stay testable too.
+ */
+const fakeContexts = new WeakMap<HTMLCanvasElement, object>();
+const realGetContext = HTMLCanvasElement.prototype.getContext;
+HTMLCanvasElement.prototype.getContext = function (this: HTMLCanvasElement, kind: string, ...rest: any[]) {
+    if (/webgl/i.test(kind)) {
+        if (this.dataset.fakeGl !== '1') return null; // WebKit-style refusal
+        let context = fakeContexts.get(this);
+        if (!context) {
+            context = { fake: true };
+            fakeContexts.set(this, context);
+        }
+        return context;
+    }
+    // jsdom has no 2D canvas either and logs a loud "Not implemented" for it.
+    // Stub it: this file is testing the WebGL counter, and that noise would
+    // bury a real failure.
+    if (kind === '2d') return { fake2d: true };
+
+    return (realGetContext as any).call(this, kind, ...rest);
+} as any;
+
+/** A canvas whose WebGL context will be granted rather than refused. */
+function withFakeGl(canvas: HTMLCanvasElement): HTMLCanvasElement {
+    canvas.dataset.fakeGl = '1';
+    return canvas;
+}
+
 describe('taking a reading', () => {
     beforeEach(() => {
         localStorage.clear();
@@ -202,6 +239,86 @@ describe('the ambiguities the 2026-08-09 readings exposed', () => {
         // No tick has run. The flag must already be on disk — by the next one
         // there may be no process left to run it.
         expect(readLastCensus()?.glContextLost).toBe(true);
+        stopCensus();
+    });
+});
+
+describe('WebGL contexts — the number JS cannot otherwise see', () => {
+    beforeEach(() => {
+        localStorage.clear();
+        stopCensus();
+    });
+
+    it('counts a context when one is created, not when a canvas is made', async () => {
+        startCensus();
+        const before = (await takeCensus()).glCreated;
+
+        const canvas = withFakeGl(document.createElement('canvas'));
+        canvas.getContext('2d'); // not WebGL — must not count
+        expect((await takeCensus()).glCreated).toBe(before);
+
+        canvas.getContext('webgl');
+        expect((await takeCensus()).glCreated).toBe(before + 1);
+        stopCensus();
+    });
+
+    it('counts a canvas once, however often getContext is called', async () => {
+        // getContext returns the SAME context on repeat calls. Counting each
+        // call would make the number meaningless — Mapbox asks repeatedly.
+        startCensus();
+        const canvas = withFakeGl(document.createElement('canvas'));
+        canvas.getContext('webgl');
+        const after = (await takeCensus()).glCreated;
+        canvas.getContext('webgl');
+        canvas.getContext('webgl');
+        expect((await takeCensus()).glCreated).toBe(after);
+        stopCensus();
+    });
+
+    it('reports created and live separately — the gap is the leak', async () => {
+        // If created climbs while live does not, contexts are being spun up
+        // and abandoned. That is the mechanism the 2026-08-04 JetsamEvent
+        // names, and WebKit does not promptly return that GPU memory.
+        startCensus();
+        const c = await takeCensus();
+        expect(typeof c.glCreated).toBe('number');
+        expect(typeof c.glLive).toBe('number');
+        expect(describeCensus(c)).toMatch(/WebGL \d+ live \/ \d+ created/);
+        stopCensus();
+    });
+
+    it('the probe never retains a canvas itself', async () => {
+        // A diagnostic that keeps GL contexts alive would be the bug.
+        startCensus();
+        const c = await takeCensus();
+        expect(c.glLive).toBeLessThanOrEqual(c.glCreated);
+        stopCensus();
+    });
+});
+
+describe('a refused context is the loudest signal available', () => {
+    beforeEach(() => {
+        localStorage.clear();
+        stopCensus();
+    });
+
+    it('counts a refusal when WebKit hands back null', async () => {
+        // Past the per-process cap, getContext returns null rather than
+        // throwing. This is the only place that refusal is visible, and a
+        // non-zero count would be hard proof we are exhausting contexts —
+        // which fits crashing on the second leg and not the first.
+        startCensus();
+        const before = (await takeCensus()).glRefused;
+        // The real jsdom canvas has no WebGL, so this genuinely refuses.
+        document.createElement('canvas').getContext('webgl');
+        expect((await takeCensus()).glRefused).toBe(before + 1);
+        stopCensus();
+    });
+
+    it('shouts about refusals in the report line', async () => {
+        startCensus();
+        document.createElement('canvas').getContext('webgl');
+        expect(describeCensus(await takeCensus())).toMatch(/CONTEXT REFUSALS/);
         stopCensus();
     });
 });

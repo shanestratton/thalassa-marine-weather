@@ -86,6 +86,40 @@ export interface MemoryCensus {
     /** Live <canvas> elements — 'map' means Mapbox GL, which means WebGL. */
     canvases: number;
     /**
+     * WebGL contexts CREATED this session, and how many are still alive.
+     *
+     * This is the number the JetsamEvent points at and the one JS cannot
+     * otherwise see. From the note in PassageRouteMap.tsx, describing a kill
+     * on this very screen:
+     *
+     *   "map.remove() + new mapboxgl.Map() — a full style/worker/GL-context
+     *    spin-up. WebKit does not promptly return that memory: Shane's
+     *    JetsamEvent (2026-08-04 12:48) shows our WebContent killed at
+     *    reason: per-process-limit with rpages 131626 (~2.0 GB, lifetimeMax ==
+     *    rpages — monotonic growth)"
+     *
+     * That is why every cache reading has come back near zero while the
+     * process dies: the memory is GL and WebKit-side, invisible to the heap
+     * and to every counter this census had until now. If `created` climbs
+     * while `live` does not, contexts are being spun up and abandoned — the
+     * exact mechanism above, and it would explain a crash on the SECOND leg
+     * rather than the first.
+     */
+    glCreated: number;
+    glLive: number;
+    peakGlLive: number;
+    /**
+     * Times WebKit REFUSED a WebGL context (getContext returned null).
+     *
+     * Found while testing the counter, and it may be the most telling field
+     * here. WebKit caps simultaneous WebGL contexts per process; past the cap
+     * getContext hands back null rather than throwing. A non-zero value is
+     * hard proof we are exhausting contexts — which would explain a crash on
+     * the SECOND leg and nothing on the first, and would rule out memory
+     * volume entirely.
+     */
+    glRefused: number;
+    /**
      * Did a WebGL context drop during this session?
      *
      * Recorded the instant it happens rather than at the next tick, because a
@@ -101,7 +135,68 @@ let timer: ReturnType<typeof setTimeout> | null = null;
 let plotting = false;
 const bootAt = Date.now();
 let glContextLost = false;
-const peaks = { encTextMB: 0, pinnedCells: 0, domNodes: 0, canvases: 0 };
+const peaks = { encTextMB: 0, pinnedCells: 0, domNodes: 0, canvases: 0, glLive: 0 };
+
+/** WebGL contexts created since boot, and weak handles to their canvases. */
+let glCreated = 0;
+let glRefused = 0;
+const glCanvases: WeakRef<HTMLCanvasElement>[] = [];
+let canvasProbeInstalled = false;
+
+/**
+ * Count WebGL context creations by wrapping getContext.
+ *
+ * There is no API that reports live GL contexts, and probing a canvas with
+ * getContext('webgl') would CREATE one — making the instrument the bug. The
+ * only honest way to count them is to watch them being made.
+ *
+ * Weak handles so the probe cannot itself retain a canvas. A context whose
+ * canvas has been collected is one WebKit may still be holding GPU memory
+ * for, which is the whole point of the measurement.
+ */
+function installCanvasProbe(): void {
+    if (canvasProbeInstalled) return;
+    if (typeof HTMLCanvasElement === 'undefined') return;
+    canvasProbeInstalled = true;
+    try {
+        const proto = HTMLCanvasElement.prototype;
+        const original = proto.getContext;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        proto.getContext = function (this: HTMLCanvasElement, kind: string, ...rest: any[]) {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const context = (original as any).call(this, kind, ...rest);
+            if (!context && /webgl/i.test(kind)) {
+                // WebKit refused. Past the per-process context cap it returns
+                // null rather than throwing, so this is the only place the
+                // refusal is visible at all.
+                glRefused += 1;
+            }
+            if (context && /webgl/i.test(kind)) {
+                // getContext returns the SAME context on repeat calls, so only
+                // count a canvas once or the number is meaningless.
+                const already = glCanvases.some((ref) => ref.deref() === this);
+                if (!already) {
+                    glCreated += 1;
+                    glCanvases.push(new WeakRef(this));
+                }
+            }
+            return context;
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        } as any;
+    } catch (err) {
+        log.warn('could not install the canvas probe', err);
+    }
+}
+
+/** How many probed canvases are still reachable. */
+function liveGlContexts(): number {
+    let live = 0;
+    for (let i = glCanvases.length - 1; i >= 0; i--) {
+        if (glCanvases[i].deref()) live += 1;
+        else glCanvases.splice(i, 1);
+    }
+    return live;
+}
 
 /** Told by the tracer, so a census line says whether a leg was being drawn. */
 export function setCensusPlotting(active: boolean): void {
@@ -143,6 +238,10 @@ export async function takeCensus(now = Date.now()): Promise<MemoryCensus> {
         peakDomNodes: 0,
         peakCanvases: 0,
         canvases: 0,
+        glCreated,
+        glRefused,
+        glLive: 0,
+        peakGlLive: 0,
         glContextLost,
     };
 
@@ -187,6 +286,9 @@ export async function takeCensus(now = Date.now()): Promise<MemoryCensus> {
     peaks.pinnedCells = Math.max(peaks.pinnedCells, census.pinnedCells);
     peaks.domNodes = Math.max(peaks.domNodes, census.domNodes);
     peaks.canvases = Math.max(peaks.canvases, census.canvases);
+    census.glLive = liveGlContexts();
+    peaks.glLive = Math.max(peaks.glLive, census.glLive);
+    census.peakGlLive = peaks.glLive;
     census.peakEncTextMB = peaks.encTextMB;
     census.peakPinnedCells = peaks.pinnedCells;
     census.peakDomNodes = peaks.domNodes;
@@ -227,13 +329,16 @@ export function describeCensus(c: MemoryCensus): string {
         `ENC ${c.encCells} cells/${c.encTextMB}MB text (peak ${c.peakEncTextMB ?? 0}MB), ` +
         `${c.merges} merges pinning ${c.pinnedCells} cells (peak ${c.peakPinnedCells ?? 0}), ` +
         `glaze ${c.glaze}, contours ${c.contours}, indexes ${c.indexes}, ` +
-        `DOM ${c.domNodes} (peak ${c.peakDomNodes ?? 0}), canvas ${c.canvases ?? 0} (peak ${c.peakCanvases ?? 0})`
+        `DOM ${c.domNodes} (peak ${c.peakDomNodes ?? 0}), canvas ${c.canvases ?? 0} (peak ${c.peakCanvases ?? 0}), ` +
+        `WebGL ${c.glLive ?? 0} live / ${c.glCreated ?? 0} created (peak live ${c.peakGlLive ?? 0})` +
+        `${c.glRefused ? ` [${c.glRefused} CONTEXT REFUSALS]` : ''}`
     );
 }
 
 /** Begin taking readings. Idempotent. */
 export function startCensus(): void {
     if (timer) return;
+    installCanvasProbe();
 
     // A lost WebGL context is often the last thing that happens before the
     // WebContent process goes away, so this must record SYNCHRONOUSLY rather
