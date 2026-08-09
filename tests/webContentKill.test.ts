@@ -7,108 +7,157 @@
  * (d812494a) and ENC memory pressure (0a607bd3) — and it still happens on zoom.
  *
  * The logs are empty because iOS kills the WebContent process, not the app.
- * Our JavaScript dies with it, logger included, and uiStore then seeds
- * currentView from bootView — 'dashboard'. A memory kill and a cold boot are
- * indistinguishable from inside the web layer.
+ * Our JavaScript dies with it, logger included; Capacitor reloads; uiStore
+ * seeds currentView from bootView — 'dashboard'. A memory kill and a cold boot
+ * are indistinguishable from inside the web layer.
  *
- * These tests pin the two properties that make the next occurrence useful:
- * the record must be read correctly (a unit slip would file every kill under
- * 1970), and it must only change behaviour when the kill was JUST now.
+ * The detector is a flag raised in the foreground and lowered on every orderly
+ * exit. Two properties decide whether it is worth anything, and both are here:
+ *
+ *   1. It must catch a foreground death. That is the report.
+ *   2. It must NOT cry wolf on a backgrounded app. iOS kills suspended apps
+ *      constantly and it costs the skipper nothing; if those were reported the
+ *      count would be meaningless and nobody would read it.
  */
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
+import {
+    armSessionWatch,
+    clearAbnormalExit,
+    detectAbnormalExit,
+    markOrderlyExit,
+    markSessionOpen,
+    readAbnormalExit,
+} from '../services/webContentKill';
 
-const prefs = vi.hoisted(() => ({ store: new Map<string, string>() }));
-const platform = vi.hoisted(() => ({ value: 'ios' }));
+const OPEN = 'thalassa.sessionOpen';
+const EXITS = 'thalassa.abnormalExits';
+const CRUMB = 'thalassa.lastView';
 
-vi.mock('@capacitor/preferences', () => ({
-    Preferences: {
-        get: async ({ key }: { key: string }) => ({ value: prefs.store.get(key) ?? null }),
-        remove: async ({ key }: { key: string }) => void prefs.store.delete(key),
-    },
-}));
-vi.mock('@capacitor/core', () => ({ Capacitor: { getPlatform: () => platform.value } }));
+describe('detecting a foreground death', () => {
+    beforeEach(() => localStorage.clear());
 
-import { clearWebContentKill, isRecentKill, readWebContentKill } from '../services/webContentKill';
-
-const KEY = 'thalassa.webContentKill';
-const write = (record: unknown) => prefs.store.set(KEY, JSON.stringify(record));
-
-describe('reading the native record', () => {
-    beforeEach(() => {
-        prefs.store.clear();
-        platform.value = 'ios';
+    it('reports a session that never exited in an orderly way', () => {
+        markSessionOpen('voyage');
+        // …process dies here. No cleanup runs. Next boot:
+        const died = detectAbnormalExit();
+        expect(died?.count).toBe(1);
     });
 
-    it('reads a record the Swift side wrote', async () => {
-        write({ count: 3, at: 1786300000, url: 'capacitor://localhost/' });
-        const r = await readWebContentKill();
-        expect(r?.count).toBe(3);
-        expect(r?.url).toBe('capacitor://localhost/');
+    it('stays quiet when the last exit was orderly', () => {
+        markSessionOpen('voyage');
+        markOrderlyExit();
+        expect(detectAbnormalExit()).toBeNull();
     });
 
-    it('converts seconds to milliseconds — a slip here files every kill under 1970', async () => {
-        // Swift writes Date().timeIntervalSince1970, which is SECONDS.
-        // new Date(seconds) lands in January 1970 and reads as a corrupt
-        // record rather than as the unit mistake it is.
-        write({ count: 1, at: 1786300000, url: '' });
-        const r = await readWebContentKill();
-        expect(r?.at.getUTCFullYear()).toBe(2026);
-        expect(r?.at.getTime()).toBe(1786300000 * 1000);
+    it('stays quiet on a first run — no flag is not a death', () => {
+        expect(detectAbnormalExit()).toBeNull();
     });
 
-    it('returns null rather than throwing on junk', async () => {
-        prefs.store.set(KEY, 'not json at all');
-        expect(await readWebContentKill()).toBeNull();
-        write({ count: 'three', at: 1786300000 });
-        expect(await readWebContentKill()).toBeNull();
-        write({ count: 2 }); // no timestamp
-        expect(await readWebContentKill()).toBeNull();
+    it('names the screen it died on, from the breadcrumb not the flag', () => {
+        // The flag records the view at the moment it was RAISED — boot. The
+        // skipper then navigated to the planning screen and died there. The
+        // report must say 'voyage', not 'dashboard', or it sends the next
+        // investigation to the wrong screen.
+        markSessionOpen('dashboard');
+        localStorage.setItem(CRUMB, JSON.stringify({ view: 'voyage', at: Date.now() }));
+        expect(detectAbnormalExit()?.view).toBe('voyage');
     });
 
-    it('returns null when there has never been a kill', async () => {
-        expect(await readWebContentKill()).toBeNull();
+    it('falls back to the flag when no breadcrumb exists', () => {
+        markSessionOpen('dashboard');
+        expect(detectAbnormalExit()?.view).toBe('dashboard');
     });
 
-    it('is iOS-only — the record cannot exist anywhere else', async () => {
-        platform.value = 'web';
-        write({ count: 9, at: 1786300000 });
-        expect(await readWebContentKill()).toBeNull();
+    it('tallies across sessions, so a pattern is visible', () => {
+        for (let i = 1; i <= 3; i++) {
+            markSessionOpen('voyage');
+            expect(detectAbnormalExit()?.count).toBe(i);
+        }
+        expect(readAbnormalExit()?.count).toBe(3);
     });
 
-    it('reading does not consume — several surfaces want to know', async () => {
-        write({ count: 2, at: 1786300000 });
-        expect((await readWebContentKill())?.count).toBe(2);
-        expect((await readWebContentKill())?.count).toBe(2);
-        await clearWebContentKill();
-        expect(await readWebContentKill()).toBeNull();
+    it('consumes the flag, so one death is not reported on every later boot', () => {
+        markSessionOpen('voyage');
+        expect(detectAbnormalExit()?.count).toBe(1);
+        expect(detectAbnormalExit()).toBeNull();
+        expect(detectAbnormalExit()).toBeNull();
+        expect(readAbnormalExit()?.count).toBe(1);
+    });
+
+    it('ignores a corrupt flag rather than inventing a death', () => {
+        localStorage.setItem(OPEN, 'not json');
+        expect(detectAbnormalExit()).toBeNull();
+        localStorage.setItem(OPEN, JSON.stringify({ view: 'voyage' })); // no timestamp
+        expect(detectAbnormalExit()).toBeNull();
+    });
+
+    it('survives a corrupt tally by starting a new one', () => {
+        localStorage.setItem(EXITS, '{{{');
+        markSessionOpen('voyage');
+        expect(detectAbnormalExit()?.count).toBe(1);
+    });
+
+    it('can be cleared', () => {
+        markSessionOpen('voyage');
+        detectAbnormalExit();
+        clearAbnormalExit();
+        expect(readAbnormalExit()).toBeNull();
     });
 });
 
-describe('only a RECENT kill may change behaviour', () => {
-    const at = (seconds: number) => ({ count: 1, at: new Date(seconds), url: '' });
-    const NOW = 1786300000_000;
+describe('backgrounding is an orderly exit — this is what stops the crying wolf', () => {
+    beforeEach(() => localStorage.clear());
 
-    it('counts a kill from moments ago', () => {
-        expect(isRecentKill(at(NOW - 2_000), 30_000, NOW)).toBe(true);
+    it('lowers the flag when the app goes to the background', () => {
+        armSessionWatch('voyage');
+        expect(localStorage.getItem(OPEN)).not.toBeNull();
+
+        Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
+        document.dispatchEvent(new Event('visibilitychange'));
+
+        // iOS may now kill the suspended app. That costs the skipper nothing
+        // and must not be reported as a crash.
+        expect(localStorage.getItem(OPEN)).toBeNull();
+        expect(detectAbnormalExit()).toBeNull();
     });
 
-    it('ignores one from earlier in the week', () => {
-        // The record survives for the life of the install. Restoring a view
-        // the skipper left three days ago would be a bug of its own.
-        expect(isRecentKill(at(NOW - 3 * 86_400_000), 30_000, NOW)).toBe(false);
+    it('raises it again when the app comes back to the front', () => {
+        armSessionWatch('voyage');
+        Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
+        document.dispatchEvent(new Event('visibilitychange'));
+        localStorage.setItem(CRUMB, JSON.stringify({ view: 'voyage', at: Date.now() }));
+
+        Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+        document.dispatchEvent(new Event('visibilitychange'));
+
+        expect(localStorage.getItem(OPEN)).not.toBeNull();
+        // A death now, in the foreground, IS reportable.
+        expect(detectAbnormalExit()?.view).toBe('voyage');
     });
 
-    it('ignores a record from the future rather than trusting the clock', () => {
-        // Device clock moved backwards between the native write and this read.
-        expect(isRecentKill(at(NOW + 60_000), 30_000, NOW)).toBe(false);
+    it('treats a deliberate reload or navigation away as orderly', () => {
+        armSessionWatch('voyage');
+        window.dispatchEvent(new Event('pagehide'));
+        expect(detectAbnormalExit()).toBeNull();
+    });
+});
+
+describe('armSessionWatch', () => {
+    beforeEach(() => localStorage.clear());
+
+    it('reports the previous death and arms the next session in one call', () => {
+        markSessionOpen('voyage');
+        localStorage.setItem(CRUMB, JSON.stringify({ view: 'voyage', at: Date.now() }));
+
+        const died = armSessionWatch('dashboard');
+        expect(died?.count).toBe(1);
+        expect(died?.view).toBe('voyage');
+        // And the new session is now being watched.
+        expect(localStorage.getItem(OPEN)).not.toBeNull();
     });
 
-    it('treats no record as no kill', () => {
-        expect(isRecentKill(null)).toBe(false);
-    });
-
-    it('includes the exact boundary', () => {
-        expect(isRecentKill(at(NOW - 30_000), 30_000, NOW)).toBe(true);
-        expect(isRecentKill(at(NOW - 30_001), 30_000, NOW)).toBe(false);
+    it('returns null on a clean start but still arms', () => {
+        expect(armSessionWatch('dashboard')).toBeNull();
+        expect(localStorage.getItem(OPEN)).not.toBeNull();
     });
 });

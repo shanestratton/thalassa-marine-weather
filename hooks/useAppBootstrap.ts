@@ -221,47 +221,43 @@ export function useAppBootstrap() {
             .catch((err) => console.error('[Boot] NMEA autoStart failed:', err?.message || err));
     }, []);
 
-    // ── Did iOS kill the web layer? ────────────────────────────────
+    // ── Did the web layer die under us last time? ──────────────────
     // The planning screen "crashing back to the Glass page" has been
     // unexplainable since 2026-08-01 because there was nothing to explain it
-    // WITH: under memory pressure iOS kills the WebContent process, our
-    // logger dies with it, and uiStore seeds currentView from bootView —
-    // 'dashboard'. A kill and a cold boot look identical from in here.
+    // WITH: iOS kills the WebContent process under memory pressure, our logger
+    // dies with it, Capacitor reloads, and uiStore seeds currentView from
+    // bootView — 'dashboard'. A kill and a cold boot look identical from here.
     //
-    // The native side now witnesses it (ThalassaBridgeViewController), so we
-    // can both record it and undo the part that actually costs the skipper
-    // something: being dumped on the dashboard mid-route-plan.
-    //
-    // Only fires for a RECENT kill. The record persists for the life of the
-    // install, and restoring a view from three days ago would be its own bug —
-    // as would restoring on every cold open, which d812494a deliberately
-    // stopped doing.
+    // armSessionWatch raises a flag while the app is in the foreground and
+    // lowers it on every orderly exit, backgrounding included. A flag still
+    // raised at boot means the previous session was killed while the skipper
+    // was looking at it — which is the case that matters and the only one
+    // reported.
     useEffect(() => {
         let cancelled = false;
         void (async () => {
             try {
-                const [{ readWebContentKill, isRecentKill }, { useUIStore, readLastView }] = await Promise.all([
+                const [{ armSessionWatch }, { useUIStore, readLastView }] = await Promise.all([
                     import('../services/webContentKill'),
                     import('../stores/uiStore'),
                 ]);
-                const record = await readWebContentKill();
-                if (cancelled || !isRecentKill(record)) return;
+                const crumb = readLastView();
+                const died = armSessionWatch(crumb?.view ?? null);
+                if (cancelled || !died) return;
 
                 console.warn(
-                    `[WebContentKill] iOS killed the web layer ${record!.count}x on this install; ` +
-                        `most recent ${record!.at.toISOString()} at ${record!.url || 'unknown url'}`,
+                    `[WebContentKill] the web layer died in the foreground ${died.count}x on this install; ` +
+                        `most recently on '${died.view ?? 'unknown'}'`,
                 );
 
-                const crumb = readLastView();
-                // The breadcrumb has to be from before the kill, not from this
-                // boot's own navigation, or we would just re-set the page we
-                // are already on.
-                if (!crumb || crumb.view === useUIStore.getState().currentView) return;
-                console.warn(`[WebContentKill] restoring the skipper to '${crumb.view}'`);
-                useUIStore.getState().setPage(crumb.view);
+                // Put the skipper back. Losing the leg they were drawing is
+                // the part of this that actually costs them something.
+                if (!died.view || died.view === useUIStore.getState().currentView) return;
+                console.warn(`[WebContentKill] restoring the skipper to '${died.view}'`);
+                useUIStore.getState().setPage(died.view);
             } catch (err) {
                 // A diagnostic must never be the thing that breaks boot.
-                console.warn('[WebContentKill] check failed:', (err as Error)?.message || err);
+                console.warn('[WebContentKill] session watch failed:', (err as Error)?.message || err);
             }
         })();
         return () => {
