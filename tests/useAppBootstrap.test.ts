@@ -104,7 +104,11 @@ beforeEach(() => {
     boot.startInternetProbe.mockImplementation(() => boot.stopInternetProbe);
     boot.initLocalDatabase.mockResolvedValue(undefined);
     boot.appAddListener.mockImplementation((_event: string, handler: (state: { isActive: boolean }) => void) => {
-        boot.appStateHandler = handler;
+        // Keep the FIRST registration. Two things listen for appStateChange
+        // now — the bootstrap itself and webContentKill's session watch — and
+        // a mock that keeps the last one silently hands these tests the wrong
+        // handler, which reads as the bootstrap having stopped working.
+        boot.appStateHandler = boot.appStateHandler ?? handler;
         return Promise.resolve({ remove: vi.fn() });
     });
 });
@@ -204,22 +208,27 @@ describe('useAppBootstrap', () => {
         });
     });
 
-    it('removes a native listener that resolves after unmount', async () => {
-        let resolveListener!: (listener: { remove: () => void }) => void;
+    it('removes every native listener that resolves after unmount', async () => {
+        // TWO registrations since 2026-08-09: the bootstrap's own, plus the
+        // one webContentKill needs because WKWebView does not reliably fire
+        // visibilitychange when a Capacitor app backgrounds. Both are promises
+        // that can resolve after teardown, and BOTH must still be removed —
+        // this test caught the second one leaking when it was added.
+        const resolvers: ((listener: { remove: () => void }) => void)[] = [];
         const remove = vi.fn();
         boot.appAddListener.mockImplementation((_event: string, handler: (state: { isActive: boolean }) => void) => {
             boot.appStateHandler = handler;
             return new Promise<{ remove: () => void }>((resolve) => {
-                resolveListener = resolve;
+                resolvers.push(resolve);
             });
         });
         const { unmount } = renderHook(() => useAppBootstrap());
-        await waitFor(() => expect(boot.appAddListener).toHaveBeenCalledOnce());
+        await waitFor(() => expect(boot.appAddListener).toHaveBeenCalledTimes(2));
 
         unmount();
-        resolveListener({ remove });
+        for (const resolve of resolvers) resolve({ remove });
 
-        await waitFor(() => expect(remove).toHaveBeenCalledOnce());
+        await waitFor(() => expect(remove).toHaveBeenCalledTimes(2));
     });
 
     it('hides A unread count immediately and drops its deferred poll after switching to B', async () => {

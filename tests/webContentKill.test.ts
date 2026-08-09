@@ -19,6 +19,8 @@
  *      constantly and it costs the skipper nothing; if those were reported the
  *      count would be meaningless and nobody would read it.
  */
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
     armSessionWatch,
@@ -200,5 +202,50 @@ describe('restoring must not become a crash loop', () => {
         markSessionOpen('map');
         expect(detectAbnormalExit()?.count).toBe(1);
         expect(shouldRestore('map')).toBe(false);
+    });
+});
+
+describe('the two false positives that inflated the count to 21', () => {
+    beforeEach(() => localStorage.clear());
+
+    it('does not report a death across a build change — that is Xcode, not a crash', () => {
+        // An Xcode "Run" terminates the running app to install the new one,
+        // in the foreground, with no cleanup. Identical evidence to a crash.
+        // Shane installed builds all day on 2026-08-09 and every one counted.
+        localStorage.setItem(
+            'thalassa.sessionOpen',
+            JSON.stringify({ at: Date.now(), view: 'map', build: 'OLDHASH1' }),
+        );
+        // The running bundle reports a different hash.
+        const script = document.createElement('script');
+        script.setAttribute('src', '/assets/index-NEWHASH2.js');
+        document.head.appendChild(script);
+
+        expect(detectAbnormalExit()).toBeNull();
+        // …and the flag is consumed, so it cannot be re-reported next boot.
+        expect(localStorage.getItem('thalassa.sessionOpen')).toBeNull();
+        script.remove();
+    });
+
+    it('still reports a death when the build is unchanged', () => {
+        const script = document.createElement('script');
+        script.setAttribute('src', '/assets/index-SAMEHASH.js');
+        document.head.appendChild(script);
+
+        markSessionOpen('map');
+        expect(detectAbnormalExit()?.count).toBe(1);
+        script.remove();
+    });
+
+    it('listens for Capacitor appStateChange, not just visibilitychange', () => {
+        // WKWebView does not reliably fire visibilitychange when a Capacitor
+        // app backgrounds. This codebase already knew — MusicPage says
+        // "Capacitor's appStateChange is the reliable signal", ShipLogService
+        // uses both — and this module did not, so every ordinary
+        // suspend-then-terminate was reported as a foreground death.
+        const source = readFileSync(resolve(process.cwd(), 'services/webContentKill.ts'), 'utf8');
+        expect(source).toContain("import('@capacitor/app')");
+        expect(source).toMatch(/appStateChange/);
+        expect(source).toMatch(/if \(isActive\) markSessionOpen/);
     });
 });
