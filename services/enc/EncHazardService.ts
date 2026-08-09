@@ -1067,9 +1067,16 @@ export async function getMergedVectorData(
     // no coverage between 'shelter:done' and the end, so a death anywhere on
     // the chart pointed at a weather call four minutes earlier. Cell count is
     // the size knob that matters here.
-    crumb('enc:merge-start', `${cells.length}cells`);
     const inflight = getInflightMerge(cacheKey);
-    if (inflight) return inflight;
+    if (inflight) {
+        // Joined an existing build. Crumbing here as a START would invent a
+        // merge that never happened — 2026-08-09's trail showed two 14-cell
+        // starts with one done, which read as a hung build and was really the
+        // dedupe working.
+        crumb('enc:merge-join', `${cells.length}cells`);
+        return inflight;
+    }
+    crumb('enc:merge-start', `${cells.length}cells`);
     const build = buildMergedVectorData(cells, cacheKey, densify, buildGlaze, zoom);
     setInflightMerge(cacheKey, build);
     try {
@@ -1077,6 +1084,7 @@ export async function getMergedVectorData(
         crumb('enc:merge-done', `${cells.length}cells`);
         return merged;
     } catch (e) {
+        crumb('enc:merge-fail', `${cells.length}cells`);
         if (e instanceof MergeSupersededError) {
             // Cooperative abort (2026-07-17 audit): fast panning used to
             // stack concurrent full merges whose outputs were evicted
