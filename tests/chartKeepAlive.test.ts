@@ -50,6 +50,18 @@ describe('chart keep-alive', () => {
         expect(app).toMatch(/id=\{chartVisible \? 'main-content' : undefined\}/);
     });
 
+    it('rebuilds on token PRESENCE, never on token value', () => {
+        // The keep-alive stopped navigation remounts; the flight trail then
+        // caught the one it cannot stop — map:remove(#1)@2601 →
+        // map:create(#2)@2611, ten milliseconds apart, when settings
+        // hydration swapped the persisted token string under the live chart.
+        // Presence in the deps keeps the first-token boot path working;
+        // value must stay out or hydration rebuilds the chart in place.
+        expect(mapInit).toMatch(/const hasMapboxToken = !!mapboxToken;/);
+        expect(mapInit).toMatch(/\}, \[hasMapboxToken, mapStyle, initialZoom, minimalLabels\]\);/);
+        expect(mapInit).not.toMatch(/\}, \[mapboxToken, mapStyle/);
+    });
+
     it('keeps the lifecycle crumbs that would expose a regression', () => {
         // If the chart ever starts remounting again, the flight trail must
         // say so: a second map:create(#2) after a map:remove(#1) is the
