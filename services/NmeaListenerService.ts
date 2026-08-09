@@ -53,12 +53,21 @@ export interface NmeaConnectionInfo {
     transport: 'tcp' | 'websocket';
 }
 
+/**
+ * Does a positive XDR Roll mean heel to starboard? Standard convention says
+ * yes. One boolean, because the alternative is negating at three call sites
+ * and missing one.
+ */
+const HEEL_STARBOARD_POSITIVE = true;
+
 // ── Raw accumulator between emissions ──
 interface RawAccumulator {
     tws: number[];
     twa: number[];
     /** Signed true wind angle, negative to port. Drawable; `twa` is not. */
     twaSigned: number[];
+    heel: number[];
+    pitch: number[];
     /** True wind DIRECTION as a compass bearing (deg true), from MWD. */
     twd: number[];
     /** Apparent wind speed (kts) and signed angle off the bow, from MWV,R. */
@@ -665,19 +674,48 @@ class NmeaListenerServiceClass {
         }
     }
 
-    /** $xxXDR — Transducer data (battery voltage) */
+    /**
+     * $xxXDR — Transducer data. Battery voltage AND vessel attitude.
+     *
+     * XDR is a bag of arbitrary transducers, so every branch must check the
+     * TYPE and UNIT as well as the name — 'A' angular in 'D' degrees for
+     * attitude, 'V' volts for the battery. A name match alone would happily
+     * read a temperature into the heel gauge.
+     *
+     * Confirmed on Calypso's own backbone 2026-08-09:
+     *   $YDXDR,A,-4.50,D,Yaw,A,0.75,D,Pitch,A,1.00,D,Roll
+     * at 1 Hz. This is the real sensor behind the heel tile — the previous
+     * one was wired to a literal 0 and was removed on 2026-08-08 for exactly
+     * that reason.
+     *
+     * SIGN: positive Roll is taken as heel to STARBOARD, the usual convention
+     * for this field. If it ever reads the wrong way round on the water, flip
+     * HEEL_STARBOARD_POSITIVE below rather than negating at the call sites —
+     * there is more than one of them.
+     */
     private parseXDR(parts: string[]) {
         // $xxXDR,type,value,unit,name,...
         for (let i = 1; i + 3 < parts.length; i += 4) {
             const type = parts[i];
             const value = parseNmeaNumber(parts[i + 1]);
-            const name = parts[i + 3]?.toLowerCase() || '';
-            if (
-                type === 'V' &&
-                value !== null &&
-                (name.includes('batt') || name.includes('volt') || name.includes('alt'))
-            ) {
+            const unit = parts[i + 2];
+            const name = parts[i + 3]?.toLowerCase().split('*')[0] || '';
+            if (value === null) continue;
+
+            if (type === 'V' && (name.includes('batt') || name.includes('volt') || name.includes('alt'))) {
                 this.accumulator.voltage.push(value);
+                continue;
+            }
+            if (type === 'A' && unit === 'D') {
+                // Guard the range: an attitude sensor that reports 375° is
+                // reporting something other than heel, and a compass bearing
+                // averaged in here would read as a knockdown.
+                if (Math.abs(value) > 90) continue;
+                if (name === 'roll') {
+                    this.accumulator.heel.push(HEEL_STARBOARD_POSITIVE ? value : -value);
+                } else if (name === 'pitch') {
+                    this.accumulator.pitch.push(value);
+                }
             }
         }
     }
@@ -769,6 +807,10 @@ class NmeaListenerServiceClass {
             tws: avg(this.accumulator.tws),
             twa: avg(this.accumulator.twa),
             twaSigned: avgSigned(this.accumulator.twaSigned),
+            // Signed arithmetic mean, not circular: heel is a ±90 displacement,
+            // not a compass bearing, and circularMean would smear ±180.
+            heel: avgSigned(this.accumulator.heel),
+            pitch: avgSigned(this.accumulator.pitch),
             twd: circularMean(this.accumulator.twd),
             aws: avg(this.accumulator.aws),
             awa: avgSigned(this.accumulator.awa),
@@ -806,6 +848,8 @@ class NmeaListenerServiceClass {
             // dropped on the floor and never reach the store, which is the same
             // blank tile the parser fix was meant to end.
             sample.twaSigned ?? null,
+            sample.heel ?? null,
+            sample.pitch ?? null,
             sample.twd ?? null,
             sample.aws ?? null,
             sample.awa ?? null,
@@ -829,6 +873,8 @@ class NmeaListenerServiceClass {
             tws: [],
             twa: [],
             twaSigned: [],
+            heel: [],
+            pitch: [],
             twd: [],
             aws: [],
             awa: [],

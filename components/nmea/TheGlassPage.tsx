@@ -550,6 +550,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
     const cog = resolveMetric(state.cog);
     const voltage = resolveMetric(state.voltage);
     const heading = resolveMetric(state.heading);
+    const heel = resolveMetric(state.heel);
     // Real now. The gateway has been broadcasting MWV,R and MWD all along —
     // the parser dropped both, so this used to be a hardcoded null (2026-08-08).
     const aws = resolveMetric(state.aws);
@@ -622,6 +623,11 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
     // Wind liveness now spans the apparent and direction metrics too — the
     // rose is dimmed as a whole, so a boat sending only MWV,R must still count
     // as having wind.
+    const heelAvailable = metricIsAvailable(state.heel);
+    // Port red, starboard green — the same convention as the nav lights, so it
+    // reads without thinking. Dead-band the needle: an XDR that idles at 0.2°
+    // would otherwise flip PORT/STBD every second and look broken.
+    const heelSide = (heel.value ?? 0) < -0.3 ? 'PORT' : (heel.value ?? 0) > 0.3 ? 'STBD' : 'LEVEL';
     const windMetrics = [state.tws, state.twa, state.aws, state.awa, state.twd];
     const windAvailable = windMetrics.some(metricIsAvailable);
     const windStale =
@@ -924,6 +930,34 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                     ? `COG ${Math.round(cog.value)}°`
                                     : 'COG — not making way'}
                             </p>
+                            {/* Heel, from the XDR Roll the backbone has been
+                                broadcasting at 1 Hz all along. The tile that
+                                stood here until 2026-08-08 was wired to a
+                                literal 0 with no sensor behind it and was
+                                removed for it; this one has a source. Renders
+                                nothing at all when that source is absent —
+                                which is the same rule, kept. */}
+                            {heelAvailable && (
+                                <div className="mt-1.5 flex items-baseline gap-1" aria-label="Heel angle">
+                                    <span className="text-[9px] font-black uppercase tracking-[0.15em] text-gray-500">
+                                        Heel
+                                    </span>
+                                    <span className="font-mono text-[13px] font-black tabular-nums text-white">
+                                        {Math.abs(heel.value as number).toFixed(1)}°
+                                    </span>
+                                    <span
+                                        className={`text-[9px] font-black uppercase tracking-wider ${
+                                            heelSide === 'PORT'
+                                                ? 'text-rose-400'
+                                                : heelSide === 'STBD'
+                                                  ? 'text-emerald-400'
+                                                  : 'text-gray-500'
+                                        }`}
+                                    >
+                                        {heelSide}
+                                    </span>
+                                </div>
+                            )}
                         </div>
                     </div>
 

@@ -218,6 +218,10 @@ export interface NmeaSample {
     twa: number | null;
     /** The same angle, signed, negative to port. Drawable; `twa` is not. */
     twaSigned?: number | null;
+    /** Heel from XDR Roll, degrees, positive = starboard. */
+    heel?: number | null;
+    /** Pitch from XDR, degrees, positive = bow up. */
+    pitch?: number | null;
     /** True wind DIRECTION as a compass bearing (deg true), from MWD. */
     twd?: number | null;
     /** Apparent wind speed, knots. */

@@ -60,6 +60,8 @@ export interface NmeaStoreState {
     tws: TimestampedMetric; // True Wind Speed (kts)
     twa: TimestampedMetric; // True Wind Angle off the bow, 0-180 magnitude (°)
     twaSigned: TimestampedMetric; // Same angle, signed, negative to port (°)
+    heel: TimestampedMetric; // Heel from XDR Roll (°), positive = starboard
+    pitch: TimestampedMetric; // Pitch from XDR (°), positive = bow up
     twd: TimestampedMetric; // True Wind Direction — compass bearing (°T)
     aws: TimestampedMetric; // Apparent Wind Speed (kts)
     awa: TimestampedMetric; // Apparent Wind Angle, signed, negative to port (°)
@@ -191,6 +193,8 @@ class NmeaStoreClass {
         // Optional on the sample for backward compatibility with saved/test
         // fixtures written before the wind rose existed.
         if (sample.twaSigned != null) this.updateMetric(this.state.twaSigned, sample.twaSigned, now);
+        if (sample.heel != null) this.updateMetric(this.state.heel, sample.heel, now);
+        if (sample.pitch != null) this.updateMetric(this.state.pitch, sample.pitch, now);
         if (sample.twd != null) this.updateMetric(this.state.twd, sample.twd, now);
         if (sample.aws != null) this.updateMetric(this.state.aws, sample.aws, now);
         if (sample.awa != null) this.updateMetric(this.state.awa, sample.awa, now);
@@ -233,6 +237,8 @@ class NmeaStoreClass {
             this.state.tws,
             this.state.twa,
             this.state.twaSigned,
+            this.state.heel,
+            this.state.pitch,
             this.state.twd,
             this.state.aws,
             this.state.awa,
@@ -280,6 +286,8 @@ class NmeaStoreClass {
             this.state.tws,
             this.state.twa,
             this.state.twaSigned,
+            this.state.heel,
+            this.state.pitch,
             this.state.twd,
             this.state.aws,
             this.state.awa,
@@ -322,6 +330,8 @@ class NmeaStoreClass {
             tws: emptyMetric(),
             twa: emptyMetric(),
             twaSigned: emptyMetric(),
+            heel: emptyMetric(),
+            pitch: emptyMetric(),
             twd: emptyMetric(),
             aws: emptyMetric(),
             awa: emptyMetric(),
