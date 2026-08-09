@@ -401,12 +401,24 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
 const flight = startFlightRecorder();
 if (flight.verdict !== 'clean-start') {
     const trail = flight.trail.map((c) => `${c.tag}${c.info ? `(${c.info})` : ''}@${c.t}`).join(' → ');
-    // Via Preferences, NOT console — see the BOOT DIAGNOSTIC note above:
-    // console output from WKWebView never reaches Xcode's native console,
-    // but a Preferences.set surfaces as '⚡️  TO JS {"value":"..."}'. A report
-    // nobody can read is not an instrument.
-    setNativePreference('FLIGHT_VERDICT', `[FLIGHT] ${flight.verdict.toUpperCase()} — ${flight.summary}`);
-    setNativePreference('FLIGHT_TRAIL', `[FLIGHT-TRAIL] ${trail}`);
+    // BOTH channels, because the Preferences one does not do what the note
+    // above claimed (Shane, 2026-08-09: "nothing comes up").
+    //
+    // '⚡️ TO JS {...}' echoes the RETURN VALUE of a Capacitor call. A
+    // Preferences.set returns nothing, so the verdict was written somewhere
+    // real — the key exists — and printed nowhere. Only a get() would echo a
+    // value. So this report spent its life invisible, which is precisely the
+    // failure its own comment warned about.
+    //
+    // console.warn DOES reach Xcode here: it is how the WebContentKill lines
+    // have been read all day. Keep the Preferences write (it survives for a
+    // debug view) and add the channel that is proven to work.
+    const verdictLine = `[FLIGHT] ${flight.verdict.toUpperCase()} — ${flight.summary}`;
+    const trailLine = `[FLIGHT-TRAIL] ${trail}`;
+    console.warn(verdictLine);
+    console.warn(trailLine);
+    setNativePreference('FLIGHT_VERDICT', verdictLine);
+    setNativePreference('FLIGHT_TRAIL', trailLine);
 }
 crumb('boot');
 
