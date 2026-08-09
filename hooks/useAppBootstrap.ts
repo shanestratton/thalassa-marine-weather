@@ -237,8 +237,16 @@ export function useAppBootstrap() {
         let cancelled = false;
         void (async () => {
             try {
-                const [{ armSessionWatch, shouldRestore, noteRestored }, { useUIStore, readLastView }] =
-                    await Promise.all([import('../services/webContentKill'), import('../stores/uiStore')]);
+                const [{ armSessionWatch, shouldRestore, noteRestored }, { useUIStore, readLastView }, census] =
+                    await Promise.all([
+                        import('../services/webContentKill'),
+                        import('../stores/uiStore'),
+                        import('../services/memoryCensus'),
+                    ]);
+                // Read the last census BEFORE starting a new one, or the first
+                // tick overwrites the state we died in.
+                const lastCensus = census.readLastCensus();
+                census.startCensus();
                 const crumb = readLastView();
                 const died = armSessionWatch(crumb?.view ?? null);
                 if (cancelled || !died) return;
@@ -247,6 +255,10 @@ export function useAppBootstrap() {
                     `[WebContentKill] the web layer died in the foreground ${died.count}x on this install; ` +
                         `most recently on '${died.view ?? 'unknown'}'`,
                 );
+                // The count says WHERE and how often. This says what was
+                // large at the time, which is the part every previous fix had
+                // to guess at.
+                if (lastCensus) console.warn(`[WebContentKill] ${census.describeCensus(lastCensus)}`);
 
                 // Put the skipper back. Losing the leg they were drawing is
                 // the part of this that actually costs them something.

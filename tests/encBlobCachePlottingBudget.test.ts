@@ -153,3 +153,41 @@ describe('shouldEvictBlob honours whichever budget is passed', () => {
         expect(shouldEvictBlob(4, 900 * 1024 * 1024, 128, 16 * 1024 * 1024)).toBe(false);
     });
 });
+
+describe('the merge cache already handles the pan case — no plotting mode needed', () => {
+    it('collapses disjoint merges to one on its own', async () => {
+        // This is why the plotting cap I was about to ship was dropped: the
+        // "four merges pinning ~175 MB" scenario the comments warn about
+        // cannot happen. planMergeEviction keeps the newest plus whatever
+        // OVERLAPS it, so panning up the coast evicts as it goes. Capping to 1
+        // while plotting would only have hurt the zoom case, where shared
+        // pinning is nearly free but rebuilding is not.
+        const m = await import('../services/enc/mergedDataCache');
+        m.clearMergedData();
+        const merged = () => ({ layers: {}, bbox: [0, 0, 1, 1] }) as never;
+
+        m.putMergedData('k1', merged(), ['AU5A01']);
+        m.putMergedData('k2', merged(), ['AU5B01']);
+        m.putMergedData('k3', merged(), ['AU5C01']);
+        m.putMergedData('k4', merged(), ['AU5D01']);
+
+        expect(m.mergedDataCacheSize()).toBe(1);
+        expect(m.mergedPinnedCellCount()).toBe(1);
+        m.clearMergedData();
+    });
+
+    it('keeps a zoom excursion over the same water, and counts its cells once', async () => {
+        const m = await import('../services/enc/mergedDataCache');
+        m.clearMergedData();
+        const merged = () => ({ layers: {}, bbox: [0, 0, 1, 1] }) as never;
+
+        // Same water at two zooms: two keys, overlapping cells. Pinning is
+        // shared, so holding both is nearly free — and the count must show
+        // that rather than double-counting.
+        m.putMergedData('z11', merged(), ['AU5A01', 'AU5A02']);
+        m.putMergedData('z13', merged(), ['AU5A01', 'AU5A02']);
+        expect(m.mergedDataCacheSize()).toBe(2);
+        expect(m.mergedPinnedCellCount()).toBe(2);
+        m.clearMergedData();
+    });
+});

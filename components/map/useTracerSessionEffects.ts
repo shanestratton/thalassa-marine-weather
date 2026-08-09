@@ -103,6 +103,8 @@ export function useTracerSessionEffects({
             void import('../../services/enc/EncCellStore')
                 .then((m) => m.setBlobCachePlottingMode(active))
                 .catch(() => undefined);
+            // So the census line says whether a leg was being drawn.
+            void import('../../services/memoryCensus').then((m) => m.setCensusPlotting(active)).catch(() => undefined);
         };
         say(coordCaptureMode);
         // Done no longer exits trace mode (2026-07-17) — the tab bar does,
