@@ -20,6 +20,9 @@ import { existingMapLayerIds } from './mapLayerQueries';
 import { isHttpUrlOnDomain, isLocalNetworkHostname, parseExternalHttpUrl } from '../../utils/safeUrl';
 import { crumb } from '../../utils/flightRecorder';
 
+/** Map instances created THIS PROCESS — the flight trail's #N. */
+let mapInstanceSeq = 0;
+
 /**
  * Show/hide the OpenSeaMap raster seamark overlays in one call. Two layers
  * draw the same OSM seamark icons: 'openseamap-overlay' is baked into the
@@ -276,7 +279,23 @@ export function useMapInit(opts: UseMapInitOptions) {
         const GOLDEN_BOOT_ZOOM = 10;
         const startZoom = embedded ? initialZoom : preferredCenter ? GOLDEN_BOOT_ZOOM : ausNzFitZoom;
 
-        crumb('map:create');
+        // The 2026-08-09 flight trails show map:create TWICE per session, with
+        // the death following the second — and a full Mapbox teardown/rebuild
+        // is the exact mechanism the PassageRouteMap note ties to WebKit not
+        // returning GL memory (JetsamEvent 2026-08-04: ~2.0 GB, monotonic).
+        // The crumb now carries an instance number and the dep values, so the
+        // next trail says WHICH of the two cases this is:
+        //   · map:remove between two creates, same fingerprint → remount
+        //     (navigation or a parent re-key), each cycle leaking spin-up.
+        //   · map:remove between two creates, different fingerprint → a dep
+        //     in [mapStyle, initialZoom, minimalLabels] changed after mount
+        //     and rebuilt the map IN PLACE — a bug, that list exists for boot.
+        //   · NO map:remove between creates → two live maps. Worst case.
+        mapInstanceSeq += 1;
+        crumb(
+            'map:create',
+            `#${mapInstanceSeq} z${initialZoom} ${minimalLabels ? 'min' : 'full'} ${mapStyle.split('/').pop() ?? ''}`,
+        );
         const map = new mapboxgl.Map({
             container: containerRef.current,
             style: mapStyle,
@@ -1411,6 +1430,7 @@ export function useMapInit(opts: UseMapInitOptions) {
         return () => {
             window.removeEventListener('map-recenter', handleRecenter);
             resizeObserver.disconnect();
+            crumb('map:remove', `#${mapInstanceSeq}`);
             map.remove();
             mapRef.current = null;
         };
