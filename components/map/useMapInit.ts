@@ -217,6 +217,25 @@ export function useMapInit(opts: UseMapInitOptions) {
     );
 
     // ── Initialize Map ──
+    //
+    // The effect depends on the token's PRESENCE, not its value. Shane's
+    // 2026-08-09 flight trail caught the difference:
+    //
+    //     map:remove(#1)@2601 → map:create(#2)@2611
+    //
+    // Ten milliseconds apart — no navigation, no human. The settings store
+    // boots with the bundled VITE_MAPBOX_ACCESS_TOKEN and then hydrates the
+    // persisted settings ~2.6 s in; when the persisted token string differs
+    // (a stale copy from an earlier build is enough), the old value-dep made
+    // the effect tear the live chart down and rebuild it — a second full GL
+    // spin-up in the exact window the chart keep-alive exists to prevent, and
+    // one the keep-alive cannot stop because the component never unmounts.
+    //
+    // Presence still matters: a boot with NO token must re-run this effect
+    // when the first real token arrives, or the chart never builds. So the
+    // dep is the boolean. A truthy→truthy swap keeps the chart the token it
+    // was born with — access tokens do not legitimately change mid-session.
+    const hasMapboxToken = !!mapboxToken;
     useEffect(() => {
         if (!containerRef.current || mapRef.current) return;
         if (!mapboxToken) return;
@@ -1435,7 +1454,7 @@ export function useMapInit(opts: UseMapInitOptions) {
             mapRef.current = null;
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [mapboxToken, mapStyle, initialZoom, minimalLabels]);
+    }, [hasMapboxToken, mapStyle, initialZoom, minimalLabels]);
 
     // Keep onMapTapRef in sync with the latest callback — this runs on every
     // render so the mount-time click handler always calls the current version.
