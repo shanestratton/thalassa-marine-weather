@@ -135,3 +135,22 @@ export function deleteInflightMerge(key: string): void {
 export function mergedDataCacheSize(): number {
     return cache.size;
 }
+
+/**
+ * How many DISTINCT cells the cached merges are pinning between them.
+ *
+ * This is the number that actually predicts a WebContent kill, and it is not
+ * visible anywhere else: EncCellStore's byte budget counts only cells still in
+ * its own LRU, while these merges hold parsed geometry BY REFERENCE and keep
+ * it alive after eviction. Four merges sharing one viewport pin ~14 cells;
+ * four over disjoint water pin ~56, which is the half-gigabyte case measured
+ * on 2026-07-22.
+ *
+ * Cheap: a union of at most MAX_ENTRIES small sets, called a few times a
+ * minute by the census.
+ */
+export function mergedPinnedCellCount(): number {
+    const union = new Set<string>();
+    for (const cells of cellSets.values()) for (const id of cells) union.add(id);
+    return union.size;
+}
