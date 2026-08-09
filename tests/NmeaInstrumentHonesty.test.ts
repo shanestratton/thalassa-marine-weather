@@ -24,6 +24,16 @@ describe('NMEA instrument honesty', () => {
         expect(source).not.toContain('degrees={0}');
     });
 
+    it('heel is back, and only because a real sensor was found', () => {
+        // 2026-08-09: probing the backbone over Tailscale found $YDXDR
+        // streaming Roll at 1 Hz — the source the old tile never had. The rule
+        // that killed the fake one is unchanged, so the readout must come from
+        // the store and must vanish when the sensor does.
+        expect(source).toContain('const heel = resolveMetric(state.heel);');
+        expect(source).toContain('metricIsAvailable(state.heel)');
+        expect(source).toContain('{heelAvailable && (');
+    });
+
     it('shows heading for where the bow points, and COG only when making way', () => {
         // COG is GPS course made good; below a knot it is noise. The panel
         // reported 053 while the bow sat on north (Shane 2026-08-08).
