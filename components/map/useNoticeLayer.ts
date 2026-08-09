@@ -55,9 +55,52 @@ function esc(value: unknown): string {
         .replace(/'/g, '&#39;');
 }
 
+/**
+ * WHY THESE MARKERS DRAW SVG AND NOT EMOJI (2026-08-09)
+ * ─────────────────────────────────────────────────────
+ * They used to be `el.textContent = '📄'` (and 🌉, ◈). That is a text run, and
+ * a text run of emoji is the most demanding thing you can hand to CoreText: it
+ * misses the page font, falls back to Apple Color Emoji, and has to be shaped.
+ *
+ * Shane's WebContent crash (com.apple.WebKit.WebContent-2026-08-06-133814.ips)
+ * is EXC_BAD_ACCESS / SIGSEGV inside exactly that machinery:
+ *
+ *   TFont::NeedsShapingForGlyphs  ← faulted, KERN_INVALID_ADDRESS at 0x5
+ *   CTFontShapeGlyphs
+ *   WebCore::FontCascade::widthForSimpleTextSlow
+ *   WebCore::Layout::TextUtil::width
+ *   … 151 frames of RenderBlock/RenderBox intrinsic-width recursion …
+ *
+ * It matched the symptoms nothing else did. Not memory: no JetsamEvent since
+ * 02 Aug across ~20 reported kills, and the cache census read near zero every
+ * time. Not the pin count: 54 pins render fine. It tracked GEOGRAPHY — "it
+ * crashes once we go above Fraser Island" — because that is where the coast
+ * fills with Notices to Mariners, and every notice was one more emoji glyph
+ * for CoreText to shape.
+ *
+ * An inline SVG has no font, no fallback and no shaping. Same picture, and it
+ * cannot reach the code that faulted.
+ *
+ * If you are tempted to put an emoji back in a map marker: don't. In a popup
+ * body it is fine — those are one at a time, on demand. These render by the
+ * dozen, unprompted, the moment a route passes a port.
+ */
+
+/** A page glyph, drawn rather than shaped. */
+const NOTICE_SVG =
+    '<svg viewBox="0 0 16 16" width="1em" height="1em" aria-hidden="true" focusable="false">' +
+    '<path d="M3.5 1.5h6L13 5v9.5a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-12a1 1 0 0 1 .5-1z" ' +
+    'fill="rgba(251,191,36,0.18)" stroke="rgb(251,191,36)" stroke-width="1.1" stroke-linejoin="round"/>' +
+    '<path d="M9.5 1.5V5H13M5.5 8h5M5.5 10.5h5M5.5 13h3" fill="none" stroke="rgb(251,191,36)" ' +
+    'stroke-width="1" stroke-linecap="round"/></svg>';
+
 function chipEl(kind: 'local' | 'broadcast'): HTMLDivElement {
     const el = document.createElement('div');
-    el.textContent = '📄';
+    el.innerHTML = NOTICE_SVG;
+    el.setAttribute('role', 'img');
+    // aria-label, not text: an accessible name is read by VoiceOver without
+    // ever becoming a laid-out text run.
+    el.setAttribute('aria-label', 'Notice to Mariners');
     Object.assign(el.style, {
         fontSize: kind === 'local' ? '15px' : '12px',
         lineHeight: '1',
@@ -149,7 +192,14 @@ function packSectionHtml(pack: NtmRoutingPack, status: NtmPackStatus, optedOut: 
 /** Magenta virtual-AtoN symbol (AIS virtual aids from the notice — display always). */
 function virtualMarkEl(): HTMLDivElement {
     const el = document.createElement('div');
-    el.textContent = '◈';
+    // ◈ (U+25C8) is not emoji but is still a glyph the page font is unlikely
+    // to carry, so it falls back and gets shaped like any other. Drawn instead.
+    el.innerHTML =
+        '<svg viewBox="0 0 16 16" width="1em" height="1em" aria-hidden="true" focusable="false">' +
+        '<path d="M8 1.5 14.5 8 8 14.5 1.5 8z" fill="none" stroke="#e879f9" stroke-width="1.2" stroke-linejoin="round"/>' +
+        '<path d="M8 5.2 10.8 8 8 10.8 5.2 8z" fill="#e879f9"/></svg>';
+    el.setAttribute('role', 'img');
+    el.setAttribute('aria-label', 'Virtual navigation aid');
     Object.assign(el.style, {
         fontSize: '13px',
         lineHeight: '1',
@@ -176,7 +226,12 @@ function virtualMarkPopupHtml(pack: NtmRoutingPack, name: string): string {
 
 function bridgeEl(passable: boolean): HTMLDivElement {
     const el = document.createElement('div');
-    el.textContent = '🌉';
+    el.innerHTML =
+        '<svg viewBox="0 0 16 16" width="1em" height="1em" aria-hidden="true" focusable="false">' +
+        '<path d="M1 11.5h14M3.5 11.5V4M12.5 11.5V4M1 7.5c3.2 0 4-3 7-3s3.8 3 7 3" fill="none" ' +
+        `stroke="${passable ? 'rgb(148,163,184)' : 'rgb(239,68,68)'}" stroke-width="1.2" stroke-linecap="round"/></svg>`;
+    el.setAttribute('role', 'img');
+    el.setAttribute('aria-label', passable ? 'Bridge' : 'Bridge — clearance below air draft');
     Object.assign(el.style, {
         fontSize: '14px',
         lineHeight: '1',
