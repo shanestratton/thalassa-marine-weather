@@ -1,6 +1,7 @@
 import UIKit
 import Capacitor
 import AVFoundation
+import WebKit
 
 // BUILD-MARKER 2026-05-15T22:55Z — touching this comment forces Xcode
 // to recompile the Swift target, which forces a re-link and a fresh
@@ -153,5 +154,62 @@ public class ThalassaBridgeViewController: CAPBridgeViewController {
         bridge?.registerPluginInstance(NetworkInterfacesPlugin())
         // SshClientPlugin not added yet: its .swift/.m files exist on
         // disk but aren't in the pbxproj build graph yet (separate fix).
+    }
+
+    // ── WebContent process kills ────────────────────────────────────
+    //
+    // Shane has reported the planning screen "crashing back to the Glass page"
+    // since at least 2026-08-01, and every investigation has run into the same
+    // wall: there is nothing in the logs. Two real causes were found and fixed
+    // (auth churn re-navigating in d812494a, ENC memory pressure in 0a607bd3)
+    // and it still happens on zoom.
+    //
+    // The reason the logs are empty is that iOS is not killing the APP. Under
+    // memory pressure it kills the WEBCONTENT PROCESS, and every line of our
+    // JavaScript — including the logger that would record it — dies with it.
+    // The app itself survives, WKWebView reloads blank, and uiStore seeds
+    // currentView from bootView at module scope, which is 'dashboard'. Hence a
+    // memory kill and a fresh boot are indistinguishable from inside the web
+    // layer: same destination, no evidence.
+    //
+    // This callback is the only witness that outlives the event, because it is
+    // native. It costs nothing when nothing goes wrong, and it turns "it
+    // crashes sometimes" into a timestamped fact.
+    //
+    // The record goes to UserDefaults under Capacitor Preferences' own key
+    // format — `CapacitorStorage.<key>` in UserDefaults.standard, confirmed in
+    // node_modules/@capacitor/preferences. Writing where the JS side already
+    // reads avoids a new app-local plugin, which on this project means eight
+    // hand-maintained pbxproj entries and a manual registerPluginInstance
+    // line. Fewer moving parts for a diagnostic.
+    public override func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        let key = "CapacitorStorage.thalassa.webContentKill"
+        let defaults = UserDefaults.standard
+
+        var count = 0
+        if let existing = defaults.string(forKey: key),
+           let data = existing.data(using: .utf8),
+           let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let previous = parsed["count"] as? Int {
+            count = previous
+        }
+        count += 1
+
+        let record: [String: Any] = [
+            "count": count,
+            // Seconds since epoch — the JS side turns this into a date. Kept
+            // as a number so it survives a JSON round trip without locale.
+            "at": Date().timeIntervalSince1970,
+            "url": webView.url?.absoluteString ?? "",
+        ]
+        if let data = try? JSONSerialization.data(withJSONObject: record),
+           let json = String(data: data, encoding: .utf8) {
+            defaults.set(json, forKey: key)
+        }
+        NSLog("[WebContentKill] webview content process terminated (#\(count)) — reloading")
+
+        // Without this the webview stays blank forever: iOS does not reload it
+        // for us, and the skipper sees a white screen rather than a bounce.
+        webView.reload()
     }
 }
