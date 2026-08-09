@@ -132,9 +132,35 @@ export function markOrderlyExit(): void {
     }
 }
 
+/**
+ * A fingerprint of the running build, from the hashed bundle filename.
+ *
+ * Vite emits /assets/index-<hash>.js and the hash changes on every build, so
+ * this identifies the install without a build-time constant or an async
+ * Capacitor call on the boot path.
+ *
+ * Needed because an Xcode "Run" TERMINATES the previous app in the foreground.
+ * Shane installed builds all day on 2026-08-09 and every one of them looked
+ * exactly like a crash to this module — same missing cleanup, same raised flag.
+ * A death across a build change is a reinstall, not a fault.
+ */
+function buildFingerprint(): string | null {
+    try {
+        const scripts = document.getElementsByTagName('script');
+        for (const script of Array.from(scripts)) {
+            const src = script.getAttribute('src') || '';
+            const match = src.match(/\/assets\/[^/]*-([A-Za-z0-9_-]{6,})\.js/);
+            if (match) return match[1];
+        }
+    } catch {
+        /* fall through */
+    }
+    return null;
+}
+
 /** Raise the flag. Called at boot and whenever the app returns to the front. */
 export function markSessionOpen(view: string | null, now = Date.now()): void {
-    writeJson(OPEN_KEY, { at: now, view });
+    writeJson(OPEN_KEY, { at: now, view, build: buildFingerprint() });
 }
 
 /**
@@ -144,7 +170,19 @@ export function markSessionOpen(view: string | null, now = Date.now()): void {
  * (or when this is a first run).
  */
 export function detectAbnormalExit(now = Date.now()): AbnormalExit | null {
-    const open = readJson<{ at?: number; view?: string | null }>(OPEN_KEY);
+    const open = readJson<{ at?: number; view?: string | null; build?: string | null }>(OPEN_KEY);
+    if (open && typeof open.at === 'number') {
+        const nowBuild = buildFingerprint();
+        if (open.build && nowBuild && open.build !== nowBuild) {
+            // Different bundle: the previous session ended because a new build
+            // replaced it. Xcode kills the running app to install, which leaves
+            // exactly the same evidence a crash does.
+            markOrderlyExit();
+            clearRestoreGuard();
+            log.info('previous session ended at a build change — reinstall, not a crash');
+            return null;
+        }
+    }
     if (!open || typeof open.at !== 'number') {
         // A clean boot means whatever we did last time worked. Let a future
         // death try a restore again.
@@ -180,6 +218,23 @@ export function detectAbnormalExit(now = Date.now()): AbnormalExit | null {
  * Returns the previous session's death if there was one, so the caller can log
  * it and put the skipper back where they were.
  */
+/** The pending appStateChange registration, so it can be removed on teardown. */
+let appStatePromise: Promise<{ remove: () => void } | null> | null = null;
+
+/**
+ * Stop watching and release the native listener.
+ *
+ * The registration is a PROMISE, and it can resolve after teardown has already
+ * run — so the handle has to be awaited and removed then, not skipped. The
+ * bootstrap has a test for exactly this shape of leak, and it caught this one.
+ */
+export function stopSessionWatch(): void {
+    const pending = appStatePromise;
+    appStatePromise = null;
+    if (!pending) return;
+    void pending.then((handle) => handle?.remove()).catch(() => undefined);
+}
+
 export function armSessionWatch(currentView: string | null): AbnormalExit | null {
     let died: AbnormalExit | null = null;
     try {
@@ -199,6 +254,23 @@ export function armSessionWatch(currentView: string | null): AbnormalExit | null
             // A real navigation away or a deliberate reload is orderly too.
             window.addEventListener('pagehide', markOrderlyExit);
         }
+
+        // THE ONE THAT MATTERS ON iOS. WKWebView does not reliably fire
+        // visibilitychange when a Capacitor app is backgrounded — this
+        // codebase already knew that (MusicPage: "Capacitor's appStateChange
+        // is the reliable signal"; ShipLogService listens to both) and this
+        // module did not. Without it, every ordinary suspend-then-terminate
+        // left the flag raised and was reported as a foreground death, which
+        // is how a count reached 21 on a day with no crash reports and no
+        // Jetsam events to match.
+        appStatePromise = import('@capacitor/app')
+            .then(({ App }) =>
+                App.addListener('appStateChange', ({ isActive }) => {
+                    if (isActive) markSessionOpen(readCurrentViewCrumb());
+                    else markOrderlyExit();
+                }),
+            )
+            .catch(() => null);
     } catch (err) {
         log.warn('could not arm the session watch', err);
     }

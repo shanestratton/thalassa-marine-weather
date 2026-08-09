@@ -283,6 +283,10 @@ export function useAppBootstrap() {
         })();
         return () => {
             cancelled = true;
+            // The appStateChange registration is a promise that can resolve
+            // after this runs; stopSessionWatch awaits it and removes the
+            // handle either way.
+            void import('../services/webContentKill').then((m) => m.stopSessionWatch()).catch(() => undefined);
         };
     }, []);
 
