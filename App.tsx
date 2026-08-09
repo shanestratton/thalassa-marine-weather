@@ -100,6 +100,33 @@ const App: React.FC = () => {
     // Resolve the active view config from the registry (null for dashboard/map)
     const activeViewConfig = VIEW_REGISTRY[currentView] ?? null;
 
+    // ── Chart keep-alive ───────────────────────────────────────────
+    // The chart mounts ONCE per process and survives navigation hidden,
+    // instead of being torn down and rebuilt on every visit.
+    //
+    // Sealed on 2026-08-09 after six fixes chased memory that was never
+    // there: chart → plan → chart → SIT STILL kills the WebContent process.
+    // No plotting, no zooming, no interaction. The flight trail shows the
+    // clean pair — map:create(#1) → map:remove(#1) → map:create(#2) → dead —
+    // and a full Mapbox spin-up is the one mechanism here with a documented
+    // body count (PassageRouteMap, 2026-08-04: "WebKit does not promptly
+    // return that memory", JetsamEvent ~2.0 GB, lifetimeMax == rpages).
+    // Two spin-ups in one process is over the line; ONE, held, is the
+    // steady state the skipper already sails with all day.
+    //
+    // display:none while hidden — layout drops it, the a11y tree drops it,
+    // and useMapInit's ResizeObserver fires map.resize() on re-show. The
+    // tracer handoff still works hidden because it is event-driven
+    // ('thalassa:trace-mode'), and MapHub's listener being ALIVE when the
+    // plan page dispatches is strictly better than the old mount-race.
+    // Cost: MapHub's timers keep ticking off-screen. That is one chart's
+    // steady state, which was never the problem — the rebuild was.
+    const [chartKeepAlive, setChartKeepAlive] = useState(false);
+    useEffect(() => {
+        if (currentView === 'map') setChartKeepAlive(true);
+    }, [currentView]);
+    const chartVisible = currentView === 'map';
+
     // --- AUTH: deferred to save-time, not boot-time. ---
     // authStore is consumed wherever identity matters (SignInScreen at
     // save points, useAppController's onboarding gate, the voyage log
@@ -1001,8 +1028,17 @@ const App: React.FC = () => {
                             </ErrorBoundary>
                         </main>
                     </PullToRefresh>
-                ) : (
-                    <main id="main-content" className="flex-grow w-full relative bg-slate-900 overflow-hidden">
+                ) : null}
+                {/* The chart — mounted on first visit, then kept alive hidden.
+                    See the chart keep-alive note beside chartKeepAlive above.
+                    id moves with visibility so main-content is never duplicated
+                    while both mains exist. */}
+                {(chartKeepAlive || chartVisible) && (
+                    <main
+                        id={chartVisible ? 'main-content' : undefined}
+                        className="flex-grow w-full relative bg-slate-900 overflow-hidden"
+                        style={chartVisible ? undefined : { display: 'none' }}
+                    >
                         <ErrorBoundary boundaryName="MapView">
                             <Suspense
                                 fallback={
