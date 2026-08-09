@@ -33,6 +33,18 @@
 const TRAIL_KEY = 'thalassa_flight_trail';
 const PREV_KEY = 'thalassa_flight_prev';
 const CLEAN_EXIT_KEY = 'thalassa_flight_clean_exit';
+/**
+ * Raised while the app is suspended in the background.
+ *
+ * pagehide does NOT fire when a Capacitor app is backgrounded, so a process
+ * terminated while suspended — which iOS does constantly, and which costs the
+ * skipper nothing — used to read as PROCESS-DIED. On 2026-08-09 that produced
+ * a trail claiming a foreground death on a session whose last crumb was a
+ * weather call two minutes earlier: it had simply been backgrounded and
+ * reaped. Same blind spot webContentKill had, fixed the same way — Capacitor's
+ * appStateChange is the reliable signal.
+ */
+const SUSPENDED_KEY = 'thalassa_flight_suspended';
 const MAX_CRUMBS = 40;
 
 export interface Crumb {
@@ -75,7 +87,7 @@ export function crumb(tag: string, info?: string): void {
     }
 }
 
-export type FlightVerdict = 'process-died' | 'controlled-reload' | 'clean-start';
+export type FlightVerdict = 'process-died' | 'controlled-reload' | 'suspended-kill' | 'clean-start';
 
 export interface FlightReport {
     verdict: FlightVerdict;
@@ -92,12 +104,15 @@ export interface FlightReport {
 export function startFlightRecorder(): FlightReport {
     let prior: Crumb[] = [];
     let cleanExit = false;
+    let wasSuspended = false;
     try {
         prior = read(TRAIL_KEY);
         cleanExit = localStorage.getItem(CLEAN_EXIT_KEY) === '1';
+        wasSuspended = localStorage.getItem(SUSPENDED_KEY) === '1';
         localStorage.setItem(PREV_KEY, JSON.stringify(prior));
         localStorage.removeItem(TRAIL_KEY);
         localStorage.removeItem(CLEAN_EXIT_KEY);
+        localStorage.removeItem(SUSPENDED_KEY);
     } catch {
         /* ignore */
     }
@@ -118,9 +133,31 @@ export function startFlightRecorder(): FlightReport {
         /* ignore */
     }
 
+    // The suspend marker, via the signal that actually fires on iOS. Raised
+    // when the app leaves the foreground, lowered when it returns — so a death
+    // while it is raised is a background reap, and a death while it is lowered
+    // is the real thing. Fire-and-forget import: the recorder must never make
+    // boot wait, and on web the module simply is not there.
+    void import('@capacitor/app')
+        .then(({ App }) =>
+            App.addListener('appStateChange', ({ isActive }) => {
+                try {
+                    if (isActive) localStorage.removeItem(SUSPENDED_KEY);
+                    else localStorage.setItem(SUSPENDED_KEY, '1');
+                } catch {
+                    /* ignore */
+                }
+            }),
+        )
+        .catch(() => undefined);
+
+    // Suspended-kill is checked BEFORE process-died: a raised suspend marker
+    // means the last thing known about the session is that it left the
+    // foreground, and iOS reaping it there is routine, not a crash.
     let verdict: FlightVerdict;
     if (prior.length === 0) verdict = 'clean-start';
     else if (cleanExit) verdict = 'controlled-reload';
+    else if (wasSuspended) verdict = 'suspended-kill';
     else verdict = 'process-died';
 
     const last = prior[prior.length - 1];
@@ -129,7 +166,9 @@ export function startFlightRecorder(): FlightReport {
             ? 'no prior trail — clean start'
             : verdict === 'controlled-reload'
               ? `previous run ended in a CONTROLLED RELOAD (lazyRetry chunk failure or resetSettings), last crumb: ${last?.tag ?? 'n/a'}`
-              : `previous run DIED WITHOUT RUNNING JS (WKWebView OOM / jetsam), last crumb: ${last?.tag ?? 'n/a'} @${last?.t ?? '?'}ms`;
+              : verdict === 'suspended-kill'
+                ? `previous run was terminated while BACKGROUNDED — routine iOS reaping, not a foreground crash. last crumb: ${last?.tag ?? 'n/a'} @${last?.t ?? '?'}ms`
+                : `previous run DIED IN THE FOREGROUND without running JS, last crumb: ${last?.tag ?? 'n/a'} @${last?.t ?? '?'}ms`;
 
     return { verdict, trail: prior, summary };
 }
