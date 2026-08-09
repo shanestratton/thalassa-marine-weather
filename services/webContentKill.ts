@@ -77,6 +77,43 @@ export function readAbnormalExit(): AbnormalExit | null {
     return { count: record.count, at: record.at, view: typeof record.view === 'string' ? record.view : null };
 }
 
+/** Where the last boot sent the skipper after a death, if it did. */
+const RESTORE_KEY = 'thalassa.lastRestore';
+
+/**
+ * Should we put the skipper back on `view`?
+ *
+ * No, if the previous boot already restored them there and it died again.
+ * Observed in Shane's log on 2026-08-09:
+ *
+ *     died 2x ... on 'map'
+ *     restoring the skipper to 'map'
+ *     died 3x ... on 'map'
+ *
+ * Restoring into the screen that just killed the app is a crash loop, and a
+ * loop is worse than the dashboard: the skipper cannot get out of it to reach
+ * Settings, the chart cache, or anything else that might let them recover.
+ * One attempt, then stand off.
+ */
+export function shouldRestore(view: string): boolean {
+    const last = readJson<{ view?: string }>(RESTORE_KEY);
+    return last?.view !== view;
+}
+
+/** Remember that we restored, so a second death on the same view stands off. */
+export function noteRestored(view: string, now = Date.now()): void {
+    writeJson(RESTORE_KEY, { view, at: now });
+}
+
+/** A session that ended cleanly clears the stand-off. */
+export function clearRestoreGuard(): void {
+    try {
+        localStorage.removeItem(RESTORE_KEY);
+    } catch {
+        /* nothing to do */
+    }
+}
+
 /** Forget the history. For a diagnostics screen's "I've seen this". */
 export function clearAbnormalExit(): void {
     try {
@@ -108,7 +145,12 @@ export function markSessionOpen(view: string | null, now = Date.now()): void {
  */
 export function detectAbnormalExit(now = Date.now()): AbnormalExit | null {
     const open = readJson<{ at?: number; view?: string | null }>(OPEN_KEY);
-    if (!open || typeof open.at !== 'number') return null;
+    if (!open || typeof open.at !== 'number') {
+        // A clean boot means whatever we did last time worked. Let a future
+        // death try a restore again.
+        clearRestoreGuard();
+        return null;
+    }
 
     // The flag was still raised, so the previous session never exited in an
     // orderly way. Consume it before doing anything else: if the tally write

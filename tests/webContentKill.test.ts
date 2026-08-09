@@ -26,7 +26,9 @@ import {
     detectAbnormalExit,
     markOrderlyExit,
     markSessionOpen,
+    noteRestored,
     readAbnormalExit,
+    shouldRestore,
 } from '../services/webContentKill';
 
 const OPEN = 'thalassa.sessionOpen';
@@ -159,5 +161,44 @@ describe('armSessionWatch', () => {
     it('returns null on a clean start but still arms', () => {
         expect(armSessionWatch('dashboard')).toBeNull();
         expect(localStorage.getItem(OPEN)).not.toBeNull();
+    });
+});
+
+describe('restoring must not become a crash loop', () => {
+    beforeEach(() => localStorage.clear());
+
+    it('restores the first time', () => {
+        expect(shouldRestore('map')).toBe(true);
+    });
+
+    it('stands off when the view we restored to died again', () => {
+        // Shane's log, 2026-08-09 — the loop this guard exists for:
+        //   died 2x ... on 'map'
+        //   restoring the skipper to 'map'
+        //   died 3x ... on 'map'
+        // Sending them back into the screen that kills the app traps them:
+        // they cannot reach Settings or the chart cache to dig themselves out.
+        noteRestored('map');
+        expect(shouldRestore('map')).toBe(false);
+    });
+
+    it('still restores a DIFFERENT view — the stand-off is per screen', () => {
+        noteRestored('map');
+        expect(shouldRestore('voyage')).toBe(true);
+    });
+
+    it('forgets the stand-off after a session that ended cleanly', () => {
+        noteRestored('map');
+        expect(shouldRestore('map')).toBe(false);
+        // A boot with no raised flag means last time worked.
+        expect(detectAbnormalExit()).toBeNull();
+        expect(shouldRestore('map')).toBe(true);
+    });
+
+    it('keeps standing off across consecutive deaths on the same view', () => {
+        noteRestored('map');
+        markSessionOpen('map');
+        expect(detectAbnormalExit()?.count).toBe(1);
+        expect(shouldRestore('map')).toBe(false);
     });
 });

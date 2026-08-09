@@ -161,12 +161,59 @@ const BLOB_CACHE_MAX_BYTES = 48 * 1024 * 1024; // JSON text — heap ≈ few ×
 const BLOB_CACHE_MIN_KEEP = 4;
 let blobCacheBytes = 0;
 
+/**
+ * The budget while the skipper is PLOTTING. 2026-08-09, from Shane's log
+ * rather than from a guess:
+ *
+ *     [WebContentKill] the web layer died in the foreground 3x on this install;
+ *     most recently on 'map'
+ *
+ * 'map' with the tracer running IS the planning screen — the Plan tab stays
+ * lit while the chart handles the drawing. So the foreground kills are landing
+ * on chart + ENC + tracer, which is the combination 0a607bd3 already tried to
+ * relieve by deferring the Pi sync. That helped and was not enough, and that
+ * commit named this cache as the next suspect: 48 MB of JSON text at ~3×
+ * parsed is ~150 MB resident, on top of Mapbox GL, while the tracer allocates
+ * per stroke.
+ *
+ * 16 MB is roughly five average AU cells (median ~0.5 MB, largest measured
+ * 7.6 MB) — enough for the visible area and its neighbours. The cost is
+ * re-parsing sooner on a wide pan; the alternative is the process dying, which
+ * costs the whole leg. Restored the moment the tracer stops.
+ */
+const BLOB_CACHE_PLOTTING_BYTES = 16 * 1024 * 1024;
+
+/** The budget currently in force. */
+let blobBudgetBytes = BLOB_CACHE_MAX_BYTES;
+
 /** Cache occupancy, for the [perf] merge line. The byte figure is JSON TEXT
  *  length — measured parsed heap runs ~3× it, so a full 48 MB cache is
  *  ~150 MB resident, and eviction does NOT free a cell whose geometry a
  *  cached merge still references (mergeFold pushes geometry by reference).
  *  Logging it per merge is how we find out whether a long pan actually fills
  *  this, rather than assuming. */
+/**
+ * Tighten or restore the byte budget, and evict down to it immediately.
+ *
+ * Immediately matters: shrinking the cap without evicting would leave the
+ * existing 45 MB resident until the next cell happened to be cached, which on
+ * a stationary chart could be never — and the whole point is to give memory
+ * back BEFORE the skipper starts drawing.
+ */
+export function setBlobCachePlottingMode(plotting: boolean): void {
+    blobBudgetBytes = plotting ? BLOB_CACHE_PLOTTING_BYTES : BLOB_CACHE_MAX_BYTES;
+    while (shouldEvictBlob(blobCache.size, blobCacheBytes, BLOB_CACHE_MAX, blobBudgetBytes)) {
+        const oldest = blobCache.keys().next().value as string | undefined;
+        if (oldest === undefined) break;
+        dropBlob(oldest);
+    }
+}
+
+/** The budget in force, for tests and the [perf] line. */
+export function blobCacheBudgetBytes(): number {
+    return blobBudgetBytes;
+}
+
 export function blobCacheStats(): { entries: number; textMB: number } {
     return { entries: blobCache.size, textMB: Math.round((blobCacheBytes / 1048576) * 10) / 10 };
 }
@@ -209,7 +256,7 @@ function cacheBlob(cellId: string, blob: EncConversionResult, sizeBytes: number)
     dropBlob(key);
     blobCache.set(key, { blob, sizeBytes });
     blobCacheBytes += sizeBytes;
-    while (shouldEvictBlob(blobCache.size, blobCacheBytes)) {
+    while (shouldEvictBlob(blobCache.size, blobCacheBytes, BLOB_CACHE_MAX, blobBudgetBytes)) {
         const oldest = blobCache.keys().next().value as string | undefined;
         if (oldest === undefined) break;
         dropBlob(oldest);

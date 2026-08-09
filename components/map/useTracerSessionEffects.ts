@@ -90,6 +90,19 @@ export function useTracerSessionEffects({
             } catch {
                 /* chrome just stays visible */
             }
+            // Give the ENC blob cache back to the system while plotting.
+            // Confirmed 2026-08-09: the foreground WebContent kills land on
+            // 'map' with the tracer running, which IS the planning screen —
+            // the Plan tab stays lit while the chart does the drawing. A full
+            // 48 MB of cell JSON is ~150 MB parsed, alongside Mapbox GL and
+            // whatever the stroke allocates. Same reasoning as the Pi-sync
+            // deferral in 0a607bd3: a background convenience should wait for
+            // calm water rather than compete with the surface the skipper is
+            // actually using. Deliberately not awaited — a failed import must
+            // not stop the tracer starting.
+            void import('../../services/enc/EncCellStore')
+                .then((m) => m.setBlobCachePlottingMode(active))
+                .catch(() => undefined);
         };
         say(coordCaptureMode);
         // Done no longer exits trace mode (2026-07-17) — the tab bar does,
