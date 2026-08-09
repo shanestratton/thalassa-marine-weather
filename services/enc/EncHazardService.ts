@@ -1063,12 +1063,19 @@ export async function getMergedVectorData(
         .join(',')}`;
     const cached = getMergedData(cacheKey);
     if (cached) return cached;
+    // Crumbs on the merge path (2026-08-09). The flight recorder's trail had
+    // no coverage between 'shelter:done' and the end, so a death anywhere on
+    // the chart pointed at a weather call four minutes earlier. Cell count is
+    // the size knob that matters here.
+    crumb('enc:merge-start', `${cells.length}cells`);
     const inflight = getInflightMerge(cacheKey);
     if (inflight) return inflight;
     const build = buildMergedVectorData(cells, cacheKey, densify, buildGlaze, zoom);
     setInflightMerge(cacheKey, build);
     try {
-        return await build;
+        const merged = await build;
+        crumb('enc:merge-done', `${cells.length}cells`);
+        return merged;
     } catch (e) {
         if (e instanceof MergeSupersededError) {
             // Cooperative abort (2026-07-17 audit): fast panning used to

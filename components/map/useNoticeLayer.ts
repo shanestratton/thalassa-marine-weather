@@ -34,6 +34,7 @@ import { useSettingsStore } from '../../stores/settingsStore';
 import { NoticeToMarinersService, type Notice } from '../../services/NoticeToMarinersService';
 import { createLogger } from '../../utils/createLogger';
 import { safeExternalHttpUrl } from '../../utils/safeUrl';
+import { crumb } from '../../utils/flightRecorder';
 
 const log = createLogger('useNoticeLayer');
 
@@ -409,6 +410,11 @@ export function useNoticeLayer(mapRef: MutableRefObject<mapboxgl.Map | null>, ma
                 placed++;
             }
             if (placed > 0) log.warn(`[ntm] ${placed} notice icon(s) placed (${anchors.size} live QLD anchors)`);
+            // The count goes in the flight trail: this layer builds one marker
+            // per notice and the coast north of Fraser Island is dense with
+            // them, so "how many were on screen" is the first thing the next
+            // crash report should be able to answer.
+            crumb('ntm:markers', `${placed}placed`);
         });
 
         // ── Curated low bridges — 🌉 with clearance-vs-air-draft verdict ──

@@ -18,6 +18,7 @@ import { piCache } from '../../services/PiCacheService';
 import { isAuthIdentityScopeCurrent, type AuthIdentityScope } from '../../services/authIdentityScope';
 import { existingMapLayerIds } from './mapLayerQueries';
 import { isHttpUrlOnDomain, isLocalNetworkHostname, parseExternalHttpUrl } from '../../utils/safeUrl';
+import { crumb } from '../../utils/flightRecorder';
 
 /**
  * Show/hide the OpenSeaMap raster seamark overlays in one call. Two layers
@@ -275,6 +276,7 @@ export function useMapInit(opts: UseMapInitOptions) {
         const GOLDEN_BOOT_ZOOM = 10;
         const startZoom = embedded ? initialZoom : preferredCenter ? GOLDEN_BOOT_ZOOM : ausNzFitZoom;
 
+        crumb('map:create');
         const map = new mapboxgl.Map({
             container: containerRef.current,
             style: mapStyle,
