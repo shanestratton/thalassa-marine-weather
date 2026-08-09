@@ -221,6 +221,54 @@ export function useAppBootstrap() {
             .catch((err) => console.error('[Boot] NMEA autoStart failed:', err?.message || err));
     }, []);
 
+    // ── Did iOS kill the web layer? ────────────────────────────────
+    // The planning screen "crashing back to the Glass page" has been
+    // unexplainable since 2026-08-01 because there was nothing to explain it
+    // WITH: under memory pressure iOS kills the WebContent process, our
+    // logger dies with it, and uiStore seeds currentView from bootView —
+    // 'dashboard'. A kill and a cold boot look identical from in here.
+    //
+    // The native side now witnesses it (ThalassaBridgeViewController), so we
+    // can both record it and undo the part that actually costs the skipper
+    // something: being dumped on the dashboard mid-route-plan.
+    //
+    // Only fires for a RECENT kill. The record persists for the life of the
+    // install, and restoring a view from three days ago would be its own bug —
+    // as would restoring on every cold open, which d812494a deliberately
+    // stopped doing.
+    useEffect(() => {
+        let cancelled = false;
+        void (async () => {
+            try {
+                const [{ readWebContentKill, isRecentKill }, { useUIStore, readLastView }] = await Promise.all([
+                    import('../services/webContentKill'),
+                    import('../stores/uiStore'),
+                ]);
+                const record = await readWebContentKill();
+                if (cancelled || !isRecentKill(record)) return;
+
+                console.warn(
+                    `[WebContentKill] iOS killed the web layer ${record!.count}x on this install; ` +
+                        `most recent ${record!.at.toISOString()} at ${record!.url || 'unknown url'}`,
+                );
+
+                const crumb = readLastView();
+                // The breadcrumb has to be from before the kill, not from this
+                // boot's own navigation, or we would just re-set the page we
+                // are already on.
+                if (!crumb || crumb.view === useUIStore.getState().currentView) return;
+                console.warn(`[WebContentKill] restoring the skipper to '${crumb.view}'`);
+                useUIStore.getState().setPage(crumb.view);
+            } catch (err) {
+                // A diagnostic must never be the thing that breaks boot.
+                console.warn('[WebContentKill] check failed:', (err as Error)?.message || err);
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, []);
+
     // ── GPS warm-up ────────────────────────────────────────────────
     // Wired 2026-08-07. gpsWarmUp has existed since 2026-08-02 but nothing
     // ever called it, so every cold start began its satellite hunt at the

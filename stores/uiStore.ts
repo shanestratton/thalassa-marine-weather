@@ -56,6 +56,53 @@ interface UIState {
 // map mounts. Native serves from '/', which resolves to the default.
 const bootView = initialViewFromUrl() ?? 'dashboard';
 
+/**
+ * Where the skipper was, written on every navigation.
+ *
+ * Deliberately localStorage and deliberately SYNCHRONOUS. A WebContent kill
+ * arrives with no warning and no unload event — anything async (Preferences,
+ * IndexedDB) may never flush, and a breadcrumb that isn't written before the
+ * process dies is no breadcrumb at all.
+ *
+ * This is only a record. It does NOT change cold-boot behaviour: bootView is
+ * still the deep link or the dashboard. Restoring from it happens exactly once,
+ * after the native side confirms the web layer was killed — see
+ * services/webContentKill.ts. Restoring on every launch would undo the
+ * deliberate "cold open paints the dashboard" behaviour protected in d812494a.
+ */
+const LAST_VIEW_KEY = 'thalassa.lastView';
+
+export interface LastViewCrumb {
+    view: string;
+    at: number;
+}
+
+function writeLastView(view: string): void {
+    // Overlays are not places you return to — landing in Settings after a
+    // crash would be more disorienting than landing on the dashboard.
+    if (OVERLAY_PAGES.has(view)) return;
+    try {
+        localStorage.setItem(LAST_VIEW_KEY, JSON.stringify({ view, at: Date.now() }));
+    } catch {
+        // Private mode / quota. A missing breadcrumb costs a restore, not a
+        // navigation, so there is nothing to report.
+    }
+}
+
+/** The last view the skipper was on, or null if there isn't a usable one. */
+export function readLastView(): LastViewCrumb | null {
+    try {
+        const raw = localStorage.getItem(LAST_VIEW_KEY);
+        if (!raw) return null;
+        const parsed = JSON.parse(raw) as Partial<LastViewCrumb>;
+        if (typeof parsed.view !== 'string' || typeof parsed.at !== 'number') return null;
+        if (OVERLAY_PAGES.has(parsed.view)) return null;
+        return { view: parsed.view, at: parsed.at };
+    } catch {
+        return null;
+    }
+}
+
 export const useUIStore = create<UIState>()((set, get) => ({
     currentView: bootView,
     previousView: bootView,
@@ -79,6 +126,7 @@ export const useUIStore = create<UIState>()((set, get) => ({
             direction = 'push';
         }
 
+        writeLastView(page);
         set({ currentView: page, previousView: prev, transitionDirection: direction });
     },
 
