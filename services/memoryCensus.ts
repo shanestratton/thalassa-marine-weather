@@ -30,6 +30,17 @@ const log = createLogger('memoryCensus');
 const CENSUS_KEY = 'thalassa.lastCensus';
 /** Often enough to catch the run-up to a kill, rare enough to cost nothing. */
 const CENSUS_INTERVAL_MS = 5_000;
+/**
+ * For the first stretch after boot, sample every second.
+ *
+ * Kills 11 and 13 on 2026-08-09 both happened early enough that the only
+ * reading on disk was the one taken at boot, before anything had rendered — so
+ * the report described an empty app and told us nothing. A fast crash is
+ * exactly the case that needs a fine-grained trail, and this is the window
+ * where sampling hard costs nothing because the app is doing little else.
+ */
+const CENSUS_FAST_INTERVAL_MS = 1_000;
+const CENSUS_FAST_WINDOW_MS = 20_000;
 
 export interface MemoryCensus {
     at: number;
@@ -49,10 +60,48 @@ export interface MemoryCensus {
     domNodes: number;
     /** True while the route tracer is drawing. */
     plotting: boolean;
+
+    /**
+     * Milliseconds since this session booted.
+     *
+     * Added after the 2026-08-09 readings, which were ambiguous in a way I had
+     * not designed out: kills 11 and 13 reported ENC 0 / DOM 161, which could
+     * mean "died with nothing loaded" OR "died before the second census tick".
+     * Those are completely different bugs. This settles it.
+     */
+    sinceBootMs: number;
+
+    /**
+     * HIGH-WATER MARKS for the session, not just the latest reading.
+     *
+     * The same 5 s sampling that produced the ambiguity above can also miss a
+     * spike entirely: a cache that ballooned and was evicted between ticks
+     * leaves no trace in a snapshot. A peak cannot be hidden that way.
+     */
+    peakEncTextMB: number;
+    peakPinnedCells: number;
+    peakDomNodes: number;
+    peakCanvases: number;
+
+    /** Live <canvas> elements — 'map' means Mapbox GL, which means WebGL. */
+    canvases: number;
+    /**
+     * Did a WebGL context drop during this session?
+     *
+     * Recorded the instant it happens rather than at the next tick, because a
+     * context loss can be immediately followed by the process going away. If
+     * this is ever true the investigation moves off memory entirely: a GPU or
+     * WebGL failure kills the WebContent process with the heap nearly empty,
+     * which is exactly the shape of kills 11 and 13.
+     */
+    glContextLost: boolean;
 }
 
-let timer: ReturnType<typeof setInterval> | null = null;
+let timer: ReturnType<typeof setTimeout> | null = null;
 let plotting = false;
+const bootAt = Date.now();
+let glContextLost = false;
+const peaks = { encTextMB: 0, pinnedCells: 0, domNodes: 0, canvases: 0 };
 
 /** Told by the tracer, so a census line says whether a leg was being drawn. */
 export function setCensusPlotting(active: boolean): void {
@@ -88,6 +137,13 @@ export async function takeCensus(now = Date.now()): Promise<MemoryCensus> {
         indexes: 0,
         domNodes: 0,
         plotting,
+        sinceBootMs: now - bootAt,
+        peakEncTextMB: 0,
+        peakPinnedCells: 0,
+        peakDomNodes: 0,
+        peakCanvases: 0,
+        canvases: 0,
+        glContextLost,
     };
 
     try {
@@ -122,9 +178,19 @@ export async function takeCensus(now = Date.now()): Promise<MemoryCensus> {
     }
     try {
         census.domNodes = document.getElementsByTagName('*').length;
+        census.canvases = document.getElementsByTagName('canvas').length;
     } catch {
         /* leave at zero */
     }
+
+    peaks.encTextMB = Math.max(peaks.encTextMB, census.encTextMB);
+    peaks.pinnedCells = Math.max(peaks.pinnedCells, census.pinnedCells);
+    peaks.domNodes = Math.max(peaks.domNodes, census.domNodes);
+    peaks.canvases = Math.max(peaks.canvases, census.canvases);
+    census.peakEncTextMB = peaks.encTextMB;
+    census.peakPinnedCells = peaks.pinnedCells;
+    census.peakDomNodes = peaks.domNodes;
+    census.peakCanvases = peaks.canvases;
 
     return census;
 }
@@ -154,28 +220,65 @@ export function readLastCensus(): MemoryCensus | null {
 /** One line, for the crash report. */
 export function describeCensus(c: MemoryCensus): string {
     const age = Math.round((Date.now() - c.at) / 1000);
+    const uptime = c.sinceBootMs === undefined ? '?' : `${Math.round(c.sinceBootMs / 1000)}s`;
     return (
-        `${age}s before the end, on '${c.view ?? 'unknown'}'${c.plotting ? ' (plotting)' : ''}: ` +
-        `ENC ${c.encCells} cells/${c.encTextMB}MB text, ${c.merges} merges pinning ${c.pinnedCells} cells, ` +
-        `glaze ${c.glaze}, contours ${c.contours}, indexes ${c.indexes}, DOM ${c.domNodes}`
+        `${age}s before the end, ${uptime} into that session, on '${c.view ?? 'unknown'}'` +
+        `${c.plotting ? ' (plotting)' : ''}${c.glContextLost ? ' [WEBGL CONTEXT WAS LOST]' : ''}: ` +
+        `ENC ${c.encCells} cells/${c.encTextMB}MB text (peak ${c.peakEncTextMB ?? 0}MB), ` +
+        `${c.merges} merges pinning ${c.pinnedCells} cells (peak ${c.peakPinnedCells ?? 0}), ` +
+        `glaze ${c.glaze}, contours ${c.contours}, indexes ${c.indexes}, ` +
+        `DOM ${c.domNodes} (peak ${c.peakDomNodes ?? 0}), canvas ${c.canvases ?? 0} (peak ${c.peakCanvases ?? 0})`
     );
 }
 
 /** Begin taking readings. Idempotent. */
 export function startCensus(): void {
     if (timer) return;
+
+    // A lost WebGL context is often the last thing that happens before the
+    // WebContent process goes away, so this must record SYNCHRONOUSLY rather
+    // than wait for the next 5 s tick — by then there may be no next tick.
+    // Capture phase because the event does not bubble off a canvas.
+    try {
+        window.addEventListener(
+            'webglcontextlost',
+            () => {
+                glContextLost = true;
+                const last = readLastCensus();
+                if (last) persist({ ...last, glContextLost: true });
+            },
+            true,
+        );
+    } catch {
+        /* no window in this environment */
+    }
+
     const tick = () => {
         void takeCensus()
             .then(persist)
             .catch((err) => log.warn('census failed', err));
     };
     tick();
-    timer = setInterval(tick, CENSUS_INTERVAL_MS);
+    // Fast phase first, then settle. setTimeout-chained rather than two
+    // intervals so there is never a window with both running.
+    let fast = true;
+    const schedule = () => {
+        const elapsed = Date.now() - bootAt;
+        if (fast && elapsed >= CENSUS_FAST_WINDOW_MS) fast = false;
+        timer = setTimeout(
+            () => {
+                tick();
+                schedule();
+            },
+            fast ? CENSUS_FAST_INTERVAL_MS : CENSUS_INTERVAL_MS,
+        );
+    };
+    schedule();
 }
 
 export function stopCensus(): void {
     if (timer) {
-        clearInterval(timer);
+        clearTimeout(timer);
         timer = null;
     }
 }

@@ -145,3 +145,63 @@ describe('the one line that goes in the crash report', () => {
         setCensusPlotting(false);
     });
 });
+
+describe('the ambiguities the 2026-08-09 readings exposed', () => {
+    beforeEach(() => {
+        localStorage.clear();
+        stopCensus();
+        setCensusPlotting(false);
+        encStats.value = { entries: 0, textMB: 0 };
+        mergeStats.size = 0;
+        mergeStats.pinned = 0;
+    });
+
+    it('says how far into the session it died — "nothing loaded" vs "died instantly"', async () => {
+        // Kills 11 and 13 reported ENC 0 / DOM 161. That could mean the app
+        // died with nothing loaded, or died before the second census tick.
+        // Completely different bugs, and the reading could not tell them apart.
+        const c = await takeCensus();
+        expect(typeof c.sinceBootMs).toBe('number');
+        expect(describeCensus(c)).toMatch(/into that session/);
+    });
+
+    it('keeps high-water marks, so a spike between ticks cannot hide', async () => {
+        encStats.value = { entries: 30, textMB: 44.8 };
+        mergeStats.pinned = 56;
+        await takeCensus();
+
+        // …the caches are evicted, and the NEXT tick sees almost nothing.
+        encStats.value = { entries: 1, textMB: 0.4 };
+        mergeStats.pinned = 1;
+        const after = await takeCensus();
+
+        expect(after.encTextMB).toBe(0.4);
+        expect(after.peakEncTextMB).toBe(44.8);
+        expect(after.peakPinnedCells).toBe(56);
+        expect(describeCensus(after)).toContain('peak 44.8MB');
+    });
+
+    it('counts canvases — "map" means Mapbox GL, which means WebGL', async () => {
+        const c = await takeCensus();
+        expect(typeof c.canvases).toBe('number');
+        expect(describeCensus(c)).toMatch(/canvas \d+/);
+    });
+
+    it('flags a lost WebGL context loudly, because it moves the whole investigation', async () => {
+        // A GPU failure kills the WebContent process with the heap nearly
+        // empty — which is precisely the shape of kills 11 and 13. If this
+        // ever appears, memory is not the problem and never was.
+        const c = { ...(await takeCensus()), glContextLost: true };
+        expect(describeCensus(c)).toContain('[WEBGL CONTEXT WAS LOST]');
+    });
+
+    it('records a context loss the instant it happens, not at the next tick', async () => {
+        startCensus();
+        await vi.waitFor(() => expect(readLastCensus()).not.toBeNull());
+        window.dispatchEvent(new Event('webglcontextlost'));
+        // No tick has run. The flag must already be on disk — by the next one
+        // there may be no process left to run it.
+        expect(readLastCensus()?.glContextLost).toBe(true);
+        stopCensus();
+    });
+});
