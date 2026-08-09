@@ -1,105 +1,140 @@
 /**
- * flightRecorder — the black box that has to survive the thing it records.
+ * The flight recorder's verdict has to be worth believing.
  *
- * The whole point is the verdict: after two wrong diagnoses of the far-location
- * crash, we need the device to say whether the app RELOADED (controlled — a
- * lazyRetry chunk failure looks identical to a crash from the user's seat) or
- * whether the process DIED without running any JS (a WKWebView OOM). These pin
- * that classification, since getting it backwards would send the next
- * investigation down the wrong path again.
+ * It is the instrument that finally located the planning-screen crash after
+ * six fixes missed — but on 2026-08-09 it also produced a trail claiming a
+ * foreground death on a session whose last crumb was a weather call two
+ * minutes earlier. That session was backgrounded and reaped, which iOS does
+ * to every app, constantly, at no cost to the skipper.
+ *
+ * The blind spot: the clean-exit marker was written on pagehide, and pagehide
+ * does not fire when a Capacitor app is backgrounded. So a suspended
+ * termination was indistinguishable from the crash being hunted. Same bug the
+ * kill detector had, fixed the same way — Capacitor's appStateChange is the
+ * signal that actually fires.
+ *
+ * These tests pin the four verdicts apart, because an instrument that cries
+ * PROCESS-DIED on routine reaping sends the investigation back to memory —
+ * where this hunt already lost a full day.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { crumb, lastFlightTrail, startFlightRecorder } from '../utils/flightRecorder';
+const appState = vi.hoisted(() => ({
+    handler: null as ((state: { isActive: boolean }) => void) | null,
+}));
 
-const TRAIL_KEY = 'thalassa_flight_trail';
-const CLEAN_EXIT_KEY = 'thalassa_flight_clean_exit';
+vi.mock('@capacitor/app', () => ({
+    App: {
+        addListener: (_event: string, handler: (state: { isActive: boolean }) => void) => {
+            appState.handler = handler;
+            return Promise.resolve({ remove: () => undefined });
+        },
+    },
+}));
 
-/** Simulate a process death: crumbs on disk, no pagehide ever fired. */
-function priorRunKilled(tags: string[]) {
-    localStorage.setItem(TRAIL_KEY, JSON.stringify(tags.map((tag, i) => ({ t: i * 100, tag }))));
-    localStorage.removeItem(CLEAN_EXIT_KEY);
-}
+import { crumb, startFlightRecorder } from '../utils/flightRecorder';
 
-/** Simulate a controlled reload: crumbs on disk AND pagehide ran. */
-function priorRunReloaded(tags: string[]) {
-    priorRunKilled(tags);
-    localStorage.setItem(CLEAN_EXIT_KEY, '1');
-}
+const TRAIL = 'thalassa_flight_trail';
+const CLEAN = 'thalassa_flight_clean_exit';
+const SUSPENDED = 'thalassa_flight_suspended';
 
-describe('flightRecorder verdict', () => {
+const seedTrail = () =>
+    localStorage.setItem(
+        TRAIL,
+        JSON.stringify([
+            { t: 100, tag: 'boot' },
+            { t: 4200, tag: 'map:create' },
+        ]),
+    );
+
+describe('the four verdicts', () => {
     beforeEach(() => {
         localStorage.clear();
+        appState.handler = null;
     });
 
-    it('reports a clean start when there is no prior trail', () => {
-        const r = startFlightRecorder();
-        expect(r.verdict).toBe('clean-start');
-        expect(r.trail).toEqual([]);
+    it('clean start — no prior trail', () => {
+        const report = startFlightRecorder();
+        expect(report.verdict).toBe('clean-start');
+        expect(report.trail).toEqual([]);
     });
 
-    it('calls it PROCESS-DIED when crumbs survived but pagehide never ran', () => {
-        // A content-process kill executes no JS, so nothing can mark a clean
-        // exit. This is the WKWebView OOM signature.
-        priorRunKilled(['boot', 'pick:commit', 'enc:walk-start']);
-        const r = startFlightRecorder();
-        expect(r.verdict).toBe('process-died');
-        expect(r.summary).toContain('enc:walk-start');
+    it('process-died — a trail with no exit marker of any kind', () => {
+        seedTrail();
+        const report = startFlightRecorder();
+        expect(report.verdict).toBe('process-died');
+        expect(report.summary).toContain('map:create');
+        expect(report.summary).toContain('FOREGROUND');
     });
 
-    it('calls it CONTROLLED-RELOAD when pagehide ran — not a memory crash', () => {
-        priorRunReloaded(['boot', 'pick:commit', 'lazyRetry:reload']);
-        const r = startFlightRecorder();
-        expect(r.verdict).toBe('controlled-reload');
+    it('controlled-reload — pagehide ran before the end', () => {
+        seedTrail();
+        localStorage.setItem(CLEAN, '1');
+        expect(startFlightRecorder().verdict).toBe('controlled-reload');
     });
 
-    it('surfaces the LAST crumb — where it died is the whole answer', () => {
-        priorRunKilled(['boot', 'pick:commit', 'shelter:start']);
-        expect(startFlightRecorder().summary).toContain('shelter:start');
+    it('suspended-kill — the app left the foreground and never came back', () => {
+        // The 2026-08-09 ghost: last crumb shelter:done, two minutes idle,
+        // then "PROCESS-DIED". It was a background reap and must say so.
+        seedTrail();
+        localStorage.setItem(SUSPENDED, '1');
+        const report = startFlightRecorder();
+        expect(report.verdict).toBe('suspended-kill');
+        expect(report.summary).toContain('BACKGROUNDED');
+        expect(report.summary).toContain('not a foreground crash');
     });
 
-    it('preserves the prior trail for inspection, oldest first', () => {
-        priorRunKilled(['boot', 'pick:commit']);
+    it('a controlled reload outranks the suspend marker', () => {
+        // Both can be true (backgrounded, then a reload fired on return).
+        // The reload is the more specific fact.
+        seedTrail();
+        localStorage.setItem(CLEAN, '1');
+        localStorage.setItem(SUSPENDED, '1');
+        expect(startFlightRecorder().verdict).toBe('controlled-reload');
+    });
+
+    it('consumes all markers, so one exit cannot colour the next boot', () => {
+        seedTrail();
+        localStorage.setItem(SUSPENDED, '1');
         startFlightRecorder();
-        expect(lastFlightTrail().map((c) => c.tag)).toEqual(['boot', 'pick:commit']);
-    });
-
-    it('clears the live trail so one crash is not re-reported forever', () => {
-        priorRunKilled(['boot', 'pick:commit']);
-        startFlightRecorder();
-        expect(localStorage.getItem(TRAIL_KEY)).toBeNull();
-        // A second start now sees a fresh run, not the old corpse.
-        expect(startFlightRecorder().verdict).toBe('clean-start');
+        expect(localStorage.getItem(TRAIL)).toBeNull();
+        expect(localStorage.getItem(SUSPENDED)).toBeNull();
+        expect(localStorage.getItem(CLEAN)).toBeNull();
     });
 });
 
-describe('crumb recording', () => {
+describe('the suspend marker follows the app state', () => {
     beforeEach(() => {
         localStorage.clear();
+        appState.handler = null;
+    });
+
+    it('raises on background, lowers on return to foreground', async () => {
         startFlightRecorder();
+        await vi.waitFor(() => expect(appState.handler).not.toBeNull());
+
+        appState.handler!({ isActive: false });
+        expect(localStorage.getItem(SUSPENDED)).toBe('1');
+
+        // Back in the foreground: a death NOW is the real thing again.
+        appState.handler!({ isActive: true });
+        expect(localStorage.getItem(SUSPENDED)).toBeNull();
+    });
+});
+
+describe('crumbs', () => {
+    beforeEach(() => {
+        localStorage.clear();
+        appState.handler = null;
     });
 
-    it('records tags and optional info in order', () => {
-        crumb('pick:commit', '1100nm');
-        crumb('enc:walk-start', '38cells');
-        const trail = JSON.parse(localStorage.getItem(TRAIL_KEY)!);
-        expect(trail.map((c: { tag: string }) => c.tag)).toEqual(['pick:commit', 'enc:walk-start']);
-        expect(trail[0].info).toBe('1100nm');
-    });
+    it('accumulate once armed and surface on the next boot', () => {
+        startFlightRecorder();
+        crumb('map:create', '#1 z5');
+        crumb('enc:merge-start', '14cells');
 
-    it('keeps the crumbs nearest the crash when the buffer overflows', () => {
-        for (let i = 0; i < 60; i++) crumb(`t${i}`);
-        const trail = JSON.parse(localStorage.getItem(TRAIL_KEY)!);
-        expect(trail).toHaveLength(40);
-        expect(trail[trail.length - 1].tag).toBe('t59'); // newest kept
-        expect(trail[0].tag).toBe('t20'); // oldest dropped
-    });
-
-    it('never throws when storage is unavailable — it must not break the app', () => {
-        const spy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
-            throw new Error('QuotaExceededError');
-        });
-        expect(() => crumb('boom')).not.toThrow();
-        spy.mockRestore();
+        const next = startFlightRecorder();
+        expect(next.trail.map((c) => c.tag)).toEqual(['map:create', 'enc:merge-start']);
+        expect(next.trail[0].info).toBe('#1 z5');
     });
 });
