@@ -774,9 +774,10 @@ self.addEventListener('fetch', (event) => {
                 .then((networkResponse) => {
                     if (networkResponse.ok) {
                         const responseToCache = networkResponse.clone();
-                        event.waitUntil(
-                            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, responseToCache)),
-                        );
+                        return caches
+                            .open(CACHE_NAME)
+                            .then((cache) => cache.put(event.request, responseToCache))
+                            .then(() => networkResponse);
                     }
                     return networkResponse;
                 })
@@ -784,6 +785,12 @@ self.addEventListener('fetch', (event) => {
                     console.warn('[SW] Fetch failed for', event.request.url, err);
                     return cachedResponse || new Response('', { status: 503, statusText: 'Offline' });
                 });
+            // waitUntil must be registered NOW, while the event is still
+            // extendable. On a cache hit the event settles immediately, so a
+            // waitUntil issued later (when the network reply lands) throws
+            // InvalidStateError and the revalidation put silently never runs —
+            // which is how an installed PWA kept serving a stale shell.
+            event.waitUntil(fetchPromise.then(() => undefined, () => undefined));
             return cachedResponse || fetchPromise;
         }),
     );
