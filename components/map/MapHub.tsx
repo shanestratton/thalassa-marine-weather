@@ -150,6 +150,7 @@ import {
     traceAsCuratedFairwaySnippet,
     traceAsVoyagePlan,
     splitLegForDepthGrid,
+    holdTracerCtx,
     type TraceLegVerdict,
     type TracerContext,
     type SavedTrace,
@@ -473,11 +474,14 @@ export const MapHub: React.FC<MapHubProps> = ({
     const tracerCtxRef = useRef<TracerContext | null>(null);
     /** Small LRU of recent GRID-BEARING contexts (jank audit #6): the single
      *  slot rebuilt the whole window on every ping-pong edit (nudge pin 3,
-     *  then pin 30 — the fix-leg → re-grade → nudge flow). Three entries
-     *  (~5–13 MB of typed arrays each at the 1M-cell cap) covers a working
-     *  route without flirting with iOS jetsam. Same reuse rule as the single
-     *  slot: grid required, 0.008° interior margin, marks-only NEVER held.
-     *  Cleared with the ctx on draft change and Done. */
+     *  then pin 30 — the fix-leg → re-grade → nudge flow). Bounded by
+     *  MEASURED bytes, not entry count (holdTracerCtx): the original "three
+     *  entries, ~5–13 MB each" sizing was broken on 2026-08-10 by Fraser
+     *  Island grids the workers estimated at 37–39 MB EACH — three of those
+     *  is ~117 MB of typed arrays, invisible to the cache census, on a
+     *  surface with a documented jetsam history. Same reuse rule as the
+     *  single slot: grid required, 0.008° interior margin, marks-only NEVER
+     *  held. Cleared with the ctx on draft change and Done. */
     const tracerCtxLruRef = useRef<TracerContext[]>([]);
     const tracerCtxFromLru = useCallback((pts: ReadonlyArray<{ lat: number; lon: number }>): TracerContext | null => {
         for (const c of tracerCtxLruRef.current) {
@@ -487,9 +491,7 @@ export const MapHub: React.FC<MapHubProps> = ({
     }, []);
     const tracerCtxHold = useCallback((ctx: TracerContext) => {
         tracerCtxRef.current = ctx;
-        const lru = tracerCtxLruRef.current.filter((c) => c !== ctx);
-        lru.unshift(ctx);
-        tracerCtxLruRef.current = lru.slice(0, 3);
+        tracerCtxLruRef.current = holdTracerCtx(tracerCtxLruRef.current, ctx);
     }, []);
     /** Draft the caches were graded with — invalidation must key on THIS,
      *  not on tracerCtxRef (Done nulls the ctx but keeps the cache; draft

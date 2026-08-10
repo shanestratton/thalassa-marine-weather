@@ -378,8 +378,9 @@ export function useTracerGrading(deps: TracerGradingDeps): void {
                             // 2. It only covers PIECES of a subdivided leg. Each
                             //    piece has its own window by construction and the
                             //    next piece is a different patch of water, so a
-                            //    hold almost never hits — while a held grid is
-                            //    ~20 MB at the cell cap and the LRU keeps 3.
+                            //    hold almost never hits — while a held grid runs
+                            //    to ~40 MB over dense charts (the LRU is
+                            //    byte-budgeted for exactly that reason).
                             //    Subdividing turned one grid-LESS window into N
                             //    grid-bearing ones, on a surface with a
                             //    documented jetsam history; there is no reason to

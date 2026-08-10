@@ -983,23 +983,51 @@ function bboxIntersects(a: [number, number, number, number], b: [number, number,
 const MAX_MERGE_CELLS = 14;
 
 /**
- * Cap a windowed merge's cell list, keeping the cells that cover the most
- * of the window — those carry the picture at any zoom. Deterministic
- * (coverage desc, then id) so identical viewports produce identical lists
- * and the merge cache key stays stable. Pure, exported for tests.
+ * The most REGISTER BYTES allowed into one windowed merge.
+ *
+ * The cell cap alone was disproven the day after it shipped (2026-08-10):
+ * a capped session died in the foreground with every merge ≤14 cells, and
+ * its own perf line showed why — north of Fraser Island 14 cells carried a
+ * 44.5 MB register, MORE than the 43.1 MB @ 15 cells logged moments before
+ * the original desktop kill. Count does not bound bytes: up there the AU
+ * series overlap so densely that 14 cells outweigh 20 sparse ones.
+ *
+ * 32 MB leaves every everyday merge untouched (recorded sessions run
+ * 11–25 MB) and trims only the dense-overlap monsters that have ever been
+ * present in a dying session (43.1, 44.5 MB).
  */
-export function capCellsForMerge<T extends { id: string; bbox: [number, number, number, number] }>(
+const MAX_MERGE_REGISTER_BYTES = 32 * 1024 * 1024;
+
+/**
+ * Cap a windowed merge's cell list — first by count, then by cumulative
+ * register bytes — keeping the cells that cover the most of the window;
+ * those carry the picture at any zoom. Deterministic (coverage desc, then
+ * id) so identical viewports produce identical lists and the merge cache
+ * key stays stable. Cells with unknown sizeBytes count 0 — an unmeasured
+ * cell must not evict a measured one. Never trims below one cell. Pure,
+ * exported for tests.
+ */
+export function capCellsForMerge<T extends { id: string; bbox: [number, number, number, number]; sizeBytes?: number }>(
     cells: T[],
     window: [number, number, number, number] | null | undefined,
     max = MAX_MERGE_CELLS,
+    maxBytes = MAX_MERGE_REGISTER_BYTES,
 ): T[] {
-    if (!window || cells.length <= max) return cells;
+    if (!window) return cells;
+    const bytes = (c: T): number => c.sizeBytes ?? 0;
+    const overBytes = (list: T[]): boolean => list.reduce((s, c) => s + bytes(c), 0) > maxBytes;
+    if (cells.length <= max && !overBytes(cells)) return cells;
     const coverage = (b: [number, number, number, number]): number => {
         const w = Math.min(b[2], window[2]) - Math.max(b[0], window[0]);
         const h = Math.min(b[3], window[3]) - Math.max(b[1], window[1]);
         return w > 0 && h > 0 ? w * h : 0;
     };
-    return [...cells].sort((a, b) => coverage(b.bbox) - coverage(a.bbox) || (a.id < b.id ? -1 : 1)).slice(0, max);
+    const ranked = [...cells].sort((a, b) => coverage(b.bbox) - coverage(a.bbox) || (a.id < b.id ? -1 : 1));
+    const kept = ranked.slice(0, max);
+    // Byte trim drops from the low-coverage end, same ranking, so the cache
+    // key stays deterministic for identical viewports.
+    while (kept.length > 1 && overBytes(kept)) kept.pop();
+    return kept;
 }
 
 function bboxDiag(b: [number, number, number, number]): number {
@@ -1080,8 +1108,12 @@ export async function getMergedVectorData(
     const selected = allCells.filter(selectForWindow);
     const cells = capCellsForMerge(selected, window ?? null);
     if (cells.length < selected.length) {
-        log.warn(`merge window selected ${selected.length} cells — capped to ${cells.length} by window coverage`);
-        crumb('enc:merge-trim', `${selected.length}→${cells.length}cells`);
+        const mb = (list: { sizeBytes?: number }[]): string =>
+            (list.reduce((s, c) => s + (c.sizeBytes ?? 0), 0) / 1024 / 1024).toFixed(1);
+        log.warn(
+            `merge window selected ${selected.length} cells (${mb(selected)} MB) — capped to ${cells.length} (${mb(cells)} MB) by window coverage`,
+        );
+        crumb('enc:merge-trim', `${selected.length}→${cells.length}cells,${mb(cells)}MB`);
     }
     const pendingCells = allPendingCells.filter(selectForWindow);
     // Pending entries exist solely to bootstrap an authenticated cloud fetch.
@@ -1130,7 +1162,12 @@ export async function getMergedVectorData(
         crumb('enc:merge-join', `${cells.length}cells`);
         return inflight;
     }
-    crumb('enc:merge-start', `${cells.length}cells`);
+    // MB in the info because the 2026-08-10 death proved cells alone mislead:
+    // a trail full of ≤14-cell merges looked bounded while carrying 44.5 MB.
+    crumb(
+        'enc:merge-start',
+        `${cells.length}cells,${(cells.reduce((s, c) => s + (c.sizeBytes ?? 0), 0) / 1024 / 1024).toFixed(1)}MB`,
+    );
     const build = buildMergedVectorData(cells, cacheKey, densify, buildGlaze, zoom);
     setInflightMerge(cacheKey, build);
     try {
