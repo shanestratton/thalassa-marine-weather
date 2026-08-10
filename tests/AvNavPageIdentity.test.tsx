@@ -51,7 +51,15 @@ vi.mock('../services/NmeaStore', () => ({
     NmeaStore: { start: vi.fn() },
 }));
 vi.mock('../services/PiCacheService', () => ({
-    piCache: { configure: vi.fn() },
+    piCache: {
+        configure: vi.fn(),
+        onStatusChange: vi.fn(() => vi.fn()),
+        getStatus: vi.fn(() => ({ reachable: false, lastCheck: 0, latencyMs: 0 })),
+        fetchRemoteAccessStatus: vi.fn(async () => null),
+        enableRemoteAccess: vi.fn(async () => null),
+        disableRemoteAccess: vi.fn(async () => null),
+        viaRemoteAccess: false,
+    },
 }));
 vi.mock('../stores/settingsStore', () => ({
     useSettingsStore: { getState: () => ({ updateSettings: vi.fn() }) },

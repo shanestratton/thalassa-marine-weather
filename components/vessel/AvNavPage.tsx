@@ -17,6 +17,7 @@ import { LocationStore } from '../../stores/LocationStore';
 import { triggerHaptic } from '../../utils/system';
 import { PageHeader } from '../ui/PageHeader';
 import { EncCellManager } from './EncCellManager';
+import { RemoteAccessSection } from '../settings/RemoteAccessSection';
 import {
     getAuthIdentityScope,
     isAuthIdentityScopeCurrent,
@@ -614,6 +615,11 @@ const AvNavPageDevelopment: React.FC<AvNavPageProps> = ({ onBack }) => {
                     routing engine and was previously buried under ~300
                     lines of raster-chart-downloader UI. */}
                 <EncCellManager />
+
+                {/* ═══ REMOTE ACCESS (Tailscale) ═══
+                    Shared card with Settings → Boat Network; self-gating,
+                    renders only while the Pi is reachable. */}
+                <RemoteAccessSection />
             </div>
         </div>
     );
