@@ -312,6 +312,18 @@ app.post('/api/configure', requireUnsafeAdmin, (req, res) => {
             envLines.push(piEnvironmentLine('PREFETCH_RADIUS', nextRadius, 32));
             envLines.push(piEnvironmentLine('PREFETCH_INTERVAL', nextInterval, 32));
         }
+        // Operator-owned THALASSA_* flags (LAN bind, admin/app API opt-ins,
+        // CORS origins) are process-startup authority, exactly like
+        // SUPABASE_URL — a config push must carry them forward, never drop
+        // them. Dropping them is how the 2026-08-11 redeploy came back
+        // loopback-only with the admin API off: an earlier push had rewritten
+        // .env without the flags, and the long-running process's in-memory
+        // copy masked the loss until the next restart re-read the file.
+        for (const [name, value] of Object.entries(process.env)) {
+            if (name.startsWith('THALASSA_') && value !== undefined) {
+                envLines.push(piEnvironmentLine(name, value, 2_048));
+            }
+        }
         envContents = `${envLines.join('\n')}\n`;
     } catch (error) {
         const message = error instanceof Error ? error.message : 'Configuration cannot be persisted safely';
