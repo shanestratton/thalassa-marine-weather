@@ -46,7 +46,36 @@ const MAX_ENTRIES = 4;
  * geometry we have panned away from and will not come back to soon.
  */
 const cellSets = new Map<string, ReadonlySet<string>>();
+/** Text bytes per cell id, recorded as merges land. Sizes are stable per
+ *  registry version, so last-write-wins is fine. */
+const cellBytes = new Map<string, number>();
 const inflight = new Map<string, Promise<EncMergedVectorData | null>>();
+
+/**
+ * The most TEXT BYTES the cached merges may pin between them (union over
+ * their cell sets — shared cells count once).
+ *
+ * Added 2026-08-10, the round that outlived every other bound: with merges
+ * capped at 32 MB, serialized one-at-a-time, and grids byte-budgeted, the
+ * renderer still died at a routine merge-start with the census reading
+ * "4 merges pinning 25 cells". The overlap eviction below keeps any merge
+ * sharing ≥1 cell with the newest — and adjacent coastal windows ALWAYS
+ * share a boundary cell, so a plotting run chains partial overlaps straight
+ * past the policy: each survivor pins ~13 NEW cells. 25 pinned cells is
+ * ~50 MB of text, roughly 150 MB parsed, held by reference and invisible
+ * to every other budget. 48 MB (the blob LRU's own cap) keeps the newest
+ * merge plus a genuinely-overlapping neighbour and nothing more.
+ */
+const MAX_PINNED_TEXT_BYTES = 48 * 1024 * 1024;
+
+/** Union text bytes pinned by the cached merges (shared cells count once). */
+export function mergedPinnedBytes(): number {
+    const union = new Set<string>();
+    for (const cells of cellSets.values()) for (const id of cells) union.add(id);
+    let total = 0;
+    for (const id of union) total += cellBytes.get(id) ?? 0;
+    return total;
+}
 
 /** The cached merge for a key, or undefined. Returns the LIVE object — the
  *  worker upgrade mutates it in place. */
@@ -98,17 +127,38 @@ export function planMergeEviction(
 }
 
 /**
- * Store a merge. `cellIds` are the cells whose geometry this merge PINS —
+ * Store a merge. `cells` are the cells whose geometry this merge PINS —
  * see the cellSets note above; without them eviction cannot tell a cheap
- * zoom excursion from an expensive pan.
+ * zoom excursion from an expensive pan. `sizeBytes` (text bytes per cell,
+ * where known) feeds the pinned-byte budget; a merge stored without sizes
+ * weighs zero, which only ever under-evicts back to the pre-budget world.
  */
-export function putMergedData(key: string, merged: EncMergedVectorData, cellIds?: readonly string[]): void {
+export function putMergedData(
+    key: string,
+    merged: EncMergedVectorData,
+    cells?: readonly { id: string; sizeBytes?: number }[],
+): void {
     cache.set(key, merged);
-    if (cellIds) cellSets.set(key, new Set(cellIds));
+    if (cells) {
+        cellSets.set(key, new Set(cells.map((c) => c.id)));
+        for (const c of cells) if (c.sizeBytes != null) cellBytes.set(c.id, c.sizeBytes);
+    }
 
     for (const dead of planMergeEviction([...cache.keys()], (k) => cellSets.get(k), key)) {
         cache.delete(dead);
         cellSets.delete(dead);
+    }
+
+    // Byte budget on whatever the overlap policy kept: chained partial
+    // overlaps let a plotting run keep 4 merges over mostly-different water
+    // (the 2026-08-10 census: 25 distinct pinned cells). Drop the OLDEST
+    // surviving merges — never the one that just landed — until the union
+    // of pinned text fits the budget.
+    while (cache.size > 1 && mergedPinnedBytes() > MAX_PINNED_TEXT_BYTES) {
+        const oldest = cache.keys().next().value;
+        if (oldest === undefined || oldest === key) break;
+        cache.delete(oldest);
+        cellSets.delete(oldest);
     }
 }
 
@@ -116,6 +166,9 @@ export function putMergedData(key: string, merged: EncMergedVectorData, cellIds?
 export function clearMergedData(): void {
     cache.clear();
     cellSets.clear();
+    // Sizes are only stable within a registry version, and this is called on
+    // the version change.
+    cellBytes.clear();
 }
 
 /** The in-flight build promise for a key, or undefined (single-flight). */
