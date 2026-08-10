@@ -227,6 +227,24 @@ systemctl daemon-reload >/dev/null 2>&1
 systemctl enable thalassa-cache >/dev/null 2>&1
 systemctl restart thalassa-cache >/dev/null 2>&1
 
+# ── Tailscale (installed idle — remote access is enabled from the app) ──
+# The punter never touches this: the paired Thalassa app drives
+# /api/remote-access, which runs `tailscale up` and hands the sign-in URL
+# back to the phone. We only pre-install the daemon and grant the service
+# user operator rights so that flow works unprivileged. Non-fatal when the
+# install is running offline — the endpoint reports 'not-installed' and the
+# app explains.
+if ! command -v tailscale &>/dev/null; then
+    echo -e "  Installing tailscale (idle until enabled from the app)..."
+    curl -fsSL https://tailscale.com/install.sh | sh >/dev/null 2>&1 || \
+        echo -e "  ${YELLOW}⚠ tailscale install skipped (offline?) — remote access unavailable until installed${NC}"
+fi
+if command -v tailscale &>/dev/null; then
+    systemctl enable --now tailscaled >/dev/null 2>&1 || true
+    # Let the unprivileged service user drive `tailscale up/down`.
+    tailscale set --operator="${REAL_USER}" >/dev/null 2>&1 || true
+fi
+
 # ── Publish mDNS only after explicit LAN opt-in ──
 # Do not advertise a loopback-only service to the boat LAN.
 

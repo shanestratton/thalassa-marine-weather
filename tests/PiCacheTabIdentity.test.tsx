@@ -39,6 +39,10 @@ vi.mock('../services/PiCacheService', () => ({
         discover: vi.fn(async () => mocks.status),
         pushConfig: vi.fn(async () => true),
         adoptPairing: vi.fn(),
+        fetchRemoteAccessStatus: vi.fn(async () => null),
+        enableRemoteAccess: vi.fn(async () => null),
+        disableRemoteAccess: vi.fn(async () => null),
+        viaRemoteAccess: false,
     },
 }));
 
