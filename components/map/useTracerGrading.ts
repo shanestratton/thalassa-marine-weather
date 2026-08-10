@@ -57,6 +57,7 @@ import {
     type TraceLegVerdict,
 } from '../../services/routeTracer';
 import { legCacheKey, TRACE_CLUSTER_SPAN_M } from './mapHubHelpers';
+import { heapTag } from '../../utils/heapGauge';
 import { vesselDraftMetres, vesselDraftIsAssumed } from '../../services/units';
 import { getVersion as getEncRegistryVersion } from '../../services/enc/EncCellMetadata';
 import { createLogger } from '../../utils/createLogger';
@@ -451,6 +452,11 @@ export function useTracerGrading(deps: TracerGradingDeps): void {
                 }
                 foldReadyLegs();
                 publish();
+                // Kill #32 fell in a crumb-less gap: last crumb ctx-ready,
+                // death ~10 s later during this very loop, and nothing to say
+                // which allocation rode the heap up. Grade end + real heap so
+                // the next trail names the phase instead of ending at ready.
+                crumb('tracer:grade-done', `${cluster.length}legs${heapTag()}`);
                 // Bank after EVERY cluster, not only at the end of the pass.
                 // The 2026-08-10 desktop trail died at the final ctx-ready of
                 // a ~20-window cold pass — before the end-of-pass persist — so

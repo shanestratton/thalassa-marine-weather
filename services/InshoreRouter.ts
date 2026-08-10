@@ -46,6 +46,8 @@ import { loadCellGeoJSON } from './enc/EncCellStore';
 import { routeInshore, type InshoreLayers } from './inshoreRouterEngine';
 import type { ShallowRunInfo } from './engine/types';
 import { shadowingCells, featureIsShadowed, stampScaleRank } from './enc/scaleShadow';
+import { capCellsForMerge } from './enc/mergeCap';
+import { crumb } from '../utils/flightRecorder';
 import { shadowCompare, shadowSummary } from './seaway/seawayRouter';
 import { piCache } from './PiCacheService';
 import { fetchVerifiedFromPi, routeRequestBinding } from './PiPairingService';
@@ -3445,7 +3447,20 @@ export interface TracerLayerBundle {
  */
 export async function assembleTracerLayers(bbox: [number, number, number, number]): Promise<TracerLayerBundle | null> {
     const [minLon, minLat, maxLon, maxLat] = bbox;
-    const candidateCells = cellsForBBox(bbox);
+    // Same count+byte bound the map merge has had since kill #23. This path
+    // never got it: cellsForBBox is an uncapped intersection filter, so a
+    // large padded window on the dense AU coast (kill #32: 27 km, the same
+    // shore where the map path trimmed 65→14 cells) loaded EVERY blob into
+    // one merged bundle, then structured-cloned the lot into the navGrid
+    // worker — an unbounded transient landing exactly where the trail went
+    // blind. Coverage-ranked capping drops window-corner slivers first, and
+    // anything a dropped cell leaves unprobed reads 'uncharted' → the leg
+    // carries "no charted depth for part of this leg", never a false green.
+    const allCandidates = cellsForBBox(bbox);
+    const candidateCells = capCellsForMerge(allCandidates, bbox);
+    if (candidateCells.length < allCandidates.length) {
+        crumb('tracer:cells-trim', `${allCandidates.length}→${candidateCells.length}cells`);
+    }
     if (candidateCells.length === 0) return null;
 
     const merged: InshoreLayers = {
