@@ -60,6 +60,7 @@ import { legCacheKey, TRACE_CLUSTER_SPAN_M } from './mapHubHelpers';
 import { vesselDraftMetres, vesselDraftIsAssumed } from '../../services/units';
 import { getVersion as getEncRegistryVersion } from '../../services/enc/EncCellMetadata';
 import { createLogger } from '../../utils/createLogger';
+import { crumb } from '../../utils/flightRecorder';
 import type { TraceCheckStatus } from '../../services/traceVerification';
 
 const log = createLogger('MapHub');
@@ -362,6 +363,13 @@ export function useTracerGrading(deps: TracerGradingDeps): void {
                 // grid-less (marks-only) ctx is NEVER reused: its huge bbox
                 // would stamp every short leg inside it "depth unchecked".
                 let ctx = tracerCtxFromLru(pts);
+                if (ctx) {
+                    // Crumbed so a trail SHOWS reuse working. The 2026-08-10
+                    // fatal trail was the opposite: 18 ctx builds in 62 s with
+                    // the same piece windows built up to four times each, and
+                    // not one reuse between them.
+                    crumb('tracer:ctx-reuse', `${cluster.length}legs`);
+                }
                 if (!ctx) {
                     setTracerStatus('loading');
                     try {
@@ -369,24 +377,26 @@ export function useTracerGrading(deps: TracerGradingDeps): void {
                         if (seq !== tracerSeqRef.current) return;
                         if (built.status === 'ready') {
                             ctx = built.ctx;
-                            // Two reasons NOT to hold this window.
+                            // Hold EVERY grid-bearing window — pieces included —
+                            // unless gate marks are missing (holding a gate-less
+                            // window would let one network blip strip gate
+                            // checking from every later cluster that reuses it).
                             //
-                            // 1. Gate marks missing: holding it would let one
-                            //    network blip strip gate checking from every
-                            //    later cluster that reuses it, turning a
-                            //    transient failure into a session-long one.
-                            // 2. It only covers PIECES of a subdivided leg. Each
-                            //    piece has its own window by construction and the
-                            //    next piece is a different patch of water, so a
-                            //    hold almost never hits — while a held grid runs
-                            //    to ~40 MB over dense charts (the LRU is
-                            //    byte-budgeted for exactly that reason).
-                            //    Subdividing turned one grid-LESS window into N
-                            //    grid-bearing ones, on a surface with a
-                            //    documented jetsam history; there is no reason to
-                            //    keep those alive past their one use.
-                            const holdsAWholeLeg = cluster.some((l) => l.key === l.parentKey);
-                            if (!built.ctx.gateChecksUnavailable && holdsAWholeLeg) tracerCtxHold(built.ctx);
+                            // Piece windows were deliberately NOT held before
+                            // 2026-08-10, on the theory that "a hold almost
+                            // never hits" — and the fatal trail disproved it:
+                            // a passage-scale route (every leg over the depth-
+                            // grid span, so every window a piece window) built
+                            // 18 contexts in 62 seconds, the same piece windows
+                            // up to FOUR times each as volatile verdicts
+                            // re-graded, ~19 MB of grid and a full layer clone
+                            // into the worker per build, and the renderer died
+                            // mid-build. The memory objection to holding is
+                            // gone: the LRU is bounded by MEASURED bytes
+                            // (holdTracerCtx), so holding pieces costs at most
+                            // the budget while turning every re-pass into a
+                            // cache hit.
+                            if (!built.ctx.gateChecksUnavailable) tracerCtxHold(built.ctx);
                         } else if (built.status === 'marksonly') {
                             // One genuinely long leg — grade marks with this
                             // ctx but DON'T hold it: a grid-less window must
