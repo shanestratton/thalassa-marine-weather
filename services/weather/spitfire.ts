@@ -50,7 +50,26 @@ const ARTIFACT_URL = 'https://pcisdplnodrphauixcau.supabase.co/storage/v1/object
  *              both fitted on the earlier half and validated on the later. The
  *              blend beats every individual member there at every lead time.
  *
- * Both are checked against the artifact at fetch time, so a slug listed here
+ * yeppoon    — added 2026-08-10, the Townsville pattern replicated: wind
+ *              sampled 15 km offshore at the AIMS Square Rocks station, 9,862
+ *              paired hours over 410 days (effective N 282, 8 wind sectors),
+ *              per-model corrections (coarse members read ~2x low over the
+ *              water here), measured gust factors AND site weights — the only
+ *              site besides Townsville to earn all three.
+ *
+ * hardy-reef — added 2026-08-10. The cell IS water (Reefworld, outer reef);
+ *              9,858 paired hours. Models are nearly unbiased in open water,
+ *              so the corrections are mild (1.08-1.13) and site weights were
+ *              honestly withheld (1.5% < the 5% margin) — global weights,
+ *              disclosed as such in the artifact.
+ *
+ * heron-island — added 2026-08-10 on 4,450 paired hours of verification that
+ *              found NOTHING to fix: every member's correction was rejected
+ *              for lack of skill because raw already beats corrected (blend
+ *              raw MAE 1.62 kt — the best of any site). Measured-and-left-raw
+ *              is measured; Corfu remains excluded because there nothing is.
+ *
+ * All are checked against the artifact at fetch time, so a slug listed here
  * without a published consensus degrades to null rather than throwing.
  */
 export const SPITFIRE_LOCATIONS: { slug: string; name: string; lat: number; lon: number }[] = [
@@ -60,6 +79,12 @@ export const SPITFIRE_LOCATIONS: { slug: string; name: string; lat: number; lon:
     // the slug and its coordinates stay the town's — a marine sample must never
     // be relabelled as somewhere it was not taken.
     { slug: 'townsville', name: 'Townsville QLD', lat: -19.26, lon: 146.82 },
+    // Town coordinate again; wind sampled at AIMS Square Rocks (-23.0986,
+    // 150.8855). The 25 km radius reaches Great Keppel and Rosslyn Bay.
+    { slug: 'yeppoon', name: 'Yeppoon QLD', lat: -23.13, lon: 150.74 },
+    // These two ARE the sample point — reef cells with no town to defer to.
+    { slug: 'hardy-reef', name: 'Hardy Reef', lat: -19.7459, lon: 149.1826 },
+    { slug: 'heron-island', name: 'Heron Island', lat: -23.4588, lon: 151.9299 },
 ];
 
 /** How close the boat must be for the blend to describe its weather. The

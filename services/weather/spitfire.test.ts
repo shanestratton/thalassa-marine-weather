@@ -36,6 +36,31 @@ describe('spitfire availability', () => {
         expect(isSpitfireAvailableAt(39.62, 19.92)).toBe(false);
     });
 
+    // The 2026-08-10 expansion: three sites promoted on AIMS station evidence.
+    it('covers Yeppoon — Square Rocks corrections, gust factors and site weights', () => {
+        expect(spitfireLocationFor(-23.13, 150.74)?.slug).toBe('yeppoon');
+    });
+
+    it('covers a boat at Great Keppel Island, inside the Yeppoon radius', () => {
+        expect(spitfireLocationFor(-23.18, 150.96)?.slug).toBe('yeppoon');
+    });
+
+    it('covers Hardy Reef — the cell is the water the models were scored on', () => {
+        expect(spitfireLocationFor(-19.7459, 149.1826)?.slug).toBe('hardy-reef');
+    });
+
+    it('covers Heron Island — measured and honestly left raw', () => {
+        expect(spitfireLocationFor(-23.4588, 151.9299)?.slug).toBe('heron-island');
+    });
+
+    // Deliberate: Hardy Reef's truth is 75 km from the Whitsundays sailing
+    // grounds. Offering its outer-reef blend at Airlie would relabel a marine
+    // sample as somewhere it was not taken — the same rule that keeps
+    // Townsville's slug at the town.
+    it('does NOT cover Airlie Beach — Hardy Reef is 75 km away at the outer reef', () => {
+        expect(isSpitfireAvailableAt(-20.27, 148.72)).toBe(false);
+    });
+
     it('does NOT cover Mackay — 250 km from Townsville, outside the radius', () => {
         expect(isSpitfireAvailableAt(-21.14, 149.19)).toBe(false);
     });
