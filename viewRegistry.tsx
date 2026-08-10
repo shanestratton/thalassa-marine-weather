@@ -105,7 +105,16 @@ const CalypsoParkedPage: React.FC<{ onBack: () => void }> = ({ onBack }) => (
     </div>
 );
 const BosunConsolePage = FEATURE_VISIBILITY.calypsoConsole ? LiveBosunConsolePage : CalypsoParkedPage;
-const MusicPageView: React.FC<{ onBack: () => void }> = ({ onBack }) => (
+// RELEASED 2026-08-10: the MusicKit capability is live on the App ID and the
+// flag is on, so the real page ships. The held placeholder below stays in the
+// source deliberately — it is the OFF branch if the flag ever goes back, and
+// the beta-readiness gate requires both surfaces to exist so the flip is
+// always a one-line profile change, never a rewiring.
+const LiveMusicPage = lazyRetry(
+    () => import('./components/music/MusicPage').then((m) => ({ default: m.MusicPage })),
+    'MusicPage',
+);
+const HeldMusicPage: React.FC<{ onBack: () => void }> = ({ onBack }) => (
     <div className="mx-auto max-w-2xl p-5 sm:p-8" role="status">
         <div className="rounded-2xl border border-amber-400/25 bg-amber-500/10 p-6 text-center">
             <h2 className="text-lg font-bold text-white">Apple Music unavailable in public beta</h2>
@@ -123,6 +132,9 @@ const MusicPageView: React.FC<{ onBack: () => void }> = ({ onBack }) => (
         </div>
     </div>
 );
+// The flag is a build-time constant, so the untaken branch tree-shakes out of
+// the bundle exactly as the old hand-excised versions did.
+const MusicPageView = FEATURE_VISIBILITY.appleMusic ? LiveMusicPage : HeldMusicPage;
 const LogPage = lazyRetry(() => import('./pages/LogPage').then((m) => ({ default: m.LogPage })), 'LogPage');
 const DiaryPage = lazyRetry(
     () => import('./components/DiaryPage').then((m) => ({ default: m.DiaryPage })),

@@ -551,10 +551,15 @@ describe('public-beta release gate contract', () => {
         expect(orchestrator).toContain('Apple Music controls are unavailable in this public beta');
         expect(orchestrator).not.toContain('Apple Music tools are available whenever');
         expect(terms).toContain('disabled in this public-beta candidate');
-        expect(project).not.toContain('AppleMusicPlugin.m in Sources');
-        expect(project).not.toContain('AppleMusicPlugin.swift in Sources');
-        expect(bridge).not.toContain('AppleMusicPlugin');
-        expect(info).not.toContain('NSAppleMusicUsageDescription');
+        // RELEASED 2026-08-10: the MusicKit capability is live, so the native
+        // surfaces are WIRED and the contract flips direction — the readiness
+        // gate's agreement check ('flag=on, wired=no' fails the build) now
+        // guards the pairing. The held-branch strings above stay asserted:
+        // they are the OFF branch a future re-hold flips back to.
+        expect(project).toContain('AppleMusicPlugin.m in Sources');
+        expect(project).toContain('AppleMusicPlugin.swift in Sources');
+        expect(bridge).toContain('bridge?.registerPluginInstance(AppleMusicPlugin())');
+        expect(info).toContain('NSAppleMusicUsageDescription');
 
         expect(existsSync(join(root, 'types/capacitor-udp.d.ts'))).toBe(false);
         expect(podfile).not.toContain('FrontallCapacitorUdp');

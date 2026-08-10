@@ -143,6 +143,7 @@ public class ThalassaBridgeViewController: CAPBridgeViewController {
         bridge?.registerPluginInstance(LightningPlugin())
         bridge?.registerPluginInstance(MdnsBrowserPlugin())
         bridge?.registerPluginInstance(WatchConnectivityPlugin())
+        bridge?.registerPluginInstance(AppleMusicPlugin())
         bridge?.registerPluginInstance(AppleCredentialStatePlugin())
         bridge?.registerPluginInstance(SecureStoragePlugin())
         bridge?.registerPluginInstance(AnchorWatchStoragePlugin())

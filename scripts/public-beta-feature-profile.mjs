@@ -38,7 +38,9 @@ export const PUBLIC_BETA_HELD_CAPABILITIES = Object.freeze([
     'enc-demo-samples',
     'private-weather-server',
     'community-precise-track-sharing',
-    'musickit',
+    // 'musickit' RELEASED 2026-08-10: MusicKit App Service enabled on the App
+    // ID, NSAppleMusicUsageDescription shipped, native AppleMusicPlugin wired.
+    // The flag agreement gate in check-beta-readiness now governs it.
     'aishub-contribution',
     'retired-public-float-plan',
     // Calypso's conversational console, parked 2026-08-09: it mishears often
