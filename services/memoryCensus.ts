@@ -83,6 +83,17 @@ export interface MemoryCensus {
     peakDomNodes: number;
     peakCanvases: number;
 
+    /**
+     * ACTUAL JS heap, from Chrome's `performance.memory` (2026-08-10, kill
+     * #23). Every counted cache read healthy at the moment of that death —
+     * this is the first field that measures the PROCESS rather than our own
+     * bookkeeping. Null where the browser doesn't expose the gauge (iOS
+     * WKWebView), so a missing reading is "couldn't measure", never "zero".
+     */
+    heapUsedMB: number | null;
+    heapLimitMB: number | null;
+    peakHeapUsedMB: number | null;
+
     /** Live <canvas> elements — 'map' means Mapbox GL, which means WebGL. */
     canvases: number;
     /**
@@ -135,7 +146,7 @@ let timer: ReturnType<typeof setTimeout> | null = null;
 let plotting = false;
 const bootAt = Date.now();
 let glContextLost = false;
-const peaks = { encTextMB: 0, pinnedCells: 0, domNodes: 0, canvases: 0, glLive: 0 };
+const peaks = { encTextMB: 0, pinnedCells: 0, domNodes: 0, canvases: 0, glLive: 0, heapUsedMB: 0 };
 
 /** WebGL contexts created since boot, and weak handles to their canvases. */
 let glCreated = 0;
@@ -237,6 +248,9 @@ export async function takeCensus(now = Date.now()): Promise<MemoryCensus> {
         peakPinnedCells: 0,
         peakDomNodes: 0,
         peakCanvases: 0,
+        heapUsedMB: null,
+        heapLimitMB: null,
+        peakHeapUsedMB: null,
         canvases: 0,
         glCreated,
         glRefused,
@@ -280,6 +294,19 @@ export async function takeCensus(now = Date.now()): Promise<MemoryCensus> {
         census.canvases = document.getElementsByTagName('canvas').length;
     } catch {
         /* leave at zero */
+    }
+
+    try {
+        const { heapMB } = await import('../utils/heapGauge');
+        const h = heapMB();
+        if (h) {
+            census.heapUsedMB = h.used;
+            census.heapLimitMB = h.limit;
+            peaks.heapUsedMB = Math.max(peaks.heapUsedMB, h.used);
+            census.peakHeapUsedMB = peaks.heapUsedMB;
+        }
+    } catch {
+        /* leave at null */
     }
 
     peaks.encTextMB = Math.max(peaks.encTextMB, census.encTextMB);
@@ -326,6 +353,9 @@ export function describeCensus(c: MemoryCensus): string {
     return (
         `${age}s before the end, ${uptime} into that session, on '${c.view ?? 'unknown'}'` +
         `${c.plotting ? ' (plotting)' : ''}${c.glContextLost ? ' [WEBGL CONTEXT WAS LOST]' : ''}: ` +
+        // Real heap first — the one number that measures the process, not our
+        // caches. "heap ?" means the browser doesn't expose the gauge.
+        `heap ${c.heapUsedMB ?? '?'}${c.heapUsedMB != null ? `/${c.heapLimitMB}MB (peak ${c.peakHeapUsedMB})` : ''}, ` +
         `ENC ${c.encCells} cells/${c.encTextMB}MB text (peak ${c.peakEncTextMB ?? 0}MB), ` +
         `${c.merges} merges pinning ${c.pinnedCells} cells (peak ${c.peakPinnedCells ?? 0}), ` +
         `glaze ${c.glaze}, contours ${c.contours}, indexes ${c.indexes}, ` +
