@@ -12,6 +12,7 @@
  */
 
 import { createLogger } from '../utils/createLogger';
+import { looksGzipped, sniffImageMime } from '../utils/imageBytes';
 import { Filesystem, Directory } from '@capacitor/filesystem';
 import initSqlJs, { type Database, type SqlJsStatic } from 'sql.js';
 
@@ -227,14 +228,15 @@ class MBTilesServiceImpl {
         if (!tileData) return null;
 
         const metadata = this.chartInfo.get(fileName)?.metadata;
-        const mimeType =
-            metadata?.format === 'jpg' || metadata?.format === 'jpeg'
-                ? 'image/jpeg'
-                : metadata?.format === 'webp'
-                  ? 'image/webp'
-                  : metadata?.format === 'pbf'
-                    ? 'application/x-protobuf'
-                    : 'image/png';
+        // Prefer the SNIFFED type over chart metadata: a corrupt/foreign row
+        // in a user-imported .mbtiles labelled webp went straight into the GL
+        // image decoder (decoder faults on beta WebKit are renderer kills).
+        // Unrecognised raster bytes return null so useMapInit's transparent
+        // fallback tile is used instead of a decode attempt.
+        const declaredPbf = metadata?.format === 'pbf';
+        const sniffed = sniffImageMime(tileData);
+        const mimeType = sniffed ?? (declaredPbf || looksGzipped(tileData) ? 'application/x-protobuf' : null);
+        if (!mimeType) return null;
 
         const blob = new Blob([tileData.buffer as ArrayBuffer], { type: mimeType });
         const url = URL.createObjectURL(blob);

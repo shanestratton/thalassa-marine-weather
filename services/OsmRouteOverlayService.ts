@@ -21,6 +21,7 @@ import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
 import { pinnedPiRequest } from './PiPairingService';
 import { piCache } from './PiCacheService';
 import { createLogger } from '../utils/createLogger';
+import { pruneMap } from '../utils/boundedMap';
 
 const log = createLogger('OsmRouteOverlay');
 
@@ -102,6 +103,13 @@ interface MemCacheEntry {
     data: OsmRouteOverlay;
 }
 const memCache = new Map<string, MemCacheEntry>();
+/** Cap ~4 bboxes: each entry is a multi-MB Overpass FeatureCollection set,
+ *  and every distinct route area used to pin one for the whole session. */
+const MEM_CACHE_MAX = 4;
+function rememberOverlay(key: string, data: OsmRouteOverlay): void {
+    memCache.set(key, { ts: Date.now(), data });
+    pruneMap(memCache, MEM_CACHE_MAX, (entry) => Date.now() - entry.ts >= MEM_CACHE_TTL_MS);
+}
 
 function bboxKey(bbox: [number, number, number, number]): string {
     const r = (n: number): string => (Math.round(n * 100) / 100).toFixed(2);
@@ -131,14 +139,14 @@ export async function getOsmRouteOverlay(bbox: [number, number, number, number])
         const cloud = await fetchOverlayFromCloud(bbox);
         if (cloud) {
             log.warn(`Pi not reachable — CLOUD overlay for bbox ${key}`);
-            memCache.set(key, { ts: Date.now(), data: cloud });
+            rememberOverlay(key, cloud);
             void writeOverlayToDisk(key, cloud);
             return cloud;
         }
         const disk = await readOverlayFromDisk(key);
         if (disk) {
             log.warn(`Pi not reachable — serving DISK overlay for bbox ${key}`);
-            memCache.set(key, { ts: Date.now(), data: disk });
+            rememberOverlay(key, disk);
             return disk;
         }
         log.warn('Pi not reachable, no cloud/disk copy — OSM overlay empty (router will fall back to chart-only)');
@@ -179,7 +187,7 @@ export async function getOsmRouteOverlay(bbox: [number, number, number, number])
         };
         const counts = `water=${data.water.features.length} reef=${data.reef.features.length} coast=${data.coastline.features.length} marina=${data.marina.features.length} bw=${data.breakwater.features.length} aeroway=${data.aeroway.features.length} canalLines=${data.canalLines.features.length} navLines=${data.navLines.features.length} berths=${data.berths.features.length}`;
         log.warn(`OSM overlay fetched in ${Date.now() - t0}ms — ${counts}`);
-        memCache.set(key, { ts: Date.now(), data });
+        rememberOverlay(key, data);
         void writeOverlayToDisk(key, data); // fire-and-forget — next offline launch has it
         return data;
     } catch (err) {
@@ -190,14 +198,14 @@ export async function getOsmRouteOverlay(bbox: [number, number, number, number])
         // dropout must not degrade an area we have served before.
         const cloud = await fetchOverlayFromCloud(bbox);
         if (cloud) {
-            memCache.set(key, { ts: Date.now(), data: cloud });
+            rememberOverlay(key, cloud);
             void writeOverlayToDisk(key, cloud);
             return cloud;
         }
         const disk = await readOverlayFromDisk(key);
         if (disk) {
             log.warn(`fetch failed — serving DISK overlay for bbox ${key}`);
-            memCache.set(key, { ts: Date.now(), data: disk });
+            rememberOverlay(key, disk);
             return disk;
         }
         return emptyOverlay();

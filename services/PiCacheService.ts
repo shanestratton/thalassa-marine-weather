@@ -1220,6 +1220,7 @@ class PiCacheServiceImpl {
     // /status STILL says supabaseConfigured: false. Without a debounce
     // we'd push every 30s forever.)
     private _lastReconcileAttemptAt = 0;
+    private _sessionKeyAsserted = false;
     private static readonly RECONCILE_MIN_INTERVAL_MS = 5 * 60 * 1000;
 
     /**
@@ -1236,9 +1237,15 @@ class PiCacheServiceImpl {
      */
     private async autoReconcileConfigIfNeeded(): Promise<void> {
         if (!this.status.reachable) return;
-        // Only act when the Pi explicitly tells us it's missing creds.
-        // `undefined` (older Pi without this field) → don't push, let it be.
-        if (this.status.supabaseConfigured !== false) return;
+        // Push when the Pi explicitly reports missing creds — AND once per
+        // app session regardless. /status only reports that a key is
+        // PRESENT, not that it still passes the edge auth gate: a rotated
+        // anon key reported configured:true forever while every proxied
+        // route 502'd with "Upstream 401" (2026-08-04 tide log). The push is
+        // idempotent, so re-asserting the build's creds once per session
+        // self-heals key rot without a contract change.
+        if (this.status.supabaseConfigured !== false && this._sessionKeyAsserted) return;
+        this._sessionKeyAsserted = true;
 
         const now = Date.now();
         if (now - this._lastReconcileAttemptAt < PiCacheServiceImpl.RECONCILE_MIN_INTERVAL_MS) {

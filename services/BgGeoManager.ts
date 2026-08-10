@@ -896,6 +896,13 @@ class BgGeoManagerClass {
         // Location updates → cache + fan-out
         const locSub = BackgroundGeolocation.onLocation(
             (location) => {
+                // getCurrentPosition({samples:N}) deliveries arrive here too,
+                // flagged sample:true — intermediate radio warm-up fixes. They
+                // overwrote _lastPosition with low-quality positions and
+                // multiplied listener fan-out per on-demand call (the observed
+                // 6-events-in-100ms bridge bursts); the caller's own promise
+                // still resolves with the final fix.
+                if ((location as { sample?: boolean }).sample === true) return;
                 const cached = this._locationToCache(location);
                 this._lastPosition = cached;
                 this.locationListeners.forEach((cb) => {

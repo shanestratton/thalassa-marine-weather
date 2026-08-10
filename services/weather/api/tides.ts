@@ -1,6 +1,10 @@
 import { Tide, StormGlassTideData } from '../../../types';
 import { fetchWorldTides } from './worldtides';
 import { apiCacheGet, apiCacheSet } from '../apiCache';
+import { pruneMap } from '../../../utils/boundedMap';
+
+const TIDE_NEGATIVE_TTL_MS = 5 * 60 * 1000;
+const failedTideChainAt = new Map<string, number>();
 
 import { createLogger } from '../../../utils/createLogger';
 
@@ -29,6 +33,16 @@ export const fetchRealTides = async (
     const cached = apiCacheGet<{ tides: Tide[]; guiDetails?: TideGUIDetails }>('tides', lat, lon);
     if (cached) return cached;
 
+    // Negative cache: a failed chain (Pi 502, proxy down) must not be
+    // replayed by every consumer at trigger cadence — the 2026-08-04 device
+    // log showed the full pi-cache→Supabase chain re-fired per trigger with
+    // zero backoff for the whole session.
+    const negKey = `${lat.toFixed(2)},${lon.toFixed(2)}`;
+    const lastFail = failedTideChainAt.get(negKey);
+    if (lastFail !== undefined && Date.now() - lastFail < TIDE_NEGATIVE_TTL_MS) {
+        return { tides: [], guiDetails: undefined };
+    }
+
     try {
         const wtData = await fetchWorldTides(lat, lon, 14);
 
@@ -54,6 +68,7 @@ export const fetchRealTides = async (
 
             const result = { tides: mappedTides, guiDetails };
             apiCacheSet('tides', lat, lon, result);
+            failedTideChainAt.delete(negKey);
             return result;
         }
     } catch (err) {
@@ -62,6 +77,8 @@ export const fetchRealTides = async (
 
     // FALLBACK: Network Failure / No Data
     // Return empty so transformers.ts correctly classifies as INLAND/OFFSHORE.
+    failedTideChainAt.set(negKey, Date.now());
+    pruneMap(failedTideChainAt, 32);
     return { tides: [], guiDetails: undefined };
 };
 

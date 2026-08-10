@@ -525,13 +525,16 @@
 // v198: separate tiles encountered during ordinary chart browsing from tiles
 // deliberately downloaded through Offline Areas. The browsing cache is FIFO
 // bounded; the explicit offline-area cache remains durable and user-directed.
-const CACHE_NAME = 'thalassa-v198-core';
-const RUNTIME_TILE_CACHE = 'thalassa-v198-runtime-tiles';
+// v199 (2026-08-04): purge tile caches that predate the image content-type
+// guard — any 200-status junk cached earlier would replay into the decoder
+// forever. OFFLINE_TILE_CACHE is deliberately NOT bumped (user downloads).
+const CACHE_NAME = 'thalassa-v199-core';
+const RUNTIME_TILE_CACHE = 'thalassa-v199-runtime-tiles';
 // MapOfflineService writes explicit web downloads here. Do not prune it from
 // the service worker: doing so would silently punch holes in an offline area.
 const OFFLINE_TILE_CACHE = 'thalassa-v195-tiles';
 const DATA_CACHE = 'thalassa-v196-data';
-const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
+const LAN_TILE_CACHE = 'thalassa-v58-lan-tiles';
 
 const RUNTIME_TILE_LIMIT = 2000;
 const RUNTIME_TILE_PRUNE_EVERY = 64;
@@ -611,7 +614,11 @@ self.addEventListener('fetch', (event) => {
                     // Stale-while-revalidate: return cache immediately, refresh in background
                     const fetchPromise = fetch(event.request)
                         .then((networkResponse) => {
-                            if (networkResponse.ok) {
+                            // Only cache real images: a 200-status error page
+                            // cached here is replayed to the image decoder on
+                            // every future request for that tile, forever.
+                            const contentType = networkResponse.headers.get('content-type') || '';
+                            if (networkResponse.ok && contentType.startsWith('image/')) {
                                 event.waitUntil(
                                     cache
                                         .put(event.request, networkResponse.clone())
@@ -674,7 +681,11 @@ self.addEventListener('fetch', (event) => {
                             // Fetch and cache ordinary browsing tiles separately.
                             return fetch(event.request)
                                 .then((networkResponse) => {
-                                    if (networkResponse.ok) {
+                                    // Only cache real images — never a
+                                    // 200-status error body (durable replay
+                                    // into the decoder otherwise).
+                                    const tileType = networkResponse.headers.get('content-type') || '';
+                                    if (networkResponse.ok && tileType.startsWith('image/')) {
                                         event.waitUntil(
                                             putRuntimeTile(runtimeCache, event.request, networkResponse.clone()).catch(
                                                 (error) => console.warn('[SW] chart tile cache write failed', error),
@@ -790,7 +801,12 @@ self.addEventListener('fetch', (event) => {
             // waitUntil issued later (when the network reply lands) throws
             // InvalidStateError and the revalidation put silently never runs —
             // which is how an installed PWA kept serving a stale shell.
-            event.waitUntil(fetchPromise.then(() => undefined, () => undefined));
+            event.waitUntil(
+                fetchPromise.then(
+                    () => undefined,
+                    () => undefined,
+                ),
+            );
             return cachedResponse || fetchPromise;
         }),
     );

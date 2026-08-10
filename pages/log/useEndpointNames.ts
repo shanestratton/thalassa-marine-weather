@@ -17,6 +17,7 @@
  * shows names the app resolved earlier in the session.
  */
 import { useEffect, useState } from 'react';
+import { pruneMap } from '../../utils/boundedMap';
 import { createLogger } from '../../utils/createLogger';
 
 const log = createLogger('useEndpointNames');
@@ -32,6 +33,8 @@ type UsableEndpointCoord = { latitude: number; longitude: number };
 const key = (lat: number, lon: number) => `${lat.toFixed(4)},${lon.toFixed(4)}`;
 const placeCache = new Map<string, string | null>();
 const inflight = new Map<string, Promise<string | null>>();
+/** 11 m keys mean a jittering live position mints keys forever — cap it. */
+const PLACE_CACHE_MAX = 300;
 
 /**
  * Resolve one position to a short local place name, or null.
@@ -92,6 +95,7 @@ export async function reverseGeocodePlace(lat: number, lon: number): Promise<str
     try {
         const name = await job;
         placeCache.set(k, name);
+        pruneMap(placeCache, PLACE_CACHE_MAX);
         return name;
     } finally {
         inflight.delete(k);

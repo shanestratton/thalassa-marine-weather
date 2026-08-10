@@ -384,6 +384,11 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
     const [passageStatusLoading, setPassageStatusLoading] = useState(true);
     const passageSelectionVersion = useRef(0);
     const dropdownReloadVersion = useRef(0);
+    // ETA-backfill writes are capped at one attempt per row per mount: the
+    // 5-minute departure-slot clamp makes the derived schedule a moving
+    // target for past departures, and per-reload retries turned that into
+    // steady background PATCH traffic.
+    const etaBackfillPatchedRef = useRef<Set<string>>(new Set());
     const departureUpdateVersion = useRef(0);
     const dataLoadVersion = useRef(0);
     const editLoadVersion = useRef(0);
@@ -1254,6 +1259,8 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                 });
                 if (!schedule.eta || (row.eta === schedule.eta && row.departure_time === schedule.departureTime))
                     continue;
+                if (etaBackfillPatchedRef.current.has(row.id)) continue;
+                etaBackfillPatchedRef.current.add(row.id);
                 const patch =
                     row.departure_time === schedule.departureTime
                         ? { eta: schedule.eta }

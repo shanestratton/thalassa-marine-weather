@@ -1181,22 +1181,14 @@ class AvNavServiceClass {
             return;
         }
 
-        // Fallback: create a generic tile source on the configured port
-        const tileBaseUrl = IS_DEV ? `/__chart-proxy/${hostName}/${configuredPort}` : directUrl;
-        this.charts = [
-            {
-                id: 'avnav-default',
-                name: 'AvNav Charts',
-                description: `Charts from ${hostName}:${configuredPort}`,
-                tilesUrl: `${tileBaseUrl}/tiles/{z}/{x}/{y}.png`,
-                format: 'png',
-                minZoom: 1,
-                maxZoom: 18,
-                type: 'raster',
-            },
-        ];
+        // NO phantom fallback source. Publishing a guessed
+        // `:{port}/tiles/{z}/{x}/{y}.png` template when ZERO charts validated
+        // pointed the map at whatever owns that port — its 404 HTML then went
+        // to the image decoder on every tile request (2026-08-04 audit).
+        // Consumers already handle an empty catalog.
+        this.charts = [];
         this.emitCharts();
-        await nativeLogAsync(`FALLBACK: no charts found on any port, using generic tile source`);
+        await nativeLogAsync(`FALLBACK: no charts validated on any port — publishing empty catalog`);
     }
 
     /**
@@ -1624,6 +1616,11 @@ class AvNavServiceClass {
         if (this.reconnectAttempts > 10) {
             log.info('Giving up after 10 reconnect attempts');
             this.lastError = 'Could not reach AvNav chart server';
+            // Don't resurrect the doomed loop on next boot: autoStart() keys
+            // on signalk_enabled, and a host that failed 10 straight attempts
+            // (avnav stopped on the Pi, its old port owned by something else)
+            // must wait for an explicit re-enable or a fresh discovery scan.
+            localStorage.setItem('signalk_enabled', 'false');
             this.setStatus('error');
             return;
         }
