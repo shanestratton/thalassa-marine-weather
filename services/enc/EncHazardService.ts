@@ -953,6 +953,55 @@ function bboxIntersects(a: [number, number, number, number], b: [number, number,
     return a[0] <= b[2] && a[2] >= b[0] && a[1] <= b[3] && a[3] >= b[1];
 }
 
+/**
+ * The most cells allowed into ONE merge.
+ *
+ * The number is from the flight trails, not taste. Across every recorded
+ * session on both platforms, every merge that COMPLETED was 15 cells or
+ * fewer — dozens of them, 3-15 cells, all fine. The two that went bigger:
+ *
+ *   · Desktop Chrome, 2026-08-09: enc:merge-start(20cells) → renderer died
+ *     inside it ("Aw, Snap"), with the same session logging a 15-cell merge
+ *     at a 43.1 MB register moments earlier. PROCESS-DIED, foreground,
+ *     last crumb enc:merge-fail as the superseded 14-cell build aborted.
+ *   · iOS, same day: merge-start(34cells) and (38cells) north of Fraser
+ *     Island on a zoom-out — both superseded before completing, session
+ *     reaped in the background minutes later.
+ *
+ * North of Fraser Island the AU chart series overlap densely enough that a
+ * passage-zoom window admits 20+ cells even after the zoom-graded floors —
+ * the same failure the 2026-07-13 note in the selection code below records
+ * as "47-49 cells joining a z6.7-6.9 merge — the crash that survived every
+ * other cut". The floors were then loosened one grade (2026-07-14) on the
+ * argument that per-feature culls made extra cells cheap. The culls bound
+ * what reaches MAPBOX; nothing bounded what enters the MERGE, whose
+ * register alone was 43.1 MB at 15 cells.
+ *
+ * 14 keeps every merge that has ever succeeded and refuses the size class
+ * that has only ever killed.
+ */
+const MAX_MERGE_CELLS = 14;
+
+/**
+ * Cap a windowed merge's cell list, keeping the cells that cover the most
+ * of the window — those carry the picture at any zoom. Deterministic
+ * (coverage desc, then id) so identical viewports produce identical lists
+ * and the merge cache key stays stable. Pure, exported for tests.
+ */
+export function capCellsForMerge<T extends { id: string; bbox: [number, number, number, number] }>(
+    cells: T[],
+    window: [number, number, number, number] | null | undefined,
+    max = MAX_MERGE_CELLS,
+): T[] {
+    if (!window || cells.length <= max) return cells;
+    const coverage = (b: [number, number, number, number]): number => {
+        const w = Math.min(b[2], window[2]) - Math.max(b[0], window[0]);
+        const h = Math.min(b[3], window[3]) - Math.max(b[1], window[1]);
+        return w > 0 && h > 0 ? w * h : 0;
+    };
+    return [...cells].sort((a, b) => coverage(b.bbox) - coverage(a.bbox) || (a.id < b.id ? -1 : 1)).slice(0, max);
+}
+
 function bboxDiag(b: [number, number, number, number]): number {
     return Math.hypot(b[2] - b[0], b[3] - b[1]);
 }
@@ -1028,7 +1077,12 @@ export async function getMergedVectorData(
         if (floorDeg > 0) return d >= floorDeg;
         return d >= bboxDiag(window) * WINDOW_MIN_DIAG_RATIO;
     };
-    const cells = allCells.filter(selectForWindow);
+    const selected = allCells.filter(selectForWindow);
+    const cells = capCellsForMerge(selected, window ?? null);
+    if (cells.length < selected.length) {
+        log.warn(`merge window selected ${selected.length} cells — capped to ${cells.length} by window coverage`);
+        crumb('enc:merge-trim', `${selected.length}→${cells.length}cells`);
+    }
     const pendingCells = allPendingCells.filter(selectForWindow);
     // Pending entries exist solely to bootstrap an authenticated cloud fetch.
     // They never enter the merge, so stale/partial bytes under their filename
