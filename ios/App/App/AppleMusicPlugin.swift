@@ -2,6 +2,7 @@ import Foundation
 import Capacitor
 import MusicKit
 import AVFoundation
+import AVKit
 import MediaPlayer
 import UIKit
 
