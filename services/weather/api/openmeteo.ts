@@ -1,4 +1,5 @@
 import { CapacitorHttp } from '@capacitor/core';
+import { pruneMap } from '../../../utils/boundedMap';
 import { MarineWeatherReport, WeatherModel } from '../../../types';
 import { determineLocationType } from '../locationType';
 import { isWxServerAvailable, wxServerBase } from '../wxServer';
@@ -189,6 +190,9 @@ export const fetchOpenMeteo = async (
     const promise = doFetchOpenMeteo(lat, lon, locationName, isFast, model)
         .then((data) => {
             memo.set(key, { at: Date.now(), data });
+            // A vessel under way mints a fresh ~110 m key every few minutes;
+            // without eviction each 16-day report stayed resident forever.
+            pruneMap(memo, 10, (entry) => Date.now() - entry.at >= INMEM_TTL_MS);
             return data;
         })
         .finally(() => {

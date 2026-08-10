@@ -11,6 +11,7 @@
  */
 
 import { Preferences } from '@capacitor/preferences';
+import { pruneMap } from '../../../utils/boundedMap';
 import { withDeadline } from '../../../utils/deadline';
 import { createLogger } from '../../../utils/createLogger';
 import type { Segment } from './shelterGeometry';
@@ -48,6 +49,10 @@ interface MemEntry {
     segs: Segment[];
 }
 const memCache = new Map<string, MemEntry>();
+/** Cap ~6 coastline cells — the PERSIST size guard never applied to the
+ *  in-memory copy, so precisely the largest Overpass responses were the
+ *  ones pinned in heap with no bound. */
+const MEM_CACHE_MAX = 6;
 const inflight = new Map<string, Promise<Segment[] | null>>();
 
 /** Round to a ~11 km grid so nearby requests share one cached coastline. */
@@ -158,12 +163,14 @@ export async function fetchCoastlineSegments(lat: number, lon: number, radiusKm 
         const persisted = await loadPersisted(key);
         if (persisted) {
             memCache.set(key, { ts: Date.now(), segs: persisted });
+            pruneMap(memCache, MEM_CACHE_MAX);
             return persisted;
         }
         const segs = await queryOverpass(lat, lon, radiusKm);
         if (segs) {
             failedAt.delete(key);
             memCache.set(key, { ts: Date.now(), segs });
+            pruneMap(memCache, MEM_CACHE_MAX);
             void persist(key, segs);
         } else {
             failedAt.set(key, Date.now());

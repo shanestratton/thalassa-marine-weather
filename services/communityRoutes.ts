@@ -14,6 +14,7 @@
  *     re-grades every consumed line against the CONSUMER'S keel for free.
  */
 import { supabase, isSupabaseConfigured } from './supabase';
+import { pruneMap } from '../utils/boundedMap';
 import type { TracePoint, GhostLane } from './routeTracer';
 import { traceBbox } from './routeTracer';
 import { createLogger } from '../utils/createLogger';
@@ -108,6 +109,9 @@ export async function communityLanesNear(bbox: [number, number, number, number])
             }))
             .filter((l) => l.points.length >= 2);
         laneCache.set(key, { at: Date.now(), lanes });
+        // Tracing along a coast shifts the bbox continuously — a new key per
+        // ~1 km of pin travel; evict or every one is immortal.
+        pruneMap(laneCache, 10, (entry) => Date.now() - entry.at >= LANE_CACHE_MS);
         return lanes;
     } catch (err) {
         log.warn(`lanes fetch failed: ${err instanceof Error ? err.message : String(err)}`);

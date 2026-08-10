@@ -579,11 +579,18 @@ class BoatNetworkServiceClass {
         // which discovers charts from all common ports.
         if (options.avnav !== false) {
             const avnavService = services.find((s) => s.name.startsWith('avnav'));
-            const chartPort = avnavService?.port || 8080;
-            localStorage.setItem('avnav_chart_host', host);
-            localStorage.setItem('avnav_chart_port', String(chartPort));
-            localStorage.setItem('avnav_server_type', 'avnav');
-            log.info(`Charts configured: ${host}:${chartPort} (avnav, port-scan on connect)`);
+            if (avnavService) {
+                localStorage.setItem('avnav_chart_host', host);
+                localStorage.setItem('avnav_chart_port', String(avnavService.port));
+                localStorage.setItem('avnav_server_type', 'avnav');
+                log.info(`Charts configured: ${host}:${avnavService.port} (avnav, port-scan on connect)`);
+            } else {
+                // No avnav* service discovered — write NOTHING. The old
+                // unconditional `|| 8080` default re-armed the dead-AvNav
+                // connect storm on every boot after avnav was stopped on the
+                // Pi and :8080 was taken over by a 404-ing server.
+                log.info('No AvNav service discovered — chart config left untouched');
+            }
         }
 
         // ── Pi Cache ──

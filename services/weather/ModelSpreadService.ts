@@ -15,6 +15,7 @@
  * offset (a live bug class in the older per-model fetchers).
  */
 import { CapacitorHttp } from '@capacitor/core';
+import { pruneMap } from '../../utils/boundedMap';
 
 import { isWxServerAvailable, wxServerBase } from './wxServer';
 import { fetchOpenMeteoProxy } from './openMeteoProxy';
@@ -192,7 +193,10 @@ export async function queryModelSpread(lat: number, lon: number, hours = 72): Pr
             // Only memoise when BOTH endpoints answered — a transient failure
             // on either leg must not lock in a false "no model publishes
             // this" empty state for 5 minutes.
-            if (complete) memo.set(key, { at: Date.now(), data });
+            if (complete) {
+                memo.set(key, { at: Date.now(), data });
+                pruneMap(memo, 8, (entry) => Date.now() - entry.at >= MEMO_TTL_MS);
+            }
             return data;
         })
         .finally(() => inflight.delete(key));

@@ -11,6 +11,10 @@
  *   - Max feature cap to protect performance
  */
 import { createLogger } from '../utils/createLogger';
+import { pruneMap } from '../utils/boundedMap';
+
+/** Session bound on cached Overpass tiles (z8 — 60 tiles is a whole coast). */
+const TILE_CACHE_MAX = 60;
 import { Preferences } from '@capacitor/preferences';
 
 const log = createLogger('Seamark');
@@ -304,6 +308,10 @@ out center ${MAX_FEATURES};
                 }
                 this.pendingTiles.delete(t.key);
             }
+            // Bound the session: one entry per Overpass tile ever viewed had
+            // no eviction at all, and every fetch re-serialised the WHOLE map
+            // to localStorage. Evicted tiles simply refetch on next visit.
+            pruneMap(this.cache, TILE_CACHE_MAX);
         } catch (err) {
             log.warn('Overpass fetch failed:', err);
             for (const t of tiles) this.pendingTiles.delete(t.key);
@@ -384,6 +392,7 @@ out center ${MAX_FEATURES};
                 this.cache.set(key, features);
                 featureCount += features.length;
             }
+            pruneMap(this.cache, TILE_CACHE_MAX);
             log.info(`Cache restored: ${this.cache.size} tiles, ${featureCount} features`);
         } catch (err) {
             log.warn('Failed to restore seamark cache:', err);

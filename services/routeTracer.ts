@@ -2234,9 +2234,14 @@ export function saveTrace(
     }
     // Account sync (Phase 5.3): best-effort push so the route follows the
     // punter across devices — build on the desktop, sail on the phone.
-    const cloud = import('./savedRoutesSync')
-        .then(({ pushSavedRoute }) => pushSavedRoute(trace, identity))
-        .catch(() => 'error' as const);
+    // ONLY when the local write stuck: repair paths mint a fresh random id
+    // per attempt, so a quota-refused local write that still uploaded minted
+    // a duplicate cloud row per retry (2026-08-04 audit).
+    const cloud = persisted
+        ? import('./savedRoutesSync')
+              .then(({ pushSavedRoute }) => pushSavedRoute(trace, identity))
+              .catch(() => 'error' as const)
+        : Promise.resolve('error' as const);
     if (persisted) notifySavedRoutesChanged(identity);
     return { trace, persisted, cloud };
 }

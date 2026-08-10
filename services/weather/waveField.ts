@@ -20,6 +20,7 @@
  */
 
 import { createLogger } from '../../utils/createLogger';
+import { pruneMap } from '../../utils/boundedMap';
 import { fetchOpenMeteoPoints } from './openMeteoProxy';
 
 const log = createLogger('WaveField');
@@ -155,6 +156,9 @@ export async function fetchWaveField(
             samples,
         };
         cache.set(key, { data: result, fetchedAt: Date.now() });
+        // Keys embed baseDate, so a multi-day session mints fresh keys daily
+        // while yesterday's grids stayed pinned — evict on write.
+        pruneMap(cache, 4, (entry) => Date.now() - entry.fetchedAt >= CACHE_TTL_MS);
         log.info(`loaded ${samples.length} sample points × ${totalHours}h`);
         return result;
     } catch (e) {

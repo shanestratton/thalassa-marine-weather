@@ -41,6 +41,7 @@
  */
 
 import { createLogger } from '../utils/createLogger';
+import { pruneMap } from '../utils/boundedMap';
 import { fetchWorldTides } from './weather/api/worldtides';
 import { buildExtremesLookup, TideExtremePoint } from './tides/extremesInterp';
 import type { WorldTidesHeight, WorldTidesResponse } from '../types/api';
@@ -215,6 +216,8 @@ export async function fetchTideCurve(
     if (hit && Date.now() - hit.fetchedAt < CACHE_TTL_MS) {
         return hit.curve;
     }
+    const lastFail = failedUpstreamAt.get(key);
+    if (lastFail !== undefined && Date.now() - lastFail < NEGATIVE_TTL_MS) return null;
 
     // In-flight dedupe: the Route Tracer can fire several same-bucket lookups
     // in one render burst (one per sub-keel leg) — share one upstream fetch
@@ -227,6 +230,13 @@ export async function fetchTideCurve(
 }
 
 const inflight = new Map<string, Promise<TideCurve | null>>();
+
+/** Negative cache: a 502-ing Pi/proxy chain must not be replayed by every
+ *  consumer (tracer chips, sweep sheet, weather builds) — the 2026-08-04
+ *  device log showed the full pi-cache→Supabase chain re-fired per trigger
+ *  with zero backoff while the Pi's tide route was broken. */
+const NEGATIVE_TTL_MS = 60 * 1000;
+const failedUpstreamAt = new Map<string, number>();
 
 async function fetchTideCurveUpstream(lat: number, lon: number, key: string, endMs: number): Promise<TideCurve | null> {
     // The proxy anchors the WorldTides window at yesterday 00:00, so
@@ -241,16 +251,24 @@ async function fetchTideCurveUpstream(lat: number, lon: number, key: string, end
     const response = await fetchWorldTides(lat, lon, days);
     if (!response) {
         log.info(`no tide data for ${lat.toFixed(2)},${lon.toFixed(2)} — caller should fall back`);
+        failedUpstreamAt.set(key, Date.now());
+        pruneMap(failedUpstreamAt, 32);
         return null;
     }
 
     const curve = buildTideCurve(response);
     if (!curve) {
         log.info(`tide response unusable for ${lat.toFixed(2)},${lon.toFixed(2)} — caller should fall back`);
+        failedUpstreamAt.set(key, Date.now());
+        pruneMap(failedUpstreamAt, 32);
         return null;
     }
+    failedUpstreamAt.delete(key);
 
     cache.set(key, { fetchedAt: Date.now(), curve });
+    // Keys embed 6 h wall-clock buckets that never repeat — evict on write
+    // or every bucket rollover pins another curve for the session.
+    pruneMap(cache, 16, (entry) => Date.now() - entry.fetchedAt >= CACHE_TTL_MS);
     log.info(
         `fetched tide curve at ${lat.toFixed(2)},${lon.toFixed(2)}: ` +
             `${curve.provenance}, ${curve.stationName ?? 'station unknown'}`,

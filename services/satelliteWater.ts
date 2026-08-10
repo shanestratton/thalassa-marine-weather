@@ -21,6 +21,7 @@
  */
 import type { Feature, FeatureCollection, Polygon } from 'geojson';
 import { withTimeout } from '../utils/deadline';
+import { sniffImageMime } from '../utils/imageBytes';
 import { tilesForBbox, type TileId } from './mapboxWater';
 
 /** Retina (@2x) tile edge in pixels. */
@@ -321,7 +322,11 @@ function globalPxToLonLat(gx: number, gy: number, z: number): [number, number] {
 /** Decode a PNG ArrayBuffer to RGBA via the browser canvas. Browser-only. */
 async function decodePng(buf: ArrayBuffer): Promise<{ rgba: Uint8ClampedArray; w: number; h: number } | null> {
     if (typeof createImageBitmap !== 'function' || typeof OffscreenCanvas !== 'function') return null;
-    const bmp = await createImageBitmap(new Blob([buf], { type: 'image/png' }));
+    // Only decode proven image bytes — a 200-status non-image (captive
+    // portal) force-typed as PNG faults the native decoder.
+    const sniffed = sniffImageMime(new Uint8Array(buf.slice(0, 16)), buf.byteLength);
+    if (!sniffed) return null;
+    const bmp = await createImageBitmap(new Blob([buf], { type: sniffed }));
     const canvas = new OffscreenCanvas(bmp.width, bmp.height);
     const ctx = canvas.getContext('2d');
     if (!ctx) return null;

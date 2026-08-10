@@ -13,6 +13,7 @@
  */
 
 import { reverseGeocode } from './weather';
+import { pruneMap } from '../utils/boundedMap';
 import { withTimeout } from '../utils/deadline';
 
 interface LatLon {
@@ -46,6 +47,7 @@ export async function placeLabelFor(p: LatLon): Promise<string> {
         /* offline / rate-limited — coords stand */
     }
     placeCache.set(key, label);
+    pruneMap(placeCache, 300);
     return label;
 }
 

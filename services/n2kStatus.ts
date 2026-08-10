@@ -104,6 +104,7 @@ class N2kStatusServiceClass {
     private status: N2kStatus = INITIAL;
     private listeners = new Set<(s: N2kStatus) => void>();
     private timer: ReturnType<typeof setTimeout> | null = null;
+    private starting = false;
     /** Consecutive failure count — drives the backoff schedule above. */
     private consecutiveFailures = 0;
 
@@ -132,10 +133,17 @@ class N2kStatusServiceClass {
      */
     start(): void {
         if (!PI_INTEGRATION_ENABLED) return;
-        if (this.timer) return;
+        // this.timer is only assigned at the END of the first async tick, so
+        // without the starting flag a second start() inside that window
+        // spawned a second self-rescheduling chain nothing could ever clear
+        // (two SystemStatusButton render sites exist).
+        if (this.timer || this.starting) return;
+        this.starting = true;
         // Fire one off immediately so consumers get a value before the
         // first delay.
-        void this.tick();
+        void this.tick().finally(() => {
+            this.starting = false;
+        });
     }
 
     private tick = async (): Promise<void> => {
