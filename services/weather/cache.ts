@@ -58,6 +58,34 @@ export const weatherCoordinatesMatch = (
     return firstKey !== null && firstKey === weatherCacheKeyForCoordinates(second);
 };
 
+/**
+ * "Same weather" proximity — deliberately NOT the metre-scale cache identity
+ * above. Forecast grids are kilometres wide: a phone that drifted less than
+ * this overnight (GPS jitter, a boat swinging at anchor, walking to the
+ * kitchen) is asking about the same sky. The instant wake/boot paths use it
+ * to decide whether a fresh GPS fix warrants a corrective re-fetch, and
+ * resolveLocation uses it to reuse the on-screen place name for the same
+ * point instead of holding the fetch for a reverse-geocode round trip.
+ */
+export const weatherCoordinatesNearby = (
+    first: WeatherCacheCoordinates | null | undefined,
+    second: WeatherCacheCoordinates | null | undefined,
+    toleranceKm = 2,
+): boolean => {
+    if (!first || !second) return false;
+    if (
+        !Number.isFinite(first.lat) ||
+        !Number.isFinite(first.lon) ||
+        !Number.isFinite(second.lat) ||
+        !Number.isFinite(second.lon)
+    ) {
+        return false;
+    }
+    const latM = (first.lat - second.lat) * 111_320;
+    const lonM = (first.lon - second.lon) * 111_320 * Math.cos((((first.lat + second.lat) / 2) * Math.PI) / 180);
+    return Math.hypot(latM, lonM) <= toleranceKm * 1000;
+};
+
 /** Coordinate identity used by the multi-location history cache. */
 export const weatherHistoryKeyForCoordinates = (coordinates: WeatherCacheCoordinates): string | null =>
     weatherCacheKeyForCoordinates(coordinates);

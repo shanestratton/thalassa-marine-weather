@@ -28,7 +28,7 @@ import {
     weatherCacheKeysForScope,
     type OrchestratorCallbacks,
 } from '../services/WeatherOrchestrator';
-import { findWeatherHistoryReport, weatherReportMatchesRequest } from '../services/weather/cache';
+import { findWeatherHistoryReport, weatherReportMatchesRequest, weatherCoordinatesNearby } from '../services/weather/cache';
 
 import { createLogger } from '../utils/createLogger';
 import { decideFollowAction, haversineNM, GPS_FOLLOW_POLL_MS } from '../utils/gpsFollow';
@@ -790,31 +790,46 @@ const ScopedWeatherProvider: React.FC<{ children: React.ReactNode; identityScope
             if (dataAge > STALE_ON_WAKE_MS) {
                 log.info(`[WeatherContext] Wake: data is ${Math.round(dataAge / 60000)}m old — refreshing`);
                 setStaleRefresh(true);
+                // INSTANT PATH (Shane 2026-08-10: the morning refresh "takes a
+                // lot longer than any other app I have ever used"). The old
+                // order was blur → 2 s defer → up to 10 s of GPS acquisition
+                // (fixes older than 60 s refused) → reverse geocode → and only
+                // THEN the first weather byte: 5–15 s of blur spent re-learning
+                // coordinates the phone already knew last night. Forecast grids
+                // are kilometres wide — overnight drift does not change the
+                // sky. So the fetch fires NOW against the report's own point,
+                // and the GPS fix that arrives in parallel triggers a silent
+                // corrective fetch only when the phone genuinely moved (>2 km,
+                // weatherCoordinatesNearby). The defer shrinks 2000 → 300 ms:
+                // it exists to let the wake frame paint, not to pace the fetch.
                 scheduleDeferred(() => {
                     if (useUIStore.getState().isOffline) return;
                     if (isFetchingRef.current) return;
                     const loc = data?.locationName || settingsRef.current.defaultLocation;
                     if (!loc) return;
+                    const knownCoords = data?.coordinates;
 
-                    if (locationMode === 'gps') {
-                        GpsService.getCurrentPositionIfGranted({ staleLimitMs: 60_000, timeoutSec: 10 }).then((pos) => {
-                            if (!isCurrentScope() || useUIStore.getState().isOffline) return;
-                            if (pos) {
-                                void fetchWeather(
-                                    'Current Location',
-                                    true,
-                                    { lat: pos.latitude, lon: pos.longitude },
-                                    false,
-                                    true,
-                                );
-                            } else {
-                                void fetchWeather(loc, true, data?.coordinates, false, true);
-                            }
-                        });
-                    } else {
-                        void fetchWeather(loc, true, data?.coordinates, false, true);
+                    if (locationMode !== 'gps') {
+                        void fetchWeather(loc, true, knownCoords, false, true);
+                        return;
                     }
-                }, 2000);
+                    if (knownCoords) {
+                        void fetchWeather('Current Location', true, knownCoords, false, true);
+                    }
+                    GpsService.getCurrentPositionIfGranted({ staleLimitMs: 60_000, timeoutSec: 10 }).then((pos) => {
+                        if (!isCurrentScope() || useUIStore.getState().isOffline) return;
+                        if (pos) {
+                            const fresh = { lat: pos.latitude, lon: pos.longitude };
+                            // Same sky — the instant fetch already covered it.
+                            if (knownCoords && weatherCoordinatesNearby(knownCoords, fresh)) return;
+                            void fetchWeather('Current Location', true, fresh, false, true);
+                        } else if (!knownCoords) {
+                            // No known point AND no fix: last resort, let the
+                            // orchestrator's own fallback ladder sort it out.
+                            void fetchWeather(loc, true, undefined, false, true);
+                        }
+                    });
+                }, 300);
             } else {
                 const now = Date.now();
                 const target = nextUpdateRef.current;

@@ -20,6 +20,7 @@ import {
     recordWeatherHistoryReport,
     weatherHistoryKeyForCoordinates,
     weatherReportMatchesRequest,
+    weatherCoordinatesNearby,
 } from './weather/cache';
 import { isStormglassKeyPresent } from './weather/keys';
 import { degreesToCardinal } from '../utils';
@@ -473,6 +474,28 @@ export class WeatherOrchestrator {
 
         // Handle GPS-based "Current Location"
         if (loc === 'Current Location') {
+            // INSTANT PATH (Shane 2026-08-10, mirrored in the wake handler):
+            // when a cached report carries its own point, the refresh must not
+            // queue behind a cold GPS acquisition — fetch against where the
+            // phone was when that report was made, and let the fix arriving in
+            // parallel trigger a corrective fetch only on a real move (>2 km).
+            const knownCoords = hasCachedData ? this.cb.getWeatherData()?.coordinates : undefined;
+            if (knownCoords) {
+                log.info('Cached point available — fetching instantly, GPS correcting in parallel');
+                addBreadcrumb({
+                    category: 'weather',
+                    message: 'Instant fetch from cached point; GPS in parallel',
+                    level: 'info',
+                });
+                this.schedule(() => {
+                    void this.fetchWeather(loc, {
+                        force: false,
+                        coords: knownCoords,
+                        showOverlay: false,
+                        silent: true,
+                    });
+                }, 100);
+            }
             if (!hasCachedData) this.cb.setLoadingMessage('Getting GPS Location...');
             log.info('Requesting GPS position...');
             addBreadcrumb({ category: 'weather', message: 'Requesting GPS position', level: 'info' });
@@ -486,9 +509,13 @@ export class WeatherOrchestrator {
                         level: 'info',
                         data: { source: 'device-gps' },
                     });
+                    const fresh = { lat: pos.latitude, lon: pos.longitude };
+                    // Same sky as the instant fetch — a second round of
+                    // sources would buy nothing but the blur it causes.
+                    if (knownCoords && weatherCoordinatesNearby(knownCoords, fresh)) return;
                     this.fetchWeather(loc, {
                         force: !hasCachedData,
-                        coords: { lat: pos.latitude, lon: pos.longitude },
+                        coords: fresh,
                         showOverlay: false,
                         silent: hasCachedData,
                     });
@@ -645,6 +672,24 @@ export class WeatherOrchestrator {
                 location.startsWith('WP ') ||
                 /^-?\d/.test(location))
         ) {
+            // Same point as the report already on screen → its name still
+            // names it. Skipping the Nominatim round trip here matters
+            // because this await sits ON the fetch's critical path: the
+            // instant wake/boot refresh re-asks about last night's exact
+            // coordinates, and holding the weather fetch to re-learn a
+            // suburb name we are already displaying is pure blur time.
+            const prev = this.cb.getWeatherData();
+            const prevName = prev?.locationName?.trim();
+            const prevNameReusable =
+                !!prevName && prevName !== 'Current Location' && !prevName.startsWith('WP ') && !/^-?\d/.test(prevName);
+            if (prevNameReusable && weatherCoordinatesNearby(prev?.coordinates, resolvedCoords)) {
+                addBreadcrumb({
+                    category: 'location',
+                    message: 'Reused on-screen name for same point — reverse geocode skipped',
+                    level: 'info',
+                });
+                return { name: prevName, coords: resolvedCoords, timezone: resolvedTimezone };
+            }
             try {
                 const name = await reverseGeocode(resolvedCoords.lat, resolvedCoords.lon);
                 this.assertCurrent(fetchEpoch);
