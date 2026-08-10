@@ -52,9 +52,16 @@ interface UIState {
 }
 
 // Deep links (thalassawx.app/plan → the desktop passage builder) seed
-// the boot view directly so there's no dashboard flash before the
-// map mounts. Native serves from '/', which resolves to the default.
-const bootView = initialViewFromUrl() ?? 'dashboard';
+// the boot view directly so there's no flash of the default page before
+// the map mounts. Native serves from '/', which resolves to the default.
+//
+// Default is THE GLASS (Shane, 2026-08-10): the app must open on the
+// instrument page, nowhere else. Aboard, the phone in the cockpit mount
+// is an instrument display first — booting to the weather dashboard (the
+// old default) meant a tap-tap-tap to reach the numbers every time the
+// app relaunched. Only an EXPLICIT web deep link overrides this; the
+// native app always serves '/' and therefore always opens on Glass.
+const bootView = initialViewFromUrl() ?? 'glass';
 
 /**
  * Where the skipper was, written on every navigation.

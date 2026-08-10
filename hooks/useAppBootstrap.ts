@@ -237,12 +237,11 @@ export function useAppBootstrap() {
         let cancelled = false;
         void (async () => {
             try {
-                const [{ armSessionWatch, shouldRestore, noteRestored }, { useUIStore, readLastView }, census] =
-                    await Promise.all([
-                        import('../services/webContentKill'),
-                        import('../stores/uiStore'),
-                        import('../services/memoryCensus'),
-                    ]);
+                const [{ armSessionWatch }, { readLastView }, census] = await Promise.all([
+                    import('../services/webContentKill'),
+                    import('../stores/uiStore'),
+                    import('../services/memoryCensus'),
+                ]);
                 // Read the last census BEFORE starting a new one, or the first
                 // tick overwrites the state we died in.
                 const lastCensus = census.readLastCensus();
@@ -260,22 +259,16 @@ export function useAppBootstrap() {
                 // to guess at.
                 if (lastCensus) console.warn(`[WebContentKill] ${census.describeCensus(lastCensus)}`);
 
-                // Put the skipper back. Losing the leg they were drawing is
-                // the part of this that actually costs them something.
-                if (!died.view || died.view === useUIStore.getState().currentView) return;
-                if (!shouldRestore(died.view)) {
-                    // We already sent them there once and it died again.
-                    // Restoring into the screen that kills the app is a loop
-                    // the skipper cannot escape to reach Settings or the chart
-                    // cache. Leave them somewhere that works.
-                    console.warn(
-                        `[WebContentKill] NOT restoring to '${died.view}' — it died again after the last restore`,
-                    );
-                    return;
-                }
-                console.warn(`[WebContentKill] restoring the skipper to '${died.view}'`);
-                noteRestored(died.view);
-                useUIStore.getState().setPage(died.view);
+                // No restore navigation. This block used to put the skipper
+                // back on the screen the process died on — written mid-hunt
+                // (2026-08-09) when kills on the planning screen cost a
+                // half-drawn leg every time. Two things retired it
+                // (2026-08-10): the plotting kills were fixed (six bounds,
+                // culminating in the pinned-merge byte budget — a 103-waypoint
+                // route now grades clean), and Shane made boot policy
+                // explicit: the app starts on THE GLASS, nowhere else. The
+                // diagnostics above still report every foreground death; only
+                // the navigation is gone.
             } catch (err) {
                 // A diagnostic must never be the thing that breaks boot.
                 console.warn('[WebContentKill] session watch failed:', (err as Error)?.message || err);
