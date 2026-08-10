@@ -346,6 +346,67 @@ export function findHeroRowDailyForecast(
     return undefined;
 }
 
+/** A condition word that claims falling water (or frozen water). */
+const WET_CONDITION = /drizzle|rain|shower|thunder|snow|hail|sleet/i;
+
+/**
+ * Reconcile the provider's DAILY condition with the row's own hourly cards.
+ *
+ * Open-Meteo's daily weather_code is the MOST SEVERE hour of the whole 24 h
+ * day — one pre-dawn drizzle blip in a model run brands an otherwise sunny
+ * day "Drizzle" while precipitation_sum reads 0.0 and every hourly card the
+ * summary fronts says clear (Shane, 2026-08-10: tomorrow's overview said
+ * drizzle, all 24 cards sunny, every other forecast fine). The summary card
+ * summarizes the hours below it, so when they disagree the hours win:
+ *
+ *  - provider says WET, some daylight hour agrees → keep the provider word.
+ *  - provider says WET, hours dry, but real water falls somewhere in the day
+ *    (≥0.2 mm — night rain the daylight filter hides) → keep the provider
+ *    word; suppressing actual rain would under-warn, the worse direction.
+ *  - provider says WET, hours dry, day's precip rounds to nothing → the wet
+ *    word is a severest-hour artefact: show the commonest daylight condition
+ *    instead, so the overview agrees with the cards it stands in front of.
+ *  - provider says a dry word → unchanged (dry-vs-dry shade differences are
+ *    not worth second-guessing).
+ *
+ * Daylight = 06:00–20:00 read straight from the hour string, which is
+ * location-local for the Open-Meteo path the Glass rides. A provider with
+ * UTC hour strings only mis-scopes the daylight filter, and the full-day
+ * precip guard still catches real rain — degraded, never dangerous.
+ */
+export function reconcileDayCondition(
+    providerCondition: string | undefined,
+    hours: readonly HourlyForecast[],
+): string | undefined {
+    if (!providerCondition || hours.length === 0 || !WET_CONDITION.test(providerCondition)) return providerCondition;
+    const hourOf = (t: string): number => {
+        const m = /T(\d{2})/.exec(t);
+        return m ? Number(m[1]) : NaN;
+    };
+    const daylight = hours.filter((h) => {
+        const hh = hourOf(h.time);
+        return hh >= 6 && hh <= 20;
+    });
+    const scope = daylight.length > 0 ? daylight : hours;
+    if (scope.some((h) => WET_CONDITION.test(h.condition))) return providerCondition;
+    const totalPrecipMm = hours.reduce(
+        (s, h) => s + (typeof h.precipitation === 'number' && Number.isFinite(h.precipitation) ? h.precipitation : 0),
+        0,
+    );
+    if (totalPrecipMm >= 0.2) return providerCondition;
+    const counts = new Map<string, number>();
+    for (const h of scope) counts.set(h.condition, (counts.get(h.condition) ?? 0) + 1);
+    let commonest: string | undefined;
+    let n = 0;
+    for (const [c, k] of counts) {
+        if (k > n) {
+            commonest = c;
+            n = k;
+        }
+    }
+    return commonest ?? providerCondition;
+}
+
 /**
  * Resolve the one high/low pair owned by a Glass day row.  Consumers then copy
  * this pair to Now, every hourly card, and the day summary rather than doing a
@@ -432,6 +493,9 @@ export function buildSlides(
         // Day's general wind direction = circular mean of the day's hourly
         // bearings (the daily forecast carries no direction field).
         const dayWindDeg = circularMean(hourlyToRender.map((h) => h.windDegree));
+        // The provider's severest-hour daily code must not contradict the
+        // hourly cards this overview fronts — see reconcileDayCondition.
+        const dayCondition = reconcileDayCondition(m.condition, hourlyToRender);
         dailySlide = [
             {
                 type: 'daily' as const,
@@ -451,7 +515,7 @@ export function buildSlides(
                 daily: {
                     highTemp: temperatures.highTemp ?? m.highTemp,
                     lowTemp: temperatures.lowTemp ?? m.lowTemp,
-                    condition: m.condition,
+                    condition: dayCondition,
                     windSpeed: m.windSpeed,
                     windGust: m.windGust,
                     windDegree: dayWindDeg ?? undefined,
