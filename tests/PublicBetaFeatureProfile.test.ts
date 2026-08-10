@@ -40,7 +40,9 @@ describe('committed public-beta feature profile', () => {
             VITE_CMEMS_MLD_ENABLED: false,
             VITE_MPA_ENABLED: false,
             VITE_APPLE_SIGN_IN_ENABLED: false,
-            VITE_APPLE_MUSIC_ENABLED: false,
+            // RELEASED 2026-08-10: MusicKit App Service live on the App ID,
+            // usage description shipped, native plugin restored to Sources.
+            VITE_APPLE_MUSIC_ENABLED: true,
             VITE_APPLE_WATCH_ENABLED: false,
             VITE_GOOGLE_SIGN_IN_ENABLED: false,
             VITE_ACCOUNT_DELETION_ENABLED: false,
@@ -62,7 +64,8 @@ describe('committed public-beta feature profile', () => {
             'enc-demo-samples',
             'private-weather-server',
             'community-precise-track-sharing',
-            'musickit',
+            // 'musickit' released 2026-08-10 — governed by the flag-agreement
+            // gate now, not a hold.
             'aishub-contribution',
             'retired-public-float-plan',
             // Parked 2026-08-09. Note this is the CONSOLE only — MAYDAY, DSC

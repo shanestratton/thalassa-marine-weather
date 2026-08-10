@@ -1567,7 +1567,6 @@ check(
             'enc-demo-samples',
             'private-weather-server',
             'community-precise-track-sharing',
-            'musickit',
             'aishub-contribution',
             'retired-public-float-plan',
             'calypso-proactive-alerts',
@@ -3007,11 +3006,6 @@ const heldCapabilitySourceContracts = {
     'community-precise-track-sharing':
         /\bcommunityTrackSharing:\s*false\b/.test(featureVisibility) &&
         read('services/TrackSharingService.ts').includes('if (!FEATURE_VISIBILITY.communityTrackSharing)'),
-    musickit:
-        // Held while the flag is off. The flag itself is the source of truth
-        // now, not a literal in featureVisibility.
-        publicBetaFeatureProfile.featureFlags.VITE_APPLE_MUSIC_ENABLED === false &&
-        musicKitToken.includes("Deno.env.get('MUSICKIT_ENABLED') === 'true'"),
     'aishub-contribution':
         /\baisHub:\s*false\b/.test(featureVisibility) &&
         read('services/AisHubService.ts').includes('Intentionally inert'),

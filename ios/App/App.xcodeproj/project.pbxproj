@@ -15,6 +15,8 @@
 		504EC30F1FED79650016851F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 504EC30E1FED79650016851F /* Assets.xcassets */; };
 		504EC3121FED79650016851F /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 504EC3101FED79650016851F /* LaunchScreen.storyboard */; };
 		50B271D11FEDC1A000F3C39B /* public in Resources */ = {isa = PBXBuildFile; fileRef = 50B271D01FEDC1A000F3C39B /* public */; };
+		A51059EE2FA6E9A50083AF02 /* AppleMusicPlugin.m in Sources */ = {isa = PBXBuildFile; fileRef = A51059EC2FA6E9A50083AF02 /* AppleMusicPlugin.m */; };
+		A51059EF2FA6E9A50083AF02 /* AppleMusicPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A51059ED2FA6E9A50083AF02 /* AppleMusicPlugin.swift */; };
 		AA000001AAAA000100000001 /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000001AAAA000100000002 /* SceneDelegate.swift */; };
 		AA000002AAAA000200000001 /* AlarmAudioPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000002AAAA000200000002 /* AlarmAudioPlugin.swift */; };
 		AA000003AAAA000300000001 /* AlarmAudioPlugin.m in Sources */ = {isa = PBXBuildFile; fileRef = AA000003AAAA000300000002 /* AlarmAudioPlugin.m */; };
@@ -381,6 +383,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A51059EE2FA6E9A50083AF02 /* AppleMusicPlugin.m in Sources */,
+				A51059EF2FA6E9A50083AF02 /* AppleMusicPlugin.swift in Sources */,
 				504EC3081FED79650016851F /* AppDelegate.swift in Sources */,
 				AA000001AAAA000100000001 /* SceneDelegate.swift in Sources */,
 				AA000002AAAA000200000001 /* AlarmAudioPlugin.swift in Sources */,

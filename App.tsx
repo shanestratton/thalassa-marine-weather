@@ -80,6 +80,16 @@ const DeparturePrompts = lazyRetry(
 // SignInScreen is no longer lazy-imported here — it's rendered by
 // the save-point sheets and the Settings → Account entry in their
 // own modules where each can lazy-load it on demand.
+// Global now-playing bar — floats above the bottom nav on every
+// page while music is playing. Lazy because the vast majority of
+// app time has nothing in the queue and the bar's polling shouldn't
+// even start on the dashboard. Restored 2026-08-10 with the MusicKit
+// release (the public-beta excision kept the mount comment below as
+// its own breadcrumb); renders nothing when the flag is off.
+const GlobalNowPlayingBar = lazyRetry(
+    () => import('./components/music/GlobalNowPlayingBar').then((m) => ({ default: m.GlobalNowPlayingBar })),
+    'GlobalNowPlayingBar',
+);
 const SystemStatusFallback: React.FC = () => (
     <div
         className="flex h-12 w-12 items-center justify-center rounded-full border border-white/10 bg-slate-900/40 text-sm font-bold text-white/45"
@@ -1184,6 +1194,12 @@ const App: React.FC = () => {
                     pause/dismiss without going back to the Music page.
                     Auto-hides on the music page itself (in-page bar
                     handles it) and when nothing's queued. */}
+                {FEATURE_VISIBILITY.appleMusic && (
+                    <Suspense fallback={null}>
+                        <GlobalNowPlayingBar />
+                    </Suspense>
+                )}
+
                 {/* The escape hatch for landscape. Deliberately small and
                     bottom-left so it stays clear of the chart FABs, and z-ordered
                     ABOVE the nav so it doubles as the close control once open. */}
