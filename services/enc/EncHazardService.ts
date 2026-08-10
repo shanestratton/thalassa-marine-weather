@@ -70,6 +70,11 @@ import {
 } from './types';
 import type { EncAreaGraze, EncCatzoc, EncCell, EncConversionResult, EncHazardResult } from './types';
 import { crumb } from '../../utils/flightRecorder';
+import { createSerialQueue } from '../../utils/serialQueue';
+
+/** All windowed merge BUILDS pass through here, one at a time — the byte
+ *  budget bounds each register, this bounds how many exist at once. */
+const mergeBuildQueue = createSerialQueue();
 
 const log = createLogger('EncHazardService');
 
@@ -1162,13 +1167,21 @@ export async function getMergedVectorData(
         crumb('enc:merge-join', `${cells.length}cells`);
         return inflight;
     }
-    // MB in the info because the 2026-08-10 death proved cells alone mislead:
-    // a trail full of ≤14-cell merges looked bounded while carrying 44.5 MB.
-    crumb(
-        'enc:merge-start',
-        `${cells.length}cells,${(cells.reduce((s, c) => s + (c.sizeBytes ?? 0), 0) / 1024 / 1024).toFixed(1)}MB`,
-    );
-    const build = buildMergedVectorData(cells, cacheKey, densify, buildGlaze, zoom);
+    // ONE merge at a time (2026-08-10, the death that survived every byte
+    // bound): the fatal trail's last crumbs were two merge-starts a second
+    // apart, both within the 32 MB register budget, running CONCURRENTLY —
+    // two registers plus two JSON.parse transients at once. The queue caps
+    // the peak; the start crumb moves inside the job so the trail shows when
+    // a merge actually RUNS, not when it queued.
+    const build = mergeBuildQueue(async () => {
+        // MB in the info because the 2026-08-10 death proved cells alone
+        // mislead: a trail of ≤14-cell merges looked bounded at 44.5 MB.
+        crumb(
+            'enc:merge-start',
+            `${cells.length}cells,${(cells.reduce((s, c) => s + (c.sizeBytes ?? 0), 0) / 1024 / 1024).toFixed(1)}MB`,
+        );
+        return buildMergedVectorData(cells, cacheKey, densify, buildGlaze, zoom);
+    });
     setInflightMerge(cacheKey, build);
     try {
         const merged = await build;
