@@ -25,8 +25,14 @@
 import { describe, expect, it } from 'vitest';
 import { capCellsForMerge } from '../services/enc/EncHazardService';
 
-type Cell = { id: string; bbox: [number, number, number, number] };
-const cell = (id: string, bbox: [number, number, number, number]): Cell => ({ id, bbox });
+type Cell = { id: string; bbox: [number, number, number, number]; sizeBytes?: number };
+const cell = (id: string, bbox: [number, number, number, number], sizeBytes?: number): Cell => ({
+    id,
+    bbox,
+    ...(sizeBytes != null ? { sizeBytes } : {}),
+});
+
+const MB = 1024 * 1024;
 
 /** A window over 1°×1° of coast. */
 const WINDOW: [number, number, number, number] = [153.0, -25.0, 154.0, -24.0];
@@ -80,5 +86,61 @@ describe('capCellsForMerge', () => {
         const order = cells.map((c) => c.id);
         capCellsForMerge(cells, WINDOW);
         expect(cells.map((c) => c.id)).toEqual(order);
+    });
+});
+
+/**
+ * The byte budget — added 2026-08-10, the day the cell cap was disproven
+ * by its own instruments. A capped session died in the foreground with
+ * every merge ≤14 cells, because north of Fraser Island 14 cells carry a
+ * 44.5 MB register — MORE than the 43.1 MB @ 15 cells logged before the
+ * original desktop kill. Count does not bound bytes; the budget does.
+ */
+describe('capCellsForMerge byte budget', () => {
+    it('trims a merge that fits the cell cap but not the byte budget', () => {
+        // 10 cells at 4 MB each = 40 MB — under 14 cells, over 32 MB.
+        const cells = Array.from({ length: 10 }, (_, i) =>
+            cell(`AU${i}`, [153.0 + i * 0.01, -25.0, 153.5 + i * 0.01, -24.5], 4 * MB),
+        );
+        const kept = capCellsForMerge(cells, WINDOW);
+        expect(kept.length).toBe(8); // 8 × 4 MB = 32 MB, at the budget
+        expect(kept.reduce((s, c) => s + (c.sizeBytes ?? 0), 0)).toBeLessThanOrEqual(32 * MB);
+    });
+
+    it('drops the low-coverage cells first, same ranking as the cell cap', () => {
+        const covering = cell('COVER', [153.0, -25.0, 154.0, -24.0], 20 * MB);
+        const slivers = Array.from({ length: 4 }, (_, i) =>
+            cell(`SLIVER${i}`, [153.99, -24.01 - i * 0.001, 155.0, -23.0], 20 * MB),
+        );
+        const kept = capCellsForMerge([...slivers, covering], WINDOW);
+        expect(kept.map((c) => c.id)).toContain('COVER');
+        expect(kept.length).toBeLessThan(5);
+    });
+
+    it('never trims below one cell — a lone oversized cell still paints', () => {
+        const kept = capCellsForMerge([cell('HUGE', [153.0, -25.0, 154.0, -24.0], 40 * MB)], WINDOW);
+        expect(kept.map((c) => c.id)).toEqual(['HUGE']);
+    });
+
+    it('counts unknown sizeBytes as zero — an unmeasured cell cannot evict a measured one', () => {
+        const cells = [
+            cell('KNOWN', [153.0, -25.0, 154.0, -24.0], 10 * MB),
+            ...Array.from({ length: 13 }, (_, i) => cell(`UNKNOWN${i}`, [153.1, -24.9, 153.6, -24.4])),
+        ];
+        expect(capCellsForMerge(cells, WINDOW)).toBe(cells);
+    });
+
+    it('windowless merges stay exempt from the byte budget too', () => {
+        const cells = Array.from({ length: 5 }, (_, i) => cell(`AU${i}`, [150 + i, -30, 151 + i, -29], 20 * MB));
+        expect(capCellsForMerge(cells, null)).toBe(cells);
+    });
+
+    it('is deterministic under the byte trim', () => {
+        const cells = Array.from({ length: 12 }, (_, i) =>
+            cell(`AU${String(11 - i).padStart(2, '0')}`, [153.2, -24.8, 153.8, -24.2], 5 * MB),
+        );
+        const a = capCellsForMerge(cells, WINDOW).map((c) => c.id);
+        const b = capCellsForMerge([...cells].reverse(), WINDOW).map((c) => c.id);
+        expect(a).toEqual(b);
     });
 });

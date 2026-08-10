@@ -40,6 +40,7 @@ import { tideFieldFromCurve } from './routing/env/EnvFields';
 import { fetchTideCurve } from './TideHeightService';
 import type { VoyagePlan } from '../types/navigation';
 import { createLogger } from '../utils/createLogger';
+import { crumb } from '../utils/flightRecorder';
 import {
     authScopedStorageKey,
     getAuthIdentityScope,
@@ -512,6 +513,45 @@ export function parseMarkHazards(features: readonly unknown[]): MarkHazard[] {
 // session, so identical inputs ⇒ identical context; entries clear on settle.
 const inflightBuilds = new Map<string, Promise<TracerBuildResult>>();
 
+/** Measured typed-array weight of a context's depth grid, in bytes. */
+export function tracerGridBytes(ctx: TracerContext): number {
+    if (!ctx.grid) return 0;
+    let total = 0;
+    for (const v of Object.values(ctx.grid)) {
+        if (ArrayBuffer.isView(v)) total += (v as ArrayBufferView).byteLength;
+    }
+    return total;
+}
+
+/**
+ * The most grid bytes the tracer LRU may hold across all entries.
+ *
+ * The LRU was sized "3 entries (~5–13 MB each)" — and on 2026-08-10 a
+ * session north of Fraser Island built grids the workers themselves
+ * estimated at 37–39 MB EACH, so three held entries meant ~117 MB of typed
+ * arrays on a surface with a documented jetsam history, invisible to the
+ * cache census. 48 MB keeps the three-entry working set everywhere the
+ * 5–13 MB assumption holds, and degrades to one held grid where the charts
+ * are dense enough to break it.
+ */
+export const TRACER_LRU_BYTE_BUDGET = 48 * 1024 * 1024;
+
+/**
+ * Hold `ctx` at the front of the LRU, evicting from the tail — first past
+ * three entries, then while the MEASURED grid bytes exceed the budget. The
+ * newest entry always survives: refusing to hold the grid that is in use
+ * would just rebuild it on the next edit. Pure; the caller owns the ref.
+ */
+export function holdTracerCtx(
+    lru: TracerContext[],
+    ctx: TracerContext,
+    budgetBytes = TRACER_LRU_BYTE_BUDGET,
+): TracerContext[] {
+    const next = [ctx, ...lru.filter((c) => c !== ctx)].slice(0, 3);
+    while (next.length > 1 && next.reduce((s, c) => s + tracerGridBytes(c), 0) > budgetBytes) next.pop();
+    return next;
+}
+
 export async function buildTracerContext(
     bbox: [number, number, number, number],
     draftM: number,
@@ -537,8 +577,17 @@ async function buildTracerContextInner(
     if (spanM > MAX_TRACE_SPAN_M) return { status: 'toolarge' };
 
     const t0 = Date.now();
+    // Crumbed because the 2026-08-10 desktop death fell in a 29-second trail
+    // gap AFTER the last merge crumb, while the census said 'plotting'. The
+    // tracer builds ~40 MB grids in that gap and left no trace of it — a
+    // blind spot with a body in it. Start and outcome, so a death mid-build
+    // points here and not at whatever crumbed last.
+    crumb('tracer:ctx-start', `${Math.round(spanM / 1000)}km`);
     const bundle = await assembleTracerLayers(bbox);
-    if (!bundle) return { status: 'nochart' };
+    if (!bundle) {
+        crumb('tracer:ctx-nochart', `${Math.round(spanM / 1000)}km`);
+        return { status: 'nochart' };
+    }
 
     const skipGrid = spanM > MAX_DEPTH_GRID_SPAN_M;
     // Build the depth grid OFF the main thread (2026-07-15 crash fix): the
@@ -556,6 +605,12 @@ async function buildTracerContextInner(
     });
     log.warn(
         `context ready in ${Date.now() - t0}ms — res=${ctx.resM}m grid=${ctx.grid ? `${ctx.grid.width}×${ctx.grid.height}` : 'SKIPPED (marks-only)'} gates=${ctx.gatePairs.length}${ctx.gateChecksUnavailable ? ' (FETCH FAILED — not gate-checked)' : ''} solo=${ctx.soloLaterals.length} cardinals=${ctx.cardinals.length} leads=${ctx.leads.length}`,
+    );
+    crumb(
+        'tracer:ctx-ready',
+        ctx.grid
+            ? `${ctx.grid.width}×${ctx.grid.height},${(tracerGridBytes(ctx) / 1024 / 1024).toFixed(0)}MB,${Date.now() - t0}ms`
+            : `marksonly,${Date.now() - t0}ms`,
     );
     return { status: skipGrid ? 'marksonly' : 'ready', ctx };
 }
