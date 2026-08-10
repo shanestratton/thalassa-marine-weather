@@ -70,6 +70,7 @@ import {
 } from './types';
 import type { EncAreaGraze, EncCatzoc, EncCell, EncConversionResult, EncHazardResult } from './types';
 import { crumb } from '../../utils/flightRecorder';
+import { heapTag } from '../../utils/heapGauge';
 import { createSerialQueue } from '../../utils/serialQueue';
 
 /** All windowed merge BUILDS pass through here, one at a time — the byte
@@ -1176,9 +1177,11 @@ export async function getMergedVectorData(
     const build = mergeBuildQueue(async () => {
         // MB in the info because the 2026-08-10 death proved cells alone
         // mislead: a trail of ≤14-cell merges looked bounded at 44.5 MB.
+        // heapTag (",h412" = real JS heap MB) because kill #23 died with every
+        // CACHE reading healthy — the trail must show what the PROCESS holds.
         crumb(
             'enc:merge-start',
-            `${cells.length}cells,${(cells.reduce((s, c) => s + (c.sizeBytes ?? 0), 0) / 1024 / 1024).toFixed(1)}MB`,
+            `${cells.length}cells,${(cells.reduce((s, c) => s + (c.sizeBytes ?? 0), 0) / 1024 / 1024).toFixed(1)}MB${heapTag()}`,
         );
         return buildMergedVectorData(cells, cacheKey, densify, buildGlaze, zoom);
     });

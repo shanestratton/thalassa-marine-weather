@@ -41,6 +41,7 @@ import { fetchTideCurve } from './TideHeightService';
 import type { VoyagePlan } from '../types/navigation';
 import { createLogger } from '../utils/createLogger';
 import { crumb } from '../utils/flightRecorder';
+import { heapTag } from '../utils/heapGauge';
 import { createSerialQueue } from '../utils/serialQueue';
 import {
     authScopedStorageKey,
@@ -590,7 +591,10 @@ async function buildTracerContextInner(
     // tracer builds ~40 MB grids in that gap and left no trace of it — a
     // blind spot with a body in it. Start and outcome, so a death mid-build
     // points here and not at whatever crumbed last.
-    crumb('tracer:ctx-start', `${Math.round(spanM / 1000)}km`);
+    // heapTag: real JS heap MB in the crumb (2026-08-10, kill #23 — every
+    // cache reading was healthy at death; only the process total can say
+    // whether these builds ride a climbing heap).
+    crumb('tracer:ctx-start', `${Math.round(spanM / 1000)}km${heapTag()}`);
     const bundle = await assembleTracerLayers(bbox);
     if (!bundle) {
         crumb('tracer:ctx-nochart', `${Math.round(spanM / 1000)}km`);
@@ -617,8 +621,8 @@ async function buildTracerContextInner(
     crumb(
         'tracer:ctx-ready',
         ctx.grid
-            ? `${ctx.grid.width}×${ctx.grid.height},${(tracerGridBytes(ctx) / 1024 / 1024).toFixed(0)}MB,${Date.now() - t0}ms`
-            : `marksonly,${Date.now() - t0}ms`,
+            ? `${ctx.grid.width}×${ctx.grid.height},${(tracerGridBytes(ctx) / 1024 / 1024).toFixed(0)}MB,${Date.now() - t0}ms${heapTag()}`
+            : `marksonly,${Date.now() - t0}ms${heapTag()}`,
     );
     return { status: skipGrid ? 'marksonly' : 'ready', ctx };
 }
