@@ -451,6 +451,15 @@ export function useTracerGrading(deps: TracerGradingDeps): void {
                 }
                 foldReadyLegs();
                 publish();
+                // Bank after EVERY cluster, not only at the end of the pass.
+                // The 2026-08-10 desktop trail died at the final ctx-ready of
+                // a ~20-window cold pass — before the end-of-pass persist — so
+                // the next boot cold-graded all 20 windows again and died
+                // again: a crash loop whose every lap does the exact work that
+                // kills. Banking incrementally means each attempt KEEPS its
+                // progress; the pass shrinks every boot until it completes.
+                // Volatile verdicts still never bank (they live in failMap).
+                persistLegVerdicts(cache, draftNow, draftAssumed, getEncRegistryVersion());
             }
             if (seq !== tracerSeqRef.current) return;
             // Prune verdicts for legs no longer in the trace (bounded memory).
