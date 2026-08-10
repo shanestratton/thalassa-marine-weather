@@ -4,6 +4,7 @@
 import { describe, it, expect } from 'vitest';
 import {
     buildSlides,
+    reconcileDayCondition,
     computeDisplayValues,
     computeTrends,
     resolveHeroRowTemperatureRange,
@@ -245,5 +246,44 @@ describe('Glass day-row temperature range', () => {
         );
 
         expect(temperatures).toEqual({ highTemp: 29, lowTemp: 19 });
+    });
+});
+
+describe('reconcileDayCondition — the day overview must not contradict its own hourly cards', () => {
+    const hour = (hh: string, condition: string, precipitation = 0): HourlyForecast =>
+        ({
+            time: `2026-08-11T${hh}:00`,
+            condition,
+            precipitation,
+            windSpeed: 10,
+            waveHeight: null,
+            temperature: 20,
+        }) as HourlyForecast;
+
+    const sunnyDay = Array.from({ length: 24 }, (_, i) => hour(String(i).padStart(2, '0'), i >= 6 && i <= 17 ? 'Sunny' : 'Clear'));
+
+    it("drops a wet daily word when every hour is dry and the day's precip rounds to nothing (Shane 2026-08-10)", () => {
+        // Open-Meteo daily weather_code = severest hour of the day: one model
+        // blip says drizzle while all 24 cards are sunny and sum is 0.0 mm.
+        expect(reconcileDayCondition('Light Drizzle', sunnyDay)).toBe('Sunny');
+    });
+
+    it('keeps the wet word when a daylight hour agrees', () => {
+        const day = sunnyDay.map((h) => (h.time.includes('T14') ? { ...h, condition: 'Light Rain' } : h));
+        expect(reconcileDayCondition('Light Rain', day)).toBe('Light Rain');
+    });
+
+    it('keeps the wet word when real rain falls at night even though daylight is dry', () => {
+        const day = sunnyDay.map((h) => (h.time.includes('T02') ? { ...h, condition: 'Rain', precipitation: 3 } : h));
+        expect(reconcileDayCondition('Rain', day)).toBe('Rain');
+    });
+
+    it('never second-guesses a dry provider word', () => {
+        expect(reconcileDayCondition('Cloudy', sunnyDay)).toBe('Cloudy');
+    });
+
+    it('passes provider word through when there are no hours to consult', () => {
+        expect(reconcileDayCondition('Light Drizzle', [])).toBe('Light Drizzle');
+        expect(reconcileDayCondition(undefined, sunnyDay)).toBeUndefined();
     });
 });
