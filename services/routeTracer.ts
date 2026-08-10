@@ -41,6 +41,7 @@ import { fetchTideCurve } from './TideHeightService';
 import type { VoyagePlan } from '../types/navigation';
 import { createLogger } from '../utils/createLogger';
 import { crumb } from '../utils/flightRecorder';
+import { createSerialQueue } from '../utils/serialQueue';
 import {
     authScopedStorageKey,
     getAuthIdentityScope,
@@ -552,6 +553,13 @@ export function holdTracerCtx(
     return next;
 }
 
+/** Context builds run ONE at a time (2026-08-10): the fatal trail showed two
+ *  overlapping builds (ctx-start@19378 and @23242, both ready later) from
+ *  different consumers — each ~19 MB of grid plus a full layer assembly, and
+ *  the renderer died in exactly such an overlap window. Identical requests
+ *  still coalesce via inflightBuilds before ever reaching the queue. */
+const contextBuildQueue = createSerialQueue();
+
 export async function buildTracerContext(
     bbox: [number, number, number, number],
     draftM: number,
@@ -560,7 +568,7 @@ export async function buildTracerContext(
     const key = `${bbox.map((v) => v.toFixed(4)).join(',')}|${draftM}|${opts.draftAssumed ? 1 : 0}`;
     const existing = inflightBuilds.get(key);
     if (existing) return existing;
-    const p = buildTracerContextInner(bbox, draftM, opts).finally(() => {
+    const p = contextBuildQueue(() => buildTracerContextInner(bbox, draftM, opts)).finally(() => {
         inflightBuilds.delete(key);
     });
     inflightBuilds.set(key, p);
