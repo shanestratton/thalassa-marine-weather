@@ -1639,14 +1639,13 @@ async function buildMergedVectorData(
     // heap — see mergeFold.applySoundingLod.
     await applySoundingLod(merged, zoom, yieldIfNeeded);
 
-    // Pass the cell set: this merge PINS these cells' geometry by reference,
-    // and eviction needs to know that to tell a zoom excursion (shares cells,
-    // nearly free) from a pan (shares nothing, pins a whole second viewport).
-    putMergedData(
-        cacheKey,
-        merged,
-        cells.map((c) => c.id),
-    );
+    // Pass the cells WITH their sizes: this merge PINS these cells' geometry
+    // by reference, and eviction needs the ids to tell a zoom excursion
+    // (shares cells, nearly free) from a pan (shares nothing, pins a whole
+    // second viewport) — and the bytes to bound what chained partial
+    // overlaps can accumulate (the 2026-08-10 "4 merges pinning 25 cells"
+    // death, ~150 MB parsed held by reference).
+    putMergedData(cacheKey, merged, cells);
 
     // Hand the heavy geometry (contours + optional glaze upgrade) to the
     // worker; answers swap into this cached merge via the geometry-upgrade

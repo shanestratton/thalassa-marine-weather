@@ -166,10 +166,10 @@ describe('the merge cache already handles the pan case — no plotting mode need
         m.clearMergedData();
         const merged = () => ({ layers: {}, bbox: [0, 0, 1, 1] }) as never;
 
-        m.putMergedData('k1', merged(), ['AU5A01']);
-        m.putMergedData('k2', merged(), ['AU5B01']);
-        m.putMergedData('k3', merged(), ['AU5C01']);
-        m.putMergedData('k4', merged(), ['AU5D01']);
+        m.putMergedData('k1', merged(), [{ id: 'AU5A01' }]);
+        m.putMergedData('k2', merged(), [{ id: 'AU5B01' }]);
+        m.putMergedData('k3', merged(), [{ id: 'AU5C01' }]);
+        m.putMergedData('k4', merged(), [{ id: 'AU5D01' }]);
 
         expect(m.mergedDataCacheSize()).toBe(1);
         expect(m.mergedPinnedCellCount()).toBe(1);
@@ -184,8 +184,8 @@ describe('the merge cache already handles the pan case — no plotting mode need
         // Same water at two zooms: two keys, overlapping cells. Pinning is
         // shared, so holding both is nearly free — and the count must show
         // that rather than double-counting.
-        m.putMergedData('z11', merged(), ['AU5A01', 'AU5A02']);
-        m.putMergedData('z13', merged(), ['AU5A01', 'AU5A02']);
+        m.putMergedData('z11', merged(), [{ id: 'AU5A01' }, { id: 'AU5A02' }]);
+        m.putMergedData('z13', merged(), [{ id: 'AU5A01' }, { id: 'AU5A02' }]);
         expect(m.mergedDataCacheSize()).toBe(2);
         expect(m.mergedPinnedCellCount()).toBe(2);
         m.clearMergedData();
