@@ -59,12 +59,22 @@ import {
 import { legCacheKey, TRACE_CLUSTER_SPAN_M } from './mapHubHelpers';
 import { heapTag } from '../../utils/heapGauge';
 import { vesselDraftMetres, vesselDraftIsAssumed } from '../../services/units';
-import { getVersion as getEncRegistryVersion } from '../../services/enc/EncCellMetadata';
+import { getVersion as getEncRegistryVersion, getRegistryFingerprint } from '../../services/enc/EncCellMetadata';
 import { createLogger } from '../../utils/createLogger';
 import { crumb } from '../../utils/flightRecorder';
 import type { TraceCheckStatus } from '../../services/traceVerification';
 
 const log = createLogger('MapHub');
+
+/**
+ * Volatile-failure retry ledger — MODULE scope on purpose (a ref dies with
+ * the hook instance; the session-guard lesson). Keyed by leg key. Attempts
+ * back off exponentially, and each entry remembers the ENC registry version
+ * it failed under so a chart arriving mid-session retries immediately.
+ */
+const volatileRetrySchedule = new Map<string, { attempts: number; nextRetryAt: number; encVersion: number }>();
+const VOLATILE_RETRY_BASE_MS = 60_000;
+const VOLATILE_RETRY_MAX_MS = 30 * 60_000;
 
 /** Mirrors MapHub's own tracerStatus union. */
 export type TracerStatus = TraceCheckStatus;
@@ -190,13 +200,29 @@ export function useTracerGrading(deps: TracerGradingDeps): void {
             legCacheHydratedRef.current = true;
             // Same keel + same chart library ⇒ yesterday's verdicts are
             // today's verdicts; anything else returns null and we re-grade.
-            const persisted = hydrateLegVerdicts(draftNow, draftAssumed, getEncRegistryVersion());
+            // Library identity is the FINGERPRINT (stable across reloads),
+            // never the in-memory version counter (boot-scoped — using it
+            // meant hydration never matched and every mount cold-regraded).
+            const persisted = hydrateLegVerdicts(draftNow, draftAssumed, getRegistryFingerprint());
             if (persisted) for (const [k, v] of persisted) if (!cache.has(k)) cache.set(k, v);
         }
-        // Failure verdicts retry every pass — a chart that appears
-        // mid-session (Pi back in range, cloud sync) heals the legs.
+        // Failure verdicts retry with BACKOFF, not on every pass. Retrying
+        // unconditionally meant a window that persistently degrades (marker
+        // fetch failing, genuinely uncharted water, a build that keeps
+        // throwing) re-paid its 14-39s context build + cloud overlay fetch
+        // on every effect re-run, forever — the 2026-08-04 dockside regrade
+        // loop. A leg keeps its caution row while it waits; it retries when
+        // its backoff elapses OR the ENC registry changes (a chart appearing
+        // mid-session still heals the legs immediately).
         const failMap = failVerdictsRef.current;
-        failMap.clear();
+        const nowMs = Date.now();
+        const registryNow = getEncRegistryVersion();
+        for (const key of Array.from(failMap.keys())) {
+            const sched = volatileRetrySchedule.get(key);
+            if (!sched || nowMs >= sched.nextRetryAt || sched.encVersion !== registryNow) {
+                failMap.delete(key);
+            }
+        }
 
         const legs: Array<{ a: { lat: number; lon: number }; b: { lat: number; lon: number }; key: string }> = [];
         for (let i = 1; i < capturedCoords.length; i++) {
@@ -221,7 +247,9 @@ export function useTracerGrading(deps: TracerGradingDeps): void {
         };
         publish(); // cached legs render NOW; only truly new legs show "checking…"
 
-        const pending = legs.filter((l) => !cache.has(l.key));
+        // A leg still sitting in failMap is a volatile failure inside its
+        // backoff window: keep showing its caution row, don't rebuild.
+        const pending = legs.filter((l) => !cache.has(l.key) && !failMap.has(l.key));
         if (pending.length === 0) {
             setTracerStatus('ready');
             return;
@@ -349,8 +377,21 @@ export function useTracerGrading(deps: TracerGradingDeps): void {
                             ? (pieceVerdicts.get(leg.key) ?? null)
                             : mergeSubLegVerdicts(keys.map((k) => pieceVerdicts.get(k) ?? null));
                     if (!merged) continue;
-                    if (keys.some((k) => volatilePieces.has(k))) failMap.set(leg.key, merged);
-                    else cache.set(leg.key, merged);
+                    if (keys.some((k) => volatilePieces.has(k))) {
+                        failMap.set(leg.key, merged);
+                        const prev = volatileRetrySchedule.get(leg.key);
+                        const attempts = (prev?.attempts ?? 0) + 1;
+                        volatileRetrySchedule.set(leg.key, {
+                            attempts,
+                            nextRetryAt:
+                                Date.now() +
+                                Math.min(VOLATILE_RETRY_BASE_MS * 2 ** (attempts - 1), VOLATILE_RETRY_MAX_MS),
+                            encVersion: getEncRegistryVersion(),
+                        });
+                    } else {
+                        cache.set(leg.key, merged);
+                        volatileRetrySchedule.delete(leg.key);
+                    }
                 }
             };
             for (const cluster of clusters) {
@@ -465,12 +506,13 @@ export function useTracerGrading(deps: TracerGradingDeps): void {
                 // kills. Banking incrementally means each attempt KEEPS its
                 // progress; the pass shrinks every boot until it completes.
                 // Volatile verdicts still never bank (they live in failMap).
-                persistLegVerdicts(cache, draftNow, draftAssumed, getEncRegistryVersion());
+                persistLegVerdicts(cache, draftNow, draftAssumed, getRegistryFingerprint());
             }
             if (seq !== tracerSeqRef.current) return;
             // Prune verdicts for legs no longer in the trace (bounded memory).
             const keep = new Set(legs.map((l) => l.key));
             for (const k of Array.from(cache.keys())) if (!keep.has(k)) cache.delete(k);
+            for (const k of Array.from(volatileRetrySchedule.keys())) if (!keep.has(k)) volatileRetrySchedule.delete(k);
             // Failures outrank the held ctx in the strip — a half-graded
             // trace must not read "ready" while legs say "load failed".
             // Reaching the end with no explicit failure means every pending
@@ -481,7 +523,7 @@ export function useTracerGrading(deps: TracerGradingDeps): void {
             setTracerStatus(failStatus ?? (sawMarksOnly ? 'marksonly' : 'ready'));
             // The pass is the unit of new knowledge — bank it so the NEXT
             // mount (reload, deploy, tab-bounce) re-grades nothing.
-            persistLegVerdicts(cache, draftNow, draftAssumed, getEncRegistryVersion());
+            persistLegVerdicts(cache, draftNow, draftAssumed, getRegistryFingerprint());
         })();
         // The stable identities below (five refs and the setters) are named
         // only to satisfy exhaustive-deps, which can no longer see they are

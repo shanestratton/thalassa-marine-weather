@@ -314,14 +314,26 @@ function activeFleetVessel(fleet: Pick<VesselFleet, 'vessels' | 'activeBoatId'>)
     return fleet.vessels.find((vessel) => vessel.id === fleet.activeBoatId) ?? null;
 }
 
+/** Keep the previous reference when the fresh value is deep-equal. Fleet
+ *  sync fires on every online/visibility event; a fresh-but-identical
+ *  settings.vessel object re-ran MapHub's grading effect (the OBJECT is the
+ *  dep), aborting in-flight 14-39s tracer context builds for nothing. */
+function keepIfDeepEqual<T>(prev: T, next: T): T {
+    try {
+        return JSON.stringify(prev) === JSON.stringify(next) ? prev : next;
+    } catch {
+        return next;
+    }
+}
+
 /** Apply a selected cloud vessel as the existing app-wide compatibility view. */
 function settingsWithFleetVessel(settings: UserSettings, vessel: OwnedVesselProfile): UserSettings {
     return {
         ...settings,
-        vessel: vessel.profile,
-        vesselUnits: vessel.vessel_units,
-        comfortParams: vessel.comfort_params,
-        polarData: vessel.polar_data ?? undefined,
+        vessel: keepIfDeepEqual(settings.vessel, vessel.profile),
+        vesselUnits: keepIfDeepEqual(settings.vesselUnits, vessel.vessel_units),
+        comfortParams: keepIfDeepEqual(settings.comfortParams, vessel.comfort_params),
+        polarData: keepIfDeepEqual(settings.polarData, vessel.polar_data ?? undefined),
         polarBoatModel: vessel.polar_boat_model ?? undefined,
         polarSource_type: vessel.polar_source_type ?? undefined,
     };
