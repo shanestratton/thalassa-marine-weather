@@ -70,7 +70,7 @@ import {
 } from './types';
 import type { EncAreaGraze, EncCatzoc, EncCell, EncConversionResult, EncHazardResult } from './types';
 import { crumb } from '../../utils/flightRecorder';
-import { heapTag } from '../../utils/heapGauge';
+import { awaitHeapHeadroom, heapTag } from '../../utils/heapGauge';
 import { createSerialQueue } from '../../utils/serialQueue';
 
 /** All windowed merge BUILDS pass through here, one at a time — the byte
@@ -1175,6 +1175,10 @@ export async function getMergedVectorData(
     // the peak; the start crumb moves inside the job so the trail shows when
     // a merge actually RUNS, not when it queued.
     const build = mergeBuildQueue(async () => {
+        // Kill #26: deaths happen when a fresh ~200 MB build transient lands
+        // on an already-high heap before the GC does. Wait for headroom
+        // first — one collection returns the heap to ~400 MB (measured).
+        await awaitHeapHeadroom();
         // MB in the info because the 2026-08-10 death proved cells alone
         // mislead: a trail of ≤14-cell merges looked bounded at 44.5 MB.
         // heapTag (",h412" = real JS heap MB) because kill #23 died with every
