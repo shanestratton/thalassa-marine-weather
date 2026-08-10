@@ -38,6 +38,7 @@ import { DiaryRelayOutbox, type DiaryRelayConfigInput, DiaryRelayValidationError
 import { loadOrCreateIdentity, readIdentityPrivateKeyPem } from './identity.js';
 import { ensureIdentityTls } from './tlsIdentity.js';
 import { createPairRoutes } from './routes/pair.js';
+import { createRemoteAccessRoutes } from './routes/remoteAccess.js';
 import { assertSupabaseOriginAssertion, resolveTrustedSupabaseOrigin } from './outboundHttp.js';
 import {
     INVALID_PI_CONFIGURATION_CODE,
@@ -408,6 +409,10 @@ app.use('/api/tides', createTideRoutes(cache, proxyConfig));
 // proxy below does not, so block it before the harmless misc allowlist.
 app.use('/api/misc/proxy', requireUnsafeAdmin);
 app.use('/api/misc', createMiscRoutes(cache, proxyConfig));
+// Remote access via the punter's own Tailscale account — device management,
+// so it sits behind the same gate as /api/configure. The transport is the
+// pinned pairing channel either way.
+app.use('/api/remote-access', requireUnsafeAdmin, createRemoteAccessRoutes());
 // ── App routes vs admin routes ──
 // These used to share ONE flag, which meant pairing a phone required also
 // exposing /api/misc/proxy, the raster-chart download/delete API and a 100 MB

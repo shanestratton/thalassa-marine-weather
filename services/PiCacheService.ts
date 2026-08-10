@@ -47,6 +47,16 @@ export interface PiCacheConfig {
     port: number;
 }
 
+/** Mirror of pi-cache /api/remote-access — the Tailscale state machine. */
+export interface PiRemoteAccessStatus {
+    state: 'not-installed' | 'stopped' | 'needs-auth' | 'starting' | 'connected' | 'error';
+    /** Present while state==='needs-auth' — open in a browser, sign in. */
+    authUrl?: string;
+    tailscaleIps?: string[];
+    dnsName?: string;
+    message?: string;
+}
+
 export interface PiCacheStatus {
     reachable: boolean;
     lastCheck: number;
@@ -478,7 +488,100 @@ class PiCacheServiceImpl {
         // HTTPS only. The Pi's certificate is pinned to its pairing key
         // (services/piTls.ts), so this is verifiable offline with no CA — and
         // there is deliberately no plaintext fallback to slip back to.
-        return `https://${this.config.host}:${this.config.port}`;
+        //
+        // Off the boat, the same pinned transport rides the punter's tailnet:
+        // the Pi serves the identical certificate on its 100.x address, and
+        // the pin is key-equality, not hostname, so nothing about the trust
+        // model changes with the network. checkHealth owns the ladder (LAN
+        // first, tailnet fallback) and flips _useRemote.
+        const host = this._useRemote && this.remoteHost ? this.remoteHost : this.config.host;
+        return `https://${host}:${this.config.port}`;
+    }
+
+    // ── Remote access (punter's own Tailscale) ──
+
+    private static readonly REMOTE_HOST_KEY = 'thalassa_pi_remote_host';
+    private _useRemote = false;
+    private _remoteHostCache: string | null = null;
+
+    /** The Pi's tailnet address (100.x), learned when remote access connects. */
+    private get remoteHost(): string {
+        if (this._remoteHostCache === null) {
+            try {
+                this._remoteHostCache = localStorage.getItem(PiCacheServiceImpl.REMOTE_HOST_KEY) ?? '';
+            } catch {
+                this._remoteHostCache = '';
+            }
+        }
+        return this._remoteHostCache;
+    }
+
+    private saveRemoteHost(host: string): void {
+        this._remoteHostCache = host;
+        if (!host) this._useRemote = false;
+        try {
+            if (host) localStorage.setItem(PiCacheServiceImpl.REMOTE_HOST_KEY, host);
+            else localStorage.removeItem(PiCacheServiceImpl.REMOTE_HOST_KEY);
+        } catch {
+            /* private mode — session-only fallback via the cache field */
+        }
+    }
+
+    /** True when the app is currently talking to the Pi over the tailnet. */
+    get viaRemoteAccess(): boolean {
+        return this._useRemote && this.status.reachable;
+    }
+
+    private adoptRemoteAccessStatus(status: PiRemoteAccessStatus): void {
+        if (status.state === 'connected') {
+            const ip = status.tailscaleIps?.find((candidate) => candidate.includes('.'));
+            if (ip && ip !== this.remoteHost) {
+                this.saveRemoteHost(ip);
+                log.info(`remote access connected — tailnet fallback host ${ip}`);
+            }
+        }
+    }
+
+    private async remoteAccessRequest(
+        path: string,
+        method: 'GET' | 'POST',
+        data?: Record<string, unknown>,
+    ): Promise<PiRemoteAccessStatus | null> {
+        if (!this.isAvailable()) return null;
+        try {
+            const res = await pinnedPiRequest({
+                url: `${this.baseUrl}${path}`,
+                method,
+                headers: method === 'POST' ? { 'Content-Type': 'application/json' } : undefined,
+                data,
+                connectTimeout: 5000,
+                // /enable holds the request while `tailscale up` looks for a
+                // login URL (up to ~8s Pi-side).
+                readTimeout: 15000,
+                responseType: 'text',
+            });
+            // 409 carries a real state payload (not-installed) — parse it too.
+            if ((res.status < 200 || res.status >= 300) && res.status !== 409) return null;
+            const status = JSON.parse(res.data) as PiRemoteAccessStatus;
+            this.adoptRemoteAccessStatus(status);
+            return status;
+        } catch {
+            return null;
+        }
+    }
+
+    fetchRemoteAccessStatus(): Promise<PiRemoteAccessStatus | null> {
+        return this.remoteAccessRequest('/api/remote-access', 'GET');
+    }
+
+    enableRemoteAccess(): Promise<PiRemoteAccessStatus | null> {
+        return this.remoteAccessRequest('/api/remote-access/enable', 'POST', {});
+    }
+
+    async disableRemoteAccess(logout = false): Promise<PiRemoteAccessStatus | null> {
+        const status = await this.remoteAccessRequest('/api/remote-access/disable', 'POST', { logout });
+        if (status && status.state !== 'connected') this.saveRemoteHost('');
+        return status;
     }
 
     /**
@@ -808,16 +911,31 @@ class PiCacheServiceImpl {
             // returned false, the Pi could never become `reachable`, and every
             // downstream feature (ENC sync included) stayed dead with no
             // visible error.
-            const res = await withDeadline(
-                pinnedPiRequest({
-                    url: `${this.baseUrl}/api/admin/status`,
-                    connectTimeout: 2000,
-                    readTimeout: 2000,
-                    responseType: 'text',
-                }),
-                2500,
-                'pi-cache /api/admin/status',
-            );
+            //
+            // Host ladder: boat LAN first, then the tailnet address remote
+            // access learned. Same pinned certificate on both — the pin is
+            // key-equality, so identity is transport-independent.
+            const probe = (host: string) =>
+                withDeadline(
+                    pinnedPiRequest({
+                        url: `https://${host}:${this.config.port}/api/admin/status`,
+                        connectTimeout: 2000,
+                        readTimeout: 2000,
+                        responseType: 'text',
+                    }),
+                    2500,
+                    'pi-cache /api/admin/status',
+                );
+            let res: Awaited<ReturnType<typeof probe>>;
+            try {
+                res = await probe(this.config.host);
+                this._useRemote = false;
+            } catch (lanErr) {
+                const remote = this.remoteHost;
+                if (!remote || remote === this.config.host) throw lanErr;
+                res = await probe(remote);
+                this._useRemote = true;
+            }
             if (res.status < 200 || res.status >= 300) throw new Error(`HTTP ${res.status}`);
             const data = JSON.parse(res.data) as {
                 status: string;
