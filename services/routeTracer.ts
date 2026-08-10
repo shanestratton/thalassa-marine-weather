@@ -41,7 +41,7 @@ import { fetchTideCurve } from './TideHeightService';
 import type { VoyagePlan } from '../types/navigation';
 import { createLogger } from '../utils/createLogger';
 import { crumb } from '../utils/flightRecorder';
-import { heapTag } from '../utils/heapGauge';
+import { awaitHeapHeadroom, heapTag } from '../utils/heapGauge';
 import { createSerialQueue } from '../utils/serialQueue';
 import {
     authScopedStorageKey,
@@ -561,15 +561,49 @@ export function holdTracerCtx(
  *  still coalesce via inflightBuilds before ever reaching the queue. */
 const contextBuildQueue = createSerialQueue();
 
+/**
+ * Snap a tracer window to a coarse grid — mins floored, maxes ceiled — so
+ * the window only ever GROWS and containment is preserved.
+ *
+ * Why (2026-08-10, kill #26, the first trail with real heap in it): the
+ * fatal trail built 738×1338, then 739×1338, then 740×1338 — the same
+ * Fraser-coast window THREE times, one pixel different each time. The
+ * build key was the raw bbox to 4 decimal places, so a fraction-of-a-cell
+ * wobble in the requested window (padding recomputed per grading round)
+ * missed the in-flight map, missed the LRU, and paid the full ~200 MB
+ * build transient again. Heap read h479 → h1135 across one such burst.
+ * 0.02° (~2 km) quantisation makes those three requests ONE key; on a
+ * 25-35 km window the growth is a few percent of area.
+ */
+export function snapTracerBbox(
+    bbox: [number, number, number, number],
+    snapDeg = 0.02,
+): [number, number, number, number] {
+    // The epsilon and the final rounding make this IDEMPOTENT: without
+    // them, 153.36 / 0.02 = 7668.000000000001 and ceil grows an already-
+    // snapped edge by a whole cell on every re-snap — a window that creeps
+    // and a key that never stabilises (caught by the test suite before it
+    // shipped).
+    const grid = (v: number, dir: 'floor' | 'ceil') => {
+        const idx = dir === 'floor' ? Math.floor(v / snapDeg + 1e-9) : Math.ceil(v / snapDeg - 1e-9);
+        return Number((idx * snapDeg).toFixed(6));
+    };
+    return [grid(bbox[0], 'floor'), grid(bbox[1], 'floor'), grid(bbox[2], 'ceil'), grid(bbox[3], 'ceil')];
+}
+
 export async function buildTracerContext(
     bbox: [number, number, number, number],
     draftM: number,
     opts: { draftAssumed?: boolean } = {},
 ): Promise<TracerBuildResult> {
-    const key = `${bbox.map((v) => v.toFixed(4)).join(',')}|${draftM}|${opts.draftAssumed ? 1 : 0}`;
+    // Snap BEFORE keying and BEFORE building: identical snapped windows
+    // coalesce in flight, and the held context CONTAINS the next wobbled
+    // request, so the LRU reuse check hits too.
+    const snapped = snapTracerBbox(bbox);
+    const key = `${snapped.map((v) => v.toFixed(4)).join(',')}|${draftM}|${opts.draftAssumed ? 1 : 0}`;
     const existing = inflightBuilds.get(key);
     if (existing) return existing;
-    const p = contextBuildQueue(() => buildTracerContextInner(bbox, draftM, opts)).finally(() => {
+    const p = contextBuildQueue(() => buildTracerContextInner(snapped, draftM, opts)).finally(() => {
         inflightBuilds.delete(key);
     });
     inflightBuilds.set(key, p);
@@ -591,6 +625,10 @@ async function buildTracerContextInner(
     // tracer builds ~40 MB grids in that gap and left no trace of it — a
     // blind spot with a body in it. Start and outcome, so a death mid-build
     // points here and not at whatever crumbed last.
+    // Kill #26: a context build costs ~200 MB of transient; landing one on
+    // an already-high heap is the measured death pattern. Wait for the GC
+    // that reclaims it (h1135 → h388 in the fatal trail) before starting.
+    await awaitHeapHeadroom();
     // heapTag: real JS heap MB in the crumb (2026-08-10, kill #23 — every
     // cache reading was healthy at death; only the process total can say
     // whether these builds ride a climbing heap).
