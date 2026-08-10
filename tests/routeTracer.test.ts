@@ -270,7 +270,7 @@ describe('routeTracer — persisted verdicts survive only their own schema', () 
             }),
         );
 
-        expect(hydrateLegVerdicts(2.4, false, 7)).toBeNull();
+        expect(hydrateLegVerdicts(2.4, false, 'AU5BR001@12@2026-01-01@100@cloud-3')).toBeNull();
         localStorage.clear();
     });
 
@@ -282,12 +282,27 @@ describe('routeTracer — persisted verdicts survive only their own schema', () 
                 { grade: 'clear', issues: [], minDepthM: 9, minAt: null, needsTide: false, nudge: null, nudgeTo: null },
             ],
         ]);
-        persistLegVerdicts(cache as never, 2.4, false, 7);
+        const fingerprint = 'AU5BR001@12@2026-01-01@100@cloud-3|AU5MB002@4@2026-02-02@200@cloud-3';
+        persistLegVerdicts(cache as never, 2.4, false, fingerprint);
 
-        expect(hydrateLegVerdicts(2.4, false, 7)?.get('leg-1')?.grade).toBe('clear');
-        // ...and not across a draft or chart change.
-        expect(hydrateLegVerdicts(2.9, false, 7)).toBeNull();
-        expect(hydrateLegVerdicts(2.4, false, 8)).toBeNull();
+        expect(hydrateLegVerdicts(2.4, false, fingerprint)?.get('leg-1')?.grade).toBe('clear');
+        // ...and not across a draft or chart-library change.
+        expect(hydrateLegVerdicts(2.9, false, fingerprint)).toBeNull();
+        expect(hydrateLegVerdicts(2.4, false, fingerprint + '|AU5XX003@1@2026-03-03@50@cloud-4')).toBeNull();
+        localStorage.clear();
+    });
+
+    it('rejects a bank stamped with the old numeric registry counter', () => {
+        // The counter was boot-scoped, so hydration essentially never matched
+        // and every relaunch cold-regraded the whole passage (2026-08-04 Lady
+        // Musgrave loop). A legacy numeric stamp must read as a miss, never a
+        // false match against a fingerprint string.
+        localStorage.clear();
+        localStorage.setItem(
+            authScopedStorageKey('thalassa_leg_verdicts_v2'),
+            JSON.stringify({ draftM: 2.4, draftAssumed: false, encVersion: 7, entries: [] }),
+        );
+        expect(hydrateLegVerdicts(2.4, false, 'AU5BR001@12@2026-01-01@100@cloud-3')).toBeNull();
         localStorage.clear();
     });
 });

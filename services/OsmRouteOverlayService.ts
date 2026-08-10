@@ -103,9 +103,11 @@ interface MemCacheEntry {
     data: OsmRouteOverlay;
 }
 const memCache = new Map<string, MemCacheEntry>();
-/** Cap ~4 bboxes: each entry is a multi-MB Overpass FeatureCollection set,
- *  and every distinct route area used to pin one for the whole session. */
-const MEM_CACHE_MAX = 4;
+/** Cap ~6 bboxes: each entry is a multi-MB Overpass FeatureCollection set,
+ *  and every distinct route area used to pin one for the whole session.
+ *  6, not 4: a multi-leg trip grades ~5 windows per pass, and a cap below
+ *  the window count made every grading pass refetch the cloud overlay. */
+const MEM_CACHE_MAX = 6;
 function rememberOverlay(key: string, data: OsmRouteOverlay): void {
     memCache.set(key, { ts: Date.now(), data });
     pruneMap(memCache, MEM_CACHE_MAX, (entry) => Date.now() - entry.ts >= MEM_CACHE_TTL_MS);

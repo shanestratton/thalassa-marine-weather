@@ -264,37 +264,39 @@ describe('leg-verdict persistence (remount cold-cache fix, 2026-07-17)', () => {
         nudge: null,
         nudgeTo: null,
     };
+    const FP = 'AU5BR001@12@2026-01-01@100@cloud-3';
     beforeEach(() => localStorage.clear());
 
     it('round-trips when keel + chart library match', () => {
         const cache = new Map([['a|b', verdict]]);
-        persistLegVerdicts(cache, 2.4, false, 7);
-        const back = hydrateLegVerdicts(2.4, false, 7)!;
+        persistLegVerdicts(cache, 2.4, false, FP);
+        const back = hydrateLegVerdicts(2.4, false, FP)!;
         expect(back.get('a|b')?.grade).toBe('clear');
         expect(back.get('a|b')?.minDepthM).toBe(8);
     });
 
     it('a different keel, honesty flag, or chart version drops the lot', () => {
-        persistLegVerdicts(new Map([['a|b', verdict]]), 2.4, false, 7);
-        expect(hydrateLegVerdicts(2.6, false, 7)).toBeNull(); // draft changed
-        expect(hydrateLegVerdicts(2.4, true, 7)).toBeNull(); // assumed flipped
-        expect(hydrateLegVerdicts(2.4, false, 8)).toBeNull(); // chart installed
-        expect(hydrateLegVerdicts(2.4, false, 7)).not.toBeNull(); // unchanged → survives
+        persistLegVerdicts(new Map([['a|b', verdict]]), 2.4, false, FP);
+        expect(hydrateLegVerdicts(2.6, false, FP)).toBeNull(); // draft changed
+        expect(hydrateLegVerdicts(2.4, true, FP)).toBeNull(); // assumed flipped
+        expect(hydrateLegVerdicts(2.4, false, FP + '|AU5XX009@1@2026-03-03@50@cloud-4')).toBeNull(); // chart installed
+        expect(hydrateLegVerdicts(2.4, false, FP)).not.toBeNull(); // unchanged → survives
     });
 
     it('caps at the newest 500 entries and survives garbage', () => {
         const big = new Map(Array.from({ length: 620 }, (_, i) => [`k${i}`, verdict] as const));
-        persistLegVerdicts(big, 2.4, false, 7);
-        const back = hydrateLegVerdicts(2.4, false, 7)!;
+        persistLegVerdicts(big, 2.4, false, FP);
+        const back = hydrateLegVerdicts(2.4, false, FP)!;
         expect(back.size).toBe(500);
         expect(back.has('k619')).toBe(true); // newest kept
         expect(back.has('k0')).toBe(false); // oldest culled
         localStorage.setItem(authScopedStorageKey(LEG_VERDICTS_KEY), '{corrupt');
-        expect(hydrateLegVerdicts(2.4, false, 7)).toBeNull();
+        expect(hydrateLegVerdicts(2.4, false, FP)).toBeNull();
     });
 });
 
 describe('groupTracesByTrip (shared by PLAN Trip box + card list)', () => {
+    const FP = 'AU5BR001@12@2026-01-01@100@cloud-3';
     beforeEach(() => localStorage.clear());
 
     it('groups legs of one trip, ordinal-sorted, standalone routes stay singletons', () => {

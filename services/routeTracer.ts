@@ -1667,7 +1667,15 @@ const LEG_VERDICTS_CAP = 500;
 interface PersistedLegVerdicts {
     draftM: number;
     draftAssumed: boolean;
-    encVersion: number;
+    /** getRegistryFingerprint() — the STABLE cross-session chart-library
+     *  identity. This used to be the in-memory registry version counter,
+     *  which resets to 0 every boot and bumps on every putCell (the cloud
+     *  manifest walk re-puts pending cells every ≥5 min), so hydration
+     *  essentially never matched: every relaunch cold-regraded the whole
+     *  passage — the 2026-08-04 Lady Musgrave regrade loop's cross-boot
+     *  amplifier, and exactly the crash-loop the incremental banking below
+     *  was built to break. */
+    encFingerprint: string;
     entries: Array<[string, TraceLegVerdict]>;
 }
 
@@ -1675,11 +1683,11 @@ export function persistLegVerdicts(
     cache: ReadonlyMap<string, TraceLegVerdict>,
     draftM: number,
     draftAssumed: boolean,
-    encVersion: number,
+    encFingerprint: string,
 ): void {
     try {
         const entries = Array.from(cache.entries()).slice(-LEG_VERDICTS_CAP);
-        const payload: PersistedLegVerdicts = { draftM, draftAssumed, encVersion, entries };
+        const payload: PersistedLegVerdicts = { draftM, draftAssumed, encFingerprint, entries };
         localStorage.setItem(authScopedStorageKey(LEG_VERDICTS_KEY), JSON.stringify(payload));
     } catch {
         /* quota/private mode — worst case is the old behaviour (re-grade) */
@@ -1691,13 +1699,14 @@ export function persistLegVerdicts(
 export function hydrateLegVerdicts(
     draftM: number,
     draftAssumed: boolean,
-    encVersion: number,
+    encFingerprint: string,
 ): Map<string, TraceLegVerdict> | null {
     try {
         const raw = localStorage.getItem(authScopedStorageKey(LEG_VERDICTS_KEY));
         if (!raw) return null;
         const p = JSON.parse(raw) as PersistedLegVerdicts;
-        if (!p || p.draftM !== draftM || p.draftAssumed !== draftAssumed || p.encVersion !== encVersion) return null;
+        if (!p || p.draftM !== draftM || p.draftAssumed !== draftAssumed || p.encFingerprint !== encFingerprint)
+            return null;
         if (!Array.isArray(p.entries)) return null;
         return new Map(p.entries.filter(([k, v]) => typeof k === 'string' && v && typeof v.grade === 'string'));
     } catch {
