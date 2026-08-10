@@ -56,12 +56,14 @@ interface UIState {
 // the map mounts. Native serves from '/', which resolves to the default.
 //
 // Default is THE GLASS (Shane, 2026-08-10): the app must open on the
-// instrument page, nowhere else. Aboard, the phone in the cockpit mount
-// is an instrument display first — booting to the weather dashboard (the
-// old default) meant a tap-tap-tap to reach the numbers every time the
-// app relaunched. Only an EXPLICIT web deep link overrides this; the
-// native app always serves '/' and therefore always opens on Glass.
-const bootView = initialViewFromUrl() ?? 'glass';
+// Glass tab, nowhere else. NAMING TRAP: the Glass tab is the
+// 'dashboard' view (App.tsx NavButton label "The Glass"). The registry
+// key 'glass' is TheGlassPage — the fullscreen NMEA "Instrument Panel",
+// a Vessel child — and booting there is exactly the wrong-panel launch
+// Shane reported on 2026-08-10 after this line briefly said 'glass'.
+// Only an EXPLICIT web deep link overrides this; the native app always
+// serves '/' and therefore always opens on the Glass tab.
+const bootView = initialViewFromUrl() ?? 'dashboard';
 
 /**
  * Where the skipper was, written on every navigation.
