@@ -2298,45 +2298,48 @@ const NowPlayingStage: React.FC<NowPlayingStageProps> = ({
                     </div>
                 )}
 
-                {/* Transport — big, centred, thumb-first; speaker rides shotgun */}
-                <div className="mt-3 flex items-center">
-                    <div className="w-[4.5rem]" aria-hidden="true" />
-                    <div className="flex flex-1 items-center justify-center gap-4">
+                {/* Transport — big, centred, thumb-first. The speaker chip
+                    used to ride shotgun in a fixed 4.5 rem slot on this row —
+                    but the chip runs up to 10 rem wide (icon + name), so
+                    justify-end overflowed it LEFT, straight over the Next
+                    button (Shane 2026-08-11: "it is covering up the forward
+                    button"). It now sits on its own line below, tucked into
+                    the corner where there is nothing to shadow. */}
+                <div className="mt-3 flex items-center justify-center gap-4">
+                    <button
+                        onClick={onPrevious}
+                        className="flex h-12 w-12 items-center justify-center rounded-full text-slate-200 transition-all hover:bg-white/[0.08] active:scale-90"
+                        aria-label="Previous"
+                    >
+                        <SkipPrevIcon className="h-6 w-6" />
+                    </button>
+                    {isPlaying ? (
                         <button
-                            onClick={onPrevious}
-                            className="flex h-12 w-12 items-center justify-center rounded-full text-slate-200 transition-all hover:bg-white/[0.08] active:scale-90"
-                            aria-label="Previous"
+                            onClick={onPause}
+                            className="flex h-14 w-14 items-center justify-center rounded-full bg-sky-500 text-white shadow-2xl shadow-sky-500/30 transition-transform active:scale-90"
+                            aria-label="Pause"
                         >
-                            <SkipPrevIcon className="h-6 w-6" />
+                            <PauseIcon className="h-6 w-6" />
                         </button>
-                        {isPlaying ? (
-                            <button
-                                onClick={onPause}
-                                className="flex h-14 w-14 items-center justify-center rounded-full bg-sky-500 text-white shadow-2xl shadow-sky-500/30 transition-transform active:scale-90"
-                                aria-label="Pause"
-                            >
-                                <PauseIcon className="h-6 w-6" />
-                            </button>
-                        ) : (
-                            <button
-                                onClick={onResume}
-                                className="flex h-14 w-14 items-center justify-center rounded-full bg-sky-500 text-white shadow-2xl shadow-sky-500/30 transition-transform active:scale-90"
-                                aria-label="Play"
-                            >
-                                <PlayIcon className="ml-0.5 h-6 w-6" />
-                            </button>
-                        )}
+                    ) : (
                         <button
-                            onClick={onNext}
-                            className="flex h-12 w-12 items-center justify-center rounded-full text-slate-200 transition-all hover:bg-white/[0.08] active:scale-90"
-                            aria-label="Next"
+                            onClick={onResume}
+                            className="flex h-14 w-14 items-center justify-center rounded-full bg-sky-500 text-white shadow-2xl shadow-sky-500/30 transition-transform active:scale-90"
+                            aria-label="Play"
                         >
-                            <SkipNextIcon className="h-6 w-6" />
+                            <PlayIcon className="ml-0.5 h-6 w-6" />
                         </button>
-                    </div>
-                    <div className="flex w-[4.5rem] justify-end">
-                        <SpeakerChip speaker={speaker} onPick={onPickSpeaker} />
-                    </div>
+                    )}
+                    <button
+                        onClick={onNext}
+                        className="flex h-12 w-12 items-center justify-center rounded-full text-slate-200 transition-all hover:bg-white/[0.08] active:scale-90"
+                        aria-label="Next"
+                    >
+                        <SkipNextIcon className="h-6 w-6" />
+                    </button>
+                </div>
+                <div className="-mb-1 -mr-1 mt-1.5 flex justify-end">
+                    <SpeakerChip speaker={speaker} onPick={onPickSpeaker} />
                 </div>
             </div>
         </section>
