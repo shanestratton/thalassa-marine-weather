@@ -539,6 +539,15 @@ export function tracerGridBytes(ctx: TracerContext): number {
 export const TRACER_LRU_BYTE_BUDGET = 48 * 1024 * 1024;
 
 /**
+ * The one danger wording that can NEVER be acknowledged away (Shane
+ * 2026-08-10: accepted issues are good to go — "just not ones that cross
+ * land though"). evaluateTraceRelease matches on this exact string to refuse
+ * saving a land-crossing route, so it is a shared constant rather than a
+ * literal: rewording the verdict must not silently disarm the refusal.
+ */
+export const TRACE_LAND_CROSSING_MESSAGE = 'crosses charted land';
+
+/**
  * Hold `ctx` at the front of the LRU, evicting from the tail — first past
  * three entries, then while the MEASURED grid bytes exceed the budget. The
  * newest entry always survives: refusing to hold the grid that is in use
@@ -923,7 +932,7 @@ export function validateTraceLeg(
     if (blockedAt && blockedSub) {
         const msg =
             blockedSub === 'land'
-                ? 'crosses charted land'
+                ? TRACE_LAND_CROSSING_MESSAGE
                 : blockedSub === 'berth'
                   ? 'cuts through marina berths'
                   : 'crosses a charted hazard';
