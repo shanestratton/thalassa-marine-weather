@@ -32,10 +32,27 @@ function loadServiceWorker() {
         delete: vi.fn().mockResolvedValue(true),
         match: vi.fn().mockResolvedValue(undefined),
     };
-    const fetchMock = vi.fn().mockResolvedValue(new Response('network', { status: 200 }));
+    // An image content-type, because v199's tile branch only caches real
+    // images (a 200-status error body used to replay into the decoder
+    // forever). A bare text Response now correctly never reaches the tile
+    // cache — which is the guard, not a failure.
+    const fetchMock = vi
+        .fn()
+        .mockResolvedValue(new Response('network', { status: 200, headers: { 'content-type': 'image/png' } }));
     const workerMath = Object.create(Math) as Math;
     workerMath.random = () => 1;
     const source = readFileSync(resolve(process.cwd(), 'public/sw.js'), 'utf8');
+    // Cache names come FROM the source, not from literals here — the v198
+    // hardcodes silently turned every assertion into "called 0 times" the day
+    // a release bumped the worker to v199 (2026-08-11). A missing constant
+    // still fails loudly below via the fallback name never being opened.
+    const readName = (constant: string): string =>
+        new RegExp(`const ${constant} = '([^']+)'`).exec(source)?.[1] ?? `missing-${constant}`;
+    const names = {
+        core: readName('CACHE_NAME'),
+        runtimeTiles: readName('RUNTIME_TILE_CACHE'),
+        offlineTiles: readName('OFFLINE_TILE_CACHE'),
+    };
 
     runInNewContext(source, {
         URL,
@@ -54,7 +71,8 @@ function loadServiceWorker() {
 
     return {
         listeners,
-        cache: getCache('thalassa-v198-core'),
+        cache: getCache(names.core),
+        names,
         getCache,
         caches,
         fetchMock,
@@ -90,7 +108,7 @@ describe('production service worker', () => {
     });
 
     it('matches trusted cache hosts by DNS boundary, not substring', async () => {
-        const { listeners, getCache, fetchMock } = loadServiceWorker();
+        const { listeners, getCache, fetchMock, names } = loadServiceWorker();
         const deceptiveRespondWith = vi.fn();
 
         listeners.get('fetch')?.({
@@ -114,14 +132,14 @@ describe('production service worker', () => {
         expect(await responsePromise).toMatchObject({ status: 200 });
         await Promise.all(pending);
         expect(fetchMock).toHaveBeenCalledOnce();
-        expect(getCache('thalassa-v198-runtime-tiles').put).toHaveBeenCalledOnce();
-        expect(getCache('thalassa-v195-tiles').put).not.toHaveBeenCalled();
+        expect(getCache(names.runtimeTiles).put).toHaveBeenCalledOnce();
+        expect(getCache(names.offlineTiles).put).not.toHaveBeenCalled();
     });
 
     it('serves explicit offline-area tiles without evicting or rewriting them', async () => {
-        const { listeners, getCache, fetchMock } = loadServiceWorker();
-        const runtimeCache = getCache('thalassa-v198-runtime-tiles');
-        const offlineCache = getCache('thalassa-v195-tiles');
+        const { listeners, getCache, fetchMock, names } = loadServiceWorker();
+        const runtimeCache = getCache(names.runtimeTiles);
+        const offlineCache = getCache(names.offlineTiles);
         offlineCache.match.mockResolvedValue(new Response('offline-area'));
 
         let responsePromise: Promise<Response> | undefined;
@@ -142,9 +160,9 @@ describe('production service worker', () => {
     });
 
     it('prunes only the ordinary browsing tile cache to its fixed limit', async () => {
-        const { listeners, getCache } = loadServiceWorker();
-        const runtimeCache = getCache('thalassa-v198-runtime-tiles');
-        const offlineCache = getCache('thalassa-v195-tiles');
+        const { listeners, getCache, names } = loadServiceWorker();
+        const runtimeCache = getCache(names.runtimeTiles);
+        const offlineCache = getCache(names.offlineTiles);
         runtimeCache.keys.mockResolvedValue(
             Array.from(
                 { length: 2002 },
