@@ -84,7 +84,13 @@ async function readStatus(): Promise<RemoteAccessStatus> {
             return { state: 'connected', tailscaleIps: ips, dnsName: parsed.Self?.DNSName };
         }
         if (backend === 'NeedsLogin' || backend === 'NeedsMachineAuth') {
-            const authUrl = parsed.AuthURL || lastSeenAuthUrl || undefined;
+            // A sign-in URL is only valid while the `tailscale up` that
+            // minted it is still waiting on it — a stale link opens as a
+            // greyed-out page on login.tailscale.com. Prefer the LocalAPI's
+            // live AuthURL; fall back to the sniffed one only while our
+            // login child is actually alive.
+            const childAlive = loginChild !== null && loginChild.exitCode === null;
+            const authUrl = parsed.AuthURL || (childAlive ? (lastSeenAuthUrl ?? undefined) : undefined);
             return { state: 'needs-auth', authUrl };
         }
         if (backend === 'Starting') return { state: 'starting' };
@@ -141,8 +147,22 @@ export function createRemoteAccessRoutes(): Router {
             return res.status(409).json(before);
         }
         if (before.state === 'connected') return res.json(before);
+        // A previous login child holds a URL the punter may have let expire —
+        // restart the flow so every Enable tap mints a FRESH sign-in link.
+        if (loginChild && loginChild.exitCode === null) {
+            loginChild.kill();
+            loginChild = null;
+        }
         await startLogin();
-        return res.json(await readStatus());
+        // The URL can land a beat after `up` starts talking to the control
+        // plane — give the LocalAPI a few short beats to surface it before
+        // answering, so the app never shows needs-auth with no link.
+        let after = await readStatus();
+        for (let i = 0; i < 6 && after.state === 'needs-auth' && !after.authUrl; i++) {
+            await new Promise((resolve) => setTimeout(resolve, 500));
+            after = await readStatus();
+        }
+        return res.json(after);
     });
 
     router.post('/disable', async (req: Request, res: Response) => {

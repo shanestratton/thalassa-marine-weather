@@ -120,12 +120,20 @@ export const RemoteAccessSection: React.FC = () => {
                         Almost there — sign in with your Tailscale account (free) to link the Pi to your devices.
                         Waiting for the sign-in to complete…
                     </p>
+                    {/* A sign-in link is single-use and expires with the login
+                        attempt that minted it — when the Pi has none to offer,
+                        this button re-runs enable to mint a fresh one instead
+                        of sitting greyed out. */}
                     <button
-                        onClick={() => ra.authUrl && void Browser.open({ url: ra.authUrl })}
-                        disabled={!ra.authUrl}
+                        onClick={() => (ra.authUrl ? void Browser.open({ url: ra.authUrl }) : void handleEnable())}
+                        disabled={busy}
                         className="w-full py-3 rounded-xl bg-sky-500/20 border border-sky-500/30 text-sky-300 text-sm font-bold uppercase tracking-wider hover:bg-sky-500/30 active:scale-[0.98] transition-all disabled:opacity-40"
                     >
-                        Sign In with Tailscale
+                        {busy
+                            ? 'Getting sign-in link…'
+                            : ra.authUrl
+                              ? 'Sign In with Tailscale'
+                              : 'Get a Fresh Sign-In Link'}
                     </button>
                 </div>
             ) : (
