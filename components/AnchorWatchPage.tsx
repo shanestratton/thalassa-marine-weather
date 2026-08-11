@@ -26,12 +26,12 @@ import {
 } from '../services/AnchorWatchSyncService';
 import { AlarmAudioService } from '../services/AlarmAudioService';
 import { triggerHaptic } from '../utils/system';
-import { SwingCircleCanvas, type AisTargetDot } from './anchor-watch/SwingCircleCanvas';
+import { SwingCircleCanvas } from './anchor-watch/SwingCircleCanvas';
 import { ScopeRadar } from './anchor-watch/ScopeRadar';
 import { VpnHairpinNotice } from './network/VpnHairpinNotice';
 import { SoundCheckModal } from './anchor-watch/SoundCheckModal';
 import { ShoreWatchModal } from './anchor-watch/ShoreWatchModal';
-import { AisStreamService } from '../services/AisStreamService';
+import { useAnchorRadarTargets } from './anchor-watch/anchorRadarTargets';
 import { PageHeader } from './ui/PageHeader';
 import { toast } from './Toast';
 import { createLogger } from '../utils/createLogger';
@@ -39,13 +39,7 @@ import { AnchorIcon, AlertTriangleIcon, MuteIcon, CheckIcon, PhoneIcon, PowerBoa
 import { useAuthStore } from '../stores/authStore';
 import { SignInScreen } from './SignInScreen';
 
-import {
-    navStatusColorSimple,
-    getWeatherRecommendation,
-    formatDistance,
-    bearingToCardinal,
-    formatElapsed,
-} from './anchor-watch/anchorUtils';
+import { getWeatherRecommendation, formatDistance, bearingToCardinal, formatElapsed } from './anchor-watch/anchorUtils';
 
 const log = createLogger('AnchorWatch');
 /** Vessel positions are broadcast every five seconds; three missed updates are stale. */
@@ -86,7 +80,6 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
     const [showSoundCheck, setShowSoundCheck] = useState(false);
 
     // AIS targets on anchor watch radar
-    const [aisTargets, setAisTargets] = useState<AisTargetDot[]>([]);
     const [showAisOnRadar, setShowAisOnRadar] = useState(() => {
         try {
             return localStorage.getItem('thalassa_anchor_ais') !== 'off';
@@ -317,55 +310,13 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
 
     // Swing circle visualization extracted to SwingCircleCanvas component
 
-    // ── AIS target polling for anchor watch radar ──
-    useEffect(() => {
-        if (viewMode !== 'watching' || !showAisOnRadar) {
-            setAisTargets([]);
-            return;
-        }
-
-        const fetchAisTargets = async () => {
-            const snap = snapshotRef.current;
-            if (!snap?.anchorPosition) return;
-
-            try {
-                const geojson = await AisStreamService.fetchNearby({
-                    lat: snap.anchorPosition.latitude,
-                    lon: snap.anchorPosition.longitude,
-                    radiusNm: 2,
-                    limit: 50,
-                });
-
-                const dots: AisTargetDot[] = (geojson.features || [])
-                    .filter((f) => {
-                        const coords = (f.geometry as GeoJSON.Point)?.coordinates;
-                        return coords && coords.length >= 2;
-                    })
-                    .map((f) => {
-                        const p = f.properties || {};
-                        const coords = (f.geometry as GeoJSON.Point).coordinates;
-                        return {
-                            mmsi: Number(p.mmsi),
-                            name: p.name || `MMSI ${p.mmsi}`,
-                            lat: coords[1],
-                            lon: coords[0],
-                            cog: Number(p.cog ?? 0),
-                            sog: Number(p.sog ?? 0),
-                            statusColor: navStatusColorSimple(p.navStatus ?? p.nav_status ?? 15),
-                        };
-                    });
-
-                setAisTargets(dots);
-            } catch (e) {
-                console.warn('Suppressed:', e);
-                // Silently fail — AIS is a nice-to-have overlay
-            }
-        };
-
-        fetchAisTargets();
-        const interval = setInterval(fetchAisTargets, 30_000);
-        return () => clearInterval(interval);
-    }, [viewMode, showAisOnRadar]);
+    // ── AIS targets for the anchor watch radar — boat receiver first,
+    //    internet fill (shared with the Glass hero card; see
+    //    anchorRadarTargets for the merge politics). ──
+    const aisTargets = useAnchorRadarTargets(
+        snapshot?.anchorPosition ?? null,
+        viewMode === 'watching' && showAisOnRadar,
+    );
 
     // ---- HANDLERS ----
 

@@ -272,16 +272,17 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
      *  cast-off effect applies it once the voyage id is real. */
     const preStartAnswerRef = React.useRef<VoyageSummary | 'none' | null>(null);
     const [preStartSheetOpen, setPreStartSheetOpen] = React.useState(false);
-    const [followPromptHiddenCount, setFollowPromptHiddenCount] = React.useState(0);
     /** The GPS-verified start action, assigned each render once the handlers
      *  exist below — the sheet's pre-start answers fire it without caring
      *  about declaration order. */
     const startTrackingVerifiedRef = React.useRef<() => void>(() => {});
-    /** Snapshot of the pickable routes taken when the sheet OPENS — the live
-     *  list reshuffles as entries land and the ⇄ fold re-picks direction,
-     *  which flipped rows under the skipper's thumb (hardening 2026-08-01). */
+    /** Snapshot of the sheet's routes taken when it OPENS — the live list
+     *  reshuffles as entries land and the ⇄ fold re-picks direction, which
+     *  flipped rows under the skipper's thumb (hardening 2026-08-01). Each
+     *  row carries the follow gate's verdict: null = pickable, a string =
+     *  shown disabled with that reason. */
     const [followPromptChoices, setFollowPromptChoices] = React.useState<
-        ReturnType<typeof collapseReversedRoutes<VoyageSummary>>
+        (ReturnType<typeof collapseReversedRoutes<VoyageSummary>>[number] & { blockReason: string | null })[]
     >([]);
     const followSelectionGenerationRef = React.useRef(0);
     /** One-shot guard for the pre-open "is this voyage already linked?"
@@ -419,30 +420,29 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
     }, [state.entries]);
 
     /**
-     * Only routes that are READY TO FOLLOW reach the sheet (Shane 2026-08-10:
-     * "just show tracks that are ready to be followed" — picking a row and
-     * then reading two lines of chart-safety prose about why it refused was
-     * the complaint). A trace-linked plan is offered only when its saved
-     * trace passes the follow gate NOW; an ordinary plan (no trace link) has
-     * no gate to fail. The hidden count feeds one honest footer line so a
-     * missing route is explainable rather than mysterious.
+     * EVERY planned route reaches the sheet; ones the follow gate refuses
+     * render disabled with the gate's reason on the row. This is the third
+     * design in four days, so the history matters: pick-then-refuse (two
+     * lines of chart-safety prose after choosing — Shane 2026-08-10: "just
+     * show tracks that are ready to be followed"), then hide-the-blocked
+     * (honest but a skipper whose routes all need re-checks saw NOTHING at
+     * cast-off — Shane 2026-08-13: "the saved routes do not show up on the
+     * startup screen to select one"). Visible-but-disabled is the synthesis:
+     * the route is seen, the reason is named, and the fix (Route Tracer) is
+     * one line away — without letting an unchecked line be steered.
+     *
+     * Two link sources, because entries may not be resident on a fresh boot:
+     * the entry rows when loaded, else the local trace store's own
+     * plannedRouteId mirror. An ordinary plan (no trace link) has no gate to
+     * fail and is always pickable.
      */
-    const followableChoices = React.useMemo(() => {
-        // Two link sources, because entries may not be resident on a fresh
-        // boot: the entry rows when loaded, else the local trace store's own
-        // plannedRouteId mirror. Without the fallback, every cloud-side plan
-        // looked "ordinary", was offered, and refused at pick time (Shane
-        // 2026-08-13: refusal card for a route the picker itself offered).
+    const followSheetChoices = React.useMemo(() => {
         const traceLinks = localTraceLinkByVoyageId();
-        const choices: typeof plannedChoices = [];
-        let hiddenCount = 0;
-        for (const choice of plannedChoices) {
+        return plannedChoices.map((choice) => {
             const vid = choice.summary.voyageId;
             const sid = plannedRouteLinkIds.get(vid) ?? traceLinks.get(vid);
-            if (!sid || savedTraceFollowBlockReason(sid) === null) choices.push(choice);
-            else hiddenCount++;
-        }
-        return { choices, hiddenCount };
+            return { ...choice, blockReason: sid ? savedTraceFollowBlockReason(sid) : null };
+        });
     }, [plannedChoices, plannedRouteLinkIds]);
 
     /**
@@ -612,7 +612,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         }
         if (followPromptVoyageId !== null) return; // already open
         if (confirmedFollowVoyages.has(vid) || dismissedFollowVoyages.has(vid)) return; // answered
-        if (followableChoices.choices.length === 0) return; // nothing followable
+        if (followSheetChoices.length === 0) return; // no saved routes at all
 
         // The question may have been answered OUTSIDE this component — e.g.
         // the Settings retro-link picker, or a follow that survived a
@@ -638,8 +638,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         // Freeze the choice list at open. The live list reshuffles as data
         // lands (the ⇄ fold re-picks direction when the first fix arrives),
         // which flipped rows under the skipper's thumb.
-        setFollowPromptChoices(followableChoices.choices);
-        setFollowPromptHiddenCount(followableChoices.hiddenCount);
+        setFollowPromptChoices(followSheetChoices);
         setFollowPromptVoyageId(vid);
         // NOT marked "asked" here — only an ANSWER (pick or explicit
         // dismissal) suppresses future prompts. An unmount mid-question
@@ -679,7 +678,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         state.currentVoyageId,
         state.summaries,
         state.entries,
-        followableChoices,
+        followSheetChoices,
         followPromptVoyageId,
         applyFollowPick,
         toast,
@@ -1059,7 +1058,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
      */
     const beginCastOff = React.useCallback(() => {
         if (!isAuthIdentityScopeCurrent(identityScope)) return;
-        if (followableChoices.choices.length === 0) {
+        if (followSheetChoices.length === 0) {
             void verifyGpsAndStart(handleStartTracking, true);
             return;
         }
@@ -1072,10 +1071,9 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
             locationAccess: 'background-safety',
         }).catch(() => null);
         setFollowBlockNotice(null);
-        setFollowPromptChoices(followableChoices.choices);
-        setFollowPromptHiddenCount(followableChoices.hiddenCount);
+        setFollowPromptChoices(followSheetChoices);
         setPreStartSheetOpen(true);
-    }, [followableChoices, handleStartTracking, identityScope, verifyGpsAndStart]);
+    }, [followSheetChoices, handleStartTracking, identityScope, verifyGpsAndStart]);
 
     // Share form auto-fill state
     const [shareAutoTitle, setShareAutoTitle] = useState('');
@@ -2433,11 +2431,12 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                 </div>
                             )}
                             <div className="min-h-0 flex-1 space-y-1.5 overflow-y-auto px-3 py-3">
-                                {followPromptChoices.map(({ summary: s, reversible }) => (
+                                {followPromptChoices.map(({ summary: s, reversible, blockReason }) => (
                                     <FollowRouteChoice
                                         key={s.voyageId}
                                         summary={s}
                                         reversible={reversible}
+                                        blockReason={blockReason}
                                         loading={followPromptLoadingId === s.voyageId}
                                         disabled={followPromptLoadingId !== null}
                                         onPick={() => {
@@ -2469,15 +2468,6 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                 ))}
                             </div>
                             <div className="shrink-0 border-t border-white/10 px-5 py-3">
-                                {followPromptHiddenCount > 0 && (
-                                    <p className="mb-2 text-[11px] leading-relaxed text-gray-500">
-                                        {followPromptHiddenCount === 1
-                                            ? '1 saved route isn’t shown'
-                                            : `${followPromptHiddenCount} saved routes aren’t shown`}{' '}
-                                        — the check is stale or was for a different keel. Recheck in Route Tracer to
-                                        follow {followPromptHiddenCount === 1 ? 'it' : 'them'}.
-                                    </p>
-                                )}
                                 <button
                                     ref={followPromptDismissRef}
                                     onClick={dismissFollowPrompt}

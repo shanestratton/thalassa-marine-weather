@@ -48,17 +48,19 @@ describe('Log follow steers the geometry it verified', () => {
         expect(body).toContain('TRACE_ROUTE_USE_BLOCK_PREFIX');
     });
 
-    it('offers trace-linked voyages that pass the follow gate, and explains the rest', () => {
-        // The 2026-08-06 era hid trace-linked voyages because they never
-        // worked. Followable ones now show (Shane 2026-08-10: "just show
-        // tracks that are ready to be followed"); a route is hidden ONLY when
-        // savedTraceFollowBlockReason refuses it right now, and the sheet
-        // footer must say how many were hidden so a missing route reads as a
-        // recheck task, not a vanishing bug.
+    it('offers EVERY planned route, carrying the follow gate verdict per row', () => {
+        // Design history, because this flipped twice: pick-then-refuse (Shane
+        // 2026-08-10: "just show tracks that are ready to be followed"), then
+        // hide-the-blocked — honest, but a skipper whose routes all needed
+        // re-checks saw NOTHING at cast-off (Shane 2026-08-13: "the saved
+        // routes do not show up on the startup screen to select one"). Now
+        // every planned route reaches the sheet with the gate's verdict on
+        // the row: null = pickable, a reason = visible but disabled. The
+        // FollowRouteChoiceBlocked suite pins the row behaviour itself.
         expect(code).not.toContain('traceLinkedVoyageIds');
-        expect(code).toContain('savedTraceFollowBlockReason(sid) === null');
-        expect(code).toContain('setFollowPromptChoices(followableChoices.choices);');
-        expect(code).toContain('followPromptHiddenCount > 0');
+        expect(code).toContain('savedTraceFollowBlockReason(sid)');
+        expect(code).toContain('setFollowPromptChoices(followSheetChoices);');
+        expect(code).toContain('blockReason={blockReason}');
     });
 });
 
