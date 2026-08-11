@@ -93,6 +93,31 @@ export function tracedRouteDirectUseBlockReason(
  * safety prose). Checks the trace's own points, which is exactly the
  * geometry tracedRouteFollowGeometry will steer for a trace-linked voyage.
  */
+/**
+ * voyageId → savedRouteId for every trace on THIS device, read off the
+ * plannedRouteId / passageVoyageId mirrors each saved trace carries.
+ *
+ * Why this exists: the Log's picker filter used to learn a plan's trace link
+ * only from RESIDENT ship-log entries. On a fresh boot the Log holds
+ * summaries, not entries — so every trace-linked plan looked "ordinary" (no
+ * gate to fail), was offered, and then REFUSED at pick time when the fetch
+ * revealed the link (Shane 2026-08-13: refusal card for a route the picker
+ * itself had just offered). The trace store already knows the link locally;
+ * asking it costs nothing and needs no network.
+ *
+ * A plan whose trace lives only on ANOTHER device still resolves to nothing
+ * here and is offered optimistically — if picked, the gate refuses with the
+ * "not verified on this device" reason, which is true and actionable.
+ */
+export function localTraceLinkByVoyageId(): Map<string, string> {
+    const links = new Map<string, string>();
+    for (const trace of loadSavedTraces()) {
+        if (trace.plannedRouteId) links.set(trace.plannedRouteId, trace.id);
+        if (trace.passageVoyageId) links.set(trace.passageVoyageId, trace.id);
+    }
+    return links;
+}
+
 export function savedTraceFollowBlockReason(savedRouteId: string, nowMs: number = Date.now()): string | null {
     const routeId = savedRouteId.trim();
     if (!routeId) return 'This route has no saved trace on this device.';

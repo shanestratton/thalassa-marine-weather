@@ -3275,6 +3275,43 @@ body,
     color: rgba(125, 211, 252, 0.8);
     text-decoration: none;
 }
+/* ── Compact attribution — the ⓘ button ──────────────────────────
+   Mapbox GL's compact-attribution pattern applied to Leaflet: collapsed
+   to a small ⓘ circle, the full OSM / OpenSeaMap / Mapbox credit line one
+   tap away (toggle wired in components/map/leafletCompactAttribution.ts).
+   This satisfies the tile licences — credits are collapsed, never removed;
+   MapAttributionContract.test.ts blesses hiding vocabulary ONLY inside this
+   `:not(.is-open)` rule and requires the `.is-open` restore to exist. */
+.thalassa-log-leaflet-map.leaflet-container .leaflet-control-attribution.thalassa-attribution-compact:not(.is-open) {
+    position: relative;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    margin: 0 6px 6px 0;
+    border-radius: 9999px;
+    overflow: hidden;
+    cursor: pointer;
+    font-size: 0; /* collapses the credit text; .is-open below restores it */
+}
+.thalassa-log-leaflet-map.leaflet-container
+    .leaflet-control-attribution.thalassa-attribution-compact:not(.is-open)::after {
+    content: 'i';
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: Georgia, 'Times New Roman', serif;
+    font-style: italic;
+    font-weight: 700;
+    font-size: 13px;
+    line-height: 1;
+    color: rgba(148, 163, 184, 0.9);
+}
+.thalassa-log-leaflet-map.leaflet-container .leaflet-control-attribution.thalassa-attribution-compact.is-open {
+    font-size: 9px; /* the restore: full credit line, tap again to collapse */
+    cursor: pointer;
+}
 .thalassa-log-leaflet-map .leaflet-popup-content-wrapper {
     background: rgba(15, 23, 42, 0.92);
     -webkit-backdrop-filter: blur(10px);
