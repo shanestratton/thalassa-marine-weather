@@ -130,13 +130,20 @@ export const FollowRouteChoice: React.FC<{
     summary: VoyageSummary;
     /** This route has a saved reverse, collapsed into this row. */
     reversible?: boolean;
+    /** Follow-gate refusal. Non-null renders the row VISIBLE but disabled,
+     *  with this reason under the name. Sheet design history: pick-then-refuse
+     *  (Shane 2026-08-10: "just show tracks that are ready to be followed"),
+     *  then hide-the-blocked (Shane 2026-08-13: "the saved routes do not show
+     *  up on the startup screen") — visible-but-disabled is the synthesis. */
+    blockReason?: string | null;
     loading?: boolean;
     disabled?: boolean;
     onPick: () => void;
-}> = ({ summary, reversible = false, loading = false, disabled = false, onPick }) => {
+}> = ({ summary, reversible = false, blockReason = null, loading = false, disabled = false, onPick }) => {
     const first = summary.firstLat != null ? { latitude: summary.firstLat, longitude: summary.firstLon } : undefined;
     const last = summary.lastLat != null ? { latitude: summary.lastLat, longitude: summary.lastLon } : undefined;
     const { startLabel, endLabel } = useEndpointNames(first, last);
+    const blocked = blockReason !== null;
 
     // Round trips and single-fix plans collapse to one name instead of the
     // silly "Newport → Newport". "Suggested route" survives only as the honest
@@ -149,23 +156,32 @@ export const FollowRouteChoice: React.FC<{
     return (
         <button
             onClick={onPick}
-            disabled={disabled}
+            disabled={disabled || blocked}
             aria-busy={loading}
-            className="flex w-full items-center justify-between gap-3 rounded-xl border border-white/10 bg-slate-800/60 px-4 py-3 text-left active:scale-[0.99] disabled:cursor-wait disabled:opacity-60"
+            className={`flex w-full items-start justify-between gap-3 rounded-xl border px-4 py-3 text-left active:scale-[0.99] ${
+                blocked
+                    ? 'cursor-default border-white/5 bg-slate-800/30'
+                    : 'border-white/10 bg-slate-800/60 disabled:cursor-wait disabled:opacity-60'
+            }`}
         >
-            <span className="min-w-0 flex-1 truncate text-[13px] font-bold text-gray-100">
-                🧭 {routeName}
-                {/* The return leg is a separate saved voyage, folded into this
-                    row. Marked rather than silently dropped — the direction shown
-                    is the one starting nearest the boat, and a skipper should be
-                    able to see that a choice was made on their behalf. */}
-                {reversible && (
-                    <span className="ml-1.5 text-[11px] font-black text-gray-500" title="Return leg also saved">
-                        ⇄
-                    </span>
+            <span className="min-w-0 flex-1">
+                <span className={`block truncate text-[13px] font-bold ${blocked ? 'text-gray-400' : 'text-gray-100'}`}>
+                    🧭 {routeName}
+                    {/* The return leg is a separate saved voyage, folded into this
+                        row. Marked rather than silently dropped — the direction shown
+                        is the one starting nearest the boat, and a skipper should be
+                        able to see that a choice was made on their behalf. */}
+                    {reversible && (
+                        <span className="ml-1.5 text-[11px] font-black text-gray-500" title="Return leg also saved">
+                            ⇄
+                        </span>
+                    )}
+                </span>
+                {blocked && (
+                    <span className="mt-1 block text-[11px] leading-snug text-amber-200/75">{blockReason}</span>
                 )}
             </span>
-            <span className="shrink-0 text-[11px] font-bold text-sky-300">
+            <span className={`shrink-0 text-[11px] font-bold ${blocked ? 'text-gray-500' : 'text-sky-300'}`}>
                 {loading ? 'Loading route…' : `${summary.totalDistanceNM.toFixed(1)} NM · ${summary.entryCount} pts`}
             </span>
         </button>

@@ -85,7 +85,12 @@ vi.mock('../services/AlarmAudioService', () => ({
     },
 }));
 
-vi.mock('../utils/system', () => ({ triggerHaptic: vi.fn() }));
+// getSystemUnits included because the radar's receiver-merge (anchorRadarTargets)
+// transitively pulls settingsStore, whose init calls it at module scope.
+vi.mock('../utils/system', () => ({
+    triggerHaptic: vi.fn(),
+    getSystemUnits: () => ({ speed: 'kts', distance: 'nm', temperature: 'c', depth: 'm', windSpeed: 'kts' }),
+}));
 vi.mock('../utils/createLogger', () => ({
     createLogger: () => ({ debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }),
 }));

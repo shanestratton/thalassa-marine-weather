@@ -10,7 +10,7 @@
  *
  * Reuses the existing anchor-watch machinery:
  *   - AnchorWatchService      — snapshot subscription (state/distance/history)
- *   - AisStreamService        — nearby vessels for radar overlay
+ *   - anchorRadarTargets      — nearby vessels for radar overlay (receiver + internet)
  *   - SwingCircleCanvas       — the radar render (compass/zones/trail/AIS)
  *   - anchorUtils             — formatters kept identical to nav station
  *
@@ -30,12 +30,12 @@
  *   - Tide direction arrow
  *   - Swing-radius auto-suggest
  */
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { AnchorWatchService, type AnchorWatchSnapshot } from '../../../services/AnchorWatchService';
-import { AisStreamService } from '../../../services/AisStreamService';
+import { useAnchorRadarTargets } from '../../anchor-watch/anchorRadarTargets';
 import { NmeaStore, type NmeaStoreState } from '../../../services/NmeaStore';
-import { SwingCircleCanvas, type AisTargetDot } from '../../anchor-watch/SwingCircleCanvas';
-import { formatDistance, bearingToCardinal, formatElapsed, navStatusColorSimple } from '../../anchor-watch/anchorUtils';
+import { SwingCircleCanvas } from '../../anchor-watch/SwingCircleCanvas';
+import { formatDistance, bearingToCardinal, formatElapsed } from '../../anchor-watch/anchorUtils';
 import { suggestSwingRadius } from '../../anchor-watch/swingRadiusSuggest';
 import { CompassIcon, WindIcon } from '../../Icons';
 import { CoachMark } from '../../ui/CoachMark';
@@ -100,16 +100,11 @@ export const EssentialAnchorView: React.FC<EssentialAnchorViewProps> = ({
     // anchor was already deployed.
     const initialSnapshot = AnchorWatchService.getSnapshot();
     const [snapshot, setSnapshot] = useState<AnchorWatchSnapshot | null>(initialSnapshot);
-    const [aisTargets, setAisTargets] = useState<AisTargetDot[]>([]);
     const [nmeaState, setNmeaState] = useState<NmeaStoreState | null>(null);
-    const snapshotRef = useRef<AnchorWatchSnapshot | null>(initialSnapshot);
 
     // Subscribe to anchor-watch snapshot updates.
     useEffect(() => {
-        const unsub = AnchorWatchService.subscribe((snap) => {
-            setSnapshot(snap);
-            snapshotRef.current = snap;
-        });
+        const unsub = AnchorWatchService.subscribe(setSnapshot);
         return unsub;
     }, []);
 
@@ -242,72 +237,11 @@ export const EssentialAnchorView: React.FC<EssentialAnchorViewProps> = ({
         return { linePath, areaPath, strokeColor, fillGradientId, peak, maxWind };
     }, [windSeries]);
 
-    // Poll nearby AIS every 30s while anchored. Same radius + limit as
-    // AnchorWatchPage so the radar overlay feels identical between the
-    // two surfaces.
+    // Nearby vessels for the radar — boat receiver first, internet fill
+    // (shared with AnchorWatchPage so the two radars agree; see
+    // anchorRadarTargets for the merge politics).
     const anchorState = snapshot?.state ?? 'idle';
-    const anchorLatitude = snapshot?.anchorPosition?.latitude ?? null;
-    const anchorLongitude = snapshot?.anchorPosition?.longitude ?? null;
-    useEffect(() => {
-        if (anchorState === 'idle' || anchorLatitude === null || anchorLongitude === null) {
-            setAisTargets([]);
-            return;
-        }
-
-        let cancelled = false;
-
-        const fetchAisTargets = async () => {
-            const snap = snapshotRef.current;
-            if (!snap?.anchorPosition) return;
-
-            try {
-                const geojson = await AisStreamService.fetchNearby({
-                    lat: snap.anchorPosition.latitude,
-                    lon: snap.anchorPosition.longitude,
-                    radiusNm: 2,
-                    limit: 50,
-                });
-
-                if (cancelled) return;
-
-                const dots: AisTargetDot[] = (geojson.features || [])
-                    .filter((f) => {
-                        const coords = (f.geometry as GeoJSON.Point)?.coordinates;
-                        return coords && coords.length >= 2;
-                    })
-                    .map((f) => {
-                        const p = f.properties || {};
-                        const coords = (f.geometry as GeoJSON.Point).coordinates;
-                        return {
-                            mmsi: Number(p.mmsi),
-                            name: p.name || `MMSI ${p.mmsi}`,
-                            lat: coords[1],
-                            lon: coords[0],
-                            cog: Number(p.cog ?? 0),
-                            sog: Number(p.sog ?? 0),
-                            statusColor: navStatusColorSimple(p.navStatus ?? p.nav_status ?? 15),
-                        };
-                    });
-
-                setAisTargets(dots);
-            } catch (e) {
-                // Silently fail — AIS is a nice-to-have overlay; the
-                // radar still works without it.
-                void e;
-            }
-        };
-
-        fetchAisTargets();
-        const id = setInterval(() => {
-            if (document.hidden) return; // battery: skip when backgrounded
-            fetchAisTargets();
-        }, 30_000);
-
-        return () => {
-            cancelled = true;
-            clearInterval(id);
-        };
-    }, [anchorState, anchorLatitude, anchorLongitude]);
+    const aisTargets = useAnchorRadarTargets(snapshot?.anchorPosition ?? null, anchorState !== 'idle');
 
     // Guard: if anchor watch is idle the caller shouldn't have rendered
     // us, but belt-and-braces so we don't render an empty canvas.

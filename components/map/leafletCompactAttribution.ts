@@ -18,9 +18,14 @@ import L from 'leaflet';
  * tap-to-expand rides on map clicks).
  */
 export function installCompactAttribution(map: L.Map): void {
+    // Enhancement-only: a map without these (a partial test double, or a
+    // build with the attribution control off) is left exactly as it was.
     const control = (map as L.Map & { attributionControl?: L.Control.Attribution }).attributionControl;
     const container =
-        control?.getContainer() ?? map.getContainer().querySelector<HTMLElement>('.leaflet-control-attribution');
+        control?.getContainer?.() ??
+        (typeof map.getContainer === 'function'
+            ? map.getContainer().querySelector<HTMLElement>('.leaflet-control-attribution')
+            : null);
     if (!container) return;
     container.classList.add('thalassa-attribution-compact');
     container.setAttribute('role', 'button');
