@@ -8,6 +8,7 @@
  */
 
 import type { TraceGrade, TraceLegVerdict, TracePoint } from './routeTracer';
+import { TRACE_LAND_CROSSING_MESSAGE } from './routeTracer';
 
 export type TraceCheckStatus = 'idle' | 'loading' | 'ready' | 'marksonly' | 'toolarge' | 'nochart';
 
@@ -203,6 +204,31 @@ export function evaluateTraceRelease(
     ) {
         return { allowed: false, reason: 'Vessel or chart-check context is incomplete.', verification: null };
     }
+    // Land is the one danger no acknowledgment can accept (Shane 2026-08-10:
+    // accepted issues are good to go — "just not ones that cross land"). A
+    // hazard or berth crossing is a judgement call the skipper may own;
+    // charted land is not a risk, it is a wall. Refusing here — before the
+    // ack machinery — means a land-crossing route can never be saved, so it
+    // can never surface as a followable choice anywhere downstream.
+    const landLegs = verdicts
+        .map((verdict, index) =>
+            verdict?.issues.some(
+                (issue) => issue.severity === 'danger' && issue.message === TRACE_LAND_CROSSING_MESSAGE,
+            )
+                ? index
+                : -1,
+        )
+        .filter((index) => index >= 0);
+    if (landLegs.length > 0) {
+        return {
+            allowed: false,
+            reason: `Leg${landLegs.length === 1 ? '' : 's'} ${landLegs.map((index) => index + 1).join(', ')} cross${
+                landLegs.length === 1 ? 'es' : ''
+            } charted land. Move the waypoints — land legs cannot be acknowledged.`,
+            verification: null,
+        };
+    }
+
     const dangerLegs = legGrades.map((grade, index) => (grade === 'danger' ? index : -1)).filter((index) => index >= 0);
     const unacknowledged = dangerLegs.filter((index) => !acknowledgedLegs.has(index));
     if (unacknowledged.length > 0) {
@@ -298,6 +324,57 @@ export function traceCastOffBlockReason(
     }
     if (verification.tideWindowLabel && Math.abs(context.nowMs - verification.departureMs) > 6 * 3_600_000) {
         return 'Cast Off is outside the checked tide-departure window. Recheck the route for the new time.';
+    }
+    return null;
+}
+
+export interface TraceFollowContext {
+    draftM: number;
+    draftAssumed: boolean;
+    nowMs: number;
+}
+
+/**
+ * FOLLOW-mode gate — deliberately gentler than Cast Off (Shane 2026-08-10:
+ * "once a punter accepts certain issues with routes then they are good to
+ * go"). Cast Off is a publication event with tide-window and departure
+ * commitments; following a saved line from the Log is re-sailing a track the
+ * skipper already checked and accepted. So this keeps only the blocks that
+ * make the acceptance itself void:
+ *
+ *  - no valid check for the exact waypoints being steered — the acceptance
+ *    was for a different line;
+ *  - the vessel draft changed since the check — a deeper keel voids every
+ *    depth verdict the acceptance rested on;
+ *  - the check is older than 30 days — charts and accepted risk both age.
+ *
+ * Dropped relative to Cast Off, on purpose: ENC-library-changed, the 48 h
+ * tide-tightened staleness, the ±6 h tide-departure window, and the
+ * assumed-draft hard stop (an assumed draft was visible at save time; the
+ * skipper accepted it). Land can never reach here at all —
+ * evaluateTraceRelease refuses to save a land-crossing route outright.
+ */
+export function traceFollowBlockReason(
+    value: unknown,
+    points: readonly TracePoint[] | undefined,
+    context: TraceFollowContext,
+): string | null {
+    const verification = normaliseTraceVerification(value, points);
+    if (!verification)
+        return 'This traced route has no valid check for its current waypoints. Open Route Tracer and check it again.';
+    if (
+        verification.draftAssumed !== context.draftAssumed ||
+        Math.abs(verification.draftM - context.draftM) > 0.01
+    ) {
+        return 'Your vessel draft has changed since this route was checked. Recheck it in Route Tracer.';
+    }
+    const checkedMs = Date.parse(verification.checkedAt);
+    if (
+        !Number.isFinite(checkedMs) ||
+        context.nowMs - checkedMs > 30 * 24 * 3_600_000 ||
+        checkedMs - context.nowMs > 5 * 60_000
+    ) {
+        return 'This route check is over a month old. Recheck it in Route Tracer before following it.';
     }
     return null;
 }

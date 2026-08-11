@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import type { TraceLegVerdict, TracePoint } from '../services/routeTracer';
+import { TRACE_LAND_CROSSING_MESSAGE } from '../services/routeTracer';
 import {
     evaluateTraceRelease,
     normaliseTraceVerification,
     parseTraceVerificationNote,
     serialiseTraceVerificationNote,
     traceCastOffBlockReason,
+    traceFollowBlockReason,
     traceGeometryKey,
 } from '../services/traceVerification';
 
@@ -137,5 +139,69 @@ describe('Route Tracer durable verification', () => {
                 voyageDepartureMs: context.departureMs + 3_600_000,
             }),
         ).toContain('planned departure changed');
+    });
+});
+
+describe('land crossings can never be acknowledged (Shane 2026-08-10)', () => {
+    const landVerdict = (): TraceLegVerdict => ({
+        grade: 'danger',
+        issues: [{ severity: 'danger', message: TRACE_LAND_CROSSING_MESSAGE, at: points[1] }],
+        minDepthM: null,
+        minAt: null,
+        needsTide: false,
+        nudge: null,
+        nudgeTo: null,
+    });
+
+    it('refuses release even when the land leg is acknowledged', () => {
+        const gate = evaluateTraceRelease(points, 'ready', [landVerdict()], new Set([0]), context);
+        expect(gate.allowed).toBe(false);
+        expect(gate.reason).toMatch(/land legs cannot be acknowledged/i);
+    });
+
+    it('still allows acknowledging a NON-land danger (hazard crossings are a judgement call)', () => {
+        const hazard: TraceLegVerdict = {
+            ...landVerdict(),
+            issues: [{ severity: 'danger', message: 'crosses a charted hazard', at: points[1] }],
+        };
+        const gate = evaluateTraceRelease(points, 'ready', [hazard], new Set([0]), context);
+        expect(gate.allowed).toBe(true);
+        expect(gate.verification?.result).toBe('danger-acknowledged');
+    });
+});
+
+describe('traceFollowBlockReason — following an accepted route stays gentle', () => {
+    const followCtx = { draftM: 1.8, draftAssumed: false, nowMs: Date.parse('2026-08-10T00:00:00.000Z') };
+    const freshVerification = () =>
+        evaluateTraceRelease(points, 'ready', [verdict('caution')], new Set(), context, '2026-08-09T00:00:00.000Z')
+            .verification;
+
+    it('passes an accepted check without tide-window or departure nagging', () => {
+        // Cast Off would demand a departure match and a 48 h-fresh tide check;
+        // re-sailing an accepted line from the Log must not.
+        expect(traceFollowBlockReason(freshVerification(), points, followCtx)).toBeNull();
+    });
+
+    it('still refuses when there is no valid check for the steered geometry', () => {
+        const moved = [points[0], { lat: -27.6, lon: 153.2 }];
+        expect(traceFollowBlockReason(freshVerification(), moved, followCtx)).toMatch(/no valid check/i);
+    });
+
+    it('still refuses when the keel changed since the check', () => {
+        expect(traceFollowBlockReason(freshVerification(), points, { ...followCtx, draftM: 2.6 })).toMatch(
+            /draft has changed/i,
+        );
+    });
+
+    it('still refuses a check older than 30 days', () => {
+        const old = evaluateTraceRelease(
+            points,
+            'ready',
+            [verdict('caution')],
+            new Set(),
+            context,
+            '2026-06-01T00:00:00.000Z',
+        ).verification;
+        expect(traceFollowBlockReason(old, points, followCtx)).toMatch(/over a month old/i);
     });
 });

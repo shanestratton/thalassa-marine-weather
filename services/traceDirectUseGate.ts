@@ -4,10 +4,9 @@
 
 import type { RouteOrTrack } from './shiplog/RoutesAndTracks';
 import { loadSavedTraces } from './routeTracer';
-import { normaliseTraceVerification, traceCastOffBlockReason } from './traceVerification';
+import { normaliseTraceVerification, traceFollowBlockReason } from './traceVerification';
 import { useSettingsStore } from '../stores/settingsStore';
 import { vesselDraftIsAssumed, vesselDraftMetres } from './units';
-import { getRegistryFingerprint } from './enc/EncCellMetadata';
 
 /**
  * The geometry that should actually be STEERED for a route.
@@ -73,12 +72,36 @@ export function tracedRouteDirectUseBlockReason(
         return 'This voyage’s recorded track is not the line Route Tracer checked. Open the route in Route Tracer and tap Sail to follow the checked line — or choose “Just recording” to log this passage without a route.';
     }
 
+    // The FOLLOW gate, not the Cast Off gate (Shane 2026-08-10: "once a
+    // punter accepts certain issues with routes then they are good to go").
+    // Cast Off's tide-window/departure/ENC-drift blocks belong to the
+    // publication event; re-sailing an accepted saved line from the Log only
+    // needs the acceptance itself to still hold — same waypoints, same keel,
+    // checked within a month. See traceFollowBlockReason for the reasoning.
     const vessel = useSettingsStore.getState().settings.vessel;
-    return traceCastOffBlockReason(verification, route.points, {
+    return traceFollowBlockReason(verification, route.points, {
         draftM: vesselDraftMetres(vessel),
         draftAssumed: vesselDraftIsAssumed(vessel),
-        encRegistryFingerprint: getRegistryFingerprint(),
-        voyageDepartureMs: verification?.departureMs ?? null,
+        nowMs,
+    });
+}
+
+/**
+ * Followability of a SAVED TRACE by id — the sync check behind the Log's
+ * "Following a route?" picker filter (Shane 2026-08-10: "just show tracks
+ * that are ready to be followed" instead of letting a pick fail with chart-
+ * safety prose). Checks the trace's own points, which is exactly the
+ * geometry tracedRouteFollowGeometry will steer for a trace-linked voyage.
+ */
+export function savedTraceFollowBlockReason(savedRouteId: string, nowMs: number = Date.now()): string | null {
+    const routeId = savedRouteId.trim();
+    if (!routeId) return 'This route has no saved trace on this device.';
+    const saved = loadSavedTraces().find((trace) => trace.id === routeId);
+    if (!saved) return 'This route has no saved trace on this device.';
+    const vessel = useSettingsStore.getState().settings.vessel;
+    return traceFollowBlockReason(saved.verification, saved.points, {
+        draftM: vesselDraftMetres(vessel),
+        draftAssumed: vesselDraftIsAssumed(vessel),
         nowMs,
     });
 }

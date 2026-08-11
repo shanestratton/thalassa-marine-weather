@@ -48,10 +48,17 @@ describe('Log follow steers the geometry it verified', () => {
         expect(body).toContain('TRACE_ROUTE_USE_BLOCK_PREFIX');
     });
 
-    it('no longer hides trace-linked voyages from the picker', () => {
-        // They work now, so the filter that hid them is gone.
-        expect(code).toContain('setFollowPromptChoices(plannedChoices);');
+    it('offers trace-linked voyages that pass the follow gate, and explains the rest', () => {
+        // The 2026-08-06 era hid trace-linked voyages because they never
+        // worked. Followable ones now show (Shane 2026-08-10: "just show
+        // tracks that are ready to be followed"); a route is hidden ONLY when
+        // savedTraceFollowBlockReason refuses it right now, and the sheet
+        // footer must say how many were hidden so a missing route reads as a
+        // recheck task, not a vanishing bug.
         expect(code).not.toContain('traceLinkedVoyageIds');
+        expect(code).toContain('savedTraceFollowBlockReason(sid) === null');
+        expect(code).toContain('setFollowPromptChoices(followableChoices.choices);');
+        expect(code).toContain('followPromptHiddenCount > 0');
     });
 });
 
