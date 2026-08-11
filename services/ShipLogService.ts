@@ -149,6 +149,44 @@ const FAST_LOCK_MAX_REARMS = 8;
 const CAPTURE_HANDOFF_KEY = 'ship_log_capture_handoff';
 const CAPTURE_HANDOFF_VERSION = 1;
 
+// ── Device-local stop record ────────────────────────────────────────
+// voyageId → when THIS DEVICE stopped it. The empty-track sweep holds
+// recently-active voyages for 15 min because another device might still be
+// recording into them — but a voyage this device just stopped has no such
+// ambiguity, and holding it anyway is why a nowhere-track's card lingered
+// after an end from the Vessel hub (Shane 2026-08-12: "taking too long to
+// show up"). Persisted so an app relaunch between stop and sweep still
+// knows; pruned at read so it cannot grow.
+const DEVICE_STOPS_KEY = 'thalassa.recent_device_stops';
+const DEVICE_STOPS_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
+function readDeviceStops(): Record<string, number> {
+    try {
+        const raw = localStorage.getItem(DEVICE_STOPS_KEY);
+        const parsed = raw ? (JSON.parse(raw) as Record<string, number>) : {};
+        const cutoff = Date.now() - DEVICE_STOPS_MAX_AGE_MS;
+        return Object.fromEntries(
+            Object.entries(parsed).filter(([, at]) => typeof at === 'number' && at >= cutoff),
+        );
+    } catch {
+        return {};
+    }
+}
+
+function recordDeviceStop(voyageId: string): void {
+    try {
+        localStorage.setItem(DEVICE_STOPS_KEY, JSON.stringify({ ...readDeviceStops(), [voyageId]: Date.now() }));
+    } catch {
+        // Quota/private mode: the sweep just falls back to the 15-min hold.
+    }
+}
+
+/** Voyages this device stopped in the last 24 h — the sweep may prune these
+ *  without waiting out the cross-device recency hold. */
+export function getRecentDeviceStops(): Set<string> {
+    return new Set(Object.keys(readDeviceStops()));
+}
+
 interface CaptureHandoffBatch {
     id: string;
     voyageId: string;
@@ -2164,6 +2202,10 @@ class ShipLogServiceClass {
             assertStopCurrent(activeState);
         }
 
+        // Reached only when native teardown verified — the stop is real.
+        // Recording it lets the Log page's empty-track sweep skip the 15-min
+        // cross-device hold for this voyage, whichever door stopped it.
+        if (previousVoyageId) recordDeviceStop(previousVoyageId);
         await this.finalizeStoppedTracking(scope, activeState, previousVoyageId, stopAttempt);
     }
 

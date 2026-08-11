@@ -794,11 +794,23 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         const vid = state.currentVoyageId ?? null;
         if (!state.isTracking || hasRecordedFix) {
             if (vid) acquiringSince.delete(vid);
+            // The pre-LOAD_DATA sentinel too. Cleanup used to remove only the
+            // vid key, so a stop that landed while vid was still null left
+            // '__pending__' in the module map forever — and the NEXT voyage's
+            // clock inherited that old timestamp, opening at "2:07" for a fix
+            // the device had been acquiring for seconds (Shane 2026-08-12:
+            // "it seems to start at 2mins sometimes").
+            acquiringSince.delete('__pending__');
             setGpsWaitSec(0);
             return;
         }
         const key = vid ?? '__pending__';
-        if (!acquiringSince.has(key)) acquiringSince.set(key, Date.now());
+        if (!acquiringSince.has(key)) {
+            // Inherit the pre-LOAD_DATA clock: waiting began at cast-off,
+            // not when Supabase named the voyage.
+            acquiringSince.set(key, acquiringSince.get('__pending__') ?? Date.now());
+        }
+        if (vid) acquiringSince.delete('__pending__');
         const startedAt = acquiringSince.get(key) as number;
         const tick = () => setGpsWaitSec(Math.floor((Date.now() - startedAt) / 1000));
         tick();

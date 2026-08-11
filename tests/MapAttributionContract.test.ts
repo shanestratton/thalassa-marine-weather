@@ -31,15 +31,33 @@ describe('map provider attribution contract', () => {
 
     it('does not hide provider attribution controls or logos in global CSS', () => {
         const css = `${read('index.css')}\n${read('logs.html')}`;
-        const forbiddenSelectors = [
-            '.mapboxgl-ctrl-attrib',
-            '.mapboxgl-ctrl-logo',
-            '.maplibregl-ctrl-attrib',
-            '.leaflet-control-attribution',
-        ];
-
+        // Mapbox / MapLibre attribution and logo: untouchable, full stop.
+        const forbiddenSelectors = ['.mapboxgl-ctrl-attrib', '.mapboxgl-ctrl-logo', '.maplibregl-ctrl-attrib'];
         for (const selector of forbiddenSelectors) {
             expect(css).not.toContain(selector);
+        }
+
+        // Leaflet attribution MAY be restyled — the stock white pill on the
+        // dark Log maps was the ugliest thing aboard (Shane 2026-08-12) —
+        // but the contract this test guards is VISIBILITY, not virginity:
+        // every rule that mentions it must keep it shown and legible. The
+        // blunt "selector must not appear" form couldn't tell a dark-glass
+        // restyle from a hide, and refusing all styling is how the white
+        // pill survived this long.
+        const hidingVocabulary = [
+            /display:\s*none/,
+            /visibility:\s*hidden/,
+            /opacity:\s*0(?![.\d])/,
+            /font-size:\s*0(?![.\d])/,
+            /color:\s*transparent/,
+            /width:\s*0(?![.\d])/,
+            /height:\s*0(?![.\d])/,
+        ];
+        const attributionBlocks = css.split('}').filter((block) => block.includes('.leaflet-control-attribution'));
+        for (const block of attributionBlocks) {
+            for (const pattern of hidingVocabulary) {
+                expect(block).not.toMatch(pattern);
+            }
         }
     });
 });

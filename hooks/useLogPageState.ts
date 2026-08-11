@@ -23,7 +23,7 @@ const log = createLogger('useLogPageState');
  */
 const MAX_LIST_ENTRIES = 50_000;
 import type { ShipLogEntry } from '../types';
-import { ShipLogService } from '../services/ShipLogService';
+import { ShipLogService, getRecentDeviceStops } from '../services/ShipLogService';
 import {
     getCachedVoyageTrack,
     setCachedVoyageTrack,
@@ -559,7 +559,14 @@ export function useLogPageState() {
         async (summaries: VoyageSummary[], activeVoyageId: string | null | undefined) => {
             if (!isAuthIdentityScopeCurrent(identityScope)) return;
             if (pruningRef.current) return;
-            const toPrune = selectEmptyVoyagesToPrune(summaries, { activeVoyageId, nowMs: Date.now() });
+            const toPrune = selectEmptyVoyagesToPrune(summaries, {
+                activeVoyageId,
+                nowMs: Date.now(),
+                // Voyages THIS device stopped skip the cross-device recency
+                // hold — a nowhere-track ended from any door tidies away on
+                // the very next sweep instead of 15 minutes later.
+                deviceStoppedIds: getRecentDeviceStops(),
+            });
             if (toPrune.length === 0) return;
             pruningRef.current = true;
             try {

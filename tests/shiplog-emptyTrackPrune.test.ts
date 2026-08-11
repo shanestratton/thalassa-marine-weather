@@ -119,3 +119,47 @@ describe('offline-only empty voyage reachability (the real bug)', () => {
         expect(selectEmptyVoyagesToPrune(merged, { activeVoyageId: 'offline_empty', nowMs: NOW })).toEqual([]);
     });
 });
+
+describe('device-stopped bypass (Shane 2026-08-12: "taking too long to show up")', () => {
+    it('prunes a fresh empty voyage immediately when THIS device stopped it', () => {
+        // The recency hold exists for cross-device ambiguity; a voyage this
+        // device stopped has none, whichever door ended it.
+        const fresh = new Date(NOW - 30_000).toISOString();
+        expect(
+            selectEmptyVoyagesToPrune([summary({ endedAt: fresh })], { ...opts, deviceStoppedIds: new Set(['v1']) }),
+        ).toEqual(['v1']);
+    });
+
+    it('the bypass relaxes ONLY recency — every other guard still holds', () => {
+        const stopped = new Set(['cur', 'moved', 'manual']);
+        expect(
+            selectEmptyVoyagesToPrune([summary({ voyageId: 'cur' })], {
+                activeVoyageId: 'cur',
+                nowMs: NOW,
+                deviceStoppedIds: stopped,
+            }),
+        ).toEqual([]);
+        expect(
+            selectEmptyVoyagesToPrune([summary({ voyageId: 'moved', totalDistanceNM: 3.2 })], {
+                ...opts,
+                deviceStoppedIds: stopped,
+            }),
+        ).toEqual([]);
+        expect(
+            selectEmptyVoyagesToPrune([summary({ voyageId: 'manual', hasManual: true })], {
+                ...opts,
+                deviceStoppedIds: stopped,
+            }),
+        ).toEqual([]);
+    });
+
+    it('a DIFFERENT stopped voyage does not unlock this one', () => {
+        const fresh = new Date(NOW - 30_000).toISOString();
+        expect(
+            selectEmptyVoyagesToPrune([summary({ endedAt: fresh })], {
+                ...opts,
+                deviceStoppedIds: new Set(['someone-else']),
+            }),
+        ).toEqual([]);
+    });
+});
