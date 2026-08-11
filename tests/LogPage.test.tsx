@@ -102,6 +102,10 @@ vi.mock('../services/traceDirectUseGate', () => ({
     // substitution (that has its own suite). Returning the route unchanged
     // keeps them asserting what they were written to assert.
     tracedRouteFollowGeometry: <T,>(route: T): T => route,
+    // The picker filter's link sources — empty/permissive here so every
+    // seeded plan stays offered; the filter has its own suite.
+    localTraceLinkByVoyageId: () => new Map<string, string>(),
+    savedTraceFollowBlockReason: () => null,
 }));
 
 vi.mock('../hooks/useGpsHealth', () => ({

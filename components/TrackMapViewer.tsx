@@ -36,6 +36,7 @@ import { useFocusTrap } from '../hooks/useFocusTrap';
 import { OverlayPortal } from './ui/OverlayPortal';
 import { addFollowedRouteLayer, FOLLOWED_ROUTE_PANE } from './map/followedRouteLayer';
 import { installLeafletTileSeamGuard } from './map/leafletTileSeamGuard';
+import { installCompactAttribution } from './map/leafletCompactAttribution';
 import { sanitizeRouteCoordinates, type RouteCoordinate } from '../utils/routeCoordinates';
 import { stripInitialTrackWarmupRebounds } from '../services/shiplog/initialTrackWarmupGuard';
 
@@ -308,6 +309,8 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo((props) 
         });
 
         mapInstanceRef.current = map;
+        // Credits collapse to an ⓘ button; one tap expands them.
+        installCompactAttribution(map);
         setTimeout(() => map.invalidateSize(), 200);
 
         return () => {

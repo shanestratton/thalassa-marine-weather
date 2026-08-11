@@ -19,6 +19,7 @@ import { piCache } from '../services/PiCacheService';
 import { isTrackworthyEntry } from '../services/shiplog/helpers';
 import { addFollowedRouteLayer, FOLLOWED_ROUTE_PANE } from './map/followedRouteLayer';
 import { installLeafletTileSeamGuard } from './map/leafletTileSeamGuard';
+import { installCompactAttribution } from './map/leafletCompactAttribution';
 import { logBaseTiles } from './map/logMapTiles';
 import type { RouteCoordinate } from '../utils/routeCoordinates';
 import { stripInitialTrackWarmupRebounds } from '../services/shiplog/initialTrackWarmupGuard';
@@ -153,6 +154,10 @@ export const LiveMiniMap: React.FC<LiveMiniMapProps> = memo(
             followedRouteLayerGroupRef.current = L.layerGroup().addTo(map);
             trackLayerGroupRef.current = L.layerGroup().addTo(map);
             mapRef.current = map;
+
+            // Credits collapse to an ⓘ button; one tap expands them. The
+            // control swallows its own clicks, so this never fires onTap.
+            installCompactAttribution(map);
 
             // Tap-to-expand/collapse. Leaflet only fires 'click' on clean
             // taps (pans and pinches are suppressed), so map navigation

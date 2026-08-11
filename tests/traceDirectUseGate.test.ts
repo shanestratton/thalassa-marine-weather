@@ -11,7 +11,7 @@ vi.mock('../services/enc/EncCellMetadata', () => ({
 import { setAuthIdentityScope } from '../services/authIdentityScope';
 import { saveTrace } from '../services/routeTracer';
 import { evaluateTraceRelease } from '../services/traceVerification';
-import { tracedRouteDirectUseBlockReason } from '../services/traceDirectUseGate';
+import { localTraceLinkByVoyageId, tracedRouteDirectUseBlockReason } from '../services/traceDirectUseGate';
 
 const points = [
     { lat: -27.47, lon: 153.02 },
@@ -82,5 +82,32 @@ describe('traced route direct-use gate', () => {
         // voyage hits this every time.
         expect(divergent).toMatch(/recorded track/i);
         expect(divergent).not.toMatch(/check it again/i);
+    });
+});
+
+describe('localTraceLinkByVoyageId', () => {
+    beforeEach(() => {
+        localStorage.clear();
+        setAuthIdentityScope(null);
+        setAuthIdentityScope('trace-gate-owner');
+    });
+
+    it('resolves a plan voyage to its trace without resident entries', () => {
+        // The picker-filter hole (Shane 2026-08-13): on a fresh boot the Log
+        // holds summaries only, so the entry-derived link map is empty and a
+        // trace-linked plan was offered as "ordinary" — then refused at pick
+        // time. The trace store itself must supply the link.
+        const { trace } = saveTrace('Linked trace', points, {
+            plannedRouteId: 'voyage-planned-1',
+            passageVoyageId: 'voyage-passage-1',
+        });
+        const links = localTraceLinkByVoyageId();
+        expect(links.get('voyage-planned-1')).toBe(trace.id);
+        expect(links.get('voyage-passage-1')).toBe(trace.id);
+    });
+
+    it('omits standalone traces with no voyage mirror', () => {
+        saveTrace('Standalone trace', points);
+        expect(localTraceLinkByVoyageId().size).toBe(0);
     });
 });

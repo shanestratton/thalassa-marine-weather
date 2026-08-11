@@ -76,6 +76,7 @@ import { FEATURE_VISIBILITY } from '../utils/featureVisibility';
 import {
     tracedRouteDirectUseBlockReason,
     tracedRouteFollowGeometry,
+    localTraceLinkByVoyageId,
     savedTraceFollowBlockReason,
 } from '../services/traceDirectUseGate';
 
@@ -427,10 +428,17 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
      * missing route is explainable rather than mysterious.
      */
     const followableChoices = React.useMemo(() => {
+        // Two link sources, because entries may not be resident on a fresh
+        // boot: the entry rows when loaded, else the local trace store's own
+        // plannedRouteId mirror. Without the fallback, every cloud-side plan
+        // looked "ordinary", was offered, and refused at pick time (Shane
+        // 2026-08-13: refusal card for a route the picker itself offered).
+        const traceLinks = localTraceLinkByVoyageId();
         const choices: typeof plannedChoices = [];
         let hiddenCount = 0;
         for (const choice of plannedChoices) {
-            const sid = plannedRouteLinkIds.get(choice.summary.voyageId);
+            const vid = choice.summary.voyageId;
+            const sid = plannedRouteLinkIds.get(vid) ?? traceLinks.get(vid);
             if (!sid || savedTraceFollowBlockReason(sid) === null) choices.push(choice);
             else hiddenCount++;
         }
@@ -1536,8 +1544,10 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                             <circle cx="12" cy="12" r="9" />
                                             <path d="M12 7v5l3 2" strokeLinecap="round" />
                                         </svg>
+                                        {/* "Sea Time", not "Time at Sea" — the longer label ran
+                                            into the clock icon (Shane 2026-08-13). */}
                                         <div className="text-[10px] font-bold text-emerald-300/70 uppercase tracking-widest mb-2">
-                                            Time at Sea
+                                            Sea Time
                                         </div>
                                         <div className="flex items-baseline gap-1">
                                             <span className="text-2xl font-black text-white tabular-nums leading-none">
@@ -1846,6 +1856,44 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                         </div>
                                     );
                                 })()}
+
+                            {/* ── Follow-route refusal notice ──
+                                NOT a toast (Shane 2026-08-12: "i hate toast
+                                messages"). When a pre-start route pick fails
+                                after cast-off, the sheet that normally hosts
+                                followBlockNotice is already closed — so the
+                                same message renders here as a stay-put card.
+                                IN NORMAL FLOW between the live map and the
+                                Stop controls: the first cut was fixed-position
+                                and sat on top of the map's bottom edge (Shane
+                                2026-08-13: "that message is now showing up
+                                there"). Here it pushes the map up instead of
+                                covering it. */}
+                            {followBlockNotice && followPromptVoyageId === null && !preStartSheetOpen && (
+                                <div
+                                    className="shrink-0 px-4 pt-2 animate-in fade-in slide-in-from-bottom-2 duration-300"
+                                    role="alert"
+                                >
+                                    <div className="rounded-2xl bg-slate-900 border border-amber-500/40 shadow-lg shadow-black/40 px-4 py-3">
+                                        <div className="flex items-start gap-2.5">
+                                            <span aria-hidden="true" className="mt-px text-[15px] leading-none">
+                                                {'⚠️'}
+                                            </span>
+                                            <p className="flex-1 text-[12px] leading-relaxed text-amber-100">
+                                                {followBlockNotice}
+                                            </p>
+                                            <button
+                                                type="button"
+                                                aria-label="Dismiss"
+                                                onClick={() => setFollowBlockNotice(null)}
+                                                className="-mr-1 -mt-1 shrink-0 rounded-lg px-2 py-1 text-[15px] leading-none text-amber-200/60 active:scale-95 hover:text-amber-100"
+                                            >
+                                                {'×'}
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
 
                             {/* ── Stop / New Entry — pinned at bottom ── */}
                             <div
@@ -2191,37 +2239,6 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                     </button>
                                 </div>
                             </div>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {/* ── Follow-route refusal notice ──
-                NOT a toast (Shane 2026-08-12: "i hate toast messages"). When
-                a pre-start route pick fails after cast-off, the sheet that
-                normally hosts followBlockNotice is already closed — so the
-                same message renders as this stay-put card, in the propulsion
-                nudge's spot above the Stop controls, until dismissed. */}
-            {followBlockNotice && followPromptVoyageId === null && !preStartSheetOpen && (
-                <div
-                    className="fixed inset-x-0 z-[10000] flex justify-center px-4 animate-in fade-in slide-in-from-bottom-4 duration-300"
-                    style={{ bottom: 'calc(4rem + env(safe-area-inset-bottom) + 76px)' }}
-                    role="alert"
-                >
-                    <div className="w-full max-w-sm rounded-2xl bg-slate-900/96 border border-amber-500/40 shadow-2xl shadow-black/50 px-4 py-3 backdrop-blur-md">
-                        <div className="flex items-start gap-2.5">
-                            <span aria-hidden="true" className="mt-px text-[15px] leading-none">
-                                {'⚠️'}
-                            </span>
-                            <p className="flex-1 text-[12px] leading-relaxed text-amber-100">{followBlockNotice}</p>
-                            <button
-                                type="button"
-                                aria-label="Dismiss"
-                                onClick={() => setFollowBlockNotice(null)}
-                                className="-mr-1 -mt-1 shrink-0 rounded-lg px-2 py-1 text-[15px] leading-none text-amber-200/60 active:scale-95 hover:text-amber-100"
-                            >
-                                {'×'}
-                            </button>
                         </div>
                     </div>
                 </div>

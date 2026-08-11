@@ -53,11 +53,38 @@ describe('map provider attribution contract', () => {
             /width:\s*0(?![.\d])/,
             /height:\s*0(?![.\d])/,
         ];
+        // ONE exception: the compact-attribution pattern (Shane 2026-08-13:
+        // "it was going to be hidden behind an 'i'"). Collapsing credits to
+        // an ⓘ toggle is the licence-accepted Mapbox-compact pattern — but
+        // ONLY as a toggle. Hiding vocabulary is blessed solely inside the
+        // `:not(.is-open)` collapsed rule, and the blessing is conditional
+        // on the expanded state actually existing and being reachable.
+        const isCollapsedCompactRule = (block: string) =>
+            block.includes('.thalassa-attribution-compact:not(.is-open)');
         const attributionBlocks = css.split('}').filter((block) => block.includes('.leaflet-control-attribution'));
         for (const block of attributionBlocks) {
+            if (isCollapsedCompactRule(block)) continue;
             for (const pattern of hidingVocabulary) {
                 expect(block).not.toMatch(pattern);
             }
+        }
+
+        // The collapsed rule is only legal if its restore exists: an
+        // `.is-open` rule that brings the credit text back.
+        expect(css).toMatch(/\.thalassa-attribution-compact\.is-open[\s\S]{0,200}?font-size:\s*(?!0[^.\d])[\d.]+/);
+    });
+
+    it('keeps the compact ⓘ toggle wired on every Log Leaflet map', () => {
+        // The CSS collapse above is licence-legal only while a tap can
+        // expand it. That tap lives in installCompactAttribution — so each
+        // Log map component must install it, and the helper must genuinely
+        // toggle the is-open class the CSS restore keys on.
+        const helper = read('components/map/leafletCompactAttribution.ts');
+        expect(helper).toMatch(/classList\.toggle\(\s*'is-open'\s*\)/);
+        expect(helper).toMatch(/addEventListener\(\s*'click'/);
+
+        for (const path of ['components/LiveMiniMap.tsx', 'components/TrackMapViewer.tsx']) {
+            expect(read(path)).toContain('installCompactAttribution(map)');
         }
     });
 });
