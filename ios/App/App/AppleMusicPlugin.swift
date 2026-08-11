@@ -164,43 +164,133 @@ public class AppleMusicPlugin: CAPPlugin {
     // are logged but never thrown — the play attempt should still
     // proceed even if the session call errored (it usually succeeds
     // even when iOS reports an error code).
-    private func prepareAudioSession(completion: (() -> Void)? = nil) {
+    private func prepareAudioSession() {
         let session = AVAudioSession.sharedInstance()
         do {
             try session.setCategory(.playback, mode: .default, options: [])
-            NSLog("[AppleMusic] prepareAudioSession: category=playback (will activate off-main)")
+            try session.setActive(true, options: [])
+            NSLog("[AppleMusic] prepareAudioSession: category=playback active=true")
         } catch {
-            NSLog("[AppleMusic] prepareAudioSession setCategory failed (continuing): \(error)")
+            NSLog("[AppleMusic] prepareAudioSession failed (continuing): \(error)")
         }
-        // Activate off the main thread to avoid UI unresponsiveness warnings.
-        audioSessionQueue.async { [weak self] in
-            let session = AVAudioSession.sharedInstance()
-            // setActive has no `policy:` parameter on any iOS — that's
-            // setCategory's vocabulary. The availability fork this replaces
-            // guarded an API that never existed.
-            do {
-                try session.setActive(true, options: [])
-            } catch {
-                NSLog("[AppleMusic] prepareAudioSession activate failed (continuing): \(error)")
-            }
-            DispatchQueue.main.async {
-                NSLog("[AppleMusic] prepareAudioSession: active=true (off-main)")
-                completion?()
-            }
-        }
-        // Ensure remote commands are configured (idempotent).
+        // Belt-and-braces: if load() didn't fire for some reason, this
+        // makes sure the remote commands get wired up the first time
+        // we attempt playback. configureRemoteCommands() is idempotent.
         configureRemoteCommands()
     }
 
-    @available(iOS 15.0, *)
-    private func cachedPlaylist(id: String) -> (name: String, tracks: [Track])? {
-        cacheQueue.sync {
-            guard let tracks = hydratedTrackCache[id] as? [Track],
-                  let name = hydratedNameCache[id] else {
-                return nil
+    /**
+     * Return the app-wide session to a WebKit microphone-friendly shape.
+     *
+     * Calypso's spoken responses use AVAudioPlayer. Music playback can leave
+     * the shared iOS session as `.playback`; WKWebView's existing MediaStream
+     * then occasionally remains "live" while yielding silence on the next
+     * voice turn. Do this immediately before Bosun starts/reuses capture so
+     * there is exactly one input owner: the browser's existing getUserMedia
+     * pipeline. This method deliberately does not create an AVAudioEngine or
+     * a second recorder.
+     */
+    @objc func prepareVoiceInput(_ call: CAPPluginCall) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else {
+                call.reject("AppleMusic plugin is unavailable")
+                return
             }
-            return (name, tracks)
+
+            // An interrupted Calypso response must not keep AVAudioPlayer
+            // owning the session while the browser asks for microphone input.
+            self.voiceInputSessionGeneration &+= 1
+            if self.ttsPausedMusic {
+                self.resumeMusicAfterVoiceInput = true
+            }
+            self.ttsPausedMusic = false
+            self.stopTtsPlayback()
+
+            // playAndRecord activation sets up the mic route — slow enough
+            // to matter on main. Resolve from the audio queue so JS starts
+            // capture only after the session is genuinely active.
+            self.audioSessionQueue.async {
+                let session = AVAudioSession.sharedInstance()
+                do {
+                    try session.setCategory(
+                        .playAndRecord,
+                        mode: .default,
+                        options: [.mixWithOthers, .defaultToSpeaker, .allowBluetoothHFP]
+                    )
+                    try session.setActive(true, options: [])
+                    NSLog("[AppleMusic] prepareVoiceInput: category=playAndRecord active=true")
+                    call.resolve(["status": "ready"])
+                } catch {
+                    NSLog("[AppleMusic] prepareVoiceInput failed: \(error)")
+                    call.reject("Could not prepare microphone: \(error.localizedDescription)")
+                }
+            }
         }
+    }
+
+    /**
+     * Release the input session when the Calypso console closes. If MusicKit
+     * is currently playing, restore its playback session instead so closing
+     * the console cannot cut off the skipper's music.
+     */
+    @objc func releaseVoiceInput(_ call: CAPPluginCall) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else {
+                call.resolve(["status": "released"])
+                return
+            }
+
+            if self.resumeMusicAfterVoiceInput {
+                self.resumeMusicAfterVoiceInput = false
+                if #available(iOS 15.0, *) {
+                    self.prepareAudioSession()
+                    Task { @MainActor in
+                        do {
+                            try await ApplicationMusicPlayer.shared.play()
+                            NSLog("[AppleMusic] releaseVoiceInput: resumed music paused for voice capture")
+                        } catch {
+                            // If resumption is unavailable, don't leave an
+                            // idle playback session active after the console
+                            // closed.
+                            NSLog("[AppleMusic] releaseVoiceInput music resume failed: \(error)")
+                            self.deactivateAudioSessionOffMain()
+                        }
+                    }
+                    call.resolve(["status": "music_resuming"])
+                } else {
+                    self.deactivateAudioSessionOffMain {
+                        call.resolve(["status": "released"])
+                    }
+                }
+                return
+            }
+
+            if #available(iOS 15.0, *), ApplicationMusicPlayer.shared.state.playbackStatus == .playing {
+                self.prepareAudioSession()
+                call.resolve(["status": "music_active"])
+                return
+            }
+
+            self.audioSessionQueue.async {
+                do {
+                    try AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+                    NSLog("[AppleMusic] releaseVoiceInput: session inactive")
+                    call.resolve(["status": "released"])
+                } catch {
+                    // The web capture tracks have already been released by this
+                    // point. Treat a stubborn session as best-effort cleanup so
+                    // navigation can never be held hostage by an audio error.
+                    NSLog("[AppleMusic] releaseVoiceInput failed: \(error)")
+                    call.resolve(["status": "release_failed"])
+                }
+            }
+        }
+    }
+
+    private func stopTtsPlayback() {
+        ttsPlayer?.stop()
+        ttsPlayer = nil
+        ttsPlayerDelegate = nil
     }
 
     // ── Remote command center ─────────────────────────────────────
@@ -232,11 +322,7 @@ public class AppleMusicPlugin: CAPPlugin {
             // or another plugin nudged it. Re-fired from a Task so we
             // can return synchronously.
             Task { @MainActor in
-                await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-                    self?.prepareAudioSession {
-                        continuation.resume()
-                    }
-                }
+                self?.prepareAudioSession()
                 try? await ApplicationMusicPlayer.shared.play()
             }
             return .success
@@ -257,11 +343,7 @@ public class AppleMusicPlugin: CAPPlugin {
                 if player.state.playbackStatus == .playing {
                     player.pause()
                 } else {
-                    await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-                        self?.prepareAudioSession {
-                            continuation.resume()
-                        }
-                    }
+                    self?.prepareAudioSession()
                     try? await player.play()
                 }
             }
@@ -379,6 +461,17 @@ public class AppleMusicPlugin: CAPPlugin {
             }
         }
         return (title: title, artist: entry.subtitle ?? "")
+    }
+
+    @available(iOS 15.0, *)
+    private func cachedPlaylist(id: String) -> (name: String, tracks: [Track])? {
+        cacheQueue.sync {
+            guard let tracks = hydratedTrackCache[id] as? [Track],
+                  let name = hydratedNameCache[id] else {
+                return nil
+            }
+            return (name, tracks)
+        }
     }
 
     // MARK: - Authorization
@@ -682,11 +775,7 @@ public class AppleMusicPlugin: CAPPlugin {
                     titlesAndArtists: tracks.prefix(8).map { (title: $0.title, artist: $0.artistName) }
                 )
             }
-            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-                self.prepareAudioSession {
-                    continuation.resume()
-                }
-            }
+            await MainActor.run { self.prepareAudioSession() }
             try await player.prepareToPlay()
             try await player.play()
             NSLog("[AppleMusic] ApplicationMusicPlayer.play() succeeded")
@@ -817,11 +906,7 @@ public class AppleMusicPlugin: CAPPlugin {
                 self.prewarmArtwork(
                     titlesAndArtists: Array(tracks).prefix(8).map { (title: $0.title, artist: $0.artistName) }
                 )
-                await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-                    self.prepareAudioSession {
-                        continuation.resume()
-                    }
-                }
+                await MainActor.run { self.prepareAudioSession() }
                 try await player.prepareToPlay()
                 try await player.play()
                 let trackCount = tracks.count
@@ -1025,11 +1110,7 @@ public class AppleMusicPlugin: CAPPlugin {
                 self.prewarmArtwork(
                     titlesAndArtists: trackArray.prefix(8).map { (title: $0.title, artist: $0.artistName) }
                 )
-                await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-                    self.prepareAudioSession {
-                        continuation.resume()
-                    }
-                }
+                await MainActor.run { self.prepareAudioSession() }
                 try await player.prepareToPlay()
                 try await player.play()
                 let firstTrack = trackArray.first
@@ -1087,11 +1168,7 @@ public class AppleMusicPlugin: CAPPlugin {
                 self.prewarmArtwork(
                     titlesAndArtists: resolved.tracks.prefix(8).map { (title: $0.title, artist: $0.artistName) }
                 )
-                await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-                    self.prepareAudioSession {
-                        continuation.resume()
-                    }
-                }
+                await MainActor.run { self.prepareAudioSession() }
                 try await player.prepareToPlay()
                 try await player.play()
                 await MainActor.run {
@@ -1588,11 +1665,7 @@ public class AppleMusicPlugin: CAPPlugin {
                 self.prewarmArtwork(
                     titlesAndArtists: fromHere.prefix(8).map { (title: $0.title, artist: $0.artistName) }
                 )
-                await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-                    self.prepareAudioSession {
-                        continuation.resume()
-                    }
-                }
+                await MainActor.run { self.prepareAudioSession() }
                 try await player.prepareToPlay()
                 try await player.play()
                 let firstTrack = fromHere.first
@@ -1731,11 +1804,7 @@ public class AppleMusicPlugin: CAPPlugin {
             // Re-assert audio session every time — see
             // prepareAudioSession() doc for why this prevents hangs
             // after Calypso TTS / other plugins mutate the session.
-            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-                self.prepareAudioSession {
-                    continuation.resume()
-                }
-            }
+            await MainActor.run { self.prepareAudioSession() }
             do {
                 try await player.play()
                 await MainActor.run { call.resolve(["status": "playing"]) }
@@ -2027,21 +2096,6 @@ public class AppleMusicPlugin: CAPPlugin {
      * (unlike the legacy MPMusicPlayerController, which was a
      * coin-flip).
      */
-    /**
-     * Stop and release any in-flight TTS utterance — one utterance at a
-     * time. Callers own the ttsPausedMusic / resume bookkeeping; this only
-     * silences the player and drops the strong references so the delegate's
-     * "finished" callback from the OLD utterance cannot fire into the new
-     * one's state. (Was referenced by playTtsAudio and cancelTtsAudio but
-     * never written — the 2026-08-11 music session shipped the calls
-     * without the method and the target stopped compiling.)
-     */
-    private func stopTtsPlayback() {
-        ttsPlayer?.stop()
-        ttsPlayer = nil
-        ttsPlayerDelegate = nil
-    }
-
     @available(iOS 15.0, *)
     @objc func playTtsAudio(_ call: CAPPluginCall) {
         guard let b64 = call.getString("audio_b64"), !b64.isEmpty else {
@@ -2109,17 +2163,22 @@ public class AppleMusicPlugin: CAPPlugin {
                                     NSLog("[AppleMusic] resume(): skipped; a new voice-input session owns audio")
                                     return
                                 }
-                                self.prepareAudioSession {
-                                    Task { @MainActor in
-                                        let preState = ApplicationMusicPlayer.shared.state.playbackStatus
-                                        NSLog("[AppleMusic] resume(): preState=\(preState)")
-                                        do {
-                                            try await ApplicationMusicPlayer.shared.play()
-                                            let postState = ApplicationMusicPlayer.shared.state.playbackStatus
-                                            NSLog("[AppleMusic] resume(): postState=\(postState) — success")
-                                        } catch {
-                                            NSLog("[AppleMusic] resume FAILED: \(error)")
-                                        }
+                                let session = AVAudioSession.sharedInstance()
+                                try? session.setCategory(
+                                    .playback,
+                                    mode: .default,
+                                    options: [.mixWithOthers]
+                                )
+                                try? session.setActive(true, options: [])
+                                Task { @MainActor in
+                                    let preState = ApplicationMusicPlayer.shared.state.playbackStatus
+                                    NSLog("[AppleMusic] resume(): preState=\(preState)")
+                                    do {
+                                        try await ApplicationMusicPlayer.shared.play()
+                                        let postState = ApplicationMusicPlayer.shared.state.playbackStatus
+                                        NSLog("[AppleMusic] resume(): postState=\(postState) — success")
+                                    } catch {
+                                        NSLog("[AppleMusic] resume FAILED: \(error)")
                                     }
                                 }
                             }
