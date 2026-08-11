@@ -198,6 +198,7 @@ import {
     distMetres,
     fitTraceBounds,
     isBasemapHybridDuplicateLabelLayer,
+    nearestLegForInsert,
 } from './mapHubHelpers';
 // The only scrubber-furniture layer the imagery hide-list also owns — the
 // islet land-fill dot, hidden over satellite/hybrid so it can't blanket the
@@ -2728,7 +2729,19 @@ export const MapHub: React.FC<MapHubProps> = ({
             // hit nothing to inspect, so the popup isn't buried under a flash.
             if (coordCaptureRef.current && plotArmedRef.current) {
                 if (!encHasClickableFeatureAt(map, { lat, lng: lon })) {
-                    flashTraceFeedback('Hold the chart to drop a pin');
+                    // Coach the SPECIFIC gesture when the tap grazed a leg:
+                    // mid-route insert exists, but nobody can use a feature
+                    // they are never told about (Shane 2026-08-11 read the
+                    // append fallback as "insert is broken").
+                    const legHere = nearestLegForInsert(
+                        map.project([lon, lat]),
+                        capturedCoords.map((p) => map.project([p.lon, p.lat])),
+                    );
+                    flashTraceFeedback(
+                        legHere > 0
+                            ? `Hold on the line to insert between ${legHere} and ${legHere + 1}`
+                            : 'Hold the chart to drop a pin',
+                    );
                 }
                 return;
             }
@@ -2785,38 +2798,28 @@ export const MapHub: React.FC<MapHubProps> = ({
                     triggerHaptic('light');
                     return;
                 }
-                // Tap ON the line → insert into that leg (Shane 2026-07-09:
+                // Hold ON the line → insert into that leg (Shane 2026-07-09:
                 // "we need to be able to insert a waypoint along the track").
-                // Screen-space distance so it feels identical at every zoom;
-                // 16 px ≈ the edge of a fingertip. The middle 80% of the leg
-                // only — taps near an endpoint belong to the pin's own
-                // tap/drag affordance (40 px hit-slop), not a mid-leg splice.
-                // The leg test uses the RAW tap position; the inserted pin is
-                // the water-snapped one.
-                let insertLeg = -1;
-                {
-                    const tapPx = map.project([lon, lat]);
-                    let bestD = 16;
-                    for (let i = 1; i < capturedCoords.length; i++) {
-                        const a = map.project([capturedCoords[i - 1].lon, capturedCoords[i - 1].lat]);
-                        const b = map.project([capturedCoords[i].lon, capturedCoords[i].lat]);
-                        const dx = b.x - a.x;
-                        const dy = b.y - a.y;
-                        const len2 = dx * dx + dy * dy;
-                        const t = len2 > 0 ? ((tapPx.x - a.x) * dx + (tapPx.y - a.y) * dy) / len2 : 0;
-                        if (t < 0.1 || t > 0.9) continue;
-                        const d = Math.hypot(a.x + t * dx - tapPx.x, a.y + t * dy - tapPx.y);
-                        if (d < bestD) {
-                            bestD = d;
-                            insertLeg = i;
-                        }
-                    }
-                }
+                // The leg test uses the RAW press position; the inserted pin
+                // is the water-snapped one. Geometry extracted to
+                // nearestLegForInsert 2026-08-11 and widened — the old
+                // 16 px / middle-80% window was smaller than the fingertip
+                // pressing it, so Shane only ever reached the append
+                // fallback and read insert as missing entirely.
+                const insertLeg = nearestLegForInsert(
+                    map.project([lon, lat]),
+                    capturedCoords.map((p) => map.project([p.lon, p.lat])),
+                );
                 if (insertLeg > 0) {
                     setCapturedCoords((prev) => [...prev.slice(0, insertLeg), pt, ...prev.slice(insertLeg)]);
                     flashTraceFeedback(`Inserted between ${insertLeg} and ${insertLeg + 1} — drag to fine-tune`);
                 } else {
                     setCapturedCoords((prev) => [...prev, pt]);
+                    if (capturedCoords.length >= 2) {
+                        // Say what happened. The silent append here is what
+                        // made a missed insert look like a routing bug.
+                        flashTraceFeedback('Added to the end — hold on the line to insert mid-route');
+                    }
                 }
                 // Medium, not light: the hold earned a firmer thunk than
                 // the old tap ever gave.
