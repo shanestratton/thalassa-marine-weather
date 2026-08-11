@@ -336,7 +336,26 @@ export function putCell(cell: EncCell, options: { allowAuthorityUpgrade?: boolea
             ? inheritedLowerAuthority
             : requestedUsage;
     const classified: EncCell = { ...cell, id: canonicalId, usage };
-    localStorage.setItem(recordKey(classified.id), JSON.stringify(classified));
+    const serialized = JSON.stringify(classified);
+
+    // TRUE upsert (kill #41, 2026-08-12): a byte-identical re-record must
+    // not write or notify. The sync passes (personalCellSync/cloud) re-assert
+    // every cell's metadata on each lap; notify() bumps the registry version,
+    // the version is baked into the merge cache key, so each no-op lap
+    // invalidated EVERY cached merge — the fatal trail shows the same
+    // 3-cell/8.1 MB window re-merged six times in 24 s, ~100 MB of parse
+    // transient per lap, sawtoothing for 15 hours until WebKit reaped the
+    // page. Identical in, nothing out: no write, no version bump, no
+    // re-merge.
+    if (
+        aliases.length === 1 &&
+        aliases[0] === canonicalId &&
+        localStorage.getItem(recordKey(canonicalId)) === serialized
+    ) {
+        return;
+    }
+
+    localStorage.setItem(recordKey(classified.id), serialized);
     for (const alias of aliases) {
         if (alias !== classified.id) localStorage.removeItem(recordKey(alias));
     }
