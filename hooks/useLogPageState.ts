@@ -993,18 +993,22 @@ export function useLogPageState() {
             const dist = ve.length ? Math.max(0, ...ve.map((e) => e.cumulativeDistanceNM || 0)) : 0;
             const hasManual = ve.some((e) => e.entryType === 'manual');
             if (dist < 0.05 && !hasManual) {
-                try {
-                    const ok = await ShipLogService.deleteVoyage(stoppedVoyageId);
-                    if (!isAuthIdentityScopeCurrent(actionScope)) return;
-                    if (ok) {
-                        dispatch({ type: 'REMOVE_VOYAGE', voyageId: stoppedVoyageId });
-                        loadedVoyagesRef.current.delete(stoppedVoyageId);
-                        void clearCachedVoyageTrack(stoppedVoyageId);
-                        setEmptyPruneNotice(1);
-                    }
-                } catch (e) {
-                    log.warn('empty-voyage prune on stop failed', e);
-                }
+                // OPTIMISTIC (Shane 2026-08-12: the tidy-up "takes some time
+                // to come"). The wait was the awaited cloud delete — a network
+                // round trip standing between End Voyage and the announcement.
+                // The verdict (empty, ours, just stopped) is already local
+                // truth: remove the card and announce NOW, delete in the
+                // background. ShipLogService has usually already binned the
+                // queue copy pre-upload; if the cloud delete fails anyway, the
+                // sweep retries it on the next load via the device-stops
+                // bypass, so the card cannot silently resurrect for long.
+                dispatch({ type: 'REMOVE_VOYAGE', voyageId: stoppedVoyageId });
+                loadedVoyagesRef.current.delete(stoppedVoyageId);
+                void clearCachedVoyageTrack(stoppedVoyageId);
+                setEmptyPruneNotice(1);
+                void ShipLogService.deleteVoyage(stoppedVoyageId).catch((e) => {
+                    log.warn('empty-voyage prune on stop failed (sweep will retry)', e);
+                });
             }
         }
 
