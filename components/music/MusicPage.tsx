@@ -715,7 +715,7 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
     // Content fades to transparent just above the global bottom nav so
     // rows dissolve into the dark instead of sliding under the bar.
     const maskBottomEnd = 'calc(4rem + env(safe-area-inset-bottom))';
-    const fadeMask = `linear-gradient(to bottom, black 0, black calc(100% - calc(${maskBottomEnd} + 48px)), transparent calc(100% - ${maskBottomEnd}))`;
+    const fadeMask = `linear-gradient(to bottom, black 0, black calc(100% - calc(${maskBottomEnd} + 12px)), transparent calc(100% - ${maskBottomEnd}))`;
 
     const activePlaylist = activePlaylistId ? (playlists.find((p) => p.id === activePlaylistId) ?? null) : null;
 
@@ -737,7 +737,7 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
                 <div
                     className="flex-1 overflow-y-auto"
                     style={{
-                        paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 1.5rem)',
+                        paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 0.75rem)',
                         maskImage: fadeMask,
                         WebkitMaskImage: fadeMask,
                     }}
@@ -800,7 +800,7 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
                     )}
 
                     {authGranted === true && (
-                        <>
+                        <div className="flex min-h-full flex-col">
                             {/* ═══ THE STAGE — now playing, front and centre ═══ */}
                             <div className="px-4 pt-1">
                                 <NowPlayingStage
@@ -930,7 +930,7 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
 
                             {/* ═══ ON DECK — the active playlist's songs ═══ */}
                             {activePlaylist && (onDeckLoading || onDeckTracks.length > 0) && (
-                                <div className="mt-6 px-4">
+                                <div className="mt-6 flex min-h-0 flex-1 flex-col px-4">
                                     <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.18em] text-sky-200/75">
                                         <span className="h-1.5 w-1.5 rounded-full bg-sky-400" />
                                         On deck
@@ -939,7 +939,7 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
                                         </span>
                                     </div>
                                     {onDeckLoading && onDeckTracks.length === 0 ? (
-                                        <div className="mt-3 space-y-2">
+                                        <div className="mt-3 flex-1 space-y-2">
                                             {[0, 1, 2].map((skeleton) => (
                                                 <div
                                                     key={skeleton}
@@ -948,7 +948,7 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
                                             ))}
                                         </div>
                                     ) : (
-                                        <div className="mt-3 overflow-hidden rounded-2xl border border-white/[0.07] bg-white/[0.02]">
+                                        <div className="mt-3 flex-1 overflow-hidden rounded-2xl border border-white/[0.07] bg-white/[0.02]">
                                             {onDeckTracks.map((track, index) => {
                                                 const isCurrent =
                                                     !!nowPlaying?.title &&
@@ -1005,7 +1005,36 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
                                     )}
                                 </div>
                             )}
-                        </>
+
+                            {/* Filler — the column always reads full-height:
+                                when nothing is on deck, an invitation panel
+                                stretches down to just above the menu bar. */}
+                            {(!activePlaylist || (!onDeckLoading && onDeckTracks.length === 0)) && (
+                                <div className="mx-4 mt-6 flex min-h-[10rem] flex-1 flex-col items-center justify-center overflow-hidden rounded-2xl border border-white/[0.05] bg-white/[0.015] px-6 py-6 text-center">
+                                    <svg
+                                        className="pointer-events-none mb-3 h-6 w-24 text-sky-300/25"
+                                        viewBox="0 0 96 24"
+                                        preserveAspectRatio="none"
+                                        aria-hidden="true"
+                                    >
+                                        <path
+                                            d="M0,12 Q12,4 24,12 T48,12 T72,12 T96,12"
+                                            fill="none"
+                                            stroke="currentColor"
+                                            strokeWidth="2"
+                                            strokeLinecap="round"
+                                        />
+                                    </svg>
+                                    <div className="text-xs font-bold uppercase tracking-widest text-slate-500">
+                                        Songs line up here
+                                    </div>
+                                    <div className="mt-1 max-w-[16rem] text-[11px] leading-relaxed text-slate-600">
+                                        Press play on a playlist and its tracks fill this space — tap any song to jump
+                                        to it.
+                                    </div>
+                                </div>
+                            )}
+                        </div>
                     )}
                 </div>
 
