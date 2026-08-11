@@ -108,3 +108,58 @@ export function msToLocalInput(ms: number): string {
     const pad = (value: number) => String(value).padStart(2, '0');
     return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
+
+/** A point in screen (CSS pixel) space, e.g. from map.project(). */
+export type ScreenPoint = { x: number; y: number };
+
+/**
+ * Which trace leg a long-press should SPLICE into, or -1 to append.
+ *
+ * Returns i meaning "insert between pins[i-1] and pins[i]"; -1 means the
+ * press belongs to no leg and the caller appends as before. Screen-space on
+ * purpose — the corridor must feel identical at every zoom.
+ *
+ * History (2026-08-11): this scan lived inline in MapHub with a 16 px
+ * corridor over the middle 80% of each leg, and Shane read the result as
+ * "insert doesn't exist — it just routes from the last point". Both numbers
+ * were wrong in opposite directions: 16 px is ~5 mm, smaller than the
+ * fingertip pressing it, and the proportional dead zones scaled with the
+ * leg — a screen-long passage leg walled off 100+ px at each end while a
+ * short leg kept less than a fingertip of live corridor in the middle.
+ *
+ * Now: a 28 px corridor (~9 mm, an actual fingertip), and endpoint dead
+ * zones in PIXELS (40 px — the pin's own tap/drag hit-slop, which is the
+ * real thing the dead zone defers to). A press past the final pin can never
+ * splice: clamped-t distance to the last leg is at least the distance to
+ * its far endpoint, which the 40 px rule already rejected — appending past
+ * the end still appends.
+ */
+export function nearestLegForInsert(
+    press: ScreenPoint,
+    pins: readonly ScreenPoint[],
+    opts: { corridorPx?: number; endpointPx?: number } = {},
+): number {
+    const corridorPx = opts.corridorPx ?? 28;
+    const endpointPx = opts.endpointPx ?? 40;
+    let bestD = corridorPx;
+    let leg = -1;
+    for (let i = 1; i < pins.length; i++) {
+        const a = pins[i - 1];
+        const b = pins[i];
+        const dx = b.x - a.x;
+        const dy = b.y - a.y;
+        const len2 = dx * dx + dy * dy;
+        // Zero-length leg = duplicated pin; nothing to insert "between".
+        if (len2 === 0) continue;
+        // Presses this close to an endpoint belong to the pin itself.
+        if (Math.hypot(press.x - a.x, press.y - a.y) < endpointPx) continue;
+        if (Math.hypot(press.x - b.x, press.y - b.y) < endpointPx) continue;
+        const t = Math.max(0, Math.min(1, ((press.x - a.x) * dx + (press.y - a.y) * dy) / len2));
+        const d = Math.hypot(a.x + t * dx - press.x, a.y + t * dy - press.y);
+        if (d < bestD) {
+            bestD = d;
+            leg = i;
+        }
+    }
+    return leg;
+}
