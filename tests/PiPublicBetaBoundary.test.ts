@@ -43,7 +43,13 @@ describe('Pi pinned-transport boundary', () => {
         const pairing = read('services/PiPairingService.ts');
         const transport = read('services/piTls.ts');
 
-        expect(cacheService).toContain('return `https://${this.config.host}:${this.config.port}`');
+        // The 2026-08-11 Tailscale lane made the HOST a ladder (LAN first,
+        // tailnet fallback) — but the SCHEME is not a choice: whichever host
+        // wins, it is interpolated into the one https template.
+        expect(cacheService).toContain(
+            'const host = this._useRemote && this.remoteHost ? this.remoteHost : this.config.host;',
+        );
+        expect(cacheService).toContain('return `https://${host}:${this.config.port}`');
         expect(cacheService).not.toMatch(/`http:\/\/\$\{/);
         expect(pairing).not.toMatch(/`http:\/\/\$\{/);
         // The transport refuses a downgrade even if a caller builds one.

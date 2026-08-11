@@ -57,7 +57,12 @@ vi.mock('../services/routeTracer', async (importOriginal) => {
     };
 });
 
-vi.mock('../services/enc/EncCellMetadata', () => ({ getVersion: () => 'test-enc-v1' }));
+vi.mock('../services/enc/EncCellMetadata', () => ({
+    getVersion: () => 'test-enc-v1',
+    // Needed since the 2026-08-11 regrade-loop fix (5188d360) fingerprints
+    // the chart library inside useTracerGrading's grading effect.
+    getRegistryFingerprint: () => 'test-enc-fingerprint',
+}));
 
 import { useTracerGrading, type TracerStatus } from '../components/map/useTracerGrading';
 import { splitLegForDepthGrid, type TraceLegVerdict } from '../services/routeTracer';

@@ -28,7 +28,11 @@ vi.mock('../stores/settingsStore', () => ({
 
 vi.mock('../services/routeTracer', () => ({ loadSavedTraces: () => [] }));
 
-const DEPARTURE = new Date('2026-08-10T00:00:00.000Z').getTime();
+// RELATIVE, deliberately. This was `2026-08-10T00:00Z` — and on 2026-08-12
+// five tests died at once with no relevant commit, because validateFloatPlan
+// rightly demands the overdue time be in the FUTURE and the calendar had
+// caught up with the fixture. A departure anchored to now() cannot expire.
+const DEPARTURE = Date.now() + 6 * 3_600_000;
 const PRESET: FloatPlanPreset = {
     route: {
         name: 'Capricorn passage',
