@@ -398,9 +398,9 @@ export const RECENT_ACTIVE_MS = 15 * 60 * 1000;
  */
 export function selectEmptyVoyagesToPrune(
     summaries: VoyageSummary[],
-    opts: { activeVoyageId?: string | null; nowMs: number },
+    opts: { activeVoyageId?: string | null; nowMs: number; deviceStoppedIds?: ReadonlySet<string> },
 ): string[] {
-    const { activeVoyageId, nowMs } = opts;
+    const { activeVoyageId, nowMs, deviceStoppedIds } = opts;
     const out: string[] = [];
     for (const s of summaries) {
         if (s.totalDistanceNM >= EMPTY_TRACK_NM) continue;
@@ -408,7 +408,12 @@ export function selectEmptyVoyagesToPrune(
         if (s.isPlannedRoute || s.isImported) continue;
         if (s.hasManual) continue;
         const endedMs = Date.parse(s.endedAt);
-        if (Number.isFinite(endedMs) && nowMs - endedMs < RECENT_ACTIVE_MS) continue;
+        // The recency hold exists for CROSS-DEVICE ambiguity ("might be live
+        // on another device"). A voyage THIS device stopped has none — making
+        // it wait out the hold is why a nowhere-track's card lingered for
+        // 15 min after an end from the Vessel hub (Shane 2026-08-12).
+        const holdForOtherDevices = !deviceStoppedIds?.has(s.voyageId);
+        if (holdForOtherDevices && Number.isFinite(endedMs) && nowMs - endedMs < RECENT_ACTIVE_MS) continue;
         out.push(s.voyageId);
     }
     return out;
