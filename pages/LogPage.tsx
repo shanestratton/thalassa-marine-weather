@@ -591,8 +591,13 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                     const message =
                         error instanceof Error && error.message.startsWith(TRACE_ROUTE_USE_BLOCK_PREFIX)
                             ? error.message.slice(TRACE_ROUTE_USE_BLOCK_PREFIX.length)
-                            : 'Couldn’t load this saved route — open the Log to pick it again';
-                    toast.error(message);
+                            : 'Couldn’t load this saved route — tap Menu → Follow a route to pick it again';
+                    // NOT a toast (Shane 2026-08-12: "i hate toast messages",
+                    // and 2026-08-07 before that). Two lines of chart-safety
+                    // reasoning need a surface that stays put: the same
+                    // followBlockNotice the sheet uses renders as an inline
+                    // card on the tracking view when the sheet is closed.
+                    setFollowBlockNotice(message);
                 });
             }
             return;
@@ -2186,6 +2191,37 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                     </button>
                                 </div>
                             </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ── Follow-route refusal notice ──
+                NOT a toast (Shane 2026-08-12: "i hate toast messages"). When
+                a pre-start route pick fails after cast-off, the sheet that
+                normally hosts followBlockNotice is already closed — so the
+                same message renders as this stay-put card, in the propulsion
+                nudge's spot above the Stop controls, until dismissed. */}
+            {followBlockNotice && followPromptVoyageId === null && !preStartSheetOpen && (
+                <div
+                    className="fixed inset-x-0 z-[10000] flex justify-center px-4 animate-in fade-in slide-in-from-bottom-4 duration-300"
+                    style={{ bottom: 'calc(4rem + env(safe-area-inset-bottom) + 76px)' }}
+                    role="alert"
+                >
+                    <div className="w-full max-w-sm rounded-2xl bg-slate-900/96 border border-amber-500/40 shadow-2xl shadow-black/50 px-4 py-3 backdrop-blur-md">
+                        <div className="flex items-start gap-2.5">
+                            <span aria-hidden="true" className="mt-px text-[15px] leading-none">
+                                {'⚠️'}
+                            </span>
+                            <p className="flex-1 text-[12px] leading-relaxed text-amber-100">{followBlockNotice}</p>
+                            <button
+                                type="button"
+                                aria-label="Dismiss"
+                                onClick={() => setFollowBlockNotice(null)}
+                                className="-mr-1 -mt-1 shrink-0 rounded-lg px-2 py-1 text-[15px] leading-none text-amber-200/60 active:scale-95 hover:text-amber-100"
+                            >
+                                {'×'}
+                            </button>
                         </div>
                     </div>
                 </div>
