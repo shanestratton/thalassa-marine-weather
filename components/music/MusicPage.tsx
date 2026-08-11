@@ -276,6 +276,34 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
         };
     }, []);
 
+    // ── On deck: the ACTIVE playlist's tracks under the rail ───────
+    // Once a playlist is playing, its songs render as a tappable list
+    // so the skipper can jump around inside it without opening sheets.
+    const [onDeckTracks, setOnDeckTracks] = useState<PlaylistTrack[]>([]);
+    const [onDeckLoading, setOnDeckLoading] = useState(false);
+    useEffect(() => {
+        if (!activePlaylistId) {
+            setOnDeckTracks([]);
+            return;
+        }
+        let cancelled = false;
+        setOnDeckLoading(true);
+        void getPlaylistTracks(activePlaylistId)
+            .then((detail) => {
+                if (cancelled) return;
+                setOnDeckTracks(detail.available ? detail.tracks : []);
+            })
+            .catch(() => {
+                if (!cancelled) setOnDeckTracks([]);
+            })
+            .finally(() => {
+                if (!cancelled) setOnDeckLoading(false);
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [activePlaylistId]);
+
     /** Refresh nowPlaying immediately, then again ~400 ms later to
      *  catch the artwork after the Swift-side catalog search finishes.
      *  Used right after play/skip actions where the user expects an
@@ -377,6 +405,21 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
         }
         refreshNowPlayingFast();
     }, [refreshNowPlayingFast]);
+
+    /** Jump to a specific song inside the ACTIVE playlist (on-deck list). */
+    const handlePlayOnDeck = useCallback(
+        async (trackId: string) => {
+            if (!activePlaylistId) return;
+            triggerHaptic('light');
+            try {
+                await playTrackInPlaylist(activePlaylistId, trackId);
+            } catch (err) {
+                setLoadError((err as Error).message);
+            }
+            refreshNowPlayingFast();
+        },
+        [activePlaylistId, refreshNowPlayingFast],
+    );
 
     // ── Long-press → playlist detail sheet ────────────────────────
     /** Currently-open detail sheet, plus its track list (loaded
@@ -666,27 +709,15 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
         };
     }, [loadPlaylists, refreshDetailTracks]);
 
-    const nowPlayingVisible = !!(nowPlaying && nowPlaying.title);
     const musicAccessNeedsSettings = authStatus === 'denied' || authStatus === 'restricted';
 
     // ── Scroll-fade mask ───────────────────────────────────────────
-    // Tiles scrolling toward the bottom of the page would otherwise
-    // pass UNDER the floating NowPlayingBar, looking smudged through
-    // its backdrop-blur. Apply a CSS mask-image gradient to the
-    // scroll area so content fades to transparent ~60px above the
-    // bar's top edge — tiles dissolve into the dark before reaching
-    // it instead of sliding under. When the bar isn't visible we
-    // still fade above the global nav for the same reason.
-    //
-    // Math:
-    //   - 4rem  = global bottom-nav height
-    //   - 80px  = floating bar height (artwork 48 + p-3 + pb-2)
-    //   - 60px  = fade gradient height (the soft transition zone)
-    const maskBottomEnd = nowPlayingVisible
-        ? 'calc(4rem + env(safe-area-inset-bottom) + 80px)'
-        : 'calc(4rem + env(safe-area-inset-bottom))';
-    const maskFadeStart = `calc(${maskBottomEnd} + 60px)`;
-    const fadeMask = `linear-gradient(to bottom, black 0, black calc(100% - ${maskFadeStart}), transparent calc(100% - ${maskBottomEnd}))`;
+    // Content fades to transparent just above the global bottom nav so
+    // rows dissolve into the dark instead of sliding under the bar.
+    const maskBottomEnd = 'calc(4rem + env(safe-area-inset-bottom))';
+    const fadeMask = `linear-gradient(to bottom, black 0, black calc(100% - calc(${maskBottomEnd} + 48px)), transparent calc(100% - ${maskBottomEnd}))`;
+
+    const activePlaylist = activePlaylistId ? (playlists.find((p) => p.id === activePlaylistId) ?? null) : null;
 
     return (
         <div className="relative flex flex-col h-full overflow-hidden bg-slate-950">
@@ -701,77 +732,18 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
                 }}
             />
             <div className="relative flex min-h-0 flex-1 flex-col">
-                <PageHeader
-                    title="Apple Music"
-                    subtitle="Soundtrack for the watch"
-                    onBack={onBack}
-                    status={
-                        <button
-                            type="button"
-                            onClick={() => {
-                                triggerHaptic('light');
-                                void showRoutePicker();
-                            }}
-                            aria-label={speaker ? `Playing on ${speaker.name}. Choose a speaker` : 'Choose a speaker'}
-                            className="inline-flex max-w-[9.5rem] items-center gap-1.5 rounded-full border border-sky-400/20 bg-sky-500/10 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.12em] text-sky-200 active:scale-95 transition"
-                        >
-                            <span aria-hidden="true">{speaker?.icon ?? '🔈'}</span>
-                            <span className="truncate">{speaker?.name ?? 'Speaker'}</span>
-                        </button>
-                    }
-                    action={
-                        authGranted === true ? (
-                            <div className="flex items-center gap-2">
-                                <button
-                                    onClick={() => void loadPlaylists()}
-                                    disabled={loadingPlaylists}
-                                    className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/10 bg-white/[0.045] text-sky-200 transition-all hover:border-sky-400/35 hover:bg-sky-500/10 active:scale-95 disabled:opacity-40"
-                                    aria-label="Refresh Apple Music library"
-                                >
-                                    <RefreshIcon className={`h-4 w-4 ${loadingPlaylists ? 'animate-spin' : ''}`} />
-                                </button>
-                                <button
-                                    onClick={() => {
-                                        triggerHaptic('light');
-                                        setCreateError(null);
-                                        setCreateOpen(true);
-                                    }}
-                                    className="flex h-10 w-10 items-center justify-center rounded-xl border border-sky-400/35 bg-sky-600 text-white shadow-xl transition-all hover:bg-sky-500 active:scale-95"
-                                    aria-label="Create playlist"
-                                >
-                                    <svg
-                                        className="w-5 h-5"
-                                        viewBox="0 0 24 24"
-                                        fill="none"
-                                        stroke="currentColor"
-                                        strokeWidth="2.5"
-                                        strokeLinecap="round"
-                                    >
-                                        <path d="M12 5v14M5 12h14" />
-                                    </svg>
-                                </button>
-                            </div>
-                        ) : null
-                    }
-                />
+                <PageHeader title="Apple Music" subtitle="Soundtrack for the watch" onBack={onBack} />
 
-                {/* Body — bottom padding accounts for the global nav, plus
-                 *  extra room when the floating NowPlayingBar is visible
-                 *  so the last row of tiles can scroll into view above it.
-                 *  The mask-image gradient fades content to transparent
-                 *  just above the bar so tiles don't smudge under it. */}
                 <div
-                    className="flex-1 overflow-y-auto px-4"
+                    className="flex-1 overflow-y-auto"
                     style={{
-                        paddingBottom: nowPlayingVisible
-                            ? 'calc(4rem + 4.75rem + env(safe-area-inset-bottom) + 1rem)'
-                            : 'calc(4rem + env(safe-area-inset-bottom) + 1rem)',
+                        paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 1.5rem)',
                         maskImage: fadeMask,
                         WebkitMaskImage: fadeMask,
                     }}
                 >
                     {authGranted === false && (
-                        <div className="mx-auto flex max-w-md flex-col items-center justify-center pt-12 text-center">
+                        <div className="mx-auto flex max-w-md flex-col items-center justify-center px-4 pt-12 text-center">
                             <div className="relative mb-5 flex h-20 w-20 items-center justify-center rounded-3xl border border-sky-400/25 bg-gradient-to-br from-sky-400/20 to-sky-500/10 shadow-2xl">
                                 <div className="absolute inset-2 rounded-2xl border border-sky-200/10" />
                                 <MusicIcon className="relative h-9 w-9 text-sky-300" />
@@ -827,131 +799,215 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
                         </div>
                     )}
 
-                    {authGranted === true && loadingPlaylists && playlists.length === 0 && (
-                        <div className="pt-3" aria-label="Loading Apple Music playlists">
-                            <div className="mb-4 h-24 animate-pulse rounded-2xl border border-white/[0.06] bg-white/[0.035]" />
-                            <div className="grid grid-cols-2 gap-4">
-                                {[0, 1, 2, 3].map((skeleton) => (
-                                    <div
-                                        key={skeleton}
-                                        className="aspect-square animate-pulse rounded-2xl border border-white/[0.06] bg-gradient-to-br from-slate-800/70 to-slate-950/70"
-                                    />
-                                ))}
-                            </div>
-                        </div>
-                    )}
-
-                    {authGranted === true && !loadingPlaylists && playlists.length === 0 && !loadError && (
-                        <div className="mx-auto flex max-w-md flex-col items-center justify-center pt-14 px-6 text-center">
-                            <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl border border-sky-400/20 bg-sky-400/10">
-                                <LibraryIcon className="h-6 w-6 text-sky-300" />
-                            </div>
-                            <div className="text-lg font-extrabold text-white">Your library is clear</div>
-                            <div className="mt-2 max-w-xs text-sm leading-relaxed text-slate-400">
-                                Create some playlists in the Apple Music app, then come back and tap refresh.
-                            </div>
-                            <button
-                                onClick={() => void loadPlaylists()}
-                                className="mt-6 inline-flex min-h-11 items-center gap-2 rounded-xl border border-sky-400/30 bg-sky-400/10 px-4 py-2 text-sm font-bold text-sky-200 transition-colors hover:bg-sky-500/15"
-                            >
-                                <RefreshIcon className="h-4 w-4" />
-                                Refresh library
-                            </button>
-                        </div>
-                    )}
-
-                    {loadError && (
-                        <div
-                            role="alert"
-                            className="mb-4 rounded-2xl border border-amber-300/25 bg-amber-300/[0.075] px-4 py-3 text-sm text-amber-100"
-                        >
-                            <div className="font-bold">Apple Music needs attention</div>
-                            <div className="mt-1 text-xs leading-relaxed text-amber-100/80">
-                                {loadError === 'permission_denied'
-                                    ? 'Access is denied. Enable Apple Music for Thalassa in iOS Settings, then return here.'
-                                    : loadError}
-                            </div>
-                            {loadError !== 'permission_denied' && (
-                                <button
-                                    onClick={() => void loadPlaylists()}
-                                    className="mt-3 inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-amber-200/25 bg-amber-100/10 px-3 text-xs font-bold text-amber-50 active:scale-[0.98]"
-                                >
-                                    <RefreshIcon className="h-3.5 w-3.5" />
-                                    Try again
-                                </button>
-                            )}
-                        </div>
-                    )}
-
-                    {playlists.length > 0 && (
-                        <div className="pt-1">
-                            <section className="mb-4 rounded-2xl border border-sky-400/15 bg-gradient-to-br from-sky-400/[0.10] via-slate-900/65 to-slate-950/80 px-4 py-3.5 shadow-xl">
-                                <div className="flex items-start justify-between gap-3">
-                                    <div>
-                                        <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.18em] text-sky-200/75">
-                                            <span className="h-1.5 w-1.5 rounded-full bg-sky-400" />
-                                            Your library
-                                        </div>
-                                        <div className="mt-1 text-base font-extrabold text-white">
-                                            {playlists.length} playlist{playlists.length === 1 ? '' : 's'} ready for the
-                                            watch
-                                        </div>
-                                    </div>
-                                    <div className="rounded-xl border border-white/10 bg-black/20 px-2.5 py-1.5 text-right text-[10px] font-bold uppercase tracking-wider text-slate-300">
-                                        Tap to play
-                                        <span className="mt-0.5 block font-medium normal-case tracking-normal text-slate-500">
-                                            ⋯ for options
-                                        </span>
-                                    </div>
-                                </div>
-                            </section>
-                            <div className="grid grid-cols-2 gap-4 pb-2">
-                                {playlists.map((p) => (
-                                    <PlaylistTile
-                                        key={p.id}
-                                        playlist={p}
-                                        active={activePlaylistId === p.id}
-                                        // Tap = play instantly (the common case —
-                                        // skipper just wants the music going).
-                                        // Long-press = open detail sheet (Play,
-                                        // Add tracks, Delete) for less common
-                                        // actions. Briefly tried single-tap to
-                                        // open the sheet but the skipper noted
-                                        // it added a click to the most-frequent
-                                        // action; reverted.
-                                        onTap={() => void handlePlayPlaylist(p.id)}
-                                        onLongPress={() => void openDetail(p)}
-                                    />
-                                ))}
-                            </div>
-                        </div>
-                    )}
-                </div>
-
-                {/* Floating now-playing bar — fixed-positioned above the
-                 *  global bottom-nav so it overlays the playlist grid
-                 *  rather than pushing tiles upward. The grid scroll area
-                 *  above gets extra bottom padding so the last row stays
-                 *  reachable. z-[800] sits below the nav (z-[900]) and
-                 *  above page content. */}
-                {nowPlayingVisible && (
-                    <div
-                        className="fixed left-0 right-0 z-[800] pointer-events-none"
-                        style={{ bottom: 'calc(4rem + env(safe-area-inset-bottom))' }}
-                    >
-                        <div className="pointer-events-auto px-3 pb-2">
-                            <div className="overflow-hidden rounded-2xl border border-sky-400/20 bg-slate-900/90 shadow-2xl backdrop-blur-xl">
-                                <NowPlayingBar
-                                    nowPlaying={nowPlaying!}
+                    {authGranted === true && (
+                        <>
+                            {/* ═══ THE STAGE — now playing, front and centre ═══ */}
+                            <div className="px-4 pt-1">
+                                <NowPlayingStage
+                                    nowPlaying={nowPlaying}
+                                    playlistName={activePlaylist?.name ?? null}
+                                    speaker={speaker}
                                     onPause={() => void handlePause()}
                                     onResume={() => void handleResume()}
                                     onNext={() => void handleNext()}
                                     onPrevious={() => void handlePrevious()}
+                                    onPickSpeaker={() => {
+                                        triggerHaptic('light');
+                                        void showRoutePicker();
+                                    }}
                                 />
                             </div>
-                        </div>
-                    </div>
-                )}
+
+                            {/* ═══ PLAYLIST RAIL — left-to-right, thumb country ═══ */}
+                            <div className="mt-5 flex items-end justify-between gap-3 px-4">
+                                <div>
+                                    <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.18em] text-sky-200/75">
+                                        <span className="h-1.5 w-1.5 rounded-full bg-sky-400" />
+                                        Your playlists
+                                        {playlists.length > 0 && (
+                                            <span className="rounded-full border border-white/10 bg-white/[0.05] px-1.5 py-0.5 text-[9px] text-slate-300">
+                                                {playlists.length}
+                                            </span>
+                                        )}
+                                    </div>
+                                    <div className="mt-1 text-[10px] font-medium uppercase tracking-wider text-slate-500">
+                                        Tap to play · hold for options
+                                    </div>
+                                </div>
+                                <div className="flex shrink-0 items-center gap-2">
+                                    <button
+                                        onClick={() => void loadPlaylists()}
+                                        disabled={loadingPlaylists}
+                                        className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/10 bg-white/[0.045] text-sky-200 transition-all hover:border-sky-400/35 hover:bg-sky-500/10 active:scale-95 disabled:opacity-40"
+                                        aria-label="Refresh Apple Music library"
+                                    >
+                                        <RefreshIcon className={`h-4 w-4 ${loadingPlaylists ? 'animate-spin' : ''}`} />
+                                    </button>
+                                    <button
+                                        onClick={() => {
+                                            triggerHaptic('light');
+                                            setCreateError(null);
+                                            setCreateOpen(true);
+                                        }}
+                                        className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-sky-400/35 bg-sky-600 px-3 text-[11px] font-black uppercase tracking-wider text-white shadow-xl transition-all hover:bg-sky-500 active:scale-95"
+                                        aria-label="Create playlist"
+                                    >
+                                        <PlusIcon className="h-3.5 w-3.5" />
+                                        New
+                                    </button>
+                                </div>
+                            </div>
+
+                            {loadingPlaylists && playlists.length === 0 ? (
+                                <div
+                                    className="mt-3 flex gap-3 overflow-hidden px-4"
+                                    aria-label="Loading Apple Music playlists"
+                                >
+                                    {[0, 1, 2].map((skeleton) => (
+                                        <div
+                                            key={skeleton}
+                                            className="h-40 w-40 shrink-0 animate-pulse rounded-2xl border border-white/[0.06] bg-gradient-to-br from-slate-800/70 to-slate-950/70"
+                                        />
+                                    ))}
+                                </div>
+                            ) : playlists.length === 0 && !loadError ? (
+                                <div className="mx-4 mt-3 flex flex-col items-center rounded-2xl border border-white/[0.06] bg-white/[0.02] px-6 py-8 text-center">
+                                    <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-2xl border border-sky-400/20 bg-sky-400/10">
+                                        <LibraryIcon className="h-5 w-5 text-sky-300" />
+                                    </div>
+                                    <div className="text-base font-extrabold text-white">Your library is clear</div>
+                                    <div className="mt-1.5 max-w-xs text-xs leading-relaxed text-slate-400">
+                                        Hit New to build your first playlist right here, or create some in Apple Music
+                                        and refresh.
+                                    </div>
+                                </div>
+                            ) : (
+                                <div
+                                    className="mt-3 flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-1"
+                                    style={{ scrollbarWidth: 'none', WebkitOverflowScrolling: 'touch' }}
+                                >
+                                    {playlists.map((p) => (
+                                        <div key={p.id} className="w-40 shrink-0 snap-start">
+                                            <PlaylistTile
+                                                playlist={p}
+                                                active={activePlaylistId === p.id}
+                                                // Tap = play instantly (the common case —
+                                                // skipper just wants the music going).
+                                                // Long-press / ⋯ = detail sheet (Play,
+                                                // Add tracks, Delete).
+                                                onTap={() => void handlePlayPlaylist(p.id)}
+                                                onLongPress={() => void openDetail(p)}
+                                            />
+                                        </div>
+                                    ))}
+                                    {/* Trailing spacer so the last card can snap clear of the edge */}
+                                    <div className="w-1 shrink-0" aria-hidden="true" />
+                                </div>
+                            )}
+
+                            {loadError && (
+                                <div
+                                    role="alert"
+                                    className="mx-4 mt-4 rounded-2xl border border-amber-300/25 bg-amber-300/[0.075] px-4 py-3 text-sm text-amber-100"
+                                >
+                                    <div className="font-bold">Apple Music needs attention</div>
+                                    <div className="mt-1 text-xs leading-relaxed text-amber-100/80">
+                                        {loadError === 'permission_denied'
+                                            ? 'Access is denied. Enable Apple Music for Thalassa in iOS Settings, then return here.'
+                                            : loadError}
+                                    </div>
+                                    {loadError !== 'permission_denied' && (
+                                        <button
+                                            onClick={() => void loadPlaylists()}
+                                            className="mt-3 inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-amber-200/25 bg-amber-100/10 px-3 text-xs font-bold text-amber-50 active:scale-[0.98]"
+                                        >
+                                            <RefreshIcon className="h-3.5 w-3.5" />
+                                            Try again
+                                        </button>
+                                    )}
+                                </div>
+                            )}
+
+                            {/* ═══ ON DECK — the active playlist's songs ═══ */}
+                            {activePlaylist && (onDeckLoading || onDeckTracks.length > 0) && (
+                                <div className="mt-6 px-4">
+                                    <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.18em] text-sky-200/75">
+                                        <span className="h-1.5 w-1.5 rounded-full bg-sky-400" />
+                                        On deck
+                                        <span className="truncate font-bold normal-case tracking-normal text-slate-400">
+                                            — {activePlaylist.name}
+                                        </span>
+                                    </div>
+                                    {onDeckLoading && onDeckTracks.length === 0 ? (
+                                        <div className="mt-3 space-y-2">
+                                            {[0, 1, 2].map((skeleton) => (
+                                                <div
+                                                    key={skeleton}
+                                                    className="h-12 animate-pulse rounded-xl border border-white/[0.05] bg-white/[0.03]"
+                                                />
+                                            ))}
+                                        </div>
+                                    ) : (
+                                        <div className="mt-3 overflow-hidden rounded-2xl border border-white/[0.07] bg-white/[0.02]">
+                                            {onDeckTracks.map((track, index) => {
+                                                const isCurrent =
+                                                    !!nowPlaying?.title &&
+                                                    nowPlaying.title === track.title &&
+                                                    (!track.artist ||
+                                                        !nowPlaying.artist ||
+                                                        nowPlaying.artist === track.artist);
+                                                return (
+                                                    <button
+                                                        key={track.id}
+                                                        onClick={() => void handlePlayOnDeck(track.id)}
+                                                        className={`flex w-full items-center gap-3 px-3.5 py-2.5 text-left transition-colors ${
+                                                            index > 0 ? 'border-t border-white/[0.05]' : ''
+                                                        } ${
+                                                            isCurrent
+                                                                ? 'bg-sky-500/[0.12]'
+                                                                : 'hover:bg-white/[0.04] active:bg-sky-500/[0.08]'
+                                                        }`}
+                                                    >
+                                                        <span
+                                                            className={`w-6 shrink-0 text-center font-mono text-[11px] tabular-nums ${
+                                                                isCurrent ? 'text-sky-300' : 'text-slate-500'
+                                                            }`}
+                                                        >
+                                                            {isCurrent ? (
+                                                                <PlayingGlyph playing={!!nowPlaying?.isPlaying} />
+                                                            ) : (
+                                                                index + 1
+                                                            )}
+                                                        </span>
+                                                        <span className="min-w-0 flex-1">
+                                                            <span
+                                                                className={`block truncate text-[13px] font-bold ${
+                                                                    isCurrent ? 'text-sky-100' : 'text-white'
+                                                                }`}
+                                                            >
+                                                                {track.title}
+                                                            </span>
+                                                            {track.artist && (
+                                                                <span className="mt-0.5 block truncate text-[11px] text-slate-400">
+                                                                    {track.artist}
+                                                                </span>
+                                                            )}
+                                                        </span>
+                                                        <PlayIcon
+                                                            className={`h-3.5 w-3.5 shrink-0 ${
+                                                                isCurrent ? 'text-sky-300' : 'text-slate-600'
+                                                            }`}
+                                                        />
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                        </>
+                    )}
+                </div>
 
                 {/* Playlist detail sheet — opens on long-press */}
                 {detailPlaylist && (
@@ -988,7 +1044,7 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
                     />
                 )}
 
-                {/* Create-playlist modal — opens from the + button in the header */}
+                {/* Create-playlist modal — opens from New in the rail header */}
                 {createOpen && (
                     <CreatePlaylistSheet
                         busy={createBusy}
@@ -1001,6 +1057,23 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
         </div>
     );
 };
+
+/** Three-bar equaliser glyph for the current track row. Static bars when
+ *  paused; the gentle stagger only runs while audio is actually moving. */
+const PlayingGlyph: React.FC<{ playing: boolean }> = ({ playing }) => (
+    <span className="inline-flex h-3.5 items-end gap-[2px]" aria-label={playing ? 'Playing' : 'Paused'}>
+        {[0, 1, 2].map((bar) => (
+            <span
+                key={bar}
+                className={`w-[3px] rounded-sm bg-sky-400 ${playing ? 'animate-pulse' : ''}`}
+                style={{
+                    height: bar === 1 ? '100%' : '60%',
+                    animationDelay: playing ? `${bar * 180}ms` : undefined,
+                }}
+            />
+        ))}
+    </span>
+);
 
 // ── Playlist tile ─────────────────────────────────────────────────
 
@@ -2000,14 +2073,22 @@ const GeneratedPlaylistArtwork: React.FC<{
     );
 };
 
-// ── Now playing bar ────────────────────────────────────────────────
+// ── Now playing stage ──────────────────────────────────────────────
+// The page's hero: playback isn't a footnote in a floating bar any
+// more, it IS the top of the page. Blurred artwork backdrop, big art,
+// a proper thumb-sized transport, and the speaker (output) control
+// living where output controls belong — next to the transport.
 
-interface NowPlayingBarProps {
-    nowPlaying: NowPlaying;
+interface NowPlayingStageProps {
+    nowPlaying: NowPlaying | null;
+    /** Name of the playlist the current queue came from, when known. */
+    playlistName: string | null;
+    speaker: { name: string; icon: string } | null;
     onPause: () => void;
     onResume: () => void;
     onNext: () => void;
     onPrevious: () => void;
+    onPickSpeaker: () => void;
 }
 
 /** Format seconds as M:SS / H:MM:SS. NaN/Infinity → "0:00". */
@@ -2021,43 +2102,93 @@ function formatPlaybackTime(seconds: number): string {
     return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
-const NowPlayingBar: React.FC<NowPlayingBarProps> = ({ nowPlaying, onPause, onResume, onNext, onPrevious }) => {
+const SpeakerChip: React.FC<{ speaker: { name: string; icon: string } | null; onPick: () => void }> = ({
+    speaker,
+    onPick,
+}) => (
+    <button
+        type="button"
+        onClick={onPick}
+        aria-label={speaker ? `Playing on ${speaker.name}. Choose a speaker` : 'Choose a speaker'}
+        className="inline-flex max-w-[10rem] items-center gap-1.5 rounded-full border border-sky-400/25 bg-slate-950/60 px-2.5 py-1.5 text-[10px] font-black uppercase tracking-[0.12em] text-sky-200 backdrop-blur-md transition active:scale-95"
+    >
+        <span aria-hidden="true">{speaker?.icon ?? '🔈'}</span>
+        <span className="truncate">{speaker?.name ?? 'Speaker'}</span>
+    </button>
+);
+
+const NowPlayingStage: React.FC<NowPlayingStageProps> = ({
+    nowPlaying,
+    playlistName,
+    speaker,
+    onPause,
+    onResume,
+    onNext,
+    onPrevious,
+    onPickSpeaker,
+}) => {
     const [imageFailed, setImageFailed] = useState(false);
-    const showRemote = !!nowPlaying.artworkUrl && !imageFailed;
+    const artworkUrl = nowPlaying?.artworkUrl;
+    const showRemote = !!artworkUrl && !imageFailed;
     // Reset the failure flag whenever the track changes — different
     // artwork URLs deserve fresh load attempts.
-    const trackKey = nowPlaying.artworkUrl ?? '';
     useEffect(() => {
         setImageFailed(false);
-    }, [trackKey]);
+    }, [artworkUrl]);
 
     // ── Smoothed playback time ─────────────────────────────────────
-    // The parent polls native `nowPlaying` once a second, so the
-    // raw `nowPlaying.playbackTime` only updates at 1Hz. That makes
-    // the progress bar jump in 1-second steps — visible enough to
-    // feel like the UI is lagging. We interpolate locally between
-    // polls: tick a local clock at ~10Hz while playing, snap back
+    // The parent polls native `nowPlaying` once a second, so the raw
+    // playbackTime only updates at 1Hz — a visibly stepping progress
+    // bar. Interpolate locally at ~10Hz while playing, snapping back
     // to the authoritative value every time a new poll lands.
-    const { playbackTime: pollTime, duration, isPlaying } = nowPlaying;
+    const pollTime = nowPlaying?.playbackTime ?? 0;
+    const duration = nowPlaying?.duration ?? 0;
+    const isPlaying = !!nowPlaying?.isPlaying;
     const [smoothTime, setSmoothTime] = useState(pollTime);
     const lastPollRef = useRef({ value: pollTime, at: Date.now() });
 
-    // Re-anchor whenever the poll value or play state changes.
     useEffect(() => {
         lastPollRef.current = { value: pollTime, at: Date.now() };
         setSmoothTime(pollTime);
     }, [pollTime, isPlaying]);
 
-    // Tick the interpolator while playing.
     useEffect(() => {
         if (!isPlaying || duration <= 0) return;
         const id = window.setInterval(() => {
             const elapsed = (Date.now() - lastPollRef.current.at) / 1000;
-            const next = Math.min(duration, lastPollRef.current.value + elapsed);
-            setSmoothTime(next);
+            setSmoothTime(Math.min(duration, lastPollRef.current.value + elapsed));
         }, 100);
         return () => window.clearInterval(id);
     }, [isPlaying, duration]);
+
+    // ── Idle stage — inviting, not empty ───────────────────────────
+    if (!nowPlaying?.title) {
+        return (
+            <section className="relative overflow-hidden rounded-3xl border border-sky-400/15 bg-gradient-to-br from-sky-400/[0.08] via-slate-900/70 to-slate-950/85 px-4 py-4 shadow-xl">
+                <svg
+                    className="pointer-events-none absolute bottom-0 left-0 w-full opacity-60"
+                    viewBox="0 0 200 40"
+                    preserveAspectRatio="none"
+                    aria-hidden="true"
+                >
+                    <path d="M0,20 Q50,6 100,20 T200,20 L200,40 L0,40 Z" fill="white" opacity="0.04" />
+                    <path d="M0,28 Q50,14 100,28 T200,28 L200,40 L0,40 Z" fill="white" opacity="0.035" />
+                </svg>
+                <div className="relative flex items-center gap-3.5">
+                    <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-sky-400/25 bg-sky-400/10">
+                        <MusicIcon className="h-6 w-6 text-sky-300" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                        <div className="text-[10px] font-black uppercase tracking-[0.18em] text-sky-200/70">
+                            All quiet on deck
+                        </div>
+                        <div className="mt-0.5 text-base font-extrabold text-white">Pick a playlist to cast off</div>
+                    </div>
+                    <SpeakerChip speaker={speaker} onPick={onPickSpeaker} />
+                </div>
+            </section>
+        );
+    }
 
     const showProgress = duration > 0;
     const clamped = showProgress ? Math.min(Math.max(smoothTime, 0), duration) : 0;
@@ -2065,93 +2196,121 @@ const NowPlayingBar: React.FC<NowPlayingBarProps> = ({ nowPlaying, onPause, onRe
     const pct = showProgress ? (clamped / duration) * 100 : 0;
 
     return (
-        <div className="p-3.5">
-            <div className="flex items-center gap-3">
-                {showRemote ? (
-                    <SafeImage
-                        src={nowPlaying.artworkUrl}
+        <section className="relative overflow-hidden rounded-3xl border border-sky-400/20 bg-slate-900/80 shadow-2xl">
+            {/* Ambient backdrop — the artwork itself, blurred into the deep */}
+            {showRemote && (
+                <div aria-hidden="true" className="absolute inset-0 overflow-hidden">
+                    <img
+                        src={artworkUrl}
                         alt=""
-                        className="h-12 w-12 shrink-0 rounded-xl object-cover ring-1 ring-sky-200/20"
-                        loading="eager"
-                        onError={() => setImageFailed(true)}
-                        fallback={
-                            <div className="h-12 w-12 shrink-0 overflow-hidden rounded-xl ring-1 ring-sky-200/20">
-                                <GeneratedPlaylistArtwork name={nowPlaying.title || nowPlaying.album || 'Music'} />
-                            </div>
-                        }
+                        className="h-full w-full scale-125 object-cover opacity-35 blur-2xl saturate-150"
                     />
-                ) : (
-                    <div className="h-12 w-12 shrink-0 overflow-hidden rounded-xl ring-1 ring-sky-200/20">
-                        <GeneratedPlaylistArtwork name={nowPlaying.title || nowPlaying.album || 'Music'} />
-                    </div>
-                )}
-                <div className="flex-1 min-w-0">
-                    <div className="mb-0.5 flex items-center gap-1.5 text-[9px] font-black uppercase tracking-[0.15em] text-sky-200/65">
-                        <span
-                            className={`h-1.5 w-1.5 rounded-full ${nowPlaying.isPlaying ? 'bg-sky-400' : 'bg-slate-500'}`}
-                        />
-                        {nowPlaying.isPlaying ? 'Now playing' : 'Paused'}
-                    </div>
-                    <div className="truncate text-sm font-extrabold text-white">{nowPlaying.title}</div>
-                    {nowPlaying.artist && (
-                        <div className="mt-0.5 truncate text-xs text-slate-300/75">{nowPlaying.artist}</div>
-                    )}
-                </div>
-                <div className="flex items-center gap-1 shrink-0">
-                    <button
-                        onClick={onPrevious}
-                        className="flex h-11 w-11 items-center justify-center rounded-xl text-slate-300 transition-all hover:bg-sky-500/[0.1] hover:text-sky-200 active:scale-90"
-                        aria-label="Previous"
-                    >
-                        <SkipPrevIcon className="w-5 h-5" />
-                    </button>
-                    {nowPlaying.isPlaying ? (
-                        <button
-                            onClick={onPause}
-                            className="flex h-11 w-11 items-center justify-center rounded-xl bg-sky-600 text-white shadow-xl transition-transform active:scale-90"
-                            aria-label="Pause"
-                        >
-                            <PauseIcon className="w-5 h-5" />
-                        </button>
-                    ) : (
-                        <button
-                            onClick={onResume}
-                            className="flex h-11 w-11 items-center justify-center rounded-xl bg-sky-600 text-white shadow-xl transition-transform active:scale-90"
-                            aria-label="Play"
-                        >
-                            <PlayIcon className="w-5 h-5 ml-0.5" />
-                        </button>
-                    )}
-                    <button
-                        onClick={onNext}
-                        className="flex h-11 w-11 items-center justify-center rounded-xl text-slate-300 transition-all hover:bg-sky-500/[0.1] hover:text-sky-200 active:scale-90"
-                        aria-label="Next"
-                    >
-                        <SkipNextIcon className="w-5 h-5" />
-                    </button>
-                </div>
-            </div>
-
-            {showProgress && (
-                <div
-                    className="mt-3 flex items-center gap-2 text-[10px] font-mono tabular-nums text-slate-400"
-                    role="progressbar"
-                    aria-valuemin={0}
-                    aria-valuemax={Math.round(duration)}
-                    aria-valuenow={Math.round(clamped)}
-                    aria-label={`Playback progress — ${formatPlaybackTime(clamped)} of ${formatPlaybackTime(duration)}`}
-                >
-                    <span className="w-8 text-right">{formatPlaybackTime(clamped)}</span>
-                    <div className="h-1 flex-1 overflow-hidden rounded-full bg-white/10">
-                        <div
-                            className="h-full rounded-full bg-gradient-to-r from-sky-500 to-sky-400 transition-[width] duration-150 ease-linear"
-                            style={{ width: `${pct}%` }}
-                        />
-                    </div>
-                    <span className="w-10 text-left">-{formatPlaybackTime(remaining)}</span>
+                    <div className="absolute inset-0 bg-gradient-to-b from-slate-950/40 via-slate-950/60 to-slate-950/85" />
                 </div>
             )}
-        </div>
+            <div className="relative p-4">
+                <div className="flex items-center gap-3.5">
+                    {showRemote ? (
+                        <SafeImage
+                            src={artworkUrl}
+                            alt=""
+                            className="h-24 w-24 shrink-0 rounded-2xl object-cover shadow-2xl ring-1 ring-white/20"
+                            loading="eager"
+                            onError={() => setImageFailed(true)}
+                            fallback={
+                                <div className="h-24 w-24 shrink-0 overflow-hidden rounded-2xl shadow-2xl ring-1 ring-white/20">
+                                    <GeneratedPlaylistArtwork name={nowPlaying.title || nowPlaying.album || 'Music'} />
+                                </div>
+                            }
+                        />
+                    ) : (
+                        <div className="h-24 w-24 shrink-0 overflow-hidden rounded-2xl shadow-2xl ring-1 ring-white/20">
+                            <GeneratedPlaylistArtwork name={nowPlaying.title || nowPlaying.album || 'Music'} />
+                        </div>
+                    )}
+                    <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-[0.16em] text-sky-200/70">
+                            <span className={`h-1.5 w-1.5 rounded-full ${isPlaying ? 'bg-sky-400' : 'bg-slate-500'}`} />
+                            {isPlaying ? 'Now playing' : 'Paused'}
+                            {playlistName && (
+                                <span className="truncate font-bold normal-case tracking-normal text-slate-400">
+                                    · {playlistName}
+                                </span>
+                            )}
+                        </div>
+                        <div className="mt-1 truncate text-lg font-extrabold leading-tight text-white">
+                            {nowPlaying.title}
+                        </div>
+                        {nowPlaying.artist && (
+                            <div className="mt-0.5 truncate text-[13px] font-medium text-slate-300/80">
+                                {nowPlaying.artist}
+                            </div>
+                        )}
+                    </div>
+                </div>
+
+                {showProgress && (
+                    <div
+                        className="mt-3.5 flex items-center gap-2 text-[10px] font-mono tabular-nums text-slate-400"
+                        role="progressbar"
+                        aria-valuemin={0}
+                        aria-valuemax={Math.round(duration)}
+                        aria-valuenow={Math.round(clamped)}
+                        aria-label={`Playback progress — ${formatPlaybackTime(clamped)} of ${formatPlaybackTime(duration)}`}
+                    >
+                        <span className="w-8 text-right">{formatPlaybackTime(clamped)}</span>
+                        <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-white/10">
+                            <div
+                                className="h-full rounded-full bg-gradient-to-r from-sky-500 to-sky-300 transition-[width] duration-150 ease-linear"
+                                style={{ width: `${pct}%` }}
+                            />
+                        </div>
+                        <span className="w-10 text-left">-{formatPlaybackTime(remaining)}</span>
+                    </div>
+                )}
+
+                {/* Transport — big, centred, thumb-first; speaker rides shotgun */}
+                <div className="mt-3 flex items-center">
+                    <div className="w-[4.5rem]" aria-hidden="true" />
+                    <div className="flex flex-1 items-center justify-center gap-4">
+                        <button
+                            onClick={onPrevious}
+                            className="flex h-12 w-12 items-center justify-center rounded-full text-slate-200 transition-all hover:bg-white/[0.08] active:scale-90"
+                            aria-label="Previous"
+                        >
+                            <SkipPrevIcon className="h-6 w-6" />
+                        </button>
+                        {isPlaying ? (
+                            <button
+                                onClick={onPause}
+                                className="flex h-14 w-14 items-center justify-center rounded-full bg-sky-500 text-white shadow-2xl shadow-sky-500/30 transition-transform active:scale-90"
+                                aria-label="Pause"
+                            >
+                                <PauseIcon className="h-6 w-6" />
+                            </button>
+                        ) : (
+                            <button
+                                onClick={onResume}
+                                className="flex h-14 w-14 items-center justify-center rounded-full bg-sky-500 text-white shadow-2xl shadow-sky-500/30 transition-transform active:scale-90"
+                                aria-label="Play"
+                            >
+                                <PlayIcon className="ml-0.5 h-6 w-6" />
+                            </button>
+                        )}
+                        <button
+                            onClick={onNext}
+                            className="flex h-12 w-12 items-center justify-center rounded-full text-slate-200 transition-all hover:bg-white/[0.08] active:scale-90"
+                            aria-label="Next"
+                        >
+                            <SkipNextIcon className="h-6 w-6" />
+                        </button>
+                    </div>
+                    <div className="flex w-[4.5rem] justify-end">
+                        <SpeakerChip speaker={speaker} onPick={onPickSpeaker} />
+                    </div>
+                </div>
+            </div>
+        </section>
     );
 };
 
