@@ -83,20 +83,41 @@ BEGIN
 END;
 $$;
 
-DROP TRIGGER IF EXISTS vessel_polars_updated ON public.vessel_polars;
-CREATE TRIGGER vessel_polars_updated
-    BEFORE UPDATE ON public.vessel_polars
-    FOR EACH ROW EXECUTE FUNCTION public.vessel_polars_set_updated_at();
+-- Guarded on the TABLE existing. `DROP TRIGGER IF EXISTS x ON t` excuses a
+-- missing trigger, but not a missing t — and this migration is expected to
+-- run against a database where the marketplace tables are already gone
+-- (measured 2026-08-13: marketplace_escrow 404s from PostgREST while
+-- vessel_polars and edge_function_rate_limits both answer 200). Without
+-- these guards the push aborts partway, leaving the cron unscheduled and
+-- the schema half-dropped. to_regclass returns NULL instead of raising.
+DO $$
+BEGIN
+    IF to_regclass('public.vessel_polars') IS NOT NULL THEN
+        DROP TRIGGER IF EXISTS vessel_polars_updated ON public.vessel_polars;
+        CREATE TRIGGER vessel_polars_updated
+            BEFORE UPDATE ON public.vessel_polars
+            FOR EACH ROW EXECUTE FUNCTION public.vessel_polars_set_updated_at();
+    END IF;
+END;
+$$;
 
 -- ── 3. Views ───────────────────────────────────────────────────────────
 DROP VIEW IF EXISTS public.marketplace_escrow_seller;
 DROP VIEW IF EXISTS public.marketplace_listings_public;
 
 -- ── 4. Triggers ────────────────────────────────────────────────────────
--- Explicit, so the function drops below need no CASCADE.
-DROP TRIGGER IF EXISTS trg_hash_marketplace_escrow_pin ON public.marketplace_escrow;
-DROP TRIGGER IF EXISTS marketplace_escrow_updated ON public.marketplace_escrow;
-DROP TRIGGER IF EXISTS marketplace_listings_updated ON public.marketplace_listings;
+-- Explicit, so the function drops below need no CASCADE. Same table guard.
+DO $$
+BEGIN
+    IF to_regclass('public.marketplace_escrow') IS NOT NULL THEN
+        DROP TRIGGER IF EXISTS trg_hash_marketplace_escrow_pin ON public.marketplace_escrow;
+        DROP TRIGGER IF EXISTS marketplace_escrow_updated ON public.marketplace_escrow;
+    END IF;
+    IF to_regclass('public.marketplace_listings') IS NOT NULL THEN
+        DROP TRIGGER IF EXISTS marketplace_listings_updated ON public.marketplace_listings;
+    END IF;
+END;
+$$;
 
 -- ── 5. Functions ───────────────────────────────────────────────────────
 -- Full signatures, no CASCADE. The previous version used bare names and
