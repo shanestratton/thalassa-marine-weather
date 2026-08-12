@@ -63,50 +63,86 @@ const BOX = [
     ],
 ];
 
-const SECONDS = 30;
-let frames = 0;
-let firstAt = null;
+const PER_VARIANT_SECONDS = 12;
 
-console.log(`Connecting to aisstream.io …  (key length ${KEY.length}, listening ${SECONDS}s, worldwide)`);
+/**
+ * Payload shapes to try, in order.
+ *
+ * Measured 2026-08-12: a deliberately bogus key gets the socket CLOSED with
+ * code 1006, while Shane's real key leaves it OPEN and silent. Those are
+ * different behaviours, so aisstream is reading the key and declining to
+ * hang up — the subscription is being accepted and then ignored. That
+ * implicates the payload shape rather than the credential, and the shape is
+ * exactly what changed today: the worker sent `Apikey` for the months it
+ * ingested happily, and I changed it to `APIKey` on the strength of the
+ * published docs. Rather than argue about which is right, try both.
+ */
+const VARIANTS = [
+    { label: 'APIKey + BoundingBoxes (current worker)', body: { APIKey: KEY, BoundingBoxes: BOX } },
+    { label: 'Apikey + BoundingBoxes (original spelling)', body: { Apikey: KEY, BoundingBoxes: BOX } },
+    {
+        label: 'APIKey + BoundingBoxes + FilterMessageTypes (full worker payload)',
+        body: {
+            APIKey: KEY,
+            BoundingBoxes: BOX,
+            FilterMessageTypes: ['PositionReport', 'ShipStaticData', 'StandardClassBPositionReport'],
+        },
+    },
+];
 
-const ws = new WebSocket('wss://stream.aisstream.io/v0/stream');
+console.log(`Testing ${VARIANTS.length} subscription shapes, ${PER_VARIANT_SECONDS}s each.`);
+console.log(`(key length ${KEY.length}, worldwide bounding box)\n`);
 
-ws.on('open', () => {
-    console.log('Socket OPEN. Sending subscription …');
-    // Same shape the worker sends.
-    ws.send(JSON.stringify({ APIKey: KEY, BoundingBoxes: BOX }));
-    console.log('Subscription sent. Waiting for frames …\n');
-});
+function tryVariant({ label, body }) {
+    return new Promise((resolve) => {
+        let frames = 0;
+        let closed = null;
+        const ws = new WebSocket('wss://stream.aisstream.io/v0/stream');
+        const done = () => {
+            try {
+                ws.close();
+            } catch {
+                /* already gone */
+            }
+            resolve({ label, frames, closed });
+        };
 
-ws.on('message', (data) => {
-    frames++;
-    if (firstAt === null) firstAt = Date.now();
-    if (frames <= 3) {
-        console.log(`--- frame ${frames} ---\n${redact(data.toString()).slice(0, 500)}\n`);
-    } else if (frames === 4) {
-        console.log('… (further frames suppressed; they are clearly flowing)\n');
-    }
-});
+        ws.on('open', () => ws.send(JSON.stringify(body)));
+        ws.on('message', (data) => {
+            frames++;
+            if (frames <= 2) console.log(`    frame: ${redact(data.toString()).slice(0, 300)}`);
+        });
+        ws.on('error', (err) => console.log(`    socket error: ${redact(err.message)}`));
+        ws.on('close', (code, reason) => {
+            const why = reason?.toString?.() || '';
+            closed = `${code}${why ? ' — ' + redact(why) : ''}`;
+        });
+        setTimeout(done, PER_VARIANT_SECONDS * 1000);
+    });
+}
 
-ws.on('error', (err) => console.error('SOCKET ERROR:', redact(err.message)));
+const results = [];
+for (const v of VARIANTS) {
+    console.log(`→ ${v.label}`);
+    const r = await tryVariant(v);
+    console.log(`  ${r.frames} frames${r.closed ? `, socket closed ${r.closed}` : ', socket stayed open'}\n`);
+    results.push(r);
+}
 
-ws.on('close', (code, reason) => {
-    const why = reason?.toString?.() || '';
-    console.log(`Socket CLOSED (code ${code})${why ? ': ' + redact(why) : ''}`);
-});
-
-setTimeout(() => {
-    console.log('═'.repeat(60));
-    if (frames > 0) {
-        console.log(`VERDICT: KEY IS GOOD — ${frames} frames in ${SECONDS}s.`);
-        console.log('The fault is downstream, in the worker or its config, not the key.');
-    } else {
-        console.log('VERDICT: NOTHING RECEIVED in ' + SECONDS + 's, worldwide.');
-        console.log('There is always AIS traffic somewhere on Earth, so silence on a');
-        console.log('global bounding box means the subscription was refused. The key');
-        console.log('or the aisstream.io account behind it is not accepted.');
-    }
-    console.log('═'.repeat(60));
-    ws.close();
-    process.exit(frames > 0 ? 0 : 1);
-}, SECONDS * 1000);
+const winner = results.find((r) => r.frames > 0);
+console.log('═'.repeat(64));
+if (winner) {
+    console.log(`VERDICT: THE KEY IS GOOD. Working shape: ${winner.label}`);
+    console.log('Make the worker send exactly that payload.');
+} else if (results.every((r) => r.closed && r.closed.startsWith('1006'))) {
+    console.log('VERDICT: every shape was DISCONNECTED — the key itself is refused.');
+    console.log('Generate a fresh key from a signed-in aisstream.io session.');
+} else {
+    console.log('VERDICT: accepted but silent on every shape.');
+    console.log('The socket is not being dropped, so the key is not simply invalid —');
+    console.log('aisstream is taking the subscription and sending nothing. That points');
+    console.log('at the ACCOUNT (quota, tier, or suspension) rather than the key string.');
+    console.log('Check aisstream.io for any notice on the account itself.');
+}
+console.log('═'.repeat(64));
+process.exit(winner ? 0 : 1);
