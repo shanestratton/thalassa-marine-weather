@@ -120,11 +120,6 @@ export const FEATURE_REGISTRY = {
         tier: 'free',
         description: 'Browse and connect with crew',
     },
-    marketplace: {
-        label: 'Marketplace',
-        tier: 'free',
-        description: 'Buy and sell marine equipment',
-    },
     chat: {
         label: 'Crew Talk',
         tier: 'free',

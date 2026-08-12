@@ -48,7 +48,6 @@ Short request/response work and scheduled jobs. Full list in
 | `check-weather-alerts`   | every 30 min | Push notifs for wind/wave thresholds |
 | `sweep-stale-vessels`    | every 6 h    | Drop vessels not seen in 24 h        |
 | `scrape-vessel-metadata` | every 15 min | Two-phase AIS seed + registry scrape |
-| `sweep-expired-escrows`  | daily        | Marketplace housekeeping             |
 
 Edge functions hard-cap at ~150 s wall-clock. `scrape-vessel-metadata`
 processes 30 external lookups per run (down from 50 on Railway) to

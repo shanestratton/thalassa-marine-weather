@@ -371,7 +371,7 @@ export const CheckCircleIcon = ({ className }: { className?: string }) => (
     </svg>
 );
 
-// 🛒 — Shopping cart. Used in Chandlery / Marketplace.
+// 🛒 — Shopping cart. Used in the Galley shopping list.
 export const CartIcon = ({ className }: { className?: string }) => (
     <svg
         xmlns="http://www.w3.org/2000/svg"
@@ -391,7 +391,7 @@ export const CartIcon = ({ className }: { className?: string }) => (
     </svg>
 );
 
-// 📦 — Package / box. Used in Marketplace, shipping, inventory.
+// 📦 — Package / box. Used for stores and inventory.
 export const PackageIcon = ({ className }: { className?: string }) => (
     <svg
         xmlns="http://www.w3.org/2000/svg"

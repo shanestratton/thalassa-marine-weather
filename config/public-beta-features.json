@@ -39,8 +39,7 @@
         "billing",
         "private-recipe-photos",
         "unverified-commercial-chart-packages",
-        "spoonacular-online-catalogue",
-        "marketplace"
+        "spoonacular-online-catalogue"
     ],
     "requiredAbsentClientConfig": ["VITE_GOOGLE_OAUTH_CLIENT_ID"],
     "requiredCredentialPresence": ["VITE_OWM_API_KEY", "VITE_SENTRY_DSN"]

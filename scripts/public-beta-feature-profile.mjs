@@ -53,7 +53,6 @@ export const PUBLIC_BETA_HELD_CAPABILITIES = Object.freeze([
     'private-recipe-photos',
     'unverified-commercial-chart-packages',
     'spoonacular-online-catalogue',
-    'marketplace',
 ]);
 
 export const PUBLIC_BETA_REQUIRED_ABSENT_CLIENT_CONFIG = Object.freeze(['VITE_GOOGLE_OAUTH_CLIENT_ID']);

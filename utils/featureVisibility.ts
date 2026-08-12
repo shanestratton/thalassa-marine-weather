@@ -5,24 +5,22 @@
  *
  * Distinct from managers/FeatureGate (that's paywall TIERS — free vs
  * premium). These flags are "the code exists and works, but we're not
- * showing it yet." An empty Marketplace or Crew-Finder reads as a dead
- * app — worse than not having the feature at all — so they stay hidden
- * pre-launch and get flipped on once there's a user base to populate
- * them.
+ * showing it yet." An empty Crew-Finder reads as a dead app — worse
+ * than not having the feature at all — so they stay hidden pre-launch and
+ * get flipped on once there's a user base to populate them.
  *
  * Flip a flag to `true` to surface the feature everywhere it's gated.
  * Grep `FEATURE_VISIBILITY` to find every gated entry point.
  *
  * The Crew List is deliberately a quiet beta: it is opt-in, lives one
  * level inside Scuttlebutt, and is framed around safe sailing introductions
- * rather than social discovery. Marketplace remains held until it has the
- * inventory to feel useful.
+ * rather than social discovery.
  */
 /**
  * Apple Music is the one entry here that is NOT a hand-edited boolean.
  *
  * Every other flag in this file is a product decision ("is there enough
- * inventory to show a Marketplace?"), which a human flips in a commit. Apple
+ * demand for this yet?"), which a human flips in a commit. Apple
  * Music is different: it is gated on an EXTERNAL fact — whether this build's
  * App ID actually carries the MusicKit capability and a matching distribution
  * profile. That fact lives in the Apple Developer portal, changes without any

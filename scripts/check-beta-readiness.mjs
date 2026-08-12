@@ -1574,7 +1574,6 @@ check(
             'private-recipe-photos',
             'unverified-commercial-chart-packages',
             'spoonacular-online-catalogue',
-            'marketplace',
         ]) &&
         JSON.stringify(publicBetaFeatureProfile.heldCapabilities) === JSON.stringify(PUBLIC_BETA_HELD_CAPABILITIES) &&
         JSON.stringify(publicBetaFeatureProfile.requiredAbsentClientConfig) ===
@@ -3032,19 +3031,6 @@ const heldCapabilitySourceContracts = {
     'spoonacular-online-catalogue':
         /\bspoonacular:\s*false\b/.test(featureVisibility) &&
         read('services/spoonacularProxy.ts').includes('if (!FEATURE_VISIBILITY.spoonacular || !supabase) return null'),
-    marketplace:
-        includesAll(read('components/chat/ChannelList.tsx'), [
-            "'Chandlery'",
-            "'Marketplace'",
-            'HIDDEN_CHANNEL_NAMES.has(ch.name)',
-        ]) &&
-        !exists('supabase/functions/create-marketplace-payment') &&
-        !exists('supabase/functions/capture-escrow-payment') &&
-        !exists('supabase/functions/sweep-expired-escrows') &&
-        includesAll(read('supabase/migrations/20260729080000_drop_marketplace.sql'), [
-            'DROP TABLE IF EXISTS public.marketplace_escrow CASCADE',
-            'DROP TABLE IF EXISTS public.marketplace_listings CASCADE',
-        ]),
 };
 const missingHeldCapabilitySourceContracts = PUBLIC_BETA_HELD_CAPABILITIES.filter(
     (name) => heldCapabilitySourceContracts[name] !== true,

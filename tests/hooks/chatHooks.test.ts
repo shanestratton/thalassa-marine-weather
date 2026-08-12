@@ -216,15 +216,6 @@ describe('useChatMessages', () => {
         expect(opts.setNavDirection).toHaveBeenCalledWith('forward');
     });
 
-    it('openChannel navigates to Marketplace view', async () => {
-        const opts = { ...defaultMessageOpts };
-        const { result } = renderHook(() => useChatMessages(opts));
-        await act(() =>
-            result.current.openChannel({ id: 'mp', name: 'Marketplace', description: '', icon: '' } as any),
-        );
-        expect(opts.setView).toHaveBeenCalledWith('marketplace');
-    });
-
     it('openChannel loads messages and subscribes', async () => {
         const testMsgs = [{ id: 'msg-1', user_id: 'u1', message: 'hello', is_pinned: false, deleted_at: null }];
         mockGetMessages.mockResolvedValueOnce(testMsgs);
