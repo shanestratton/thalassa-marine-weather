@@ -60,6 +60,10 @@ let guardianWatchdogStarted = false;
  *  fresh session gets a fresh look at what the server is saying. */
 let unparsedLogged = 0;
 const MAX_UNPARSED_LOGS = 3;
+/** Reconnects with zero frames EVER before the switch stops blaming the
+ *  connection and names the account. Three is ~15 minutes — long enough to
+ *  rule out a slow start, short enough to beat a human to the conclusion. */
+const STALE_RECONNECTS_BEFORE_VERDICT = 3;
 
 // Dead man's switch state
 let lastMessageAt = Date.now();
@@ -170,6 +174,28 @@ function checkStaleConnection(): void {
             `[DEADMAN] ⚠️ No AIS messages for ${Math.round(staleDuration / 1000)}s ` +
                 `(threshold: ${STALE_THRESHOLD_MS / 1000}s). Forcing reconnect #${staleReconnects}...`,
         );
+
+        // Reconnecting cannot fix a subscription that is being accepted and
+        // starved, and this switch will otherwise loop on it forever, once
+        // every five minutes, saying nothing more useful each time. If we
+        // have NEVER received a single frame across several reconnects, the
+        // socket is not the problem — say so, once, in terms that name the
+        // next place to look.
+        //
+        // Measured 2026-08-12, worldwide bounding box: a bogus key is
+        // DISCONNECTED (ws close 1006); a key whose account is not serving
+        // is kept OPEN and silent. That is the shape this detects. See
+        // probe.mjs, which tests the key on its own.
+        if (messageCount === 0 && staleReconnects === STALE_RECONNECTS_BEFORE_VERDICT) {
+            console.error(
+                `[DEADMAN] ❌ ${staleReconnects} reconnects and NOT ONE frame ever received. ` +
+                    `The socket keeps opening, so this is not a network or DNS fault, and an ` +
+                    `outright bad key would be disconnected rather than held open. aisstream.io ` +
+                    `is accepting the subscription and sending nothing — check the ACCOUNT ` +
+                    `(quota, tier, suspension), not the key string. Run probe.mjs to confirm ` +
+                    `independently of this worker.`,
+            );
+        }
 
         // Kill the current connection and force reconnect
         if (ws) {
