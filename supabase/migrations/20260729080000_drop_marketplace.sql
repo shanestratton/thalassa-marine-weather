@@ -1,7 +1,22 @@
 -- Retire the marketplace schema.
 --
--- THIS MIGRATION IS DESTRUCTIVE AND IRREVERSIBLE. Written but NOT applied;
--- run it deliberately, and run the pre-flight counts below first.
+-- ⚠️ THIS FILE HAS ALREADY BEEN APPLIED TO PRODUCTION IN ITS *ORIGINAL*
+-- FORM. The corrections below were written 2026-08-13 in the belief — taken
+-- from this very header, which also carried a fabricated row-count claim —
+-- that it had never run. It had. Proof: on 2026-08-13 the marketplace tables
+-- already 404'd, both escrow cron jobs were already unscheduled, and
+-- vessel_polars_updated was already MISSING, which is precisely the damage
+-- the old `DROP FUNCTION ... CASCADE` at section 5 was predicted to do.
+--
+-- So: the corrections here never ran on Shane's database, and cannot — an
+-- applied migration is not re-applied. They are kept anyway because THIS is
+-- the version a fresh environment replays, and replaying the original would
+-- reintroduce the bug on the next person's database.
+--
+-- The production repair is 20260813080000_restore_vessel_polars_timestamp.sql.
+--
+-- THIS MIGRATION IS DESTRUCTIVE AND IRREVERSIBLE. Run the pre-flight counts
+-- below before applying it anywhere new.
 --
 -- PROVENANCE OF THE "IT IS EMPTY" CLAIM — read this before trusting it.
 -- An earlier version of this header asserted exact row counts of 0 for all
