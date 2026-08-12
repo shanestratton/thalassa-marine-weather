@@ -55,6 +55,11 @@ let messageCount = 0;
 let parsedCount = 0;
 let isShuttingDown = false;
 let guardianWatchdogStarted = false;
+/** Frames received but not parseable as AIS — logged, bounded, so a rejected
+ *  subscription explains itself instead of vanishing. Reset on reconnect so a
+ *  fresh session gets a fresh look at what the server is saying. */
+let unparsedLogged = 0;
+const MAX_UNPARSED_LOGS = 3;
 
 // Dead man's switch state
 let lastMessageAt = Date.now();
@@ -80,10 +85,18 @@ function connect(): void {
     ws.on('open', () => {
         console.log('[WS] Connected! Sending subscription...');
         reconnectAttempts = 0;
+        unparsedLogged = 0;
 
-        // Must send subscription within 3 seconds
+        // Must send subscription within 3 seconds.
+        //
+        // The field is APIKey — capital A, P, I, K — exactly as aisstream.io
+        // documents it. This said `Apikey` until 2026-08-12. That spelling
+        // may well have worked (Go's encoding/json matches struct fields
+        // case-insensitively, and this worker did ingest for months), but
+        // when the stream goes silent you want zero variables between you
+        // and the documented contract.
         const subscription = {
-            Apikey: API_KEY,
+            APIKey: API_KEY,
             BoundingBoxes: BOUNDING_BOXES,
             FilterMessageTypes: ['PositionReport', 'ShipStaticData', 'StandardClassBPositionReport'],
         };
@@ -102,6 +115,20 @@ function connect(): void {
         if (record) {
             parsedCount++;
             db.enqueue(record);
+            return;
+        }
+
+        // SAY WHAT WE THREW AWAY. An unparseable frame used to vanish here,
+        // which is how a silent stream stayed undiagnosable: aisstream.io
+        // reports a rejected subscription or a bad key as an ordinary text
+        // frame, so its explanation was counted by messageCount and then
+        // dropped on the floor. Bounded to the first few so a genuine parser
+        // gap cannot flood the log.
+        if (unparsedLogged < MAX_UNPARSED_LOGS) {
+            unparsedLogged++;
+            // Never echo the key back into the log, whatever the server said.
+            const safe = API_KEY ? raw.split(API_KEY).join('***REDACTED***') : raw;
+            console.warn(`[WS] Unparsed frame ${unparsedLogged}/${MAX_UNPARSED_LOGS}: ${safe.slice(0, 400)}`);
         }
     });
 
