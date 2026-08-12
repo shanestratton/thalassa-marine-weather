@@ -10,8 +10,6 @@ import {
     sanitizeText,
     validateDisplayName,
     validateVesselName,
-    validateListingTitle,
-    validatePrice,
     validateDescription,
     validateLatitude,
     validateLongitude,
@@ -110,45 +108,6 @@ describe('validateVesselName', () => {
 
     it('rejects too long', () => {
         expect(validateVesselName('A'.repeat(61)).valid).toBe(false);
-    });
-});
-
-// ═══════════════════════════════════════
-
-describe('validateListingTitle', () => {
-    it('accepts valid title', () => {
-        expect(validateListingTitle('Used Beneteau Oceanis 40.1').valid).toBe(true);
-    });
-
-    it('rejects too short', () => {
-        expect(validateListingTitle('AB').valid).toBe(false);
-    });
-
-    it('rejects too long', () => {
-        expect(validateListingTitle('A'.repeat(121)).valid).toBe(false);
-    });
-});
-
-// ═══════════════════════════════════════
-
-describe('validatePrice', () => {
-    it('accepts valid prices', () => {
-        expect(validatePrice(99.99).valid).toBe(true);
-        expect(validatePrice('250').valid).toBe(true);
-        expect(validatePrice(0).valid).toBe(true);
-    });
-
-    it('rejects negative', () => {
-        expect(validatePrice(-1).valid).toBe(false);
-    });
-
-    it('rejects NaN', () => {
-        expect(validatePrice('abc').valid).toBe(false);
-        expect(validatePrice(NaN).valid).toBe(false);
-    });
-
-    it('rejects over 10M', () => {
-        expect(validatePrice(10_000_001).valid).toBe(false);
     });
 });
 

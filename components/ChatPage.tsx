@@ -76,7 +76,6 @@ type ChatView =
     | 'dm_thread'
     | 'profile'
     | 'find_crew'
-    | 'marketplace'
     | 'admin_panel';
 
 // --- CSS KEYFRAMES (injected once) ---
@@ -574,8 +573,6 @@ export const ChatPage: React.FC<{ onBack?: () => void }> = React.memo(({ onBack 
         } else if (view === 'profile') {
             setView('channels');
         } else if (view === 'find_crew') {
-            setView('channels');
-        } else if (view === 'marketplace') {
             setView('channels');
         } else if (view === 'admin_panel') {
             setView('channels');

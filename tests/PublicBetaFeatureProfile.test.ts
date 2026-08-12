@@ -76,7 +76,6 @@ describe('committed public-beta feature profile', () => {
             'private-recipe-photos',
             'unverified-commercial-chart-packages',
             'spoonacular-online-catalogue',
-            'marketplace',
         ]);
         expect(profile.requiredAbsentClientConfig).toEqual(['VITE_GOOGLE_OAUTH_CLIENT_ID']);
         expect(profile.requiredCredentialPresence).toEqual(['VITE_OWM_API_KEY', 'VITE_SENTRY_DSN']);

@@ -1,8 +1,8 @@
 /**
  * Input Validation — Centralized validation for all user-facing forms.
  *
- * Used by onboarding, vessel details, crew finder, marketplace, and diary forms
- * to normalize markup and keep invalid data from reaching the backend.
+ * Used by onboarding, vessel details, crew finder and diary forms to
+ * normalize markup and keep invalid data from reaching the backend.
  */
 
 // ── Plain-text normalization ────────────────────────────────────
@@ -105,29 +105,6 @@ export function validateVesselName(name: string): ValidationResult {
     const clean = sanitizeText(name);
     if (clean.length < 1) return { valid: false, error: 'Vessel name is required' };
     if (clean.length > 60) return { valid: false, error: 'Vessel name must be 60 characters or less' };
-    return { valid: true };
-}
-
-/**
- * Validate a marketplace listing title.
- * Rules: 3-120 chars, no HTML
- */
-export function validateListingTitle(title: string): ValidationResult {
-    const clean = sanitizeText(title);
-    if (clean.length < 3) return { valid: false, error: 'Title must be at least 3 characters' };
-    if (clean.length > 120) return { valid: false, error: 'Title must be 120 characters or less' };
-    return { valid: true };
-}
-
-/**
- * Validate a price field.
- * Rules: positive number, max 10M, no NaN
- */
-export function validatePrice(value: string | number): ValidationResult {
-    const num = typeof value === 'string' ? parseFloat(value) : value;
-    if (isNaN(num)) return { valid: false, error: 'Price must be a valid number' };
-    if (num < 0) return { valid: false, error: 'Price cannot be negative' };
-    if (num > 10_000_000) return { valid: false, error: 'Price exceeds maximum allowed' };
     return { valid: true };
 }
 

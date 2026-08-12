@@ -15,7 +15,6 @@ type ChatView =
     | 'dm_thread'
     | 'profile'
     | 'find_crew'
-    | 'marketplace'
     | 'admin_panel';
 
 export interface ChatHeaderProps {
@@ -78,7 +77,6 @@ export const ChatHeader: React.FC<ChatHeaderProps> = React.memo(
                                 {view === 'profile' && '⚓ Sailor Profile'}
 
                                 {view === 'find_crew' && 'The Crew List'}
-                                {view === 'marketplace' && 'Chandlery'}
                             </h1>
                         )}
                         {view === 'messages' && activeChannel?.description && (

@@ -76,15 +76,10 @@ export function useChatMessages(options: UseChatMessagesOptions) {
     const openChannel = useCallback(
         async (channel: ChatChannel) => {
             const identity = getAuthIdentityScope();
-            // Find Crew / Marketplace get special views
+            // Find Crew gets a special view
             if (channel.name === 'Find Crew') {
                 setNavDirection('forward');
                 setView('find_crew');
-                return;
-            }
-            if (channel.name === 'Chandlery' || channel.name === 'Marketplace') {
-                setNavDirection('forward');
-                setView('marketplace');
                 return;
             }
 

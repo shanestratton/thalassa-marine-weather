@@ -25,7 +25,7 @@ interface ImportMetaEnv {
      *  Not used on web (relative /api/* resolves via Vite proxy or Vercel). */
     readonly VITE_NATIVE_API_BASE: string;
     /** Dev override: when 'true', useEntitlement always returns true so
-     *  gated pages (Galley / Marketplace / Diary etc.) render normally
+     *  gated pages (Galley / Diary etc.) render normally
      *  without needing to juggle subscription tier in dev tools. */
     readonly VITE_GRANT_ALL_FEATURES: string;
     /** Explicit development/test/demo-only opt-in for the bundled Savannah

@@ -260,7 +260,7 @@ const App: React.FC = () => {
 
     // Global "open upgrade modal" event — used by PaywallGate when it
     // renders deep inside a tree that doesn't have direct access to
-    // setIsUpgradeOpen (e.g. MarketplacePage inside ChatPage).
+    // setIsUpgradeOpen (e.g. a gated page inside ChatPage).
     useEffect(() => {
         const handler = () => setIsUpgradeOpen(true);
         window.addEventListener('thalassa:openUpgrade', handler);
