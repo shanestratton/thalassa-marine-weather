@@ -32,8 +32,23 @@ import WebSocket from 'ws';
 
 const KEY = process.env.AISSTREAM_KEY;
 if (!KEY) {
-    console.error('Set AISSTREAM_KEY first:  AISSTREAM_KEY=... node probe.mjs');
+    console.error('Set AISSTREAM_KEY first. To keep the key out of your shell history:');
+    console.error('    read -rs -p "aisstream key: " K && AISSTREAM_KEY="$K" node probe.mjs');
     process.exit(1);
+}
+
+// Refuse an obvious placeholder. Written after this script was run with the
+// literal string 'paste-your-key' (14 chars) copied straight out of the
+// instructions — the second time in one session that a placeholder inside a
+// runnable command was pasted verbatim, the first being a Supabase Vault URL
+// that cost an hour. A placeholder must fail loudly and instantly, not
+// produce a plausible-looking negative result that reads as a dead key.
+if (/paste|your.?key|example|^<|xxx|changeme/i.test(KEY) || KEY.length < 20) {
+    console.error(`Refusing to run: AISSTREAM_KEY looks like a placeholder (length ${KEY.length}).`);
+    console.error('A real aisstream key is a long random string, not a word.');
+    console.error('Substitute yours — and to keep it out of your shell history:');
+    console.error('    read -rs -p "aisstream key: " K && AISSTREAM_KEY="$K" node probe.mjs');
+    process.exit(2);
 }
 
 const redact = (s) => (KEY ? s.split(KEY).join('***REDACTED***') : s);
