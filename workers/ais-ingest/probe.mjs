@@ -18,22 +18,23 @@
  * terminal or your scrollback.
  *
  * Run it from this directory (it needs the `ws` package already installed
- * here):
+ * here). NOTE the prompt form: this machine runs zsh, where `read -p` means
+ * "read from coprocess", not "prompt" — the bash spelling fails with
+ * `read: -p: no coprocess`. printf + `read -rs` works in both shells:
  *
- *     AISSTREAM_KEY='paste-your-key' node probe.mjs
+ *     printf 'aisstream key: '; read -rs K; echo; AISSTREAM_KEY="$K" node probe.mjs
  *
  * Reading the result:
- *   · frames arriving        -> the key is GOOD; the fault is in the worker
- *   · silence for 30 s       -> the key or the account is refused
- *   · a text frame with an   -> aisstream is telling you exactly what is
- *     error message             wrong; that text is the answer
+ *   · a shape that yields frames -> the key is GOOD and the payload was wrong
+ *   · disconnected (1006) on all -> the key itself is refused
+ *   · accepted but silent on all -> the ACCOUNT, not the key string
  */
 import WebSocket from 'ws';
 
 const KEY = process.env.AISSTREAM_KEY;
 if (!KEY) {
     console.error('Set AISSTREAM_KEY first. To keep the key out of your shell history:');
-    console.error('    read -rs -p "aisstream key: " K && AISSTREAM_KEY="$K" node probe.mjs');
+    console.error(`    printf 'aisstream key: '; read -rs K; echo; AISSTREAM_KEY="$K" node probe.mjs`);
     process.exit(1);
 }
 
@@ -47,7 +48,7 @@ if (/paste|your.?key|example|^<|xxx|changeme/i.test(KEY) || KEY.length < 20) {
     console.error(`Refusing to run: AISSTREAM_KEY looks like a placeholder (length ${KEY.length}).`);
     console.error('A real aisstream key is a long random string, not a word.');
     console.error('Substitute yours — and to keep it out of your shell history:');
-    console.error('    read -rs -p "aisstream key: " K && AISSTREAM_KEY="$K" node probe.mjs');
+    console.error(`    printf 'aisstream key: '; read -rs K; echo; AISSTREAM_KEY="$K" node probe.mjs`);
     process.exit(2);
 }
 
