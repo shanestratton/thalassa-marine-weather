@@ -415,7 +415,13 @@ export const PoiPickerSheet: React.FC<PoiPickerSheetProps> = React.memo(
             <section
                 role="region"
                 aria-label="Drop a pin"
-                className="flex-shrink-0 border-t border-sky-400/[0.14] bg-slate-900 px-4 py-4 max-h-[68vh] overflow-y-auto shadow-[0_-12px_30px_rgba(0,0,0,0.16)]"
+                // thalassa-keyboard-safe-sheet owns the height cap now, in
+                // place of the hard-coded 68vh that used to sit here. This
+                // sheet scrolls internally, which is precisely the case the
+                // app-wide keyboard guard cannot rescue — see the class
+                // comment in index.css. Share my location (PinDropSheet,
+                // above) needs no such treatment: no internal scroll box.
+                className="thalassa-keyboard-safe-sheet flex-shrink-0 border-t border-sky-400/[0.14] bg-slate-900 px-4 py-4 overflow-y-auto shadow-[0_-12px_30px_rgba(0,0,0,0.16)]"
             >
                 <div className="flex items-start justify-between gap-4 mb-3">
                     <div>
