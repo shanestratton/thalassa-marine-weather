@@ -3368,7 +3368,17 @@ body,
    are writing"). Share my location sits beside it in the same file and
    has always worked — purely because it has no internal scroll box.
 
-   Override --sheet-max-vh on the element when 68vh is not right. */
+   Override --sheet-max-vh on the element when 68vh is not right.
+
+   IMPORTANT: the sheet must be a FLEX COLUMN whose text fields sit in a
+   non-scrolling footer, with the tall content (a map, a long list) in a
+   flex-1 min-h-0 scroller above them. Lifting the sheet on its own is not
+   enough and actively backfires — the first cut of this only set the
+   margin, and on Drop a Pin, whose fields sit below a 320px map, it pushed
+   the top of the sheet off screen while leaving the field still out of
+   reach (Shane 2026-08-13: "it pushes it all the way off the screen. also
+   you cannot see that box unless you scroll up"). Pinned footer + shrinking
+   map is what puts the field above the keyboard. */
 .thalassa-keyboard-safe-sheet {
     --sheet-max-vh: 68vh;
     margin-bottom: var(--thalassa-keyboard-height, 0px);
@@ -3379,6 +3389,24 @@ body,
 }
 @media (prefers-reduced-motion: reduce) {
     .thalassa-keyboard-safe-sheet {
+        transition: none;
+    }
+}
+
+/* The one element in the pin sheet that can afford to give up space. It was
+   a flat 320px, which alone pushed the note field below the fold on every
+   phone — and the field is inside the sheet's own scroller, over a map that
+   swallows drag gestures, so scrolling to it was genuinely hard. Smaller by
+   default, and smaller again while the keyboard is up. */
+.thalassa-pin-map {
+    height: clamp(150px, 30vh, 260px);
+    transition: height 180ms ease-out;
+}
+:root[data-keyboard-open='true'] .thalassa-pin-map {
+    height: clamp(96px, 16vh, 150px);
+}
+@media (prefers-reduced-motion: reduce) {
+    .thalassa-pin-map {
         transition: none;
     }
 }

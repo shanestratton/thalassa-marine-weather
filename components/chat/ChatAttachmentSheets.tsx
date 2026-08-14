@@ -421,7 +421,7 @@ export const PoiPickerSheet: React.FC<PoiPickerSheetProps> = React.memo(
                 // app-wide keyboard guard cannot rescue — see the class
                 // comment in index.css. Share my location (PinDropSheet,
                 // above) needs no such treatment: no internal scroll box.
-                className="thalassa-keyboard-safe-sheet flex-shrink-0 border-t border-sky-400/[0.14] bg-slate-900 px-4 py-4 overflow-y-auto shadow-[0_-12px_30px_rgba(0,0,0,0.16)]"
+                className="thalassa-keyboard-safe-sheet flex flex-shrink-0 flex-col border-t border-sky-400/[0.14] bg-slate-900 px-4 py-4 shadow-[0_-12px_30px_rgba(0,0,0,0.16)]"
             >
                 <div className="flex items-start justify-between gap-4 mb-3">
                     <div>
@@ -452,142 +452,150 @@ export const PoiPickerSheet: React.FC<PoiPickerSheetProps> = React.memo(
                     </div>
                 ) : (
                     <>
-                        {locationError && (
-                            <p
-                                className="rounded-xl border border-amber-400/15 bg-amber-400/[0.05] px-3 py-2 text-[11px] text-amber-100/70 mb-3"
-                                role="status"
-                            >
-                                {locationError}
-                            </p>
-                        )}
-                        {/* Search bar — type a place name (chandlery, customs
+                        {/* Everything tall scrolls; the fields below do not. */}
+                        <div className="min-h-0 flex-1 overflow-y-auto">
+                            {locationError && (
+                                <p
+                                    className="rounded-xl border border-amber-400/15 bg-amber-400/[0.05] px-3 py-2 text-[11px] text-amber-100/70 mb-3"
+                                    role="status"
+                                >
+                                    {locationError}
+                                </p>
+                            )}
+                            {/* Search bar — type a place name (chandlery, customs
                             office, suburb) and we pan the map there. Much
                             faster than dragging the marker to a far spot. */}
-                        {onSearch && (
-                            <div className="flex items-center gap-2 mb-3">
-                                <input
-                                    type="text"
-                                    value={search}
-                                    onChange={(e) => setSearch(e.target.value)}
-                                    onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-                                    placeholder="Search a place or marina…"
-                                    aria-label="Search for a place"
-                                    className="flex-1 min-w-0 bg-white/[0.04] border border-white/[0.07] rounded-xl px-3 py-3 text-sm text-white placeholder:text-white/40 focus:outline-none focus:border-sky-500/40 transition-colors min-h-[46px]"
-                                />
-                                <button
-                                    type="button"
-                                    onClick={handleSearch}
-                                    disabled={searching}
-                                    aria-label="Search for a place"
-                                    className="min-w-[46px] min-h-[46px] rounded-xl bg-sky-500/20 border border-sky-300/15 hover:bg-sky-500/30 text-white/80 disabled:opacity-50"
-                                >
-                                    {searching ? '…' : '🔎'}
-                                </button>
-                            </div>
-                        )}
-                        {savedPins.length > 0 && (
-                            <div className="mb-3">
-                                <p className="text-[10px] font-black uppercase tracking-[0.15em] text-white/50 mb-1.5">
-                                    Recent places
-                                </p>
-                                <div
-                                    className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1"
-                                    style={{ scrollbarWidth: 'none' }}
-                                >
-                                    {savedPins.map((savedPin) => (
-                                        <button
-                                            type="button"
-                                            key={savedPin.id}
-                                            onClick={() => onSelectSavedPin(savedPin)}
-                                            aria-label={`Use saved place ${savedPin.caption}`}
-                                            className="flex-shrink-0 max-w-[180px] flex items-center gap-2 px-3 py-2 rounded-xl bg-white/[0.04] border border-white/[0.07] hover:bg-white/[0.08] active:scale-[0.98] transition-all text-left min-h-[44px]"
-                                        >
-                                            <span className="text-sm">📌</span>
-                                            <span className="min-w-0">
-                                                <span className="block truncate text-xs font-semibold text-white/75">
-                                                    {savedPin.caption}
-                                                </span>
-                                                <span className="block truncate text-[10px] text-white/40 tabular-nums">
-                                                    {PinService.formatCoords(savedPin.latitude, savedPin.longitude)}
-                                                </span>
-                                            </span>
-                                        </button>
-                                    ))}
+                            {onSearch && (
+                                <div className="flex items-center gap-2 mb-3">
+                                    <input
+                                        type="text"
+                                        value={search}
+                                        onChange={(e) => setSearch(e.target.value)}
+                                        onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+                                        placeholder="Search a place or marina…"
+                                        aria-label="Search for a place"
+                                        className="flex-1 min-w-0 bg-white/[0.04] border border-white/[0.07] rounded-xl px-3 py-3 text-sm text-white placeholder:text-white/40 focus:outline-none focus:border-sky-500/40 transition-colors min-h-[46px]"
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={handleSearch}
+                                        disabled={searching}
+                                        aria-label="Search for a place"
+                                        className="min-w-[46px] min-h-[46px] rounded-xl bg-sky-500/20 border border-sky-300/15 hover:bg-sky-500/30 text-white/80 disabled:opacity-50"
+                                    >
+                                        {searching ? '…' : '🔎'}
+                                    </button>
                                 </div>
-                            </div>
-                        )}
-                        {/* Bigger map for easier tap/drag targeting. Was
+                            )}
+                            {savedPins.length > 0 && (
+                                <div className="mb-3">
+                                    <p className="text-[10px] font-black uppercase tracking-[0.15em] text-white/50 mb-1.5">
+                                        Recent places
+                                    </p>
+                                    <div
+                                        className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1"
+                                        style={{ scrollbarWidth: 'none' }}
+                                    >
+                                        {savedPins.map((savedPin) => (
+                                            <button
+                                                type="button"
+                                                key={savedPin.id}
+                                                onClick={() => onSelectSavedPin(savedPin)}
+                                                aria-label={`Use saved place ${savedPin.caption}`}
+                                                className="flex-shrink-0 max-w-[180px] flex items-center gap-2 px-3 py-2 rounded-xl bg-white/[0.04] border border-white/[0.07] hover:bg-white/[0.08] active:scale-[0.98] transition-all text-left min-h-[44px]"
+                                            >
+                                                <span className="text-sm">📌</span>
+                                                <span className="min-w-0">
+                                                    <span className="block truncate text-xs font-semibold text-white/75">
+                                                        {savedPin.caption}
+                                                    </span>
+                                                    <span className="block truncate text-[10px] text-white/40 tabular-nums">
+                                                        {PinService.formatCoords(savedPin.latitude, savedPin.longitude)}
+                                                    </span>
+                                                </span>
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+                            {/* Bigger map for easier tap/drag targeting. Was
                             200 px — too cramped for any motion bigger
                             than a kerb. 320 px gives enough room to drag
                             across a marina. */}
-                        <div
-                            ref={poiMapRef as React.RefObject<HTMLDivElement>}
-                            aria-label="Interactive chart picker"
-                            className="relative w-full h-[320px] rounded-2xl overflow-hidden border border-white/[0.1] mb-3"
-                        >
-                            {/* Floating "snap to my location" button —
+                            <div
+                                ref={poiMapRef as React.RefObject<HTMLDivElement>}
+                                aria-label="Interactive chart picker"
+                                className="thalassa-pin-map relative w-full rounded-2xl overflow-hidden border border-white/[0.1] mb-3"
+                            >
+                                {/* Floating "snap to my location" button —
                                 overlays the map so the user always has a
                                 one-tap way back to their actual GPS
                                 position when they've dragged around. */}
-                            {onRecenterToMyLocation && (
+                                {onRecenterToMyLocation && (
+                                    <button
+                                        type="button"
+                                        onClick={onRecenterToMyLocation}
+                                        aria-label="Use my current location for this pin"
+                                        className="absolute bottom-3 right-3 z-10 min-h-[42px] px-3 rounded-xl bg-slate-900/90 border border-white/15 backdrop-blur active:scale-95 transition-transform flex items-center justify-center gap-1.5 shadow-lg text-xs font-bold text-white/80"
+                                    >
+                                        <span>📍</span>
+                                        <span>My location</span>
+                                    </button>
+                                )}
+                            </div>
+                            <div
+                                className={`rounded-xl border px-3 py-2.5 mb-3 ${hasSelection ? 'border-sky-300/15 bg-sky-400/[0.05]' : 'border-white/[0.07] bg-white/[0.025]'}`}
+                                aria-live="polite"
+                            >
+                                <p className="text-[11px] font-semibold text-white/70">
+                                    {hasSelection
+                                        ? pinSource === 'current'
+                                            ? 'Current location selected'
+                                            : 'Pinned place selected'
+                                        : 'Choose a place on the chart'}
+                                </p>
+                                <p className="text-[10px] text-white/40 mt-0.5 tabular-nums">
+                                    {hasSelection
+                                        ? `📍 ${formatCoordinates(pinLat, pinLng)}`
+                                        : 'Search above, tap the chart, or drag a pin.'}
+                                </p>
+                            </div>
+                        </div>
+                        {/* Pinned footer: the name/note field and Share sit
+                            here so they are ALWAYS on screen, directly above
+                            the keyboard, with no scrolling over the map. */}
+                        <div className="flex-none pt-1">
+                            <div className="flex items-center gap-2">
+                                <input
+                                    type="text"
+                                    value={pinCaption}
+                                    onChange={(e) => setPinCaption(e.target.value)}
+                                    onKeyDown={(e) => e.key === 'Enter' && hasSelection && !sending && onSendPoi()}
+                                    placeholder="Name or note (optional)"
+                                    aria-label="Place name or note"
+                                    className="flex-1 min-w-0 bg-white/[0.04] border border-white/[0.07] rounded-xl px-3 py-3 text-sm text-white placeholder:text-white/40 focus:outline-none focus:border-sky-500/40 transition-colors min-h-[46px]"
+                                    maxLength={120}
+                                />
                                 <button
                                     type="button"
-                                    onClick={onRecenterToMyLocation}
-                                    aria-label="Use my current location for this pin"
-                                    className="absolute bottom-3 right-3 z-10 min-h-[42px] px-3 rounded-xl bg-slate-900/90 border border-white/15 backdrop-blur active:scale-95 transition-transform flex items-center justify-center gap-1.5 shadow-lg text-xs font-bold text-white/80"
+                                    aria-label="Share pin"
+                                    onClick={onSendPoi}
+                                    disabled={!hasSelection || sending}
+                                    className="px-4 min-h-[46px] rounded-xl bg-sky-500/20 border border-sky-300/20 hover:bg-sky-500/30 disabled:opacity-40 text-sm text-sky-50 font-bold transition-all active:scale-95 whitespace-nowrap"
                                 >
-                                    <span>📍</span>
-                                    <span>My location</span>
+                                    {sending ? 'Sharing…' : 'Share pin'}
                                 </button>
-                            )}
+                            </div>
+                            <label className="flex items-center gap-2.5 mt-3 cursor-pointer select-none">
+                                <input
+                                    type="checkbox"
+                                    checked={saveToMyPlaces}
+                                    onChange={(event) => setSaveToMyPlaces(event.target.checked)}
+                                    className="w-4 h-4 accent-sky-400"
+                                />
+                                <span className="text-[11px] text-white/50">Save this in My Places too</span>
+                            </label>
                         </div>
-                        <div
-                            className={`rounded-xl border px-3 py-2.5 mb-3 ${hasSelection ? 'border-sky-300/15 bg-sky-400/[0.05]' : 'border-white/[0.07] bg-white/[0.025]'}`}
-                            aria-live="polite"
-                        >
-                            <p className="text-[11px] font-semibold text-white/70">
-                                {hasSelection
-                                    ? pinSource === 'current'
-                                        ? 'Current location selected'
-                                        : 'Pinned place selected'
-                                    : 'Choose a place on the chart'}
-                            </p>
-                            <p className="text-[10px] text-white/40 mt-0.5 tabular-nums">
-                                {hasSelection
-                                    ? `📍 ${formatCoordinates(pinLat, pinLng)}`
-                                    : 'Search above, tap the chart, or drag a pin.'}
-                            </p>
-                        </div>
-                        <div className="flex items-center gap-2">
-                            <input
-                                type="text"
-                                value={pinCaption}
-                                onChange={(e) => setPinCaption(e.target.value)}
-                                onKeyDown={(e) => e.key === 'Enter' && hasSelection && !sending && onSendPoi()}
-                                placeholder="Name or note (optional)"
-                                aria-label="Place name or note"
-                                className="flex-1 min-w-0 bg-white/[0.04] border border-white/[0.07] rounded-xl px-3 py-3 text-sm text-white placeholder:text-white/40 focus:outline-none focus:border-sky-500/40 transition-colors min-h-[46px]"
-                                maxLength={120}
-                            />
-                            <button
-                                type="button"
-                                aria-label="Share pin"
-                                onClick={onSendPoi}
-                                disabled={!hasSelection || sending}
-                                className="px-4 min-h-[46px] rounded-xl bg-sky-500/20 border border-sky-300/20 hover:bg-sky-500/30 disabled:opacity-40 text-sm text-sky-50 font-bold transition-all active:scale-95 whitespace-nowrap"
-                            >
-                                {sending ? 'Sharing…' : 'Share pin'}
-                            </button>
-                        </div>
-                        <label className="flex items-center gap-2.5 mt-3 cursor-pointer select-none">
-                            <input
-                                type="checkbox"
-                                checked={saveToMyPlaces}
-                                onChange={(event) => setSaveToMyPlaces(event.target.checked)}
-                                className="w-4 h-4 accent-sky-400"
-                            />
-                            <span className="text-[11px] text-white/50">Save this in My Places too</span>
-                        </label>
                     </>
                 )}
             </section>
