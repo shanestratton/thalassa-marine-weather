@@ -126,6 +126,12 @@ class NmeaListenerServiceClass {
             document.addEventListener('visibilitychange', () => {
                 if (document.hidden || !this.parkedAfterGiveUp || this.enabled) return;
                 log.warn('Retrying parked NMEA connection on app foreground');
+                // Retry at the BOTTOM of the ladder. The backoff doubles to a
+                // 30 s cap, and reopening the app is the strongest signal we
+                // get that the network just changed — walking aboard, joining
+                // the boat Wi-Fi. Resuming mid-ladder made that first attempt
+                // wait up to half a minute, which reads as "still broken".
+                this.reconnectAttempts = 0;
                 this.start();
             });
         }
@@ -476,7 +482,16 @@ class NmeaListenerServiceClass {
         // path is the one caller that wants it armed.
         if (this.firstAttemptTime && Date.now() - this.firstAttemptTime > RECONNECT_GIVE_UP_MS) {
             log.warn('Parking NMEA reconnects after 5 minutes of failures — will retry on next app foreground');
+            // Keep WHY it failed. stop() clears lastError, which is correct for
+            // the user's off-switch and exactly wrong here: parking is the
+            // moment the skipper finally looks at the screen, and deleting the
+            // reason leaves a bare "Disconnected" with no cause (Shane
+            // 2026-08-13, unable to tell a refused connection from a dead
+            // gateway). Restored after stop() rather than teaching stop() a
+            // flag, so the off-switch keeps its single obvious behaviour.
+            const parkedReason = this.lastError;
             this.stop();
+            this.lastError = parkedReason;
             this.parkedAfterGiveUp = true;
             return;
         }

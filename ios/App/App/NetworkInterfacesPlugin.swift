@@ -74,6 +74,25 @@ public class NetworkInterfacesPlugin: CAPPlugin {
             let address = String(cString: host).components(separatedBy: "%").first ?? ""
             if address.isEmpty { continue }
 
+            // ── Drop link-local-only rows ──────────────────────────────
+            // iOS keeps several SYSTEM utun interfaces permanently UP,
+            // carrying nothing but an IPv6 link-local address, with no VPN
+            // anywhere in sight. Because "tunnel" below is decided purely by
+            // interface NAME, those rows made vpnActive true on every iPhone,
+            // always — which collapsed the hairpin warning into "am I on the
+            // gateway's subnet?", i.e. it fired exactly when aboard, which is
+            // precisely when it is wrong and most misleading (Shane
+            // 2026-08-13: "i get the message about a vpn being there, but i
+            // have it turned off", while chasing a real connection failure).
+            //
+            // A link-local address routes nowhere and can never carry traffic
+            // to the gateway, so such a row tells no caller anything. A real
+            // tunnel is identified by a ROUTABLE address — Tailscale's
+            // 100.64/10 survives this untouched, so ashore detection is
+            // unaffected. 169.254/16 is the IPv4 equivalent (self-assigned,
+            // no DHCP) and is dropped for the same reason.
+            if address.hasPrefix("fe80") || address.hasPrefix("169.254.") { continue }
+
             interfaces.append([
                 "name": name,
                 "address": address,
