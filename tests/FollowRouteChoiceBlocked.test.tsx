@@ -37,19 +37,41 @@ const summary: VoyageSummary = {
 afterEach(cleanup);
 
 describe('FollowRouteChoice with a follow-gate refusal', () => {
-    it('renders the row disabled with the gate reason visible', () => {
+    const REASON = 'This traced route has no valid check for its current waypoints.';
+
+    it('is TAPPABLE and routes to the fix rather than sitting inert', () => {
+        // The row was disabled until 2026-08-13, which read as broken:
+        // "i cannot actually accept it. it has no way of selecting". A
+        // disabled control with explanatory microcopy is still a dead end —
+        // every refusal this gate issues is fixable in Route Tracer, so the
+        // row has to carry you there.
         const onPick = vi.fn();
+        const onCheckRoute = vi.fn();
         render(
             <FollowRouteChoice
                 summary={summary}
-                blockReason="This traced route has no valid check for its current waypoints. Open Route Tracer and check it again."
+                blockReason={REASON}
+                onCheckRoute={onCheckRoute}
                 onPick={onPick}
             />,
         );
         const row = screen.getByRole('button');
-        expect(row).toBeDisabled();
+        expect(row).not.toBeDisabled();
         expect(row.textContent).toContain('Newport → Tangalooma');
-        expect(row.textContent).toContain('Open Route Tracer');
+        expect(row.textContent).toContain(REASON);
+        expect(row.textContent).toContain('Route Tracer');
+
+        row.click();
+        // Goes to the fix, and never silently starts following an unchecked line.
+        expect(onCheckRoute).toHaveBeenCalledTimes(1);
+        expect(onPick).not.toHaveBeenCalled();
+    });
+
+    it('falls back to inert when no route out is supplied', () => {
+        const onPick = vi.fn();
+        render(<FollowRouteChoice summary={summary} blockReason={REASON} onPick={onPick} />);
+        const row = screen.getByRole('button');
+        expect(row).toBeDisabled();
         row.click();
         expect(onPick).not.toHaveBeenCalled();
     });

@@ -52,6 +52,8 @@ import { acquireFreshOwnshipPosition } from '../services/ownshipPosition';
 import { VoyageLogService } from '../services/VoyageLogService';
 import { collapseReversedRoutes } from '../services/shiplog/collapseReversedRoutes';
 import { fetchVoyageAsTrack, groupByVoyage } from '../services/shiplog/RoutesAndTracks';
+import { requestTracerOpen } from '../services/deepLink';
+import { useUIStore } from '../stores/uiStore';
 import { buildFollowRoutePlanFromRoute } from '../services/shiplog/followRoutePlan';
 import { excludeSuggestedRoutes } from '../utils/voyageStats';
 import { VoyageCard, StatBox, MenuBtn, FollowRouteChoice } from './log/LogSubComponents';
@@ -282,7 +284,10 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
      *  row carries the follow gate's verdict: null = pickable, a string =
      *  shown disabled with that reason. */
     const [followPromptChoices, setFollowPromptChoices] = React.useState<
-        (ReturnType<typeof collapseReversedRoutes<VoyageSummary>>[number] & { blockReason: string | null })[]
+        (ReturnType<typeof collapseReversedRoutes<VoyageSummary>>[number] & {
+        savedRouteId: string | null;
+        blockReason: string | null;
+    })[]
     >([]);
     const followSelectionGenerationRef = React.useRef(0);
     /** One-shot guard for the pre-open "is this voyage already linked?"
@@ -441,9 +446,34 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         return plannedChoices.map((choice) => {
             const vid = choice.summary.voyageId;
             const sid = plannedRouteLinkIds.get(vid) ?? traceLinks.get(vid);
-            return { ...choice, blockReason: sid ? savedTraceFollowBlockReason(sid) : null };
+            return {
+                ...choice,
+                savedRouteId: sid ?? null,
+                blockReason: sid ? savedTraceFollowBlockReason(sid) : null,
+            };
         });
     }, [plannedChoices, plannedRouteLinkIds]);
+
+    /**
+     * Take a blocked row to the one screen that can clear its block.
+     *
+     * A refused route used to be a disabled row: visible, explained, and
+     * completely inert (Shane 2026-08-13: "i cannot actually accept it. it has
+     * no way of selecting"). The gate's refusals are all fixable — re-check the
+     * line in Route Tracer — so the row should carry you there rather than
+     * describe the problem and stop.
+     */
+    const openRouteInTracer = React.useCallback(
+        (savedRouteId: string | null) => {
+            const actionScope = identityScope;
+            if (!isAuthIdentityScopeCurrent(actionScope)) return;
+            setPreStartSheetOpen(false);
+            setFollowPromptVoyageId(null);
+            requestTracerOpen(savedRouteId ? { kind: 'load-saved', id: savedRouteId } : null, actionScope);
+            useUIStore.getState().setPage('voyage');
+        },
+        [identityScope],
+    );
 
     /**
      * Start local follow mode from recovered saved geometry. Resident entries
@@ -2431,12 +2461,13 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                 </div>
                             )}
                             <div className="min-h-0 flex-1 space-y-1.5 overflow-y-auto px-3 py-3">
-                                {followPromptChoices.map(({ summary: s, reversible, blockReason }) => (
+                                {followPromptChoices.map(({ summary: s, reversible, blockReason, savedRouteId }) => (
                                     <FollowRouteChoice
                                         key={s.voyageId}
                                         summary={s}
                                         reversible={reversible}
                                         blockReason={blockReason}
+                                        onCheckRoute={() => openRouteInTracer(savedRouteId)}
                                         loading={followPromptLoadingId === s.voyageId}
                                         disabled={followPromptLoadingId !== null}
                                         onPick={() => {

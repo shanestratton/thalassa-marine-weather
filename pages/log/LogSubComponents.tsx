@@ -130,16 +130,33 @@ export const FollowRouteChoice: React.FC<{
     summary: VoyageSummary;
     /** This route has a saved reverse, collapsed into this row. */
     reversible?: boolean;
-    /** Follow-gate refusal. Non-null renders the row VISIBLE but disabled,
-     *  with this reason under the name. Sheet design history: pick-then-refuse
-     *  (Shane 2026-08-10: "just show tracks that are ready to be followed"),
-     *  then hide-the-blocked (Shane 2026-08-13: "the saved routes do not show
-     *  up on the startup screen") — visible-but-disabled is the synthesis. */
+    /** Follow-gate refusal. Non-null renders the row as a ROUTE TO THE FIX
+     *  rather than a pickable choice — tapping opens Route Tracer on it.
+     *
+     *  Sheet design history, four versions now: pick-then-refuse (Shane
+     *  2026-08-10: "just show tracks that are ready to be followed"), then
+     *  hide-the-blocked (2026-08-13: "the saved routes do not show up"), then
+     *  show-them-disabled — which fixed visibility and left a list you could
+     *  read but not touch (2026-08-13: "i cannot actually accept it. it has
+     *  no way of selecting"). A disabled control with explanatory microcopy
+     *  is still a dead end. So a blocked row now DOES something: it takes you
+     *  to the one screen that can clear the block. */
     blockReason?: string | null;
+    /** Called instead of onPick when blocked — opens Route Tracer on this
+     *  route. Without it a blocked row falls back to being inert. */
+    onCheckRoute?: () => void;
     loading?: boolean;
     disabled?: boolean;
     onPick: () => void;
-}> = ({ summary, reversible = false, blockReason = null, loading = false, disabled = false, onPick }) => {
+}> = ({
+    summary,
+    reversible = false,
+    blockReason = null,
+    onCheckRoute,
+    loading = false,
+    disabled = false,
+    onPick,
+}) => {
     const first = summary.firstLat != null ? { latitude: summary.firstLat, longitude: summary.firstLon } : undefined;
     const last = summary.lastLat != null ? { latitude: summary.lastLat, longitude: summary.lastLon } : undefined;
     const { startLabel, endLabel } = useEndpointNames(first, last);
@@ -155,13 +172,13 @@ export const FollowRouteChoice: React.FC<{
 
     return (
         <button
-            onClick={onPick}
-            disabled={disabled || blocked}
+            onClick={blocked ? onCheckRoute : onPick}
+            // NOT disabled when blocked — only while another row is loading.
+            // Blocked rows stay tappable because tapping is how you fix them.
+            disabled={disabled || (blocked && !onCheckRoute)}
             aria-busy={loading}
-            className={`flex w-full items-start justify-between gap-3 rounded-xl border px-4 py-3 text-left active:scale-[0.99] ${
-                blocked
-                    ? 'cursor-default border-white/5 bg-slate-800/30'
-                    : 'border-white/10 bg-slate-800/60 disabled:cursor-wait disabled:opacity-60'
+            className={`flex w-full items-start justify-between gap-3 rounded-xl border px-4 py-3 text-left active:scale-[0.99] disabled:cursor-wait disabled:opacity-60 ${
+                blocked ? 'border-amber-500/25 bg-amber-500/[0.06]' : 'border-white/10 bg-slate-800/60'
             }`}
         >
             <span className="min-w-0 flex-1">
@@ -178,10 +195,19 @@ export const FollowRouteChoice: React.FC<{
                     )}
                 </span>
                 {blocked && (
-                    <span className="mt-1 block text-[11px] leading-snug text-amber-200/75">{blockReason}</span>
+                    <>
+                        <span className="mt-1 block text-[11px] leading-snug text-amber-200/75">{blockReason}</span>
+                        {/* The way out. Without this the row is a statement of
+                            a problem with no handle on it. */}
+                        {onCheckRoute && (
+                            <span className="mt-1.5 block text-[11px] font-bold text-amber-300">
+                                Tap to check it in Route Tracer →
+                            </span>
+                        )}
+                    </>
                 )}
             </span>
-            <span className={`shrink-0 text-[11px] font-bold ${blocked ? 'text-gray-500' : 'text-sky-300'}`}>
+            <span className={`shrink-0 text-[11px] font-bold ${blocked ? 'text-amber-300/70' : 'text-sky-300'}`}>
                 {loading ? 'Loading route…' : `${summary.totalDistanceNM.toFixed(1)} NM · ${summary.entryCount} pts`}
             </span>
         </button>
