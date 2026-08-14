@@ -99,7 +99,12 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
     }, []);
 
     const isConnected = connStatus === 'connected';
-    const isConnecting = connStatus === 'connecting' || connStatus === 'error';
+    // 'error' used to be folded in here, so a FAILED connection rendered as
+    // "Connecting..." forever — the screen never once said the word error
+    // (Shane 2026-08-13: "it will not connect at all", with nothing on screen
+    // saying so). Keep them apart: a failure has to look like a failure.
+    const isConnecting = connStatus === 'connecting';
+    const hasFailed = connStatus === 'error';
 
     // ── Position source ────────────────────────────────────────────────
     // Shane, 2026-08-02, with a Bad Elf GPS Pro+ paired: "there is no mention
@@ -326,10 +331,16 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
                                 }`}
                             />
                             <h3 className="text-sm font-black text-white">
-                                {isConnected ? 'Connected' : isConnecting ? 'Connecting...' : 'Disconnected'}
+                                {isConnected
+                                    ? 'Connected'
+                                    : isConnecting
+                                      ? 'Connecting...'
+                                      : hasFailed
+                                        ? 'Connection failed'
+                                        : 'Disconnected'}
                             </h3>
                             {/* Show host:port when connected or connecting */}
-                            {(isConnected || isConnecting) && (
+                            {(isConnected || isConnecting || hasFailed) && (
                                 <span className="text-xs text-white/40 font-mono ml-auto">
                                     {host}:{port}
                                 </span>
@@ -348,14 +359,25 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
                             rediagnosed as hardware (2026-08-08). */}
                         <VpnHairpinNotice hostIp={host} hostLabel="the NMEA gateway" className="mb-3" />
 
-                        {/* Reconnect status message */}
-                        {isConnecting && reconnectAttempts > 0 && (
+                        {/* Why it failed — shown on the FIRST failure, not
+                            withheld until a retry, and never truncated.
+                            Previously gated on reconnectAttempts > 0 and
+                            wrapped in `truncate`, which clipped the tail of
+                            "(SwiftSocket.SocketError error 3.)" — where the
+                            only informative token, the final digit, lives.
+                            Also survives the 5-minute park now, so the reason
+                            is still on screen when it is finally read. */}
+                        {(lastError || reconnectAttempts > 0) && !isConnected && (
                             <div className="mb-3 px-3 py-2 rounded-xl bg-amber-500/10 border border-amber-500/15">
-                                <p className="text-xs text-amber-300 font-medium">
-                                    Reconnecting... attempt {reconnectAttempts}
-                                </p>
+                                {reconnectAttempts > 0 && (
+                                    <p className="text-xs text-amber-300 font-medium">
+                                        Reconnecting... attempt {reconnectAttempts}
+                                    </p>
+                                )}
                                 {lastError && (
-                                    <p className="text-[11px] text-amber-200/50 mt-0.5 truncate">{lastError}</p>
+                                    <p className="mt-0.5 break-words text-[11px] leading-snug text-amber-200/70">
+                                        {lastError}
+                                    </p>
                                 )}
                             </div>
                         )}

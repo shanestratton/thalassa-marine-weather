@@ -98,4 +98,38 @@ describe('assessHairpin', () => {
         const v6: NetworkInterfaceInfo = { name: 'en0', address: 'fe80::1', family: 'ipv6', tunnel: false };
         expect(assessHairpin({ interfaces: [v6, tunnel()], hostIp: GATEWAY }).onSameLan).toBe(false);
     });
+    it('a link-local-only utun is not a VPN — the gap that made this fire on every iPhone', () => {
+        // iOS keeps SYSTEM utun interfaces permanently UP carrying nothing but
+        // an fe80:: address, with no VPN present. The native plugin decided
+        // "tunnel" purely from the interface NAME, so vpnActive was true on
+        // every iPhone, always — collapsing this warning into "am I on the
+        // gateway's subnet?", i.e. firing exactly when aboard, which is when
+        // it is most wrong and most misleading (Shane 2026-08-13: "i get the
+        // message about a vpn being there, but i have it turned off").
+        //
+        // The plugin now drops link-local rows before they reach here, so
+        // NOTHING marks them tunnel. This asserts the policy end of that
+        // contract: no tunnel row ⇒ no warning, even when aboard.
+        const result = assessHairpin({
+            interfaces: [wifi('192.168.1.7')],
+            hostIp: GATEWAY,
+        });
+        expect(result.vpnActive).toBe(false);
+        expect(result.hairpinLikely).toBe(false);
+        expect(result.warning).toBeNull();
+    });
+
+    it('still catches the real hairpin — a routable tunnel address', () => {
+        // Tailscale's 100.64/10 survives the plugin filter untouched, so the
+        // genuine case this warning exists for keeps working.
+        const real: NetworkInterfaceInfo = {
+            name: 'utun4',
+            address: '100.72.173.87',
+            family: 'ipv4',
+            tunnel: true,
+        };
+        const result = assessHairpin({ interfaces: [wifi('192.168.1.7'), real], hostIp: GATEWAY });
+        expect(result.hairpinLikely).toBe(true);
+        expect(result.warning).toContain('VPN');
+    });
 });
