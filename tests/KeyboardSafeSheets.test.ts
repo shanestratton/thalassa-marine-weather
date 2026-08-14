@@ -51,6 +51,39 @@ describe('keyboard-safe bottom sheets', () => {
         expect(guard).toContain("setProperty('--thalassa-keyboard-height'");
     });
 
+    it('Drop a Pin pins its fields in a non-scrolling footer', () => {
+        // Lifting the sheet is NOT sufficient on its own, and the first
+        // attempt proved it: with the fields sitting below a 320px map inside
+        // the sheet's own scroller, the margin merely pushed the top of the
+        // sheet off screen while the field stayed out of reach (Shane
+        // 2026-08-13: "it pushes it all the way off the screen. also you
+        // cannot see that box unless you scroll up"). The tall content has to
+        // scroll INSIDE while the fields stay pinned below it.
+        //
+        // Measured in a real browser at 375x812 with a 336px keyboard:
+        // sheet margin-bottom 336px, max-height 216px, map 244px -> 130px,
+        // and the field's row is the sheet's last child.
+        const sheets = read('components/chat/ChatAttachmentSheets.tsx');
+        const poi = sheets.slice(
+            sheets.indexOf('export const PoiPickerSheet'),
+            sheets.indexOf('PoiPickerSheet.displayName'),
+        );
+        expect(poi).toContain('flex-col');
+        expect(poi).toMatch(/min-h-0\s+flex-1\s+overflow-y-auto|flex-1\s+.*min-h-0.*overflow-y-auto/);
+        expect(poi).toContain('flex-none');
+        // The map must be the shrinkable utility, never a fixed pixel height —
+        // it is the only element that can give up space to the keyboard.
+        expect(poi).toContain('thalassa-pin-map');
+        expect(poi).not.toMatch(/h-\[\d+px\][^"]*rounded-2xl[^"]*overflow-hidden/);
+    });
+
+    it('the map shrinks when the keyboard is open', () => {
+        const css = read('index.css');
+        const block = css.slice(css.indexOf('.thalassa-pin-map'));
+        expect(block).toMatch(/\.thalassa-pin-map\s*\{[^}]*height:/);
+        expect(block).toContain("data-keyboard-open='true'");
+    });
+
     it('Drop a Pin uses it; Share my location deliberately does not', () => {
         const sheets = read('components/chat/ChatAttachmentSheets.tsx');
 
