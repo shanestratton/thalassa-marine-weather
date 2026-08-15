@@ -63,7 +63,24 @@ const DraggableMetricCell: React.FC<{ id: string; children: React.ReactNode }> =
             style={style}
             {...attributes}
             {...listeners}
-            onClick={onMetricTap ? () => !isDragging && onMetricTap(id) : undefined}
+            // stopPropagation is load-bearing. The grid itself carries an
+            // onClick that opens the model-comparison matrix when offshore,
+            // and a metric tap used to bubble straight into it — so ONE tap
+            // opened the deep-dive AND slammed the full-screen matrix
+            // (z-[9999]) over it. Worse on HPA, whose handler returns early
+            // and whose whole design is to open the barometer IN PLACE: the
+            // matrix covered it every time. Leaving onClick undefined when
+            // onMetricTap is null preserves the intended grid-tap behaviour
+            // on non-live cards and on the grid's own padding.
+            onClick={
+                onMetricTap
+                    ? (e) => {
+                          if (isDragging) return;
+                          e.stopPropagation();
+                          onMetricTap(id);
+                      }
+                    : undefined
+            }
         >
             <div key={id} className="metric-swap-enter w-full h-full">
                 {children}
