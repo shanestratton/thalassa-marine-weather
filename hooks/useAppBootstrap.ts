@@ -84,15 +84,26 @@ export function useAppBootstrap() {
     useEffect(() => {
         let disposed = false;
         let stopKeyboardGuard: (() => void) | undefined;
+        let stopAisGuard: (() => void) | undefined;
 
         import('../utils/keyboardScroll').then(({ initGlobalKeyboardScroll }) => {
             if (disposed) return;
             stopKeyboardGuard = initGlobalKeyboardScroll();
         });
 
+        // The collision guard must outlive the chart. It used to run inside
+        // the AIS map layer, so it stopped the moment that layer was hidden —
+        // by an unrelated layer toggle, by showing a passage, or by simply
+        // leaving the chart — while the shield still reported armed.
+        import('../services/AisGuardWatch').then(({ startAisGuardWatch }) => {
+            if (disposed) return;
+            stopAisGuard = startAisGuardWatch();
+        });
+
         return () => {
             disposed = true;
             stopKeyboardGuard?.();
+            stopAisGuard?.();
         };
     }, []);
 
