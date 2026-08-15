@@ -191,7 +191,7 @@ export const useDashboardController = (viewMode: 'overview' | 'details' = 'overv
         handleAudioBroadcast,
         shareReport,
         staleRefresh,
-        // Fetch-failure signal — feeds the StalenessBanner's loud 'error'
+        // Fetch-failure signal — feeds the forecast-model pill's red tint
         // tier on the Glass (the banner's top severity was unreachable
         // while this wasn't threaded through).
         error,

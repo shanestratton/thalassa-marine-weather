@@ -178,7 +178,9 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
         // Replaced the old timer/refresh pill (2026-07-20): refresh is fully
         // automatic (30s scheduler + wake/reconnect handlers in
         // WeatherContext), and stale/error states already surface in the
-        // StalenessBanner directly above this row — the pill was redundant.
+        // the freshness strip above this row — the pill was redundant. That
+        // strip was removed 2026-08-13, so THIS pill is now the primary
+        // refresh/failure signal on the Glass: keep its pulse and red tint.
         // In its place: the forecast-model picker. A manual "Refresh now"
         // escape hatch lives inside the sheet.
         const updateSettings = useSettingsStore((s) => s.updateSettings);
@@ -227,7 +229,9 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
                             the triple-dot pulse plays while a (fully automatic)
                             refresh is in flight, and the pill tints red when
                             the last refresh failed (retry lives in the sheet
-                            and in the StalenessBanner above). */}
+                            — the freshness strip that also offered it was
+                            removed 2026-08-13, so the sheet is now the only
+                            manual retry on this page). */}
                         <button
                             onClick={() => {
                                 void triggerHaptic('light');

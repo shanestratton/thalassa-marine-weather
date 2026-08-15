@@ -19,7 +19,7 @@
  * endpoint — returns empty, is designed for this use, widely reachable)
  * using Capacitor's native HTTP so WebView CORS doesn't block us. If it
  * fails or times out, we flip `useUIStore.isOffline = true` and the
- * StalenessBanner surfaces. Re-probes on window 'online' events, and
+ * the offline pill surfaces. Re-probes on window 'online' events, and
  * whenever the app returns to the foreground.
  *
  * Costs ~220 bytes every two minutes (headers only, 204 response) — a
