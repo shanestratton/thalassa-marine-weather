@@ -821,8 +821,14 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
                     // fixed -top-16 was centred on a notched iPhone and visibly
                     // off everywhere else. Halving the inset inside calc tracks
                     // it on every device — see the derivation in the style below.
-                    style={{ top: 'calc(env(safe-area-inset-top) / 2 - 95px)' }}
-                    className={`absolute right-0 flex min-h-[52px] min-w-[52px] flex-col items-center justify-center rounded-2xl border text-white shadow-2xl backdrop-blur-xl transition-colors active:scale-95 ${
+                    // Offset lives in index.css (.radial-helm-mob), NOT inline:
+                    // in landscape this menu moves to top:64px while the button
+                    // kept its portrait-derived -95px, putting it at -31px —
+                    // clipped by an overflow-hidden main, so 31 of its 52px were
+                    // unreachable and the rest sat under the status row. An
+                    // inline style cannot lose to a media query, so it had to
+                    // move out to be overridable at all.
+                    className={`radial-helm-mob absolute right-0 flex min-h-[52px] min-w-[52px] flex-col items-center justify-center rounded-2xl border text-white shadow-2xl backdrop-blur-xl transition-colors active:scale-95 ${
                         tacticalState.mobActive
                             ? 'border-red-300 bg-red-600 shadow-red-500/50'
                             : 'border-red-400/70 bg-red-700/95 shadow-red-950/60 hover:bg-red-600'

@@ -72,24 +72,44 @@ describe('RadialHelmMenu accessibility', () => {
         expect(onOpenMob).toHaveBeenCalledOnce();
     });
 
-    it('centres the MOB fab between the status and layer fabs on any device', () => {
+    it('centres the MOB fab in portrait and keeps it on screen in landscape', () => {
         // The "i" fab sits at env(safe-area-inset-top) + 8px while this menu is
         // anchored at a fixed top-[192px], so the midpoint between them MOVES
         // with the notch. A constant offset (the old -top-16) could only be
         // right on one device class. Halving the inset keeps the two gaps
         // within half a pixel of each other for every value of the inset:
         //   gap above = 92.5 - inset/2, gap below = 92 - inset/2
+        //
+        // THAT OFFSET NOW LIVES IN index.css, not inline, and the move is the
+        // point. In landscape the menu itself is pushed to top:64px, so the
+        // portrait-derived -95px put the button at -31px — clipped by an
+        // overflow-hidden main, leaving 31 of its 52px unreachable and the
+        // rest under the status row. MOB is the only man-overboard control on
+        // the chart. An inline style cannot lose to a media query, so it had
+        // to move out to be overridable at all.
+        //
         // Asserted against SOURCE, not the DOM: jsdom's CSSOM cannot parse
-        // env() and silently drops the whole declaration, so `style.top` reads
-        // back empty and a DOM assertion here would be checking nothing.
+        // env() and silently drops the whole declaration, so a DOM assertion
+        // here would be checking nothing. Measured for real in a browser at
+        // 667x375: menu 64px, MOB top 0 / right 60px, band 64..116px — clear
+        // of the status row (ends 56px) and the right rail (starts 128px).
         const source = readFileSync(join(process.cwd(), 'components/map/RadialHelmMenu.tsx'), 'utf8');
         const mobButton = source.slice(source.indexOf("'Open Man Overboard emergency'"));
-        expect(mobButton).toContain("top: 'calc(env(safe-area-inset-top) / 2 - 95px)'");
-        // A constant Tailwind offset on THIS button would silently un-centre
-        // it again. Scoped to its className, since sibling markup legitimately
-        // uses -top-* for badge positioning.
-        const className = mobButton.slice(mobButton.indexOf('className={`absolute'), mobButton.indexOf('animate='));
+        const className = mobButton.slice(mobButton.indexOf('className={`'), mobButton.indexOf('animate='));
+
+        // The class is what CSS targets; without it neither rule applies.
+        expect(className).toContain('radial-helm-mob');
+        // No inline top — that is what made it unoverridable in landscape.
+        expect(mobButton.slice(0, mobButton.indexOf('animate='))).not.toMatch(/style=\{\{\s*top:/);
+        // A constant Tailwind offset would silently un-centre it again.
         expect(className).not.toMatch(/-top-\d/);
+
+        const css = readFileSync(join(process.cwd(), 'index.css'), 'utf8');
+        // Portrait: still the inset-halving calc, not a constant.
+        expect(css).toMatch(/\.radial-helm-mob\s*\{[^}]*top:\s*calc\(env\(safe-area-inset-top\)\s*\/\s*2\s*-\s*95px\)/);
+        // Landscape: must be repositioned, or it goes off the top of the map.
+        const landscapeRules = css.split('.radial-helm-mob').slice(1);
+        expect(landscapeRules.some((r) => /top:\s*0\s*!important/.test(r.slice(0, 200)))).toBe(true);
     });
 
     it('navigates both menu tiers and restores the helm trigger', async () => {
