@@ -864,24 +864,37 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                 <div className="h-[100dvh] w-full flex flex-col overflow-hidden relative bg-black">
                     {' '}
                     {/* Flex Root */}
-                    {/* ── STALE DATA BLUR ── */}
-                    {/* Blurs the dashboard while numbers are being replaced, so
-                        nobody reads a value that is about to change. The card
-                        ("Updating / Fetching latest conditions…") was removed
-                        2026-07-22: the fetch now lands in under 3 s, so a modal
-                        announcing itself was on screen longer than the wait it
-                        described, and it covered the very numbers it was
-                        guarding. The blur alone says "not yet" without
-                        interrupting — and it clears the instant data arrives.
+                    {/* ── REFRESH IN PROGRESS ──
+                        This used to be a full-screen backdropFilter: blur(8px).
+                        The reasoning was sound — do not let anyone read a number
+                        that is about to change — but the premise had rotted: the
+                        comment claimed "the fetch now lands in under 3 s", while
+                        the pipeline waits on Promise.allSettled over five members
+                        each bounded at 8 s, and staleRefresh was only cleared in
+                        that pipeline's finally. So on an ordinary morning the
+                        cached report was decrypted and painted in ~80-400 ms and
+                        then deliberately made UNREADABLE for another 1-3 s, and
+                        up to 8-16 s in the worst case. That is what "taking ages
+                        to connect the weather" actually was: the data was there
+                        the whole time (Shane 2026-08-13).
 
-                        pointer-events-none throughout: the blur must never eat
-                        a tap. Nothing here is interactive any more. */}
+                        The staleness SIGNAL is not lost — it was never the only
+                        one. StalenessBanner already labels age with its own
+                        severity tiers (≥60 min, ≥120 min, doubled offshore), and
+                        two-hour-old data is already flagged amber by it before
+                        this ever renders. So the signal moves from OBSCURING to
+                        LABELLING: a thin indeterminate bar says "updating" while
+                        the numbers stay legible underneath, which is what a
+                        skipper glancing at wind speed actually needs.
+
+                        pointer-events-none: it must never eat a tap. */}
                     {staleRefresh && (
                         <div
-                            className="absolute inset-0 z-[200] pointer-events-none transition-all duration-300"
-                            style={{ backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)' }}
+                            className="absolute inset-x-0 top-0 z-[200] h-0.5 overflow-hidden pointer-events-none"
                             aria-hidden="true"
-                        />
+                        >
+                            <div className="h-full w-full animate-pulse bg-gradient-to-r from-transparent via-sky-400/70 to-transparent" />
+                        </div>
                     )}
                     {/* 2. Main Content Area */}
                     <div className="flex-1 relative w-full min-h-0">

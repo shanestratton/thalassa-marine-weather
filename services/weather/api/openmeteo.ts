@@ -262,6 +262,21 @@ const doFetchOpenMeteo = async (
     // still gets cache HITs. Skipped for concrete-model fetches: the Pi's
     // pre-fetched dataset is best_match-shaped and would silently serve the
     // wrong model's numbers.
+    // ── Start everything that only needs lat/lon, before we block ──
+    // None of these three reads wData. They used to run strictly AFTER the
+    // main report resolved — marine awaited immediately below it, geocoding
+    // ~300 lines later — which added their full latency to time-to-fresh for
+    // no reason. The file already admitted it: "Actually, let's refactor to
+    // Promise.all the initial fetches. However, for minimal diff, we can just
+    // call it here."
+    //
+    // .catch() attached AT CREATION, not at the await: an early rejection on a
+    // promise nobody is awaiting yet is an unhandled rejection, and on iOS that
+    // is a console error at best and a killed WebContent at worst.
+    const marineProximityPromise = checkMarineProximity(lat, lon).catch(() => null);
+    const tideDataPromise = fetchRealTides(lat, lon).catch(() => null);
+    const landContextPromise = reverseGeocodeContext(lat, lon).catch(() => null);
+
     const wData = isConcreteModel(model)
         ? await fetchDirect()
         : (
@@ -277,10 +292,9 @@ const doFetchOpenMeteo = async (
     let distToWaterIdx = 9999;
 
     try {
-        // const { checkMarineProximity } = await import('../marineProximity'); // Static import used
-        const proxResult = await checkMarineProximity(lat, lon);
+        const proxResult = await marineProximityPromise;
 
-        if (proxResult.hasMarineData) {
+        if (proxResult?.hasMarineData) {
             waveData = proxResult.data as OMMarineResponse;
             distToWaterIdx = proxResult.nearestWaterDistanceKm;
         } else {
@@ -289,11 +303,6 @@ const doFetchOpenMeteo = async (
     } catch (e) {
         // Silently ignored — non-critical failure
     }
-
-    // Fetch Tides (Parallel-ish, but we await here for simplicity or use Promise.all above? Let's use Promise.all for speed)
-    // Actually, let's refactor to Promise.all the initial fetches.
-    // However, for minimal diff, we can just call it here.
-    const tideDataPromise = fetchRealTides(lat, lon);
 
     // Helper: Map WMO Code to String
     const wmoMap: Record<number, string> = {
@@ -573,8 +582,7 @@ const doFetchOpenMeteo = async (
     let landCtx: { name: string; lat: number; lon: number } | null = null;
     let distToLand = 9999;
     try {
-        // const { reverseGeocodeContext } = await import('./geocoding'); // Static import used
-        landCtx = await reverseGeocodeContext(lat, lon);
+        landCtx = await landContextPromise;
         if (landCtx) {
             // FIX: If the name is generic (e.g. "Location -23,150") or a Water Body (e.g. "South Pacific Ocean")
             // In this case, we should treat it as "Unknown Context" so the inland rule (elevation) can take over.
