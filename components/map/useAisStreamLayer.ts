@@ -20,11 +20,11 @@ import { NmeaStore } from '../../services/NmeaStore';
 import { computeCpa } from '../../utils/cpaCalculation';
 import { AisGuardZone } from '../../services/AisGuardZone';
 import { useSettingsStore } from '../../stores/settingsStore';
-import { triggerHaptic } from '../../utils/system';
 import { VesselMetadataService } from '../../services/VesselMetadataService';
 import { getMmsiFlag } from '../../utils/MmsiDecoder';
 import { canAccess } from '../../services/SubscriptionService';
 import { resolveOwnshipPosition } from '../../services/ownshipPosition';
+import { publishInternetAisFeatures } from '../../services/AisGuardWatch';
 import { destinationPoint } from '../../utils/navigationCalculations';
 
 import { createLogger } from '../../utils/createLogger';
@@ -743,14 +743,14 @@ export function useAisStreamLayer(map: mapboxgl.Map | null, enabled: boolean): v
         // whose own receiver echoes its transmission cannot self-alarm. The
         // guard now checks LOCAL targets too, so this is the only ownship
         // exclusion left.
-        const ownMmsiRaw = Number(useSettingsStore.getState().settings?.vessel?.mmsi);
-        const ownMmsi = Number.isFinite(ownMmsiRaw) && ownMmsiRaw > 0 ? ownMmsiRaw : undefined;
-        const newAlerts = own ? AisGuardZone.checkFeatures(own.lat, own.lon, merged.features, ownMmsi) : [];
-        if (newAlerts.length > 0) {
-            triggerHaptic('heavy');
-            // Dispatch custom event for UI to show alert toast
-            window.dispatchEvent(new CustomEvent('ais-guard-alert', { detail: newAlerts }));
-        }
+        // The guard CHECK no longer lives here. It used to, behind this
+        // function's `if (!map || !enabled) return`, which meant the collision
+        // guard only watched while the AIS layer happened to be drawn —
+        // switching to Storms or Squall, or showing a passage, silently
+        // stopped it while the shield still read armed. It now runs app-wide
+        // in services/AisGuardWatch.ts. All this does is offer the merged
+        // internet set so coverage is no narrower than before.
+        publishInternetAisFeatures(merged.features);
 
         // ── Guard Zone radius circle on map ──
         const guardSource = map.getSource('ais-guard-zone') as mapboxgl.GeoJSONSource | undefined;
