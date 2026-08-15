@@ -15,6 +15,16 @@ interface RainForecastCardProps {
     rainSummary?: string; // Apple's native summary (e.g. "Rain starting in 15 min")
     /** Which API delivered `data` — shown as a tiny provenance tag. */
     source?: 'rainbow' | 'weatherkit' | 'synthetic' | 'unknown';
+    /**
+     * Whether the minutely fetch has resolved, and how.
+     *
+     * Without this the card cannot tell "the forecast says it will stay dry"
+     * from "we have no forecast", and an empty array rendered as the
+     * confident headline NO RAIN EXPECTED. Offline that was permanent:
+     * Dashboard's offline path sets minutelyRain to [] and status 'error',
+     * so a skipper out of coverage got a dry verdict that never changed.
+     */
+    status?: 'loading' | 'loaded' | 'error';
 }
 
 /**
@@ -29,6 +39,7 @@ export const RainForecastCard: React.FC<RainForecastCardProps> = ({
     timeZone: _timeZone,
     rainSummary,
     source = 'unknown',
+    status = 'loaded',
 }) => {
     // Label text for the provenance tag in the bottom-right corner.
     const sourceLabel = (() => {
@@ -48,11 +59,14 @@ export const RainForecastCard: React.FC<RainForecastCardProps> = ({
 
     const analysis = useMemo(() => {
         if (!data || data.length === 0)
+            // NEVER assert a dry forecast we do not have. hasRain stays false
+            // in every branch so the chart, badge and "Tap for detail" remain
+            // hidden — only the words change.
             return {
                 maxIntensity: 0,
                 hasRain: false,
-                headline: 'No Rain Expected',
-                subline: 'Next 60 minutes',
+                headline: status === 'loading' ? 'Rain Forecast Loading…' : 'Rain Forecast Unavailable',
+                subline: status === 'loading' ? 'Checking the last hour' : 'No minute-by-minute data here',
                 isCurrentlyRaining: false,
                 category: { label: 'Clear', badgeClass: '', color: 'rgba(96, 165, 250, 0.5)' },
                 totalPrecip: 0,
@@ -152,7 +166,7 @@ export const RainForecastCard: React.FC<RainForecastCardProps> = ({
             peakIdx,
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [data, rainSummary, source, tick]); // tick forces re-evaluation every 60s
+    }, [data, rainSummary, source, status, tick]); // tick forces re-evaluation every 60s
 
     const openModal = useCallback(() => {
         if (data && data.length > 0) {

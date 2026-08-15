@@ -199,7 +199,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
     const [minutelyRain, setMinutelyRain] = useState<MinutelyRain[]>([]);
     const [rainSummary, setRainSummary] = useState<string>('');
     const [rainSource, setRainSource] = useState<'rainbow' | 'weatherkit' | 'synthetic' | 'unknown'>('unknown');
-    const [_rainStatus, setRainStatus] = useState<'loading' | 'loaded' | 'error'>('loading');
+    const [rainStatus, setRainStatus] = useState<'loading' | 'loaded' | 'error'>('loading');
     const precipRef = useRef<number>(0);
     precipRef.current = current?.precipitation ?? 0;
     const subscriptionTier = useSettingsStore((s) => s.settings.subscriptionTier);
@@ -1054,6 +1054,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                             timeZone={data.timeZone}
                                             rainSummary={rainSummary}
                                             source={rainSource}
+                                            status={rainStatus}
                                         />
                                     </div>
                                     <HeroSection
