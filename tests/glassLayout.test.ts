@@ -60,3 +60,56 @@ describe('Glass top-card layout', () => {
         expect(glassSafeTopOffset(128)).toBe('calc(max(1rem, env(safe-area-inset-top)) + 128px)');
     });
 });
+
+describe('short viewports (iPhone SE / 8 at 667pt)', () => {
+    // On a 667pt phone the untrimmed stack left TWELVE pixels for the hero:
+    // 667 - inset(20) - expandedTop(427) - bottomNav(124) = 96 container,
+    // minus the 76px rain card and the gap. The tide graph, radar map and
+    // instrument carousel — the entire point of The Glass — were a black
+    // sliver inside an overflow-hidden box with no scroll escape, in the
+    // DEFAULT first-run mode. It simply looked broken.
+    const INSET = 20;
+    const RAIN = 76;
+    const NAV = 124;
+    const heroSpace = (vh: number, mode: 'expanded' | 'collapsed') => {
+        const l = getGlassTopLayout(false, vh);
+        const top = mode === 'expanded' ? l.heroContainerExpandedTopPx : l.heroContainerCollapsedTopPx;
+        return vh - INSET - top - NAV - RAIN - l.cardGapPx;
+    };
+
+    it('trims the chrome below 700 and leaves taller phones untouched', () => {
+        expect(getGlassTopLayout(false, 667).isShortViewport).toBe(true);
+        expect(getGlassTopLayout(false, 812).isShortViewport).toBe(false);
+        // Omitting the height must preserve the original layout exactly, so
+        // any caller that has not been updated behaves as before.
+        expect(getGlassTopLayout(false)).toMatchObject(getGlassTopLayout(false, 812));
+        expect(getGlassTopLayout(false).isShortViewport).toBe(false);
+    });
+
+    it('does not touch the 163px widget grid — the barometer depends on it', () => {
+        // Every pixel is taken from the surrounding chrome. The widget cell is
+        // a hard constraint: the barometer screen opens in place inside it.
+        const tall = getGlassTopLayout(false, 812);
+        const short = getGlassTopLayout(false, 667);
+        expect(tall.heroContainerExpandedTopPx - tall.primaryCardTopPx).toBe(
+            GLASS_HERO_WIDGETS_OUTER_HEIGHT_PX + tall.cardGapPx,
+        );
+        expect(short.heroContainerExpandedTopPx - short.primaryCardTopPx).toBe(
+            GLASS_HERO_WIDGETS_OUTER_HEIGHT_PX + short.cardGapPx,
+        );
+    });
+
+    it('gives the hero real space back on a 667pt screen', () => {
+        // Essential mode becomes genuinely usable; full mode is still tight,
+        // which is why Dashboard lets the container SCROLL when short rather
+        // than clipping. The regression this guards is the 12px sliver.
+        expect(heroSpace(667, 'collapsed')).toBeGreaterThanOrEqual(140);
+        expect(heroSpace(667, 'expanded')).toBeGreaterThan(60);
+    });
+
+    it('is a no-op on tall phones — no regression to the shipped rhythm', () => {
+        expect(heroSpace(812, 'expanded')).toBe(157);
+        expect(heroSpace(852, 'expanded')).toBe(197);
+        expect(getGlassTopLayout(false, 812).cardGapPx).toBe(GLASS_TOP_CARD_GAP_PX);
+    });
+});

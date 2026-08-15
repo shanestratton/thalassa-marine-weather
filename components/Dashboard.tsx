@@ -31,6 +31,7 @@ import { CurrentConditionsCard } from './dashboard/CurrentConditionsCard';
 import { RainForecastCard } from './dashboard/RainForecastCard';
 import { ShimmerBlock } from './ui/ShimmerBlock';
 import { glassSafeTopOffset, getGlassTopLayout } from './dashboard/glassLayout';
+import { useViewportHeight } from '../hooks/useViewportHeight';
 import { resolveHeroRowTemperatureRange } from './dashboard/hero/heroSlideHelpers';
 
 import { useSettings } from '../context/SettingsContext';
@@ -151,7 +152,8 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
     const isOffshore = offshore.isOffshore;
     const isExpanded =
         isInland || isOffshore ? (isOffshore ? true : false) : userSettings.dashboardMode !== 'essential';
-    const glassTopLayout = getGlassTopLayout(Boolean(props.isMobileLandscape));
+    const viewportHeightPx = useViewportHeight();
+    const glassTopLayout = getGlassTopLayout(Boolean(props.isMobileLandscape), viewportHeightPx);
 
     // Derived UI Props
     const isDetailMode = props.viewMode === 'details';
@@ -1039,7 +1041,12 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                     Its top is calculated from the rendered card heights so it
                                     preserves the same 8px gap in either dashboard mode. */}
                                 <div
-                                    className="fixed left-0 right-0 z-[120] overflow-hidden bg-black transition-[top] duration-300 flex flex-col gap-2 pt-0"
+                                    className={`fixed left-0 right-0 z-[120] bg-black transition-[top] duration-300 flex flex-col gap-2 pt-0 ${
+                                        // Clipping is fine when there is room. On a short
+                                        // viewport the hero would otherwise be a sliver with
+                                        // no scroll escape, so let it scroll instead.
+                                        glassTopLayout.isShortViewport ? 'overflow-y-auto' : 'overflow-hidden'
+                                    }`}
                                     style={{
                                         top: isExpanded
                                             ? glassSafeTopOffset(glassTopLayout.heroContainerExpandedTopPx)

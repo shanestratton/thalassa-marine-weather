@@ -22,6 +22,28 @@ export const GLASS_HERO_WIDGETS_OUTER_HEIGHT_PX = 163;
 /** Matches App.tsx's safe-area padding, including browsers without a notch. */
 export const GLASS_SAFE_TOP_CSS = 'max(1rem, env(safe-area-inset-top))';
 
+/**
+ * Below this viewport height the full-size stack cannot fit and the chrome
+ * is trimmed. 700 covers the iPhone SE/8 family at 667 and leaves the 812+
+ * phones on the original rhythm untouched.
+ */
+export const GLASS_SHORT_VIEWPORT_PX = 700;
+
+/**
+ * Trimmed chrome for short screens.
+ *
+ * The widget grid is DELIBERATELY ABSENT from this list. Its 163px box is a
+ * hard constraint — the barometer opens in place inside that exact cell —
+ * so every pixel here comes from the surrounding chrome instead.
+ */
+const SHORT = {
+    gap: 6,
+    brandRow: 52,
+    locationCard: 40,
+    compactHeaderRow: 32,
+    heroHeader: 56,
+};
+
 export interface GlassTopLayout {
     locationCardHeightPx: number;
     locationHeaderHeightPx: number;
@@ -30,16 +52,38 @@ export interface GlassTopLayout {
     primaryCardTopPx: number;
     heroContainerCollapsedTopPx: number;
     heroContainerExpandedTopPx: number;
+    /** The viewport is too short for the full rhythm; chrome has been trimmed. */
+    isShortViewport: boolean;
+    /** The gap actually used between cards, so callers stay in step. */
+    cardGapPx: number;
 }
 
-export const getGlassTopLayout = (isMobileLandscape = false): GlassTopLayout => {
+/**
+ * @param viewportHeightPx  Pass window.innerHeight. Omitted means "assume a
+ *   tall phone", which preserves the previous behaviour exactly.
+ */
+export const getGlassTopLayout = (isMobileLandscape = false, viewportHeightPx?: number): GlassTopLayout => {
+    // On a 667pt phone the untrimmed stack left TWELVE pixels for the hero —
+    // the tide graph, radar and instrument carousel reduced to a black sliver
+    // under the rain card, inside an overflow-hidden container with no scroll
+    // escape. It simply looked broken, in the default first-run mode.
+    const isShortViewport = typeof viewportHeightPx === 'number' && viewportHeightPx < GLASS_SHORT_VIEWPORT_PX;
+
+    const gap = isShortViewport ? SHORT.gap : GLASS_TOP_CARD_GAP_PX;
+    const brandRow = isShortViewport ? SHORT.brandRow : GLASS_BRAND_ROW_HEIGHT_PX;
+    const compactHeaderRow = isShortViewport ? SHORT.compactHeaderRow : GLASS_COMPACT_HEADER_ROW_HEIGHT_PX;
+    const heroHeader = isShortViewport ? SHORT.heroHeader : GLASS_HERO_HEADER_OUTER_HEIGHT_PX;
+
     const locationCardHeightPx = isMobileLandscape
         ? GLASS_LANDSCAPE_LOCATION_CARD_HEIGHT_PX
-        : GLASS_LOCATION_CARD_HEIGHT_PX;
-    const locationHeaderHeightPx = GLASS_BRAND_ROW_HEIGHT_PX + GLASS_TOP_CARD_GAP_PX + locationCardHeightPx;
-    const compactHeaderTopPx = locationHeaderHeightPx + GLASS_TOP_CARD_GAP_PX;
-    const heroHeaderTopPx = compactHeaderTopPx + GLASS_COMPACT_HEADER_ROW_HEIGHT_PX + GLASS_TOP_CARD_GAP_PX;
-    const primaryCardTopPx = heroHeaderTopPx + GLASS_HERO_HEADER_OUTER_HEIGHT_PX + GLASS_TOP_CARD_GAP_PX;
+        : isShortViewport
+          ? SHORT.locationCard
+          : GLASS_LOCATION_CARD_HEIGHT_PX;
+
+    const locationHeaderHeightPx = brandRow + gap + locationCardHeightPx;
+    const compactHeaderTopPx = locationHeaderHeightPx + gap;
+    const heroHeaderTopPx = compactHeaderTopPx + compactHeaderRow + gap;
+    const primaryCardTopPx = heroHeaderTopPx + heroHeader + gap;
 
     return {
         locationCardHeightPx,
@@ -47,9 +91,10 @@ export const getGlassTopLayout = (isMobileLandscape = false): GlassTopLayout => 
         compactHeaderTopPx,
         heroHeaderTopPx,
         primaryCardTopPx,
-        heroContainerCollapsedTopPx:
-            primaryCardTopPx + GLASS_CURRENT_CONDITIONS_OUTER_HEIGHT_PX + GLASS_TOP_CARD_GAP_PX,
-        heroContainerExpandedTopPx: primaryCardTopPx + GLASS_HERO_WIDGETS_OUTER_HEIGHT_PX + GLASS_TOP_CARD_GAP_PX,
+        heroContainerCollapsedTopPx: primaryCardTopPx + GLASS_CURRENT_CONDITIONS_OUTER_HEIGHT_PX + gap,
+        heroContainerExpandedTopPx: primaryCardTopPx + GLASS_HERO_WIDGETS_OUTER_HEIGHT_PX + gap,
+        isShortViewport,
+        cardGapPx: gap,
     };
 };
 

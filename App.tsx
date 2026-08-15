@@ -41,6 +41,7 @@ import {
     getGlassTopLayout,
 } from './components/dashboard/glassLayout';
 import { FEATURE_VISIBILITY } from './utils/featureVisibility';
+import { useViewportHeight } from './hooks/useViewportHeight';
 
 // Only components NOT in the registry are lazy-loaded here
 const ForecastSheet = lazyRetry(() => import('./components/ForecastSheet').then((m) => ({ default: m.ForecastSheet })));
@@ -131,6 +132,9 @@ const App: React.FC = () => {
     // plan page dispatches is strictly better than the old mount-race.
     // Cost: MapHub's timers keep ticking off-screen. That is one chart's
     // steady state, which was never the problem — the rebuild was.
+    // Hoisted here with the other unconditional hooks: The Glass layout needs
+    // the viewport height, but the call site sits after an early return.
+    const glassViewportHeightPx = useViewportHeight();
     const [chartKeepAlive, setChartKeepAlive] = useState(false);
     useEffect(() => {
         if (currentView === 'map') setChartKeepAlive(true);
@@ -452,7 +456,7 @@ const App: React.FC = () => {
     const showBackgroundImage = false; // Background images disabled — all modes use solid backgrounds
     const showHeader = !['map', 'warnings'].includes(currentView);
     const isDashboard = currentView === 'dashboard';
-    const glassTopLayout = getGlassTopLayout(isMobileLandscape);
+    const glassTopLayout = getGlassTopLayout(isMobileLandscape, glassViewportHeightPx);
 
     // --- AUTH: deferred to action-time, NOT boot-time ---
     // The previous hard gate (boot → SignInScreen) traded a real UX cost
