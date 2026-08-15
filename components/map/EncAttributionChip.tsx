@@ -187,7 +187,21 @@ export const EncAttributionChip: React.FC<EncAttributionChipProps> = ({ mapRef, 
 
     return (
         <div
-            className="absolute right-2 bottom-2 z-[140] pointer-events-auto max-w-[280px]"
+            // bottom-2 put this 8px above the viewport bottom — underneath the
+            // app's bottom nav, which is fixed, opaque and z-[900] against this
+            // chip's z-[140]. Not clipped: UNTAPPABLE. The tap that expands it
+            // never landed, so the chart source, the cell count, the worst-CATZOC
+            // low-confidence warning, the edition-age caution and the "verify
+            // visually before navigation" caveat were all unreachable — chart
+            // safety information, invisible on the navigation surface.
+            //
+            // Parked in the free right-edge band instead: above MapActionFabs
+            // (80px + inset, 48px tall, so clear of 128px) and below
+            // ChartKeyPanel (bottom-44 = 176px). Deliberately NOT
+            // calc(64px + inset + 8px) — that is SynopticScrubber's exact
+            // offset at z-[500] across the full width, which would re-hide it.
+            className="absolute right-2 z-[140] pointer-events-auto max-w-[280px]"
+            style={{ bottom: 'calc(env(safe-area-inset-bottom) + 136px)' }}
             role="contentinfo"
             aria-label="ENC chart attribution"
         >
