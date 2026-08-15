@@ -1,8 +1,16 @@
 /**
- * AisGuardAlert — Toast notification for AIS guard zone intrusions.
+ * AisGuardAlert — a vessel has entered the guard ring.
  *
- * Listens for 'ais-guard-alert' custom events and shows a slide-in
- * alert card at the top of the screen. Auto-dismisses after 8 seconds.
+ * NOT A TOAST, deliberately. This used to slide in and delete itself after
+ * eight seconds, and a tap anywhere on the card dismissed it — so a stray
+ * touch while panning the chart, or simply looking away, silently discarded
+ * a collision warning. The one class of message that must never vanish on a
+ * timer is the one telling you something is close.
+ *
+ * It now stays until explicitly acknowledged, per this project's standing
+ * rule that anything the skipper must act on gets a surface that holds still
+ * (Shane, twice: "i hate toast messages"). Transient status may be a toast;
+ * a proximity alarm may not.
  */
 import React, { useState, useEffect, useCallback } from 'react';
 import type { GuardAlert } from '../../services/AisGuardZone';
@@ -18,15 +26,6 @@ export const AisGuardAlert: React.FC = () => {
         window.addEventListener('ais-guard-alert', handler);
         return () => window.removeEventListener('ais-guard-alert', handler);
     }, []);
-
-    // Auto-dismiss after 8s
-    useEffect(() => {
-        if (alerts.length === 0) return;
-        const timer = setTimeout(() => {
-            setAlerts((prev) => prev.slice(0, -1));
-        }, 8000);
-        return () => clearTimeout(timer);
-    }, [alerts]);
 
     const dismiss = useCallback((mmsi: number) => {
         setAlerts((prev) => prev.filter((a) => a.mmsi !== mmsi));
@@ -53,7 +52,7 @@ export const AisGuardAlert: React.FC = () => {
             {alerts.map((alert) => (
                 <div
                     key={`${alert.mmsi}-${alert.timestamp}`}
-                    onClick={() => dismiss(alert.mmsi)}
+                    role="alert"
                     style={{
                         background: 'rgba(127, 29, 29, 0.92)',
                         backdropFilter: 'blur(16px)',
@@ -64,7 +63,6 @@ export const AisGuardAlert: React.FC = () => {
                         color: '#fecaca',
                         fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
                         boxShadow: '0 8px 32px rgba(239, 68, 68, 0.3)',
-                        cursor: 'pointer',
                         animation: 'guardAlertIn 400ms cubic-bezier(0.16, 1, 0.3, 1) both',
                     }}
                 >
@@ -86,6 +84,30 @@ export const AisGuardAlert: React.FC = () => {
                                 {alert.bearing}° • {alert.sog.toFixed(1)} kn
                             </div>
                         </div>
+                        {/* The only way out. 44x44 so it is hittable on a
+                            moving boat, and separated from the card body so
+                            acknowledging is deliberate rather than accidental. */}
+                        <button
+                            type="button"
+                            onClick={() => dismiss(alert.mmsi)}
+                            aria-label={`Acknowledge guard alert for ${alert.name}`}
+                            style={{
+                                minWidth: 44,
+                                minHeight: 44,
+                                marginRight: -8,
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                background: 'transparent',
+                                border: 'none',
+                                color: '#fecaca',
+                                fontSize: 18,
+                                lineHeight: 1,
+                                cursor: 'pointer',
+                            }}
+                        >
+                            ✕
+                        </button>
                     </div>
                 </div>
             ))}

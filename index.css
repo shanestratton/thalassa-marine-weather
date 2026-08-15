@@ -3347,6 +3347,15 @@ body,
     box-shadow: inset 0 0 28px rgba(2, 6, 23, 0.55);
 }
 
+/* ── MOB button on the chart's helm menu ───────────────────────────
+   Portrait default, moved out of the JSX so the landscape rule below can
+   override it. The menu is anchored at top-[192px] and the "i" sits at
+   inset + 8px, so the midpoint between them slides with the notch — halving
+   the inset inside the calc tracks it on every device. */
+.radial-helm-mob {
+    top: calc(env(safe-area-inset-top) / 2 - 95px);
+}
+
 /* ── Chart map credits must clear the bottom tab bar ───────────────
    THIS IS A LICENCE CONDITION, not styling. Mapbox, OpenStreetMap, Maxar,
    MapTiler and OpenSeaMap all require visible attribution.
@@ -3622,6 +3631,15 @@ body.animation-diet [class*='slide-in'] {
 
     .radial-helm-menu {
         top: max(64px, calc(env(safe-area-inset-top) + 52px)) !important;
+    }
+
+    /* There is no room ABOVE the menu in landscape — it starts at 64px and
+       the status row occupies 8-56px — so MOB moves sideways instead. top:0
+       is relative to the menu, i.e. 64px absolute, giving y 64..116: clear of
+       the status row above and of the right rail's own buttons at 128px. */
+    .radial-helm-mob {
+        top: 0 !important;
+        right: 60px !important;
     }
 
     .radial-helm-layer-grid {
