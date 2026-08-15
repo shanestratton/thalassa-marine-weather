@@ -10,12 +10,10 @@ import { triggerHaptic } from '../utils/system';
 import { HeroSection } from './dashboard/Hero';
 import { CompactHeaderRow } from './dashboard/CompactHeaderRow';
 import { StatusBadges } from './dashboard/StatusBadges';
-// StalenessBanner re-mounted 2026-06-21 (Claude A quality pass): a marine
 // safety app must warn when the displayed weather is stale or the device is
 // offline. Self-hides when data is fresh and online, so it adds no chrome in
 // the normal case. Lives in the bottom badges container, next to the
 // data-source badges, to avoid disturbing the hand-calc'd top layout stack.
-import { StalenessBanner } from './dashboard/StalenessBanner';
 import { OffshoreBoundaryToast } from './dashboard/OffshoreBoundaryToast';
 import { getMoonPhase } from './dashboard/WeatherHelpers';
 import { useOffshoreStatus } from '../hooks/useOffshoreStatus';
@@ -35,7 +33,7 @@ import { useViewportHeight } from '../hooks/useViewportHeight';
 import { resolveHeroRowTemperatureRange } from './dashboard/hero/heroSlideHelpers';
 
 import { useSettings } from '../context/SettingsContext';
-// useWeather removed with the StalenessBanner — re-add if a new Glass-page
+// useWeather removed with the old freshness strip — re-add if a new Glass-page
 // element needs error / loading / refreshData hooks.
 
 import { DashboardWidgetContext, DashboardWidgetContextType } from './WidgetRenderer';
@@ -128,8 +126,10 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
         handleAudioBroadcast,
         shareReport,
         staleRefresh,
-        error,
-        refreshData,
+        // `error` and `refreshData` were pulled only for the freshness strip
+        // removed 2026-08-13. StatusBadges takes both straight from
+        // useWeather() itself (StatusBadges.tsx:82), so the model pill keeps
+        // its red-on-failure tint and its "Refresh now" without them here.
         refreshInterval,
         settings,
     } = useDashboardController(props.viewMode);
@@ -137,14 +137,15 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
     // Settings
     const { settings: userSettings, updateSettings } = useSettings();
 
-    // Freshness/error signals feed the StalenessBanner below via the
+    // Freshness/error signals feed the forecast-model pill (pulse while
+    // refreshing, red on failure) via the
     // controller (error) and the report itself (_stale/_staleAgeMinutes).
     // They were dropped when the banner was removed, and when it was
     // re-mounted 2026-06-21 only the age props came back — the loud
     // 'error' and 'offline-cache' tiers were unreachable until 2026-08-03.
 
     // Reactive offline flag (internetProbe-verified WAN reachability, not just
-    // navigator.onLine) — feeds the StalenessBanner so the Glass page warns the
+    // navigator.onLine) — feeds the offline pill so the Glass page warns the
     // moment the connection drops, even on otherwise-fresh data.
     const isOffline = useUIStore((s) => s.isOffline);
     const isInland = data?.locationType === 'inland' || isLandlocked;
@@ -879,13 +880,17 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                         the whole time (Shane 2026-08-13).
 
                         The staleness SIGNAL is not lost — it was never the only
-                        one. StalenessBanner already labels age with its own
-                        severity tiers (≥60 min, ≥120 min, doubled offshore), and
-                        two-hour-old data is already flagged amber by it before
-                        this ever renders. So the signal moves from OBSCURING to
-                        LABELLING: a thin indeterminate bar says "updating" while
-                        the numbers stay legible underneath, which is what a
-                        skipper glancing at wind speed actually needs.
+                        one. StalenessBanner carried that job until 2026-08-13,
+                        when Shane removed it — "it is there regardless now, and
+                        it is staying on the screen because the weather is 2 hrs
+                        old" — a permanent warning being no warning at all. The
+                        remaining signals are the amber offline pill beside the
+                        location, and the forecast-model pill, which already
+                        pulses while a refresh is in flight and tints red when
+                        the last one failed. So the signal is LABELLING, not
+                        OBSCURING: this bar says "updating" while the numbers
+                        stay legible, which is what a skipper glancing at wind
+                        speed actually needs.
 
                         pointer-events-none: it must never eat a tap. */}
                     {staleRefresh && (
@@ -1151,23 +1156,6 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                     className="fixed left-0 right-0 z-[125] px-4"
                                     style={{ bottom: 'calc(env(safe-area-inset-bottom) + 74px)' }}
                                 >
-                                    {/* Data-staleness / offline warning — self-hides when fresh
-                                        + online, and while any fetch is in flight.
-                                        isSyncing is staleRefresh OR isRefreshing, not
-                                        staleRefresh alone: staleRefresh only rises past the 2 h
-                                        blur threshold, so on its own it left the strip visible
-                                        for exactly the common case — switching to a saved
-                                        location whose cached report is an hour or two old. */}
-                                    <StalenessBanner
-                                        generatedAt={data.generatedAt}
-                                        stale={data._stale}
-                                        staleAgeMinutes={data._staleAgeMinutes}
-                                        error={error}
-                                        locationType={data.locationType}
-                                        isOffline={isOffline}
-                                        onRefresh={refreshData}
-                                        isSyncing={staleRefresh || !!props.isRefreshing}
-                                    />
                                     <div className={`rounded-xl bg-black/40 ${t.border.default} p-2`}>
                                         <StatusBadges
                                             isLandlocked={isLandlocked}
