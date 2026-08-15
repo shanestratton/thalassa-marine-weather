@@ -3347,6 +3347,31 @@ body,
     box-shadow: inset 0 0 28px rgba(2, 6, 23, 0.55);
 }
 
+/* ── Chart map credits must clear the bottom tab bar ───────────────
+   THIS IS A LICENCE CONDITION, not styling. Mapbox, OpenStreetMap, Maxar,
+   MapTiler and OpenSeaMap all require visible attribution.
+
+   useMapInit.ts correctly sets attributionControl: true, and every source
+   carries its credit string — but mapbox-gl parks its controls at bottom:0,
+   and App.tsx's nav (fixed, z-[900], h-16 + border + safe-area inset) covers
+   the bottom 65–99px of the chart, opaquely. The logo and the attribution
+   pill were therefore 100% invisible; at phone width mapbox-gl collapses the
+   pill to a compact ⓘ, and the ⓘ was under the bar too, so there was no route
+   to the credits at all.
+
+   MapAttributionContract.test.ts passed green throughout because it reads
+   source text and cannot see occlusion — which is exactly why this survived.
+
+   Positional CONTAINERS only. The contract test forbids this file from
+   naming the attribution-pill or logo elements themselves, and rightly so —
+   those must never be restyled or hidden. Only their wrapper moves. Scoped to
+   .thalassa-chart-map (MapHub's own container) so embedded, picker and pin
+   maps, which have no tab bar under them, are untouched. */
+.thalassa-chart-map .mapboxgl-ctrl-bottom-left,
+.thalassa-chart-map .mapboxgl-ctrl-bottom-right {
+    bottom: calc(4rem + 1px + env(safe-area-inset-bottom));
+}
+
 /* ── Bottom sheets and the on-screen keyboard ──────────────────────
    USE THIS on any bottom-anchored panel that contains a text field and
    scrolls internally. Add the class, delete the hard-coded max-h.

@@ -74,6 +74,27 @@ describe('map provider attribution contract', () => {
         expect(css).toMatch(/\.thalassa-attribution-compact\.is-open[\s\S]{0,200}?font-size:\s*(?!0[^.\d])[\d.]+/);
     });
 
+    it('lifts the chart map credits clear of the bottom tab bar', () => {
+        // Declaring attribution is not the same as displaying it. mapbox-gl
+        // parks its controls at bottom:0, and App.tsx's nav is fixed, opaque,
+        // z-[900] and h-16 + border + safe-area inset — so the logo and the
+        // attribution pill sat underneath it, 100% invisible, on every chart.
+        // At phone width the pill collapses to a compact ⓘ, and that was
+        // buried too, leaving no route to the credits whatsoever.
+        //
+        // Every other assertion in this file reads SOURCE and cannot see
+        // occlusion, which is precisely how this shipped. This one guards the
+        // geometry: if the nav height changes, this test fails instead of the
+        // licence silently breaking again.
+        const css = read('index.css');
+        expect(css).toContain('.thalassa-chart-map .mapboxgl-ctrl-bottom-left');
+        expect(css).toContain('.thalassa-chart-map .mapboxgl-ctrl-bottom-right');
+        // Must clear the 4rem nav AND the home-indicator inset.
+        expect(css).toMatch(/\.thalassa-chart-map[^}]*bottom:\s*calc\(4rem[^)]*env\(safe-area-inset-bottom\)/s);
+        // And the class has to actually be on MapHub's container.
+        expect(read('components/map/MapHub.tsx')).toContain('thalassa-chart-map');
+    });
+
     it('keeps the compact ⓘ toggle wired on every Log Leaflet map', () => {
         // The CSS collapse above is licence-legal only while a tap can
         // expand it. That tap lives in installCompactAttribution — so each
