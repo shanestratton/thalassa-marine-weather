@@ -99,10 +99,26 @@ export const REQUIRED_SECURITY_HEADERS = Object.freeze({
     'strict-transport-security': 'max-age=63072000; includeSubDomains; preload',
 });
 
+/* frame-ancestors is an allow-list of exactly two origins, not 'none':
+   Thalassa itself, and the Serene Summer instrument panel, which embeds
+   the plan and public pages so the boat's touchscreen never has to leave
+   the dashboard (a fullscreen kiosk has no back button). That host only
+   resolves on the owner's private Tailscale network, so the permission
+   cannot be reached from the public internet.
+
+   X-Frame-Options: DENY is deliberately kept in REQUIRED_SECURITY_HEADERS.
+   Per CSP Level 2 a browser that understands frame-ancestors must ignore
+   X-Frame-Options, so the modern path honours this narrow allow-list while
+   older browsers still refuse framing outright.
+
+   This stays an exact-match check: widening it further should require
+   editing this line and thinking about why. */
+const PANEL_FRAME_ANCESTOR = 'https://pi5.tail65c605.ts.net';
+
 const REQUIRED_CSP_DIRECTIVES = Object.freeze([
     "default-src 'self'",
     "frame-src 'none'",
-    "frame-ancestors 'none'",
+    `frame-ancestors 'self' ${PANEL_FRAME_ANCESTOR}`,
     "base-uri 'self'",
     "object-src 'none'",
     "form-action 'self'",
