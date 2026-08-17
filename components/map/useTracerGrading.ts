@@ -42,29 +42,18 @@
 import { useEffect, useRef } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 import {
-    buildTracerContext,
-    validateTraceLeg,
-    traceBbox,
-    traceBboxPadded,
-    bboxMaxSpanM,
-    clusterKeepsDepthGrid,
-    splitLegForDepthGrid,
-    mergeSubLegVerdicts,
     tideWindowLabelFor,
     persistLegVerdicts,
     hydrateLegVerdicts,
     type TracerContext,
     type TraceLegVerdict,
 } from '../../services/routeTracer';
+import { gradeLegs } from '../../services/traceGrading';
 import { legCacheKey, TRACE_CLUSTER_SPAN_M } from './mapHubHelpers';
-import { heapTag } from '../../utils/heapGauge';
 import { vesselDraftMetres, vesselDraftIsAssumed } from '../../services/units';
 import { getVersion as getEncRegistryVersion, getRegistryFingerprint } from '../../services/enc/EncCellMetadata';
-import { createLogger } from '../../utils/createLogger';
-import { crumb } from '../../utils/flightRecorder';
 import type { TraceCheckStatus } from '../../services/traceVerification';
 
-const log = createLogger('MapHub');
 
 /**
  * Volatile-failure retry ledger — MODULE scope on purpose (a ref dies with
@@ -256,132 +245,26 @@ export function useTracerGrading(deps: TracerGradingDeps): void {
         }
 
         void (async () => {
-            // ── Subdivide the legs that cannot fit a depth grid whole ────────
-            // A leg longer than the grid budget used to be graded marks-only
-            // and told the skipper "drop a pin midway" — the app asking the
-            // user to do the work it could do itself. Instead we cut it into
-            // pieces that DO fit, grade each, and fold them back into the one
-            // verdict its row renders. The pieces lie on the leg's own line, so
-            // nothing about the route changes; only whether it gets checked.
-            const units: Array<{
-                a: { lat: number; lon: number };
-                b: { lat: number; lon: number };
-                key: string;
-                parentKey: string;
-                lastLeg: boolean;
-            }> = [];
-            /** parent leg key → how many pieces it was cut into (1 = whole). */
-            const pieceCount = new Map<string, number>();
-            for (const leg of pending) {
-                const isLast = leg.key.endsWith('|last');
-                const mids = splitLegForDepthGrid(leg.a, leg.b);
-                if (mids.length === 0) {
-                    units.push({ a: leg.a, b: leg.b, key: leg.key, parentKey: leg.key, lastLeg: isLast });
-                    pieceCount.set(leg.key, 1);
-                    continue;
-                }
-                const pts = [leg.a, ...mids, leg.b];
-                for (let i = 0; i + 1 < pts.length; i++) {
-                    units.push({
-                        a: pts[i],
-                        b: pts[i + 1],
-                        key: `${leg.key}#${i}`,
-                        parentKey: leg.key,
-                        // Only the FINAL piece of the FINAL leg is the last leg.
-                        // ownsSoloApproach hands a mark to the next leg unless
-                        // lastLeg is set, so marking every piece last would make
-                        // each one claim marks its successor owns.
-                        lastLeg: isLast && i === pts.length - 2,
-                    });
-                }
-                pieceCount.set(leg.key, pts.length - 1);
-            }
-
-            // Cluster the ungraded pieces (in trace order) into span-bounded
-            // build windows. The common cases — appended pin, nudged pin,
-            // inserted pin — are ONE tiny cluster around the touched legs;
-            // a loaded 60 km trace grades window-by-window with real depth
-            // everywhere instead of a whole-trace marks-only bail.
-            const clusters: Array<typeof units> = [];
-            let cur: typeof units = [];
-            for (const leg of units) {
-                const probe = [...cur, leg];
-                const pts = probe.flatMap((l) => [l.a, l.b]);
-                // TWO bounds, and the second is the one that was missing.
-                //
-                // TRACE_CLUSTER_SPAN_M caps BUILD COST and is measured on the
-                // tight bbox. But the window that actually gets built is the
-                // PADDED one, and buildTracerContext tests THAT against
-                // MAX_DEPTH_GRID_SPAN_M before deciding whether to build a
-                // depth grid at all. Since traceBboxPadded pads by 25% of the
-                // larger DEGREE span, and a degree of longitude shrinks with
-                // cos(lat), a cluster that passes the tight test can still pad
-                // past the grid ceiling — measured at ~40.1 km at Tasmania and
-                // ~48.1 km at 60°N on ordinary corner geometry that reads only
-                // ~23 km tight. The window then returns marks-only and every
-                // leg in it is stamped "depth unchecked" and CACHED that way.
-                // Bounding the padded span too makes the cluster loop agree
-                // with the test it is feeding.
-                const tooCostly = bboxMaxSpanM(traceBbox(pts, 0)) > TRACE_CLUSTER_SPAN_M;
-                if (cur.length > 0 && (tooCostly || !clusterKeepsDepthGrid(pts))) {
-                    clusters.push(cur);
-                    cur = [leg];
-                } else {
-                    cur = probe;
-                }
-            }
-            if (cur.length > 0) clusters.push(cur);
-
-            const cautionVerdict = (message: string): TraceLegVerdict => ({
-                grade: 'caution',
-                issues: [{ severity: 'caution', message }],
-                minDepthM: null,
-                minAt: null,
-                needsTide: false,
-                nudge: null,
-                nudgeTo: null,
-            });
-            let failStatus: 'toolarge' | 'nochart' | null = null;
-            let sawMarksOnly = false;
-
-            // Piece verdicts live here until every piece of their leg is in.
-            // A half-graded leg must stay `null` (renders "checking…") rather
-            // than fold early — folding with a missing piece would emit
-            // "part of this leg could not be checked" for a piece that is
-            // merely not done yet, which is a lie in the alarming direction.
-            const pieceVerdicts = new Map<string, TraceLegVerdict>();
-            /** Pieces whose verdict must not be banked (see foldReadyLegs). */
-            const volatilePieces = new Set<string>();
-
-            const recordPiece = (key: string, verdict: TraceLegVerdict, isVolatile: boolean): void => {
-                pieceVerdicts.set(key, verdict);
-                if (isVolatile) volatilePieces.add(key);
-            };
-
-            /**
-             * Fold every leg whose pieces are all graded into its single verdict.
-             * A leg goes to the VOLATILE failMap if ANY of its pieces was
-             * volatile — one unbankable piece makes the whole leg unbankable,
-             * or a reload would show a leg as fully checked when part of it was
-             * a retryable failure.
-             */
-            const foldReadyLegs = (): void => {
-                for (const leg of pending) {
-                    if (cache.has(leg.key) || failMap.has(leg.key)) continue;
-                    const n = pieceCount.get(leg.key) ?? 1;
-                    const keys = n === 1 ? [leg.key] : Array.from({ length: n }, (_, i) => `${leg.key}#${i}`);
-                    if (!keys.every((k) => pieceVerdicts.has(k))) continue; // still grading
-
-                    const merged =
-                        n === 1
-                            ? (pieceVerdicts.get(leg.key) ?? null)
-                            : mergeSubLegVerdicts(keys.map((k) => pieceVerdicts.get(k) ?? null));
-                    if (!merged) continue;
-                    if (keys.some((k) => volatilePieces.has(k))) {
-                        failMap.set(leg.key, merged);
-                        const prev = volatileRetrySchedule.get(leg.key);
+            // The grading loop itself now lives in services/traceGrading so the
+            // headless recheck drives the SAME code. Everything this hook cares
+            // about that the loop does not — the verdict cache, the volatile
+            // backoff ledger, incremental publish, persistence, supersession by
+            // a newer pin — stays here and arrives as policy.
+            const result = await gradeLegs(pending, {
+                draftM: draftNow,
+                draftAssumed,
+                clusterSpanM: TRACE_CLUSTER_SPAN_M,
+                ctxFromLru: tracerCtxFromLru,
+                holdCtx: tracerCtxHold,
+                superseded: () => seq !== tracerSeqRef.current,
+                isDecided: (key) => cache.has(key) || failMap.has(key),
+                onStatus: (status) => setTracerStatus(status),
+                onLeg: (key, verdict, isVolatile) => {
+                    if (isVolatile) {
+                        failMap.set(key, verdict);
+                        const prev = volatileRetrySchedule.get(key);
                         const attempts = (prev?.attempts ?? 0) + 1;
-                        volatileRetrySchedule.set(leg.key, {
+                        volatileRetrySchedule.set(key, {
                             attempts,
                             nextRetryAt:
                                 Date.now() +
@@ -389,140 +272,30 @@ export function useTracerGrading(deps: TracerGradingDeps): void {
                             encVersion: getEncRegistryVersion(),
                         });
                     } else {
-                        cache.set(leg.key, merged);
-                        volatileRetrySchedule.delete(leg.key);
+                        cache.set(key, verdict);
+                        volatileRetrySchedule.delete(key);
                     }
-                }
-            };
-            for (const cluster of clusters) {
-                if (seq !== tracerSeqRef.current) return; // a newer pin superseded this pass
-                const pts = cluster.flatMap((l) => [l.a, l.b]);
-                // Reuse the held window only when it has a DEPTH GRID and the
-                // cluster sits well inside it (~890 m margin — a gate mark's
-                // pair partner sits up to a few hundred metres across the
-                // channel; a fringe reuse once split a pair at the bbox edge
-                // and downgraded a wrong-side DANGER to a solo caution). A
-                // grid-less (marks-only) ctx is NEVER reused: its huge bbox
-                // would stamp every short leg inside it "depth unchecked".
-                let ctx = tracerCtxFromLru(pts);
-                if (ctx) {
-                    // Crumbed so a trail SHOWS reuse working. The 2026-08-10
-                    // fatal trail was the opposite: 18 ctx builds in 62 s with
-                    // the same piece windows built up to four times each, and
-                    // not one reuse between them.
-                    crumb('tracer:ctx-reuse', `${cluster.length}legs`);
-                }
-                if (!ctx) {
-                    setTracerStatus('loading');
-                    try {
-                        const built = await buildTracerContext(traceBboxPadded(pts), draftNow, { draftAssumed });
-                        if (seq !== tracerSeqRef.current) return;
-                        if (built.status === 'ready') {
-                            ctx = built.ctx;
-                            // Hold EVERY grid-bearing window — pieces included —
-                            // unless gate marks are missing (holding a gate-less
-                            // window would let one network blip strip gate
-                            // checking from every later cluster that reuses it).
-                            //
-                            // Piece windows were deliberately NOT held before
-                            // 2026-08-10, on the theory that "a hold almost
-                            // never hits" — and the fatal trail disproved it:
-                            // a passage-scale route (every leg over the depth-
-                            // grid span, so every window a piece window) built
-                            // 18 contexts in 62 seconds, the same piece windows
-                            // up to FOUR times each as volatile verdicts
-                            // re-graded, ~19 MB of grid and a full layer clone
-                            // into the worker per build, and the renderer died
-                            // mid-build. The memory objection to holding is
-                            // gone: the LRU is bounded by MEASURED bytes
-                            // (holdTracerCtx), so holding pieces costs at most
-                            // the budget while turning every re-pass into a
-                            // cache hit.
-                            if (!built.ctx.gateChecksUnavailable) tracerCtxHold(built.ctx);
-                        } else if (built.status === 'marksonly') {
-                            // One genuinely long leg — grade marks with this
-                            // ctx but DON'T hold it: a grid-less window must
-                            // never shadow later clusters.
-                            ctx = built.ctx;
-                            sawMarksOnly = true;
-                        } else if (built.status === 'toolarge') {
-                            // A piece is built to fit, so reaching here means
-                            // splitLegForDepthGrid declined — the leg really is
-                            // beyond what MAX_LEG_SUBDIVISIONS can cover. Pure
-                            // geometry, so durable; adding a pin changes the
-                            // leg's key and re-grades.
-                            failStatus = 'toolarge';
-                            for (const l of cluster)
-                                recordPiece(l.key, cautionVerdict('too long to check — add a waypoint'), false);
-                            foldReadyLegs();
-                            publish();
-                            continue;
-                        } else {
-                            // nochart can be a NETWORK BLIP (cloud cells not
-                            // yet hydrated) — volatile verdict, retried every
-                            // pass so charts appearing mid-session heal it.
-                            failStatus = 'nochart';
-                            for (const l of cluster)
-                                recordPiece(l.key, cautionVerdict('no ENC chart here — depth unchecked'), true);
-                            foldReadyLegs();
-                            publish();
-                            continue;
-                        }
-                    } catch (err) {
-                        if (seq !== tracerSeqRef.current) return;
-                        log.warn(`tracer context build failed: ${err instanceof Error ? err.message : String(err)}`);
-                        failStatus = 'nochart';
-                        for (const l of cluster)
-                            recordPiece(l.key, cautionVerdict('chart load failed — depth unchecked, will retry'), true);
-                        foldReadyLegs();
-                        publish();
-                        continue;
-                    }
-                }
-                for (const l of cluster) {
-                    const verdict = validateTraceLeg(l.a, l.b, ctx, { lastLeg: l.lastLeg });
-                    // A window whose marker fetch threw was never gate-checked,
-                    // so its verdict is provisional in exactly the way a
-                    // 'nochart' one is — VOLATILE, so the next pass retries and
-                    // a transient blip cannot poison the session. Banking it to
-                    // localStorage would durably record an unchecked leg as
-                    // checked, and the `pending.length === 0` short-circuit
-                    // would then read 'ready' on the next mount and show a
-                    // clean strip.
-                    recordPiece(l.key, verdict, ctx.gateChecksUnavailable);
-                }
-                foldReadyLegs();
-                publish();
-                // Kill #32 fell in a crumb-less gap: last crumb ctx-ready,
-                // death ~10 s later during this very loop, and nothing to say
-                // which allocation rode the heap up. Grade end + real heap so
-                // the next trail names the phase instead of ending at ready.
-                crumb('tracer:grade-done', `${cluster.length}legs${heapTag()}`);
-                // Bank after EVERY cluster, not only at the end of the pass.
-                // The 2026-08-10 desktop trail died at the final ctx-ready of
-                // a ~20-window cold pass — before the end-of-pass persist — so
-                // the next boot cold-graded all 20 windows again and died
-                // again: a crash loop whose every lap does the exact work that
-                // kills. Banking incrementally means each attempt KEEPS its
-                // progress; the pass shrinks every boot until it completes.
-                // Volatile verdicts still never bank (they live in failMap).
-                persistLegVerdicts(cache, draftNow, draftAssumed, getRegistryFingerprint());
-            }
-            if (seq !== tracerSeqRef.current) return;
+                },
+                onClusterDone: () => {
+                    publish();
+                    // Bank after EVERY cluster, not only at the end of the pass.
+                    // The 2026-08-10 desktop trail died at the final ctx-ready
+                    // of a ~20-window cold pass — before the end-of-pass
+                    // persist — so the next boot cold-graded all 20 windows
+                    // again and died again: a crash loop whose every lap does
+                    // the exact work that kills. Banking incrementally means
+                    // each attempt KEEPS its progress.
+                    persistLegVerdicts(cache, draftNow, draftAssumed, getRegistryFingerprint());
+                },
+            });
+            if (result.superseded || seq !== tracerSeqRef.current) return;
             // Prune verdicts for legs no longer in the trace (bounded memory).
             const keep = new Set(legs.map((l) => l.key));
             for (const k of Array.from(cache.keys())) if (!keep.has(k)) cache.delete(k);
             for (const k of Array.from(volatileRetrySchedule.keys())) if (!keep.has(k)) volatileRetrySchedule.delete(k);
-            // Failures outrank the held ctx in the strip — a half-graded
-            // trace must not read "ready" while legs say "load failed".
-            // Reaching the end with no explicit failure means every pending
-            // piece produced a real verdict. Subdivided long legs deliberately
-            // do not retain their large grids in tracerCtxRef, so using that
-            // cache slot as the truth signal mislabeled a fully checked route
-            // `nochart` and made the release gate impossible to satisfy.
-            setTracerStatus(failStatus ?? (sawMarksOnly ? 'marksonly' : 'ready'));
-            // The pass is the unit of new knowledge — bank it so the NEXT
-            // mount (reload, deploy, tab-bounce) re-grades nothing.
+            setTracerStatus(result.status);
+            // The pass is the unit of new knowledge — bank it so the NEXT mount
+            // (reload, deploy, tab-bounce) re-grades nothing.
             persistLegVerdicts(cache, draftNow, draftAssumed, getRegistryFingerprint());
         })();
         // The stable identities below (five refs and the setters) are named
