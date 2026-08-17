@@ -63,6 +63,23 @@ vi.mock('@capacitor/app', () => ({
     },
 }));
 
+// @capacitor/network is the one Capacitor plugin that does NOT fail loudly in
+// jsdom — it ships a working web implementation. So without this stub it is the
+// real plugin that loads, and mocking @capacitor/core does not prevent it: the
+// package lives in node_modules and is externalized rather than inlined, so it
+// binds the genuine registerPlugin regardless. The web implementation then
+// wires jsdom's window 'offline' event straight into NmeaListenerService's
+// socket teardown, which is live wiring no test asked for. Files that actually
+// exercise the network watch mock this module themselves, and those local
+// mocks still win.
+vi.mock('@capacitor/network', () => ({
+    Network: {
+        addListener: vi.fn().mockResolvedValue({ remove: vi.fn().mockResolvedValue(undefined) }),
+        getStatus: vi.fn().mockResolvedValue({ connected: true, connectionType: 'wifi' }),
+        removeAllListeners: vi.fn().mockResolvedValue(undefined),
+    },
+}));
+
 vi.mock('@capacitor/share', () => ({
     Share: {
         share: vi.fn().mockResolvedValue({ activityType: undefined }),

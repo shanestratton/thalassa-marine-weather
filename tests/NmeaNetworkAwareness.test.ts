@@ -61,9 +61,11 @@ const settle = async (turns = 40) => {
 };
 
 const SENTENCE = '$YDRMC,041153.00,A,2712.3137,S,15305.5836,E,0.0,105.3,080826,,,A*1B\r\n';
-const blockingTimeout = () =>
-    new Promise((_r, reject) => {
-        setTimeout(() => reject(Object.assign(new Error('read timeout'), { code: 'TIMEOUT' })), 5000);
+/** An iOS read timeout: blocks the full timeout, then RESOLVES empty — it does
+ *  not reject. See the long note in NmeaSilentSocketWatchdog.test.ts. */
+const blockingEmpty = () =>
+    new Promise((resolve) => {
+        setTimeout(() => resolve({ result: '' }), 5000);
     });
 
 /** Push an OS network event through every registered listener. */
@@ -105,7 +107,7 @@ describe('NMEA network awareness', () => {
     it('registers exactly one OS listener, however many times it is started', async () => {
         // A duplicate listener means every real transition is handled twice —
         // two reconnects racing for one of three slots.
-        socket.read.mockImplementation(blockingTimeout);
+        socket.read.mockImplementation(blockingEmpty);
         NmeaListenerService.configure('192.168.1.151', 1456);
         NmeaListenerService.start();
         await settle();
@@ -124,20 +126,49 @@ describe('NMEA network awareness', () => {
     it('hands the gateway slot back the instant connectivity drops', async () => {
         // The whole point. Without this the socket sits there as an orphan and
         // the gateway keeps counting it against its three-client limit.
-        socket.read.mockResolvedValueOnce({ result: SENTENCE }).mockImplementation(blockingTimeout);
+        socket.read.mockResolvedValueOnce({ result: SENTENCE }).mockImplementation(blockingEmpty);
         NmeaListenerService.configure('192.168.1.151', 1456);
         NmeaListenerService.start();
         await settle();
         expect(NmeaListenerService.getStatus()).toBe('connected');
         expect(socket.disconnect).not.toHaveBeenCalled();
 
+        // Past the grace window in which recent traffic would vouch for the
+        // link (see the next test) — here the gateway has genuinely gone quiet.
+        await vi.advanceTimersByTimeAsync(4_000);
+        await settle(10);
+
         emit(false, 'none');
         await settle(10);
 
-        // No clock advance worth the name: the release is immediate, not on the
-        // next 5 s read timeout and certainly not on the 15 s watchdog.
+        // Released on the event itself, not on the next 5 s read and certainly
+        // not on the 15 s watchdog.
         expect(socket.disconnect).toHaveBeenCalledWith({ client: 1 });
         expect(NmeaListenerService.getStatus()).not.toBe('connected');
+    });
+
+    it('keeps the socket when the OS cries offline but sentences are still arriving', async () => {
+        // The boat's Wi-Fi losing its uplink is the ordinary case, not the
+        // exotic one: connected:false is derived from reachability flags for
+        // 0.0.0.0, so it means "no default route" — a claim about the WAN. The
+        // gateway on the same LAN carries on regardless, and tearing down a
+        // socket that is delivering because the internet went away would be a
+        // self-inflicted outage at exactly the moment offline data matters.
+        socket.read.mockImplementation(
+            () => new Promise((resolve) => setTimeout(() => resolve({ result: SENTENCE }), 1000)),
+        );
+        NmeaListenerService.configure('192.168.1.151', 1456);
+        NmeaListenerService.start();
+        await settle();
+        await vi.advanceTimersByTimeAsync(3_000);
+        await settle();
+        expect(NmeaListenerService.getStatus()).toBe('connected');
+
+        emit(false, 'none');
+        await settle(10);
+
+        expect(socket.disconnect).not.toHaveBeenCalled();
+        expect(NmeaListenerService.getStatus()).toBe('connected');
     });
 
     it('retries immediately when connectivity returns mid-backoff', async () => {
@@ -155,7 +186,7 @@ describe('NMEA network awareness', () => {
 
         // Walking aboard. The gateway is reachable again.
         socket.connect.mockImplementation(async () => ({ client: socket.nextClient++ }));
-        socket.read.mockImplementation(blockingTimeout);
+        socket.read.mockImplementation(blockingEmpty);
         emit(true, 'wifi');
         await settle(20);
 
@@ -196,7 +227,7 @@ describe('NMEA network awareness', () => {
         const before = socket.connect.mock.calls.length;
 
         socket.connect.mockImplementation(async () => ({ client: socket.nextClient++ }));
-        socket.read.mockImplementation(blockingTimeout);
+        socket.read.mockImplementation(blockingEmpty);
 
         // Six events inside the debounce window — one real transition.
         for (let i = 0; i < 6; i++) {
@@ -226,7 +257,7 @@ describe('NMEA network awareness', () => {
 
         // Network returns: we reconnect and the connect side spends the window.
         socket.connect.mockImplementation(async () => ({ client: socket.nextClient++ }));
-        socket.read.mockImplementation(blockingTimeout);
+        socket.read.mockImplementation(blockingEmpty);
         emit(true, 'wifi');
         await settle(20);
         expect(NmeaListenerService.getStatus()).toBe('connected');
@@ -264,12 +295,85 @@ describe('NMEA network awareness', () => {
 
         // Same payload, different network — now the gateway answers.
         socket.connect.mockImplementation(async () => ({ client: socket.nextClient++ }));
-        socket.read.mockImplementation(blockingTimeout);
+        socket.read.mockImplementation(blockingEmpty);
         emit(true, 'wifi');
         await settle(20);
 
         expect(socket.connect.mock.calls.length).toBeGreaterThan(before);
         expect(NmeaListenerService.getStatus()).toBe('connected');
+    });
+
+    it('does not open a second socket while a connect is still in flight', async () => {
+        // TcpSocket.connect can hang for seconds against an unreachable host,
+        // and until it settles tcpClientId is still null — so connectTcp's own
+        // defensive release finds nothing to release and a second connect sails
+        // straight past it. The first handle then lands and is overwritten:
+        // one of three slots gone, held by a socket nothing can now close.
+        socket.connect.mockImplementation(() => new Promise(() => {}));
+        NmeaListenerService.configure('192.168.1.151', 1456);
+        NmeaListenerService.start();
+        await settle();
+        expect(socket.connect).toHaveBeenCalledTimes(1);
+
+        // Every retry trigger there is, while that connect hangs unresolved.
+        for (let i = 0; i < 4; i++) {
+            await vi.advanceTimersByTimeAsync(2_000);
+            emit(true, 'wifi');
+            document.dispatchEvent(new Event('visibilitychange'));
+            await settle(10);
+        }
+
+        expect(socket.connect).toHaveBeenCalledTimes(1);
+    });
+
+    it('makes a live socket prove itself when the interface changes underneath it', async () => {
+        // Stepping off the boat onto 5G is connected:true / 'cellular' — never
+        // connected:false — so no teardown branch sees it, and the retry branch
+        // is skipped because status is still 'connected'. The socket over the
+        // departed Wi-Fi is dead and nothing had noticed.
+        socket.read.mockResolvedValueOnce({ result: SENTENCE }).mockImplementation(blockingEmpty);
+        NmeaListenerService.configure('192.168.1.151', 1456);
+        NmeaListenerService.start();
+        await settle();
+        emit(true, 'wifi'); // establish the interface we are leaving
+        await settle(5);
+        expect(NmeaListenerService.getStatus()).toBe('connected');
+        expect(socket.disconnect).not.toHaveBeenCalled();
+
+        emit(true, 'cellular');
+        await settle(5);
+
+        // Not torn down on suspicion — given a few seconds to deliver, and
+        // retired when it cannot.
+        await vi.advanceTimersByTimeAsync(6_000);
+        await settle(10);
+        expect(socket.disconnect).toHaveBeenCalled();
+    });
+
+    it('lets the backoff ladder keep climbing while the network flaps', async () => {
+        // Each network event collapses the pending retry and reconnects — that
+        // is the feature. Rewinding the ladder as well is not: under a flapping
+        // Wi-Fi the events never stop, the ladder never leaves its first rung,
+        // and the retry rate multiplies against a gateway with three slots.
+        socket.connect.mockRejectedValue(new Error('connection refused'));
+        NmeaListenerService.configure('192.168.1.151', 1456);
+        NmeaListenerService.start();
+        await settle();
+
+        // A minute of flapping, one event every two seconds.
+        for (let i = 0; i < 30; i++) {
+            emit(true, 'wifi');
+            await settle(4);
+            await vi.advanceTimersByTimeAsync(2_000);
+            await settle(4);
+        }
+
+        // Close to one attempt per real event. Unrationed, the ladder would sit
+        // at its 400 ms first rung and fire several times per gap instead.
+        // Lower bound too, so a service that has wedged itself and stopped
+        // connecting entirely cannot pass this by doing nothing.
+        expect(socket.connect.mock.calls.length).toBeGreaterThan(20);
+        expect(socket.connect.mock.calls.length).toBeLessThan(60);
     });
 
     it('un-parks the connection when the network comes back after the 5-minute give-up', async () => {
@@ -294,7 +398,7 @@ describe('NMEA network awareness', () => {
         expect(socket.connect.mock.calls.length).toBe(parked);
 
         socket.connect.mockImplementation(async () => ({ client: socket.nextClient++ }));
-        socket.read.mockImplementation(blockingTimeout);
+        socket.read.mockImplementation(blockingEmpty);
         emit(true, 'wifi');
         await settle(20);
 
