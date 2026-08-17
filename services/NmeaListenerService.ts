@@ -64,9 +64,49 @@ const DATA_SILENCE_TIMEOUT_MS = 15000;
  * against a gateway with three slots, restraint is not a nicety.
  */
 const NETWORK_NUDGE_MIN_GAP_MS = 1500;
+/**
+ * A socket that delivered a sentence this recently is not gone, whatever the
+ * OS says. `connected: false` means "no default route" — a statement about the
+ * WAN. The boat's own Wi-Fi can lose its uplink while the LAN, and the gateway
+ * sitting on it, carry on perfectly. Evidence beats opinion.
+ */
+const NETWORK_LOSS_GRACE_MS = 3000;
+/**
+ * When the interface type changes under a live socket — stepping off the boat
+ * onto 5G — the socket is probably dead but has not been told. Rather than
+ * assume, shorten its leash: it has this long to deliver another sentence
+ * before the silence watchdog retires it.
+ */
+const NETWORK_TYPE_CHANGE_PROBE_MS = 3000;
+/**
+ * Zeroing the backoff ladder on every network event lets a flapping Wi-Fi
+ * defeat it completely — each flap costs an immediate connect plus a re-armed
+ * 400 ms retry. The ladder may be reset this often and no more; outside the
+ * window an event still reconnects at once, it just does not rewind the climb.
+ */
+const LADDER_RESET_MIN_GAP_MS = 30000;
 const RECONNECT_GIVE_UP_MS = 5 * 60 * 1000; // Give up after 5 minutes of failed reconnects
 const TCP_READ_TIMEOUT_S = 5; // Read timeout for TCP polling (seconds)
 const TCP_READ_BUFFER = 4096; // Bytes to request per read cycle
+/**
+ * How an iOS read actually reports "nothing" — and why it is ambiguous.
+ *
+ * capacitor-tcp-socket does NOT reject on a read timeout. TcpSocketPlugin.swift
+ * does `guard let response = client.read(...) else { call.resolve(["result": ""]) }`,
+ * and TCPClient.read returns nil for `readLen <= 0` — which ytcpsocket_pull
+ * produces for a select() timeout, for EOF and for a reset, indistinguishably.
+ * So every one of those arrives here as a RESOLVED empty string.
+ *
+ * The two cases are still separable, by clock rather than by value: a genuine
+ * idle timeout blocks for the full TCP_READ_TIMEOUT_S inside select(), while
+ * EOF and RST return immediately. An empty read that comes back in well under
+ * the timeout we asked for is a finished socket, not a quiet one — which also
+ * means it would spin this loop at full tilt against the single serial
+ * Capacitor bridge queue the whole app shares if we simply looped again.
+ */
+const FAST_EMPTY_READ_MS = (TCP_READ_TIMEOUT_S * 1000) / 2;
+const FAST_EMPTY_READS_BEFORE_DEAD = 3;
+const EMPTY_READ_PAUSE_MS = 150;
 
 export type NmeaConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
 export type NmeaSampleCallback = (sample: NmeaSample) => void;
@@ -134,8 +174,18 @@ class NmeaListenerServiceClass {
     private host = DEFAULT_HOST;
     private port = DEFAULT_PORT;
     private reconnectAttempts = 0;
-    /** When a sentence last arrived — drives the silent-socket watchdog. */
+    /** Watchdog seed. Set when a socket opens AND when data arrives, because
+     *  the watchdog measures "how long has this connection been quiet". */
     private lastDataAt = 0;
+    /**
+     * When a sentence genuinely ARRIVED. Never seeded on connect.
+     *
+     * Kept apart from lastDataAt because the two answer different questions,
+     * and conflating them made the network-loss grace window trust a socket
+     * that had proved nothing: opening a connection is not evidence the link
+     * carries traffic. Only this field is evidence.
+     */
+    private lastSentenceAt = 0;
     private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     private firstAttemptTime: number | null = null; // For 5-minute give-up
     private sampleTimer: ReturnType<typeof setInterval> | null = null;
@@ -155,6 +205,20 @@ class NmeaListenerServiceClass {
     private networkWatchReady = false;
     /** Debounce stamp for the burst of events iOS emits per real transition. */
     private lastNetworkNudgeAt = 0;
+    /**
+     * Identity for the current socket. The read loop captures it on entry, so
+     * a loop still parked inside a 5 s read when someone tears the connection
+     * down from OUTSIDE it — the network-loss branch does exactly that — can
+     * tell that the socket it was reading is not the socket the service now
+     * holds, and decline to close somebody else's.
+     */
+    private connectionGeneration = 0;
+    /** A connect is dispatched and unresolved — do not open a second socket. */
+    private connectInFlight = false;
+    /** Rationing stamp for backoff-ladder rewinds. */
+    private lastLadderResetAt = 0;
+    /** Last interface type the OS reported, to spot a change under a live socket. */
+    private lastConnectionType = '';
 
     constructor() {
         // Un-park on app foreground. The webview fires visibilitychange on
@@ -187,7 +251,7 @@ class NmeaListenerServiceClass {
                     log.info('App foregrounded while disconnected — retrying NMEA immediately');
                     clearTimeout(this.reconnectTimer);
                     this.reconnectTimer = null;
-                    this.reconnectAttempts = 0;
+                    this.rewindLadderIfAllowed(Date.now());
                     this.connect();
                 }
             });
@@ -258,6 +322,16 @@ class NmeaListenerServiceClass {
         this.firstAttemptTime = null;
         this.reconnectAttempts = 0;
         this.lastError = null;
+        // Throttles must not outlive the off-switch. Flipping Disconnect and
+        // then Connect is a deliberate act; it must not be swallowed as a
+        // duplicate of some event from before the service was switched off.
+        this.lastNetworkNudgeAt = 0;
+        this.lastLadderResetAt = 0;
+        // A native connect that never settles would otherwise latch this true
+        // for the life of the process, and every later connect() would return
+        // early — the off/on switch, the one recovery a skipper has, silently
+        // stops working. stop() ends the attempt, so it also ends the claim.
+        this.connectInFlight = false;
         this.stopSampleTimer();
         if (this.reconnectTimer) {
             clearTimeout(this.reconnectTimer);
@@ -325,11 +399,26 @@ class NmeaListenerServiceClass {
 
     private connect() {
         if (!this.enabled) return;
-        this.setStatus('connecting');
 
         if (Capacitor.isNativePlatform()) {
-            this.connectTcp();
+            // TcpSocket.connect can sit unresolved for seconds against an
+            // unreachable host. Until it settles this.tcpClientId is still
+            // null, so connectTcp's own defensive release finds nothing and a
+            // second connect opens a SECOND socket — the first one's handle
+            // then arrives and is overwritten, orphaning a slot on a gateway
+            // that has three. Reachable in one tap: any retry trigger (network
+            // change, app foreground) firing while status is 'connecting'.
+            if (this.connectInFlight) {
+                log.info('Connect already in flight — not opening a second socket');
+                return;
+            }
+            this.connectInFlight = true;
+            this.setStatus('connecting');
+            void this.connectTcp().finally(() => {
+                this.connectInFlight = false;
+            });
         } else {
+            this.setStatus('connecting');
             this.connectWebSocket();
         }
     }
@@ -375,21 +464,30 @@ class NmeaListenerServiceClass {
      * and split them into individual lines for parsing.
      */
     private async runTcpReadLoop() {
-        if (this.tcpClientId === null) return;
+        // Captured, not re-read each turn. Both matter: `client` so we can never
+        // read from or close a socket this loop did not open, and `generation`
+        // so an out-of-loop teardown cleanly retires us.
+        const client = this.tcpClientId;
+        if (client === null) return;
+        const generation = this.connectionGeneration;
+        let fastEmptyReads = 0;
 
         try {
             const { TcpSocket } = await import('capacitor-tcp-socket');
 
-            while (this.tcpReadLoop && this.tcpClientId !== null && this.enabled) {
+            while (this.tcpReadLoop && this.enabled && generation === this.connectionGeneration) {
                 try {
+                    const readStartedAt = Date.now();
                     const { result } = await TcpSocket.read({
-                        client: this.tcpClientId,
+                        client,
                         expectLen: TCP_READ_BUFFER,
                         timeout: TCP_READ_TIMEOUT_S,
                     });
 
                     if (result && result.length > 0) {
+                        fastEmptyReads = 0;
                         this.lastDataAt = Date.now();
+                        this.lastSentenceAt = this.lastDataAt;
                         // Append to line buffer and process complete lines
                         this.tcpLineBuffer += result;
                         const lines = this.tcpLineBuffer.split(/\r?\n/);
@@ -402,25 +500,39 @@ class NmeaListenerServiceClass {
                                 this.parseNmeaSentence(trimmed);
                             }
                         }
+                        continue;
                     }
+
+                    // Empty result. On iOS this is EVERY quiet outcome —
+                    // timeout, EOF and reset alike (see FAST_EMPTY_READ_MS).
+                    // The silence check has to live here, not in the catch
+                    // below: that catch is gated on a rejection the native
+                    // plugin never produces, so a watchdog placed inside it
+                    // could not fire on the very platform this ships to.
+                    if (Date.now() - readStartedAt < FAST_EMPTY_READ_MS) {
+                        // Returned far too quickly to have waited out select().
+                        // The socket is finished; do not wait for the silence
+                        // timeout to say so, and do not spin on it either.
+                        fastEmptyReads++;
+                        if (fastEmptyReads >= FAST_EMPTY_READS_BEFORE_DEAD) {
+                            log.warn('Socket returning empty reads immediately — closed at the far end');
+                            this.lastError = 'Gateway closed the connection';
+                            break;
+                        }
+                    } else {
+                        fastEmptyReads = 0;
+                    }
+
+                    if (this.isDataSilenceFatal()) break;
+                    await new Promise((r) => setTimeout(r, EMPTY_READ_PAUSE_MS));
                 } catch (readErr: unknown) {
                     // Read timeout is normal (no data available) — just continue
                     const errObj = readErr as Record<string, unknown> | null;
                     if (errObj?.message?.toString().includes?.('timeout') || errObj?.code === 'TIMEOUT') {
-                        // A read timeout alone is normal. A RUN of them is not:
-                        // the gateway streams constantly, so prolonged silence
-                        // means the socket is half-open — no FIN ever arrived,
-                        // typically because Wi-Fi dropped. Left alone this loops
-                        // forever reporting "connected" while receiving nothing,
-                        // and keeps one of the gateway's three slots busy.
-                        if (Date.now() - this.lastDataAt > DATA_SILENCE_TIMEOUT_MS) {
-                            log.warn(
-                                `No NMEA data for ${Math.round((Date.now() - this.lastDataAt) / 1000)}s — ` +
-                                    'treating the socket as dead and reconnecting',
-                            );
-                            this.lastError = 'Gateway stopped sending — reconnecting';
-                            break;
-                        }
+                        // Retained for transports that DO reject on timeout —
+                        // the WebSocket dev path and Android. iOS never lands
+                        // here; its timeouts resolve empty and are handled above.
+                        if (this.isDataSilenceFatal()) break;
                         continue;
                     }
                     // Actual error — connection lost
@@ -451,11 +563,33 @@ class NmeaListenerServiceClass {
         //
         // A read error means this socket is finished either way, so closing it
         // costs nothing and returns the slot immediately.
+        // Only if this loop still owns the connection. A teardown from outside
+        // (network loss) has already released the socket and may have opened a
+        // replacement; closing "the current client" from here would shut down a
+        // healthy connection somebody else established and report it dead.
+        if (generation !== this.connectionGeneration) {
+            log.info('Read loop retired — a newer connection has taken over');
+            return;
+        }
         await this.releaseTcpClient();
         if (this.enabled) {
             this.setStatus('disconnected');
             this.scheduleReconnect();
         }
+    }
+
+    /**
+     * Has the gateway gone quiet for long enough to call the socket dead?
+     *
+     * One definition, reached from both the empty-resolve path and the
+     * rejecting-timeout path, so the two transports cannot drift apart.
+     */
+    private isDataSilenceFatal(): boolean {
+        const silentFor = Date.now() - this.lastDataAt;
+        if (silentFor <= DATA_SILENCE_TIMEOUT_MS) return false;
+        log.warn(`No NMEA data for ${Math.round(silentFor / 1000)}s — treating the socket as dead`);
+        this.lastError = 'Gateway stopped sending — reconnecting';
+        return true;
     }
 
     /**
@@ -466,6 +600,8 @@ class NmeaListenerServiceClass {
      * out its own idle timeout.
      */
     private async releaseTcpClient(): Promise<void> {
+        // Retires any read loop still parked on the old socket.
+        this.connectionGeneration++;
         const client = this.tcpClientId;
         this.tcpClientId = null;
         this.tcpLineBuffer = '';
@@ -670,8 +806,24 @@ class NmeaListenerServiceClass {
         // three of them — the precise failure this whole feature exists to
         // prevent. Stamping here would be the same mistake mirrored: it would
         // debounce the recovery that follows a flap.
+        const previousType = this.lastConnectionType;
+        this.lastConnectionType = connectionType;
+
         if (!connected) {
             if (!this.enabled || this.tcpClientId === null) return;
+            // EVIDENCE BEATS OPINION. `connected: false` is derived from
+            // reachability flags for 0.0.0.0 — it means "no default route",
+            // which is a claim about the WAN. A boat Wi-Fi whose uplink just
+            // died says exactly that while the gateway on the same LAN keeps
+            // streaming. A sentence in the last few seconds is proof the link
+            // is alive, and proof outranks the OS's summary of it.
+            const sinceData = Date.now() - this.lastSentenceAt;
+            if (sinceData < NETWORK_LOSS_GRACE_MS) {
+                log.info(
+                    `Network reported down, but NMEA data arrived ${sinceData}ms ago — keeping the socket`,
+                );
+                return;
+            }
             log.warn('Network lost — releasing the NMEA socket rather than orphaning a gateway slot');
             this.lastError = 'Network unavailable';
             // Drop out of the read loop, then close. The loop's own exit path
@@ -685,6 +837,20 @@ class NmeaListenerServiceClass {
             return;
         }
 
+        // Stepping off the boat onto 5G never reports `connected: false` — it
+        // is connected:true / 'cellular', and until this existed no branch
+        // acted on it at all: the loss branch is skipped, and the retry branch
+        // below is gated on not already being connected. The socket over the
+        // departed Wi-Fi is almost certainly dead, but "almost" is not grounds
+        // for closing a working connection, so demand proof instead of
+        // guessing — shorten its leash and let the silence watchdog decide.
+        if (this.status === 'connected' && previousType && connectionType !== previousType) {
+            log.warn(`Interface changed ${previousType} → ${connectionType} under a live socket — probing it`);
+            const leash = Date.now() - (DATA_SILENCE_TIMEOUT_MS - NETWORK_TYPE_CHANGE_PROBE_MS);
+            this.lastDataAt = Math.min(this.lastDataAt, leash);
+            return;
+        }
+
         if (now - this.lastNetworkNudgeAt < NETWORK_NUDGE_MIN_GAP_MS) return;
         // Stamped inside each acting branch below, never here: an event we
         // ignore — no gateway configured, nothing to retry — must not spend the
@@ -693,7 +859,7 @@ class NmeaListenerServiceClass {
         if (this.parkedAfterGiveUp && !this.enabled) {
             log.warn(`Network back (${connectionType}) — retrying parked NMEA connection`);
             this.lastNetworkNudgeAt = now;
-            this.reconnectAttempts = 0;
+            this.rewindLadderIfAllowed(now);
             this.start();
             return;
         }
@@ -705,9 +871,26 @@ class NmeaListenerServiceClass {
                 clearTimeout(this.reconnectTimer);
                 this.reconnectTimer = null;
             }
-            this.reconnectAttempts = 0;
+            this.rewindLadderIfAllowed(now);
             this.connect();
         }
+    }
+
+    /**
+     * Send the backoff ladder back to the bottom — but not on demand.
+     *
+     * Every trigger that means "the network moved" wants an immediate retry,
+     * and rewinding the ladder as well felt like part of the same thought. It
+     * is not: under a flapping Wi-Fi the events keep coming, the ladder never
+     * climbs past its first rung, and the retry rate rises by an order of
+     * magnitude against a gateway with three slots. The immediate reconnect is
+     * the valuable half and is kept unconditionally by the callers; only the
+     * rewind is rationed.
+     */
+    private rewindLadderIfAllowed(now: number): void {
+        if (now - this.lastLadderResetAt < LADDER_RESET_MIN_GAP_MS) return;
+        this.lastLadderResetAt = now;
+        this.reconnectAttempts = 0;
     }
 
     private setStatus(s: NmeaConnectionStatus) {

@@ -50,16 +50,23 @@ const settle = async (turns = 40) => {
 };
 
 const SENTENCE = '$YDRMC,041153.00,A,2712.3137,S,15305.5836,E,0.0,105.3,080826,,,A*1B\r\n';
-const timeoutErr = () => Object.assign(new Error('read timeout'), { code: 'TIMEOUT' });
-
 /**
- * A read that BLOCKS for the full timeout before failing, which is what the
- * native plugin actually does. A mock that rejects instantly turns the read
- * loop into a hot spin and tells you nothing about elapsed time.
+ * WHAT AN iOS READ TIMEOUT ACTUALLY LOOKS LIKE.
+ *
+ * Not a rejection. capacitor-tcp-socket's TcpSocketPlugin.swift does
+ * `guard let response = client.read(...) else { call.resolve(["result": ""]) }`,
+ * and TCPClient.read returns nil whenever ytcpsocket_pull gives `readLen <= 0`
+ * — which covers a select() timeout, EOF and RST alike. So it blocks for the
+ * full timeout and then RESOLVES EMPTY.
+ *
+ * An earlier version of these tests mocked a rejection with `code: 'TIMEOUT'`,
+ * which no iOS build ever produces. The tests passed against a transport that
+ * does not exist, and the watchdog they were certifying could not fire on the
+ * one platform this ships to.
  */
-const blockingTimeout = () =>
-    new Promise((_resolve, reject) => {
-        setTimeout(() => reject(timeoutErr()), 5000);
+const blockingEmpty = () =>
+    new Promise((resolve) => {
+        setTimeout(() => resolve({ result: '' }), 5000);
     });
 
 beforeEach(() => {
@@ -82,7 +89,7 @@ describe('silent-socket watchdog', () => {
         // Data first — so the service genuinely reaches 'connected' — then the
         // stream stops dead while the socket stays open. This is the half-open
         // case, and it used to last forever.
-        socket.read.mockResolvedValueOnce({ result: SENTENCE }).mockImplementation(blockingTimeout);
+        socket.read.mockResolvedValueOnce({ result: SENTENCE }).mockImplementation(blockingEmpty);
 
         NmeaListenerService.configure('192.168.1.151', 1456);
         NmeaListenerService.start();
@@ -132,6 +139,42 @@ describe('silent-socket watchdog', () => {
         expect(NmeaListenerService.getStatus()).toBe('connected');
     });
 
+    it('spots a closed socket from the SPEED of an empty read, not the 15s clock', async () => {
+        // EOF and RST come back as `{result: ''}` too — identical in value to a
+        // timeout, and separable only by how long the call took. A genuine idle
+        // timeout blocks inside select() for the full 5 s; a finished socket
+        // returns instantly. Waiting out the silence watchdog for something the
+        // transport already told us in milliseconds is fifteen seconds of a
+        // gateway slot held for nothing.
+        socket.read.mockResolvedValueOnce({ result: SENTENCE }).mockResolvedValue({ result: '' });
+
+        NmeaListenerService.configure('192.168.1.151', 1456);
+        NmeaListenerService.start();
+        await settle();
+
+        await vi.advanceTimersByTimeAsync(1_000);
+        await settle();
+
+        expect(socket.disconnect).toHaveBeenCalledWith({ client: 1 });
+    });
+
+    it('does not hot-spin on a socket that returns empty immediately', async () => {
+        // Every read is one call across the single serial Capacitor bridge
+        // queue that the whole app shares — maps, geolocation, haptics, all of
+        // it. An instantly-resolving empty read with no pause between
+        // iterations does not merely waste CPU, it starves the bridge.
+        socket.read.mockResolvedValue({ result: '' });
+
+        NmeaListenerService.configure('192.168.1.151', 1456);
+        NmeaListenerService.start();
+        await settle();
+        await vi.advanceTimersByTimeAsync(2_000);
+        await settle();
+
+        // A handful of paced reads, not thousands of unpaced ones.
+        expect(socket.read.mock.calls.length).toBeLessThan(30);
+    });
+
     it('retries within a second of the first failure, not two', async () => {
         // The gateway is on the same Wi-Fi. When a connect fails, the honest
         // assumption is that it is already back — so attempt #2 is immediate
@@ -170,7 +213,7 @@ describe('silent-socket watchdog', () => {
 
         // Now the phone comes out of a pocket. No clock advance at all.
         socket.connect.mockImplementation(async () => ({ client: socket.nextClient++ }));
-        socket.read.mockImplementation(blockingTimeout);
+        socket.read.mockImplementation(blockingEmpty);
         document.dispatchEvent(new Event('visibilitychange'));
         await settle(20);
 
