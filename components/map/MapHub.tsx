@@ -738,6 +738,18 @@ export const MapHub: React.FC<MapHubProps> = ({
                         }, 1_200);
                         tracerHandoffTimersRef.current.add(timer);
                     }
+                } else {
+                    // This branch used to not exist, and its absence was a
+                    // silent dead end: a route that is not in THIS device's
+                    // localStorage — a second phone, or the same one after a
+                    // reinstall — opened the tracer to an empty canvas with no
+                    // explanation at all. Callers now adopt the account copy
+                    // before navigating (see LogPage.openRouteInTracer), so
+                    // reaching here means that failed or was skipped. Say so.
+                    log.warn(
+                        `Route Tracer asked to open saved route ${action.id}, which is not on this device — ` +
+                            'the caller should fetch it from the account first',
+                    );
                 }
             } else if (action?.kind === 'load-trip-passage') {
                 // Derived "(Passage)" rollup: rebuilt fresh from the legs at

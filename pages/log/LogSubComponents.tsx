@@ -145,6 +145,9 @@ export const FollowRouteChoice: React.FC<{
     /** Called instead of onPick when blocked — opens Route Tracer on this
      *  route. Without it a blocked row falls back to being inert. */
     onCheckRoute?: () => void;
+    /** This row is fetching its waypoints from the account. Scoped to the row
+     *  on purpose — the sheet stays fully usable while it runs. */
+    checking?: boolean;
     loading?: boolean;
     disabled?: boolean;
     onPick: () => void;
@@ -153,6 +156,7 @@ export const FollowRouteChoice: React.FC<{
     reversible = false,
     blockReason = null,
     onCheckRoute,
+    checking = false,
     loading = false,
     disabled = false,
     onPick,
@@ -175,8 +179,8 @@ export const FollowRouteChoice: React.FC<{
             onClick={blocked ? onCheckRoute : onPick}
             // NOT disabled when blocked — only while another row is loading.
             // Blocked rows stay tappable because tapping is how you fix them.
-            disabled={disabled || (blocked && !onCheckRoute)}
-            aria-busy={loading}
+            disabled={disabled || checking || (blocked && !onCheckRoute)}
+            aria-busy={loading || checking}
             className={`flex w-full items-start justify-between gap-3 rounded-xl border px-4 py-3 text-left active:scale-[0.99] disabled:cursor-wait disabled:opacity-60 ${
                 blocked ? 'border-amber-500/25 bg-amber-500/[0.06]' : 'border-white/10 bg-slate-800/60'
             }`}
@@ -201,14 +205,18 @@ export const FollowRouteChoice: React.FC<{
                             a problem with no handle on it. */}
                         {onCheckRoute && (
                             <span className="mt-1.5 block text-[11px] font-bold text-amber-300">
-                                Tap to check it in Route Tracer →
+                                {checking ? 'Fetching waypoints…' : 'Tap to check it in Route Tracer →'}
                             </span>
                         )}
                     </>
                 )}
             </span>
             <span className={`shrink-0 text-[11px] font-bold ${blocked ? 'text-amber-300/70' : 'text-sky-300'}`}>
-                {loading ? 'Loading route…' : `${summary.totalDistanceNM.toFixed(1)} NM · ${summary.entryCount} pts`}
+                {loading
+                    ? 'Loading route…'
+                    : checking
+                      ? 'Fetching…'
+                      : `${summary.totalDistanceNM.toFixed(1)} NM · ${summary.entryCount} pts`}
             </span>
         </button>
     );
