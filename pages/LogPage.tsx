@@ -268,6 +268,15 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
     // to the active voyage (setVoyagePlanLink); "Just recording" skips it.
     const [followPromptVoyageId, setFollowPromptVoyageId] = React.useState<string | null>(null);
     const [followPromptLoadingId, setFollowPromptLoadingId] = React.useState<string | null>(null);
+    /**
+     * Which blocked row is fetching its waypoints from the account.
+     *
+     * Deliberately NOT followPromptLoadingId: that one disables every row, the
+     * "Just recording" footer AND the escape from the sheet, so borrowing it
+     * would trap the skipper inside the picker at cast-off for as long as a
+     * network fetch took. This gates one row's button and nothing else.
+     */
+    const [recheckingRouteId, setRecheckingRouteId] = React.useState<string | null>(null);
     /** PRE-START mode (Shane 2026-08-10: "it starts to track, and THEN it
      *  asks?? tidy this up"): the sheet now opens the moment Start Tracking
      *  is slid, before the voyage exists. The answer parks here and the
@@ -464,9 +473,43 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
      * describe the problem and stop.
      */
     const openRouteInTracer = React.useCallback(
-        (savedRouteId: string | null) => {
+        async (savedRouteId: string | null) => {
             const actionScope = identityScope;
             if (!isAuthIdentityScopeCurrent(actionScope)) return;
+
+            // The tracer loads a saved route from localStorage, so on a second
+            // device — or the same one after a reinstall — it opens to nothing
+            // and does it SILENTLY (MapHub's load-saved branch has no else).
+            // That is the closed loop behind "the route is blocked, and the fix
+            // it offers cannot work either". The waypoints are in the account;
+            // fetch them and adopt them under the SAME id first, so the tracer,
+            // the follow link and the Cast Off gate all still agree on which
+            // route this is.
+            if (savedRouteId) {
+                const [{ loadSavedTraces, adoptServerRoute }, { fetchSavedRoutePoints }] = await Promise.all([
+                    import('../services/routeTracer'),
+                    import('../services/savedRoutePoints'),
+                ]);
+                if (!isAuthIdentityScopeCurrent(actionScope)) return;
+                const local = loadSavedTraces().find((t) => t.id === savedRouteId);
+                if (!local || local.points.length < 2) {
+                    setRecheckingRouteId(savedRouteId);
+                    const fetched = await fetchSavedRoutePoints(savedRouteId);
+                    setRecheckingRouteId(null);
+                    if (!isAuthIdentityScopeCurrent(actionScope)) return;
+                    if (!fetched.ok) {
+                        // Stay put and say why. Navigating to a tracer that
+                        // will open empty is how this dead-ended before.
+                        setFollowBlockNotice(fetched.reason);
+                        return;
+                    }
+                    if (!adoptServerRoute(fetched.id, fetched.name, fetched.points)) {
+                        setFollowBlockNotice('Could not store this route on this device. Free up space and try again.');
+                        return;
+                    }
+                }
+            }
+
             setPreStartSheetOpen(false);
             setFollowPromptVoyageId(null);
             requestTracerOpen(savedRouteId ? { kind: 'load-saved', id: savedRouteId } : null, actionScope);
@@ -629,7 +672,12 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                     const message =
                         error instanceof Error && error.message.startsWith(TRACE_ROUTE_USE_BLOCK_PREFIX)
                             ? error.message.slice(TRACE_ROUTE_USE_BLOCK_PREFIX.length)
-                            : 'Couldn’t load this saved route — tap Menu → Follow a route to pick it again';
+                            : // There is no such menu. This used to read "tap Menu →
+                              // Follow a route to pick it again", naming a control
+                              // that has never existed — grep finds the string and
+                              // two comments, nothing else. Point at the door that
+                              // is actually there: the picker reopens from Cast Off.
+                              'Couldn’t load this saved route. Stop and cast off again to pick a route.';
                     // NOT a toast (Shane 2026-08-12: "i hate toast messages",
                     // and 2026-08-07 before that). Two lines of chart-safety
                     // reasoning need a surface that stays put: the same
@@ -2467,7 +2515,8 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                         summary={s}
                                         reversible={reversible}
                                         blockReason={blockReason}
-                                        onCheckRoute={() => openRouteInTracer(savedRouteId)}
+                                        onCheckRoute={() => void openRouteInTracer(savedRouteId)}
+                                        checking={recheckingRouteId !== null && recheckingRouteId === savedRouteId}
                                         loading={followPromptLoadingId === s.voyageId}
                                         disabled={followPromptLoadingId !== null}
                                         onPick={() => {

@@ -2185,6 +2185,49 @@ function writeSavedTraces(traces: readonly SavedTrace[], scope: AuthIdentityScop
     localStorage.setItem(tracesStorageKey(scope), JSON.stringify(capSavedTracesPreservingTrips(traces)));
 }
 
+/**
+ * Adopt a saved route from the account onto THIS device, keeping its id.
+ *
+ * The route library lives in localStorage, so a route traced on one phone is
+ * invisible on the next one — and after a reinstall, invisible on the same
+ * one. Everything downstream keys off the saved-route id (follow links, the
+ * verification envelope, the Cast Off gate), so the id must survive the hop.
+ *
+ * saveTrace's `overwriteId` cannot do this: it looks the id up in the LOCAL
+ * store first, finds nothing in exactly this case, and mints a fresh id —
+ * silently detaching the copy from the voyage that pointed at it.
+ *
+ * No verification is carried across. The envelope is a claim about a specific
+ * boat's draft against a specific chart library, and neither of those is
+ * necessarily true on the device now holding it. The route arrives unchecked
+ * and the tracer's own gate decides — which is the honest outcome.
+ */
+export function adoptServerRoute(
+    id: string,
+    name: string,
+    points: readonly TracePoint[],
+    scope: AuthIdentityScope = getAuthIdentityScope(),
+): SavedTrace | null {
+    if (!id.trim() || points.length < 2) return null;
+    const now = new Date().toISOString();
+    const existing = loadSavedTraces(scope);
+    const trace: SavedTrace = {
+        id,
+        name: name.trim() || 'Saved route',
+        createdAt: now,
+        updatedAt: now,
+        points: points.map((p) => ({ ...p })),
+    };
+    const next = [trace, ...existing.filter((t) => t.id !== id)];
+    try {
+        writeSavedTraces(next, scope);
+    } catch {
+        return null;
+    }
+    notifySavedRoutesChanged(scope);
+    return trace;
+}
+
 /** persisted=false means storage refused (quota) — tell the skipper, don't
  *  flash "Saved ✓" over a trace that won't exist next session. `cloud`
  *  resolves with the account-push outcome so the UI can be equally honest
