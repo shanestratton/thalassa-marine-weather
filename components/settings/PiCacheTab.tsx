@@ -24,6 +24,7 @@ import {
 } from '../Icons';
 import { piCache, type PiCacheStatus, type PiPairingEvent } from '../../services/PiCacheService';
 import { RemoteAccessSection } from './RemoteAccessSection';
+import { AnchorDashboardSection } from './AnchorDashboardSection';
 import {
     getPairing,
     pairWithPi,
@@ -869,6 +870,15 @@ const PiCacheTabDevelopment: React.FC<SettingsTabProps> = ({ settings, onSave })
             {/* Remote access — reach the Pi away from the boat via the
                 skipper's own Tailscale account. */}
             {isEnabled && status?.reachable && <RemoteAccessSection />}
+
+            {/* Anchor dashboard. Deliberately NOT gated on the Pi cache being
+                enabled, paired or reachable, and not on PI_INTEGRATION_ENABLED
+                either: this is an ordinary HTTPS endpoint on the tailnet with a
+                publicly-valid Tailscale certificate, so it needs no pairing and
+                no pinned transport, and it works on the web build too. Hiding
+                it behind the cache's state would make it unreachable on exactly
+                the devices most likely to want it. */}
+            <AnchorDashboardSection />
 
             {/* Setup instructions — only when off */}
             {!isEnabled && (

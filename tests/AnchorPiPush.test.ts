@@ -258,3 +258,54 @@ describe('outbox', () => {
         expect(http.post).toHaveBeenCalledTimes(1);
     });
 });
+
+describe('wiring to the anchor watch', () => {
+    /** Mimics AnchorWatchService.subscribe, which replays current state at once. */
+    const fakeSubscribe = (initial: AnchorWatchSnapshot) => {
+        const listeners: ((s: AnchorWatchSnapshot) => void)[] = [];
+        const subscribe = (fn: (s: AnchorWatchSnapshot) => void) => {
+            listeners.push(fn);
+            fn(initial); // the immediate replay
+            return () => {
+                listeners.length = 0;
+            };
+        };
+        const emit = (s: AnchorWatchSnapshot) => listeners.forEach((fn) => fn(s));
+        return { subscribe, emit, count: () => listeners.length };
+    };
+
+    it('does not push anything just because the app started with no anchor down', async () => {
+        // subscribe() replays the CURRENT state immediately. That is not a
+        // transition, and treating it as one would post on every cold boot.
+        await writeAnchorPiConfig('https://pi.example.ts.net/api/anchor', 'tok');
+        http.post.mockResolvedValue({ status: 200 });
+        const wire = fakeSubscribe(snap({ state: 'idle', anchorPosition: null }));
+
+        AnchorPiPush.start(wire.subscribe);
+        await flush();
+
+        expect(http.post).not.toHaveBeenCalled();
+    });
+
+    it('pushes when the anchor actually goes down', async () => {
+        await writeAnchorPiConfig('https://pi.example.ts.net/api/anchor', 'tok');
+        http.post.mockResolvedValue({ status: 200 });
+        const wire = fakeSubscribe(snap({ state: 'idle', anchorPosition: null }));
+
+        AnchorPiPush.start(wire.subscribe);
+        await flush();
+        wire.emit(snap({ state: 'watching' }));
+        await flush();
+
+        expect(http.post).toHaveBeenCalledTimes(1);
+        expect(http.post.mock.calls[0][0].data.state).toBe('holding');
+    });
+
+    it('subscribes once however many times it is started', async () => {
+        const wire = fakeSubscribe(snap({ state: 'idle', anchorPosition: null }));
+        AnchorPiPush.start(wire.subscribe);
+        AnchorPiPush.start(wire.subscribe);
+        AnchorPiPush.start(wire.subscribe);
+        expect(wire.count()).toBe(1);
+    });
+});
