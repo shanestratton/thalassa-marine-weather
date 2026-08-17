@@ -67,6 +67,12 @@ export const LiveMiniMap: React.FC<LiveMiniMapProps> = memo(
         const trackCoordsRef = useRef<[number, number][]>([]);
         const followedRouteLatLngsRef = useRef<[number, number][]>([]);
         const hasFitRef = useRef(false);
+        /** Latest props, readable from the create-once effect (empty deps) so
+         *  the map's FIRST viewport can be framed from data already in hand. */
+        const entriesRef = useRef(entries);
+        entriesRef.current = entries;
+        const followedRouteCoordsRef = useRef(followedRouteCoords);
+        followedRouteCoordsRef.current = followedRouteCoords;
         // Set once the user manually zooms/pans a free-zoom map — stops
         // the live auto-follow from snapping their view back.
         const userMovedRef = useRef(false);
@@ -164,8 +170,36 @@ export const LiveMiniMap: React.FC<LiveMiniMapProps> = memo(
             // still works inside the expanded view.
             map.on('click', () => onTapRef.current?.());
 
-            // Default center while entries load
-            map.setView([-27.207, 153.108], 12);
+            // FRAME FROM THE DATA WE ALREADY HAVE, not from Newport.
+            //
+            // This used to setView([-27.207, 153.108], 12) unconditionally as a
+            // "default centre while entries load" — but the tile layer is
+            // already attached at this point, so that call is what fires the
+            // FIRST tile requests. The real framing then arrives up to 100 ms
+            // later via fitBounds at maxZoom 15, and the two viewports share no
+            // tiles at all: the whole grid blanks and refetches, at 512@2x
+            // retina satellite JPEG, over whatever link the boat has. Two full
+            // viewports fetched to show one, and the perceived wait is the
+            // slowest tile of the second set (fadeAnimation is off, so tiles
+            // land individually).
+            //
+            // Whenever the caller already knows where the boat is — and on the
+            // live Log page it almost always does — start there instead. Only a
+            // genuinely empty map falls back to the old default.
+            const seedPoints: L.LatLngExpression[] = [
+                ...followedRouteCoordsRef.current.map((c) => [c.lat, c.lon] as [number, number]),
+                ...entriesRef.current
+                    .filter((e) => isTrackworthyEntry(e) && e.latitude != null && e.longitude != null)
+                    .map((e) => [e.latitude as number, e.longitude as number] as [number, number]),
+            ];
+            if (seedPoints.length === 1) {
+                map.setView(seedPoints[0], 14);
+            } else if (seedPoints.length > 1) {
+                map.fitBounds(L.latLngBounds(seedPoints), { maxZoom: 15, animate: false, padding: [16, 16] });
+                hasFitRef.current = true;
+            } else {
+                map.setView([-27.207, 153.108], 12);
+            }
 
             setTimeout(() => map.invalidateSize(), 150);
 
