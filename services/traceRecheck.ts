@@ -33,7 +33,12 @@
  * asked for: "warn — but not let us go."
  */
 import { evaluateTraceRelease, normaliseTraceVerification, type TraceVerification } from './traceVerification';
-import { commonDepartureWindowLabel, type TraceLegVerdict, type TracePoint } from './routeTracer';
+import {
+    commonDepartureWindowLabel,
+    TRACE_LAND_CROSSING_MESSAGE,
+    type TraceLegVerdict,
+    type TracePoint,
+} from './routeTracer';
 import { gradeLegs } from './traceGrading';
 import { getVersion as getEncRegistryVersion, getRegistryFingerprint } from './enc/EncCellMetadata';
 import { useSettingsStore } from '../stores/settingsStore';
@@ -45,6 +50,23 @@ const log = createLogger('traceRecheck');
 /** Matches the interactive tracer's build-cost ceiling per window. */
 const RECHECK_CLUSTER_SPAN_M = 20_000;
 
+/**
+ * What the report needs to render, handed back on a refusal.
+ *
+ * The grading pass already computed every one of these and used to throw them
+ * away, so a skipper who needed to acknowledge a no-go leg was sent to Route
+ * Tracer to have the SAME work done again in front of them. Returning them
+ * lets the Log page show the route report in place (Shane, 2026-08-18: "just
+ * trying to make it an easier task than it currently is").
+ */
+export interface RecheckReport {
+    verdicts: Array<TraceLegVerdict | null>;
+    tideWindowLabel: string | null;
+    status: string;
+    /** Legs an acknowledgement alone could clear — no waypoint has to move. */
+    ackableDangerLegs: number[];
+}
+
 export type RecheckOutcome =
     | { ok: true; verification: TraceVerification }
     /**
@@ -53,7 +75,7 @@ export type RecheckOutcome =
      * needs a connection. Sending someone to the tracer for the second is how
      * the old dead end felt.
      */
-    | { ok: false; reason: string; needsTracer: boolean };
+    | { ok: false; reason: string; needsTracer: boolean; report?: RecheckReport };
 
 export interface RecheckOptions {
     /** Carries forward prior danger acknowledgements, under strict conditions. */
@@ -199,11 +221,24 @@ export async function recheckTrace(
     if (!gate.allowed || !gate.verification) {
         // Never write anything on a refusal — the existing envelope stays
         // exactly as it was, and the route stays blocked.
+        //
+        // A land crossing has NO acknowledgement path at all (evaluateTraceRelease
+        // refuses it before the ack machinery), so those legs are excluded: they
+        // need a waypoint moved, which is an edit, which needs the editor.
+        // Everything else grading danger can be cleared by a person deciding —
+        // and a person can decide anywhere.
+        const ackableDangerLegs = verdicts.reduce<number[]>(
+            (acc, v, i) =>
+                v?.grade === 'danger' && !v.issues?.some((iss) => iss.message === TRACE_LAND_CROSSING_MESSAGE)
+                    ? [...acc, i]
+                    : acc,
+            [],
+        );
         return {
             ok: false,
             reason: gate.reason || 'This route could not be cleared.',
-            // A danger leg or a land crossing is a decision, not a condition.
             needsTracer: verdicts.some((v) => v?.grade === 'danger') || result.status === 'ready',
+            report: { verdicts, tideWindowLabel, status: result.status, ackableDangerLegs },
         };
     }
 

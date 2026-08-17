@@ -68,9 +68,17 @@ interface Props {
     releaseGate: TraceReleaseGate;
     /** Leg index currently being fixed (spinner), or null. */
     fixBusy: number | null;
-    onFlyTo: (p: TracePoint) => void;
-    onFixLeg: (i: number) => void;
-    onFixAll: () => void;
+    /**
+     * Chart controls, OPTIONAL so this report can be shown where there is no
+     * route editor — the Log page opens it at cast-off purely so the skipper
+     * can acknowledge no-go legs without a trip to Route Tracer. Acknowledging
+     * is a decision and can happen anywhere; fixing is an EDIT and belongs in
+     * the editor, so when these are absent their buttons are not rendered
+     * rather than rendered dead.
+     */
+    onFlyTo?: (p: TracePoint) => void;
+    onFixLeg?: (i: number) => void;
+    onFixAll?: () => void;
     onAckLeg: (i: number) => void;
     vesselName?: string;
     draftM?: number;
@@ -111,7 +119,7 @@ const sevRow = (
     const isAcked = acked.has(i);
     return (
         <div key={i} className={`rounded-xl border border-white/10 bg-white/5 p-2 ${isAcked ? 'opacity-50' : ''}`}>
-            <button onClick={() => onFlyTo(spot)} className="w-full text-left">
+            <button onClick={() => onFlyTo?.(spot)} className="w-full text-left" disabled={!onFlyTo}>
                 <div className="flex items-start gap-1.5 text-[12px] leading-tight text-gray-100">
                     <span className={v.grade === 'danger' ? 'text-red-400' : 'text-amber-300'}>
                         {v.grade === 'danger' ? '⛔' : '⚠'}
@@ -129,18 +137,20 @@ const sevRow = (
                     ))}
                     {tideLabels[i] && <div>🌊 {tideLabels[i]}</div>}
                     {v.nudge && <div>💡 {v.nudge}</div>}
-                    <div className="text-gray-500">tap to view on the chart</div>
+                    {onFlyTo && <div className="text-gray-500">tap to view on the chart</div>}
                 </div>
             </button>
             {v.grade === 'danger' && !isAcked && (
                 <div className="mt-1.5 flex gap-1.5 pl-5">
-                    <button
-                        onClick={() => onFixLeg(i)}
-                        disabled={fixBusy !== null}
-                        className="rounded-lg bg-emerald-500/20 px-3 py-1.5 text-[11px] font-black uppercase tracking-wide text-emerald-300 active:scale-95 disabled:opacity-50"
-                    >
-                        {fixBusy === i ? 'Fixing…' : 'Fix it'}
-                    </button>
+                    {onFixLeg && (
+                        <button
+                            onClick={() => onFixLeg(i)}
+                            disabled={fixBusy !== null}
+                            className="rounded-lg bg-emerald-500/20 px-3 py-1.5 text-[11px] font-black uppercase tracking-wide text-emerald-300 active:scale-95 disabled:opacity-50"
+                        >
+                            {fixBusy === i ? 'Fixing…' : 'Fix it'}
+                        </button>
+                    )}
                     <button
                         onClick={() => onAckLeg(i)}
                         className="rounded-lg bg-white/5 px-3 py-1.5 text-[11px] font-black uppercase tracking-wide text-gray-300 active:scale-95"
@@ -447,7 +457,7 @@ export const TraceReportModal: React.FC<Props> = ({
                                     return (
                                         <button
                                             key={i}
-                                            onClick={() => onFlyTo(p)}
+                                            onClick={() => onFlyTo?.(p)}
                                             className="flex w-full items-baseline gap-2 rounded px-1 py-0.5 text-left active:bg-white/10"
                                         >
                                             <span className="w-6 shrink-0 text-right text-amber-300/80">{i + 1}</span>
@@ -471,7 +481,7 @@ export const TraceReportModal: React.FC<Props> = ({
                         </div>
                     )}
                 </div>
-                {fixable.length > 0 && (
+                {onFixAll && fixable.length > 0 && (
                     <div className="shrink-0 border-t border-white/10 px-4 py-3">
                         <button
                             onClick={onFixAll}
