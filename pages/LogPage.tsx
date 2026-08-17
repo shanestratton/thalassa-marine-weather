@@ -277,6 +277,14 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
      * network fetch took. This gates one row's button and nothing else.
      */
     const [recheckingRouteId, setRecheckingRouteId] = React.useState<string | null>(null);
+    /** "Checking 6 of 18…" — a cold recheck can run tens of seconds. */
+    const [recheckProgress, setRecheckProgress] = React.useState<string | null>(null);
+    /**
+     * Routes whose automatic recheck came back needing a human — a danger leg,
+     * or a land crossing. Tapping those again opens Route Tracer instead of
+     * re-running a check that has already said it cannot decide this alone.
+     */
+    const [needsTracerRoutes, setNeedsTracerRoutes] = React.useState<ReadonlySet<string>>(() => new Set());
     /** PRE-START mode (Shane 2026-08-10: "it starts to track, and THEN it
      *  asks?? tidy this up"): the sheet now opens the moment Start Tracking
      *  is slid, before the voyage exists. The answer parks here and the
@@ -472,6 +480,105 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
      * line in Route Tracer — so the row should carry you there rather than
      * describe the problem and stop.
      */
+    /**
+     * Re-run the hazard check on a blocked route, in place.
+     *
+     * The row has always said "tap to check it in Route Tracer". Now the first
+     * tap does the check itself — cold, against the current charts and the
+     * skipper's real draft — and only sends them to the tracer when the answer
+     * genuinely needs a person: a danger leg to acknowledge, or a land
+     * crossing whose waypoints must be moved.
+     *
+     * A refusal is an answer, not a failure. The route stays blocked and the
+     * reason is shown, which is what "warn — but not let us go" means.
+     */
+    const recheckRoute = React.useCallback(
+        async (savedRouteId: string) => {
+            const actionScope = identityScope;
+            if (!isAuthIdentityScopeCurrent(actionScope)) return;
+            setFollowBlockNotice(null);
+            setRecheckingRouteId(savedRouteId);
+            setRecheckProgress(null);
+            try {
+                const [{ loadSavedTraces, adoptServerRoute, saveTrace }, { fetchSavedRoutePoints }] =
+                    await Promise.all([
+                        import('../services/routeTracer'),
+                        import('../services/savedRoutePoints'),
+                    ]);
+                if (!isAuthIdentityScopeCurrent(actionScope)) return;
+
+                // The waypoints may only exist in the account — a second
+                // device, or this one after a reinstall. Adopt them under the
+                // same id first so the check attaches to the right route.
+                let trace = loadSavedTraces().find((t) => t.id === savedRouteId);
+                if (!trace || trace.points.length < 2) {
+                    const fetched = await fetchSavedRoutePoints(savedRouteId);
+                    if (!isAuthIdentityScopeCurrent(actionScope)) return;
+                    if (!fetched.ok) {
+                        setFollowBlockNotice(fetched.reason);
+                        return;
+                    }
+                    trace = adoptServerRoute(fetched.id, fetched.name, fetched.points) ?? undefined;
+                    if (!trace) {
+                        setFollowBlockNotice('Could not store this route on this device.');
+                        return;
+                    }
+                }
+
+                const { recheckTrace } = await import('../services/traceRecheck');
+                if (!isAuthIdentityScopeCurrent(actionScope)) return;
+                const outcome = await recheckTrace(trace.points, {
+                    priorVerification: trace.verification ?? null,
+                    onProgress: (done, total) =>
+                        setRecheckProgress(total > 1 ? `Checking ${done} of ${total}` : 'Checking'),
+                });
+                if (!isAuthIdentityScopeCurrent(actionScope)) return;
+
+                if (!outcome.ok) {
+                    setFollowBlockNotice(outcome.reason);
+                    if (outcome.needsTracer) {
+                        setNeedsTracerRoutes((prev) => new Set(prev).add(savedRouteId));
+                    }
+                    return;
+                }
+
+                // Bank the freshly earned envelope against the same id.
+                saveTrace(trace.name, trace.points, {
+                    overwriteId: trace.id,
+                    verification: outcome.verification,
+                });
+                setNeedsTracerRoutes((prev) => {
+                    if (!prev.has(savedRouteId)) return prev;
+                    const next = new Set(prev);
+                    next.delete(savedRouteId);
+                    return next;
+                });
+
+                // The sheet renders a SNAPSHOT taken when it opened, so a
+                // successful recheck would otherwise leave the row looking
+                // exactly as blocked as before. Recompute from the gate rather
+                // than assuming null — a check can pass and the row still
+                // block for a different reason.
+                const { savedTraceFollowBlockReason } = await import('../services/traceDirectUseGate');
+                if (!isAuthIdentityScopeCurrent(actionScope)) return;
+                const reason = savedTraceFollowBlockReason(savedRouteId);
+                setFollowPromptChoices((prev) =>
+                    prev.map((choice) =>
+                        choice.savedRouteId === savedRouteId ? { ...choice, blockReason: reason } : choice,
+                    ),
+                );
+                if (reason) setFollowBlockNotice(reason);
+            } catch (error) {
+                log.warn('Route recheck failed:', error);
+                setFollowBlockNotice('Could not check this route. Try again.');
+            } finally {
+                setRecheckingRouteId(null);
+                setRecheckProgress(null);
+            }
+        },
+        [identityScope],
+    );
+
     const openRouteInTracer = React.useCallback(
         async (savedRouteId: string | null) => {
             const actionScope = identityScope;
@@ -2515,7 +2622,23 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                         summary={s}
                                         reversible={reversible}
                                         blockReason={blockReason}
-                                        onCheckRoute={() => void openRouteInTracer(savedRouteId)}
+                                        onCheckRoute={() => {
+                                            if (!savedRouteId) return;
+                                            // Second tap on a route the check
+                                            // could not decide alone goes to
+                                            // the tracer; the first tries here.
+                                            if (needsTracerRoutes.has(savedRouteId)) {
+                                                void openRouteInTracer(savedRouteId);
+                                            } else {
+                                                void recheckRoute(savedRouteId);
+                                            }
+                                        }}
+                                        checkLabel={
+                                            savedRouteId && needsTracerRoutes.has(savedRouteId)
+                                                ? 'Tap to open it in Route Tracer →'
+                                                : 'Tap to check this route now →'
+                                        }
+                                        checkingLabel={recheckProgress ?? undefined}
                                         checking={recheckingRouteId !== null && recheckingRouteId === savedRouteId}
                                         loading={followPromptLoadingId === s.voyageId}
                                         disabled={followPromptLoadingId !== null}

@@ -148,6 +148,12 @@ export const FollowRouteChoice: React.FC<{
     /** This row is fetching its waypoints from the account. Scoped to the row
      *  on purpose — the sheet stays fully usable while it runs. */
     checking?: boolean;
+    /** Call-to-action under the block reason. Varies: the first tap runs the
+     *  check here, a later one opens the tracer. */
+    checkLabel?: string;
+    /** Live progress while checking — a cold recheck runs tens of seconds, and
+     *  an indefinite spinner on a 60-second wait reads as a hang. */
+    checkingLabel?: string;
     loading?: boolean;
     disabled?: boolean;
     onPick: () => void;
@@ -157,6 +163,8 @@ export const FollowRouteChoice: React.FC<{
     blockReason = null,
     onCheckRoute,
     checking = false,
+    checkLabel = 'Tap to check it in Route Tracer →',
+    checkingLabel,
     loading = false,
     disabled = false,
     onPick,
@@ -205,7 +213,7 @@ export const FollowRouteChoice: React.FC<{
                             a problem with no handle on it. */}
                         {onCheckRoute && (
                             <span className="mt-1.5 block text-[11px] font-bold text-amber-300">
-                                {checking ? 'Fetching waypoints…' : 'Tap to check it in Route Tracer →'}
+                                {checking ? (checkingLabel ?? 'Checking…') : checkLabel}
                             </span>
                         )}
                     </>
@@ -215,7 +223,7 @@ export const FollowRouteChoice: React.FC<{
                 {loading
                     ? 'Loading route…'
                     : checking
-                      ? 'Fetching…'
+                      ? (checkingLabel ?? 'Checking…')
                       : `${summary.totalDistanceNM.toFixed(1)} NM · ${summary.entryCount} pts`}
             </span>
         </button>
