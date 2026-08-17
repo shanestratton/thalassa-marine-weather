@@ -155,6 +155,17 @@ export function useAppBootstrap() {
         import('../services/AnchorWatchService')
             .then((m) => {
                 if (active && isAuthIdentityScopeCurrent(actionScope)) {
+                    // Mirror anchor state to the boat's cabin dashboard. Started
+                    // here rather than from the anchor page because the crew
+                    // ashore-facing screen must keep updating while the skipper
+                    // is anywhere else in the app — or has it in their pocket.
+                    // Inert until an endpoint and token are configured.
+                    void import('../services/anchorPiPush')
+                        .then(({ AnchorPiPush }) => {
+                            if (!active || !isAuthIdentityScopeCurrent(actionScope)) return;
+                            AnchorPiPush.start((listener) => m.AnchorWatchService.subscribe(listener));
+                        })
+                        .catch(() => {});
                     return m.AnchorWatchService.restoreWatchState();
                 }
                 return undefined;
