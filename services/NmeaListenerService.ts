@@ -31,7 +31,29 @@ let _nmeaSentenceRejects = 0;
 const DEFAULT_HOST = '192.168.1.151';
 const DEFAULT_PORT = 1456; // YDWG-02 standard TCP port
 const RECONNECT_BASE_MS = 2000;
-const RECONNECT_MAX_MS = 30000;
+/** First retry after a drop. A gateway on the same Wi-Fi is usually back
+ *  instantly, and paying the full 2 s base for attempt #1 was most of the
+ *  "slow to reconnect" feel. The exponential ladder starts from attempt #2. */
+const RECONNECT_FIRST_MS = 400;
+/** Was 30 s. That is a sensible ceiling for a server across the internet and
+ *  far too long for a box on the same LAN — a blip could leave the app idling
+ *  half a minute after the gateway was reachable again. */
+const RECONNECT_MAX_MS = 10000;
+/**
+ * Treat an open-but-silent socket as dead.
+ *
+ * The YDWG-02 streams continuously — measured 3,146 sentences in 91 s — so
+ * silence is not "quiet", it is a corpse. Read timeouts were treated as
+ * normal and `continue`d forever, so a HALF-OPEN socket (the usual result of
+ * a Wi-Fi drop, where no FIN ever arrives) left the service reporting
+ * "connected" indefinitely while receiving nothing, AND holding one of the
+ * gateway's three TCP slots hostage until it timed the connection out.
+ *
+ * 15 s is deliberately generous: this service also feeds quieter sources
+ * than the YDWG (multiplexers, a Bad Elf), and the cost of being wrong is
+ * only a clean release plus a 400 ms reconnect.
+ */
+const DATA_SILENCE_TIMEOUT_MS = 15000;
 const RECONNECT_GIVE_UP_MS = 5 * 60 * 1000; // Give up after 5 minutes of failed reconnects
 const TCP_READ_TIMEOUT_S = 5; // Read timeout for TCP polling (seconds)
 const TCP_READ_BUFFER = 4096; // Bytes to request per read cycle
@@ -102,6 +124,8 @@ class NmeaListenerServiceClass {
     private host = DEFAULT_HOST;
     private port = DEFAULT_PORT;
     private reconnectAttempts = 0;
+    /** When a sentence last arrived — drives the silent-socket watchdog. */
+    private lastDataAt = 0;
     private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     private firstAttemptTime: number | null = null; // For 5-minute give-up
     private sampleTimer: ReturnType<typeof setInterval> | null = null;
@@ -124,15 +148,34 @@ class NmeaListenerServiceClass {
         // app is exactly when the boat Wi-Fi is likely reachable again.
         if (typeof document !== 'undefined') {
             document.addEventListener('visibilitychange', () => {
-                if (document.hidden || !this.parkedAfterGiveUp || this.enabled) return;
-                log.warn('Retrying parked NMEA connection on app foreground');
-                // Retry at the BOTTOM of the ladder. The backoff doubles to a
-                // 30 s cap, and reopening the app is the strongest signal we
-                // get that the network just changed — walking aboard, joining
-                // the boat Wi-Fi. Resuming mid-ladder made that first attempt
-                // wait up to half a minute, which reads as "still broken".
-                this.reconnectAttempts = 0;
-                this.start();
+                if (document.hidden) return;
+
+                if (this.parkedAfterGiveUp && !this.enabled) {
+                    log.warn('Retrying parked NMEA connection on app foreground');
+                    // Retry at the BOTTOM of the ladder. Reopening the app is
+                    // the strongest signal we get that the network just changed
+                    // — walking aboard, joining the boat Wi-Fi. Resuming
+                    // mid-ladder made that first attempt wait out the whole
+                    // backoff cap, which reads as "still broken".
+                    this.reconnectAttempts = 0;
+                    this.start();
+                    return;
+                }
+
+                // Still enabled but not connected: a retry is already queued,
+                // somewhere up a ladder that may have climbed to its cap. That
+                // countdown was measured against a network that no longer
+                // exists — the skipper has just walked into Wi-Fi range and is
+                // looking at the screen. Waiting out the remainder is the
+                // single most visible part of "difficult to connect at times"
+                // (Shane, 2026-08-17). Collapse it and go now.
+                if (this.enabled && this.status !== 'connected' && this.reconnectTimer) {
+                    log.info('App foregrounded while disconnected — retrying NMEA immediately');
+                    clearTimeout(this.reconnectTimer);
+                    this.reconnectTimer = null;
+                    this.reconnectAttempts = 0;
+                    this.connect();
+                }
             });
         }
     }
@@ -290,6 +333,7 @@ class NmeaListenerServiceClass {
             });
             this.tcpClientId = result.client;
             this.tcpLineBuffer = '';
+            this.lastDataAt = Date.now();
             this.reconnectAttempts = 0;
             this.firstAttemptTime = null; // Reset give-up timer on success
             this.setStatus('connected');
@@ -327,6 +371,7 @@ class NmeaListenerServiceClass {
                     });
 
                     if (result && result.length > 0) {
+                        this.lastDataAt = Date.now();
                         // Append to line buffer and process complete lines
                         this.tcpLineBuffer += result;
                         const lines = this.tcpLineBuffer.split(/\r?\n/);
@@ -344,6 +389,20 @@ class NmeaListenerServiceClass {
                     // Read timeout is normal (no data available) — just continue
                     const errObj = readErr as Record<string, unknown> | null;
                     if (errObj?.message?.toString().includes?.('timeout') || errObj?.code === 'TIMEOUT') {
+                        // A read timeout alone is normal. A RUN of them is not:
+                        // the gateway streams constantly, so prolonged silence
+                        // means the socket is half-open — no FIN ever arrived,
+                        // typically because Wi-Fi dropped. Left alone this loops
+                        // forever reporting "connected" while receiving nothing,
+                        // and keeps one of the gateway's three slots busy.
+                        if (Date.now() - this.lastDataAt > DATA_SILENCE_TIMEOUT_MS) {
+                            log.warn(
+                                `No NMEA data for ${Math.round((Date.now() - this.lastDataAt) / 1000)}s — ` +
+                                    'treating the socket as dead and reconnecting',
+                            );
+                            this.lastError = 'Gateway stopped sending — reconnecting';
+                            break;
+                        }
                         continue;
                     }
                     // Actual error — connection lost
@@ -496,7 +555,15 @@ class NmeaListenerServiceClass {
             return;
         }
 
-        const delay = Math.min(RECONNECT_BASE_MS * Math.pow(2, this.reconnectAttempts), RECONNECT_MAX_MS);
+        // Attempt #1 goes almost immediately — a LAN device that just dropped
+        // is usually already back. Everything after climbs as before. Jitter
+        // keeps several clients (phone, MFD, laptop) from retrying in lockstep
+        // and racing for the same three slots.
+        const base =
+            this.reconnectAttempts === 0
+                ? RECONNECT_FIRST_MS
+                : RECONNECT_BASE_MS * Math.pow(2, this.reconnectAttempts - 1);
+        const delay = Math.min(base, RECONNECT_MAX_MS) + Math.random() * 250;
         this.reconnectAttempts++;
         this.reconnectTimer = setTimeout(() => {
             this.reconnectTimer = null;
