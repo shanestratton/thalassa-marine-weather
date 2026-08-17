@@ -85,3 +85,70 @@ describe('FollowRouteChoice with a follow-gate refusal', () => {
         expect(onPick).toHaveBeenCalledTimes(1);
     });
 });
+
+/**
+ * The blocked row's call to action changed meaning once the check could run in
+ * place. The FIRST tap now re-runs the hazard check here; only an outcome that
+ * genuinely needs a person — a danger leg to acknowledge, a land crossing to
+ * re-route — sends the skipper to the tracer. The label has to say which of
+ * those two things the next tap will do, or the row is lying about itself.
+ */
+describe('FollowRouteChoice — checking in place', () => {
+    const REASON2 = 'This route check is over a month old.';
+
+    it('offers to run the check here by default', () => {
+        render(
+            <FollowRouteChoice
+                summary={summary}
+                blockReason={REASON2}
+                onCheckRoute={() => {}}
+                checkLabel="Tap to check this route now →"
+                onPick={() => {}}
+            />,
+        );
+        expect(screen.getByText(/check this route now/i)).toBeTruthy();
+    });
+
+    it('redirects to the tracer only once the check has said it cannot decide alone', () => {
+        render(
+            <FollowRouteChoice
+                summary={summary}
+                blockReason={REASON2}
+                onCheckRoute={() => {}}
+                checkLabel="Tap to open it in Route Tracer →"
+                onPick={() => {}}
+            />,
+        );
+        expect(screen.getByText(/open it in Route Tracer/i)).toBeTruthy();
+    });
+
+    it('shows live progress rather than an indefinite spinner', () => {
+        // A cold recheck runs tens of seconds — a passage-scale route built 18
+        // windows in 62 s. An unlabelled wait that long reads as a hang.
+        render(
+            <FollowRouteChoice
+                summary={summary}
+                blockReason={REASON2}
+                onCheckRoute={() => {}}
+                checking
+                checkingLabel="Checking 6 of 18"
+                onPick={() => {}}
+            />,
+        );
+        expect(screen.getAllByText(/Checking 6 of 18/).length).toBeGreaterThan(0);
+    });
+
+    it('stays un-tappable while its own check is running', () => {
+        const onCheckRoute = vi.fn();
+        render(
+            <FollowRouteChoice
+                summary={summary}
+                blockReason={REASON2}
+                onCheckRoute={onCheckRoute}
+                checking
+                onPick={() => {}}
+            />,
+        );
+        expect(screen.getByRole('button').hasAttribute('disabled')).toBe(true);
+    });
+});
