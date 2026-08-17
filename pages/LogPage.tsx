@@ -16,6 +16,7 @@ import { triggerHaptic } from '../utils/system';
 
 const log = createLogger('LogPage');
 import { PlayIcon, StopIcon, MapPinIcon } from '../components/Icons';
+import { TraceReportModal } from '../components/map/TraceReportModal';
 import { AddEntryModal } from '../components/AddEntryModal';
 import { useToast } from '../components/Toast';
 import { SlideToAction } from '../components/ui/SlideToAction';
@@ -285,6 +286,18 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
      * re-running a check that has already said it cannot decide this alone.
      */
     const [needsTracerRoutes, setNeedsTracerRoutes] = React.useState<ReadonlySet<string>>(() => new Set());
+    /**
+     * The route report, shown right here at cast-off so a skipper can
+     * acknowledge no-go legs without a round trip to Route Tracer. Holds the
+     * grading the recheck already did — the check is never re-run for this.
+     */
+    const [ackReport, setAckReport] = React.useState<{
+        savedRouteId: string;
+        name: string;
+        points: Array<{ lat: number; lon: number }>;
+        report: import('../services/traceRecheck').RecheckReport;
+    } | null>(null);
+    const [ackedLegs, setAckedLegs] = React.useState<ReadonlySet<number>>(() => new Set());
     /** PRE-START mode (Shane 2026-08-10: "it starts to track, and THEN it
      *  asks?? tidy this up"): the sheet now opens the moment Start Tracking
      *  is slid, before the voyage exists. The answer parks here and the
@@ -535,6 +548,19 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                 if (!isAuthIdentityScopeCurrent(actionScope)) return;
 
                 if (!outcome.ok) {
+                    // A refusal whose legs can be cleared by a person deciding
+                    // is not a reason to send them somewhere else. Show the
+                    // report here, with the grading that was just done.
+                    if (outcome.report && outcome.report.ackableDangerLegs.length > 0) {
+                        setAckedLegs(new Set());
+                        setAckReport({
+                            savedRouteId,
+                            name: trace.name,
+                            points: trace.points,
+                            report: outcome.report,
+                        });
+                        return;
+                    }
                     setFollowBlockNotice(outcome.reason);
                     if (outcome.needsTracer) {
                         setNeedsTracerRoutes((prev) => new Set(prev).add(savedRouteId));
@@ -577,6 +603,44 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
             }
         },
         [identityScope],
+    );
+
+    /**
+     * A leg was acknowledged on the report. Re-run the release GATE (pure and
+     * cheap) — never the check itself, which already ran. The moment the gate
+     * allows, bank the envelope and unblock the row.
+     */
+    const acknowledgeLeg = React.useCallback(
+        (legIndex: number) => {
+            if (!ackReport) return;
+            const actionScope = identityScope;
+            const nextAcks = new Set(ackedLegs).add(legIndex);
+            setAckedLegs(nextAcks);
+            void (async () => {
+                const [{ releaseWithAcks }, { saveTrace }, { savedTraceFollowBlockReason }] = await Promise.all([
+                    import('../services/traceRecheck'),
+                    import('../services/routeTracer'),
+                    import('../services/traceDirectUseGate'),
+                ]);
+                if (!isAuthIdentityScopeCurrent(actionScope)) return;
+                const gate = releaseWithAcks(ackReport.points, ackReport.report, nextAcks);
+                if (!gate.allowed || !gate.verification) return; // more legs to go
+                saveTrace(ackReport.name, ackReport.points, {
+                    overwriteId: ackReport.savedRouteId,
+                    verification: gate.verification,
+                });
+                const reason = savedTraceFollowBlockReason(ackReport.savedRouteId);
+                setFollowPromptChoices((prev) =>
+                    prev.map((choice) =>
+                        choice.savedRouteId === ackReport.savedRouteId ? { ...choice, blockReason: reason } : choice,
+                    ),
+                );
+                setAckReport(null);
+                setAckedLegs(new Set());
+                setFollowBlockNotice(reason);
+            })();
+        },
+        [ackReport, ackedLegs, identityScope],
     );
 
     const openRouteInTracer = React.useCallback(
@@ -2559,6 +2623,31 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                     selectedVoyageId={selectedVoyageId}
                     currentVoyageId={currentVoyageId ?? null}
                     voyageGroups={loggedVoyages}
+                />
+            )}
+
+            {/* The route report, at cast-off. Acknowledging a no-go leg is a
+                DECISION, and a decision can be made here — so it is, instead of
+                a trip to Route Tracer to have the identical grading pass run
+                again in front of the skipper. No chart and no fix controls:
+                moving a waypoint is an EDIT and still belongs in the editor,
+                which is why land-crossing legs never reach this modal. */}
+            {ackReport && (
+                <TraceReportModal
+                    open
+                    onClose={() => {
+                        setAckReport(null);
+                        setAckedLegs(new Set());
+                    }}
+                    pins={ackReport.points}
+                    routeName={ackReport.name}
+                    verdicts={ackReport.report.verdicts}
+                    tideLabels={{}}
+                    departureLabel={ackReport.report.tideWindowLabel}
+                    ackedLegs={ackedLegs}
+                    releaseGate={{ allowed: false, reason: '', verification: null }}
+                    fixBusy={null}
+                    onAckLeg={acknowledgeLeg}
                 />
             )}
 
