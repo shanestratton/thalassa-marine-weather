@@ -66,19 +66,38 @@ export interface RecheckOptions {
 /**
  * Which danger legs may inherit the skipper's earlier acknowledgement.
  *
- * Only when the chart library is byte-for-byte the one they acknowledged
- * against, AND every leg now grading danger was already acknowledged. If a
- * chart update moved a hazard, or a NEW leg grades danger, the indices in the
- * old envelope no longer describe the same water — they are bare integers with
- * no issue identity — and re-acking them would silently clear a hazard nobody
- * ever looked at.
+ * THREE conditions, and the third was missing on first write — a real
+ * false-clearance path, caught in adversarial review:
+ *
+ *  1. the chart library is byte-for-byte the one they acknowledged against;
+ *  2. the keel is the one they acknowledged against;
+ *  3. every leg now grading danger was already acknowledged.
+ *
+ * (1) and (3) are about identity: the envelope stores bare leg INDICES with no
+ * issue identity, so after a chart update index 3 may be a different hazard,
+ * and a NEW danger leg is one nobody has looked at.
+ *
+ * (2) is about meaning, and it is the one that bites hardest here, because a
+ * CHANGED DRAFT IS ONE OF ONLY TWO THINGS THAT BLOCKS FOLLOW — so it is a
+ * primary reason the skipper is on this path at all. traceFollowBlockReason's
+ * own note puts it plainly: "a deeper keel voids every depth verdict the
+ * acceptance rested on." Accepting a rock at 1.2 m says nothing about the same
+ * rock at 2.4 m. Without this check, changing the draft blocked the route, and
+ * then the very recheck offered to clear the block re-minted the old
+ * acknowledgement against the new keel and unblocked it — a clearance the
+ * interactive tracer would have refused, since it drops every ack on each
+ * grading pass and wipes its caches the moment the draft moves.
  */
 export function inheritableAcks(
     prior: TraceVerification | null | undefined,
     verdicts: ReadonlyArray<TraceLegVerdict | null>,
     encFingerprintNow: string,
+    draftMNow: number,
+    draftAssumedNow: boolean,
 ): Set<number> {
     if (!prior || prior.encRegistryFingerprint !== encFingerprintNow) return new Set();
+    // Same 0.01 m tolerance the follow and cast-off gates already use.
+    if (prior.draftAssumed !== draftAssumedNow || Math.abs(prior.draftM - draftMNow) > 0.01) return new Set();
     const dangerNow = verdicts.reduce<number[]>((acc, v, i) => (v?.grade === 'danger' ? [...acc, i] : acc), []);
     const acked = new Set(prior.acknowledgedDangerLegs ?? []);
     if (!dangerNow.every((i) => acked.has(i))) return new Set();
@@ -166,7 +185,7 @@ export async function recheckTrace(
         points,
         result.status,
         verdicts,
-        inheritableAcks(opts.priorVerification, verdicts, getRegistryFingerprint()),
+        inheritableAcks(opts.priorVerification, verdicts, getRegistryFingerprint(), draftM, draftAssumed),
         {
             draftM,
             draftAssumed,

@@ -112,28 +112,55 @@ describe('refusals that keep a recheck honest', () => {
 });
 
 describe('inheriting danger acknowledgements', () => {
-    const prior = (acked: number[], fp = 'fp-A'): TraceVerification =>
-        ({ acknowledgedDangerLegs: acked, encRegistryFingerprint: fp }) as TraceVerification;
+    const prior = (acked: number[], fp = 'fp-A', draftM = 2.0, draftAssumed = false): TraceVerification =>
+        ({
+            acknowledgedDangerLegs: acked,
+            encRegistryFingerprint: fp,
+            draftM,
+            draftAssumed,
+        }) as TraceVerification;
 
     it('carries an ack forward when the charts are identical and the danger is the same one', () => {
-        expect(inheritableAcks(prior([0]), [danger()], 'fp-A')).toEqual(new Set([0]));
+        expect(inheritableAcks(prior([0]), [danger()], 'fp-A', 2.0, false)).toEqual(new Set([0]));
     });
 
     it('drops every ack when the chart library has changed', () => {
         // The envelope stores bare leg INDICES with no issue identity. After a
         // chart update, index 0 may be a different hazard entirely — re-acking
         // it would clear something nobody has ever looked at.
-        expect(inheritableAcks(prior([0], 'fp-OLD'), [danger()], 'fp-A').size).toBe(0);
+        expect(inheritableAcks(prior([0], 'fp-OLD'), [danger()], 'fp-A', 2.0, false).size).toBe(0);
     });
 
     it('drops every ack when a NEW leg has become dangerous', () => {
         // Partial inheritance is the trap: acking leg 0 and silently ignoring
         // that leg 1 is now a danger would clear the route on a hazard the
         // skipper never saw.
-        expect(inheritableAcks(prior([0]), [danger(), danger()], 'fp-A').size).toBe(0);
+        expect(inheritableAcks(prior([0]), [danger(), danger()], 'fp-A', 2.0, false).size).toBe(0);
     });
 
     it('inherits nothing when there is no prior check', () => {
-        expect(inheritableAcks(null, [danger()], 'fp-A').size).toBe(0);
+        expect(inheritableAcks(null, [danger()], 'fp-A', 2.0, false).size).toBe(0);
+    });
+
+    it('drops every ack when the DRAFT has changed — the very reason the row blocked', () => {
+        // A changed draft is one of only two things that blocks Follow, so it
+        // is a primary way onto this path. Accepting a rock at 1.2 m says
+        // nothing about the same rock at 2.4 m: the follow gate's own note is
+        // "a deeper keel voids every depth verdict the acceptance rested on."
+        // Without this, changing the draft blocked the route and the recheck
+        // offered to clear it then re-minted the OLD acknowledgement against
+        // the NEW keel — a clearance the interactive tracer would refuse,
+        // since it drops every ack on each grading pass.
+        expect(inheritableAcks(prior([0], 'fp-A', 1.2), [danger()], 'fp-A', 2.4, false).size).toBe(0);
+    });
+
+    it('drops every ack when the draft went from measured to assumed', () => {
+        expect(inheritableAcks(prior([0], 'fp-A', 2.0, false), [danger()], 'fp-A', 2.0, true).size).toBe(0);
+    });
+
+    it('tolerates a draft that is identical within a centimetre', () => {
+        // Same tolerance the follow and cast-off gates use, so a float wobble
+        // does not force a pointless re-acknowledgement.
+        expect(inheritableAcks(prior([0], 'fp-A', 2.0), [danger()], 'fp-A', 2.005, false)).toEqual(new Set([0]));
     });
 });
