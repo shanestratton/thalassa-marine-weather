@@ -824,6 +824,13 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         // lands (the ⇄ fold re-picks direction when the first fix arrives),
         // which flipped rows under the skipper's thumb.
         setFollowPromptChoices(followSheetChoices);
+        // A fresh sheet is a fresh attempt. Without this, a route that once
+        // answered "a person has to look at this" stayed latched forever: every
+        // later tap went straight back to the tracer and recheckRoute — the only
+        // thing that can clear the latch — was never reached again. Acknowledge
+        // the leg, save it, come back, and the row would still bounce you to the
+        // tracer to acknowledge the very thing you just acknowledged.
+        setNeedsTracerRoutes((prev) => (prev.size === 0 ? prev : new Set()));
         setFollowPromptVoyageId(vid);
         // NOT marked "asked" here — only an ANSWER (pick or explicit
         // dismissal) suppresses future prompts. An unmount mid-question
@@ -1257,6 +1264,13 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         }).catch(() => null);
         setFollowBlockNotice(null);
         setFollowPromptChoices(followSheetChoices);
+        // A fresh sheet is a fresh attempt. Without this, a route that once
+        // answered "a person has to look at this" stayed latched forever: every
+        // later tap went straight back to the tracer and recheckRoute — the only
+        // thing that can clear the latch — was never reached again. Acknowledge
+        // the leg, save it, come back, and the row would still bounce you to the
+        // tracer to acknowledge the very thing you just acknowledged.
+        setNeedsTracerRoutes((prev) => (prev.size === 0 ? prev : new Set()));
         setPreStartSheetOpen(true);
     }, [followSheetChoices, handleStartTracking, identityScope, verifyGpsAndStart]);
 
