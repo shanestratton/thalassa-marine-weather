@@ -169,7 +169,7 @@ import {
     getRegistryFingerprint as getEncRegistryFingerprint,
     getVersion as getEncRegistryVersion,
 } from '../../services/enc/EncCellMetadata';
-import { evaluateTraceRelease } from '../../services/traceVerification';
+import { evaluateTraceRelease, traceGeometryKey } from '../../services/traceVerification';
 import { useEncChartInventory } from './useEncChartInventory';
 import { DETAIL_SCRUB_MAX, applyChartDetailLevel, isScrubHidden } from './encDetailScrubber';
 import { PinDirectionsCta } from './PinDirectionsCta';
@@ -1034,6 +1034,49 @@ export const MapHub: React.FC<MapHubProps> = ({
         [capturedCoords, tracerStatus, legVerdicts, ackedLegs, settings.vessel, departureMs, departureLabel],
     );
     const traceReleaseGate = getTraceReleaseGate();
+
+    /**
+     * An acknowledgement has to survive leaving this screen.
+     *
+     * onAckLeg only ever set React state, and the envelope carrying
+     * acknowledgedDangerLegs reached storage solely through saveCurrentTrace —
+     * a manual Save. So a skipper could open a saved route, tap through every
+     * no-go leg, walk back to the Log page and be asked to acknowledge the
+     * exact same legs again, because nothing had been written. Shane,
+     * 2026-08-18: "i do that, come back and it still asks me to do it again???"
+     *
+     * Deliberately narrow, because auto-saving in a route editor is the kind
+     * of helpfulness that loses people's work:
+     *
+     *  - Only when the current line is EXACTLY a stored route, matched on
+     *    geometry rather than name. A moved pin means no match, so an edit in
+     *    progress is never written behind the skipper's back — they still tap
+     *    Save, and the overwrite confirmation still applies.
+     *  - Only the envelope changes. The points written are the ones already
+     *    stored, so this cannot alter a route's geometry.
+     *  - Only once the release gate ALLOWS. A part-acknowledged route has
+     *    nothing worth persisting, and this must never bank a clearance the
+     *    gate would refuse.
+     */
+    const ackPersistRef = useRef<string | null>(null);
+    useEffect(() => {
+        if (ackedLegs.size === 0) return;
+        const release = traceReleaseGate;
+        if (!release.allowed || !release.verification) return;
+        const key = traceGeometryKey(capturedCoords);
+        if (!key) return;
+        const stored = savedTraces.find((t) => traceGeometryKey(t.points) === key);
+        if (!stored) return; // an edit in progress, or never saved — leave it alone
+        // One write per (route, acknowledgement set), not one per render.
+        const signature = `${stored.id}|${Array.from(ackedLegs).sort((a, b) => a - b).join(',')}`;
+        if (ackPersistRef.current === signature) return;
+        ackPersistRef.current = signature;
+        saveTrace(stored.name, stored.points, {
+            overwriteId: stored.id,
+            verification: release.verification,
+        });
+        setSavedTraces(loadSavedTraces());
+    }, [ackedLegs, traceReleaseGate, capturedCoords, savedTraces]);
 
     const saveCurrentTrace = useCallback(() => {
         if (capturedCoords.length < 2) return;
