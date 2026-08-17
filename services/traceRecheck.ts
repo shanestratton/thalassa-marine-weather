@@ -32,7 +32,12 @@
  * stays blocked and the skipper is sent to the tracer, which is what Shane
  * asked for: "warn — but not let us go."
  */
-import { evaluateTraceRelease, normaliseTraceVerification, type TraceVerification } from './traceVerification';
+import {
+    evaluateTraceRelease,
+    normaliseTraceVerification,
+    type TraceReleaseGate,
+    type TraceVerification,
+} from './traceVerification';
 import {
     commonDepartureWindowLabel,
     TRACE_LAND_CROSSING_MESSAGE,
@@ -247,4 +252,33 @@ export async function recheckTrace(
         return { ok: false, reason: 'The check did not match this route’s waypoints.', needsTracer: true };
     }
     return { ok: true, verification };
+}
+
+/**
+ * Re-run the release gate with the acknowledgements a skipper has just made.
+ *
+ * The gate is pure and cheap, so the caller can call this on every tap to keep
+ * the report's own state honest — and the CHECK itself is never re-run, which
+ * is the point: the grading already happened, and acknowledging is a decision
+ * about that grading rather than a reason to repeat it.
+ *
+ * The same three refusals still apply, because this is the same gate: a
+ * guessed keel is rejected before it is reached, a land crossing has no
+ * acknowledgement path inside evaluateTraceRelease, and a tide-gated leg with
+ * no window still refuses. Nothing here can widen what the gate allows.
+ */
+export function releaseWithAcks(
+    points: ReadonlyArray<TracePoint>,
+    report: RecheckReport,
+    ackedLegs: ReadonlySet<number>,
+): TraceReleaseGate {
+    const vessel = useSettingsStore.getState().settings?.vessel;
+    return evaluateTraceRelease(points, report.status as never, report.verdicts, ackedLegs, {
+        draftM: vesselDraftMetres(vessel),
+        draftAssumed: vesselDraftIsAssumed(vessel),
+        encRegistryVersion: getEncRegistryVersion(),
+        encRegistryFingerprint: getRegistryFingerprint(),
+        departureMs: Date.now(),
+        tideWindowLabel: report.tideWindowLabel,
+    });
 }
