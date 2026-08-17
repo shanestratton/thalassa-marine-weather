@@ -54,6 +54,16 @@ const RECONNECT_MAX_MS = 10000;
  * only a clean release plus a 400 ms reconnect.
  */
 const DATA_SILENCE_TIMEOUT_MS = 15000;
+/**
+ * Ignore repeat network-change events inside this window.
+ *
+ * iOS does not report a Wi-Fi transition as one clean event. Reachability
+ * flags flap several times as an interface comes up, an address is assigned
+ * and a route is installed, so a single walk-aboard can deliver a burst.
+ * Acting on every one would reconnect a socket several times over — and
+ * against a gateway with three slots, restraint is not a nicety.
+ */
+const NETWORK_NUDGE_MIN_GAP_MS = 1500;
 const RECONNECT_GIVE_UP_MS = 5 * 60 * 1000; // Give up after 5 minutes of failed reconnects
 const TCP_READ_TIMEOUT_S = 5; // Read timeout for TCP polling (seconds)
 const TCP_READ_BUFFER = 4096; // Bytes to request per read cycle
@@ -141,6 +151,10 @@ class NmeaListenerServiceClass {
     private lastError: string | null = null;
     /** The 5-minute give-up parked us — retry once on next app foreground. */
     private parkedAfterGiveUp = false;
+    /** OS network-change watch is registered (once, for the app's lifetime). */
+    private networkWatchReady = false;
+    /** Debounce stamp for the burst of events iOS emits per real transition. */
+    private lastNetworkNudgeAt = 0;
 
     constructor() {
         // Un-park on app foreground. The webview fires visibilitychange on
@@ -222,6 +236,10 @@ class NmeaListenerServiceClass {
     start() {
         if (this.enabled) return;
         this.enabled = true;
+        // Registered here rather than in the constructor so the plugin is never
+        // touched by an app that has no gateway configured — and so the 800-odd
+        // test files that import this service transitively never load it.
+        void this.ensureNetworkWatch();
         this.parkedAfterGiveUp = false;
         this.firstAttemptTime = Date.now();
         this.connect();
@@ -569,6 +587,127 @@ class NmeaListenerServiceClass {
             this.reconnectTimer = null;
             this.connect();
         }, delay);
+    }
+
+    /**
+     * Watch the OS for network changes.
+     *
+     * Everything else in this service is a guess about the network dressed up
+     * as a timer: wait 400 ms, wait 10 s, wait for the app to be foregrounded.
+     * The OS already knows the moment the phone joins the boat's Wi-Fi, leaves
+     * it, or has a VPN raised or dropped underneath it. Asking it is the
+     * difference between reconnecting when the network actually returns and
+     * reconnecting whenever the ladder next happens to fire.
+     *
+     * Registered once and never removed, exactly like the visibilitychange
+     * handler above: this service is an app-lifetime singleton, and the handler
+     * is inert while the feature is off. The returned handle is deliberately
+     * discarded — there is nothing in the app's life that would call it.
+     *
+     * The import is dynamic and reached only from start(), which is what keeps
+     * the plugin off the boot path of the 30 test files that evaluate this
+     * module. Note what the catch below does NOT cover: mocking @capacitor/core
+     * does not reach inside @capacitor/network, because that package lives in
+     * node_modules and is externalized rather than inlined, so it binds the
+     * real registerPlugin. Under vitest the genuine web plugin loads and
+     * succeeds against jsdom. The catch is for a host where the plugin is
+     * absent outright; there, reconnects fall back to the timer ladder.
+     */
+    private async ensureNetworkWatch(): Promise<void> {
+        if (this.networkWatchReady) return;
+        // Claimed BEFORE the await, or two rapid start() calls each get past
+        // the guard while the import is in flight and register two listeners.
+        this.networkWatchReady = true;
+        try {
+            const { Network } = await import('@capacitor/network');
+            // addListener returns a PROMISE of the handle in Capacitor 5+.
+            // Not awaiting it is the classic silent bug here.
+            await Network.addListener('networkStatusChange', (status) => {
+                this.handleNetworkStatusChange(status.connected, status.connectionType);
+            });
+            log.info('Network-change watch registered — reconnects now follow the OS, not the clock');
+        } catch (e) {
+            // Retry on the next start() rather than giving up for the session.
+            this.networkWatchReady = false;
+            log.warn('Network-change watch unavailable, falling back to timers:', (e as Error)?.message || e);
+        }
+    }
+
+    /**
+     * The OS says the network moved. Two cases, and the losing one matters most.
+     *
+     * LOST: our TCP socket is already dead — it simply has not been told. Left
+     * alone it becomes an orphan occupying one of the YDWG-02's three slots
+     * until the GATEWAY times it out, which is precisely how the app locks
+     * itself out of a gateway that is streaming perfectly (see releaseTcpClient
+     * below). Handing the slot back at the moment connectivity drops is the
+     * cheapest slot-exhaustion fix available.
+     *
+     * GAINED: retry now. Not after the remaining 10 s of a backoff that was
+     * counting down against a network which no longer exists.
+     */
+    private handleNetworkStatusChange(connected: boolean, connectionType: string): void {
+        // NOTE, because the obvious refinement is a trap: do NOT also skip
+        // events whose {connected, connectionType} payload matches the last
+        // one. iOS does re-fire identical payloads (it de-duplicates on raw
+        // SCNetworkReachability flags, so a Wi-Fi band change re-fires with the
+        // same derived value), and suppressing those looks like free thrift.
+        // But leaving the marina's Wi-Fi for the boat's own is ALSO
+        // connected:true / 'wifi' both sides, and that is precisely the moment
+        // this whole feature exists to catch. Dropping it to spare a few
+        // redundant connects would break the case Shane asked for. The runaway
+        // is bounded anyway: firstAttemptTime is untouched here, so five
+        // minutes of failure still parks the retries however many events land.
+        const now = Date.now();
+
+        // A LOSS IS NEVER DEBOUNCED, and never stamps the window either.
+        // Debouncing exists to stop redundant CONNECTS; there is at most one
+        // socket to release and releasing it twice is a no-op, so throttling
+        // this side buys nothing and costs a slot. The sequence that proves it:
+        // the network returns, we reconnect and stamp the window, and Wi-Fi
+        // drops again 500 ms later mid-handoff. Debounced, that drop is
+        // swallowed and the socket becomes an orphan against a gateway with
+        // three of them — the precise failure this whole feature exists to
+        // prevent. Stamping here would be the same mistake mirrored: it would
+        // debounce the recovery that follows a flap.
+        if (!connected) {
+            if (!this.enabled || this.tcpClientId === null) return;
+            log.warn('Network lost — releasing the NMEA socket rather than orphaning a gateway slot');
+            this.lastError = 'Network unavailable';
+            // Drop out of the read loop, then close. The loop's own exit path
+            // re-releases (a no-op) and schedules the reconnect, and
+            // scheduleReconnect ignores a second call while one is pending —
+            // so this cannot double-schedule or double-open.
+            this.tcpReadLoop = false;
+            void this.releaseTcpClient();
+            this.setStatus('disconnected');
+            this.scheduleReconnect();
+            return;
+        }
+
+        if (now - this.lastNetworkNudgeAt < NETWORK_NUDGE_MIN_GAP_MS) return;
+        // Stamped inside each acting branch below, never here: an event we
+        // ignore — no gateway configured, nothing to retry — must not spend the
+        // window and swallow the real transition a second behind it.
+
+        if (this.parkedAfterGiveUp && !this.enabled) {
+            log.warn(`Network back (${connectionType}) — retrying parked NMEA connection`);
+            this.lastNetworkNudgeAt = now;
+            this.reconnectAttempts = 0;
+            this.start();
+            return;
+        }
+
+        if (this.enabled && this.status !== 'connected') {
+            log.info(`Network changed (${connectionType}) — retrying NMEA immediately`);
+            this.lastNetworkNudgeAt = now;
+            if (this.reconnectTimer) {
+                clearTimeout(this.reconnectTimer);
+                this.reconnectTimer = null;
+            }
+            this.reconnectAttempts = 0;
+            this.connect();
+        }
     }
 
     private setStatus(s: NmeaConnectionStatus) {

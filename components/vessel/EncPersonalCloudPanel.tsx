@@ -4,11 +4,18 @@
  *
  * Why publishing is a BUTTON and not automatic
  * ────────────────────────────────────────────
- * Shane's library is 345 cells / ~400 MB. There is no reliable way to tell
- * Wi-Fi from cellular in this app — @capacitor/network isn't installed, and
- * navigator.connection doesn't exist in iOS WKWebView — so an automatic first
- * publish could quietly spend 400 MB of a marina 4G plan while the phone sits
- * in a pocket. The first run is therefore explicit and states the size.
+ * Shane's library is 345 cells / ~400 MB. An automatic first publish could
+ * quietly spend 400 MB of a marina 4G plan while the phone sits in a pocket,
+ * so the first run is explicit and states the size.
+ *
+ * This used to say Wi-Fi could not be told from cellular at all, because
+ * @capacitor/network was not installed and navigator.connection does not exist
+ * in iOS WKWebView. The plugin IS installed now (added 2026-08-17 for the NMEA
+ * gateway's reconnect path), so `connectionType` is readable — but it is not
+ * trustworthy enough to spend 400 MB on unasked: with a VPN raised, iOS
+ * reports 'wifi' while the device is actually on cellular. Reading it would
+ * turn a deliberate button into a guess that is wrong in exactly the case that
+ * costs money, so the button stays.
  *
  * After that it stays in sync on its own: `autoPublish` picks up newly
  * imported cells, which are small increments (a Pi sync is typically a handful

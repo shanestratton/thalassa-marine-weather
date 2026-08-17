@@ -24,6 +24,8 @@ PODS:
     - Capacitor
   - CapacitorLocalNotifications (8.0.2):
     - Capacitor
+  - CapacitorNetwork (8.0.1):
+    - Capacitor
   - CapacitorPreferences (8.0.1):
     - Capacitor
   - CapacitorPushNotifications (8.0.1):
@@ -63,6 +65,7 @@ DEPENDENCIES:
   - "CapacitorHaptics (from `../../node_modules/@capacitor/haptics`)"
   - "CapacitorKeyboard (from `../../node_modules/@capacitor/keyboard`)"
   - "CapacitorLocalNotifications (from `../../node_modules/@capacitor/local-notifications`)"
+  - "CapacitorNetwork (from `../../node_modules/@capacitor/network`)"
   - "CapacitorPreferences (from `../../node_modules/@capacitor/preferences`)"
   - "CapacitorPushNotifications (from `../../node_modules/@capacitor/push-notifications`)"
   - "CapacitorScreenOrientation (from `../../node_modules/@capacitor/screen-orientation`)"
@@ -105,6 +108,8 @@ EXTERNAL SOURCES:
     :path: "../../node_modules/@capacitor/keyboard"
   CapacitorLocalNotifications:
     :path: "../../node_modules/@capacitor/local-notifications"
+  CapacitorNetwork:
+    :path: "../../node_modules/@capacitor/network"
   CapacitorPreferences:
     :path: "../../node_modules/@capacitor/preferences"
   CapacitorPushNotifications:
@@ -135,6 +140,7 @@ SPEC CHECKSUMS:
   CapacitorHaptics: 4df2c625445cef39b67ea635a21802bc92df3b82
   CapacitorKeyboard: 867eb4b3c901d9bb5c3d0c93b546185d52484e19
   CapacitorLocalNotifications: 4db83a7f6bdd2f30dcedf5c6f92c415065467a24
+  CapacitorNetwork: 8812ce60d11fb63d8f2e4ba51a49b2e59892ebe2
   CapacitorPreferences: cca2021f386efb75947c850334447d9ff22b14f1
   CapacitorPushNotifications: 99644101c6a82036e459929b6d897ee1cb27d97f
   CapacitorScreenOrientation: 6c3c84223ea1dd44aaa7184e2b416dd1192270d0
@@ -149,6 +155,6 @@ SPEC CHECKSUMS:
   TSBackgroundFetch: 18918b6449a1e3f01eb0f5b44d6d79ce6160a5a5
   TSLocationManager: 3a1a98741387935ee2ef5b48cc8a8cde9762b03a
 
-PODFILE CHECKSUM: e10f80e72ad629be364cb9669a2b5f78ea2c5275
+PODFILE CHECKSUM: eb943af1f48b943f42de6db29b85a117746d57a1
 
 COCOAPODS: 1.16.2
