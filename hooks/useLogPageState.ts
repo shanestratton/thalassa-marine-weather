@@ -201,6 +201,26 @@ function freshInitialState(): LogPageState {
 interface LogViewMemo {
     scopeKey: string;
     generation: number;
+    /**
+     * Tracking state, banked so a returning skipper sees the live map at once.
+     *
+     * This used to be excluded with the data, on the reasoning that anything
+     * reloaded fresh should not be restored stale. That is right for entries
+     * and summaries and wrong for these two, because they are not data — they
+     * are the ANSWER TO "is a voyage running", and the live mini map is gated
+     * on both. They are written only by LOAD_DATA, which lands after five-plus
+     * SERIAL Supabase round trips, and PageTransition rebuilds the page
+     * subtree on every navigation — so every return to the Log mid-voyage left
+     * the map absent for the length of that chain (Shane, 2026-08-18: "the
+     * little map can take up to 10 seconds to arrive"). It was never rendering
+     * slowly; it did not yet exist.
+     *
+     * Restoring them is safe because LOAD_DATA still overwrites both a moment
+     * later. The worst case is a live map shown briefly for a voyage that has
+     * since stopped, against the certainty of no map at all for ten seconds.
+     */
+    isTracking: boolean;
+    currentVoyageId: string | undefined;
     selectedVoyageId: string | null;
     expandedVoyages: string[];
     showTrackMap: boolean;
@@ -221,6 +241,8 @@ function seededInitialState(scope: AuthIdentityScope): LogPageState {
     if (!memo || memo.scopeKey !== scope.key || memo.generation !== scope.generation) return fresh;
     return {
         ...fresh,
+        isTracking: memo.isTracking,
+        currentVoyageId: memo.currentVoyageId,
         selectedVoyageId: memo.selectedVoyageId,
         expandedVoyages: new Set(memo.expandedVoyages),
         showTrackMap: memo.showTrackMap,
@@ -406,6 +428,8 @@ export function useLogPageState() {
         logViewMemo = {
             scopeKey: identityScope.key,
             generation: identityScope.generation,
+            isTracking: storedState.isTracking,
+            currentVoyageId: storedState.currentVoyageId,
             selectedVoyageId: storedState.selectedVoyageId,
             expandedVoyages: Array.from(storedState.expandedVoyages),
             showTrackMap: storedState.showTrackMap,
@@ -414,6 +438,8 @@ export function useLogPageState() {
         };
     }, [
         identityScope,
+        storedState.isTracking,
+        storedState.currentVoyageId,
         storedState.selectedVoyageId,
         storedState.expandedVoyages,
         storedState.showTrackMap,
