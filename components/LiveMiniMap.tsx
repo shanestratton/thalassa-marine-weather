@@ -141,6 +141,31 @@ export const LiveMiniMap: React.FC<LiveMiniMapProps> = memo(
             // only — overscanning the transparent seamark symbols would make
             // an icon at a tile edge draw twice.
             installLeafletTileSeamGuard(satelliteBase);
+
+            // FALL BACK OFF A DEAD PI, ONCE.
+            //
+            // leafletTileTemplate routes every tile through the Pi's
+            // passthrough whenever isAvailable() is true — and that reads a
+            // CACHED health-check result. Leave the boat, or drop Tailscale,
+            // and the flag can still say reachable while nothing answers.
+            // Leaflet loads tiles as <img>, whose requests it cannot abort at
+            // the current zoom, so there is no timeout to lean on: the map just
+            // stays blank until the OS gives up, which on Darwin is a SYN
+            // retransmit stall of over a minute.
+            //
+            // One tile error is enough to know. Swap the whole layer to the
+            // upstream URL and let the Pi prove itself again next session —
+            // being wrong costs a direct fetch, which is what a Pi-less device
+            // does anyway.
+            const piRouted = piCache.leafletTileTemplate(logTiles.url, undefined, 'image/jpeg');
+            if (piRouted !== logTiles.url) {
+                let fellBack = false;
+                satelliteBase.on('tileerror', () => {
+                    if (fellBack) return;
+                    fellBack = true;
+                    satelliteBase.setUrl(logTiles.url);
+                });
+            }
             satelliteBase.addTo(map);
 
             // OpenSeaMap overlay
