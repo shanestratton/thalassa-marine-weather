@@ -75,3 +75,109 @@ describe('VesselDB flush ownership', () => {
         expect(db.getStats()).toMatchObject({ buffered: 0, totalUpserts: 2, totalErrors: 0 });
     });
 });
+
+/**
+ * WRITE ONLY WHAT CHANGED.
+ *
+ * Measured 2026-08-18: 34,661,184 row-inserts into public.vessels, ~1.8 TB
+ * written, the Micro's disk IO budget flat at 0% for a week — because every
+ * position report was a full row rewrite whether or not the boat had moved,
+ * and most AIS traffic is boats sitting still. These tests pin the writer's
+ * new restraint, and the two ways restraint could go wrong: skipping a
+ * genuine move, or starving the 24 h stale-vessel sweep.
+ */
+describe('VesselDB writes only material change', () => {
+    const still = { mmsi: 503101240, lat: -27.20525, lon: 153.09304, sog: 0.1, cog: 12, heading: 15 };
+
+    it('does not rewrite a moored boat that reports the same position again', async () => {
+        const upsert = vi.fn().mockResolvedValue({ error: null });
+        const db = new VesselDB(mockClient(upsert));
+
+        db.enqueue(still);
+        await db.flush();
+        expect(upsert).toHaveBeenCalledTimes(1);
+
+        // The same boat, the same spot, thirty more reports. Not one write.
+        for (let i = 0; i < 30; i++) {
+            db.enqueue({ ...still, sog: 0.2, cog: 14 }); // GPS jitter only
+            await db.flush();
+        }
+        expect(upsert).toHaveBeenCalledTimes(1);
+        expect(db.getStats().totalSkipped).toBe(30);
+    });
+
+    it('does write a boat that has actually moved', async () => {
+        const upsert = vi.fn().mockResolvedValue({ error: null });
+        const db = new VesselDB(mockClient(upsert));
+        db.enqueue(still);
+        await db.flush();
+
+        // ~110 m north — well past the 25 m threshold.
+        db.enqueue({ ...still, lat: still.lat + 0.001 });
+        await db.flush();
+        expect(upsert).toHaveBeenCalledTimes(2);
+    });
+
+    it('does write a boat that has got under way, even in place', async () => {
+        // sog 0.1 → 4 kt at the same fix is a boat leaving; nav_status change too.
+        const upsert = vi.fn().mockResolvedValue({ error: null });
+        const db = new VesselDB(mockClient(upsert));
+        db.enqueue(still);
+        await db.flush();
+        db.enqueue({ ...still, sog: 4.0 });
+        await db.flush();
+        expect(upsert).toHaveBeenCalledTimes(2);
+    });
+
+    it('does write when static data changes (a name or destination arrives)', async () => {
+        const upsert = vi.fn().mockResolvedValue({ error: null });
+        const db = new VesselDB(mockClient(upsert));
+        db.enqueue(still);
+        await db.flush();
+        db.enqueue({ mmsi: still.mmsi, name: 'SERENE SUMMER' });
+        await db.flush();
+        expect(upsert).toHaveBeenCalledTimes(2);
+    });
+
+    it('still heartbeats an unchanged boat so the 24 h stale sweep never eats it', async () => {
+        // The one cost of skipping writes is that updated_at ages. A boat that
+        // faithfully reports from its mooring for a week must not be deleted
+        // as stale, so it is rewritten at least every HEARTBEAT_MS (10 min by
+        // default) — comfortably inside the sweep's 24 h.
+        vi.useFakeTimers();
+        try {
+            const upsert = vi.fn().mockResolvedValue({ error: null });
+            const db = new VesselDB(mockClient(upsert));
+            db.enqueue(still);
+            await db.flush();
+            expect(upsert).toHaveBeenCalledTimes(1);
+
+            vi.advanceTimersByTime(5 * 60_000);
+            db.enqueue(still);
+            await db.flush();
+            expect(upsert).toHaveBeenCalledTimes(1); // still inside the heartbeat — skipped
+
+            vi.advanceTimersByTime(6 * 60_000); // now 11 min since the last write
+            db.enqueue(still);
+            await db.flush();
+            expect(upsert).toHaveBeenCalledTimes(2); // heartbeat write
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('does not remember a row that failed to reach the database', async () => {
+        // If the diff basis were updated on a FAILED upsert, the retry would
+        // then be judged "unchanged" and skipped — and the row lost for good.
+        const upsert = vi
+            .fn()
+            .mockResolvedValueOnce({ error: { message: 'outage' } })
+            .mockResolvedValue({ error: null });
+        const db = new VesselDB(mockClient(upsert));
+        db.enqueue(still);
+        await db.flush(); // fails, requeued
+        await db.flush(); // retried — must actually be sent
+        expect(upsert).toHaveBeenCalledTimes(2);
+        expect(db.getStats().totalUpserts).toBe(1);
+    });
+});
