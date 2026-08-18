@@ -74,6 +74,58 @@ describe('XDR attitude parsing', () => {
         feed(nmea('YDXDR,A,10.0,D,Roll'), nmea('YDXDR,A,20.0,D,Roll'), nmea('YDXDR,A,30.0,D,Roll'));
         expect(emit().heel).toBeCloseTo(20.0, 5);
     });
+
+    /**
+     * THE FAULT MARKER, verbatim off Serene Summer's bus on 2026-08-18 with
+     * the boat on the hard. Every XDR sentence read this for eighteen minutes
+     * — 118 in a row — while the sensor dropped off the bus and came back:
+     *
+     *   $YDXDR,A,63.75,D,Yaw,A,63.75,D,Pitch,A,63.75,D,Roll*4B
+     *
+     * No orientation gives all three axes one value. The YDWG encodes
+     * attitude in quarter-degree steps, and 63.75 × 4 = 255 = 0xFF, N2K's
+     * "not available" byte. It slipped the > 90 range guard, was ingested as
+     * a genuine 63.75° heel — a boat on her side — and Shane reported the app
+     * "crashing every 13 minutes or so". A sensor that stops reporting must
+     * read as NO DATA, never as a knockdown.
+     */
+    describe('the sensor-not-available marker', () => {
+        const FAULT = nmea('YDXDR,A,63.75,D,Yaw,A,63.75,D,Pitch,A,63.75,D,Roll');
+
+        it('is not a heel', () => {
+            // A window holding only the fault carries no attitude at all —
+            // there is nothing to emit — and a window that also has other
+            // data emits with heel and pitch empty. Both are "no data".
+            feed(FAULT);
+            const alone = emit();
+            expect(alone?.heel ?? null).toBeNull();
+            expect(alone?.pitch ?? null).toBeNull();
+        });
+
+        it('does not poison an otherwise good window', () => {
+            // A real reading either side of the fault must survive it, and the
+            // fault must not drag the average toward 63.75.
+            feed(REAL_XDR, FAULT, FAULT, REAL_XDR);
+            const s = emit();
+            expect(s.heel).toBeCloseTo(1.0, 5);
+            expect(s.pitch).toBeCloseTo(0.75, 5);
+        });
+
+        it('is recognised by three identical axes, not only by 63.75', () => {
+            // A different gateway, a different marker — the SHAPE is the tell.
+            feed(nmea('YDXDR,A,12.25,D,Yaw,A,12.25,D,Pitch,A,12.25,D,Roll'));
+            expect(emit()?.heel ?? null).toBeNull();
+        });
+
+        it('still believes a genuine knockdown at 63.75° of ROLL alone', () => {
+            // The marker must not become a hole a real reading falls through.
+            // Roll 63.75 with a sane pitch is a boat on her ear, and the app
+            // must say so.
+            feed(nmea('YDXDR,A,30.0,D,Yaw,A,2.0,D,Pitch,A,63.75,D,Roll'));
+            expect(emit().heel).toBeCloseTo(63.75, 5);
+        });
+    });
+
 });
 
 describe('XDR is a bag of arbitrary transducers — match type AND unit, never the name alone', () => {
@@ -120,4 +172,5 @@ describe('XDR is a bag of arbitrary transducers — match type AND unit, never t
         // Roll is the final group, which is exactly how the real boat sends it.
         expect(parseOnly(REAL_XDR).heel).toEqual([1.0]);
     });
+
 });

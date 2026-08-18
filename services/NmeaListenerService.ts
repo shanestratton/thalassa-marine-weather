@@ -26,6 +26,8 @@ const log = createLogger('NMEA');
 // Count rejected framing/checksum boundaries — surfaced occasionally so a
 // corrupted NMEA link is diagnosable in the field without flooding logs.
 let _nmeaSentenceRejects = 0;
+/** XDR sentences dropped as a whole-attitude fault — surfaced sparingly. */
+let xdrFaultSentences = 0;
 
 // ── Configuration ──
 const DEFAULT_HOST = '192.168.1.151';
@@ -131,6 +133,18 @@ export interface NmeaConnectionInfo {
  * and missing one.
  */
 const HEEL_STARBOARD_POSITIVE = true;
+
+/**
+ * The value a Yacht Devices gateway emits for an attitude axis the sensor did
+ * not supply. XDR attitude is encoded in quarter-degree steps; 255 quarters is
+ * 0xFF, the N2K "not available" byte, and 255 / 4 = 63.75°.
+ *
+ * Recorded for the reader, not used as a guard: the parser recognises the
+ * fault by its SHAPE (yaw, pitch and roll all identical), which is gateway-
+ * agnostic and — unlike matching this number — cannot swallow a real 63.75°
+ * knockdown reported alongside a sane pitch.
+ */
+export const XDR_ATTITUDE_UNAVAILABLE_DEG = 63.75;
 
 // ── Raw accumulator between emissions ──
 interface RawAccumulator {
@@ -1099,6 +1113,33 @@ class NmeaListenerServiceClass {
      */
     private parseXDR(parts: string[]) {
         // $xxXDR,type,value,unit,name,...
+        //
+        // First pass: is this sentence a whole-attitude fault? A real sensor
+        // never reports yaw, pitch and roll as the SAME number — a boat is not
+        // simultaneously heeled, trimmed and pointed to one identical angle.
+        // Three identical attitude values mean the whole PGN came through as
+        // "not available", whatever the number happens to be. Stronger than
+        // matching one magic value, because a genuine knockdown at 63.75° of
+        // roll alone must still be believed.
+        const attitude: number[] = [];
+        for (let i = 1; i + 3 < parts.length; i += 4) {
+            if (parts[i] === 'A' && parts[i + 2] === 'D') {
+                const v = parseNmeaNumber(parts[i + 1]);
+                if (v !== null) attitude.push(v);
+            }
+        }
+        const wholeAttitudeFault = attitude.length >= 3 && attitude.every((v) => v === attitude[0]);
+        if (wholeAttitudeFault) {
+            xdrFaultSentences++;
+            if (xdrFaultSentences === 1 || xdrFaultSentences % 60 === 0) {
+                log.warn(
+                    `XDR attitude fault marker (${attitude[0]}° on every axis) — sensor is on the bus but not ` +
+                        `reporting; ignoring (${xdrFaultSentences} so far)`,
+                );
+            }
+            return;
+        }
+
         for (let i = 1; i + 3 < parts.length; i += 4) {
             const type = parts[i];
             const value = parseNmeaNumber(parts[i + 1]);
@@ -1115,6 +1156,10 @@ class NmeaListenerServiceClass {
                 // reporting something other than heel, and a compass bearing
                 // averaged in here would read as a knockdown.
                 if (Math.abs(value) > 90) continue;
+                // The whole-attitude fault (all axes identical) is caught
+                // above, before this loop. Deliberately NOT also dropping a
+                // lone 63.75 here: a genuine knockdown at 63.75° of roll with
+                // a sane pitch is a boat on her ear, and must be believed.
                 if (name === 'roll') {
                     this.accumulator.heel.push(HEEL_STARBOARD_POSITIVE ? value : -value);
                 } else if (name === 'pitch') {
