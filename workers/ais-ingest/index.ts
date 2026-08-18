@@ -26,7 +26,25 @@ import { isGuardianWatchdogEnabled, startWatchdog } from './watchdog.js';
 // ── Config ──
 const AISSTREAM_URL = 'wss://stream.aisstream.io/v0/stream';
 const API_KEY = process.env.AISSTREAM_KEY;
-const BOUNDING_BOXES = JSON.parse(process.env.BOUNDING_BOXES || '[[[-90,-180],[90,180]]]');
+/**
+ * WHERE TO LISTEN.
+ *
+ * The default used to be the whole planet — [[-90,-180],[90,180]] — which is
+ * every AIS-equipped vessel on Earth, tens of thousands of ships, each
+ * rewritten to a Micro's disk on every flush. That is where 34,661,184 rows
+ * and ~1.8 TB of writes came from (measured 2026-08-18). The app never asks
+ * for vessels more than 100 NM from the boat (vessels-nearby caps radius at
+ * 100), so ingesting the Pacific is pure cost.
+ *
+ * Default is now the Australian east coast and Coral Sea — Torres Strait to
+ * Bass Strait, out past the reef and Lord Howe. Wide enough for any passage
+ * Thalassa's users are on, and a tiny fraction of the globe. Override with
+ * BOUNDING_BOXES for a different cruising ground; a deliberately global
+ * subscription still works, it is just no longer what you get by accident.
+ * Format is [[[latMin,lonMin],[latMax,lonMax]], ...] as aisstream expects.
+ */
+const DEFAULT_BOUNDING_BOXES = '[[[-44,140],[-9,162]]]';
+const BOUNDING_BOXES = JSON.parse(process.env.BOUNDING_BOXES || DEFAULT_BOUNDING_BOXES);
 
 // Reconnect backoff
 const BACKOFF_BASE_MS = 2000;
@@ -263,7 +281,7 @@ function logStats(): void {
         `[STATS] Messages: ${messageCount} | ` +
             `Parsed: ${parsedCount} | ` +
             `Buffered: ${dbStats.buffered} | ` +
-            `Upserted: ${dbStats.totalUpserts} | ` +
+            `Upserted: ${dbStats.totalUpserts} | Skipped-unchanged: ${dbStats.totalSkipped} | ` +
             `Errors: ${dbStats.totalErrors} | ` +
             `Last msg: ${staleSec}s ago | ` +
             `Stale reconnects: ${staleReconnects}`,
