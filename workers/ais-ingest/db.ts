@@ -254,7 +254,17 @@ export class VesselDB {
         });
 
         try {
-            const { error } = await this.client.from('vessels').upsert(rows, { onConflict: 'mmsi' });
+            // merge_vessels, not a PostgREST bulk upsert. supabase-js builds a
+            // batch's `columns` as the UNION of every row's keys, and PostgREST
+            // NULL-fills any row missing one — then upserts that NULL over the
+            // stored value. A position report sharing a batch with someone
+            // else's static-data report arrived as {name: null, ...} and wiped
+            // the name. It always did; nobody saw it while every boat was
+            // rewritten every ~10 s and the next static frame put it back.
+            // Change-detection made the NULL stick (BUNGAREE, 2026-08-19).
+            // The RPC COALESCEs per column server-side, so a message can only
+            // ever change the fields it actually carried.
+            const { error } = await this.client.rpc('merge_vessels', { rows });
 
             if (error) {
                 console.error(`[DB] Upsert error (${rows.length} rows):`, error.message);
