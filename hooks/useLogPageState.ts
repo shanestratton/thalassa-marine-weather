@@ -25,6 +25,7 @@ const MAX_LIST_ENTRIES = 50_000;
 import type { ShipLogEntry } from '../types';
 import { ShipLogService, getRecentDeviceStops } from '../services/ShipLogService';
 import { activeVoyageIdFromTrackingState, loadTrackingState } from '../services/shiplog/TrackingStateStore';
+import { withTimeout } from '../utils/deadline';
 import {
     getCachedVoyageTrack,
     setCachedVoyageTrack,
@@ -1360,9 +1361,19 @@ export function useLogPageState() {
         async (voyageId: string) => {
             const actionScope = identityScope;
             if (!isAuthIdentityScopeCurrent(actionScope)) return;
-            // Check for shared tracks first — those need a confirmation
+            // Check for shared tracks first — those need a confirmation.
+            // Bounded and fail-open, same as handleConfirmDeleteVoyage: this
+            // check sat UNBOUNDED between the skipper's tap and the row moving,
+            // and on a marine link that was the whole "takes quite a while"
+            // (Shane, 2026-08-20). The row below is removed optimistically with
+            // an undo window, so all this gates is the shared-track WARNING —
+            // worth 2.5 s of the skipper's patience, not more.
             try {
-                const sharedTracks = await TrackSharingService.getSharedTracksByVoyageId(voyageId);
+                const sharedTracks = await withTimeout(
+                    TrackSharingService.getSharedTracksByVoyageId(voyageId),
+                    [] as Awaited<ReturnType<typeof TrackSharingService.getSharedTracksByVoyageId>>,
+                    2500,
+                );
                 if (!isAuthIdentityScopeCurrent(actionScope)) return;
                 if (sharedTracks.length > 0) {
                     const trackInfo = sharedTracks
@@ -1432,9 +1443,20 @@ export function useLogPageState() {
         if (!state.deleteVoyageId) return;
         const voyageId = state.deleteVoyageId;
 
-        // Check if this voyage has been shared to the community
+        // Check if this voyage has been shared to the community. This is the
+        // ONE network call that genuinely belongs before the delete proceeds —
+        // it decides whether to show the "this is shared" warning — so it
+        // stays, but BOUNDED. On a marine link an uncapped query here was the
+        // first of several seconds of nothing visibly happening after the
+        // skipper tapped Delete. Fail OPEN: if the check cannot answer in
+        // time, proceed as unshared. The downside is a missed warning; the
+        // alternative was a delete that appeared to ignore the tap.
         try {
-            const sharedTracks = await TrackSharingService.getSharedTracksByVoyageId(voyageId);
+            const sharedTracks = await withTimeout(
+                TrackSharingService.getSharedTracksByVoyageId(voyageId),
+                [] as Awaited<ReturnType<typeof TrackSharingService.getSharedTracksByVoyageId>>,
+                2500,
+            );
             if (!isAuthIdentityScopeCurrent(actionScope)) return;
             if (sharedTracks.length > 0) {
                 const trackInfo = sharedTracks
@@ -1458,27 +1480,55 @@ export function useLogPageState() {
         async (voyageId: string) => {
             const actionScope = identityScope;
             if (!isAuthIdentityScopeCurrent(actionScope)) return;
-            // Delete community shares if any
-            try {
-                await TrackSharingService.deleteSharedTracksByVoyageId(voyageId);
-            } catch (e) {
-                /* ok — may not exist */
-            }
-            if (!isAuthIdentityScopeCurrent(actionScope)) return;
 
-            const success = await ShipLogService.deleteVoyage(voyageId);
-            if (!isAuthIdentityScopeCurrent(actionScope)) return;
-            if (success) {
+            // The row leaves the screen on the ACCEPTANCE BOUNDARY — the
+            // durable local tombstone — not when the cloud finishes. That is
+            // the boundary deleteVoyage itself defines: from the tombstone on,
+            // the voyage is gone on this device whether or not the network
+            // ever answers, and every cloud step after it has its own timeout
+            // and its own retry ledger. Awaiting the lot before touching the
+            // UI made "delete a track" take up to ~16 s on a marine link for
+            // an outcome decided in the first milliseconds.
+            let accepted = false;
+            const onAccepted = () => {
+                if (!isAuthIdentityScopeCurrent(actionScope)) return;
+                accepted = true;
                 dispatch({ type: 'UPDATE_ENTRIES', updater: (prev) => prev.filter((e) => e.voyageId !== voyageId) });
-                reloadCareerData();
                 // A deleted voyage's cached track must not resurrect it.
                 void clearCachedVoyageTrack(voyageId);
                 loadedVoyagesRef.current.delete(voyageId);
-            } else {
-                toast.error('Failed to delete voyage');
+                // Close the dialog NOW. The skipper tapped Delete; the thing
+                // is gone; there is nothing left to confirm.
+                dispatch({ type: 'REQUEST_DELETE_VOYAGE', voyageId: null });
+                setShowSharedVoyageWarning(null);
+            };
+
+            const success = await ShipLogService.deleteVoyage(voyageId, onAccepted);
+            if (!isAuthIdentityScopeCurrent(actionScope)) return;
+
+            if (!accepted) {
+                // The tombstone itself could not be written — the only genuine
+                // failure. Nothing was removed from the screen, so this message
+                // is true, which is what the old "Failed to delete voyage"
+                // shown after the row had already vanished was not.
+                toast.error('Could not delete voyage — please try again');
+                dispatch({ type: 'REQUEST_DELETE_VOYAGE', voyageId: null });
+                setShowSharedVoyageWarning(null);
+                return;
             }
-            dispatch({ type: 'REQUEST_DELETE_VOYAGE', voyageId: null });
-            setShowSharedVoyageWarning(null);
+
+            // Background cascade, after the UI is already done. Community
+            // shares are a CONSEQUENCE of the voyage, not a precondition of
+            // deleting it, and this used to sit in front of everything.
+            void TrackSharingService.deleteSharedTracksByVoyageId(voyageId).catch(() => {
+                /* ok — may not exist, and the delete is already accepted */
+            });
+            reloadCareerData();
+            if (!success) {
+                // Accepted locally, cloud still pending in the retry ledger.
+                // Not an error for the skipper; the ledger will land it.
+                log.info('voyage delete accepted locally; cloud cleanup queued');
+            }
         },
         [dispatch, identityScope, toast, reloadCareerData],
     );

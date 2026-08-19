@@ -506,3 +506,77 @@ describe('useLogPageState view memo — a tab-bounce keeps what the skipper had 
         expect(mocks.getSummaries).not.toHaveBeenCalled();
     });
 });
+
+/**
+ * Deleting a voyage must be instant on the ACCEPTANCE BOUNDARY — the durable
+ * local tombstone — not when the cloud finishes. deleteVoyage() runs a
+ * planned-route lookup (4 s cap), the cloud delete (8 s) and a verification
+ * select (4 s) after the tombstone; awaiting all of it before touching the
+ * screen made "delete a track" take up to ~16 s on a marine link for an
+ * outcome decided in the first milliseconds (Shane, 2026-08-20: "it takes
+ * quite a while to delete the track, can we make that instant as well?").
+ */
+describe('useLogPageState delete — instant on the acceptance boundary', () => {
+    it('removes the row the moment the tombstone lands, while the cloud is still hanging', async () => {
+        // deleteVoyage fires onAccepted (the tombstone) and then NEVER resolves
+        // — the cloud is hanging. The row must be gone anyway.
+        let acceptedCb!: () => void;
+        mocks.deleteVoyage.mockImplementation(
+            (_id: string, onAccepted?: () => void) =>
+                new Promise<boolean>(() => {
+                    acceptedCb = onAccepted!;
+                }),
+        );
+
+        const { result } = renderHook(() => useLogPageState());
+        await waitFor(() => expect(result.current.state.entries.length).toBeGreaterThan(0));
+
+        act(() => result.current.dispatch({ type: 'REQUEST_DELETE_VOYAGE', voyageId: 'voyage-a' }));
+        await act(async () => {
+            void result.current.handleConfirmDeleteVoyage();
+        });
+        await waitFor(() => expect(mocks.deleteVoyage).toHaveBeenCalled());
+
+        // Tombstone lands.
+        act(() => acceptedCb());
+
+        await waitFor(() => {
+            expect(result.current.state.entries.filter((e) => e.voyageId === 'voyage-a')).toEqual([]);
+            expect(result.current.state.deleteVoyageId).toBeNull(); // dialog closed
+        });
+        // The promise never resolved. The UI did not wait for it.
+    });
+
+    it('does not hold the tap hostage to a slow shared-track check', async () => {
+        // The pre-confirm "is this shared?" query hangs. It must fail OPEN
+        // within the bound and the delete must proceed.
+        vi.useFakeTimers();
+        try {
+            const { TrackSharingService } = await import('../services/TrackSharingService');
+            (TrackSharingService.getSharedTracksByVoyageId as ReturnType<typeof vi.fn>).mockImplementation(
+                () => new Promise(() => {}),
+            );
+            mocks.deleteVoyage.mockImplementation(async (_id: string, onAccepted?: () => void) => {
+                onAccepted?.();
+                return true;
+            });
+
+            const { result } = renderHook(() => useLogPageState());
+            await vi.advanceTimersByTimeAsync(50);
+            await act(async () => {
+                await vi.advanceTimersByTimeAsync(10);
+            });
+
+            act(() => result.current.dispatch({ type: 'REQUEST_DELETE_VOYAGE', voyageId: 'voyage-a' }));
+            const run = act(async () => {
+                void result.current.handleConfirmDeleteVoyage();
+                await vi.advanceTimersByTimeAsync(3000); // past the 2.5 s bound
+            });
+            await run;
+
+            expect(mocks.deleteVoyage).toHaveBeenCalledWith('voyage-a', expect.any(Function));
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+});

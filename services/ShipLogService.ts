@@ -2647,8 +2647,8 @@ class ShipLogServiceClass {
 
     // --- DELEGATED CRUD METHODS (implementation in ./shiplog/EntryCrud.ts) ---
 
-    async deleteVoyage(voyageId: string): Promise<boolean> {
-        return _deleteVoyage(voyageId);
+    async deleteVoyage(voyageId: string, onAccepted?: () => void): Promise<boolean> {
+        return _deleteVoyage(voyageId, onAccepted);
     }
 
     async deleteEntry(entryId: string): Promise<boolean> {

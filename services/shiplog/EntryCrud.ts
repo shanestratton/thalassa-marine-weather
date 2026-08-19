@@ -519,7 +519,22 @@ export async function unarchiveVoyage(voyageId: string): Promise<boolean> {
  * for cleanup. Name/day similarity is retained only as diagnostics: it is
  * never safe enough to delete or abort another row.
  */
-export async function deleteVoyage(voyageId: string): Promise<boolean> {
+/**
+ * @param onAccepted Fired the instant the durable local tombstone lands —
+ *   the function's own acceptance boundary (see the comment above the cloud
+ *   step below). From that moment the voyage is gone on this device whether
+ *   or not the cloud ever answers, so a caller that owns UI should remove the
+ *   row HERE, not when the promise resolves. Everything after this callback
+ *   is cloud work with its own timeouts and its own durable retry ledger: a
+ *   planned-route lookup (4 s cap), the delete (8 s), a verification select
+ *   (4 s). Awaiting all of it before touching the screen made "delete a
+ *   track" take up to ~16 s on a marine link for a result that was already
+ *   decided in the first few milliseconds (Shane, 2026-08-20: "it takes quite
+ *   a while to delete the track, can we make that instant as well?").
+ *   The returned promise still resolves only when the whole sequence is done,
+ *   so existing callers that await it are unchanged.
+ */
+export async function deleteVoyage(voyageId: string, onAccepted?: () => void): Promise<boolean> {
     const scope = getAuthIdentityScope();
     if (!voyageId || !isAuthIdentityScopeCurrent(scope)) return false;
     // Persist the deletion intent before ANY cloud lookup. Planned-route
@@ -534,6 +549,13 @@ export async function deleteVoyage(voyageId: string): Promise<boolean> {
         return false;
     }
     if (!isAuthIdentityScopeCurrent(scope)) return false;
+    // ACCEPTED. The tombstone is durable; the voyage is gone on this device.
+    try {
+        onAccepted?.();
+    } catch (error) {
+        // A UI callback must never be able to abort the cloud cleanup.
+        log.warn('deleteVoyage: onAccepted threw', error);
+    }
 
     // BEFORE deleting the entries, peek at the first/last waypointName
     // for planned_* voyages so we can derive the voyage_name to cascade-
