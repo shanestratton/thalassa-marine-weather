@@ -24,6 +24,7 @@ const log = createLogger('useLogPageState');
 const MAX_LIST_ENTRIES = 50_000;
 import type { ShipLogEntry } from '../types';
 import { ShipLogService, getRecentDeviceStops } from '../services/ShipLogService';
+import { activeVoyageIdFromTrackingState, loadTrackingState } from '../services/shiplog/TrackingStateStore';
 import {
     getCachedVoyageTrack,
     setCachedVoyageTrack,
@@ -780,39 +781,45 @@ export function useLogPageState() {
                 if (mounted && isAuthIdentityScopeCurrent(effectScope)) dispatch({ type: 'DONE_LOADING' });
             }
         })();
+        // ── SEED FROM LOCAL STATE, IN PARALLEL WITH initialize() ────────
+        // Not after it. On a cold start with a voyage to resume, initialize()
+        // runs the whole native chain — BgGeo ensureReady, location
+        // authorisation, lease acquisition, requestStart, a state save — and
+        // only returns once all of that has settled, which on device is
+        // roughly when the first GPS fix lands. A seed placed behind it
+        // therefore arrived WITH the fix (Shane, 2026-08-20: "it seems to
+        // arrive after there is a gps fix. can we make it come before that?").
+        //
+        // But the answer to "is a voyage running" is the FIRST thing
+        // initialize() reads — one Capacitor Preferences get, milliseconds —
+        // and activeVoyageIdFromTrackingState is the pure helper the service
+        // itself uses to interpret it. So read the same record here, directly,
+        // and open the gate before the native chain has even started. The
+        // service's own reconciliation still runs; LOAD_DATA still wins.
+        //
+        // Wrapped and fire-and-forget: a seed must NEVER delay or break the
+        // load. The map appearing early is a nicety; the data arriving is not.
+        void (async () => {
+            try {
+                const persisted = await loadTrackingState(effectScope);
+                if (!mounted || !isAuthIdentityScopeCurrent(effectScope)) return;
+                const seededVoyageId = activeVoyageIdFromTrackingState(persisted);
+                if (!seededVoyageId) return;
+                dispatch({ type: 'SEED_TRACKING', isTracking: true, currentVoyageId: seededVoyageId });
+                // And the track itself, from the local offline queue — the
+                // boat's own latest fixes, on this device before anywhere else.
+                const queued = await ShipLogService.getOfflineEntries();
+                if (!mounted || !isAuthIdentityScopeCurrent(effectScope)) return;
+                const mine = queued.filter((e) => e.voyageId === seededVoyageId);
+                if (mine.length > 0) dispatch({ type: 'SEED_ENTRIES', voyageId: seededVoyageId, entries: mine });
+            } catch (seedErr) {
+                log.warn('local tracking seed skipped:', seedErr);
+            }
+        })();
+
         (async () => {
             try {
                 await ShipLogService.initialize();
-                // The service now knows, from local storage, whether a voyage is
-                // running. Tell the page NOW — the live map and the tracking
-                // controls render off this — rather than after the network.
-                if (mounted && isAuthIdentityScopeCurrent(effectScope)) {
-                    // getCurrentVoyageId() already returns undefined unless the
-                    // service is actively tracking, so it is the single source
-                    // for both facts. Wrapped so a seed can NEVER break the load:
-                    // the map appearing early is a nicety, the data arriving is
-                    // not, and an exception here would skip loadData() below.
-                    try {
-                        const seededVoyageId = ShipLogService.getCurrentVoyageId();
-                        if (seededVoyageId) {
-                            dispatch({ type: 'SEED_TRACKING', isTracking: true, currentVoyageId: seededVoyageId });
-                            // And the track itself, from the local offline queue.
-                            // Fire-and-forget: it must not delay loadData() and
-                            // must not be able to break it.
-                            void ShipLogService.getOfflineEntries()
-                                .then((queued) => {
-                                    if (!mounted || !isAuthIdentityScopeCurrent(effectScope)) return;
-                                    const mine = queued.filter((e) => e.voyageId === seededVoyageId);
-                                    if (mine.length > 0) {
-                                        dispatch({ type: 'SEED_ENTRIES', voyageId: seededVoyageId, entries: mine });
-                                    }
-                                })
-                                .catch((e) => log.warn('entries seed skipped:', e));
-                        }
-                    } catch (seedErr) {
-                        log.warn('tracking seed skipped:', seedErr);
-                    }
-                }
                 if (mounted && isAuthIdentityScopeCurrent(effectScope)) await loadData();
 
                 // FIX: Supabase auth session may still be rehydrating from storage
