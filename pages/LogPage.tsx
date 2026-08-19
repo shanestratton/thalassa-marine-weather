@@ -1925,6 +1925,19 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                     {isTracking ? (
                         <>
                             {/* ── TRACKING MODE: Live card fills entire space ── */}
+                            {/* The fallback below exists because "tracking, but the
+                                voyage id is momentarily unknown" used to render
+                                LITERAL NOTHING — no card, no border, no map box —
+                                which is exactly what Shane described: "not even the
+                                outline of the box, just empty space" (2026-08-20).
+                                The id can be briefly unknown mid cold-start resume;
+                                the REGION must exist the whole time regardless. */}
+                            {!currentVoyageId && (
+                                <div className="flex-1 flex flex-col rounded-2xl bg-slate-900/40 border border-white/5 p-4">
+                                    <div className="h-3 w-32 bg-white/10 rounded mb-3 animate-pulse" />
+                                    <div className="mt-3 flex-1 min-h-[100px] rounded-xl bg-[#0b1220] border border-white/5" />
+                                </div>
+                            )}
                             {currentVoyageId &&
                                 (() => {
                                     const activeEntries = entries.filter((e) => e.voyageId === currentVoyageId);

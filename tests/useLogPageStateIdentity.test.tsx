@@ -579,4 +579,66 @@ describe('useLogPageState delete — instant on the acceptance boundary', () => 
             vi.useRealTimers();
         }
     });
+
+    it('LOAD_DATA cannot clobber the seed while the cold-start resume is still running', async () => {
+        // The in-memory service status LIES during a native resume: it holds
+        // isTracking=false from initializeForScope until startTracking
+        // completes — roughly the first GPS fix. A loadData landing in that
+        // window used to dispatch that falsehood over the seed, unmount the
+        // live card, and the map "arrived with the fix" (Shane, 2026-08-20,
+        // after the seed itself was verified working). The persisted record is
+        // now the tie-breaker.
+        mocks.persistedTracking = { isTracking: true, isPaused: false, currentVoyageId: 'voyage-a' };
+        mocks.getCurrentVoyageId.mockReturnValue(undefined); // in-memory: mid-resume
+        mocks.getTrackingStatus.mockReturnValue({
+            isTracking: false, // the lie
+            isPaused: false,
+            isRapidMode: false,
+            isPrecisionMode: false,
+        });
+
+        const { result } = renderHook(() => useLogPageState());
+        await waitFor(() => expect(mocks.getSummaries).toHaveBeenCalled());
+        // Give the LOAD_DATA dispatch time to land — and then assert it did
+        // NOT downgrade the seeded state.
+        await waitFor(() => expect(result.current.state.isTracking).toBe(true));
+        expect(result.current.state.currentVoyageId).toBe('voyage-a');
+    });
+
+    it('the delete tap removes the card instantly, even with the shares check hanging', async () => {
+        const { TrackSharingService } = await import('../services/TrackSharingService');
+        (TrackSharingService.getSharedTracksByVoyageId as ReturnType<typeof vi.fn>).mockImplementation(
+            () => new Promise(() => {}), // never answers
+        );
+        const { result } = renderHook(() => useLogPageState());
+        await waitFor(() => expect(result.current.state.summaries).toEqual([summaryA]));
+
+        await act(async () => {
+            void result.current.handleDeleteVoyageRequest('voyage-a');
+        });
+        // Card gone and undo armed, with the network still hanging.
+        expect(result.current.state.summaries).toEqual([]);
+        expect(result.current.deletedVoyage?.voyageId).toBe('voyage-a');
+    });
+
+    it('restores the card and shows the warning when shares turn up behind the removal', async () => {
+        const { TrackSharingService } = await import('../services/TrackSharingService');
+        let releaseShares!: (v: unknown[]) => void;
+        (TrackSharingService.getSharedTracksByVoyageId as ReturnType<typeof vi.fn>).mockImplementation(
+            () => new Promise<unknown[]>((resolve) => (releaseShares = resolve)),
+        );
+        const { result } = renderHook(() => useLogPageState());
+        await waitFor(() => expect(result.current.state.summaries).toEqual([summaryA]));
+
+        await act(async () => {
+            void result.current.handleDeleteVoyageRequest('voyage-a');
+        });
+        // Removed instantly, check still pending...
+        expect(result.current.state.summaries).toEqual([]);
+        // ...then the check finds shares: card restored, dialog takes over.
+        await act(async () => releaseShares([{ title: 'Bay run', download_count: 3 }]));
+        await waitFor(() => expect(result.current.state.summaries).toEqual([summaryA]));
+        expect(result.current.showSharedVoyageWarning?.voyageId).toBe('voyage-a');
+        expect(result.current.deletedVoyage).toBeNull();
+    });
 });

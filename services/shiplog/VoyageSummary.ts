@@ -575,6 +575,24 @@ async function hydratePendingUnarchives(
  * "function not found" (or any RPC error) falls back to a lightweight
  * projection fetch aggregated client-side.
  */
+/**
+ * Can getVoyageSummaries currently give a REAL answer, as opposed to its
+ * fail-closed []? The two are indistinguishable from the return value alone,
+ * and that ambiguity blanked the Log page: the local cache painted the cards,
+ * an auth-rehydrate reload landed while the Supabase session was not yet
+ * readable, getVoyageSummaries failed closed to [], and SET_SUMMARIES wiped
+ * every painted card until a later retry repainted them — several seconds of
+ * "just the main log page" right after a delete (Shane, 2026-08-20). Callers
+ * that receive [] should consult this before treating it as "no voyages".
+ * Same checks, same order, as the guard inside getVoyageSummaries itself.
+ */
+export async function voyageSummariesSessionReadable(): Promise<boolean> {
+    const scope = getAuthIdentityScope();
+    if (!supabase || !scope.userId) return false;
+    const sessionUserId = await getCurrentUserId();
+    return isAuthIdentityScopeCurrent(scope) && sessionUserId === scope.userId;
+}
+
 export async function getVoyageSummaries(includeArchived = false): Promise<VoyageSummary[]> {
     const scope = getAuthIdentityScope();
     if (!supabase || !scope.userId) return [];
