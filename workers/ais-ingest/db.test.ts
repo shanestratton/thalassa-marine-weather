@@ -10,9 +10,14 @@ function deferred<T>() {
     return { promise, resolve };
 }
 
+/**
+ * The writer calls the merge_vessels RPC (server-side COALESCE per column),
+ * not a PostgREST bulk upsert — see the note in db.ts. The mock stands in for
+ * that call; the tests reason about batches and rows exactly as before.
+ */
 function mockClient(upsert: ReturnType<typeof vi.fn>): SupabaseClient {
     return {
-        from: vi.fn(() => ({ upsert })),
+        rpc: vi.fn((_fn: string, args: { rows: unknown[] }) => upsert(args.rows)),
     } as unknown as SupabaseClient;
 }
 
@@ -179,5 +184,59 @@ describe('VesselDB writes only material change', () => {
         await db.flush(); // retried — must actually be sent
         expect(upsert).toHaveBeenCalledTimes(2);
         expect(db.getStats().totalUpserts).toBe(1);
+    });
+});
+
+/**
+ * A partial message must never blank a field it did not carry.
+ *
+ * AIS sends position and static data as separate messages. Measured live on
+ * 2026-08-19: BUNGAREE (503058420), 22.7 kt, name gone from the table — a
+ * position report had gone up as {name: null, ...} and overwritten it. The
+ * writer now sends ONLY the keys each row actually has and merges via the
+ * COALESCE RPC, so the server keeps what the message was silent about.
+ */
+describe('VesselDB never nulls a field the message did not carry', () => {
+    it('sends a position-only row without any static keys at all', async () => {
+        const upsert = vi.fn().mockResolvedValue({ error: null });
+        const db = new VesselDB(mockClient(upsert));
+        db.enqueue({ mmsi: 503058420, lat: -27.4, lon: 153.1, sog: 22.7, cog: 36.6 });
+        await db.flush();
+
+        const rows = upsert.mock.calls[0][0] as Record<string, unknown>[];
+        expect(rows).toHaveLength(1);
+        // Absent — not null. Absent lets COALESCE keep the stored name;
+        // null would replace it.
+        expect('name' in rows[0]).toBe(false);
+        expect('call_sign' in rows[0]).toBe(false);
+        expect('destination' in rows[0]).toBe(false);
+        expect(rows[0].sog).toBe(22.7);
+    });
+
+    it('sends a static-only row without any position keys', async () => {
+        const upsert = vi.fn().mockResolvedValue({ error: null });
+        const db = new VesselDB(mockClient(upsert));
+        db.enqueue({ mmsi: 503058420, name: 'BUNGAREE', call_sign: 'VJN2' });
+        await db.flush();
+
+        const rows = upsert.mock.calls[0][0] as Record<string, unknown>[];
+        expect('location' in rows[0]).toBe(false);
+        expect('sog' in rows[0]).toBe(false);
+        expect(rows[0].name).toBe('BUNGAREE');
+    });
+
+    it('goes through the merge RPC, not a bulk upsert', async () => {
+        // The whole point: a bulk upsert unions columns across the batch and
+        // NULL-fills. Only the RPC path COALESCEs server-side.
+        const upsert = vi.fn().mockResolvedValue({ error: null });
+        const client = mockClient(upsert);
+        const db = new VesselDB(client);
+        db.enqueue({ mmsi: 1, lat: -27, lon: 153 });
+        db.enqueue({ mmsi: 2, name: 'OTHER' });
+        await db.flush();
+        expect((client as unknown as { rpc: ReturnType<typeof vi.fn> }).rpc).toHaveBeenCalledWith(
+            'merge_vessels',
+            expect.objectContaining({ rows: expect.any(Array) }),
+        );
     });
 });
