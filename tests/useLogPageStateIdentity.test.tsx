@@ -2,6 +2,8 @@ import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
+    /** The LOCAL persisted tracking record the seed reads — null = nothing persisted. */
+    persistedTracking: null as null | { isTracking: boolean; isPaused: boolean; currentVoyageId?: string },
     account: 'a',
     initialize: vi.fn(),
     getCachedSummaries: vi.fn(),
@@ -69,6 +71,17 @@ vi.mock('../services/gpxService', () => ({
     readGPXFile: vi.fn().mockResolvedValue('<gpx/>'),
     importGPXToEntries: vi.fn(() => []),
 }));
+vi.mock('../services/shiplog/TrackingStateStore', async (importOriginal) => {
+    const real = await importOriginal<typeof import('../services/shiplog/TrackingStateStore')>();
+    return {
+        ...real,
+        // The seed reads this directly, in parallel with initialize(), so it
+        // can open the live-map gate before the native chain runs. Tests set
+        // mocks.persistedTracking to model what is on the device.
+        loadTrackingState: vi.fn(async () => mocks.persistedTracking),
+    };
+});
+
 vi.mock('../services/ShipLogService', () => ({
     ShipLogService: {
         initialize: (...args: unknown[]) => mocks.initialize(...args),
@@ -143,6 +156,7 @@ beforeEach(() => {
     vi.clearAllMocks();
     resetLogViewMemoForTest();
     mocks.account = 'a';
+    mocks.persistedTracking = null;
     setAuthIdentityScope('account-a');
     mocks.initialize.mockResolvedValue(undefined);
     mocks.getCachedSummaries.mockImplementation(async () => (mocks.account === 'a' ? [summaryA] : []));
@@ -382,6 +396,9 @@ describe('useLogPageState view memo — a tab-bounce keeps what the skipper had 
             () => new Promise<unknown[]>((resolve) => (releaseSummaries = resolve)),
         );
         mocks.getVoyageEntries.mockImplementation(() => new Promise<unknown[]>(() => {}));
+        // What is on the DEVICE: a voyage persisted as running. This is what
+        // the seed reads — not the service, which is still initialising.
+        mocks.persistedTracking = { isTracking: true, isPaused: false, currentVoyageId: 'voyage-a' };
         mocks.getCurrentVoyageId.mockReturnValue('voyage-a');
         // And make the eventual LOAD_DATA AGREE, so we are testing early-open
         // rather than a seed-then-revert.
@@ -414,7 +431,10 @@ describe('useLogPageState view memo — a tab-bounce keeps what the skipper had 
     it('a local seed cannot talk the page OUT of a voyage it already believes is running', async () => {
         // SEED_TRACKING only ever adds knowledge. A seed of "not tracking" is
         // the default value, not evidence, and must not override a memo
-        // restore or an in-flight start.
+        // restore or an in-flight start. Model a device record that the pure
+        // helper resolves to "no active voyage" (paused), while LOAD_DATA
+        // says tracking.
+        mocks.persistedTracking = { isTracking: true, isPaused: true, currentVoyageId: 'voyage-a' };
         mocks.getCurrentVoyageId.mockReturnValue(undefined);
         mocks.getTrackingStatus.mockReturnValue({
             isTracking: true,
@@ -439,6 +459,7 @@ describe('useLogPageState view memo — a tab-bounce keeps what the skipper had 
         mocks.getVoyageEntries.mockImplementation(
             () => new Promise<unknown[]>((resolve) => (releaseEntries = resolve)),
         );
+        mocks.persistedTracking = { isTracking: true, isPaused: false, currentVoyageId: 'voyage-a' };
         mocks.getCurrentVoyageId.mockReturnValue('voyage-a');
         mocks.getOfflineEntries.mockResolvedValue([entryA]); // local, instant
         mocks.getTrackingStatus.mockReturnValue({
@@ -458,5 +479,30 @@ describe('useLogPageState view memo — a tab-bounce keeps what the skipper had 
         // Network lands: LOAD_DATA replaces the seed and the expand survives.
         act(() => releaseEntries([entryA]));
         await waitFor(() => expect(result.current.state.expandedVoyages.has('voyage-a')).toBe(true));
+    });
+
+    it('opens the live-map gate while initialize() is STILL RUNNING — before any GPS fix', async () => {
+        // The case Shane saw on device (2026-08-20): the map "arrives after
+        // there is a gps fix". On a cold start with a voyage to resume,
+        // initialize() runs the native chain — BgGeo ready, authorisation,
+        // lease, requestStart — and returns roughly when the first fix lands.
+        // A seed behind it inherited that wait. The seed now reads the local
+        // record IN PARALLEL with initialize(), so the gate opens while the
+        // native chain has not even finished. Model that by never resolving
+        // initialize() at all.
+        mocks.initialize.mockImplementation(() => new Promise<void>(() => {}));
+        mocks.persistedTracking = { isTracking: true, isPaused: false, currentVoyageId: 'voyage-a' };
+        mocks.getOfflineEntries.mockResolvedValue([entryA]);
+
+        const { result } = renderHook(() => useLogPageState());
+
+        await waitFor(() => {
+            expect(result.current.state.isTracking).toBe(true);
+            expect(result.current.state.currentVoyageId).toBe('voyage-a');
+            expect(result.current.state.entries.length).toBeGreaterThan(0);
+        });
+        // initialize() never returned, so loadData() never ran — and the map
+        // gate is open anyway, with a track to draw.
+        expect(mocks.getSummaries).not.toHaveBeenCalled();
     });
 });
