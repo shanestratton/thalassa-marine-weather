@@ -358,6 +358,14 @@ export default defineConfig(({ mode }) => {
             // Instead, define individual keys only.
             'process.env.NODE_ENV': JSON.stringify(mode),
 
+            // The build stamp, shown in Settings > General. Exists because a
+            // week of Log-page fixes was debugged against a phone still
+            // running a five-day-old build: `npm run build` + `cap sync` stage
+            // the bundle into the Xcode PROJECT, but nothing reaches the phone
+            // until Xcode RUNS it there. With a visible stamp, "is the fix on
+            // the phone?" is a five-second glance instead of an argument.
+            __BUILD_STAMP__: JSON.stringify(new Date().toISOString().slice(0, 16).replace('T', ' ') + 'Z'),
+
             // Paid provider secrets never enter the browser bundle. All three
             // providers are accessed through authenticated, rate-limited relays.
             'process.env.API_KEY': JSON.stringify(''),
