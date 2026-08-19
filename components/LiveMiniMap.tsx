@@ -30,6 +30,15 @@ interface LiveMiniMapProps {
     entries: ShipLogEntry[];
     /** Route currently being followed. Drawn independently beneath the GPS track. */
     followedRouteCoords?: readonly RouteCoordinate[];
+    /**
+     * Where the boat is RIGHT NOW, if known, for the map's very first viewport.
+     * On a cold start the entries have not arrived yet (they come from the
+     * network) and the followed route may be empty, so without this the map
+     * opened on a hardcoded Newport default and then jumped. The caller
+     * resolves it synchronously from the live fix; the map uses it only when
+     * it has nothing better, and never re-centres on it afterwards.
+     */
+    initialCenter?: { lat: number; lon: number } | null;
     height?: number | string; // px number or CSS string like '100%'
     isLive?: boolean; // Show pulsing vessel dot at latest position
     className?: string;
@@ -54,6 +63,7 @@ export const LiveMiniMap: React.FC<LiveMiniMapProps> = memo(
     ({
         entries,
         followedRouteCoords = EMPTY_ROUTE_COORDS,
+        initialCenter = null,
         height = 160,
         isLive = false,
         className = '',
@@ -73,6 +83,8 @@ export const LiveMiniMap: React.FC<LiveMiniMapProps> = memo(
         entriesRef.current = entries;
         const followedRouteCoordsRef = useRef(followedRouteCoords);
         followedRouteCoordsRef.current = followedRouteCoords;
+        const initialCenterRef = useRef(initialCenter);
+        initialCenterRef.current = initialCenter;
         // Set once the user manually zooms/pans a free-zoom map — stops
         // the live auto-follow from snapping their view back.
         const userMovedRef = useRef(false);
@@ -217,11 +229,17 @@ export const LiveMiniMap: React.FC<LiveMiniMapProps> = memo(
                     .filter((e) => isTrackworthyEntry(e) && e.latitude != null && e.longitude != null)
                     .map((e) => [e.latitude as number, e.longitude as number] as [number, number]),
             ];
+            const live = initialCenterRef.current;
             if (seedPoints.length === 1) {
                 map.setView(seedPoints[0], 14);
             } else if (seedPoints.length > 1) {
                 map.fitBounds(L.latLngBounds(seedPoints), { maxZoom: 15, animate: false, padding: [16, 16] });
                 hasFitRef.current = true;
+            } else if (live && Number.isFinite(live.lat) && Number.isFinite(live.lon)) {
+                // Cold start, no track yet: open on the BOAT. The first tiles
+                // fetched are the ones the skipper is about to look at, and the
+                // track draws into this view rather than forcing a second fit.
+                map.setView([live.lat, live.lon], 14);
             } else {
                 map.setView([-27.207, 153.108], 12);
             }

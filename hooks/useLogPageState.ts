@@ -132,6 +132,25 @@ type LogPageAction =
     | { type: 'REMOVE_VOYAGE'; voyageId: string }
     | { type: 'UPDATE_ENTRIES'; updater: (prev: ShipLogEntry[]) => ShipLogEntry[] }
     | { type: 'SET_TRACKING'; isTracking: boolean; isPaused: boolean }
+    /**
+     * Seed tracking state from ShipLogService's LOCAL knowledge, the moment
+     * initialize() has read it — BEFORE any network round trip. The live map is
+     * gated on isTracking && currentVoyageId, and the service knows both from
+     * Capacitor Preferences in milliseconds; the page used to wait for
+     * LOAD_DATA, which lands after five-plus serial Supabase calls, before it
+     * would admit a voyage was running (Shane, 2026-08-20: "it needs to be
+     * instant along with everything in the log page"). LOAD_DATA remains
+     * authoritative and overwrites this when it arrives.
+     */
+    | { type: 'SEED_TRACKING'; isTracking: boolean; currentVoyageId: string | undefined }
+    /**
+     * Seed the active voyage's track from the LOCAL offline queue — the boat's
+     * own most recent fixes, which are on this device before they are anywhere
+     * else. Lets the live map draw a line the instant it mounts instead of
+     * sitting empty until the network returns the same points. LOAD_DATA
+     * replaces these wholesale when it lands.
+     */
+    | { type: 'SEED_ENTRIES'; voyageId: string; entries: ShipLogEntry[] }
     | { type: 'SET_RAPID_MODE'; isRapidMode: boolean }
     | { type: 'SET_PRECISION_MODE'; isPrecisionMode: boolean }
     | { type: 'SET_GPS_STATUS'; status: 'locked' | 'stale' | 'none' }
@@ -295,6 +314,25 @@ function logPageReducer(state: LogPageState, action: LogPageAction): LogPageStat
             };
         case 'UPDATE_ENTRIES':
             return { ...state, entries: action.updater(state.entries) };
+        case 'SEED_ENTRIES': {
+            // Only while the page still has nothing: a seed must never clobber
+            // data a LOAD_DATA has already delivered. And apply the SAME
+            // first-load auto-expand LOAD_DATA would have applied, so seeding
+            // early cannot defeat it (LOAD_DATA keys it on entries.length === 0,
+            // which would now be false by the time it arrived).
+            if (state.entries.length > 0 || action.entries.length === 0) return state;
+            const expandedVoyages =
+                state.expandedVoyages.size === 0 ? new Set([action.voyageId]) : state.expandedVoyages;
+            return { ...state, entries: action.entries, expandedVoyages };
+        }
+        case 'SEED_TRACKING':
+            // Only ever ADD knowledge. If the reducer already believes a voyage
+            // is running (memo restore, or an in-flight start), do not let a
+            // stale local read talk it out of that — a seed that says "not
+            // tracking" is the default value, not evidence.
+            if (!action.isTracking || !action.currentVoyageId) return state;
+            if (state.isTracking && state.currentVoyageId === action.currentVoyageId) return state;
+            return { ...state, isTracking: true, currentVoyageId: action.currentVoyageId };
         case 'SET_TRACKING':
             return {
                 ...state,
@@ -745,6 +783,36 @@ export function useLogPageState() {
         (async () => {
             try {
                 await ShipLogService.initialize();
+                // The service now knows, from local storage, whether a voyage is
+                // running. Tell the page NOW — the live map and the tracking
+                // controls render off this — rather than after the network.
+                if (mounted && isAuthIdentityScopeCurrent(effectScope)) {
+                    // getCurrentVoyageId() already returns undefined unless the
+                    // service is actively tracking, so it is the single source
+                    // for both facts. Wrapped so a seed can NEVER break the load:
+                    // the map appearing early is a nicety, the data arriving is
+                    // not, and an exception here would skip loadData() below.
+                    try {
+                        const seededVoyageId = ShipLogService.getCurrentVoyageId();
+                        if (seededVoyageId) {
+                            dispatch({ type: 'SEED_TRACKING', isTracking: true, currentVoyageId: seededVoyageId });
+                            // And the track itself, from the local offline queue.
+                            // Fire-and-forget: it must not delay loadData() and
+                            // must not be able to break it.
+                            void ShipLogService.getOfflineEntries()
+                                .then((queued) => {
+                                    if (!mounted || !isAuthIdentityScopeCurrent(effectScope)) return;
+                                    const mine = queued.filter((e) => e.voyageId === seededVoyageId);
+                                    if (mine.length > 0) {
+                                        dispatch({ type: 'SEED_ENTRIES', voyageId: seededVoyageId, entries: mine });
+                                    }
+                                })
+                                .catch((e) => log.warn('entries seed skipped:', e));
+                        }
+                    } catch (seedErr) {
+                        log.warn('tracking seed skipped:', seedErr);
+                    }
+                }
                 if (mounted && isAuthIdentityScopeCurrent(effectScope)) await loadData();
 
                 // FIX: Supabase auth session may still be rehydrating from storage

@@ -49,7 +49,9 @@ import {
 import { voyageHasRecordedFix } from '../services/shiplog/helpers';
 import { evaluatePropulsionConflict } from '../services/shiplog/propulsion';
 import { ShipLogService } from '../services/ShipLogService';
-import { acquireFreshOwnshipPosition } from '../services/ownshipPosition';
+import { acquireFreshOwnshipPosition, resolveOwnshipPosition } from '../services/ownshipPosition';
+import { NmeaStore } from '../services/NmeaStore';
+import { LocationStore } from '../stores/LocationStore';
 import { VoyageLogService } from '../services/VoyageLogService';
 import { collapseReversedRoutes } from '../services/shiplog/collapseReversedRoutes';
 import { fetchVoyageAsTrack, groupByVoyage } from '../services/shiplog/RoutesAndTracks';
@@ -419,6 +421,24 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
     // WHICH WAY ROUND to offer a there-and-back route (below) — same "ignore
     // 0,0" rule as hasRecordedFix, since a null-island fix would drag every
     // direction choice toward the Gulf of Guinea.
+    /**
+     * Where the boat is RIGHT NOW, from the live fix — synchronous, no network.
+     * Seeds the live map's first viewport on a cold start, when the entries
+     * that would otherwise frame it have not arrived yet. Deliberately not
+     * `currentFix` below: that is derived from ENTRIES, so it is null at
+     * exactly the moment this is needed.
+     */
+    const liveFix = React.useMemo(() => {
+        try {
+            const own = resolveOwnshipPosition(NmeaStore.getState(), LocationStore.getState());
+            return own ? { lat: own.lat, lon: own.lon } : null;
+        } catch {
+            return null;
+        }
+        // Intentionally computed once per mount: it is a SEED for the first
+        // viewport, not a tracker. The map follows the track after that.
+    }, []);
+
     const currentFix = React.useMemo(() => {
         const vid = state.currentVoyageId;
         if (!vid) return null;
@@ -2010,6 +2030,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                                     <LiveMiniMap
                                                         entries={activeEntries}
                                                         followedRouteCoords={followedRouteCoords}
+                                                        initialCenter={liveFix ?? currentFix}
                                                         height="100%"
                                                         isLive={true}
                                                         onTap={openLiveMap}
