@@ -25,6 +25,7 @@ const MAX_LIST_ENTRIES = 50_000;
 import type { ShipLogEntry } from '../types';
 import { ShipLogService, getRecentDeviceStops } from '../services/ShipLogService';
 import { activeVoyageIdFromTrackingState, loadTrackingState } from '../services/shiplog/TrackingStateStore';
+import { voyageSummariesSessionReadable } from '../services/shiplog/VoyageSummary';
 import { withTimeout } from '../utils/deadline';
 import {
     getCachedVoyageTrack,
@@ -131,6 +132,11 @@ type LogPageAction =
       }
     | { type: 'SET_ENTRIES'; entries: ShipLogEntry[] }
     | { type: 'SET_SUMMARIES'; summaries: VoyageSummary[] }
+    /** Put one summary back (undo, or a shared-track warning restoring the
+     *  card). Reducer-side so it composes with CURRENT state — the undo's
+     *  SET_SUMMARIES rebuild from a closed-over snapshot is race-prone from
+     *  async callbacks. Idempotent: replaces by id if present, else prepends. */
+    | { type: 'RESTORE_SUMMARY'; summary: VoyageSummary }
     | { type: 'REMOVE_VOYAGE'; voyageId: string }
     | { type: 'UPDATE_ENTRIES'; updater: (prev: ShipLogEntry[]) => ShipLogEntry[] }
     | { type: 'SET_TRACKING'; isTracking: boolean; isPaused: boolean }
@@ -306,6 +312,11 @@ function logPageReducer(state: LogPageState, action: LogPageAction): LogPageStat
             return { ...state, entries: action.entries };
         case 'SET_SUMMARIES':
             return { ...state, summaries: action.summaries };
+        case 'RESTORE_SUMMARY':
+            return {
+                ...state,
+                summaries: [action.summary, ...state.summaries.filter((s) => s.voyageId !== action.summary.voyageId)],
+            };
         case 'REMOVE_VOYAGE':
             // Optimistic removal from BOTH the summary list (drives the
             // cards) and any lazy-loaded points for that voyage.
@@ -564,7 +575,18 @@ export function useLogPageState() {
                 `(${summaries.length} voyages, ${activeEntries.length} active pts)`,
         );
 
-        dispatch({ type: 'SET_SUMMARIES', summaries });
+        // An EMPTY result is ambiguous: "no voyages" and "session not yet
+        // readable, failed closed" look identical. Only believe the first.
+        // Without this, an auth-rehydrate reload wiped every cache-painted
+        // card for several seconds — the "just the main log page" gap after a
+        // delete. A skipped update here is healed by the next poll/retry.
+        if (summaries.length > 0) {
+            dispatch({ type: 'SET_SUMMARIES', summaries });
+        } else {
+            const readable = await voyageSummariesSessionReadable().catch(() => false);
+            if (!isAuthIdentityScopeCurrent(identityScope)) return;
+            if (readable) dispatch({ type: 'SET_SUMMARIES', summaries });
+        }
 
         // Merge active + offline into whatever is already resident
         // (expanded voyages), purging volatile offline_* ids and deduping
@@ -580,18 +602,50 @@ export function useLogPageState() {
         const status = ShipLogService.getTrackingStatus();
         const voyageId = ShipLogService.getCurrentVoyageId();
 
+        // THE IN-MEMORY STATUS LIES DURING A COLD-START RESUME, and LOAD_DATA
+        // used to believe it. initializeForScope deliberately sets the
+        // service's in-memory isTracking to FALSE for the whole native resume
+        // (BgGeo ready → authorisation → lease → requestStart) and only flips
+        // it true when startTracking completes — which on device is roughly
+        // when the first GPS fix lands. So any loadData finishing in that
+        // window (the auth-rehydrate reload reliably does) dispatched
+        // isTracking:false over the seed, unmounted the live card, and the map
+        // "arrived with the GPS fix" — the exact symptom the seed was built to
+        // kill. Found by the 2026-08-20 render-path audit after two fixes that
+        // read correctly and were then clobbered.
+        //
+        // The persisted record is the tie-breaker, same source the seed uses.
+        // It cannot go stale-true: every path that genuinely stops tracking —
+        // stop, pause, mark-stopped, failed-start rollback — SAVES the record
+        // as not-tracking before or as it changes the in-memory state.
+        let effectiveTracking = status.isTracking;
+        let effectiveVoyageId = voyageId;
+        if (!status.isTracking && !stoppingRef.current) {
+            try {
+                const persistedVoyageId = activeVoyageIdFromTrackingState(await loadTrackingState(identityScope));
+                if (persistedVoyageId) {
+                    effectiveTracking = true;
+                    effectiveVoyageId = persistedVoyageId;
+                }
+            } catch {
+                /* fall through to the in-memory answer */
+            }
+            if (!isAuthIdentityScopeCurrent(identityScope)) return;
+        }
+
         dispatch({
             type: 'LOAD_DATA',
             entries: merged,
             // startingRef pins true (a start is in flight), stoppingRef pins
             // false (a stop is in flight); otherwise trust the freshly-read
-            // status. This keeps an in-flight load from clobbering either
-            // optimistic transition.
-            isTracking: startingRef.current ? true : stoppingRef.current ? false : status.isTracking,
+            // status, tie-broken by the persisted record above. This keeps an
+            // in-flight load from clobbering either optimistic transition OR
+            // an in-flight cold-start resume.
+            isTracking: startingRef.current ? true : stoppingRef.current ? false : effectiveTracking,
             isPaused: startingRef.current || stoppingRef.current ? false : status.isPaused,
             isRapidMode: stoppingRef.current ? false : status.isRapidMode,
             isPrecisionMode: stoppingRef.current ? false : status.isPrecisionMode === true,
-            currentVoyageId: voyageId,
+            currentVoyageId: startingRef.current || stoppingRef.current ? voyageId : effectiveVoyageId,
         });
 
         // Load archived voyages and career entries in parallel (non-blocking)
@@ -1361,39 +1415,57 @@ export function useLogPageState() {
         async (voyageId: string) => {
             const actionScope = identityScope;
             if (!isAuthIdentityScopeCurrent(actionScope)) return;
-            // Check for shared tracks first — those need a confirmation.
-            // Bounded and fail-open, same as handleConfirmDeleteVoyage: this
-            // check sat UNBOUNDED between the skipper's tap and the row moving,
-            // and on a marine link that was the whole "takes quite a while"
-            // (Shane, 2026-08-20). The row below is removed optimistically with
-            // an undo window, so all this gates is the shared-track WARNING —
-            // worth 2.5 s of the skipper's patience, not more.
-            try {
-                const sharedTracks = await withTimeout(
-                    TrackSharingService.getSharedTracksByVoyageId(voyageId),
-                    [] as Awaited<ReturnType<typeof TrackSharingService.getSharedTracksByVoyageId>>,
-                    2500,
-                );
-                if (!isAuthIdentityScopeCurrent(actionScope)) return;
-                if (sharedTracks.length > 0) {
-                    const trackInfo = sharedTracks
-                        .map((t) => `"${t.title}" (${t.download_count || 0} downloads)`)
-                        .join(', ');
-                    setShowSharedVoyageWarning({ voyageId, trackInfo });
-                    return;
-                }
-            } catch (e) {
-                if (!isAuthIdentityScopeCurrent(actionScope)) return;
-                log.warn('shared track check failed:', e);
-            }
 
-            // Soft-delete: remove from UI, UndoToast owns the 5s countdown.
-            // The card is summary-driven, so pull it from BOTH summaries and
-            // any resident points; stash the summary for a clean undo.
+            // THE TAP ACTS FIRST. The card is removed and the undo countdown
+            // starts the moment the skipper's finger lifts — nothing sits
+            // between them and the screen. This used to await a shared-track
+            // check (unbounded, then bounded to 2.5 s) before the card moved,
+            // which on a marine link was still 2.5 s of a tap apparently
+            // ignored. Nothing about the check needs to precede the removal:
+            // the actual delete happens 5 s from now at the earliest.
             const voyageEntries = state.entries.filter((e) => e.voyageId === voyageId);
             const summary = state.summaries.find((s) => s.voyageId === voyageId) ?? null;
             dispatch({ type: 'REMOVE_VOYAGE', voyageId });
             setDeletedVoyage({ voyageId, entries: voyageEntries, summary });
+
+            // The shared-track warning runs BEHIND the removal, with the whole
+            // undo window as its budget instead of 2.5 s of the skipper's
+            // patience. If shares exist, the card comes back (the same restore
+            // undo performs) and the warning dialog takes over — the delete
+            // has not happened yet, so nothing is lost either way. If the
+            // check fails or times out, the delete proceeds as unshared:
+            // fail-open, same trade as before, bigger budget.
+            void (async () => {
+                try {
+                    const sharedTracks = await withTimeout(
+                        TrackSharingService.getSharedTracksByVoyageId(voyageId),
+                        [] as Awaited<ReturnType<typeof TrackSharingService.getSharedTracksByVoyageId>>,
+                        4000,
+                    );
+                    if (!isAuthIdentityScopeCurrent(actionScope)) return;
+                    if (sharedTracks.length === 0) return;
+                    const trackInfo = sharedTracks
+                        .map((t) => `"${t.title}" (${t.download_count || 0} downloads)`)
+                        .join(', ');
+                    // Put the card back and let the dialog decide. Guard on the
+                    // undo window still being open for THIS voyage — if it has
+                    // already elapsed, executeVoyageDelete owns the outcome and
+                    // resurrecting the card here would fight it.
+                    setDeletedVoyage((current) => {
+                        if (!current || current.voyageId !== voyageId) return current;
+                        if (current.entries.length > 0) {
+                            dispatch({ type: 'UPDATE_ENTRIES', updater: (prev) => [...prev, ...current.entries] });
+                        }
+                        if (current.summary) {
+                            dispatch({ type: 'RESTORE_SUMMARY', summary: current.summary });
+                        }
+                        setShowSharedVoyageWarning({ voyageId, trackInfo });
+                        return null;
+                    });
+                } catch (e) {
+                    if (isAuthIdentityScopeCurrent(actionScope)) log.warn('shared track check failed:', e);
+                }
+            })();
         },
         [dispatch, identityScope, state.entries, state.summaries],
     );
