@@ -24,10 +24,18 @@ interface VesselSearchResult {
     mmsi: number;
     name: string | null;
     flag: string;
-    lat: number;
-    lon: number;
+    /**
+     * Null when the vessel is known but has not yet reported a position. AIS
+     * sends static data (name) and position as separate messages, so a ship
+     * can be in the table by name before its first fix. Such a hit is still a
+     * hit — it is shown, marked, and simply cannot be flown to.
+     */
+    lat: number | null;
+    lon: number | null;
     sog: number;
     shipType: number;
+    /** When the row was last written — so the user can judge freshness. */
+    updatedAt: string | null;
     source: 'live' | 'metadata';
 }
 
@@ -42,6 +50,8 @@ export const VesselSearch: React.FC<VesselSearchProps> = ({ onSelect, visible, o
     const [results, setResults] = useState<VesselSearchResult[]>([]);
     const [loading, setLoading] = useState(false);
     const [searched, setSearched] = useState(false);
+    /** A search-time failure or a no-position tap; shown inline, never a toast. */
+    const [error, setError] = useState<string | null>(null);
     const inputRef = useRef<HTMLInputElement>(null);
     const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const requestVersionRef = useRef(0);
@@ -63,6 +73,7 @@ export const VesselSearch: React.FC<VesselSearchProps> = ({ onSelect, visible, o
             setResults([]);
             setSearched(false);
             setLoading(false);
+            setError(null);
         }
 
         return () => {
@@ -98,59 +109,55 @@ export const VesselSearch: React.FC<VesselSearchProps> = ({ onSelect, visible, o
         }
 
         try {
-            // Try RPC function first (uses PostGIS ST_X/ST_Y for lat/lon)
+            // One path. There used to be a "fallback" that queried the table
+            // directly for `lat, lon` columns — columns the table does not have
+            // (it stores a PostGIS `location`). So if the RPC ever errored, the
+            // fallback errored too, silently, and the user saw an empty list
+            // that looked like "no such ship". Resilience that cannot work is
+            // worse than none: it hides the real failure. Now an RPC error is
+            // logged AND surfaced as an error state rather than an empty list.
             const { data, error } = await supabase.rpc('search_vessels', {
                 search_query: q.trim(),
                 max_results: 10,
             });
 
             if (requestVersion !== requestVersionRef.current) return;
-            let rows = data;
 
             if (error) {
-                log.warn('[VesselSearch] RPC not available, falling back to direct query:', error.message);
-                // Fallback: direct query on vessels table (no PostGIS dependency)
-                const isMMSI = /^\d{5,9}$/.test(q.trim());
-                let query = supabase.from('vessels').select('mmsi, name, call_sign, ship_type, sog, lat, lon');
-
-                if (isMMSI) {
-                    query = query.eq('mmsi', parseInt(q.trim()));
-                } else {
-                    query = query.ilike('name', `%${q.trim()}%`);
-                }
-
-                const { data: fallbackData, error: fallbackError } = await query.limit(10);
-                if (requestVersion !== requestVersionRef.current) return;
-                if (fallbackError) {
-                    log.warn('[VesselSearch] Fallback query error:', fallbackError.message);
-                    setResults([]);
-                    return;
-                }
-                rows = fallbackData;
+                log.warn('[VesselSearch] search_vessels failed:', error.message);
+                setResults([]);
+                setError('Search is unavailable right now');
+                return;
             }
+            setError(null);
 
-            const merged: VesselSearchResult[] = (rows || [])
-                .filter((v: { lat: number; lon: number }) => v.lat !== 0 || v.lon !== 0)
-                .map(
-                    (v: {
-                        mmsi: number;
-                        name: string | null;
-                        call_sign: string | null;
-                        ship_type: number;
-                        sog: number;
-                        lat: number;
-                        lon: number;
-                    }) => ({
-                        mmsi: v.mmsi,
-                        name: v.name || null,
-                        flag: getMmsiFlag(v.mmsi),
-                        lat: v.lat,
-                        lon: v.lon,
-                        sog: v.sog ?? 0,
-                        shipType: v.ship_type ?? 0,
-                        source: 'live' as const,
-                    }),
-                );
+            const merged: VesselSearchResult[] = (data || []).map(
+                (v: {
+                    mmsi: number;
+                    name: string | null;
+                    call_sign: string | null;
+                    ship_type: number | null;
+                    sog: number | null;
+                    lat: number | null;
+                    lon: number | null;
+                    has_position: boolean;
+                    updated_at: string | null;
+                }) => ({
+                    mmsi: v.mmsi,
+                    name: v.name || null,
+                    flag: getMmsiFlag(v.mmsi),
+                    // has_position is authoritative. A vessel with no fix comes
+                    // back with null lat/lon and is KEPT — the old client
+                    // filtered on `lat !== 0 || lon !== 0`, which dropped nothing
+                    // useful (nulls are not 0) but signalled the wrong intent.
+                    lat: v.has_position ? v.lat : null,
+                    lon: v.has_position ? v.lon : null,
+                    sog: v.sog ?? 0,
+                    shipType: v.ship_type ?? 0,
+                    updatedAt: v.updated_at ?? null,
+                    source: 'live' as const,
+                }),
+            );
 
             if (requestVersion === requestVersionRef.current) setResults(merged);
         } catch (err) {
@@ -163,6 +170,7 @@ export const VesselSearch: React.FC<VesselSearchProps> = ({ onSelect, visible, o
 
     const handleInput = (val: string) => {
         setQuery(val);
+        setError(null);
         if (debounceRef.current) clearTimeout(debounceRef.current);
         const requestVersion = ++requestVersionRef.current;
         if (val.length < 2) {
@@ -188,8 +196,15 @@ export const VesselSearch: React.FC<VesselSearchProps> = ({ onSelect, visible, o
     };
 
     const handleSelect = (result: VesselSearchResult) => {
-        triggerHaptic('medium');
         const displayName = result.name || `MMSI ${result.mmsi}`;
+        if (result.lat === null || result.lon === null) {
+            // Known ship, no fix yet — nothing to centre the chart on. Say so
+            // rather than flying to (0, 0) off the coast of Africa.
+            triggerHaptic('light');
+            setError(`${displayName} hasn't reported a position yet`);
+            return;
+        }
+        triggerHaptic('medium');
         onSelect(result.lat, result.lon, result.mmsi, displayName);
         onClose();
     };
@@ -293,7 +308,11 @@ export const VesselSearch: React.FC<VesselSearchProps> = ({ onSelect, visible, o
                     </div>
                 )}
 
-                {!loading && searched && results.length === 0 && (
+                {/* "No vessels found" is a claim about the DATA and must never be
+                    shown when the SEARCH failed — during an outage the two look
+                    identical from here, and telling the user "no such ship" is
+                    the exact lie the old fake fallback used to tell. */}
+                {!loading && searched && !error && results.length === 0 && (
                     <EmptyState icon="🚢" title="No Vessels Found" description={`No vessels matching "${query}"`} />
                 )}
 
@@ -347,10 +366,21 @@ export const VesselSearch: React.FC<VesselSearchProps> = ({ onSelect, visible, o
                                     fontWeight: 600,
                                 }}
                             >
-                                {r.lat.toFixed(1)}°, {r.lon.toFixed(1)}°
+                                {r.lat !== null && r.lon !== null
+                                    ? `${r.lat.toFixed(1)}°, ${r.lon.toFixed(1)}°`
+                                    : 'no position yet'}
                             </span>
                         </button>
                     ))}
+
+                {error && (
+                    <div
+                        role="alert"
+                        style={{ textAlign: 'center', padding: '10px 16px', color: '#fbbf24', fontSize: 12 }}
+                    >
+                        {error}
+                    </div>
+                )}
 
                 {!loading && !searched && (
                     <div style={{ textAlign: 'center', padding: 32, color: '#475569', fontSize: 12 }}>
