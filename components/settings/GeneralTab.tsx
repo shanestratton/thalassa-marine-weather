@@ -300,6 +300,13 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                     </button>
                 </div>
             </Section>
+            {/* The web-bundle build stamp — NOT the App Store version. This
+                dates the JavaScript actually running, so a stale install is
+                visible at a glance. If this does not match roughly when you
+                last pressed Run in Xcode, the phone is running old code. */}
+            <p className="pb-6 pt-1 text-center text-[10px] tracking-wide text-white/25">
+                bundle {__BUILD_STAMP__}
+            </p>
         </div>
     );
 };
