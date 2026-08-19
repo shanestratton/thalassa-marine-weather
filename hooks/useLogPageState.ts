@@ -27,6 +27,7 @@ import { ShipLogService, getRecentDeviceStops } from '../services/ShipLogService
 import { activeVoyageIdFromTrackingState, loadTrackingState } from '../services/shiplog/TrackingStateStore';
 import { voyageSummariesSessionReadable } from '../services/shiplog/VoyageSummary';
 import { withTimeout } from '../utils/deadline';
+import { crumb } from '../utils/flightRecorder';
 import {
     getCachedVoyageTrack,
     setCachedVoyageTrack,
@@ -279,6 +280,26 @@ function seededInitialState(scope: AuthIdentityScope): LogPageState {
 }
 
 function logPageReducer(state: LogPageState, action: LogPageAction): LogPageState {
+    const next = logPageReducerInner(state, action);
+    // ── Tracking-transition trace ────────────────────────────────────────
+    // Every change to (isTracking, currentVoyageId) is logged with the action
+    // that caused it. Exists because "the live card shows its placeholder for
+    // a while" (isTracking true, id unknown — Shane, 2026-08-20) has FOUR
+    // candidate causes, and three rounds of fixing this page by reasoning
+    // instead of measuring each fixed the wrong thing. Read it in the Xcode
+    // console on device: [LogPage] tracking …. Cheap (fires only on change),
+    // and the crumb survives a WebView kill via the flight recorder.
+    if (next.isTracking !== state.isTracking || next.currentVoyageId !== state.currentVoyageId) {
+        const line =
+            `tracking ${state.isTracking}/${state.currentVoyageId ?? '-'} -> ` +
+            `${next.isTracking}/${next.currentVoyageId ?? '-'} via ${action.type}`;
+        log.warn(line);
+        crumb('log:tracking', line);
+    }
+    return next;
+}
+
+function logPageReducerInner(state: LogPageState, action: LogPageAction): LogPageState {
     switch (action.type) {
         case 'RESET_IDENTITY':
             return freshInitialState();

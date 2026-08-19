@@ -1269,6 +1269,15 @@ class PiCacheServiceImpl {
 
     leafletTileTemplate(originalTemplate: string, ttlMs = 1_800_000, contentType = 'image/png'): string {
         if (!PiCacheServiceImpl.PI_TILE_PROXY_USABLE || !this.isAvailable()) return originalTemplate;
+        // NEVER proxy tiles over the REMOTE path. The Pi cache earns its keep
+        // on the boat LAN — shared scarce uplink, prefetched cells, offline at
+        // anchor. Reached over the punter's tailnet instead, the same proxy is
+        // a pure detour: phone → Tailscale → the boat's 5G → Pi → upstream →
+        // back over 5G — for tiles the phone could fetch directly on its own
+        // connection. Measured as "the box is instant but the map inside takes
+        // ages" on the Log page from home (Shane, 2026-08-20). `reachable` and
+        // `worth using` are different facts; this is where they part ways.
+        if (this._useRemote) return originalTemplate;
         // ENCODE the upstream template. It may carry its own query string —
         // Mapbox requires ?access_token= — and interpolating it raw made
         // Express on the Pi parse that token as one of the PASSTHROUGH's own
