@@ -139,12 +139,27 @@ const HEEL_STARBOARD_POSITIVE = true;
  * not supply. XDR attitude is encoded in quarter-degree steps; 255 quarters is
  * 0xFF, the N2K "not available" byte, and 255 / 4 = 63.75°.
  *
- * Recorded for the reader, not used as a guard: the parser recognises the
- * fault by its SHAPE (yaw, pitch and roll all identical), which is gateway-
- * agnostic and — unlike matching this number — cannot swallow a real 63.75°
- * knockdown reported alongside a sane pitch.
+ * Used two ways. The whole-sentence fault is recognised by SHAPE (yaw, pitch
+ * and roll all identical), which is gateway-agnostic. This number is matched
+ * only for the PARTIAL fault: on 2026-08-19, a Garmin GPS 24xd on Serene
+ * Summer's bus was caught transmitting `Yaw=63.75 Pitch=63.75 Roll=1.0` —
+ * per-axis "not available" on a device with no attitude hardware. Two or more
+ * axes at exactly this value mark those axes as no-data; a SINGLE axis at
+ * 63.75 beside sane companions is still believed, because a real knockdown at
+ * 63.75° of roll must never fall through the guard.
  */
 export const XDR_ATTITUDE_UNAVAILABLE_DEG = 63.75;
+
+/**
+ * A compass bearing or course that a device can actually steer. The YDWG
+ * scales N2K sentinels like any other number: heading 0xFFFE arrives as
+ * 6.5534 rad = 375.5° on the wire (seen verbatim from a factory-fresh GPS
+ * 24xd, and in the 2026-08-09 "un-normalised VHW" capture — those were never
+ * wraparound, they were error codes). Folding 375.5 through a modulo or a
+ * circular mean launders the sentinel into a confident, wrong 15.5°. Out of
+ * range is out — never normalised.
+ */
+const isPlausibleBearing = (v: number) => v >= 0 && v <= 360;
 
 // ── Raw accumulator between emissions ──
 interface RawAccumulator {
@@ -833,9 +848,7 @@ class NmeaListenerServiceClass {
             // is alive, and proof outranks the OS's summary of it.
             const sinceData = Date.now() - this.lastSentenceAt;
             if (sinceData < NETWORK_LOSS_GRACE_MS) {
-                log.info(
-                    `Network reported down, but NMEA data arrived ${sinceData}ms ago — keeping the socket`,
-                );
+                log.info(`Network reported down, but NMEA data arrived ${sinceData}ms ago — keeping the socket`);
                 return;
             }
             log.warn('Network lost — releasing the NMEA socket rather than orphaning a gateway slot');
@@ -1046,8 +1059,8 @@ class NmeaListenerServiceClass {
         const trueDir = parts[2] === 'T' ? parseNmeaNumber(parts[1]) : null;
         const magDir = parts[4] === 'M' ? parseNmeaNumber(parts[3]) : null;
         const direction = trueDir ?? magDir;
-        if (direction !== null && Number.isFinite(direction)) {
-            this.accumulator.twd.push(((direction % 360) + 360) % 360);
+        if (direction !== null && Number.isFinite(direction) && isPlausibleBearing(direction)) {
+            this.accumulator.twd.push(direction % 360);
         }
         // MWD also carries wind speed in knots (field 5) and m/s (field 7).
         // Only used when MWV,T is absent — a boat that sends both should not
@@ -1067,19 +1080,19 @@ class NmeaListenerServiceClass {
         if (stw !== null) this.accumulator.stw.push(stw);
 
         const heading = parseNmeaNumber(parts[1]);
-        if (heading !== null) this.accumulator.heading.push(heading);
+        if (heading !== null && isPlausibleBearing(heading)) this.accumulator.heading.push(heading);
     }
 
     /** $xxHDT — True Heading */
     private parseHDT(parts: string[]) {
         const heading = parseNmeaNumber(parts[1]);
-        if (heading !== null) this.accumulator.heading.push(heading);
+        if (heading !== null && isPlausibleBearing(heading)) this.accumulator.heading.push(heading);
     }
 
     /** $xxHDG — Magnetic Heading */
     private parseHDG(parts: string[]) {
         const heading = parseNmeaNumber(parts[1]);
-        if (heading !== null) this.accumulator.heading.push(heading);
+        if (heading !== null && isPlausibleBearing(heading)) this.accumulator.heading.push(heading);
     }
 
     /** $xxRPM — Engine RPM */
@@ -1139,6 +1152,15 @@ class NmeaListenerServiceClass {
             }
             return;
         }
+        // Second pass: the PARTIAL fault. A device with no attitude hardware
+        // (a GPS puck with a compass, say) fills the axes it cannot measure
+        // with the 0xFF sentinel and sends the rest for real — caught verbatim
+        // on 2026-08-19 as `Yaw=63.75 Pitch=63.75 Roll=1.0`. Two or more axes
+        // at exactly the sentinel mark THOSE axes as no-data while the valid
+        // ones are kept. A single 63.75 beside sane companions still passes:
+        // that is a boat on her ear, not a marker.
+        const sentinelAxes = attitude.filter((v) => v === XDR_ATTITUDE_UNAVAILABLE_DEG).length;
+        const dropSentinelAxes = sentinelAxes >= 2;
 
         for (let i = 1; i + 3 < parts.length; i += 4) {
             const type = parts[i];
@@ -1156,10 +1178,11 @@ class NmeaListenerServiceClass {
                 // reporting something other than heel, and a compass bearing
                 // averaged in here would read as a knockdown.
                 if (Math.abs(value) > 90) continue;
-                // The whole-attitude fault (all axes identical) is caught
-                // above, before this loop. Deliberately NOT also dropping a
-                // lone 63.75 here: a genuine knockdown at 63.75° of roll with
-                // a sane pitch is a boat on her ear, and must be believed.
+                // Whole-attitude fault (all axes identical) is caught above;
+                // partial fault (two-plus axes at the sentinel) drops only the
+                // sentinel axes. A LONE 63.75 beside sane companions is still
+                // believed — a knockdown must not fall through the guard.
+                if (dropSentinelAxes && value === XDR_ATTITUDE_UNAVAILABLE_DEG) continue;
                 if (name === 'roll') {
                     this.accumulator.heel.push(HEEL_STARBOARD_POSITIVE ? value : -value);
                 } else if (name === 'pitch') {
@@ -1188,7 +1211,7 @@ class NmeaListenerServiceClass {
         const sog = parseNmeaNumber(parts[7]);
         const cog = parseNmeaNumber(parts[8]);
         if (sog !== null) this.accumulator.sog.push(sog);
-        if (cog !== null) this.accumulator.cog.push(cog);
+        if (cog !== null && isPlausibleBearing(cog)) this.accumulator.cog.push(cog);
 
         // Extract lat/lon (DDMM.MMMM format → decimal degrees)
         const lat = nmeaLatLon(parts[3], parts[4], 90);
