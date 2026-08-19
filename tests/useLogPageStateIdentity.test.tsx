@@ -365,4 +365,98 @@ describe('useLogPageState view memo — a tab-bounce keeps what the skipper had 
         expect(second.result.current.state.showTrackMap).toBe(false);
         second.unmount();
     });
+
+    /**
+     * The live map is gated on isTracking && currentVoyageId. Both used to be
+     * written only by LOAD_DATA — after five-plus serial Supabase calls — even
+     * though ShipLogService already knew the answer from local storage the
+     * moment initialize() returned. Shane, 2026-08-20: "it needs to be instant
+     * along with everything in the log page." This pins the promise: the gate
+     * opens BEFORE the network resolves, and LOAD_DATA stays authoritative.
+     */
+    it('opens the live-map gate from local tracking state before the network resolves', async () => {
+        // Hold the network open indefinitely. If the gate depended on it, the
+        // assertion below would never pass.
+        let releaseSummaries!: (v: unknown[]) => void;
+        mocks.getSummaries.mockImplementation(
+            () => new Promise<unknown[]>((resolve) => (releaseSummaries = resolve)),
+        );
+        mocks.getVoyageEntries.mockImplementation(() => new Promise<unknown[]>(() => {}));
+        mocks.getCurrentVoyageId.mockReturnValue('voyage-a');
+        // And make the eventual LOAD_DATA AGREE, so we are testing early-open
+        // rather than a seed-then-revert.
+        mocks.getTrackingStatus.mockReturnValue({
+            isTracking: true,
+            isPaused: false,
+            isRapidMode: false,
+            isPrecisionMode: false,
+        });
+
+        const { result } = renderHook(() => useLogPageState());
+
+        // Gate open with the network still pending.
+        await waitFor(() => {
+            expect(result.current.state.isTracking).toBe(true);
+            expect(result.current.state.currentVoyageId).toBe('voyage-a');
+        });
+        // Proof the NETWORK has not landed: the held promise is still held and
+        // the entries fetch never resolves. (summaries may already be present
+        // from the local cache — that is fine and is not the network.)
+        expect(mocks.getSummaries).toHaveBeenCalled();
+        expect(result.current.state.entries).toEqual([]);
+
+        // Let the network land; nothing regresses.
+        act(() => releaseSummaries([summaryA]));
+        await waitFor(() => expect(result.current.state.isTracking).toBe(true));
+        expect(result.current.state.currentVoyageId).toBe('voyage-a');
+    });
+
+    it('a local seed cannot talk the page OUT of a voyage it already believes is running', async () => {
+        // SEED_TRACKING only ever adds knowledge. A seed of "not tracking" is
+        // the default value, not evidence, and must not override a memo
+        // restore or an in-flight start.
+        mocks.getCurrentVoyageId.mockReturnValue(undefined);
+        mocks.getTrackingStatus.mockReturnValue({
+            isTracking: true,
+            isPaused: false,
+            isRapidMode: false,
+            isPrecisionMode: false,
+        });
+        const { result } = renderHook(() => useLogPageState());
+        await waitFor(() => expect(result.current.state.isTracking).toBe(true));
+        // LOAD_DATA said tracking; the undefined seed did not flip it false.
+        expect(result.current.state.isTracking).toBe(true);
+    });
+
+    it('seeds the active track from the offline queue without defeating first-load auto-expand', async () => {
+        // The live map draws from entries. On a cold start those used to wait
+        // for the network even though the boat's own latest fixes sit in the
+        // local offline queue. Seeding them early must behave exactly as if
+        // LOAD_DATA had simply arrived sooner — including the auto-expand of
+        // the active voyage, which LOAD_DATA keys on entries being empty and
+        // would otherwise be skipped once a seed had filled them.
+        let releaseEntries!: (v: unknown[]) => void;
+        mocks.getVoyageEntries.mockImplementation(
+            () => new Promise<unknown[]>((resolve) => (releaseEntries = resolve)),
+        );
+        mocks.getCurrentVoyageId.mockReturnValue('voyage-a');
+        mocks.getOfflineEntries.mockResolvedValue([entryA]); // local, instant
+        mocks.getTrackingStatus.mockReturnValue({
+            isTracking: true,
+            isPaused: false,
+            isRapidMode: false,
+            isPrecisionMode: false,
+        });
+
+        const { result } = renderHook(() => useLogPageState());
+
+        // Track present and voyage expanded — BEFORE the network entries land.
+        await waitFor(() => expect(result.current.state.entries.length).toBeGreaterThan(0));
+        expect(result.current.state.entries[0].voyageId).toBe('voyage-a');
+        expect(result.current.state.expandedVoyages.has('voyage-a')).toBe(true);
+
+        // Network lands: LOAD_DATA replaces the seed and the expand survives.
+        act(() => releaseEntries([entryA]));
+        await waitFor(() => expect(result.current.state.expandedVoyages.has('voyage-a')).toBe(true));
+    });
 });
