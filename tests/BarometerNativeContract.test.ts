@@ -107,7 +107,30 @@ describe('Barometer breakout modal contract', () => {
         expect(controlButtons).toBeGreaterThanOrEqual(3);
     });
 
-    it('closes when the user scrolls off the live NOW card', () => {
-        expect(grid).toContain('if (!isLive) setShowBarometer(false);');
+    it('opens from ANY card — offshore and forecast cards included', () => {
+        // The barometer always reads "now", and offshore — past radar range
+        // and mobile coverage — is exactly where the phone's own sensor
+        // matters most. The tap router must route pressure BEFORE any
+        // isLive/matrix gating, and the old in-place panel's auto-close on
+        // scrolling off the live card must stay gone (it would insta-close a
+        // barometer opened from a forecast card).
+        const routerStart = grid.indexOf('MetricTapContext.Provider');
+        const pressureAt = grid.indexOf("if (id === 'pressure') {", routerStart);
+        const liveGateAt = grid.indexOf('if (isLive) {', routerStart);
+        expect(pressureAt).toBeGreaterThan(routerStart);
+        expect(liveGateAt).toBeGreaterThan(pressureAt);
+        expect(grid).not.toContain('if (!isLive) setShowBarometer(false);');
+    });
+
+    it('non-live offshore cells still reach the model matrix', () => {
+        // Cells always stopPropagation now, so the router re-dispatches the
+        // matrix for non-pressure taps on non-live offshore cards — without
+        // this, making HPA reachable would have silently disconnected the
+        // other nine cells from the matrix out there.
+        const routerStart = grid.indexOf('MetricTapContext.Provider');
+        const routerEnd = grid.indexOf('</MetricTapContext.Provider>');
+        const router = grid.slice(routerStart, routerEnd);
+        expect(router).toContain('if (isOffshore) {');
+        expect(router).toContain('setShowMatrix(true);');
     });
 });
