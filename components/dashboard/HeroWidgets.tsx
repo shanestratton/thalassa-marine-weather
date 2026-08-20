@@ -21,9 +21,9 @@ const MetricDeepDiveModal = lazyRetry(
 // Pressure gets its own screen rather than the shared deep-dive modal: it is
 // the one metric the phone can MEASURE, and the sensor plumbing that makes
 // that possible has no business loading for anyone who never taps HPA.
-const BarometerPlus = lazyRetry(
-    () => import('./hero/BarometerPlus').then((module) => ({ default: module.BarometerPlus })),
-    'BarometerPlus',
+const BarometerModal = lazyRetry(
+    () => import('./hero/BarometerModal').then((module) => ({ default: module.BarometerModal })),
+    'BarometerModal',
 );
 
 /**
@@ -640,7 +640,7 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
     // Offshore → entire grid is tappable to open the model matrix.
     // Previously only the Wind cell was — user had to hunt for it.
     const gridOnClick =
-        isOffshore && !showBarometer
+        isOffshore
             ? () => {
                   if (Date.now() < suppressTapUntilRef.current) return;
                   setMatrixParam(undefined);
@@ -654,8 +654,8 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                 isLive
                     ? (id) => {
                           if (Date.now() < suppressTapUntilRef.current) return;
-                          // HPA opens the barometer screen in the grid box
-                          // instead of the shared metric sheet.
+                          // HPA opens the barometer breakout modal instead of
+                          // the shared metric sheet.
                           if (id === 'pressure') {
                               setShowBarometer(true);
                               return;
@@ -899,19 +899,6 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                     </DraggableMetricCell>
                 </div>
 
-                {/* Barometer screen — fills the grid box exactly (see
-                    GLASS_HERO_WIDGETS_OUTER_HEIGHT_PX; this panel must never
-                    change the card's height). */}
-                {showBarometer && (
-                    <Suspense fallback={null}>
-                        <BarometerPlus
-                            onClose={() => setShowBarometer(false)}
-                            hourly={hourly}
-                            forecastPressure={data.pressure}
-                        />
-                    </Suspense>
-                )}
-
                 {/* Model Comparison Matrix — offshore grid-tap or any-cell long-press */}
                 {showMatrix && (
                     <Suspense fallback={null}>
@@ -925,6 +912,19 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                     </Suspense>
                 )}
             </div>
+            {/* Barometer breakout — the HPA tap used to flip the 163 px grid
+                box into a miniature instrument; it now opens a full modal
+                (Shane, 2026-08-21: "way too small to be of use"). */}
+            {showBarometer && (
+                <Suspense fallback={null}>
+                    <BarometerModal
+                        isOpen
+                        onClose={() => setShowBarometer(false)}
+                        hourly={hourly}
+                        forecastPressure={data.pressure}
+                    />
+                </Suspense>
+            )}
             {deepDive && (
                 <Suspense fallback={null}>
                     <MetricDeepDiveModal

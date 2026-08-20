@@ -33,8 +33,10 @@ export const GLASS_SHORT_VIEWPORT_PX = 700;
  * Trimmed chrome for short screens.
  *
  * The widget grid is DELIBERATELY ABSENT from this list. Its 163px box is a
- * hard constraint — the barometer opens in place inside that exact cell —
- * so every pixel here comes from the surrounding chrome instead.
+ * hard constraint — every card below the hero is positioned from it (the
+ * barometer that once opened in place inside the cell is a full modal now,
+ * but the geometry the stack hangs off has not moved) — so every pixel here
+ * comes from the surrounding chrome instead.
  */
 const SHORT = {
     gap: 6,

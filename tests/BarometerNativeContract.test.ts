@@ -17,7 +17,7 @@ const bridge = read('ios/App/App/ThalassaBridgeViewController.swift');
 const xcodeProject = read('ios/App/App.xcodeproj/project.pbxproj');
 const infoPlist = read('ios/App/App/Info.plist');
 const service = read('services/native/barometer.ts');
-const panel = read('components/dashboard/hero/BarometerPlus.tsx');
+const modal = read('components/dashboard/hero/BarometerModal.tsx');
 const grid = read('components/dashboard/HeroWidgets.tsx');
 const glassLayout = read('components/dashboard/glassLayout.ts');
 
@@ -70,7 +70,7 @@ describe('native Barometer plugin contract', () => {
     });
 });
 
-describe('BarometerPlus panel contract', () => {
+describe('Barometer breakout modal contract', () => {
     it('applies the calibration offset at read time, never to the stored record', () => {
         expect(service).toContain('hpa: hpa + off');
         // calibrateTo must not rewrite state.samples.
@@ -83,23 +83,28 @@ describe('BarometerPlus panel contract', () => {
     });
 
     it('takes the tendency from raw station samples so calibration cannot move it', () => {
-        expect(panel).toContain('observedTendency(stationSamples, nowT)');
+        expect(modal).toContain('observedTendency(stationSamples, nowT)');
     });
 
-    it('opens in place from the HPA cell instead of the shared metric sheet', () => {
+    it('opens the breakout modal from the HPA cell instead of the shared metric sheet', () => {
+        // The barometer used to flip the 163px grid box into a miniature
+        // instrument; Shane 2026-08-21: "way too small to be of use". The
+        // pressure tap now opens a full ModalSheet.
         expect(grid).toContain("if (id === 'pressure') {");
         expect(grid).toContain('setShowBarometer(true)');
-        expect(grid).toContain('<BarometerPlus');
-        // The overlay needs a positioned ancestor, or it escapes the card.
-        expect(grid).toContain('relative w-full rounded-xl overflow-hidden');
+        expect(grid).toContain('<BarometerModal');
+        expect(modal).toContain('<ModalSheet');
+        // The grid box the old panel occupied is a hard geometry constant the
+        // Glass stack is positioned from — it must not have moved.
+        expect(glassLayout).toContain('GLASS_HERO_WIDGETS_OUTER_HEIGHT_PX = 163');
     });
 
-    it('fills the grid box without changing the card height the Glass stack depends on', () => {
-        expect(glassLayout).toContain('GLASS_HERO_WIDGETS_OUTER_HEIGHT_PX = 163');
-        expect(panel).toContain('absolute inset-0');
-        // A scroll container anywhere but the explainer would mean the panel
-        // outgrew its box.
-        expect(panel.match(/overflow-y-auto/g)?.length ?? 0).toBe(1);
+    it('controls are boat-glove sized, not grid-panel sized', () => {
+        // 18px buttons on a moving deck were a coin toss. Every control in
+        // the breakout rides ControlButton with a 48px minimum height.
+        expect(modal).toContain('min-h-12');
+        const controlButtons = modal.match(/<ControlButton/g)?.length ?? 0;
+        expect(controlButtons).toBeGreaterThanOrEqual(3);
     });
 
     it('closes when the user scrolls off the live NOW card', () => {
