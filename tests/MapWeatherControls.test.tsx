@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { MapWeatherControls } from '../components/map/MapWeatherControls';
 import type { useWeatherLayers } from '../components/map/useWeatherLayers';
@@ -298,5 +298,36 @@ describe('MapWeatherControls', () => {
             'href',
             'https://www.rainviewer.com/',
         );
+    });
+
+    it('the hide button shares the scrubber row with the button that opened it', () => {
+        // One thumb spot: the "Weather controls" pill sits at bottom 80px +
+        // inset; pressing it must put the minimise button on the SAME row
+        // (right of the scrubber), not 60px higher up the right edge
+        // (Shane, 2026-08-21).
+        render(
+            <MapWeatherControls
+                weather={weather({ activeLayers: new Set(['wind']) })}
+                visible
+                embedded={false}
+                controlsHidden={false}
+                onControlsHiddenChange={vi.fn()}
+            />,
+        );
+        const hide = screen.getByRole('button', { name: 'Hide weather controls' });
+        expect(hide.style.bottom).toBe('calc(80px + env(safe-area-inset-bottom))');
+
+        cleanup();
+        render(
+            <MapWeatherControls
+                weather={weather({ activeLayers: new Set(['wind']) })}
+                visible
+                embedded={false}
+                controlsHidden
+                onControlsHiddenChange={vi.fn()}
+            />,
+        );
+        const show = screen.getByRole('button', { name: 'Show weather controls' });
+        expect(show.style.bottom).toBe('calc(80px + env(safe-area-inset-bottom))');
     });
 });
