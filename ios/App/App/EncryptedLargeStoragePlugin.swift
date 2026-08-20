@@ -48,12 +48,26 @@ public final class EncryptedLargeStoragePlugin: CAPPlugin, CAPBridgedPlugin {
     private let maximumAggregateBytes = 48 * 1024 * 1024
     private let envelopeMagic = Data([0x54, 0x4c, 0x53, 0x43, 0x01]) // TLSC v1
 
+    /// All storage work runs on this plugin-private serial queue. Capacitor
+    /// executes plugin methods inline on ONE shared serial queue for the whole
+    /// app, so our AES-GCM decrypt + JSON validation of multi-MB blobs
+    /// (~180-850 ms measured) was stalling every other plugin call behind it —
+    /// and, symmetrically, blocking plugins (TCP socket reads) stalled us
+    /// (a 128 KB cache read measured at 7200 ms on-device, 2026-08-20).
+    /// Serial on purpose: the install-boundary check and per-key read/write
+    /// ordering stay race-free without touching the method bodies.
+    private let workQueue = DispatchQueue(label: "encrypted-large-storage.work")
+
     private let installDefaultsKey = "thalassa.encrypted-large-storage.install-id-v1"
     private let installMarkerAccount = "install-marker-v1"
     private let encryptionKeyAccount = "aes-gcm-key-v1"
     private var installBoundaryChecked = false
 
     @objc func get(_ call: CAPPluginCall) {
+        workQueue.async { [weak self] in self?.getOnQueue(call) }
+    }
+
+    private func getOnQueue(_ call: CAPPluginCall) {
         guard prepareInstallBoundary(call), let key = validatedKey(call) else { return }
         do {
             if let value = try readEncryptedValue(key) {
@@ -78,6 +92,10 @@ public final class EncryptedLargeStoragePlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     @objc func set(_ call: CAPPluginCall) {
+        workQueue.async { [weak self] in self?.setOnQueue(call) }
+    }
+
+    private func setOnQueue(_ call: CAPPluginCall) {
         guard prepareInstallBoundary(call), let key = validatedKey(call) else { return }
         guard let value = call.getString("value") else {
             call.reject("An encrypted-storage value is required")
@@ -100,6 +118,10 @@ public final class EncryptedLargeStoragePlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     @objc func remove(_ call: CAPPluginCall) {
+        workQueue.async { [weak self] in self?.removeOnQueue(call) }
+    }
+
+    private func removeOnQueue(_ call: CAPPluginCall) {
         guard prepareInstallBoundary(call), let key = validatedKey(call) else { return }
         do {
             try removeItemStrict(at: try encryptedURL(for: key))

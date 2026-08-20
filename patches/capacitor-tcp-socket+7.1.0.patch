@@ -1,0 +1,68 @@
+diff --git a/node_modules/capacitor-tcp-socket/ios/Plugin/TcpSocketPlugin.swift b/node_modules/capacitor-tcp-socket/ios/Plugin/TcpSocketPlugin.swift
+index 4a26eb3..1ce6313 100644
+--- a/node_modules/capacitor-tcp-socket/ios/Plugin/TcpSocketPlugin.swift
++++ b/node_modules/capacitor-tcp-socket/ios/Plugin/TcpSocketPlugin.swift
+@@ -11,6 +11,19 @@ public class TcpSocketPlugin: CAPPlugin {
+     /// Stores all connected TCP clients
+     private var clients: [TCPClient] = []
+ 
++    /// THALASSA PATCH (2026-08-20): SwiftSocket's connect/read are BLOCKING
++    /// calls, and Capacitor executes every plugin method inline on one shared
++    /// serial queue (CapacitorBridge.dispatchQueue, label "bridge"). A read
++    /// against a silent gateway blocks up to its timeout — 5 s per call in
++    /// this app's NMEA loop — and while it blocks, EVERY other plugin call in
++    /// the app (encrypted storage, preferences, geolocation) sits behind it.
++    /// Measured on-device: a 128 KB encrypted cache read "took" 7200 ms
++    /// because it queued behind socket reads to an unreachable gateway.
++    /// All socket work now runs on this plugin-private serial queue instead:
++    /// socket calls still execute in order relative to each other, but never
++    /// hold the bridge queue. `clients` is only ever touched on this queue.
++    private let socketQueue = DispatchQueue(label: "tcp-socket-plugin.work")
++    
+     // Data encoding types
+     private enum DataEncoding: String {
+         case utf8 = "utf8"
+@@ -27,6 +40,10 @@ public class TcpSocketPlugin: CAPPlugin {
+      * - client: Client index, used for subsequent operations
+      */
+     @objc func connect(_ call: CAPPluginCall) {
++        socketQueue.async { [weak self] in self?.connectOnQueue(call) }
++    }
++
++    private func connectOnQueue(_ call: CAPPluginCall) {
+         guard let ip = call.getString("ipAddress") else {
+             call.reject("IP address is required")
+             return
+@@ -51,6 +68,10 @@ public class TcpSocketPlugin: CAPPlugin {
+      * - encoding: Data encoding (utf8, base64, hex), default is utf8
+      */
+     @objc func send(_ call: CAPPluginCall) {
++        socketQueue.async { [weak self] in self?.sendOnQueue(call) }
++    }
++
++    private func sendOnQueue(_ call: CAPPluginCall) {
+         guard let clientIndex = call.getInt("client"), clientIndex >= 0 else {
+             call.reject("Client not specified or invalid index")
+             return
+@@ -112,6 +133,10 @@ public class TcpSocketPlugin: CAPPlugin {
+      * - encoding: The encoding used for the result
+      */
+     @objc func read(_ call: CAPPluginCall) {
++        socketQueue.async { [weak self] in self?.readOnQueue(call) }
++    }
++
++    private func readOnQueue(_ call: CAPPluginCall) {
+         guard let clientIndex = call.getInt("client"), clientIndex >= 0 else {
+             call.reject("Client not specified or invalid index")
+             return
+@@ -167,6 +192,10 @@ public class TcpSocketPlugin: CAPPlugin {
+      * - client: Disconnected client index
+      */
+     @objc func disconnect(_ call: CAPPluginCall) {
++        socketQueue.async { [weak self] in self?.disconnectOnQueue(call) }
++    }
++
++    private func disconnectOnQueue(_ call: CAPPluginCall) {
+         guard let clientIndex = call.getInt("client"), clientIndex >= 0 else {
+             call.reject("Client not specified or invalid index")
+             return
