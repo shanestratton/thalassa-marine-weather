@@ -51,6 +51,7 @@ vi.mock('../services/vessel/LocalDatabase', () => ({
 }));
 
 vi.mock('../services/nativeStorage', () => ({
+    usesNativeEncryptedLargeStorage: () => false,
     DATA_CACHE_KEY: 'thalassa_weather_cache_v9',
     VOYAGE_CACHE_KEY: 'thalassa_voyage_cache_v2',
     HISTORY_CACHE_KEY: 'thalassa_history_cache_v3',

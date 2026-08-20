@@ -108,6 +108,12 @@ export function setAuthIdentityScope(userId: string | null): AuthIdentityScope {
         userId: normalizedUserId,
         generation: previous.generation + 1,
     });
+    // Every key change remounts identity-scoped React trees and re-fences all
+    // persisted stores. Worth one console line: an unexpected flip here is the
+    // root cause behind "the page reset itself mid-boot" symptoms.
+    console.warn(
+        `[AuthIdentityScope] fence ${previous.userId ? 'user' : 'anonymous'} -> ${normalizedUserId ? 'user' : 'anonymous'} gen=${currentScope.generation}`,
+    );
     // Identity fencing is a security boundary shared by many independent
     // stores. One defective subscriber must never prevent the remaining
     // subscribers from hiding the previous account's state.

@@ -31,6 +31,7 @@ import {
     saveLargeDataImmediate,
     loadLargeData,
     loadLargeDataSync,
+    usesNativeEncryptedLargeStorage,
     deleteLargeData,
     readCacheVersion,
     writeCacheVersion,
@@ -227,7 +228,17 @@ export class WeatherOrchestrator {
     }
 
     private async loadScopedCache<T>(scopedKey: string, legacyKey: string): Promise<T | null> {
+        // [perf] timing on the encrypted read: "Initializing Weather Data"
+        // stays on screen until this resolves, and on iOS this is an AES-GCM
+        // decrypt of a potentially multi-MB blob crossing the plugin bridge.
+        // If the 5 s Shane reported (2026-08-20) lives anywhere, it is here —
+        // and this line will say so rather than leave it to be guessed at.
+        const t0 = Date.now();
         const scoped = (await loadLargeData(scopedKey)) as T | null;
+        log.warn(
+            `[perf] cache read ${scopedKey.split('::')[0]} ${Date.now() - t0}ms ` +
+                `${scoped === null ? 'MISS' : `hit ~${Math.round(JSON.stringify(scoped).length / 1024)}KB`}`,
+        );
         this.assertCurrent();
         if (scoped !== null) return scoped;
         if (this.scope.userId !== null) return null;
@@ -245,6 +256,7 @@ export class WeatherOrchestrator {
 
     async checkCacheVersion(): Promise<void> {
         if (!this.isCurrentIdentity()) return;
+        const versionCheckT0 = Date.now();
         log.info('Version check starting...');
         addBreadcrumb({ category: 'weather', message: 'Cache version check', level: 'info' });
         try {
@@ -290,7 +302,12 @@ export class WeatherOrchestrator {
                 this.cb.setWeatherData(null);
                 this.cb.setHistoryCache(() => ({}));
             } else {
-                if (loadLargeDataSync(this.cacheKeys.version) === null) {
+                // Repopulating the synchronous mirror only means something
+                // where one exists (web localStorage). On iOS the sync read
+                // fails closed by design, so this branch used to rewrite the
+                // version key on every boot — an encrypted write serialized
+                // ahead of versionChecked that bought nothing.
+                if (!usesNativeEncryptedLargeStorage() && loadLargeDataSync(this.cacheKeys.version) === null) {
                     await saveLargeDataImmediate(this.cacheKeys.version, CACHE_VERSION);
                     this.assertCurrent();
                 }
@@ -310,7 +327,7 @@ export class WeatherOrchestrator {
         } finally {
             if (this.isCurrentIdentity()) {
                 this.cb.setVersionChecked(true);
-                log.info('Version check complete');
+                log.warn(`[perf] version check ${Date.now() - versionCheckT0}ms`);
             }
         }
     }
@@ -335,8 +352,31 @@ export class WeatherOrchestrator {
 
     // ── Async Cache Load + Init Fetch ──────────────────────────
 
+    /**
+     * Paint cached weather. Deliberately independent of the settings store:
+     * a cached report needs no settings to display, and gating this behind
+     * settings hydration queued the Glass page's first paint behind a
+     * Supabase round-trip ("Initializing Weather Data" for ~5 s on a warm
+     * cache — Shane, 2026-08-20). Single-flight, so the early paint and
+     * loadCacheAndInit share one read of the encrypted store.
+     */
+    loadCache(): Promise<boolean> {
+        if (!this.isCurrentIdentity()) return Promise.resolve(false);
+        this.cacheLoadPromise ??= this.doLoadCache();
+        return this.cacheLoadPromise;
+    }
+
     async loadCacheAndInit(): Promise<void> {
         if (!this.isCurrentIdentity()) return;
+        const hasCachedData = await this.loadCache();
+        if (!this.isCurrentIdentity()) return;
+        this.triggerInitialFetch(hasCachedData);
+    }
+
+    private cacheLoadPromise: Promise<boolean> | null = null;
+
+    private async doLoadCache(): Promise<boolean> {
+        log.warn(`[perf] loadCache start`);
         let hasCachedData = false;
 
         try {
@@ -393,7 +433,7 @@ export class WeatherOrchestrator {
                 addBreadcrumb({ category: 'weather', message: 'History cache empty', level: 'info' });
             }
         } catch (e) {
-            if (this.isStaleOperation(e)) return;
+            if (this.isStaleOperation(e)) return false;
             log.warn('Cache load failed:', e);
             addBreadcrumb({
                 category: 'weather',
@@ -404,9 +444,8 @@ export class WeatherOrchestrator {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             captureException(e, { tags: { operation: 'loadCacheAndInit' } } as any);
             this.cb.setLoading(false);
-        } finally {
-            if (this.isCurrentIdentity()) this.triggerInitialFetch(hasCachedData);
         }
+        return hasCachedData;
     }
 
     private triggerInitialFetch(hasCachedData: boolean): void {
