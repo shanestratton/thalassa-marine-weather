@@ -67,11 +67,10 @@ const DraggableMetricCell: React.FC<{ id: string; children: React.ReactNode }> =
             // onClick that opens the model-comparison matrix when offshore,
             // and a metric tap used to bubble straight into it — so ONE tap
             // opened the deep-dive AND slammed the full-screen matrix
-            // (z-[9999]) over it. Worse on HPA, whose handler returns early
-            // and whose whole design is to open the barometer IN PLACE: the
-            // matrix covered it every time. Leaving onClick undefined when
-            // onMetricTap is null preserves the intended grid-tap behaviour
-            // on non-live cards and on the grid's own padding.
+            // (z-[9999]) over it. The context handler is now always provided
+            // and routes per-cell (HPA -> barometer modal on any card, deep
+            // dives live-only, offshore non-live -> matrix); the grid's own
+            // onClick still catches taps on the padding.
             onClick={
                 onMetricTap
                     ? (e) => {
@@ -610,13 +609,6 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
         };
     }, []);
 
-    // Scrolling off the live NOW card takes the barometer with it — the panel
-    // reads a live sensor, so leaving it open over a future hour's card would
-    // be showing "now" while the grid behind it means "Thursday".
-    useEffect(() => {
-        if (!isLive) setShowBarometer(false);
-    }, [isLive]);
-
     useEffect(() => {
         if (!spreadMetric) return;
         suppressTapUntilRef.current = Date.now() + 600;
@@ -650,20 +642,31 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
 
     return (
         <MetricTapContext.Provider
-            value={
-                isLive
-                    ? (id) => {
-                          if (Date.now() < suppressTapUntilRef.current) return;
-                          // HPA opens the barometer breakout modal instead of
-                          // the shared metric sheet.
-                          if (id === 'pressure') {
-                              setShowBarometer(true);
-                              return;
-                          }
-                          setDeepDive(id as MetricKey);
-                      }
-                    : null
-            }
+            value={(id) => {
+                if (Date.now() < suppressTapUntilRef.current) return;
+                // HPA opens the barometer breakout from ANY card, live or
+                // not — the instrument always reads "now", and offshore is
+                // where the phone's own sensor matters most (Shane,
+                // 2026-08-21: it must not be swallowed by the matrix).
+                if (id === 'pressure') {
+                    setShowBarometer(true);
+                    return;
+                }
+                // Deep dives stay live-only: they anchor to the NOW card's
+                // data and would mislead under a forecast card.
+                if (isLive) {
+                    setDeepDive(id as MetricKey);
+                    return;
+                }
+                // Non-live cards keep their card-level behaviour: offshore,
+                // any cell still reaches the model matrix (cells always
+                // stopPropagation now, so re-dispatch it here); elsewhere the
+                // tap is deliberately inert.
+                if (isOffshore) {
+                    setMatrixParam(undefined);
+                    setShowMatrix(true);
+                }
+            }}
         >
             <div
                 className={`relative w-full rounded-xl overflow-hidden bg-white/[0.08] border border-white/[0.15] shadow-2xl ${isOffshore ? 'cursor-pointer active:scale-[0.995] transition-transform' : ''}`}
