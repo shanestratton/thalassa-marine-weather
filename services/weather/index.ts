@@ -9,6 +9,7 @@ import { saveToCache, getFromCache, getFromCacheOffline } from './cache';
 import { assessShelter, dampReportWaves } from './shelter';
 import { crumb } from '../../utils/flightRecorder';
 import { Capacitor } from '@capacitor/core';
+import { announceCell } from './wxPublished';
 import { withTimeout } from '../../utils/deadline';
 import { fetchMarine, isLocalReading } from './api/marine';
 import { useAuthStore } from '../../stores/authStore';
@@ -199,6 +200,12 @@ const _fetchWeatherByStrategyImpl = async (
     // .catch here so an early rejection can't surface as an unhandled one
     // while nothing is awaiting it yet.
     const shelterPromise = assessShelter(lat, lon).catch(() => null);
+
+    // Tell the wx publisher a boat occupies this cell (coarse 0.25° cell, no
+    // user id, change-detected — a moored boat writes ~4 rows a day). This is
+    // what makes follow-the-vessels coverage turn; it must never delay or
+    // fail the fetch, so it is fire-and-forget by construction.
+    announceCell(lat, lon);
 
     const SOURCE_BUDGET_MS = 8_000;
     const t0 = Date.now();
