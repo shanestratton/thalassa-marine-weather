@@ -383,8 +383,6 @@ const publicBetaFeatureProfile = readPublicBetaFeatureProfile(ROOT);
 const expectedPublicBetaCredentialPresence = Object.fromEntries(
     publicBetaFeatureProfile.requiredCredentialPresence.map((name) => [name, true]),
 );
-const wxServerSource = read('services/weather/wxServer.ts');
-const wxServerBoundaryTest = read('tests/WxServerPublicBetaBoundary.test.ts');
 const aisDockerfile = read('workers/ais-ingest/Dockerfile');
 const aisRailway = read('workers/ais-ingest/railway.toml');
 const aisDockerignore = read('workers/ais-ingest/.dockerignore');
@@ -1565,7 +1563,6 @@ check(
             'gmail',
             'grant-all-features',
             'enc-demo-samples',
-            'private-weather-server',
             'community-precise-track-sharing',
             'aishub-contribution',
             'retired-public-float-plan',
@@ -1594,21 +1591,16 @@ check(
     ]) && releaseOwnedEnvironmentKeys.every((name) => !new RegExp(`^\\s*${name}:`, 'm').test(releaseWorkflowSources)),
 );
 check(
-    'private wx server is development-only, exact opt-in, and has no release fallback or probe',
-    includesAll(wxServerSource, [
-        "if (!config.dev || config.enabled !== 'true') return ''",
-        'enabled: import.meta.env.VITE_WX_SERVER_ENABLED',
-        'base: import.meta.env.VITE_WX_SERVER_BASE',
-        'if (!base) return true',
-        'if (!base) return false',
-    ]) &&
-        !wxServerSource.includes('100.76.191.119') &&
-        includesAll(wxServerBoundaryTest, [
-            'resolveWxServerBase({ dev: false',
-            "resolveWxServerBase({ dev: true, enabled: 'true'",
-            'expect(get).not.toHaveBeenCalled()',
-        ]),
-);
+    'the tailnet wx server is fully deleted from the app (Supabase is the only weather backend)',
+    // Ruled 2026-08-20: "we are not using tailnet in the final product. the
+    // wx server should update supabase which in turn updates the app." The
+    // strongest boundary is absence — no module, no env keys, no host.
+    !exists('services/weather/wxServer.ts') &&
+        !read('services/weather/api/openmeteo.ts').includes('wxServer') &&
+        !read('services/weather/ModelSpreadService.ts').includes('wxServer') &&
+        !JSON.stringify(publicBetaFeatureProfile).includes('WX_SERVER') &&
+        !read('services/weather/api/openmeteo.ts').includes('100.76.191.119'),
+)
 check(
     'Lighthouse uses the lockfile-pinned direct runner and proves it audited the application shell',
     Object.hasOwn(pkg.devDependencies ?? {}, 'lighthouse') &&
@@ -2998,10 +2990,6 @@ const heldCapabilitySourceContracts = {
         encBootstrap.includes(
             "return explicit && (import.meta.env?.DEV === true || mode === 'test' || mode === 'demo')",
         ),
-    'private-weather-server':
-        publicBetaFeatureProfile.featureFlags.VITE_WX_SERVER_ENABLED === false &&
-        publicBetaFeatureProfile.publicEndpoints.VITE_WX_SERVER_BASE === '' &&
-        wxServerSource.includes("if (!config.dev || config.enabled !== 'true') return ''"),
     'community-precise-track-sharing':
         /\bcommunityTrackSharing:\s*false\b/.test(featureVisibility) &&
         read('services/TrackSharingService.ts').includes('if (!FEATURE_VISIBILITY.communityTrackSharing)'),

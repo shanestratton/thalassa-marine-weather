@@ -2,7 +2,6 @@ import { CapacitorHttp } from '@capacitor/core';
 import { pruneMap } from '../../../utils/boundedMap';
 import { MarineWeatherReport, WeatherModel } from '../../../types';
 import { determineLocationType } from '../locationType';
-import { isWxServerAvailable, wxServerBase } from '../wxServer';
 import { isConcreteModel } from '../forecastModels';
 import { fetchOpenMeteoProxy } from '../openMeteoProxy';
 import { generateDescription } from '../transformers';
@@ -215,14 +214,12 @@ const doFetchOpenMeteo = async (
     const safeLat = Math.max(-90, Math.min(90, lat));
     const safeLon = ((((lon + 180) % 360) + 360) % 360) - 180;
 
-    // ── Host selection ──
-    // Concrete model + tailnet wx server reachable → self-hosted (no key,
-    // no Pi indirection — it answers in single-digit ms and the Pi's cached
-    // /combined data isn't model-aware anyway). Everything else → commercial
-    // API exactly as before. 'best_match' can never use the wx server: it
-    // has no best_match domain and would answer HTTP 200 with all-null
-    // fields, which is worse than failing.
-    const useWxServer = isConcreteModel(model) && (await isWxServerAvailable());
+    // Tailnet wx server path DELETED (Shane, 2026-08-20: "we are not using
+    // tailnet in the final product"). The wx server now publishes to
+    // Supabase; the phone reads Supabase. Off the tailnet, the old
+    // availability probe + un-timed CapacitorHttp fetch burned this source's
+    // entire 8 s budget before falling back — the single biggest cause of
+    // "Glass is very slow without the Pi".
     const params = new URLSearchParams({
         latitude: safeLat.toFixed(4),
         longitude: safeLon.toFixed(4),
@@ -237,25 +234,8 @@ const doFetchOpenMeteo = async (
         // actually standard OM API returns it.
     });
 
-    // Fetch Weather — try Pi Cache combined endpoint first (instant if pre-fetched),
-    // then fall back to the server-side commercial proxy.
-    const wxUrl = `${wxServerBase()}/v1/forecast?${params.toString()}`;
-
-    const fetchDirect = async (): Promise<OMWeatherResponse> => {
-        if (!useWxServer) {
-            return fetchOpenMeteoProxy<OMWeatherResponse>('forecast', Object.fromEntries(params.entries()));
-        }
-
-        // The private tailnet wx server carries no commercial credential and
-        // answers in single-digit milliseconds, so concrete-model requests
-        // can continue to use it directly.
-        const res = await CapacitorHttp.get({ url: wxUrl });
-        if (!res || res.status !== 200) throw new Error(`OpenMeteo HTTP ${res?.status || 'no response'}`);
-        if (!res.data) throw new Error('OpenMeteo returned no data');
-        let data = res.data as OMWeatherResponse;
-        if (typeof data === 'string') data = JSON.parse(data);
-        return data;
-    };
+    const fetchDirect = async (): Promise<OMWeatherResponse> =>
+        fetchOpenMeteoProxy<OMWeatherResponse>('forecast', Object.fromEntries(params.entries()));
 
     // Pi Cache combined endpoint — serves the full dataset pre-fetched by the
     // scheduler. Cache key uses 2dp rounding so GPS drift on a moored boat
@@ -549,7 +529,7 @@ const doFetchOpenMeteo = async (
         forecast: dailies,
         tides: [],
         tideHourly: [],
-        modelUsed: useWxServer ? `wx_${model}` : `openmeteo_${model}`,
+        modelUsed: `openmeteo_${model}`,
         boatingAdvice: advice,
         isLandlocked: false,
         alerts: generateSafetyAlerts(currentMetrics, dailies[0]?.highTemp, dailies),

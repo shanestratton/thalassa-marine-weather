@@ -48,12 +48,10 @@ describe('committed public-beta feature profile', () => {
             VITE_ACCOUNT_DELETION_ENABLED: false,
             VITE_GRANT_ALL_FEATURES: false,
             VITE_ENABLE_ENC_DEMO_SAMPLES: false,
-            VITE_WX_SERVER_ENABLED: false,
         });
         expect(profile.publicEndpoints).toEqual({
             VITE_DEEPGRAM_PROXY_URL: 'https://thalassa-deepgram-proxy.thalassacalypso.workers.dev',
             VITE_NATIVE_API_BASE: 'https://thalassawx.vercel.app/api',
-            VITE_WX_SERVER_BASE: '',
         });
         expect(profile.heldCapabilities).toEqual([
             'apple-sign-in',
@@ -62,7 +60,6 @@ describe('committed public-beta feature profile', () => {
             'gmail',
             'grant-all-features',
             'enc-demo-samples',
-            'private-weather-server',
             'community-precise-track-sharing',
             // 'musickit' released 2026-08-10 — governed by the flag-agreement
             // gate now, not a hold.

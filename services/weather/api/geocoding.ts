@@ -98,6 +98,8 @@ export const reverseGeocodeContext = async (lat: number, lon: number): Promise<G
             // Note: Mapbox doesn't support 'natural_feature' as a type in the Places API.
             const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${lon},${lat}.json?types=place,locality,neighborhood,poi&access_token=${mapboxKey}`;
             const res = await CapacitorHttp.get({
+                connectTimeout: 5000, // native bound — AbortSignal no-op under CapacitorHttp
+                readTimeout: 8000,
                 url,
                 headers: {
                     Accept: 'application/json',
@@ -219,6 +221,8 @@ export const reverseGeocodeContext = async (lat: number, lon: number): Promise<G
 
         // Fallback to Nominatim if Mapbox failed or returned no features
         const res = await CapacitorHttp.get({
+                connectTimeout: 5000, // native bound — AbortSignal no-op under CapacitorHttp
+                readTimeout: 8000,
             url: `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}`,
             headers: { 'User-Agent': 'ThalassaMarine/1.0' },
         });
@@ -762,6 +766,8 @@ export const parseLocation = async (
                 // > locality > neighborhood.
                 const typesParam = '&types=poi,place,locality,neighborhood';
                 const res = await CapacitorHttp.get({
+                connectTimeout: 5000, // native bound — AbortSignal no-op under CapacitorHttp
+                readTimeout: 8000,
                     url: `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?limit=1&language=en&access_token=${mapboxKey}${proxParam}${countryParam}${typesParam}`,
                 });
                 if (!res || !res.data) return [];
@@ -798,6 +804,8 @@ export const parseLocation = async (
         if (!results || results.length === 0) {
             try {
                 const res = await CapacitorHttp.get({
+                connectTimeout: 5000, // native bound — AbortSignal no-op under CapacitorHttp
+                readTimeout: 8000,
                     url: `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(cleanedQuery)}&format=json&limit=1`,
                     headers: { 'User-Agent': 'ThalassaMarine/1.0' },
                 });
