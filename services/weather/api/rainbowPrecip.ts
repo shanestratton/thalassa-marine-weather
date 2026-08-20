@@ -50,11 +50,19 @@ function getSupabaseKey(): string {
 
 // ── Cache ─────────────────────────────────────────────────────
 
-// 30 min — Rainbow.ai's paid quota is small. A 30-min stale read on a
-// 4-hour nowcast is barely perceptible to the user but cuts API load by
-// 6× vs the previous 5-min cache, so the quota actually lasts.
-const CACHE_TTL = 30 * 60 * 1000;
+// 10 min — matched to Rainbow.ai's own model refresh cadence and to the
+// Dashboard's 10-min rain cycle: fresher buys nothing (the upstream model
+// hasn't re-run), staler hands the card a nowcast whose opening minutes
+// have already elapsed. Quota maths at this cadence: $0.10 per 1,000
+// requests after the 5k/month free tier — cents, not a constraint.
+const CACHE_TTL = 10 * 60 * 1000;
 let cached: { data: RainbowPrecipResult; fetchedAt: number; key: string } | null = null;
+
+// In-flight dedupe: the module cache stores only COMPLETED results, so two
+// callers arriving while a request is on the wire (wake refresh + a
+// generatedAt effect re-run land within seconds) each paid Rainbow for the
+// same answer. Concurrent same-point callers now share one promise.
+let pending: { key: string; promise: Promise<RainbowPrecipResult | null> } | null = null;
 
 // ── Intensity helpers ──────────────────────────────────────────
 
@@ -113,7 +121,21 @@ export async function fetchRainbowPrecip(lat: number, lon: number): Promise<Rain
     if (cached && cached.key === cacheKey && Date.now() - cached.fetchedAt < CACHE_TTL) {
         return cached.data;
     }
+    if (pending && pending.key === cacheKey) return pending.promise;
 
+    const promise = fetchRainbowPrecipUncached(lat, lon, cacheKey);
+    pending = { key: cacheKey, promise };
+    void promise.finally(() => {
+        if (pending?.promise === promise) pending = null;
+    });
+    return promise;
+}
+
+async function fetchRainbowPrecipUncached(
+    lat: number,
+    lon: number,
+    cacheKey: string,
+): Promise<RainbowPrecipResult | null> {
     const supabaseUrl = getSupabaseUrl();
     if (!supabaseUrl) {
         log.warn('No Supabase URL configured — cannot fetch Rainbow.ai data');
