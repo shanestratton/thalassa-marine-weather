@@ -5073,7 +5073,13 @@ export const MapHub: React.FC<MapHubProps> = ({
                     it asserted "⚓ Charts: AHO ed.X" + a staleness warning even
                     with the ENC layer OFF over satellite/hybrid, and leaked into
                     embedded/picker/pin views the other chips suppress). */}
-                {encVisible && !embedded && !pickerMode && !isPinView && (
+                {/* OBS declutter (Shane 2026-08-21: the "Charts · N cells"
+                    pill "should not show on the obs page"): the chip is
+                    chart-currency/CATZOC safety information, so it stays on
+                    the surfaces where the chart is being USED for navigation
+                    work — plotting a route or following a passage — and hides
+                    during plain weather browsing. */}
+                {encVisible && !embedded && !pickerMode && !isPinView && (coordCaptureMode || passage.showPassage) && (
                     <EncAttributionChip mapRef={mapRef} mapReady={mapReady} />
                 )}
 
