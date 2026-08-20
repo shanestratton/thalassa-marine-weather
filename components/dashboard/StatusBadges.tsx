@@ -7,6 +7,7 @@ import { piCache, type PiFetchStats } from '../../services/PiCacheService';
 import { triggerHaptic } from '../../utils/system';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { resolveForecastModel, getForecastModelInfo, isSpitfire } from '../../services/weather/forecastModels';
+import { listPublishedModels } from '../../services/weather/wxPublished';
 import { spitfireLocationFor } from '../../services/weather/spitfire';
 import { ModelPickerSheet } from './ModelPickerSheet';
 
@@ -191,6 +192,23 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
         // SPITFIRE only exists where the wx box computes it, so both the pill
         // and the picker follow the boat's position.
         const spitfireLoc = spitfireLocationFor(coordinates?.lat ?? null, coordinates?.lon ?? null);
+        // What the wx publisher carries for this cell (30-min cached, 2.5 s
+        // bounded, [] until it answers). Drives the picker's grid list, and
+        // lets Spitfire appear wherever the publisher has computed it — the
+        // hardcoded location list remains as the pre-publisher fallback.
+        const [publishedModels, setPublishedModels] = useState<string[]>([]);
+        useEffect(() => {
+            const lat = coordinates?.lat;
+            const lon = coordinates?.lon;
+            if (lat == null || lon == null) return;
+            let live = true;
+            void listPublishedModels(lat, lon).then((models) => {
+                if (live) setPublishedModels(models);
+            });
+            return () => {
+                live = false;
+            };
+        }, [coordinates?.lat, coordinates?.lon]);
         const spitfireSelected = isSpitfire(glassModel);
         const pillLabel = spitfireSelected ? 'SPITFIRE' : modelInfo?.label || 'AUTO';
         const pillHex = spitfireSelected ? '#facc15' : modelInfo?.hex || '#94a3b8';
@@ -283,8 +301,9 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
                 <ModelPickerSheet
                     visible={showModelSheet}
                     currentModel={glassModel}
-                    spitfireAvailable={!!spitfireLoc}
+                    spitfireAvailable={!!spitfireLoc || publishedModels.includes('spitfire')}
                     spitfireLocationName={spitfireLoc?.name}
+                    publishedModels={publishedModels}
                     onPick={pickModel}
                     onClose={() => setShowModelSheet(false)}
                     onRefresh={() => {

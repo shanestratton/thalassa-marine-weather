@@ -3,6 +3,7 @@ import { pruneMap } from '../../../utils/boundedMap';
 import { MarineWeatherReport, WeatherModel } from '../../../types';
 import { determineLocationType } from '../locationType';
 import { isConcreteModel } from '../forecastModels';
+import { fetchPublishedForecast } from '../wxPublished';
 import { fetchOpenMeteoProxy } from '../openMeteoProxy';
 import { generateDescription } from '../transformers';
 import { calculateFeelsLike, calculateDistanceKm } from '../../../utils/math';
@@ -234,8 +235,20 @@ const doFetchOpenMeteo = async (
         // actually standard OM API returns it.
     });
 
-    const fetchDirect = async (): Promise<OMWeatherResponse> =>
-        fetchOpenMeteoProxy<OMWeatherResponse>('forecast', Object.fromEntries(params.entries()));
+    const fetchDirect = async (): Promise<OMWeatherResponse> => {
+        // Published-first: the wx server pushes point forecasts for occupied
+        // cells into Supabase (wx_point_forecasts, ruling 2026-08-20). One
+        // indexed PK read, 2.5 s budget — when a row exists this answers in
+        // ~100 ms with the exact model requested; when it does not (publisher
+        // not live for this cell yet), the commercial proxy carries it
+        // exactly as before. The payload is Open-Meteo-response-shaped by
+        // contract, so the parser below cannot tell the difference.
+        if (isConcreteModel(model)) {
+            const published = await fetchPublishedForecast(safeLat, safeLon, model);
+            if (published) return published.payload as OMWeatherResponse;
+        }
+        return fetchOpenMeteoProxy<OMWeatherResponse>('forecast', Object.fromEntries(params.entries()));
+    };
 
     // Pi Cache combined endpoint — serves the full dataset pre-fetched by the
     // scheduler. Cache key uses 2dp rounding so GPS drift on a moored boat

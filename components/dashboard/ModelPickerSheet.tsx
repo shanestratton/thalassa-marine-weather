@@ -35,6 +35,15 @@ interface ModelPickerSheetProps {
     spitfireAvailable?: boolean;
     /** Where it applies, for the row's helper line. */
     spitfireLocationName?: string;
+    /**
+     * Models the wx publisher has FRESH rows for in the boat's current cell
+     * (wx_point_forecasts). When non-empty, the grid list is filtered to it —
+     * a model the publisher does not carry here is not offered, which is also
+     * how Spitfire's QLD-only domain expresses itself without any coastline
+     * hardcoded. Empty/undefined = publisher not live for this cell: the full
+     * built-in list is offered and fetches fall through to the live proxy.
+     */
+    publishedModels?: string[];
 }
 
 export const ModelPickerSheet: React.FC<ModelPickerSheetProps> = ({
@@ -45,7 +54,17 @@ export const ModelPickerSheet: React.FC<ModelPickerSheetProps> = ({
     onRefresh,
     spitfireAvailable = false,
     spitfireLocationName,
+    publishedModels,
 }) => {
+    // Intersect, but never present an EMPTY picker: a publisher outage must
+    // degrade to the built-in list, not to a sheet with nothing to choose.
+    const grids =
+        publishedModels && publishedModels.length > 0
+            ? (() => {
+                  const filtered = SELECTABLE_MODELS.filter((m) => publishedModels.includes(m.id));
+                  return filtered.length > 0 ? filtered : SELECTABLE_MODELS;
+              })()
+            : SELECTABLE_MODELS;
     const dialogRef = useFocusTrap<HTMLDivElement>(visible, { onEscape: onClose });
 
     // Lock body scroll while open
@@ -145,7 +164,7 @@ export const ModelPickerSheet: React.FC<ModelPickerSheetProps> = ({
                         </>
                     )}
 
-                    {SELECTABLE_MODELS.map((m) => row(m.id, m.label, `${m.provider} — ${m.blurb}`, m.hex))}
+                    {grids.map((m) => row(m.id, m.label, `${m.provider} — ${m.blurb}`, m.hex))}
 
                     {/* Divider */}
                     <div className="h-px bg-white/[0.06] my-2" />
