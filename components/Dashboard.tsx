@@ -67,15 +67,20 @@ async function fetchRainData(
     lat: number,
     lon: number,
     useRainbow: boolean,
-    cancelled: boolean,
+    isCancelled: () => boolean,
     onData: (rain: MinutelyRain[], summary: string, source: 'rainbow' | 'weatherkit') => void,
 ): Promise<void> {
-    if (cancelled) return;
+    // Cancellation is a GETTER, read again after every await. The previous
+    // boolean parameter was frozen at call time (always false), so a fetch
+    // in flight across a location change delivered the old place's rain
+    // under the new place's name — for up to ~10 min, because the stale
+    // result also looked fresh to the TTL guard (review, 2026-08-20).
+    if (isCancelled()) return;
 
     if (useRainbow) {
         try {
             const result = await fetchRainbowPrecip(lat, lon);
-            if (cancelled) return;
+            if (isCancelled()) return;
             if (result && result.rain.length > 0) {
                 onData(result.rain, result.summary, 'rainbow');
                 return;
@@ -87,7 +92,7 @@ async function fetchRainData(
 
     // WeatherKit fallback (all tiers, or if Rainbow.ai fails)
     const { rain, summary } = await fetchMinutelyRainWithSummary(lat, lon);
-    if (!cancelled) {
+    if (!isCancelled()) {
         onData(rain, summary, 'weatherkit');
     }
 }
@@ -203,6 +208,11 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
     const [rainSummary, setRainSummary] = useState<string>('');
     const [rainSource, setRainSource] = useState<'rainbow' | 'weatherkit' | 'synthetic' | 'unknown'>('unknown');
     const [rainStatus, setRainStatus] = useState<'loading' | 'loaded' | 'error'>('loading');
+    // Which location's rain is currently in state — so a location change can
+    // clear the old place's frames instead of leaving them on screen under
+    // the new place's name while the fetch runs (up to 15 s of a Townsville
+    // headline over a Newport label).
+    const rainLocRef = useRef<string | null>(null);
     const precipRef = useRef<number>(0);
     precipRef.current = current?.precipitation ?? 0;
     const subscriptionTier = useSettingsStore((s) => s.settings.subscriptionTier);
@@ -298,18 +308,122 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
     useEffect(() => {
         if (!data?.coordinates) return;
         const { lat, lon } = data.coordinates;
+        // A name-only location pick briefly publishes an optimistic report
+        // stubbed at {0,0} (WeatherContext selectLocation) until geocoding
+        // lands. Never fetch — or cache — rain for Null Island; but DO clear:
+        // this stub carries the NEW location's name, so the old place's rain
+        // must come off the screen now, not when geocoding finishes.
+        if (lat === 0 && lon === 0) {
+            rainLocRef.current = null;
+            setMinutelyRain([]);
+            setRainSummary('');
+            setRainSource('unknown');
+            setRainStatus('loading');
+            return;
+        }
         let cancelled = false;
+
+        const locKey = `${lat.toFixed(2)}_${lon.toFixed(2)}`;
+        if (rainLocRef.current !== locKey) {
+            // Different place: the old place's frames must not sit on screen
+            // under the new name while the fetch runs.
+            rainLocRef.current = locKey;
+            setMinutelyRain([]);
+            setRainSummary('');
+            setRainSource('unknown');
+        }
         setRainStatus('loading');
 
-        // 30-min local cache + 30-min auto-refresh — Rainbow.ai's paid quota
-        // is small and the previous 5-min cadence burned it within hours of
-        // a few users hitting the app. A 30-min stale read on a 4-hour
-        // nowcast is barely perceptible.
-        const RAIN_CACHE_TTL_MS = 30 * 60 * 1000;
-        const RAIN_REFRESH_INTERVAL_MS = 30 * 60 * 1000;
+        // 10-min cache + 10-min refresh, matched to Rainbow.ai's own model
+        // refresh cadence — fresher buys nothing, staler throws away exactly
+        // the nowcast accuracy the card exists for. Quota is not the
+        // constraint it was assumed to be: Rainbow bills $0.10 per 1,000
+        // requests after a 5k/month free tier, so even fifty punters glued to
+        // Glass all day cost of the order of $10/month. (The previous 30-min
+        // ration let displayed frames age ~59 min, at which point the card
+        // was analysing the past.)
+        const RAIN_CACHE_TTL_MS = 10 * 60 * 1000;
+        const RAIN_REFRESH_INTERVAL_MS = 10 * 60 * 1000;
 
         const source = isSkipper ? 'rainbow' : 'wk';
         const cacheKey = `thalassa_rain_${source}_${lat.toFixed(2)}_${lon.toFixed(2)}`;
+
+        // Freshness of what is on screen — drives the wake/visibility refresh.
+        let lastGoodTs = 0;
+        // One rain fetch at a time: on wake, the visibility handler, an
+        // overdue interval tick and a generatedAt re-run can all fire within
+        // seconds — without this flag that was three paid requests for one
+        // answer (review, 2026-08-20).
+        let inFlight = false;
+
+        const applyResult = (rain: MinutelyRain[], summary: string, src: 'rainbow' | 'weatherkit'): void => {
+            if (cancelled) return;
+            if (rain.length > 0) {
+                lastGoodTs = Date.now();
+                setMinutelyRain(rain);
+                setRainSummary(summary);
+                setRainSource(src);
+                setRainStatus('loaded');
+                log.info(`[rain] source=${src} minutes=${rain.length} summary="${summary}"`);
+                writePlaintextWeatherCacheItem(
+                    cacheKey,
+                    JSON.stringify({ ts: Date.now(), data: rain, summary, source: src }),
+                );
+            } else {
+                applyFallback();
+                log.warn(
+                    `[rain] both APIs returned empty — fallback=${precipRef.current >= 0.5 ? 'synthetic' : 'none'}`,
+                );
+            }
+        };
+
+        const applyFallback = (): void => {
+            if (cancelled) return;
+            const fallback = synthesizeFromHourly();
+            setMinutelyRain(fallback);
+            setRainSource(fallback.length > 0 ? 'synthetic' : 'unknown');
+            setRainStatus(fallback.length > 0 ? 'loaded' : 'error');
+        };
+
+        const doFetch = (): void => {
+            if (inFlight) return;
+            inFlight = true;
+            fetchRainData(lat, lon, isSkipper, () => cancelled, applyResult)
+                .catch(() => {
+                    if (!cancelled) applyFallback();
+                })
+                .finally(() => {
+                    inFlight = false;
+                });
+        };
+
+        /** Refetch only when the on-screen frame has outlived the TTL.
+         *  30 s of grace so an interval tick arriving a few ms early (timer
+         *  jitter) cannot conclude "still fresh" and push staleness to 20 min. */
+        const refreshIfStale = (): void => {
+            if (!canRefreshRainForecast(document.hidden, useUIStore.getState().isOffline, cancelled)) return;
+            if (Date.now() - lastGoodTs < RAIN_CACHE_TTL_MS - 30_000) return;
+            doFetch();
+        };
+
+        /** Wake refresh: reopening the app after it was backgrounded used to
+         *  leave the card on whatever frame it fell asleep with until the
+         *  next interval tick — the exact window where a fully-elapsed feed
+         *  pinned a false "Rain in 1 min". */
+        const onVisibilityChange = (): void => {
+            if (!document.hidden) refreshIfStale();
+        };
+
+        const startTimers = (): (() => void) => {
+            const rainTimer = setInterval(refreshIfStale, RAIN_REFRESH_INTERVAL_MS);
+            document.addEventListener('visibilitychange', onVisibilityChange);
+            return () => {
+                cancelled = true;
+                clearInterval(rainTimer);
+                document.removeEventListener('visibilitychange', onVisibilityChange);
+            };
+        };
+
         const cached = readPlaintextWeatherCacheItem(cacheKey);
         if (cached) {
             try {
@@ -324,7 +438,11 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                     summary?: string;
                     source?: 'rainbow' | 'weatherkit';
                 };
-                if (Date.now() - ts < RAIN_CACHE_TTL_MS && cachedData.length > 0) {
+                // Same 30 s epsilon as refreshIfStale: accepting a 9 m 59 s
+                // cache here and then TTL-gating the next tick let staleness
+                // stack to ~2x TTL across a generatedAt re-run.
+                if (Date.now() - ts < RAIN_CACHE_TTL_MS - 30_000 && cachedData.length > 0) {
+                    lastGoodTs = ts;
                     setMinutelyRain(cachedData);
                     if (cachedSummary) setRainSummary(cachedSummary);
                     if (cachedSource) setRainSource(cachedSource);
@@ -337,27 +455,8 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                             cancelled = true;
                         };
                     }
-
-                    // Still set up the refresh timer below, but skip initial fetch
-                    const rainTimer = setInterval(() => {
-                        if (!canRefreshRainForecast(document.hidden, useUIStore.getState().isOffline, cancelled))
-                            return;
-                        fetchRainData(lat, lon, isSkipper, cancelled, (rain, summary, src) => {
-                            setMinutelyRain(rain);
-                            setRainSummary(summary);
-                            setRainSource(src);
-                            setRainStatus('loaded');
-                            log.info(`[rain] source=${src} minutes=${rain.length} summary="${summary}"`);
-                            writePlaintextWeatherCacheItem(
-                                cacheKey,
-                                JSON.stringify({ ts: Date.now(), data: rain, summary, source: src }),
-                            );
-                        });
-                    }, RAIN_REFRESH_INTERVAL_MS);
-                    return () => {
-                        cancelled = true;
-                        clearInterval(rainTimer);
-                    };
+                    // Fresh cache: timers only, skip the initial fetch.
+                    return startTimers();
                 }
             } catch (e) {
                 log.warn('corrupted cache, continue with fresh fetch:', e);
@@ -378,67 +477,8 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
         }
 
         // ── Unified rain fetch: Rainbow.ai for Skipper, WeatherKit for others ──
-        fetchRainData(lat, lon, isSkipper, cancelled, (rain, summary, src) => {
-            if (rain.length > 0) {
-                setMinutelyRain(rain);
-                setRainSummary(summary);
-                setRainSource(src);
-                setRainStatus('loaded');
-                log.info(`[rain] source=${src} minutes=${rain.length} summary="${summary}"`);
-                writePlaintextWeatherCacheItem(
-                    cacheKey,
-                    JSON.stringify({ ts: Date.now(), data: rain, summary, source: src }),
-                );
-            } else {
-                const fallback = synthesizeFromHourly();
-                setMinutelyRain(fallback);
-                setRainSource(fallback.length > 0 ? 'synthetic' : 'unknown');
-                setRainStatus(fallback.length > 0 ? 'loaded' : 'error');
-                log.warn(`[rain] both APIs returned empty — fallback=${fallback.length > 0 ? 'synthetic' : 'none'}`);
-            }
-        }).catch(() => {
-            if (!cancelled) {
-                const fallback = synthesizeFromHourly();
-                setMinutelyRain(fallback);
-                setRainSource(fallback.length > 0 ? 'synthetic' : 'unknown');
-                setRainStatus(fallback.length > 0 ? 'loaded' : 'error');
-            }
-        });
-
-        // Live refresh on the rationed interval (30 min by default)
-        const rainTimer = setInterval(() => {
-            if (!canRefreshRainForecast(document.hidden, useUIStore.getState().isOffline, cancelled)) return;
-            fetchRainData(lat, lon, isSkipper, cancelled, (rain, summary, src) => {
-                if (rain.length > 0) {
-                    setMinutelyRain(rain);
-                    setRainSummary(summary);
-                    setRainSource(src);
-                    setRainStatus('loaded');
-                    log.info(`[rain] source=${src} minutes=${rain.length} summary="${summary}"`);
-                    writePlaintextWeatherCacheItem(
-                        cacheKey,
-                        JSON.stringify({ ts: Date.now(), data: rain, summary, source: src }),
-                    );
-                } else {
-                    const fallback = synthesizeFromHourly();
-                    setMinutelyRain(fallback);
-                    setRainSource(fallback.length > 0 ? 'synthetic' : 'unknown');
-                    setRainStatus(fallback.length > 0 ? 'loaded' : 'error');
-                }
-            }).catch(() => {
-                if (!cancelled) {
-                    const fallback = synthesizeFromHourly();
-                    setMinutelyRain(fallback);
-                    setRainSource(fallback.length > 0 ? 'synthetic' : 'unknown');
-                    setRainStatus(fallback.length > 0 ? 'loaded' : 'error');
-                }
-            });
-        }, RAIN_REFRESH_INTERVAL_MS);
-
-        return () => {
-            cancelled = true;
-            clearInterval(rainTimer);
-        };
+        doFetch();
+        return startTimers();
 
         // Synthesize 60 minutely entries from the current hour's precipitation
         // Uses ref to avoid stale closure over current?.precipitation
@@ -451,8 +491,11 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                 intensity: precip,
             }));
         }
+        // data?.generatedAt piggybacks the rain refresh onto every Glass
+        // weather refresh (pull-to-refresh, wake refetch): the effect re-runs,
+        // the TTL guard decides whether a request actually goes out.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [data?.coordinates?.lat, data?.coordinates?.lon, isOffline, isSkipper]);
+    }, [data?.coordinates?.lat, data?.coordinates?.lon, data?.generatedAt, isOffline, isSkipper]);
 
     // Stable scroll callbacks that batch state updates via rAF
     const handleTimeSelect = useCallback((time: number | undefined) => {

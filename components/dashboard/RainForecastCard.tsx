@@ -2,6 +2,7 @@ import React, { useMemo, useState, useCallback, useEffect, useRef } from 'react'
 import { triggerHaptic } from '../../utils/system';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { OverlayPortal } from '../ui/OverlayPortal';
+import { analyzeRain, getIntensityLabel, type RainAnalysis } from './rainAnalysis';
 
 interface MinutelyRain {
     time: string;
@@ -57,123 +58,29 @@ export const RainForecastCard: React.FC<RainForecastCardProps> = ({
         return () => clearInterval(id);
     }, []);
 
-    const analysis = useMemo(() => {
-        if (!data || data.length === 0)
-            // NEVER assert a dry forecast we do not have. hasRain stays false
-            // in every branch so the chart, badge and "Tap for detail" remain
-            // hidden — only the words change.
-            return {
-                maxIntensity: 0,
-                hasRain: false,
-                headline: status === 'loading' ? 'Rain Forecast Loading…' : 'Rain Forecast Unavailable',
-                subline: status === 'loading' ? 'Checking the last hour' : 'No minute-by-minute data here',
-                isCurrentlyRaining: false,
-                category: { label: 'Clear', badgeClass: '', color: 'rgba(96, 165, 250, 0.5)' },
-                totalPrecip: 0,
-                firstRainIdx: -1,
-                peakIdx: 0,
-            };
-
-        const now = Date.now();
-
-        // Filter out entries whose time has already elapsed — keeps analysis current
-        // between data refreshes
-        const futureData = data.filter((d) => new Date(d.time).getTime() > now - 60_000);
-        const workingData = futureData.length > 0 ? futureData : data;
-
-        const maxIntensity = Math.max(...workingData.map((d) => d.intensity), 0.1);
-
-        // DATA ALWAYS WINS: determine rain from actual minute-by-minute intensities.
-        // Threshold tuned to human-observable precipitation. Satellite+radar
-        // fusion (Rainbow precip-global) can report 0.1-0.3 mm/hr over clear
-        // skies when there are mid-level clouds with virga not reaching the
-        // ground — we don't want to tell the skipper "rain for the next hour"
-        // for that. 0.3 mm/hr is roughly light drizzle, barely visible. The
-        // "Currently raining" test is stricter — needs to be real drizzle, not
-        // trace moisture.
-        const RAIN_THRESHOLD = 0.3; // mm/hr — trace amounts below this ignored
-        const RAIN_CURRENT_THRESHOLD = 0.5; // mm/hr — at least light rain to call it raining
-        const hasRain = workingData.some((d) => d.intensity >= RAIN_THRESHOLD);
-        const firstRainEntry = workingData.find((d) => d.intensity >= RAIN_THRESHOLD);
-        const firstRainIdx = workingData.findIndex((d) => d.intensity >= RAIN_THRESHOLD);
-        const isCurrentlyRaining = (workingData[0]?.intensity ?? 0) >= RAIN_CURRENT_THRESHOLD;
-
-        // Compute real minutes-until-rain using actual timestamps
-        const minutesUntilRain = firstRainEntry
-            ? Math.max(1, Math.round((new Date(firstRainEntry.time).getTime() - now) / 60_000))
-            : -1;
-
-        // Find first dry minute after rain
-        const firstDryAfterRain = isCurrentlyRaining
-            ? (() => {
-                  const dryEntry = workingData.find((d, i) => i > 0 && d.intensity < RAIN_THRESHOLD);
-                  if (!dryEntry) return -1;
-                  return Math.max(1, Math.round((new Date(dryEntry.time).getTime() - now) / 60_000));
-              })()
-            : -1;
-
-        // Peak intensity index
-        const peakIdx = workingData.reduce((maxI, d, i) => (d.intensity > workingData[maxI].intensity ? i : maxI), 0);
-
-        // Total precipitation in the hour (mm)
-        const totalPrecip = workingData.reduce((sum, d) => sum + d.intensity / 60, 0);
-
-        // Headline logic — generate from data, use Apple summary only as flavour text
-        let headline = '';
-        let subline = '';
-
-        if (!hasRain) {
-            // A no-rain verdict must state the window it actually checked —
-            // IN THE HEADLINE, because the subline is computed but never
-            // rendered anywhere. Rainbow.ai (Skipper tier) sees 4 hours ahead;
-            // WeatherKit only 60 minutes — so two devices on different sources
-            // can honestly disagree ("Rain in 183 min" vs nothing: rain at
-            // T+3h is invisible to a 60-minute window). The old bare
-            // "No Rain Expected" made that horizon difference look like a data
-            // bug (Shane, 2026-08-01, iPhone vs iPad). A provider summary, when
-            // present, already names its own window — keep it.
-            const windowLabel = source === 'rainbow' ? 'next 4 hours' : 'next 60 min';
-            headline = rainSummary || `No rain expected ${windowLabel}`;
-            subline = source === 'rainbow' ? 'Next 4 hours' : 'Next 60 minutes';
-        } else if (isCurrentlyRaining && firstDryAfterRain > 0) {
-            headline = `Rain stopping in ${firstDryAfterRain} min`;
-            subline = getIntensityLabel(workingData[0].intensity);
-        } else if (isCurrentlyRaining && firstDryAfterRain === -1) {
-            headline = 'Rain for the next hour';
-            subline = getIntensityLabel(maxIntensity);
-        } else if (minutesUntilRain > 0) {
-            headline = `Rain in ${minutesUntilRain} min`;
-            subline = getIntensityLabel(firstRainEntry!.intensity);
-        } else if (rainSummary && !(/\bno\b/i.test(rainSummary) && /rain|precip/i.test(rainSummary))) {
-            headline = rainSummary;
-            subline = `Peak: ${Math.round(maxIntensity)} mm/hr`;
-        } else {
-            headline = 'Precipitation detected';
-            subline = `Peak: ${Math.round(maxIntensity)} mm/hr`;
-        }
-
-        const category = getIntensityCategory(maxIntensity);
-
-        return {
-            maxIntensity,
-            hasRain,
-            firstRainIdx,
-            isCurrentlyRaining,
-            headline,
-            subline,
-            category,
-            totalPrecip,
-            peakIdx,
-        };
+    const analysis = useMemo(
+        () => analyzeRain(data, { rainSummary, status, now: Date.now() }),
+        // `source` no longer feeds the analysis: the dry-verdict window is
+        // computed from the live span of the remaining frames, not from the
+        // provider's nominal horizon. `tick` re-evaluates every 60 s so
+        // countdowns stay live and elapsed frames fall out.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [data, rainSummary, source, status, tick]); // tick forces re-evaluation every 60s
+        [data, rainSummary, status, tick],
+    );
 
     const openModal = useCallback(() => {
-        if (data && data.length > 0) {
+        if (analysis.frames.length > 0) {
             void triggerHaptic('light');
             setIsModalOpen(true);
         }
-    }, [data]);
+    }, [analysis.frames.length]);
+
+    // If the feed expires while the modal is open (60-s tick empties frames),
+    // close it rather than leave a sunny "Clear / 0.0 mm/hr" scene standing
+    // on zero data.
+    useEffect(() => {
+        if (isModalOpen && analysis.frames.length === 0) setIsModalOpen(false);
+    }, [isModalOpen, analysis.frames.length]);
 
     if (!analysis) return null;
 
@@ -238,9 +145,9 @@ export const RainForecastCard: React.FC<RainForecastCardProps> = ({
                     </div>
 
                     {/* Mini Bar Chart (compact preview) — only show when there is meaningful rain */}
-                    {data && data.length > 0 && analysis.hasRain && (
+                    {analysis.frames.length > 0 && analysis.hasRain && (
                         <div className="flex items-end gap-[1px] w-full mt-1 h-[22px]">
-                            {data.map((point, i) => {
+                            {analysis.frames.map((point, i) => {
                                 const normalizedHeight =
                                     analysis.maxIntensity > 0
                                         ? Math.max(
@@ -268,7 +175,7 @@ export const RainForecastCard: React.FC<RainForecastCardProps> = ({
                     )}
 
                     {/* Tap hint */}
-                    {data && data.length > 0 && (
+                    {analysis.frames.length > 0 && (
                         <div className="flex items-center justify-center mt-0.5">
                             <span className="text-[11px] font-bold text-white/60 uppercase tracking-widest">
                                 Tap for detail
@@ -289,7 +196,9 @@ export const RainForecastCard: React.FC<RainForecastCardProps> = ({
             </button>
 
             {/* Expanded Modal */}
-            {isModalOpen && <RainModal data={data} analysis={analysis} onClose={() => setIsModalOpen(false)} />}
+            {isModalOpen && (
+                <RainModal data={analysis.frames} analysis={analysis} onClose={() => setIsModalOpen(false)} />
+            )}
         </>
     );
 };
@@ -297,17 +206,9 @@ export const RainForecastCard: React.FC<RainForecastCardProps> = ({
 // --- EXPANDED MODAL ---
 
 interface ModalProps {
+    /** Future-only frames — the same array analysis.peakIdx indexes into. */
     data: MinutelyRain[];
-    analysis: {
-        maxIntensity: number;
-        hasRain: boolean;
-        headline: string;
-        subline: string;
-        category: { label: string; badgeClass: string; color: string };
-        totalPrecip: number;
-        peakIdx: number;
-        isCurrentlyRaining: boolean;
-    };
+    analysis: RainAnalysis;
     onClose: () => void;
 }
 
@@ -846,40 +747,8 @@ const RainModal: React.FC<ModalProps> = ({ data, analysis, onClose }) => {
 };
 
 // --- Helpers ---
-
-function getIntensityLabel(mmPerHr: number): string {
-    if (mmPerHr >= 7.6) return 'Heavy Rain';
-    if (mmPerHr >= 2.5) return 'Moderate Rain';
-    if (mmPerHr >= 0.5) return 'Light Rain';
-    if (mmPerHr > 0) return 'Drizzle';
-    return 'Dry';
-}
-
-function getIntensityCategory(mmPerHr: number): { label: string; badgeClass: string; color: string } {
-    if (mmPerHr >= 7.6)
-        return {
-            label: 'Heavy',
-            badgeClass: 'bg-red-500/30 text-red-300 border border-red-400/30',
-            color: 'rgba(239, 68, 68, 0.7)',
-        };
-    if (mmPerHr >= 2.5)
-        return {
-            label: 'Moderate',
-            badgeClass: 'bg-amber-500/25 text-amber-300 border border-amber-400/25',
-            color: 'rgba(245, 158, 11, 0.7)',
-        };
-    if (mmPerHr >= 0.5)
-        return {
-            label: 'Light',
-            badgeClass: 'bg-sky-500/25 text-sky-300 border border-sky-400/25',
-            color: 'rgba(59, 130, 246, 0.7)',
-        };
-    return {
-        label: 'Drizzle',
-        badgeClass: 'bg-sky-500/20 text-sky-300 border border-sky-400/20',
-        color: 'rgba(14, 165, 233, 0.5)',
-    };
-}
+// getIntensityLabel / getIntensityCategory live in rainAnalysis.ts with the
+// rest of the card's claims; getBarColor is render-only and stays here.
 
 function getBarColor(intensity: number, maxIntensity: number, active: boolean): string {
     if (intensity === 0) return 'transparent';
