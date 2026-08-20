@@ -901,6 +901,47 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                             <div className="h-full w-full animate-pulse bg-gradient-to-r from-transparent via-sky-400/70 to-transparent" />
                         </div>
                     )}
+                    {/* ── THE STALENESS PILL (Shane, 2026-08-20) ──
+                        "if the data is stale, it should show a small message in
+                        the middle of the screen … beautifully laid out and not
+                        some horrible toast message."
+
+                        Third design in the staleness lineage, deliberately:
+                        the permanent banner was removed 2026-08-13 ("it is
+                        there regardless now" — a warning that never leaves is
+                        no warning), and the full-screen blur before it hid
+                        data that was already painted. This one earns its
+                        moment: it appears ONLY while BOTH are true — the
+                        painted report is over an hour old AND a refresh is
+                        actually in flight — and the refresh pipeline's finally
+                        dismisses it, so it cannot become wallpaper. It labels;
+                        it never obscures; it eats no taps. Age, not the word
+                        "stale": age is honest and self-calibrating, a
+                        judgement invites arguing with the app. */}
+                    {(() => {
+                        const ageMs = data?.generatedAt ? Date.now() - Date.parse(data.generatedAt) : 0;
+                        const ageMin = Math.floor(ageMs / 60_000);
+                        if (!(staleRefresh && ageMin >= 60)) return null;
+                        const ageLabel = ageMin >= 120 ? `${Math.floor(ageMin / 60)} h` : `${ageMin} min`;
+                        return (
+                            <div
+                                className="absolute inset-x-0 top-[38%] z-[210] flex justify-center pointer-events-none animate-in fade-in duration-300"
+                                role="status"
+                                aria-live="polite"
+                            >
+                                <div className="flex items-center gap-2.5 rounded-full border border-sky-400/25 bg-slate-950/85 px-4 py-2 shadow-lg shadow-black/40 backdrop-blur-md">
+                                    <span
+                                        className="h-3 w-3 shrink-0 animate-spin rounded-full border-[2px] border-sky-400/30 border-t-sky-300"
+                                        aria-hidden="true"
+                                    />
+                                    <span className="text-[12px] font-semibold tracking-wide text-sky-100/90">
+                                        Updated {ageLabel} ago
+                                        <span className="text-sky-300/80"> — refreshing…</span>
+                                    </span>
+                                </div>
+                            </div>
+                        );
+                    })()}
                     {/* 2. Main Content Area */}
                     <div className="flex-1 relative w-full min-h-0">
                         {/* MAIN CAROUSEL / GRID */}
