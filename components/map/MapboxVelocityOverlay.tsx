@@ -103,7 +103,10 @@ function createVelocityLayer(data: VelocityGribRecord[], velocityScale: number):
         velocityScale,
         particleAge: 60,
         particleMultiplier: 1 / 150,
-        frameRate: 15,
+        // 30, was 15: a 66 ms particle step is visible judder on a 60 Hz
+        // panel — half of Shane's "shaky" (2026-08-21). 33 ms reads as
+        // motion. Still throttled: full-rate RAF measurably warms phones.
+        frameRate: 30,
         particlelineWidth: PARTICLE_LINE_WIDTH,
         colorScale: WIND_COLORS,
     });
@@ -669,6 +672,8 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
 
         let cancelled = false;
         let snapTimer: ReturnType<typeof setTimeout> | null = null;
+        let sizeObserver: ResizeObserver | null = null;
+        let lateBootTimer: ReturnType<typeof setTimeout> | null = null;
 
         const setup = async () => {
             // Ensure Leaflet is on window BEFORE the plugin loads
@@ -783,8 +788,26 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
                     // Measure residual error and correct
                     const mapboxPx = mapboxMap.project([c.lng, c.lat]);
                     const leafletPx = leafletMapRef.current.latLngToContainerPoint([c.lat, c.lng]);
-                    const dx = mapboxPx.x - leafletPx.x;
-                    const dy = mapboxPx.y - leafletPx.y;
+                    let dx = mapboxPx.x - leafletPx.x;
+                    let dy = mapboxPx.y - leafletPx.y;
+                    if (Math.abs(dx) > 8 || Math.abs(dy) > 8) {
+                        // A genuine sub-pixel residual is <1 px. Tens of px
+                        // means Leaflet is projecting against a STALE cached
+                        // container size — the startup half-render band
+                        // (Shane's screenshot, 2026-08-21): boot measured the
+                        // container while layout was transiently short, and
+                        // no resize event ever arrived to heal it (mapbox-gl
+                        // resize() early-returns without firing when its own
+                        // transform already matches). Re-measure and
+                        // re-project HERE, which turns every gesture end into
+                        // a heal opportunity instead of a re-application of
+                        // the bad translate.
+                        leafletMapRef.current.invalidateSize();
+                        leafletMapRef.current.setView([c.lat, c.lng], zRaw + 1, { animate: false });
+                        const healedPx = leafletMapRef.current.latLngToContainerPoint([c.lat, c.lng]);
+                        dx = mapboxPx.x - healedPx.x;
+                        dy = mapboxPx.y - healedPx.y;
+                    }
                     if (Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5) {
                         overlayRef.current.style.transform = `translate(${dx}px, ${dy}px)`;
                     } else {
@@ -832,6 +855,18 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
             mapboxMap.on('zoom', trackCamera);
             mapboxMap.on('resize', onResize);
 
+            // Observe the container DIRECTLY. The Mapbox 'resize' event alone
+            // is not a reliable heal signal: useMapInit's own ResizeObserver
+            // calls map.resize(), but mapbox-gl early-returns WITHOUT firing
+            // 'resize' when its transform already matches the container — so
+            // a boot-time short-layout transient could leave Leaflet's cached
+            // size stale forever. invalidateSize() no-ops when nothing
+            // changed, so a chatty observer costs nothing.
+            if (typeof ResizeObserver !== 'undefined') {
+                sizeObserver = new ResizeObserver(() => onResize());
+                sizeObserver.observe(container);
+            }
+
             // Single deferred re-sync after zoom/move ends (replaces heavy 200ms×10 interval)
             const onViewEnd = () => {
                 if (snapTimer) clearTimeout(snapTimer);
@@ -862,6 +897,16 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
                 // Fade in only when a selected-model grid has produced a layer.
                 if (overlayRef.current && velocityLayerRef.current) overlayRef.current.style.opacity = '1';
             }, 600);
+
+            // Second boot pass: a cold-start layout transient that OUTLIVES
+            // the 600 ms retry was exactly the half-render window. Cheap
+            // insurance on top of the ResizeObserver + syncFull self-heal.
+            lateBootTimer = setTimeout(() => {
+                if (cancelled) return;
+                lMap.invalidateSize();
+                syncFull();
+                lateBootTimer = null;
+            }, 2000);
         };
 
         setup().catch((err) => log.error('[VelocityOverlay] Setup failed:', err));
@@ -872,6 +917,14 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
             if (snapTimer) {
                 clearTimeout(snapTimer);
                 snapTimer = null;
+            }
+            if (lateBootTimer) {
+                clearTimeout(lateBootTimer);
+                lateBootTimer = null;
+            }
+            if (sizeObserver) {
+                sizeObserver.disconnect();
+                sizeObserver = null;
             }
 
             try {

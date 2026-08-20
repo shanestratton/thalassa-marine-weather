@@ -183,6 +183,40 @@ export function enforceCmemsMarineExclusivity(
     return next;
 }
 
+const SESSION_LAYERS_KEY = 'thalassa_active_layers';
+
+/**
+ * The layer set a chart MOUNT opens with.
+ *
+ * Two rules, both Shane's, held at once (2026-08-21: "on first startup, we
+ * have the wind, however if the punter has adjusted things (like ais on and
+ * wind off for example) can it persist after going to another screen?"):
+ *   - COLD APP START → wind only (the 2026-08-04 rule, unchanged). No
+ *     localStorage restore — layer state must never haunt a later boot
+ *     (house philosophy, MapHub satellite-base notes).
+ *   - WITHIN A SESSION → the punter's own toggles win. sessionStorage is
+ *     exactly that scope: it dies with the process, so a tab-switch or an
+ *     error-boundary remount keeps their selection while every fresh launch
+ *     still opens on the signature wind field.
+ * (At HEAD the keep-alive chart rarely remounts in-session; this seam makes
+ * the behaviour explicit and covers the remount paths that remain.)
+ */
+export function sessionInitialLayers(
+    read: (key: string) => string | null = (key) => sessionStorage.getItem(key),
+): Set<WeatherLayer> {
+    // The read itself is guarded here, not in the default param — a webview
+    // can throw on ANY storage access (private modes, quota lockouts), and a
+    // chart that cannot read a preference must still open on wind.
+    let stored: string | null = null;
+    try {
+        stored = read(SESSION_LAYERS_KEY);
+    } catch {
+        stored = null;
+    }
+    if (stored !== null) return restoreActiveLayers(stored);
+    return new Set(DEFAULT_LAYERS);
+}
+
 /**
  * Which layers a stored preference should restore.
  *
@@ -242,15 +276,7 @@ export function useWeatherLayers(
      * THE PUNTER'S SELECTION — persisted, and the only thing the toggles write.
      * Distinct from `activeLayers` below, which is what is actually PAINTED.
      */
-    const [userLayers, setUserLayers] = useState<Set<WeatherLayer>>(() => {
-        // Wind-only at EVERY chart startup (Shane 2026-08-04: "ensure that
-        // the wind is the only layer that starts up every time you select
-        // obs"). The stored selection is deliberately no longer restored —
-        // restoreActiveLayers() survives for its tested parsing semantics,
-        // but a fresh chart always opens with just the wind field. In-session
-        // toggles still persist below in case restore-on-boot ever returns.
-        return new Set(DEFAULT_LAYERS);
-    });
+    const [userLayers, setUserLayers] = useState<Set<WeatherLayer>>(() => sessionInitialLayers());
 
     /**
      * WHAT IS ON THE MAP. Empty while plotting, so every add/remove effect below
@@ -356,7 +382,10 @@ export function useWeatherLayers(
     // that "[]" is honoured on next launch.
     useEffect(() => {
         try {
-            localStorage.setItem(STORAGE_KEY, JSON.stringify([...userLayers]));
+            const serialised = JSON.stringify([...userLayers]);
+            localStorage.setItem(STORAGE_KEY, serialised);
+            // The session mirror is what a same-session remount restores.
+            sessionStorage.setItem(STORAGE_KEY, serialised);
         } catch {
             /* ignore */
         }
@@ -1045,14 +1074,19 @@ export function useWeatherLayers(
         windUserScrubbedTimeRef.current = 0;
         if (WindStore.getState().hour !== 0) WindStore.setState({ hour: 0 });
 
-        // Small delay to let the geolock flyTo settle
+        // 200 ms, was 800: the delay exists to let the geolock flyTo settle
+        // before the viewport-bound fetch reads the camera — but the fetch
+        // already pads the viewport ±30% and refetches on >40% drift, so a
+        // still-moving camera costs at most a top-up, while 600 ms of every
+        // single OBS open is pure waiting (Shane 2026-08-21: "make the wind
+        // show up far quicker").
         const windTimer = setTimeout(() => {
             const m = mapRef.current;
             if (!m) return;
             void WindDataController.activate(m).catch((err) => {
                 log.warn('activate() failed:', err);
             });
-        }, 800);
+        }, 200);
         return () => clearTimeout(windTimer);
         // Re-runs on model/field switch too. Grid metadata is synchronised by
         // the windState.grid effect above, including later viewport refreshes.

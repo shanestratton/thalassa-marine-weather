@@ -540,17 +540,20 @@ export function MapWeatherControls({
                 <button
                     type="button"
                     onClick={() => onControlsHiddenChange(true)}
-                    // Same ROW as the scrubber and the "Weather controls"
-                    // pill that opened it (bottom 80px + inset), at the right
-                    // end of the scrubber — not 60px higher on the right
-                    // edge, where the thumb had to go hunting after every
-                    // open (Shane 2026-08-21: "the minimise button in the
-                    // same spot as the actual weather control button, just to
-                    // the right of the scrubber"). The scrubber panel is
-                    // left-anchored at 12px with maxWidth 280, so right-16 on
-                    // this row stays clear of it on every target device.
-                    className="absolute right-[16px] z-[510] flex h-12 w-12 items-center justify-center rounded-full bg-slate-900/85 border border-white/10 backdrop-blur-md shadow-lg text-slate-300"
-                    style={{ bottom: embedded ? 12 : 'calc(80px + env(safe-area-inset-bottom))' }}
+                    // Same ROW as the scrubber (bottom 80px + inset), in the
+                    // JMA column: the model row above is left-anchored at
+                    // 12px and its five chips end at ~302px, so left-304
+                    // parks this button directly under the last model chip,
+                    // snug against the scrubber's right side (Shane
+                    // 2026-08-21: "right up against the right hand side of
+                    // the scrubber... or better still inline with the models
+                    // directly above it (JMA)"). The min() keeps it on-screen
+                    // if a narrow viewport ever compresses the rows.
+                    className="absolute z-[510] flex h-12 w-12 items-center justify-center rounded-full bg-slate-900/85 border border-white/10 backdrop-blur-md shadow-lg text-slate-300"
+                    style={{
+                        left: 'min(304px, calc(100vw - 64px))',
+                        bottom: embedded ? 12 : 'calc(80px + env(safe-area-inset-bottom))',
+                    }}
                     aria-label="Hide weather controls"
                     title="Hide controls"
                 >
