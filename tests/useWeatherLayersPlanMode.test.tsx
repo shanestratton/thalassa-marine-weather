@@ -24,6 +24,9 @@ function storedLayers(): string[] {
 describe('useWeatherLayers plan-mode boundary', () => {
     beforeEach(() => {
         localStorage.clear();
+        // The session mirror is what a same-session remount restores
+        // (2026-08-21); each test starts as a fresh process would.
+        sessionStorage.clear();
     });
 
     it('suppresses Chart layers on Plan and restores the same user selection on return', async () => {
@@ -55,10 +58,11 @@ describe('useWeatherLayers plan-mode boundary', () => {
     });
 
     it('does not persist the suppressed empty set when the app unmounts on Plan', async () => {
-        // Startup is wind-only regardless of the stored selection (Shane
-        // 2026-08-04: "the wind is the only layer that starts up EVERY
-        // time"), so a Plan-mode mount must persist ['wind'] — the USER
-        // selection — never the suppressed empty ACTIVE set.
+        // A COLD start is wind-only regardless of the localStorage selection
+        // (Shane 2026-08-04), so a Plan-mode mount in a fresh session must
+        // persist ['wind'] — the USER selection — never the suppressed empty
+        // ACTIVE set. The chart remounting IN THE SAME SESSION then restores
+        // that same selection from the session mirror (Shane 2026-08-21).
         localStorage.setItem(STORAGE_KEY, JSON.stringify(['rain', 'wind']));
         const planning = renderHook(() => useWeatherLayers(mapRef, false, false, LOCATION, true));
 
@@ -74,10 +78,29 @@ describe('useWeatherLayers plan-mode boundary', () => {
         expect(storedLayers()).toEqual(['wind']);
     });
 
-    it('ignores a stored multi-layer selection at startup — wind only, every time', () => {
+    it('ignores a stored localStorage selection on a COLD start — wind only', () => {
+        // localStorage survives restarts; honouring it here would be layer
+        // state haunting a later boot. Only the session mirror restores.
         localStorage.setItem(STORAGE_KEY, JSON.stringify(['rain', 'pressure', 'wind']));
         const chart = renderHook(() => useWeatherLayers(mapRef, false, false, LOCATION, false));
 
         expect(sortedLayers(chart.result.current.userLayers)).toEqual(['wind']);
+    });
+
+    it("restores the punter's selection on a SAME-SESSION remount", async () => {
+        // Shane 2026-08-21: "if the punter has adjusted things (like ais on
+        // and wind off for example) can it persist after going to another
+        // screen?" — the session mirror is that persistence. An in-session
+        // remount (tab switch on the shipped build, error-boundary recovery
+        // at HEAD) reopens exactly what they had.
+        const first = renderHook(() => useWeatherLayers(mapRef, false, false, LOCATION, false));
+        act(() => {
+            first.result.current.toggleLayer('rain');
+        });
+        await waitFor(() => expect(sortedLayers(first.result.current.userLayers)).toEqual(['rain', 'wind']));
+        first.unmount();
+
+        const second = renderHook(() => useWeatherLayers(mapRef, false, false, LOCATION, false));
+        expect(sortedLayers(second.result.current.userLayers)).toEqual(['rain', 'wind']);
     });
 });
