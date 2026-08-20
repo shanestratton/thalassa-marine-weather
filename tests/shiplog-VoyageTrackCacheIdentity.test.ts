@@ -27,6 +27,7 @@ vi.mock('@capacitor/preferences', () => ({
 }));
 
 vi.mock('../services/nativeStorage', () => ({
+    usesNativeEncryptedLargeStorage: () => false,
     saveLargeData: async (key: string, value: unknown) => {
         const gate = mocks.delayedSave;
         if (gate) {

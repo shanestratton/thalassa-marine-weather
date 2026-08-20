@@ -349,16 +349,28 @@ const ScopedWeatherProvider: React.FC<{ children: React.ReactNode; identityScope
 
     // ── CACHE VERSION CHECK ─────────────────────────────────
     useEffect(() => {
+        // One line per mount: a second appearance during one boot means the
+        // provider remounted (identity key/generation change) and every
+        // in-flight init was thrown away — exactly the failure mode that is
+        // otherwise invisible in a device console.
+        log.warn(
+            `[perf] weather provider up scope=${identityScope.userId ? 'user' : 'anonymous'} gen=${identityScope.generation}`,
+        );
         void orchestrator.checkCacheVersion();
-    }, [orchestrator]);
+    }, [identityScope, orchestrator]);
 
     // ── INITIALIZATION ──────────────────────────────────────
     useEffect(() => {
-        if (settingsLoading) return;
+        log.warn(`[perf] init gate: settingsLoading=${settingsLoading} versionChecked=${versionChecked}`);
         if (!versionChecked) return;
+        // Paint cached weather NOW. The settings store is only needed to
+        // decide what to FETCH; making the cached paint wait for it queued
+        // first paint behind a Supabase round-trip on cold start.
+        void orchestrator.loadCache();
+        if (settingsLoading) return;
         log.info('[WeatherContext] Init starting (settingsLoading=false, versionChecked=true)');
         void orchestrator.loadCacheAndInit();
-    }, [orchestrator, settingsLoading, versionChecked]);
+    }, [identityScope, orchestrator, settingsLoading, versionChecked]);
 
     // ── CLOUD-RESTORE TRIGGER ───────────────────────────────
     // settingsStore.pullFromCloud dispatches this event after it

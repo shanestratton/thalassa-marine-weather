@@ -47,6 +47,7 @@ vi.mock('../managers/SubscriptionManager', () => ({
 }));
 
 vi.mock('../services/nativeStorage', () => ({
+    usesNativeEncryptedLargeStorage: () => false,
     DATA_CACHE_KEY: 'thalassa_weather_cache_v9',
     VOYAGE_CACHE_KEY: 'thalassa_voyage_cache_v2',
     HISTORY_CACHE_KEY: 'thalassa_history_cache_v3',
@@ -488,5 +489,57 @@ describe('WeatherOrchestrator identity fences', () => {
         );
         expect(localStorage.getItem(keys.nextUpdate)).toMatch(/^\d+$/);
         expect(localStorage.getItem('thalassa_next_update')).toBeNull();
+    });
+});
+
+describe('cached paint is independent of the settings store', () => {
+    /**
+     * The Glass page's first paint used to be queued behind settings
+     * hydration: loadCacheAndInit was the only way to read the weather cache,
+     * and the context refused to call it until settingsLoading cleared —
+     * which on a cold start meant a Supabase round-trip. A warm cache sat on
+     * disk for ~5 s behind "Initializing Weather Data" (Shane, 2026-08-20).
+     * loadCache() is the split: paint now, fetch when settings arrive.
+     */
+    it('loadCache paints cached data and clears loading without any settings', async () => {
+        const { state, callbacks } = callbackHarness({}); // deliberately empty
+        state.loading = true;
+        const scope = getAuthIdentityScope();
+        const keys = weatherCacheKeysForScope(scope);
+        weatherMocks.loadLargeData.mockImplementation(async (key: string) =>
+            key === keys.data ? makeReport('Newport') : null,
+        );
+
+        const orchestrator = new WeatherOrchestrator(callbacks, scope);
+        const hadCache = await orchestrator.loadCache();
+
+        expect(hadCache).toBe(true);
+        expect(state.weatherData?.locationName).toBe('Newport');
+        expect(state.loading).toBe(false);
+        // No settings were consulted, so no fetch may have been attempted.
+        expect(weatherMocks.fetchWeatherByStrategy).not.toHaveBeenCalled();
+    });
+
+    it('the early paint and loadCacheAndInit share ONE read of the encrypted store', async () => {
+        const { state, callbacks } = callbackHarness({ defaultLocation: '' });
+        const scope = getAuthIdentityScope();
+        const keys = weatherCacheKeysForScope(scope);
+        const dataReads: string[] = [];
+        weatherMocks.loadLargeData.mockImplementation(async (key: string) => {
+            if (key === keys.data) {
+                dataReads.push(key);
+                return makeReport('Newport');
+            }
+            return null;
+        });
+
+        const orchestrator = new WeatherOrchestrator(callbacks, scope);
+        await Promise.all([orchestrator.loadCache(), orchestrator.loadCacheAndInit()]);
+        await flushPromises();
+
+        // An AES decrypt of a multi-MB blob across the bridge is exactly the
+        // cost the split exists to hide — running it twice would pay it twice.
+        expect(dataReads).toHaveLength(1);
+        expect(state.weatherData?.locationName).toBe('Newport');
     });
 });

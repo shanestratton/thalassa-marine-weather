@@ -45,7 +45,7 @@ interface EncryptedLargeStoragePlugin {
 
 const NativeEncryptedLargeStorage = registerPlugin<EncryptedLargeStoragePlugin>('EncryptedLargeStorage');
 
-function usesNativeEncryptedLargeStorage(): boolean {
+export function usesNativeEncryptedLargeStorage(): boolean {
     return Capacitor.getPlatform() === 'ios';
 }
 
