@@ -22,6 +22,7 @@
  */
 import { Capacitor, registerPlugin } from '@capacitor/core';
 import { createLogger } from '../../utils/createLogger';
+import { withTimeout } from '../../utils/deadline';
 
 const log = createLogger('weatherKitNative');
 
@@ -37,10 +38,26 @@ const WeatherKitNative = registerPlugin<WeatherKitNativePlugin>('WeatherKit');
  * platform, missing entitlement, network error, etc.). Callers should
  * fall back to the Supabase REST path on null.
  */
+/**
+ * The native call gets a hard deadline. Measured 2026-08-20 (simulator, but
+ * the failure mode is Apple's, not the simulator's): a WeatherKit fetch that
+ * cannot authenticate does not reject — it HANGS silently. Both consumers
+ * sit in front of the Glass page's first paint inside an 8 s source budget,
+ * and unified never reached its Supabase fallback at all, so a hung native
+ * call cost the full budget twice (`weatherkit=8003! unified=8000!`). A
+ * healthy on-device answer arrives in well under a second; three gives a
+ * cold first call room without letting a hang eat the fetch.
+ */
+const NATIVE_DEADLINE_MS = 3_000;
+
 export async function fetchWeatherKitNative(lat: number, lon: number): Promise<unknown | null> {
     if (!Capacitor.isNativePlatform()) return null;
     try {
-        const result = await WeatherKitNative.fetch({ lat, lon });
+        const result = await withTimeout<unknown | null>(WeatherKitNative.fetch({ lat, lon }), null, NATIVE_DEADLINE_MS);
+        if (result === null) {
+            log.warn(`native fetch exceeded ${NATIVE_DEADLINE_MS}ms — falling back to Supabase`);
+            return null;
+        }
         if (!result || typeof result !== 'object') {
             log.warn('native fetch returned unexpected payload');
             return null;
