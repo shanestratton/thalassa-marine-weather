@@ -15,13 +15,11 @@
         "VITE_GOOGLE_SIGN_IN_ENABLED": false,
         "VITE_ACCOUNT_DELETION_ENABLED": false,
         "VITE_GRANT_ALL_FEATURES": false,
-        "VITE_ENABLE_ENC_DEMO_SAMPLES": false,
-        "VITE_WX_SERVER_ENABLED": false
+        "VITE_ENABLE_ENC_DEMO_SAMPLES": false
     },
     "publicEndpoints": {
         "VITE_DEEPGRAM_PROXY_URL": "https://thalassa-deepgram-proxy.thalassacalypso.workers.dev",
-        "VITE_NATIVE_API_BASE": "https://thalassawx.vercel.app/api",
-        "VITE_WX_SERVER_BASE": ""
+        "VITE_NATIVE_API_BASE": "https://thalassawx.vercel.app/api"
     },
     "heldCapabilities": [
         "apple-sign-in",
@@ -30,7 +28,6 @@
         "gmail",
         "grant-all-features",
         "enc-demo-samples",
-        "private-weather-server",
         "community-precise-track-sharing",
         "aishub-contribution",
         "retired-public-float-plan",

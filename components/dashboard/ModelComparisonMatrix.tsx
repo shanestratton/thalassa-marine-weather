@@ -534,15 +534,7 @@ export const ModelComparisonMatrix: React.FC<Props> = React.memo(
                                 {isLoading && (
                                     <span className="w-3 h-3 rounded-full border-2 border-sky-400 border-t-transparent animate-spin" />
                                 )}
-                                {spread?.fromWxServer && !isLoading && (
-                                    <span
-                                        className="text-[10px] font-bold text-emerald-400 bg-emerald-500/20 px-1.5 py-0.5 rounded"
-                                        title="Served by the boat's own weather server"
-                                    >
-                                        WX
-                                    </span>
-                                )}
-                            </h2>
+                                                            </h2>
                             <p className="text-[11px] text-gray-400 mt-0.5">
                                 72-hour outlook ·{' '}
                                 {spec.block === 'marine' ? 'wave models side-by-side' : 'global models side-by-side'}

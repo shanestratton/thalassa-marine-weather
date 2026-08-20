@@ -60,6 +60,8 @@ async function fetchViaProxy(lat: number, lon: number, days: number): Promise<Wo
 
         try {
             const res = await CapacitorHttp.post({
+                connectTimeout: 5000, // native bound — AbortSignal is a no-op under the CapacitorHttp patch
+                readTimeout: 10000,
                 url,
                 headers,
                 data: payload,

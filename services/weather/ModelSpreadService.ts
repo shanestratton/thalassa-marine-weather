@@ -17,7 +17,6 @@
 import { CapacitorHttp } from '@capacitor/core';
 import { pruneMap } from '../../utils/boundedMap';
 
-import { isWxServerAvailable, wxServerBase } from './wxServer';
 import { fetchOpenMeteoProxy } from './openMeteoProxy';
 import { SELECTABLE_MODELS, WAVE_SPREAD_MODELS } from './forecastModels';
 import { createLogger } from '../../utils/createLogger';
@@ -57,7 +56,6 @@ export interface SpreadBlock<V extends string> {
 }
 
 export interface ModelSpreadResult {
-    fromWxServer: boolean;
     atmos: SpreadBlock<AtmosVar> | null;
     marine: SpreadBlock<MarineVar> | null;
 }
@@ -125,7 +123,6 @@ async function fetchSpread(
     lon: number,
     hours: number,
 ): Promise<{ data: ModelSpreadResult; complete: boolean }> {
-    const useWx = await isWxServerAvailable();
 
     const common = {
         latitude: lat.toFixed(4),
@@ -145,19 +142,14 @@ async function fetchSpread(
         hourly: MARINE_VARS.join(','),
         models: WAVE_SPREAD_MODELS.map((m) => m.id).join(','),
     });
-    const [atmosRaw, marineRaw] = useWx
-        ? await Promise.all([
-              getJson(`${wxServerBase()}/v1/forecast?${atmosParams}`),
-              getJson(`${wxServerBase()}/v1/marine?${marineParams}`),
-          ])
-        : await Promise.all([
+    const [atmosRaw, marineRaw] = await Promise.all([
               fetchOpenMeteoProxy<Record<string, unknown>>('forecast', Object.fromEntries(atmosParams.entries())).catch(
                   () => null,
               ),
               fetchOpenMeteoProxy<Record<string, unknown>>('marine', Object.fromEntries(marineParams.entries())).catch(
                   () => null,
               ),
-          ]);
+    ]);
 
     return {
         // Both endpoints ANSWERED (a 200 with legitimately-empty data — e.g.
@@ -165,7 +157,6 @@ async function fetchSpread(
         // complete results are safe to memoise.
         complete: atmosRaw !== null && marineRaw !== null,
         data: {
-            fromWxServer: useWx,
             atmos: parseSuffixedHourly(
                 atmosRaw?.hourly as Record<string, unknown> | undefined,
                 ATMOS_VARS,

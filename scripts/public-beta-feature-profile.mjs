@@ -20,13 +20,11 @@ export const PUBLIC_BETA_FEATURE_FLAG_KEYS = Object.freeze([
     'VITE_ACCOUNT_DELETION_ENABLED',
     'VITE_GRANT_ALL_FEATURES',
     'VITE_ENABLE_ENC_DEMO_SAMPLES',
-    'VITE_WX_SERVER_ENABLED',
 ]);
 
 export const PUBLIC_BETA_ENDPOINT_KEYS = Object.freeze([
     'VITE_DEEPGRAM_PROXY_URL',
     'VITE_NATIVE_API_BASE',
-    'VITE_WX_SERVER_BASE',
 ]);
 
 export const PUBLIC_BETA_HELD_CAPABILITIES = Object.freeze([
@@ -36,7 +34,6 @@ export const PUBLIC_BETA_HELD_CAPABILITIES = Object.freeze([
     'gmail',
     'grant-all-features',
     'enc-demo-samples',
-    'private-weather-server',
     'community-precise-track-sharing',
     // 'musickit' RELEASED 2026-08-10: MusicKit App Service enabled on the App
     // ID, NSAppleMusicUsageDescription shipped, native AppleMusicPlugin wired.
@@ -131,11 +128,7 @@ export function normalizePublicBetaFeatureProfile(value) {
             value.publicEndpoints.VITE_NATIVE_API_BASE,
             'publicEndpoints.VITE_NATIVE_API_BASE',
         ),
-        VITE_WX_SERVER_BASE: value.publicEndpoints.VITE_WX_SERVER_BASE,
     };
-    if (typeof publicEndpoints.VITE_WX_SERVER_BASE !== 'string') {
-        throw new Error('publicEndpoints.VITE_WX_SERVER_BASE must be a string');
-    }
 
     assertExactStringSet(value.heldCapabilities, PUBLIC_BETA_HELD_CAPABILITIES, 'heldCapabilities');
     assertExactStringSet(

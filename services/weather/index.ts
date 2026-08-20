@@ -8,6 +8,7 @@ import { fetchRealTides } from './api/tides';
 import { saveToCache, getFromCache, getFromCacheOffline } from './cache';
 import { assessShelter, dampReportWaves } from './shelter';
 import { crumb } from '../../utils/flightRecorder';
+import { Capacitor } from '@capacitor/core';
 import { withTimeout } from '../../utils/deadline';
 import { fetchMarine, isLocalReading } from './api/marine';
 import { useAuthStore } from '../../stores/authStore';
@@ -218,6 +219,17 @@ const _fetchWeatherByStrategyImpl = async (
         });
     };
 
+    // WeatherKit runs WITH the pack on native, consumed only if unified
+    // fails. It used to run serially AFTER the allSettled — so its 8 s budget
+    // ADDED to the window precisely when the network was already degraded
+    // (worst case ~16 s). On iOS this is the on-device framework: starting it
+    // unconditionally costs a local call that unified's own first rung was
+    // making anyway. On web it would be a real duplicate edge-function hit
+    // per fetch, so the web keeps the serial rare-path below.
+    const weatherKitParallel = Capacitor.isNativePlatform()
+        ? bounded('weatherkit', fetchWeatherKitFull(lat, lon))
+        : null;
+
     const [unifiedResult, sgResult, tideResult, omResult, marineResult] = await Promise.allSettled([
         // 1. Unified get-weather: single endpoint, subscription-routed
         bounded('unified', fetchUnifiedWeather(lat, lon, name, userId)),
@@ -301,7 +313,9 @@ const _fetchWeatherByStrategyImpl = async (
         //
         // bounded() also drops it into the [perf] timing line, so next time
         // the slow member is named rather than guessed at.
-        weatherKitFull = await bounded('weatherkit-fallback', fetchWeatherKitFull(lat, lon));
+        weatherKitFull = weatherKitParallel
+            ? await weatherKitParallel
+            : await bounded('weatherkit-fallback', fetchWeatherKitFull(lat, lon));
     }
 
     // --- BUILD BASE REPORT ---
