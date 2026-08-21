@@ -36,7 +36,49 @@ const log = createLogger('SquallMap');
 // ── Layer/Source IDs ──
 const SQUALL_SOURCE = 'squall-rainbow-source';
 const SQUALL_LAYER = 'squall-rainbow-layer';
+const IR_SOURCE = 'squall-ir-source';
+const IR_LAYER = 'squall-ir-layer';
 const SQUALL_HUD_ID = 'squall-map-hud';
+
+/**
+ * The satellite cloud half of the squall view, restored 2026-08-21.
+ *
+ * This layer was always an IR-satellite + precipitation COMPOSITE — cloud
+ * tops showing where the weather is organised, precip cells showing where it
+ * is falling. The satellite half died on 2026-04-22 as collateral damage
+ * when Xweather was decommissioned on cost ("burned through its daily quota
+ * in a single dev session"), and that commit promised a NOAA replacement
+ * "next session" which never shipped: squall came back precip-only three
+ * days later and stayed that way for four months (Shane, 2026-08-21: "our
+ * storm layer used to have a satellite cloud layer").
+ *
+ * NASA GIBS Himawari-9 Band 13 Clean IR is the right restoration: Himawari
+ * is the satellite that actually looks at Australia, the tiles are free with
+ * no key, CORS-enabled so no proxy is needed, and gibs.earthdata.nasa.gov is
+ * already in the CSP. Verified serving 2026-08-21. (RainViewer's satellite
+ * IR array is still empty, as it has been since April; Xweather is a
+ * non-starter — its proxies are deleted and its credentials burned.)
+ */
+const GIBS_MAX_ZOOM = 6;
+
+/** GIBS WMTS, with Mapbox substituting {z}/{x}/{y} at request time. */
+function buildGibsTileUrl(dateStr: string): string {
+    const base = 'https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/wmts.cgi';
+    return (
+        `${base}?Service=WMTS&Request=GetTile&Version=1.0.0` +
+        `&Layer=Himawari_AHI_Band13_Clean_Infrared` +
+        `&Style=default` +
+        `&TileMatrixSet=GoogleMapsCompatible_Level6` +
+        `&TileMatrix={z}&TileRow={y}&TileCol={x}` +
+        `&Format=image/png` +
+        `&Time=${dateStr}`
+    );
+}
+
+/** GIBS wants the imagery date as YYYY-MM-DD. */
+function todayDateStr(): string {
+    return new Date().toISOString().split('T')[0];
+}
 
 const SQUALL_MAX_ZOOM = 8;
 const REFRESH_INTERVAL_MS = 5 * 60 * 1000; // Rainbow snapshot cadence
@@ -315,6 +357,44 @@ function mountSquallLayer(map: mapboxgl.Map, supabaseUrl: string, snapshot: numb
     const styleLayers = map.getStyle()?.layers ?? [];
     const beforeId = styleLayers.find((l) => l.type === 'symbol')?.id;
 
+    // ── Cloud tops FIRST, so the precip cells paint on top of them ──
+    // The two are complementary, not alternatives: IR shows the organised
+    // cloud mass, the Rainbow layer shows where it is actually raining.
+    try {
+        if (map.getLayer(IR_LAYER)) map.removeLayer(IR_LAYER);
+        if (map.getSource(IR_SOURCE)) map.removeSource(IR_SOURCE);
+    } catch (err) {
+        log.warn('Squall IR pre-mount cleanup error', err);
+    }
+    try {
+        map.addSource(IR_SOURCE, {
+            type: 'raster',
+            tiles: [buildGibsTileUrl(todayDateStr())],
+            tileSize: 256,
+            // GoogleMapsCompatible_Level6 is GIBS's ceiling for this product.
+            // The precip layer runs to z8; past z6 the cloud simply stops
+            // sharpening rather than 404-ing every tile.
+            maxzoom: GIBS_MAX_ZOOM,
+        });
+        map.addLayer(
+            {
+                id: IR_LAYER,
+                type: 'raster',
+                source: IR_SOURCE,
+                paint: {
+                    'raster-opacity': 0.85,
+                    'raster-fade-duration': 0,
+                    'raster-resampling': 'nearest',
+                },
+            },
+            beforeId,
+        );
+        log.info(`📡 GIBS Himawari IR added (${todayDateStr()})`);
+    } catch (err) {
+        // A satellite outage must never take the precipitation layer with it.
+        log.warn('Squall IR mount failed — continuing with precip only', err);
+    }
+
     map.addLayer(
         {
             id: SQUALL_LAYER,
@@ -338,6 +418,8 @@ function cleanupLayers(map: mapboxgl.Map): void {
     try {
         if (map.getLayer(SQUALL_LAYER)) map.removeLayer(SQUALL_LAYER);
         if (map.getSource(SQUALL_SOURCE)) map.removeSource(SQUALL_SOURCE);
+        if (map.getLayer(IR_LAYER)) map.removeLayer(IR_LAYER);
+        if (map.getSource(IR_SOURCE)) map.removeSource(IR_SOURCE);
         const hud = map.getContainer().querySelector(`#${SQUALL_HUD_ID}`);
         if (hud) hud.remove();
     } catch (err) {
