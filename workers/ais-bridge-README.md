@@ -66,3 +66,17 @@ Then `sudo systemctl enable --now ais-bridge` and watch
 - **AISHub activation**: plain UDP NMEA. Register the station, set
   AISHUB_HOST/PORT, restart, then EMAIL AISHub that streaming has begun —
   the account is not issued until you do.
+- **An assigned AISHub port can be taken back, and nothing tells you.** UDP
+  never answers, so a reassigned port looks *exactly* like a healthy one from
+  here: sentences leave, `AISHub fwd` keeps climbing, zero send errors. The
+  port issued in March 2026 was given to another user because too long passed
+  before the boat went live, and the bridge then spent a day forwarding 161k
+  sentences into a stranger's station before anyone noticed. The only
+  ground truth is the station page — `aishub.net/stations/<port>` — so check
+  it after any activation or long silence, and don't read a clean local log
+  as proof of delivery.
+- **Two lanes carry this port, not one.** The boat bridge reads AISHUB_PORT
+  from `~/ais-bridge/.env` on pi5; the Railway worker's crowd-feed forward
+  (`fleetFeed.ts`) reads its own AISHUB_PORT from the Railway dashboard.
+  Changing one does not change the other. The Railway lane fails safe when
+  the vars are unset, which also means a stale value there is silent.
