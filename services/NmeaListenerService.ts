@@ -13,6 +13,7 @@ import { Capacitor } from '@capacitor/core';
 import { processAisSentence } from './AisDecoder';
 import { AisStore } from './AisStore';
 import { AisHubService } from './AisHubService';
+import { offer as offerToFleetShare } from './AisShareService';
 import { NmeaRateTracker } from './NmeaRateTracker';
 import { getNmeaDeviceLabel } from './NmeaDeviceProfiles';
 import { parseNmeaDepth, parseNmeaNumber, validateNmeaSentence, type ParsedNmeaDepth } from './nmea/nmeaSentence';
@@ -947,6 +948,10 @@ class NmeaListenerServiceClass {
             if (result) AisStore.update(result);
             // Never forward a malformed raw sentence to an external service.
             AisHubService.forward(sentence);
+            // Fleet share (opt-in): O(1) offer into the crowd-feed buffer —
+            // both received !AIVDM and own-ship !AIVDO, exactly what the
+            // consent copy declares. Costs one boolean when disabled.
+            offerToFleetShare(sentence);
             return;
         }
 
