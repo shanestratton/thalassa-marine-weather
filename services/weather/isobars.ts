@@ -851,6 +851,14 @@ export async function generateIsobars(
 /** Cache for heatmap reuse across interpolated sub-frames */
 let _heatmapCache: { dataUrl: string; bounds: [number, number, number, number] } | null = null;
 let _heatmapCacheHour = -1;
+/**
+ * How far a sub-frame may borrow a keyframe's wash. With KEYFRAME_INTERVAL 2
+ * in useWeatherLayers, a sub-frame is at most one frame from its keyframe, so
+ * 1 keeps every reuse adjacent — the wash is never showing an hour the
+ * isobars over it disagree with by more than one step. Raising this trades
+ * honesty for canvas encodes.
+ */
+const MAX_HEATMAP_REUSE_FRAMES = 1;
 
 export function generateIsobarsFromGrid(grid: PressureGrid, hour: number, skipHeatmap = false): IsobarResult {
     const hourGrid = extractHourGrid(grid, hour);
@@ -914,8 +922,18 @@ export function generateIsobarsFromGrid(grid: PressureGrid, hour: number, skipHe
             _heatmapCache = heatmap;
             _heatmapCacheHour = hour;
         }
-    } else if (_heatmapCache) {
-        // Reuse nearest keyframe's heatmap for smooth scrubbing without re-rendering
+    } else if (_heatmapCache && Math.abs(hour - _heatmapCacheHour) <= MAX_HEATMAP_REUSE_FRAMES) {
+        // Sub-frames borrow the last keyframe's wash rather than re-painting
+        // and re-encoding a canvas per frame — that cost is exactly what the
+        // 2026-08-02 chunking audit was fixing, so it stays.
+        //
+        // What is NEW (2026-08-21) is the bound. `_heatmapCacheHour` was
+        // written here and never read, so the reuse was "whatever was
+        // computed last", unbounded: a sub-frame could show a wash from an
+        // arbitrarily distant frame while displaying its own isobars, and the
+        // mismatch jumped every keyframe during playback. Reuse now expires,
+        // and an expired one shows NO wash rather than a wash belonging to a
+        // different hour — the isobars carry the frame on their own.
         heatmapDataUrl = _heatmapCache.dataUrl;
         heatmapBounds = _heatmapCache.bounds;
     }

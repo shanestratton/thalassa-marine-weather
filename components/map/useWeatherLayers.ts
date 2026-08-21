@@ -762,7 +762,16 @@ export function useWeatherLayers(
         setFramesReady(seededCount);
 
         let idx = 1; // Start from frame 1 — frame 0 is already done
-        const KEYFRAME_INTERVAL = 3;
+        // 2, was 3 (2026-08-21). Sub-frames borrow the previous keyframe's
+        // pressure wash, so the interval IS the worst-case disagreement
+        // between the colour field and the isobars drawn on it: at 3 with
+        // subFrameStepHours=2 the wash could be 4 hours behind its own lines
+        // and jumped every third frame during playback. At 2 every sub-frame
+        // is adjacent to its keyframe, which is what isobars.ts's
+        // MAX_HEATMAP_REUSE_FRAMES now enforces. Costs ~3 extra canvas
+        // encodes across the batch; the FRAMES_PER_CHUNK tick keeps them off
+        // the gesture path.
+        const KEYFRAME_INTERVAL = 2;
         const FRAMES_PER_CHUNK = 3;
         const computeBatch = () => {
             // REAL chunks. `Math.min(idx + total, total)` always equalled
