@@ -38,11 +38,27 @@ describe('squall keeps its satellite cloud half', () => {
         expect(squall).toContain('maxzoom: GIBS_MAX_ZOOM');
     });
 
-    it('never lets a satellite outage take the precipitation with it', () => {
-        // The IR mount is wrapped so a GIBS failure degrades to precip-only
-        // rather than blanking the storm layer.
-        const irBlock = squall.slice(squall.indexOf('Cloud tops FIRST'), squall.indexOf('map.addLayer(\n        {\n            id: SQUALL_LAYER'));
-        expect(irBlock).toContain('catch');
+    it('lets either half fail without taking the other down', () => {
+        // BOTH directions matter, and only one was handled when this was
+        // first restored: the IR mount sat INSIDE mountSquallLayer, which is
+        // reached only after the Rainbow snapshot fetch clears five early
+        // returns (no Supabase URL, throw, 3 s timeout, non-OK, empty
+        // snapshot). Any Rainbow hiccup silently took the clouds with it —
+        // which is exactly what Shane saw on 2026-08-21.
+        //
+        // GIBS needs nothing from Rainbow: no key, no proxy, no snapshot.
+        // Self-contained BY SIGNATURE: it takes the map and nothing else, so
+        // it cannot be made to depend on the Rainbow snapshot or the Supabase
+        // URL without changing this line.
+        expect(squall).toContain('function mountSatelliteLayer(map: mapboxgl.Map): void {');
+        // And its own failure degrades to precip-only rather than throwing
+        // out of the mount path.
+        const irFn = squall.slice(squall.indexOf('function mountSatelliteLayer(map'), squall.indexOf('/**\n * Add (or replace) the Mapbox raster source'));
+        expect(irFn).toContain('catch');
+        expect(irFn).toContain('continuing with precip only');
+        // Mounted before the Rainbow fetch is even attempted.
+        const startLoad = squall.slice(squall.indexOf('const startLoad'), squall.indexOf('loadSquallTiles(map'));
+        expect(startLoad).toContain('mountSatelliteLayer(map)');
     });
 
     it('tears both layers down together', () => {

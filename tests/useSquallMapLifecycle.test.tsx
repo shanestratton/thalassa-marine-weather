@@ -85,9 +85,22 @@ describe('useSquallMap request lifecycle', () => {
             await Promise.resolve();
         });
 
+        // The RAINBOW half is what this test guards: a snapshot that was
+        // in flight when the view moved to Plan must never mount.
         expect(sources.has('squall-rainbow-source')).toBe(false);
         expect(layers.has('squall-rainbow-layer')).toBe(false);
-        expect(map.addSource).not.toHaveBeenCalled();
-        expect(map.addLayer).not.toHaveBeenCalled();
+        expect(map.addSource).not.toHaveBeenCalledWith('squall-rainbow-source', expect.anything());
+        expect(map.addLayer).not.toHaveBeenCalledWith(
+            expect.objectContaining({ id: 'squall-rainbow-layer' }),
+            expect.anything(),
+        );
+
+        // The SATELLITE half mounts synchronously while the layer is still
+        // visible (it needs nothing from Rainbow — 2026-08-21), so it is
+        // legitimately created here. What matters is that suppression takes
+        // it away again: an IR layer surviving the switch to Plan would be a
+        // leak painting cloud over the planning chart.
+        expect(sources.has('squall-ir-source')).toBe(false);
+        expect(layers.has('squall-ir-layer')).toBe(false);
     });
 });

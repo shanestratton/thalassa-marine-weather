@@ -83,7 +83,21 @@ export async function fetchRainviewerIndex(): Promise<RainViewerIndex | null> {
             // reachable and then went out of range, pinned rain on "loading"
             // for the rest of the passage. 6s is generous for a small JSON and
             // still short enough to feel like a failure rather than a hang.
-            const res = await withTimeout(fetch(fetchUrl, { cache: 'default' }), null, 6000);
+            let res = await withTimeout(fetch(fetchUrl, { cache: 'default' }), null, 6000);
+
+            // FALL BACK TO DIRECT when the Pi lane fails (2026-08-21). The Pi
+            // is an OPTIMISATION — it must never be the reason a skipper has
+            // no radar. isAvailable() reflects the last health probe, so a Pi
+            // that answered once and then went out of range (or a host left
+            // pointing at a bench address) sent this fetch somewhere
+            // unreachable, and the null return reads downstream as "no
+            // frames" — the rain scrubber shows "No Data" with a working
+            // RainViewer API one hop away. Shane hit exactly that today.
+            if (piUrl && (!res || !res.ok)) {
+                log.warn('[rainviewer] Pi lane failed — retrying direct');
+                res = await withTimeout(fetch(URL, { cache: 'default' }), null, 6000);
+            }
+
             if (!res) {
                 log.warn('[rainviewer] index timed out — no radar frames this pass');
                 return null;
