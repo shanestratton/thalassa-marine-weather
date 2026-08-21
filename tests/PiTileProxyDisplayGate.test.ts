@@ -40,7 +40,14 @@ describe('Pi tile proxy display gate', () => {
         // The defect was precisely a correct-looking isAvailable() check at a
         // call site that needed the stronger question, so the call site is the
         // thing worth pinning.
-        for (const file of ['components/map/useMapInit.ts', 'components/chat/PinMapViewer.tsx']) {
+        // ThalassaMap was missed on the first pass because the grep that
+        // found the call sites was truncated. Every Mapbox transformRequest
+        // that talks to the Pi belongs in this list.
+        for (const file of [
+            'components/map/useMapInit.ts',
+            'components/chat/PinMapViewer.tsx',
+            'components/map/ThalassaMap.tsx',
+        ]) {
             const src = read(file);
             // Anchor on the Pi passthrough itself — useMapInit has three
             // separate `resourceType === 'Tile'` branches (MBTiles, local

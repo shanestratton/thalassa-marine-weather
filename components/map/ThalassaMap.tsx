@@ -263,9 +263,12 @@ const ThalassaMap: React.FC<ThalassaMapProps> = ({
             style={{ width: '100%', height: '100%' }}
             attributionControl
             transformRequest={(url: string, resourceType?: string) => {
+                // See useMapInit: a map engine fetches tiles itself and cannot
+                // present the Pi's pin, so this gates on displayability rather
+                // than reachability.
                 if (
                     resourceType === 'Tile' &&
-                    piCache.isAvailable() &&
+                    piCache.canDisplayProxiedTiles() &&
                     parseExternalHttpUrl(url) !== null &&
                     !isHttpUrlOnDomain(url, 'mapbox.com')
                 ) {
