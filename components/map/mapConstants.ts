@@ -158,6 +158,31 @@ export const LAYER_FRAME_ZOOM: Partial<Record<WeatherLayer, number>> = {
     pressure: 2.0,
 };
 
+/**
+ * How far OUT each layer may be pinched — a DIFFERENT question from where it
+ * opens, and the two must not share a number.
+ *
+ * They did. Wind's floor was `Math.max(LAYER_FRAME_ZOOM.wind, 3)`, which was
+ * correct only because the framing zoom happened to also be 3. Moving the
+ * frame to z9 silently moved the floor to z9 as well, so wind's z3–z9 range
+ * collapsed to exactly z9 and the chart would not zoom out at all (Shane,
+ * 2026-08-22: "now it is stuck at zoom 9").
+ *
+ * Opening frame and zoom range are independent decisions:
+ *   wind     — opens LOCAL at z9, still pinches out to z3 for the synoptic read
+ *   pressure — opens at its widest, so frame and floor genuinely are one value
+ *
+ * Pressure therefore still DERIVES from the frame, which is deliberate: those
+ * two halves disagreed once and the floor silently won, making the framing ease
+ * look like it never fired (Shane 2026-07-23). Wind gets its own number
+ * because for wind they are honestly different.
+ */
+export const LAYER_MIN_ZOOM: Partial<Record<WeatherLayer, number>> = {
+    wind: 3,
+    velocity: 3,
+    pressure: LAYER_FRAME_ZOOM.pressure,
+};
+
 /** Resolve the first active overlay's authoritative framing zoom. */
 export function getActiveLayerFrameZoom(activeLayers: ReadonlySet<WeatherLayer>): number | undefined {
     for (const layer of Object.keys(LAYER_FRAME_ZOOM) as WeatherLayer[]) {
