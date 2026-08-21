@@ -14,6 +14,7 @@
 import React, { Component, ErrorInfo, ReactNode } from 'react';
 import { createLogger } from '../utils/createLogger';
 import { captureException } from '../services/sentry';
+import { crumb } from '../utils/flightRecorder';
 
 const log = createLogger('ErrorBoundary');
 import { AlertTriangleIcon } from './Icons';
@@ -124,10 +125,32 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
             return;
         }
 
-        this.setState({ errorInfo });
-
-        // Log to console with boundary name for easier debugging
         const boundaryName = this.props.boundaryName || 'Unknown';
+
+        // THE DISCRIMINATOR (Lady Musgrave hunt, 2026-08-21). A "crash back
+        // to the Glass page" has two utterly different mechanisms with
+        // utterly different fixes: a JS render error caught HERE (in-place
+        // card, no navigation), or the whole WKWebView content process being
+        // jetsammed (Capacitor reloads to the boot page — no JS runs at
+        // death). Write both trails synchronously BEFORE anything that could
+        // itself fail, so the next boot can say which one happened: crumbs
+        // present WITHOUT this marker = process death; marker present = a
+        // caught render error that Sentry also holds.
+        crumb('boundary:catch', `${boundaryName}:${String(error?.message ?? '').slice(0, 60)}`);
+        try {
+            localStorage.setItem(
+                'thalassa_boundary_last',
+                JSON.stringify({
+                    at: Date.now(),
+                    boundary: boundaryName,
+                    msg: String(error?.message ?? '').slice(0, 120),
+                }),
+            );
+        } catch {
+            /* storage unavailable — the crumb above still tells the story */
+        }
+
+        this.setState({ errorInfo });
 
         // Enhanced error logging for debugging
         log.error(`[ErrorBoundary:${boundaryName}] Caught render error:`, error);

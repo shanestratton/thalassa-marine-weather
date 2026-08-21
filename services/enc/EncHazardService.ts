@@ -1105,6 +1105,17 @@ export async function getMergedVectorData(
     // two registers plus two JSON.parse transients at once. The queue caps
     // the peak; the start crumb moves inside the job so the trail shows when
     // a merge actually RUNS, not when it queued.
+    // SUPERSEDE AT ENQUEUE, not at run start (Lady Musgrave kill, 2026-08-21).
+    // The queue serializes merges, and the newest-generation slot used to be
+    // claimed INSIDE the job — so a merge sitting in the queue behind newer
+    // requests became "newest" the moment it finally ran and could never be
+    // superseded. A stepped zoom across the z8.5/z9.5/z10 bucket edges north
+    // of Fraser Island therefore ran 3-4 FULL ~32 MB-register builds
+    // back-to-back, which is precisely the transient stack that jetsams the
+    // WKWebView on a phone. Claiming the slot here means every merge that is
+    // stale by the time it reaches the front of the queue aborts at its
+    // first slice boundary instead of building a chart nobody will paint.
+    const enqueueGen = zoom != null ? claimWindowedMergeGen() : null;
     const build = mergeBuildQueue(async () => {
         // Kill #26: deaths happen when a fresh ~200 MB build transient lands
         // on an already-high heap before the GC does. Wait for headroom
@@ -1118,7 +1129,7 @@ export async function getMergedVectorData(
             'enc:merge-start',
             `${cells.length}cells,${(cells.reduce((s, c) => s + (c.sizeBytes ?? 0), 0) / 1024 / 1024).toFixed(1)}MB${heapTag()}`,
         );
-        return buildMergedVectorData(cells, cacheKey, densify, buildGlaze, zoom);
+        return buildMergedVectorData(cells, cacheKey, densify, buildGlaze, zoom, enqueueGen);
     });
     setInflightMerge(cacheKey, build);
     try {
@@ -1151,6 +1162,13 @@ class MergeSupersededError extends Error {
 /** Monotonic id of the newest WINDOWED merge (full/seaway merges — zoom
  *  null — never participate: they serve a different consumer). */
 let windowedMergeGen = 0;
+
+/** Claim the newest-windowed-merge slot. Exported for the enqueue site so a
+ *  merge is stale-checkable from the moment it QUEUES, not the moment the
+ *  serial queue finally runs it. */
+function claimWindowedMergeGen(): number {
+    return ++windowedMergeGen;
+}
 
 /** Sounding-derived contours run in encGeometryWorker (2026-07-13) —
  *  the Delaunay + isoline march hung the main thread when it ran here
@@ -1410,6 +1428,7 @@ async function buildMergedVectorData(
     densify: boolean,
     buildGlaze: boolean,
     zoom?: number,
+    enqueueGen?: number | null,
 ): Promise<EncMergedVectorData | null> {
     // TIME-SLICED (2026-07-12 audit, MAJOR): the merge — parse, clone,
     // extent-walk, glaze clip, sounding explode — used to run as ONE
@@ -1428,7 +1447,10 @@ async function buildMergedVectorData(
     // newest-generation slot; when a newer windowed merge starts, this one
     // bails at its next slice boundary (getMergedVectorData converts the
     // throw to the callers' established null-means-cancelled contract).
-    const myWindowGen = zoom != null ? ++windowedMergeGen : null;
+    // The slot is claimed at ENQUEUE time by getMergedVectorData and handed
+    // in; claiming here (the pre-2026-08-21 behaviour) made queued merges
+    // unsupersedable. The fallback claim covers direct callers, if any.
+    const myWindowGen = enqueueGen !== undefined ? enqueueGen : zoom != null ? claimWindowedMergeGen() : null;
     /** Cheap, un-gated supersede check — an integer compare, safe to call in
      *  a tight loop. yieldIfNeeded only reaches its own check once a slice has
      *  run 12 ms, which is far too late when the expensive step is a single

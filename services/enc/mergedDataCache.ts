@@ -15,6 +15,7 @@
  * caches in one namespace). The EncMergedVectorData import is type-only
  * (erased at runtime) so there is no import cycle.
  */
+import { Capacitor } from '@capacitor/core';
 import type { EncMergedVectorData } from './EncHazardService';
 
 const cache = new Map<string, EncMergedVectorData>();
@@ -22,7 +23,14 @@ const cache = new Map<string, EncMergedVectorData>();
 // holds three distinct keys for the same water — 2 slots evicted merges
 // that were about to be re-requested. 4 holds a realistic excursion;
 // entries are feature-collection references, not copies.
-const MAX_ENTRIES = 4;
+//
+// …and 4 → 2 on PHONES (Lady Musgrave kill, 2026-08-21): four pinned
+// merges over reef-dense water is ~150 MB of parsed features sitting
+// UNDER each fresh build's own transients, on the platform with the
+// hardest memory ceiling and (until the native gauge landed) no working
+// brake. Two slots hold the newest merge plus one neighbour — the
+// z11↔z13 excursion re-pays one merge instead of dying.
+const MAX_ENTRIES = Capacitor.isNativePlatform() ? 2 : 4;
 
 /**
  * Cell ids each cached merge holds geometry for.
