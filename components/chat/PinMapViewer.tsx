@@ -93,9 +93,11 @@ export const PinMapViewer: React.FC<PinMapViewerProps> = React.memo(({ lat, lng,
             dragRotate: false,
             // Route raster tiles through Pi Cache when available (offline support)
             transformRequest: (url: string, resourceType?: string) => {
+                // See useMapInit: a map engine cannot present the Pi's pin,
+                // so this must gate on displayability, not reachability.
                 if (
                     resourceType === 'Tile' &&
-                    piCache.isAvailable() &&
+                    piCache.canDisplayProxiedTiles() &&
                     parseExternalHttpUrl(url) !== null &&
                     !isHttpUrlOnDomain(url, 'mapbox.com')
                 ) {

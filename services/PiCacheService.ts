@@ -1267,8 +1267,28 @@ class PiCacheServiceImpl {
      */
     private static readonly PI_TILE_PROXY_USABLE = false;
 
+    /**
+     * Can a MAP ENGINE actually display a Pi-proxied tile?
+     *
+     * This is a different question from isAvailable(), and conflating the two
+     * is what broke the rain radar (Shane, 2026-08-22). isAvailable() means
+     * "the Pi answered a health check" — over the PINNED transport, which is
+     * the only lane that can present its self-signed certificate. Mapbox and
+     * Leaflet fetch tiles themselves, natively, and cannot present that pin.
+     * So on iOS every proxied tile dies with NSURLErrorDomain -1202
+     * (errSSLXCertChainInvalid, `s: Thalassa Pi calypso i: Thalassa Pi
+     * calypso`) — a reachable Pi and an unusable one look identical until the
+     * tiles simply never paint.
+     *
+     * Ask THIS before routing a tile that something else will fetch for you.
+     * Ask isAvailable() only when you control the transport.
+     */
+    canDisplayProxiedTiles(): boolean {
+        return PiCacheServiceImpl.PI_TILE_PROXY_USABLE && this.isAvailable();
+    }
+
     leafletTileTemplate(originalTemplate: string, ttlMs = 1_800_000, contentType = 'image/png'): string {
-        if (!PiCacheServiceImpl.PI_TILE_PROXY_USABLE || !this.isAvailable()) return originalTemplate;
+        if (!this.canDisplayProxiedTiles()) return originalTemplate;
         // NEVER proxy tiles over the REMOTE path. The Pi cache earns its keep
         // on the boat LAN — shared scarce uplink, prefetched cells, offline at
         // anchor. Reached over the punter's tailnet instead, the same proxy is

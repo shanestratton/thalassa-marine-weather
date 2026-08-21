@@ -431,9 +431,16 @@ export function useMapInit(opts: UseMapInitOptions) {
                 // Route all remote raster tile fetches through the boat's Pi.
                 // Skips local tiles (MBTiles, AvNav, data URIs, blobs) and Mapbox
                 // vector tiles (which are style-bundled and handled by Mapbox GL).
+                // canDisplayProxiedTiles(), NOT isAvailable(). Mapbox fetches
+                // tiles itself and cannot present the Pi's pin, so a reachable
+                // Pi still yields NSURLErrorDomain -1202 on every tile. This
+                // gate matched leafletTileTemplate's from the day the proxy was
+                // disabled; this call site was missed, so Mapbox kept routing
+                // rain radar, seamarks, Esri imagery and the GIBS cloud layer
+                // into a lane that could only fail (Shane, 2026-08-22).
                 if (
                     resourceType === 'Tile' &&
-                    piCache.isAvailable() &&
+                    piCache.canDisplayProxiedTiles() &&
                     parsedTileUrl !== null &&
                     !isMbTilesUrl &&
                     !isLocalTile &&
