@@ -1197,11 +1197,108 @@ class PiCacheServiceImpl {
     // ── Passthrough Proxy (the magic one) ──
 
     /**
+     * Fetch JSON from upstream THROUGH the Pi, over the pinned transport.
+     * Returns null whenever the Pi lane is unusable, so every caller's
+     * fallback is the same shape: try this, and go direct on null.
+     *
+     * USE THIS, NOT passthroughUrl(). The URL builder hands back an
+     * `https://<pi>:3001/...` string, and the Pi serves that with a
+     * SELF-SIGNED certificate. Only the pinned transport can present the pin,
+     * so a plain `fetch()` at that URL fails every time on iOS with
+     * NSURLErrorDomain -1202. Ten call sites did exactly that; the ones with a
+     * fallback merely wasted a round trip, and the ones without silently lost
+     * their Pi hop and returned nothing. Handing out a bare URL invited it, so
+     * the fetch now lives behind the same door as the URL.
+     *
+     * @param originalUrl — The full URL the app would normally fetch
+     * @param ttlMs — Cache TTL in milliseconds (default: 15 min)
+     * @param source — Label for debugging (e.g., 'open-meteo')
+     * @param timeoutMs — Wall clock for the Pi hop. Short by default: the Pi
+     *   is a LAN optimisation, so a slow one should lose to going direct.
+     */
+    async passthroughText(
+        originalUrl: string,
+        ttlMs = 900_000,
+        source = 'passthrough',
+        timeoutMs = 6_000,
+    ): Promise<string | null> {
+        const piUrl = this.passthroughUrl(originalUrl, ttlMs, source);
+        if (!piUrl) return null;
+        try {
+            const res = await piRequest({ url: piUrl, readTimeout: timeoutMs });
+            if (res.status < 200 || res.status >= 300) {
+                log.warn(`[pi] passthrough ${source} returned ${res.status} — caller should go direct`);
+                return null;
+            }
+            return res.data || null;
+        } catch (err) {
+            // Includes the certificate rejection and a Pi that has gone out of
+            // range. Both mean the same thing to the caller: no Pi answer this
+            // pass, go direct.
+            log.warn(`[pi] passthrough ${source} failed — caller should go direct`, err);
+            return null;
+        }
+    }
+
+    /** JSON flavour of passthroughText. Malformed bodies read as no answer. */
+    async passthroughJson<T = unknown>(
+        originalUrl: string,
+        ttlMs = 900_000,
+        source = 'passthrough',
+        timeoutMs = 6_000,
+    ): Promise<T | null> {
+        const body = await this.passthroughText(originalUrl, ttlMs, source, timeoutMs);
+        if (body === null) return null;
+        try {
+            return JSON.parse(body) as T;
+        } catch {
+            // A poisoned or truncated cache entry is not an answer.
+            log.warn(`[pi] passthrough ${source} returned unparseable JSON — caller should go direct`);
+            return null;
+        }
+    }
+
+    /**
+     * Fetch a tile THROUGH the Pi, over the pinned transport, as a Response so
+     * callers can treat both lanes identically.
+     *
+     * Same rule as passthroughJson: a plain fetch at a Pi tile URL cannot
+     * present the pin. Note this is for tiles YOUR code fetches — a tile a MAP
+     * ENGINE fetches can never work at all, which is what
+     * canDisplayProxiedTiles() is for.
+     */
+    async passthroughTileResponse(
+        originalUrl: string,
+        ttlMs = 1_800_000,
+        timeoutMs = 15_000,
+    ): Promise<Response | null> {
+        const piUrl = this.passthroughTileUrl(originalUrl, ttlMs);
+        if (!piUrl) return null;
+        try {
+            const res = await piRequest({ url: piUrl, responseType: 'arraybuffer', readTimeout: timeoutMs });
+            if (res.status < 200 || res.status >= 300 || !res.data) return null;
+            const binary = atob(res.data);
+            const bytes = new Uint8Array(binary.length);
+            for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+            if (bytes.byteLength === 0) return null;
+            return new Response(bytes);
+        } catch (err) {
+            log.warn('[pi] tile passthrough failed — caller should go direct', err);
+            return null;
+        }
+    }
+
+    /**
      * Route any URL through the Pi Cache's generic passthrough.
      * Returns a Pi-proxied URL, or null if Pi is unavailable.
      *
      * The Pi fetches the URL, caches the response in SQLite, and returns it.
      * Next time, the response comes straight from the Pi's disk — zero internet.
+     *
+     * ⚠️ THE RETURNED URL CANNOT BE FETCHED WITH PLAIN `fetch()`. It points at
+     * the Pi's self-signed HTTPS endpoint. Use passthroughJson() above unless
+     * you are handing the URL to something that can present the pin. A guard
+     * test enumerates the callers allowed to touch this.
      *
      * @param originalUrl — The full URL the app would normally fetch
      * @param ttlMs — Cache TTL in milliseconds (default: 15 min)

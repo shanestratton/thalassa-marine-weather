@@ -3,10 +3,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
     passthroughUrl: vi.fn(() => null),
+    // Null = "no usable Pi lane", so the hook falls through to direct — the
+    // shape every caller now gets from the pinned-transport wrappers.
+    passthroughJson: vi.fn(async () => null),
 }));
 
 vi.mock('../services/PiCacheService', () => ({
-    piCache: { passthroughUrl: mocks.passthroughUrl },
+    piCache: { passthroughUrl: mocks.passthroughUrl, passthroughJson: mocks.passthroughJson },
 }));
 vi.mock('../utils/createLogger', () => ({
     createLogger: () => ({ info: vi.fn(), warn: vi.fn() }),

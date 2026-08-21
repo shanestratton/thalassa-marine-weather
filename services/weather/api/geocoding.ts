@@ -23,10 +23,17 @@ export const reverseGeocodeContext = async (lat: number, lon: number): Promise<G
     if (piCache.isAvailable()) {
         try {
             const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${lon},${lat}.json?types=place,locality,neighborhood,poi&access_token=${getMapboxKey() || 'NONE'}`;
-            const piUrl = piCache.passthroughUrl(url, 7 * 24 * 60 * 60 * 1000, 'mapbox-geocode');
-            if (piUrl) {
-                const res = await CapacitorHttp.get({ url: piUrl, connectTimeout: 5000, readTimeout: 10000 });
-                const data = typeof res.data === 'string' ? JSON.parse(res.data) : res.data;
+            // passthroughJson, not a URL + CapacitorHttp: neither fetch nor
+            // CapacitorHttp can present the Pi's self-signed cert, so the old
+            // form threw on iOS every time and this whole Pi shortcut silently
+            // never fired (2026-08-22).
+            const data = await piCache.passthroughJson<{ features?: Array<Record<string, any>> }>(
+                url,
+                7 * 24 * 60 * 60 * 1000,
+                'mapbox-geocode',
+                10_000,
+            );
+            {
                 if (data?.features?.length) {
                     // Preferred-type sort. `district` was here in an
                     // earlier pass and was the source of the second

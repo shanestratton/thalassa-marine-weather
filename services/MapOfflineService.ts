@@ -3,7 +3,8 @@
  *
  * Routing (only for a provider whose contract explicitly permits bulk/offline
  * prefetch):
- *   - Pi available → tiles fetched through `piCache.passthroughTileUrl(url)`
+ *   - Pi available → tiles fetched via piCache.passthroughTileResponse(), which
+ *     carries the pinned transport (a plain fetch cannot present the Pi's cert)
  *     so they live on the boat's Pi SQLite cache and survive app reinstalls.
  *   - Pi unavailable on native → tiles are written to Directory.Data and later
  *     rendered through Capacitor's local-file bridge.
@@ -26,7 +27,6 @@
  */
 
 import { piCache } from './PiCacheService';
-import { isPinnedTransportAvailable, piRequest } from './piTls';
 import { createLogger } from '../utils/createLogger';
 import { calculateDistance } from '../utils/navigationCalculations';
 import { Capacitor } from '@capacitor/core';
@@ -209,22 +209,9 @@ async function ensureNativeDirectory(path: string): Promise<void> {
  * the tile — same rule as the radar index. The Pi is an optimisation.
  */
 async function fetchTileResponse(directUrl: string, usePi: boolean, signal?: AbortSignal): Promise<Response> {
-    if (usePi && isPinnedTransportAvailable()) {
-        const piUrl = piCache.passthroughTileUrl(directUrl, OFFLINE_TTL_MS);
-        if (piUrl) {
-            try {
-                const res = await piRequest({ url: piUrl, responseType: 'arraybuffer' });
-                if (res.status >= 200 && res.status < 300 && res.data) {
-                    const binary = atob(res.data);
-                    const bytes = new Uint8Array(binary.length);
-                    for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
-                    if (bytes.byteLength > 0) return new Response(bytes);
-                }
-                log.warn(`Pi tile hop returned ${res.status} — using direct`);
-            } catch (err) {
-                log.warn('Pi tile hop failed — using direct', err);
-            }
-        }
+    if (usePi) {
+        const piRes = await piCache.passthroughTileResponse(directUrl, OFFLINE_TTL_MS);
+        if (piRes) return piRes;
     }
     return fetch(directUrl, { signal, cache: 'reload' });
 }

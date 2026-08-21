@@ -78,19 +78,25 @@ async function fetchNDBCBuoy(buoyId: string): Promise<NDBCRawData | null> {
     try {
         const url = `${NDBC_BASE_URL}/${buoyId}.txt`;
 
-        // Route through Pi Cache when available (30 min TTL — buoys update every 30min)
-        const piUrl = piCache.passthroughUrl(url, 30 * 60 * 1000, 'ndbc-buoy');
-
-        const response = await CapacitorHttp.get({
-            url: piUrl || url,
-            headers: { Accept: 'text/plain' },
-        });
-
-        if (response.status !== 200 || !response.data) {
-            return null;
+        // Pi first (30 min TTL — buoys update every 30min), direct on null.
+        // This used to be `url: piUrl || url`, which meant that whenever the
+        // Pi was reachable this call ONLY went to the Pi — and the Pi's
+        // self-signed cert makes that throw on iOS, so the outer catch turned
+        // a healthy buoy into "no data". Pi failure must cost a hop, not the
+        // reading (2026-08-22).
+        let body = await piCache.passthroughText(url, 30 * 60 * 1000, 'ndbc-buoy');
+        if (body === null) {
+            const response = await CapacitorHttp.get({
+                url,
+                headers: { Accept: 'text/plain' },
+            });
+            if (response.status !== 200 || !response.data) {
+                return null;
+            }
+            body = typeof response.data === 'string' ? response.data : String(response.data);
         }
 
-        const lines = response.data.trim().split('\n');
+        const lines = body.trim().split('\n');
         if (lines.length < 3) {
             return null;
         }
@@ -157,24 +163,29 @@ async function fetchBOMBuoy(buoyId: string): Promise<NDBCRawData | null> {
         const filters = encodeURIComponent(JSON.stringify({ Site: siteName }));
         const url = `${QLD_WAVE_API_BASE}?resource_id=${QLD_WAVE_MASTER_RESOURCE}&filters=${filters}&limit=1&sort=DateTime%20desc`;
 
-        // Route through Pi Cache when available (30 min TTL)
-        const piUrl = piCache.passthroughUrl(url, 30 * 60 * 1000, 'qld-wave-buoy');
+        // Pi first, direct on null — see the NDBC note above; the old
+        // `piUrl || url` form dropped the reading whenever the Pi answered.
+        let data = await piCache.passthroughJson<unknown>(url, 30 * 60 * 1000, 'qld-wave-buoy');
+        if (data === null) {
+            const response = await CapacitorHttp.get({
+                url,
+                headers: { Accept: 'application/json' },
+            });
+            if (response.status !== 200 || !response.data) {
+                return null;
+            }
+            data = response.data;
+        }
 
-        const response = await CapacitorHttp.get({
-            url: piUrl || url,
-            headers: { Accept: 'application/json' },
-        });
-
-        if (response.status !== 200 || !response.data) {
+        const parsed = data as {
+            success?: boolean;
+            result?: { records?: Array<Record<string, string>> };
+        };
+        if (!parsed.success || !parsed.result?.records || parsed.result.records.length === 0) {
             return null;
         }
 
-        const data = response.data;
-        if (!data.success || !data.result || !data.result.records || data.result.records.length === 0) {
-            return null;
-        }
-
-        const record = data.result.records[0];
+        const record = parsed.result.records[0];
 
         // Parse Queensland wave data format
         // Fields: Hs (significant wave height), Hmax, Tz (period), Tp, Direction, SST (sea surface temp)
@@ -215,27 +226,33 @@ async function fetchBOMAWS(stationId: string): Promise<NDBCRawData | null> {
         // invisible.
         const url = `https://www.bom.gov.au/fwo/IDQ60801/IDQ60801.${stationId}.json`;
 
-        // Route through Pi Cache when available (15 min TTL — AWS updates frequently)
-        const piUrl = piCache.passthroughUrl(url, 15 * 60 * 1000, 'bom-aws');
-
-        const response = await CapacitorHttp.get({
-            url: piUrl || url,
-            headers: { Accept: 'application/json' },
-        });
-
-        if (response.status !== 200 || !response.data) {
-            return null;
+        // Pi first, direct on null — see the NDBC note above; the old
+        // `piUrl || url` form dropped the reading whenever the Pi answered.
+        let data = await piCache.passthroughJson<unknown>(url, 15 * 60 * 1000, 'bom-aws');
+        if (data === null) {
+            const response = await CapacitorHttp.get({
+                url,
+                headers: { Accept: 'application/json' },
+            });
+            if (response.status !== 200 || !response.data) {
+                return null;
+            }
+            data = response.data;
         }
 
-        const data = response.data;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- BOM's
+        // observation records carry dozens of loosely-typed fields; this was
+        // implicitly `any` before the transport change and retyping it is a
+        // separate job.
+        const parsed = data as { observations?: { data?: Array<Record<string, any>> } };
 
         // BOM JSON structure: { observations: { data: [...] } }
-        if (!data.observations || !data.observations.data || data.observations.data.length === 0) {
+        if (!parsed.observations?.data || parsed.observations.data.length === 0) {
             return null;
         }
 
         // Get most recent observation (first in array)
-        const obs = data.observations.data[0];
+        const obs = parsed.observations.data[0];
 
         // Parse BOM AWS data
         // Fields: wind_dir, wind_spd_kmh, gust_kmh, air_temp, press, etc.

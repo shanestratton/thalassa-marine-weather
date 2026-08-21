@@ -278,7 +278,6 @@ async function loadSquallTiles(
     // Use the same snapshot endpoint the rain layer hits. Pi
     // passthrough so the boat fleet shares one fetch.
     const upstream = `${supabaseUrl}/functions/v1/proxy-rainbow?action=snapshot&layer=precip-global`;
-    const piUrl = piCache.passthroughUrl(upstream, SNAPSHOT_TTL_MS, 'rainbow-snapshot');
 
     // The same controller handles both the 3s timeout and a Chart → Plan
     // transition. Aborting alone is not sufficient because a mocked/cached
@@ -287,15 +286,29 @@ async function loadSquallTiles(
     const timer = setTimeout(() => controller.abort(), 3000);
     let snapshot: number | null = null;
     try {
-        const res = await fetch(piUrl ?? upstream, { signal: controller.signal });
+        // Pi first over the pinned transport, then direct. This used to be
+        // `fetch(piUrl ?? upstream)`, which could not present the Pi's
+        // self-signed cert and therefore threw on iOS whenever the Pi was
+        // reachable — taking the snapshot with it instead of going direct.
+        const piData = await piCache.passthroughJson<{ snapshot?: number | null }>(
+            upstream,
+            SNAPSHOT_TTL_MS,
+            'rainbow-snapshot',
+            3_000,
+        );
         if (!isCurrent()) return;
-        if (!res.ok) {
-            log.warn(`Rainbow snapshot HTTP ${res.status}`);
-            return;
+        let data = piData;
+        if (!data) {
+            const res = await fetch(upstream, { signal: controller.signal });
+            if (!isCurrent()) return;
+            if (!res.ok) {
+                log.warn(`Rainbow snapshot HTTP ${res.status}`);
+                return;
+            }
+            data = await res.json();
         }
-        const data = await res.json();
         if (!isCurrent()) return;
-        snapshot = data.snapshot ?? null;
+        snapshot = data?.snapshot ?? null;
     } catch (err) {
         if (!controller.signal.aborted) {
             log.warn('Rainbow snapshot fetch failed/timed out', err);

@@ -66,10 +66,12 @@ describe('Pi tile proxy display gate', () => {
         // locally; making the URL null there would fetch direct and then skip
         // the persist branch, reporting tiles cached that were never stored.
         const svc = read('services/PiCacheService.ts');
-        const body = svc.slice(
-            svc.indexOf('passthroughTileUrl(originalUrl'),
-            svc.indexOf('passthroughTileUrl(originalUrl') + 400,
-        );
+        // Anchor on the DECLARATION. passthroughTileResponse calls
+        // this.passthroughTileUrl(originalUrl, ...) above it, so a plain
+        // indexOf now lands inside the wrapper instead.
+        const decl = svc.indexOf('passthroughTileUrl(originalUrl: string');
+        expect(decl).toBeGreaterThan(-1);
+        const body = svc.slice(decl, decl + 400);
         expect(body).toContain('if (!this.isAvailable()) return null;');
         expect(body).not.toContain('canDisplayProxiedTiles');
     });

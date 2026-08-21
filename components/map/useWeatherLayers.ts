@@ -1872,29 +1872,26 @@ export function useWeatherLayers(
                     abortCtrl.signal.addEventListener('abort', onOuterAbort);
                     try {
                         const upstream = `${supabaseUrl}/functions/v1/proxy-rainbow?action=snapshot&layer=precip-global`;
-                        const piUrl = piCache.passthroughUrl(upstream, RAINBOW_SNAPSHOT_TTL_MS, 'rainbow-snapshot');
-                        // Same fall-through the radar index needs, for the
-                        // same reason: piCache.isAvailable() is the LAST
-                        // health probe, so a Pi that has since gone out of
-                        // range makes this fetch REJECT. Without the retry
-                        // that throw costs every forecast frame while the
-                        // upstream is perfectly reachable — quietly, because
-                        // Phase 2 is designed to fail soft.
-                        let snapResp: Response | null = null;
-                        if (piUrl) {
-                            snapResp = await fetch(piUrl, { signal: timeoutCtrl.signal }).catch(() => null);
-                            if (!snapResp?.ok) {
-                                log.warn('Rainbow.ai snapshot: Pi lane unusable — falling through to direct');
-                                snapResp = null;
+                        // Pi over the pinned transport, then direct. The
+                        // hand-rolled fall-through this replaces was right
+                        // about the failure but wrong about the cause: the Pi
+                        // hop was not merely out of range, it could never
+                        // complete over plain fetch at all.
+                        let snapData = await piCache.passthroughJson<{ snapshot?: number | null }>(
+                            upstream,
+                            RAINBOW_SNAPSHOT_TTL_MS,
+                            'rainbow-snapshot',
+                            RAINBOW_HARD_TIMEOUT_MS,
+                        );
+                        if (!snapData) {
+                            const snapResp = await fetch(upstream, { signal: timeoutCtrl.signal });
+                            if (!snapResp.ok) {
+                                log.warn(`Rainbow.ai snapshot failed: ${snapResp.status}`);
+                                return null;
                             }
+                            snapData = await snapResp.json();
                         }
-                        snapResp ??= await fetch(upstream, { signal: timeoutCtrl.signal });
-                        if (!snapResp.ok) {
-                            log.warn(`Rainbow.ai snapshot failed: ${snapResp.status}`);
-                            return null;
-                        }
-                        const snapData = await snapResp.json();
-                        const snapshot = snapData.snapshot ?? null;
+                        const snapshot = snapData?.snapshot ?? null;
                         rainbowSnapshotMemoRef.current = { at: Date.now(), snapshot };
                         log.info(`Rainbow.ai snapshot: ${snapshot}`);
                         return snapshot;
