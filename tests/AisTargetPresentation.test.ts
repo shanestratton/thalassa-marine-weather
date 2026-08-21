@@ -4,7 +4,7 @@
  * end of the north-pointing fleet (null COG must never rotate a target).
  */
 import { describe, expect, it } from 'vitest';
-import { targetPresentation, typeBucketColor } from '../components/map/useAisStreamLayer';
+import { AIS_DANGER_COLOR, targetPresentation, typeBucketColor } from '../components/map/useAisStreamLayer';
 
 describe('typeBucketColor', () => {
     it('buckets the familiar palette', () => {
@@ -47,11 +47,23 @@ describe('targetPresentation', () => {
         expect(p.typeColor).toBe('#ef4444'); // still a tanker
     });
 
-    it('SAFETY OVERRIDES TYPE: not-under-command keeps its status colour', () => {
+    it('SAFETY OVERRIDES TYPE with a colour outside the palette — visible, not colliding', () => {
+        // The first cut reused navStatusColor, whose reds/oranges were
+        // byte-identical to the tanker and fishing buckets, so the override
+        // was invisible. The danger colour must be distinct from EVERY type.
+        const danger = AIS_DANGER_COLOR;
+        for (const t of [70, 84, 60, 30, 36, 40, 0]) expect(typeBucketColor(t)).not.toBe(danger);
         const nuc = targetPresentation({ shipType: 70, navStatus: 2, sog: 3, heading: 90, cog: 90 });
-        expect(nuc.typeColor).not.toBe('#22c55e'); // never a friendly cargo green
+        expect(nuc.typeColor).toBe(danger);
         const restricted = targetPresentation({ shipType: 70, navStatus: 3, sog: 3, heading: 90, cog: 90 });
-        expect(restricted.typeColor).not.toBe('#22c55e');
+        expect(restricted.typeColor).toBe(danger);
+    });
+
+    it('AGROUND is a hazard — the state a skipper most needs to see', () => {
+        // Dropped from the first cut's danger set (2/3/4 only); an aground
+        // cargo ship rendered friendly green.
+        const aground = targetPresentation({ shipType: 70, navStatus: 6, sog: 0, heading: 90, cog: 0 });
+        expect(aground.typeColor).toBe(AIS_DANGER_COLOR);
     });
 
     it('missing everything degrades to a grey dot', () => {
