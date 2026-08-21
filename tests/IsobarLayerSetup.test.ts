@@ -44,7 +44,12 @@ describe('isobar layer setup', () => {
         expect(widthAtZoom5(major?.paint as Record<string, unknown>)).toBeGreaterThan(
             widthAtZoom5(minor?.paint as Record<string, unknown>),
         );
-        expect(labels?.filter).toEqual(['==', ['get', 'isMajor'], true]);
+        // EVERY isobar carries its value now, not every second one — the
+        // 4 hPa interval is the synoptic standard and labelling only the
+        // multiples of 8 made the chart read as an 8 hPa chart (2026-08-21,
+        // checked against BOM's live MSLP analysis). The major/minor WEIGHT
+        // distinction above stays: heavier line every 8 hPa, value on all.
+        expect(labels?.filter).toEqual(['has', 'label']);
         expect((centers?.layout as Record<string, boolean>)['text-allow-overlap']).toBe(true);
     });
 

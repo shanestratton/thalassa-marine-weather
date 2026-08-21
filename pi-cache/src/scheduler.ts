@@ -338,7 +338,11 @@ async function prefetchRainRadar(cache: Cache, pf: PrefetchConfig): Promise<void
     for (const frame of frames) {
         for (let x = minTileX; x <= maxTileX; x++) {
             for (let y = minTileY; y <= maxTileY; y++) {
-                const url = `${tileHost}${frame.path}/512/${z}/${x}/${y}/2/1_1.png`;
+                // Palette 4 — must match the app's RAINVIEWER_COLOR_SCHEME or
+                // this prefetch warms a cache the app never asks for (the
+                // scheme digit is inside the cache key). Axis order z/x/y; a
+                // past bug shipped z/y/x and the contract test pins it.
+                const url = `${tileHost}${frame.path}/512/${z}/${x}/${y}/4/1_1.png`;
                 const key = `passthrough-tile:${url}`;
                 if (cache.hasFreshTile(key)) continue;
 

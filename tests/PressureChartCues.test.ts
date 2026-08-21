@@ -7,9 +7,12 @@ function synopticFixture() {
     const cols = 15;
     const values = Array.from({ length: rows }, () => Array<number>(cols).fill(1013));
 
-    // More than three well-separated extrema of each type. The renderer must
-    // retain only the strongest three highs and lows so a global chart stays
-    // legible, then attach four quiet circulation cues to every selected one.
+    // Several well-separated extrema of each type. NOTE: these are
+    // single-cell spikes of 15-25 hPa against flat 1013 — a shape no
+    // atmosphere produces. It exercises the CUE plumbing (arrows per centre,
+    // major-contour flagging) only. Detection against a realistic synoptic
+    // field is proved in PressureCentresRealField.test.ts, which is what the
+    // old 2 hPa-over-1-degree threshold silently failed.
     for (const [row, col, pressure] of [
         [2, 2, 1030],
         [2, 6, 1032],
@@ -46,14 +49,21 @@ function synopticFixture() {
 }
 
 describe('pressure chart cues', () => {
-    it('keeps H/L labels sparse and gives each retained centre four circulation arrows', () => {
+    it('gives every retained centre four circulation arrows', () => {
+        // The per-type cap was 3 GLOBALLY until 2026-08-21, which meant a
+        // skipper panning to the Coral Sea routinely saw no centre at all —
+        // the three strongest systems on Earth were somewhere else. The cap
+        // is generous now and Mapbox's symbol collision declutters what is
+        // actually on screen. What must hold: the cap still bounds the set,
+        // both types are found, and every centre keeps its four arrows.
         const result = generateIsobarsFromGrid(synopticFixture(), 0, true);
         const types = result.centers.features.map((feature) => feature.properties?.type);
 
-        expect(types.filter((type) => type === 'H')).toHaveLength(3);
-        expect(types.filter((type) => type === 'L')).toHaveLength(3);
-        expect(result.centers.features).toHaveLength(6);
-        expect(result.arrows.features).toHaveLength(24);
+        expect(types.filter((type) => type === 'H').length).toBeGreaterThan(0);
+        expect(types.filter((type) => type === 'L').length).toBeGreaterThan(0);
+        expect(types.filter((type) => type === 'H').length).toBeLessThanOrEqual(14);
+        expect(types.filter((type) => type === 'L').length).toBeLessThanOrEqual(14);
+        expect(result.arrows.features).toHaveLength(result.centers.features.length * 4);
     });
 
     it('marks each 8 hPa contour as a visual major without dropping 4 hPa detail', () => {

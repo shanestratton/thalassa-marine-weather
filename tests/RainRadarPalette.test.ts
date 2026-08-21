@@ -49,6 +49,21 @@ describe('one palette, past and future', () => {
     });
 });
 
+describe('the Pi cache speaks the same palette', () => {
+    it('prefetch and passthrough bake the app scheme, not their own', () => {
+        // The scheme digit lives INSIDE the tile URL and therefore inside the
+        // Pi's cache key. A Pi baking a different scheme than the app requests
+        // would miss cache on every tile AND — worse — show one palette with
+        // the Pi connected and another without it. Found the hard way when
+        // the app moved to scheme 4 and these two kept serving 2.
+        for (const file of ['pi-cache/src/routes/tiles.ts', 'pi-cache/src/scheduler.ts']) {
+            const source = read(file);
+            expect(source).toContain(`/${UNIFIED_SCHEME}/1_1.png`);
+            expect(source).not.toContain('/2/1_1.png');
+        }
+    });
+});
+
 describe('rain reads as weather, not a stain', () => {
     it('radar and forecast frames share opacity AND enhancement', () => {
         const layers = read('components/map/useWeatherLayers.ts');

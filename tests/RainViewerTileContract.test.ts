@@ -14,10 +14,13 @@ import {
 const source = (path: string) => readFileSync(resolve(process.cwd(), path), 'utf8');
 
 describe('RainViewer tile contract', () => {
-    it('pins the current provider limits and Universal Blue palette', () => {
+    it('pins the current provider limits and the unified Weather Channel palette', () => {
         expect(RAINVIEWER_NATIVE_MAX_ZOOM).toBe(7);
         expect(RAINVIEWER_MAP_TILE_SIZE).toBe(512);
-        expect(RAINVIEWER_COLOR_SCHEME).toBe(2);
+        // 4, not 2: observed tiles must be baked in the SAME family the
+        // forecast ramp paints and the legend draws (2026-08-21). See
+        // RainRadarPalette.test.ts for the full pairing contract.
+        expect(RAINVIEWER_COLOR_SCHEME).toBe(4);
 
         expect(
             buildRainViewerTileUrl('/v2/radar/4a75da0daf3a', {
@@ -26,7 +29,7 @@ describe('RainViewer tile contract', () => {
                 x: '{x}',
                 y: '{y}',
             }),
-        ).toBe('https://tilecache.rainviewer.com/v2/radar/4a75da0daf3a/512/{z}/{x}/{y}/2/1_1.png');
+        ).toBe('https://tilecache.rainviewer.com/v2/radar/4a75da0daf3a/512/{z}/{x}/{y}/4/1_1.png');
     });
 
     it('accepts only RainViewer-owned HTTPS hosts from the index', () => {
@@ -51,14 +54,15 @@ describe('RainViewer tile contract', () => {
         expect(mapHub).toContain('showEmbeddedRainViewerAttribution');
     });
 
-    it('keeps Pi requests inside z0-7 and uses XYZ order with palette 2', () => {
+    it('keeps Pi requests inside z0-7 and uses XYZ order with the unified palette', () => {
         const route = source('pi-cache/src/routes/tiles.ts');
         const scheduler = source('pi-cache/src/scheduler.ts');
 
         expect(route).toContain('zoom > 7');
         expect(route).toContain('(?:\\d{10}|[a-f0-9]{12})');
-        expect(route).toContain('/512/${zoom}/${tileX}/${tileY}/2/1_1.png');
-        expect(scheduler).toContain('/512/${z}/${x}/${y}/2/1_1.png');
+        expect(route).toContain('/512/${zoom}/${tileX}/${tileY}/4/1_1.png');
+        expect(scheduler).toContain('/512/${z}/${x}/${y}/4/1_1.png');
+        // The old transposition bug, still guarded — now on the live palette.
         expect(scheduler).not.toContain('${z}/${y}/${x}/4/1_1.png');
         expect(route).toContain('const key = `passthrough-tile:${url}`');
         expect(scheduler).toContain('const key = `passthrough-tile:${url}`');

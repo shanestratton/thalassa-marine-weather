@@ -6,6 +6,7 @@ import {
     RainFrameTransitionController,
     type RainFrameEventListener,
     type RainFrameMap,
+    RAIN_FRAME_OPACITY,
 } from '../components/map/rainFrameTransition';
 
 class FakeRainMap implements RainFrameMap {
@@ -22,7 +23,7 @@ class FakeRainMap implements RainFrameMap {
         for (const id of ids) {
             this.layers.add(id);
             this.layout.set(id, 'none');
-            this.opacity.set(id, 0.75);
+            this.opacity.set(id, RAIN_FRAME_OPACITY);
         }
     }
 
@@ -67,7 +68,7 @@ class FakeRainMap implements RainFrameMap {
 
     setCommitted(id: string): void {
         this.layout.set(id, 'visible');
-        this.opacity.set(id, 0.75);
+        this.opacity.set(id, RAIN_FRAME_OPACITY);
     }
 }
 
@@ -84,7 +85,7 @@ describe('RainFrameTransitionController', () => {
         controller.request(map, 'radar-1', ['radar-0'], committed);
 
         expect(map.layout.get('radar-0')).toBe('visible');
-        expect(map.opacity.get('radar-0')).toBe(0.75);
+        expect(map.opacity.get('radar-0')).toBe(RAIN_FRAME_OPACITY);
         expect(map.layout.get('radar-1')).toBe('visible');
         expect(map.opacity.get('radar-1')).toBe(0);
         expect(committed).not.toHaveBeenCalled();
@@ -110,7 +111,7 @@ describe('RainFrameTransitionController', () => {
         map.emitSourceData('radar-1', { tile: {}, isSourceLoaded: true });
 
         expect(committed).toHaveBeenCalledOnce();
-        expect(map.opacity.get('radar-1')).toBe(0.75);
+        expect(map.opacity.get('radar-1')).toBe(RAIN_FRAME_OPACITY);
         expect(map.opacity.get('radar-0')).toBe(0);
         expect(map.layout.get('radar-0')).toBe('visible');
 
@@ -143,7 +144,7 @@ describe('RainFrameTransitionController', () => {
         map.emitSourceData('rainbow-fc-0', { tile: {}, isSourceLoaded: true });
         expect(committed).toHaveBeenCalledTimes(1);
         expect(committed).toHaveBeenLastCalledWith('rainbow-fc-0');
-        expect(map.opacity.get('rainbow-fc-0')).toBe(0.75);
+        expect(map.opacity.get('rainbow-fc-0')).toBe(RAIN_FRAME_OPACITY);
     });
 
     it('hands off a cached frame after the next render without waiting for sourcedata', () => {
@@ -157,7 +158,7 @@ describe('RainFrameTransitionController', () => {
         map.emitRender();
 
         expect(committed).toHaveBeenCalledOnce();
-        expect(map.opacity.get('radar-1')).toBe(0.75);
+        expect(map.opacity.get('radar-1')).toBe(RAIN_FRAME_OPACITY);
         expect(map.opacity.get('radar-0')).toBe(0);
     });
 
@@ -170,14 +171,14 @@ describe('RainFrameTransitionController', () => {
         map.loadedSources.add('radar-1');
         map.emitSourceData('radar-1', { tile: {}, isSourceLoaded: true });
 
-        expect(map.opacity.get('radar-1')).toBe(0.75);
+        expect(map.opacity.get('radar-1')).toBe(RAIN_FRAME_OPACITY);
         expect(map.opacity.get('radar-0')).toBe(0);
 
         controller.request(map, 'rainbow-fc-0', ['radar-1'], vi.fn());
 
         expect(map.layout.get('radar-0')).toBe('none');
         expect(map.layout.get('radar-1')).toBe('visible');
-        expect(map.opacity.get('radar-1')).toBe(0.75);
+        expect(map.opacity.get('radar-1')).toBe(RAIN_FRAME_OPACITY);
         expect(map.layout.get('rainbow-fc-0')).toBe('visible');
         expect(map.opacity.get('rainbow-fc-0')).toBe(0);
     });
@@ -192,7 +193,7 @@ describe('RainFrameTransitionController', () => {
 
         expect(map.layout.get('radar-1')).toBe('none');
         expect(map.layout.get('radar-0')).toBe('visible');
-        expect(map.opacity.get('radar-0')).toBe(0.75);
+        expect(map.opacity.get('radar-0')).toBe(RAIN_FRAME_OPACITY);
     });
 
     it('abandons a staged frame whose tiles never arrive so playback is not wedged', () => {
@@ -213,7 +214,7 @@ describe('RainFrameTransitionController', () => {
         expect(committed).not.toHaveBeenCalled();
         expect(map.layout.get('radar-1')).toBe('none');
         expect(map.layout.get('radar-0')).toBe('visible');
-        expect(map.opacity.get('radar-0')).toBe(0.75);
+        expect(map.opacity.get('radar-0')).toBe(RAIN_FRAME_OPACITY);
     });
 
     it('does not let the stage deadline fire after a successful handoff', () => {
@@ -229,6 +230,6 @@ describe('RainFrameTransitionController', () => {
         vi.advanceTimersByTime(RAIN_FRAME_STAGE_DEADLINE_MS + RAIN_FRAME_FADE_MS + 1);
 
         expect(map.layout.get('radar-1')).toBe('visible');
-        expect(map.opacity.get('radar-1')).toBe(0.75);
+        expect(map.opacity.get('radar-1')).toBe(RAIN_FRAME_OPACITY);
     });
 });

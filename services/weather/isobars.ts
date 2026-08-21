@@ -597,84 +597,76 @@ function findPressureCenters(grid: HourGrid): { lat: number; lon: number; type: 
     const dLat = lats.length > 1 ? Math.abs(lats[1] - lats[0]) : 1;
     const dLon = lons.length > 1 ? Math.abs(lons[1] - lons[0]) : 1;
 
-    // Keep the chart synoptic rather than turning every small feature into a
-    // label. Three highs and three lows is enough context at the global scale.
-    const MIN_SEP = 12; // degrees — minimum separation between same-type centers
-    const MAX_CENTERS_PER_TYPE = 3;
-    const GRADIENT_THRESHOLD = 2; // hPa — minimum difference from neighbour mean to qualify
+    // ── SYNOPTIC-SCALE DETECTION (rewritten 2026-08-21) ─────────────────
+    // The old test was "2 hPa above the mean of the 8 IMMEDIATE neighbours"
+    // on a 1° grid — roughly 18 hPa per 1000 km, a tropical-cyclone eyewall
+    // gradient. Real systems are two orders of magnitude flatter: measured on
+    // a realistic global field, a 1026 hPa anticyclone core beat its
+    // neighbours by 0.08 hPa and a 988 hPa low by 0.26 hPa. So the detector
+    // returned NOTHING on ordinary weather, and a badge appeared only when a
+    // cyclone wandered into frame — then vanished as interpolation smoothed
+    // it away. That is "the H and L's are not consistent" (Shane, 2026-08-21).
+    //
+    // A centre is now judged the way an analyst judges one: is it the
+    // extreme of its SYNOPTIC NEIGHBOURHOOD (a ring ~RADIUS_DEG away), and
+    // does it stand out from that ring by a synoptic amount?
+    const RADIUS_DEG = 5; // ~550 km — the scale a surface system actually lives at
+    const PROMINENCE_HPA = 0.8; // hPa over the ring; real cores clear this, noise does not
+    const MIN_SEP = 10; // degrees between same-type centres
+    // Per-type cap across the WHOLE GLOBE. Three meant panning to the Coral
+    // Sea showed nothing, because the three strongest systems on Earth were
+    // elsewhere. Generous now; Mapbox symbol collision declutters what is
+    // actually on screen.
+    const MAX_CENTERS_PER_TYPE = 14;
 
     type Center = { lat: number; lon: number; type: 'H' | 'L'; pressure: number };
     const lows: Center[] = [];
     const highs: Center[] = [];
 
-    // 8-neighbour offsets: N, NE, E, SE, S, SW, W, NW
-    const NB = [
-        [-1, 0],
-        [-1, 1],
-        [0, 1],
-        [1, 1],
-        [1, 0],
-        [1, -1],
-        [0, -1],
-        [-1, -1],
-    ];
-
-    // ── Pass 1: Find strict local extrema (all 8 neighbours confirm) ──
     type Candidate = { r: number; c: number; pressure: number; neighbourMean: number };
     const lowCandidates: Candidate[] = [];
     const highCandidates: Candidate[] = [];
 
-    for (let r = 1; r < rows - 1; r++) {
-        for (let c = 1; c < cols - 1; c++) {
+    const rRad = Math.max(1, Math.round(RADIUS_DEG / dLat));
+    const cRad = Math.max(1, Math.round(RADIUS_DEG / dLon));
+
+    for (let r = rRad; r < rows - rRad; r++) {
+        for (let c = cRad; c < cols - cRad; c++) {
             const val = values[r][c];
-            let lowerCount = 0; // neighbours with lower pressure (makes this a max)
-            let higherCount = 0; // neighbours with higher pressure (makes this a min)
-            let neighbourSum = 0;
 
-            for (const [dr, dc] of NB) {
-                const nv = values[r + dr][c + dc];
-                neighbourSum += nv;
-                if (nv < val) lowerCount++;
-                if (nv > val) higherCount++;
-            }
-
-            const neighbourMean = neighbourSum / 8;
-
-            // Strict local maximum (H): all 8 neighbours have lower pressure
-            if (lowerCount === 8 && val - neighbourMean >= GRADIENT_THRESHOLD) {
-                highCandidates.push({ r, c, pressure: val, neighbourMean });
-            }
-            // Strict local minimum (L): all 8 neighbours have higher pressure
-            if (higherCount === 8 && neighbourMean - val >= GRADIENT_THRESHOLD) {
-                lowCandidates.push({ r, c, pressure: val, neighbourMean });
-            }
-        }
-    }
-
-    // ── Pass 2: If no strict extrema found, relax to 6-of-8 ──
-    if (lowCandidates.length === 0 || highCandidates.length === 0) {
-        for (let r = 1; r < rows - 1; r++) {
-            for (let c = 1; c < cols - 1; c++) {
-                const val = values[r][c];
-                let lowerCount = 0;
-                let higherCount = 0;
-                let neighbourSum = 0;
-
-                for (const [dr, dc] of NB) {
+            // Extreme of its neighbourhood? (window scan, cheap and exact)
+            let isMax = true;
+            let isMin = true;
+            for (let dr = -rRad; dr <= rRad && (isMax || isMin); dr++) {
+                for (let dc = -cRad; dc <= cRad; dc++) {
+                    if (dr === 0 && dc === 0) continue;
                     const nv = values[r + dr][c + dc];
-                    neighbourSum += nv;
-                    if (nv < val) lowerCount++;
-                    if (nv > val) higherCount++;
+                    if (nv > val) isMax = false;
+                    if (nv < val) isMin = false;
+                    if (!isMax && !isMin) break;
                 }
+            }
+            if (!isMax && !isMin) continue;
 
-                const neighbourMean = neighbourSum / 8;
+            // Prominence against the RING at the radius — the pressure the
+            // system is standing above or below, not its own neighbours'.
+            let ringSum = 0;
+            let ringCount = 0;
+            for (let dr = -rRad; dr <= rRad; dr++) {
+                for (let dc = -cRad; dc <= cRad; dc++) {
+                    const onRing = Math.abs(dr) === rRad || Math.abs(dc) === cRad;
+                    if (!onRing) continue;
+                    ringSum += values[r + dr][c + dc];
+                    ringCount++;
+                }
+            }
+            if (ringCount === 0) continue;
+            const neighbourMean = ringSum / ringCount;
 
-                if (highCandidates.length === 0 && lowerCount >= 6 && val - neighbourMean >= GRADIENT_THRESHOLD) {
-                    highCandidates.push({ r, c, pressure: val, neighbourMean });
-                }
-                if (lowCandidates.length === 0 && higherCount >= 6 && neighbourMean - val >= GRADIENT_THRESHOLD) {
-                    lowCandidates.push({ r, c, pressure: val, neighbourMean });
-                }
+            if (isMax && val - neighbourMean >= PROMINENCE_HPA) {
+                highCandidates.push({ r, c, pressure: val, neighbourMean });
+            } else if (isMin && neighbourMean - val >= PROMINENCE_HPA) {
+                lowCandidates.push({ r, c, pressure: val, neighbourMean });
             }
         }
     }
@@ -915,7 +907,7 @@ export function generateIsobarsFromGrid(grid: PressureGrid, hour: number, skipHe
     let heatmapBounds: [number, number, number, number] | null = null;
 
     if (!skipHeatmap) {
-        const heatmap = generatePressureHeatmap(hourGrid, minP, maxP);
+        const heatmap = generatePressureHeatmap(hourGrid);
         if (heatmap) {
             heatmapDataUrl = heatmap.dataUrl;
             heatmapBounds = heatmap.bounds;
@@ -945,10 +937,16 @@ export function generateIsobarsFromGrid(grid: PressureGrid, hour: number, skipHe
 // High pressure (anticyclones) → light cyan/white
 // Matches the Weatherzone synoptic chart aesthetic.
 
+/**
+ * The ramp is deliberately FIXED-ABSOLUTE, not data-relative: 1013 hPa must
+ * be the neutral band on every chart, or the same colour would mean a
+ * different pressure each frame and the legend could never be true. The old
+ * signature took the frame's min/max and computed a range that nothing read
+ * (`_rangeMin`/`_rangeMax`, deleted 2026-08-21) — dropped so the intent is
+ * unambiguous.
+ */
 function generatePressureHeatmap(
     grid: HourGrid,
-    minP: number,
-    maxP: number,
 ): { dataUrl: string; bounds: [number, number, number, number] } | null {
     if (typeof document === 'undefined') return null; // SSR guard
     if (grid.rows < 3 || grid.cols < 3) return null;
@@ -968,57 +966,79 @@ function generatePressureHeatmap(
     // Zoom Earth-inspired: distinct blue for lows → narrow neutral → distinct red/salmon for highs
     const colorStops: [number, number, number, number, number][] = [
         // [pressure_hPa, R, G, B, A]
-        [960, 10, 20, 110, 230], // Deep navy — extreme cyclone
-        [975, 20, 50, 155, 220], // Rich blue — severe low
+        // ALPHA IS THE DESIGN (rebalanced 2026-08-21). Hue says which way the
+        // pressure went — blue low, red high, the polarity every chart uses —
+        // and ALPHA says how much you should care. Ordinary pressure near
+        // 1013 nearly disappears so the chart is quiet where the weather is
+        // quiet; the extremes hold their colour so a deep low reads across
+        // the cabin. This column was invisible until today because the
+        // heatmap shipped as JPEG, which has no alpha at all.
+        [960, 10, 20, 110, 235], // Deep navy — extreme cyclone
+        [975, 20, 50, 155, 225], // Rich blue — severe low
         [985, 35, 85, 185, 210], // Royal blue — cyclone
-        [995, 50, 125, 200, 195], // Ocean blue — low pressure
-        [1005, 80, 170, 205, 175], // Cyan/teal — mild low
-        [1010, 140, 195, 195, 155], // Teal-grey — transition
-        [1013, 200, 190, 170, 130], // Warm sand — standard (narrow neutral band)
-        [1016, 215, 170, 155, 150], // Light peach — transition
-        [1020, 225, 145, 130, 170], // Salmon — moderate high
-        [1025, 220, 115, 100, 185], // Warm red — high
-        [1032, 210, 85, 75, 195], // Strong red — strong high
-        [1042, 185, 60, 60, 205], // Deep red — extreme anticyclone
+        [995, 50, 125, 200, 190], // Ocean blue — low pressure
+        [1005, 80, 170, 205, 150], // Cyan/teal — mild low
+        [1010, 140, 195, 195, 100], // Teal-grey — transition
+        [1013, 200, 190, 170, 62], // Warm sand — standard (all but gone)
+        [1016, 215, 170, 155, 100], // Light peach — transition
+        [1020, 225, 145, 130, 150], // Salmon — moderate high
+        [1025, 220, 115, 100, 180], // Warm red — high
+        [1032, 210, 85, 75, 200], // Strong red — strong high
+        [1042, 185, 60, 60, 215], // Deep red — extreme anticyclone
     ];
 
-    // Clamp range to observed data (with padding)
-    const _rangeMin = Math.max(960, minP - 4);
-    const _rangeMax = Math.min(1050, maxP + 4);
-
-    for (let r = 0; r < rows; r++) {
-        for (let c = 0; c < cols; c++) {
-            const pressure = values[r][c];
-
-            // Interpolate color from stops
-            let R = 0,
-                G = 0,
-                B = 0,
-                A = 0;
-
-            if (pressure <= colorStops[0][0]) {
-                [, R, G, B, A] = colorStops[0];
-            } else if (pressure >= colorStops[colorStops.length - 1][0]) {
-                [, R, G, B, A] = colorStops[colorStops.length - 1];
-            } else {
-                // Find the two stops we're between
-                for (let s = 0; s < colorStops.length - 1; s++) {
-                    const [p0, r0, g0, b0, a0] = colorStops[s];
-                    const [p1, r1, g1, b1, a1] = colorStops[s + 1];
-                    if (pressure >= p0 && pressure <= p1) {
-                        const t = (pressure - p0) / (p1 - p0);
-                        R = r0 + (r1 - r0) * t;
-                        G = g0 + (g1 - g0) * t;
-                        B = b0 + (b1 - b0) * t;
-                        A = a0 + (a1 - a0) * t;
-                        break;
-                    }
-                }
+    /** Sample the ramp at one pressure. */
+    const sampleRamp = (pressure: number): [number, number, number, number] => {
+        if (pressure <= colorStops[0][0]) {
+            const [, r0, g0, b0, a0] = colorStops[0];
+            return [r0, g0, b0, a0];
+        }
+        const last = colorStops[colorStops.length - 1];
+        if (pressure >= last[0]) return [last[1], last[2], last[3], last[4]];
+        for (let s = 0; s < colorStops.length - 1; s++) {
+            const [p0, r0, g0, b0, a0] = colorStops[s];
+            const [p1, r1, g1, b1, a1] = colorStops[s + 1];
+            if (pressure >= p0 && pressure <= p1) {
+                const t = (pressure - p0) / (p1 - p0);
+                return [r0 + (r1 - r0) * t, g0 + (g1 - g0) * t, b0 + (b1 - b0) * t, a0 + (a1 - a0) * t];
             }
+        }
+        return [0, 0, 0, 0];
+    };
 
-            // Grid is S→N (lats[0]=south), but canvas is top-down
-            // So row 0 (south) should be at the bottom of the canvas
-            const canvasRow = rows - 1 - r;
+    // ── MERCATOR ROWS (2026-08-21) ──────────────────────────────────────
+    // Mapbox's ImageSource projects the image's four corners into Mercator
+    // and interpolates the texture LINEARLY across that quad. Painting canvas
+    // rows linear in LATITUDE therefore slid the whole colour field poleward:
+    // measured 1109 km off at Townsville, 1536 km at Newport, 2512 km at 50°S
+    // — only the equator was right. The isobar contours are real GeoJSON and
+    // project correctly, so the wash and the lines it belongs to disagreed
+    // everywhere. That mismatch is why the chart "does not match any other
+    // pressure map" (Shane, 2026-08-21).
+    //
+    // Painting each row at the latitude Mercator will actually put there
+    // makes the wash land under its own isobars.
+    const mercY = (latDeg: number): number => Math.log(Math.tan(Math.PI / 4 + (latDeg * Math.PI) / 360));
+    const invMercY = (y: number): number => ((2 * Math.atan(Math.exp(y)) - Math.PI / 2) * 180) / Math.PI;
+    const south0 = lats[0];
+    const north0 = lats[rows - 1];
+    const yNorth = mercY(north0);
+    const ySouth = mercY(south0);
+
+    for (let canvasRow = 0; canvasRow < rows; canvasRow++) {
+        // Canvas row 0 is the TOP (north) edge of the image bounds.
+        const f = rows > 1 ? canvasRow / (rows - 1) : 0;
+        const lat = invMercY(yNorth + (ySouth - yNorth) * f);
+
+        // Bilinear sample of the S→N grid at that latitude.
+        const gridPos = ((lat - south0) / (north0 - south0)) * (rows - 1);
+        const r0 = Math.max(0, Math.min(rows - 1, Math.floor(gridPos)));
+        const r1 = Math.min(rows - 1, r0 + 1);
+        const tRow = gridPos - r0;
+
+        for (let c = 0; c < cols; c++) {
+            const pressure = values[r0][c] + (values[r1][c] - values[r0][c]) * tRow;
+            const [R, G, B, A] = sampleRamp(pressure);
             const px = (canvasRow * cols + c) * 4;
             imgData.data[px + 0] = Math.round(R);
             imgData.data[px + 1] = Math.round(G);
@@ -1049,8 +1069,14 @@ function generatePressureHeatmap(
     const north = lats[rows - 1];
 
     return {
-        // JPEG at 0.7 quality — fast encoding, good enough for a gradient heatmap
-        dataUrl: (sCtx ? smooth : canvas).toDataURL('image/jpeg', 0.7),
+        // PNG, not JPEG (2026-08-21). JPEG has NO alpha channel, so the canvas
+        // was composited onto solid black and every colour shipped multiplied
+        // by its intended alpha: 1013 hPa's "warm sand" rgb(200,190,170) left
+        // as rgb(96,103,94) — a dark olive — and 1042 hPa ended up the same
+        // brightness as 995 hPa, so the field could not be read by luminance
+        // at all. That is "the colors are not working for me". PNG keeps the
+        // ramp's alpha column, which IS the design.
+        dataUrl: (sCtx ? smooth : canvas).toDataURL('image/png'),
         bounds: [west, south, east, north],
     };
 }

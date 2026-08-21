@@ -374,7 +374,14 @@ export function initIsobarLayers(map: mapboxgl.Map) {
         id: 'isobar-labels',
         type: 'symbol',
         source: 'isobar-contours',
-        filter: ['==', ['get', 'isMajor'], true],
+        // EVERY isobar carries its value, not every second one. The contour
+        // interval is already the synoptic standard 4 hPa, but labelling only
+        // the multiples of 8 made the chart READ as an 8 hPa chart — the
+        // intervening lines looked like unexplained decoration. BOM's own
+        // MSLP analysis labels essentially every 4 hPa line (verified against
+        // the live IDY00030 chart, 2026-08-21). Mapbox's symbol collision
+        // still thins them out where they crowd.
+        filter: ['has', 'label'],
         layout: {
             'symbol-placement': 'line',
             'text-field': ['get', 'label'],
@@ -402,9 +409,12 @@ export function initIsobarLayers(map: mapboxgl.Map) {
         layout: {
             'icon-image': ['match', ['get', 'type'], 'H', 'pressure-badge-h', 'pressure-badge-l'],
             'icon-allow-overlap': true,
-            // Two-scale stack inside the badge: the big letter carries the
-            // paint colour below; the hPa value beneath it overrides to a
-            // quiet neutral so the number informs without shouting.
+            // Two-scale stack inside the badge: the letter carries the paint
+            // colour below; the central pressure sits under it. The NUMBER is
+            // what a skipper actually reads off a chart ("L 998" tells you
+            // how deep), so it is nearly as large as the letter — BOM prints
+            // it equal-or-larger, NOAA underlines it. It was 0.62 scale in a
+            // dim grey, which is smaller than any reference chart uses.
             'text-field': [
                 'format',
                 ['get', 'type'],
@@ -412,7 +422,7 @@ export function initIsobarLayers(map: mapboxgl.Map) {
                 '\n',
                 {},
                 ['to-string', ['get', 'pressure']],
-                { 'font-scale': 0.62, 'text-color': '#d9e5f2' },
+                { 'font-scale': 0.85, 'text-color': '#f2f7fc' },
             ],
             'text-size': 15,
             'text-line-height': 1.15,
@@ -424,7 +434,12 @@ export function initIsobarLayers(map: mapboxgl.Map) {
             'text-padding': 4,
         },
         paint: {
-            'text-color': ['match', ['get', 'type'], 'H', '#ffc0a9', 'L', '#a9dcff', '#dce6ef'],
+            // BLUE H / RED L — the NOAA convention, and the one every chart a
+            // skipper is likely to compare against uses. The old pairing was
+            // the exact inverse (coral H, ice-blue L), which reads as "warm
+            // high / cold low" and is precisely backwards from the charts on
+            // the internet (2026-08-21).
+            'text-color': ['match', ['get', 'type'], 'H', '#5eb8ff', 'L', '#ff6b6b', '#dce6ef'],
             // The disc supplies the contrast now — keep only a whisper of halo
             // for the pixels that overhang it.
             'text-halo-color': 'rgba(6, 12, 26, 0.55)',
