@@ -128,3 +128,40 @@ describe('fleet-feed acceptance', () => {
         expect(client.rpc).toHaveBeenCalledTimes(2);
     });
 });
+
+describe('injection hardening (review 2026-08-21)', () => {
+    it('refuses a sentence with bytes smuggled after the checksum', async () => {
+        const { deps, sent, enqueued } = makeDeps();
+        currentDeps = deps;
+        // Valid checksum for the AIVDM body, then a CR and a fake sentence —
+        // the exact AISHub-injection vector.
+        const injected = '!AIVDM,1,1,,A,15M,0*6F\r$GPGGA,INJECTED,TO,AISHUB';
+        const res = await post(injected);
+        expect(await res.json()).toEqual({ accepted: 0, decoded: 0 });
+        expect(sent).toHaveLength(0);
+        expect(enqueued).toHaveLength(0);
+    });
+
+    it('the AIVDM forward is rebuilt, never verbatim', async () => {
+        const { deps, sent } = makeDeps();
+        currentDeps = deps;
+        await post(T1);
+        // A rebuilt sentence has no trailing fragment and a fresh uppercase
+        // checksum; it round-trips the same payload.
+        expect(sent[0].split(',')[5]).toBe(T1.split(',')[5]);
+        expect(sent[0]).toMatch(/\*[0-9A-F]{2}$/);
+    });
+
+    it('negative-caches a bad token so a spray does not hammer GoTrue', async () => {
+        const { deps, client } = makeDeps();
+        (client.auth.getUser as ReturnType<typeof vi.fn>).mockResolvedValue({
+            data: { user: null },
+            error: { message: 'bad' },
+        });
+        currentDeps = deps;
+        await post(T1, { Authorization: 'Bearer spray-1' });
+        await post(T1, { Authorization: 'Bearer spray-1' });
+        // Second identical bad token served from the negative cache — one hop.
+        expect(client.auth.getUser).toHaveBeenCalledTimes(1);
+    });
+});

@@ -22,6 +22,17 @@ import { VesselDB } from './db.js';
 import { aivdoToAivdm, decodeAisSentence, nmeaChecksumOk } from './aivdm.js';
 import { MAX_AIS_MESSAGE_CHARS } from './parser.js';
 
+/** Re-emit an !AIVDM sentence from its pre-star body with a fresh checksum —
+ *  drops anything after the original checksum by construction. */
+function rebuildAivdm(sentence: string): string | null {
+    const star = sentence.lastIndexOf('*');
+    if (star < 1) return null;
+    const body = sentence.slice(1, star);
+    let sum = 0;
+    for (let i = 0; i < body.length; i++) sum ^= body.charCodeAt(i);
+    return `!${body}*${sum.toString(16).toUpperCase().padStart(2, '0')}`;
+}
+
 /** One batch: ~20-30 s of a busy bay is 15-75 KB; 128 KB is generous. */
 const MAX_BODY_BYTES = 128 * 1024;
 const MAX_SENTENCES_PER_BATCH = 600;
@@ -62,10 +73,16 @@ export function getFleetFeedStats(): FleetFeedStats {
 }
 
 const tokenCache = new Map<string, { userId: string; at: number }>();
+/** Invalid tokens are remembered briefly too, so spraying random bearers
+ *  can't force one GoTrue round-trip per request (auth-backend amplification,
+ *  review 2026-08-21). Short TTL: a token that becomes valid later re-checks. */
+const badTokenCache = new Map<string, number>();
+const BAD_TOKEN_TTL_MS = 30_000;
 
 /** Test seam. */
 export function __resetFleetFeedForTest(): void {
     tokenCache.clear();
+    badTokenCache.clear();
     for (const key of Object.keys(stats) as (keyof FleetFeedStats)[]) stats[key] = 0;
 }
 
@@ -152,7 +169,13 @@ export async function handleFleetFeed(req: IncomingMessage, res: ServerResponse,
         return;
     }
 
-    // ── Verify the user (cached briefly per token) ──
+    // ── Verify the user (cached briefly per token, good AND bad) ──
+    const bad = badTokenCache.get(authorization);
+    if (bad !== undefined && now() - bad < BAD_TOKEN_TTL_MS) {
+        stats.rejectedAuth++;
+        json(res, 401, { error: 'invalid token' });
+        return;
+    }
     let userId: string | null = null;
     const cached = tokenCache.get(authorization);
     if (cached && now() - cached.at < TOKEN_CACHE_TTL_MS) {
@@ -165,6 +188,11 @@ export async function handleFleetFeed(req: IncomingMessage, res: ServerResponse,
             const { data, error } = await client.auth.getUser();
             if (error || !data.user) {
                 stats.rejectedAuth++;
+                if (badTokenCache.size >= TOKEN_CACHE_MAX) {
+                    const oldest = badTokenCache.keys().next().value;
+                    if (oldest !== undefined) badTokenCache.delete(oldest);
+                }
+                badTokenCache.set(authorization, now());
                 json(res, 401, { error: 'invalid token' });
                 return;
             }
@@ -223,10 +251,12 @@ export async function handleFleetFeed(req: IncomingMessage, res: ServerResponse,
             decodedCount++;
             deps.db.enqueue(record);
         }
-        // Forward raw to AISHub: received broadcasts as-is, own-ship AIVDO
-        // rewritten as a receipt (fresh checksum).
+        // Forward to AISHub. Own-ship AIVDO becomes a receipt; AIVDM is
+        // REBUILT from the pre-star body with a fresh checksum rather than
+        // forwarded verbatim — belt and braces against any trailing-byte
+        // smuggling even past the strict checksum gate.
         const send = deps.udpSend ?? ((l: string) => defaultUdpSend(deps, l));
-        const out = line.startsWith('!AIVDO') ? aivdoToAivdm(line) : line;
+        const out = line.startsWith('!AIVDO') ? aivdoToAivdm(line) : rebuildAivdm(line);
         if (out) send(out);
     }
     stats.accepted += acceptedCount;
