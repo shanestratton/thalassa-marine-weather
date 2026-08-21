@@ -23,6 +23,7 @@ import { piCache } from '../../services/PiCacheService';
 import {
     type WeatherLayer,
     getActiveLayerFrameZoom,
+    LAYER_MIN_ZOOM,
     getTileUrl,
     getWindColor,
     isParkedLayer,
@@ -1441,7 +1442,7 @@ export function useWeatherLayers(
             // Solo only: as an overlay on wind (or any other layer) pressure
             // must not steal the host layer's zoom range — clamping a z10
             // wind view to z7 because isobars were added yanked the camera.
-            map.setMinZoom(LAYER_FRAME_ZOOM.pressure ?? 2);
+            map.setMinZoom(LAYER_MIN_ZOOM.pressure ?? 2);
             map.setMaxZoom(7);
             map.setMaxBounds(undefined!);
         } else if (hasWind) {
@@ -1458,6 +1459,13 @@ export function useWeatherLayers(
             // rides along. Solo pressure (branch above) keeps its deliberate
             // z2 synoptic frame.
             //
+            // This FLOOR comes from LAYER_MIN_ZOOM, not LAYER_FRAME_ZOOM. It
+            // used to read the framing value, which was only ever right
+            // because both happened to be 3 — moving wind's opening frame to
+            // z9 took the floor with it and pinned the chart at a single zoom
+            // level (Shane 2026-08-22: "now it is stuck at zoom 9"). Where a
+            // layer opens and how far out it may go are separate decisions.
+            //
             // The CEILING is z9 (Shane 2026-08-08: "the punter can zoom
             // between 3-9 only"). It used to be 18, which let the chart run
             // four levels past anything the wind field could actually
@@ -1467,7 +1475,7 @@ export function useWeatherLayers(
             // live camera the moment this is set, so activating wind while
             // zoomed deeper pulls back to z9 rather than leaving the map
             // outside its own limit.
-            map.setMinZoom(Math.max(LAYER_FRAME_ZOOM.wind ?? 3, 3));
+            map.setMinZoom(Math.max(LAYER_MIN_ZOOM.wind ?? 3, 3));
             map.setMaxZoom(9);
             map.setMaxBounds(undefined!);
         } else {
