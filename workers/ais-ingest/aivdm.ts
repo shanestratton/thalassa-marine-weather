@@ -221,7 +221,7 @@ export function __resetFragmentsForTest(): void {
  * bad, unsupported type). Own-ship AIVDO decodes identically — the bridge
  * is the one place ownship SHOULD land in the shared table.
  */
-export function decodeAisSentence(sentence: string, now = Date.now()): VesselRecord | null {
+export function decodeAisSentence(sentence: string, now = Date.now(), source = ''): VesselRecord | null {
     const trimmed = sentence.trim();
     if (!trimmed.startsWith('!AIVDM') && !trimmed.startsWith('!AIVDO')) return null;
     if (!nmeaChecksumOk(trimmed)) return null;
@@ -238,10 +238,14 @@ export function decodeAisSentence(sentence: string, now = Date.now()): VesselRec
 
     if (fragCount === 1) return decodeAisPayload(payload);
 
-    // Multi-fragment: key by sequence id + channel + talker so interleaved
-    // streams cannot cross-assemble. Stale halves are evicted by time and by
+    // Multi-fragment: key by SOURCE + sequence id + channel + talker so
+    // interleaved streams cannot cross-assemble. The source dimension is
+    // load-bearing for the fleet feed: without it, two different boats'
+    // type-5 fragments sharing a sequence id and channel would merge into a
+    // chimera vessel (recon, 2026-08-21). Single-source callers (the pi
+    // bridge) use the default ''. Stale halves are evicted by time and by
     // count — an unpaired fragment must never pin memory.
-    const key = `${parts[0]}:${parts[3]}:${parts[4]}:${fragCount}`;
+    const key = `${source}:${parts[0]}:${parts[3]}:${parts[4]}:${fragCount}`;
     let frag = fragments.get(key);
     if (!frag || now - frag.at > FRAGMENT_TTL_MS) {
         // .fill(undefined) is load-bearing: new Array(n) creates HOLES, and
