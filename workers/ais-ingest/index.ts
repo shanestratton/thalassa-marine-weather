@@ -120,10 +120,23 @@ function connect(): void {
         const subscription = {
             APIKey: API_KEY,
             BoundingBoxes: BOUNDING_BOXES,
-            FilterMessageTypes: ['PositionReport', 'ShipStaticData', 'StandardClassBPositionReport'],
+            // StaticDataReport (msg 24) is where Class B vessels — yachts —
+            // send their names; without it the table fills with nameless
+            // positions no name-search can find.
+            FilterMessageTypes: [
+                'PositionReport',
+                'ShipStaticData',
+                'StandardClassBPositionReport',
+                'StaticDataReport',
+            ],
         };
 
-        ws!.send(JSON.stringify(subscription));
+        try {
+            ws!.send(JSON.stringify(subscription));
+        } catch (e) {
+            console.error('[WS] Subscription send failed:', e);
+            return; // close handler will schedule the reconnect
+        }
 
         console.log('[WS] Subscription sent. Listening for AIS messages...');
     });
@@ -168,7 +181,10 @@ function connect(): void {
 function scheduleReconnect(): void {
     if (isShuttingDown || reconnectTimer) return;
 
-    const delay = Math.min(BACKOFF_BASE_MS * Math.pow(2, reconnectAttempts), BACKOFF_MAX_MS);
+    const base = Math.min(BACKOFF_BASE_MS * Math.pow(2, reconnectAttempts), BACKOFF_MAX_MS);
+    // ±25% jitter: identical containers restarting together must not hammer
+    // the upstream in lockstep.
+    const delay = Math.round(base * (0.75 + Math.random() * 0.5));
     reconnectAttempts++;
 
     console.log(`[WS] Reconnecting in ${delay}ms (attempt ${reconnectAttempts})...`);
@@ -245,8 +261,22 @@ const healthServer = http.createServer((req, res) => {
         const uptimeS = Math.round((Date.now() - startedAt) / 1000);
         const dbStats = db.getStats();
 
+        const dbWedged = dbStats.consecutiveErrorFlushes >= 5;
+
         const body = JSON.stringify({
-            status: isStale ? 'stale' : 'healthy',
+            // 'degraded-upstream' is a 200: the process is fine, aisstream is
+            // quiet, and the internal dead-man switch is already reconnecting.
+            // The old behaviour returned 503 here — and Railway's healthcheck
+            // read that as a dead container and RESTARTED it, so every
+            // upstream data drought turned into a visible crash loop (Shane,
+            // 2026-08-21: "the railway worker crashes quite a bit"). A
+            // restart cannot conjure frames aisstream is not sending; it only
+            // discards the change-detection memory and re-learns it as a
+            // burst of redundant writes. 503 is reserved for the one thing a
+            // restart CAN fix: a wedged process (five consecutive DB flush
+            // failures — auth rotated or client wedged — with recovery on
+            // any success).
+            status: dbWedged ? 'db-wedged' : isStale ? 'degraded-upstream' : 'healthy',
             uptimeSeconds: uptimeS,
             lastMessageAgoMs: staleDuration,
             lastMessageAgoSeconds: Math.round(staleDuration / 1000),
@@ -255,12 +285,13 @@ const healthServer = http.createServer((req, res) => {
             parsedCount,
             upserted: dbStats.totalUpserts,
             errors: dbStats.totalErrors,
+            consecutiveErrorFlushes: dbStats.consecutiveErrorFlushes,
             staleReconnects,
             staleThresholdMs: STALE_THRESHOLD_MS,
             guardianWatchdogEnabled: guardianWatchdogStarted,
         });
 
-        res.writeHead(isStale ? 503 : 200, {
+        res.writeHead(dbWedged ? 503 : 200, {
             'Content-Type': 'application/json',
             'Cache-Control': 'no-cache',
         });
@@ -313,6 +344,29 @@ async function shutdown(signal: string): Promise<void> {
 
 process.on('SIGINT', () => shutdown('SIGINT'));
 process.on('SIGTERM', () => shutdown('SIGTERM'));
+
+// A worker that dies silently teaches nothing. An uncaught synchronous throw
+// is unrecoverable — log it and exit non-zero so Railway's ON_FAILURE policy
+// restarts a clean process. A rejected promise nobody awaited is logged and
+// survived: the flush loop and socket lifecycle are all try/caught, so these
+// are stragglers, not the main line — but a STORM of them means something is
+// structurally wrong, and restarting is honest.
+let recentRejections = 0;
+process.on('uncaughtException', (err) => {
+    console.error('[FATAL] Uncaught exception:', err);
+    process.exit(1);
+});
+process.on('unhandledRejection', (reason) => {
+    recentRejections++;
+    console.error(`[WARN] Unhandled rejection (${recentRejections} in the last minute):`, reason);
+    if (recentRejections >= 10) {
+        console.error('[FATAL] Rejection storm — restarting clean.');
+        process.exit(1);
+    }
+});
+setInterval(() => {
+    recentRejections = 0;
+}, 60_000).unref();
 
 // ── Main ──
 

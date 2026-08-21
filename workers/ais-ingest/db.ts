@@ -122,6 +122,11 @@ export class VesselDB {
     private flushPromise: Promise<void> | null = null;
     private totalUpserts = 0;
     private totalErrors = 0;
+    /** Consecutive flushes that ALL failed — the wedged-process signal the
+     *  health endpoint 503s on. Any success resets it. A rotated Supabase
+     *  key fails every flush identically; that is restart-worthy (a fresh
+     *  container re-reads env) and, more importantly, VISIBLE. */
+    private consecutiveErrorFlushes = 0;
     /** What was last WRITTEN per MMSI — the basis for skipping no-op rows. */
     private lastSent: Map<number, SentState> = new Map();
     private totalSkipped = 0;
@@ -268,16 +273,29 @@ export class VesselDB {
 
             if (error) {
                 console.error(`[DB] Upsert error (${rows.length} rows):`, error.message);
+                // Name the classic silent killer in terms a 2 a.m. log reader
+                // can act on: a rotated key fails EVERY flush with a 401/JWT
+                // message while the worker otherwise looks alive.
+                if (/jwt|401|unauthor/i.test(error.message)) {
+                    console.error(
+                        '[DB] ❌ This looks like an AUTH failure — if SUPABASE_SERVICE_KEY was ' +
+                            'rotated (legacy service-role JWTs are rejected since the key migration), ' +
+                            'update the Railway variable to the new sb_secret_ key.',
+                    );
+                }
                 this.totalErrors++;
+                this.consecutiveErrorFlushes++;
                 return false;
             } else {
                 this.totalUpserts += rows.length;
+                this.consecutiveErrorFlushes = 0;
                 this.rememberSent(records);
                 return true;
             }
         } catch (e) {
             console.error('[DB] Upsert exception:', e);
             this.totalErrors++;
+            this.consecutiveErrorFlushes++;
             return false;
         }
     }
@@ -324,12 +342,19 @@ export class VesselDB {
     }
 
     /** Get stats for logging */
-    getStats(): { buffered: number; totalUpserts: number; totalErrors: number; totalSkipped: number } {
+    getStats(): {
+        buffered: number;
+        totalUpserts: number;
+        totalErrors: number;
+        totalSkipped: number;
+        consecutiveErrorFlushes: number;
+    } {
         return {
             buffered: this.buffer.size,
             totalUpserts: this.totalUpserts,
             totalErrors: this.totalErrors,
             totalSkipped: this.totalSkipped,
+            consecutiveErrorFlushes: this.consecutiveErrorFlushes,
         };
     }
 }
