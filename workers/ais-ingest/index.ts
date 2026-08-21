@@ -22,6 +22,7 @@ import WebSocket from 'ws';
 import { MAX_AIS_MESSAGE_CHARS, parseAisStreamMessage } from './parser.js';
 import { VesselDB } from './db.js';
 import { isGuardianWatchdogEnabled, startWatchdog } from './watchdog.js';
+import { getAishubStats, startAishubPoller } from './aishub.js';
 
 // ── Config ──
 const AISSTREAM_URL = 'wss://stream.aisstream.io/v0/stream';
@@ -312,6 +313,7 @@ const healthServer = http.createServer((req, res) => {
             staleReconnects,
             staleThresholdMs: STALE_THRESHOLD_MS,
             guardianWatchdogEnabled: guardianWatchdogStarted,
+            aishub: getAishubStats(),
         });
 
         res.writeHead(dbWedged ? 503 : 200, {
@@ -338,7 +340,10 @@ function logStats(): void {
             `Upserted: ${dbStats.totalUpserts} | Skipped-unchanged: ${dbStats.totalSkipped} | ` +
             `Errors: ${dbStats.totalErrors} | ` +
             `Last msg: ${staleSec}s ago | ` +
-            `Stale reconnects: ${staleReconnects}`,
+            `Stale reconnects: ${staleReconnects}` +
+            (getAishubStats().enabled
+                ? ` | AISHub: ${getAishubStats().lastAccepted}/${getAishubStats().lastRecords} rows, ${getAishubStats().pollErrors} errs`
+                : ''),
     );
 }
 
@@ -417,6 +422,26 @@ console.log('══════════════════════�
 
 db.start();
 connect();
+
+// ── AISHub aggregate feed (earned by feeding a station) ──
+// Gated on the API key: absent, the worker behaves exactly as before. With
+// it, the aggregate — every contributing station's coverage — fills the same
+// VesselDB at AISHub's rationed one-poll-per-minute cadence. Bounds reuse
+// the first configured bounding box so the two sources watch the same water.
+const AISHUB_API_KEY = process.env.AISHUB_API_KEY;
+if (AISHUB_API_KEY) {
+    const box = (BOUNDING_BOXES as number[][][])[0];
+    if (Array.isArray(box) && box.length === 2) {
+        startAishubPoller(db, {
+            apiKey: AISHUB_API_KEY,
+            bounds: { latMin: box[0][0], lonMin: box[0][1], latMax: box[1][0], lonMax: box[1][1] },
+        });
+    } else {
+        console.error('[AISHUB] Cannot derive bounds from BOUNDING_BOXES — poller not started');
+    }
+} else {
+    console.log('[AISHUB] Aggregate feed off — set AISHUB_API_KEY when the station earns its key');
+}
 setInterval(logStats, STATS_INTERVAL_MS);
 setInterval(checkStaleConnection, STALE_CHECK_INTERVAL_MS);
 
