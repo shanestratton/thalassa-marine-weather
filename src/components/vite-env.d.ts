@@ -6,6 +6,8 @@ declare module '*.jpg';
 
 interface ImportMetaEnv {
     readonly VITE_MAPBOX_ACCESS_TOKEN: string;
+    /** Fleet-feed relay URL (Railway worker /fleet-feed). Absent = AIS sharing inert. */
+    readonly VITE_FLEET_FEED_URL?: string;
     readonly VITE_SUPABASE_URL: string;
     readonly VITE_SUPABASE_KEY: string;
     readonly VITE_SUPABASE_ANON_KEY?: string;

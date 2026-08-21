@@ -13,7 +13,14 @@ import { NmeaListenerService } from '../../services/NmeaListenerService';
 import { NmeaStore } from '../../services/NmeaStore';
 import { triggerHaptic } from '../../utils/system';
 import { AisStore } from '../../services/AisStore';
-import { FEATURE_VISIBILITY } from '../../utils/featureVisibility';
+import {
+    getShareStats,
+    isShareConfigured,
+    isShareEnabled,
+    setShareEnabled,
+    subscribeShareStats,
+} from '../../services/AisShareService';
+import { Toggle } from '../settings/SettingsPrimitives';
 import {
     discoverGateways,
     subnetPrefixOf,
@@ -579,18 +586,15 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
                         </div>
                     </div>
 
-                    {!FEATURE_VISIBILITY.aisHub && (
-                        <div
-                            className="shrink-0 mb-3 rounded-2xl border border-amber-400/20 bg-amber-500/[0.07] p-4"
-                            role="status"
-                        >
-                            <p className="text-sm font-bold text-amber-200">AISHub contribution unavailable in beta</p>
-                            <p className="mt-1 text-[11px] leading-relaxed text-amber-100/60">
-                                AIS reception and the instrument display still work. Outbound UDP contribution is held
-                                until its native bridge is compatible with this app release and device-tested.
-                            </p>
-                        </div>
-                    )}
+                    {/* ═══ FLEET SHARING (opt-in crowd-feed) ═══
+                        Replaces the old "AISHub contribution unavailable"
+                        banner: the uplink exists now, via the cloud relay
+                        (authorized by AISHub in writing, 2026-03-18 — one
+                        port for all feeds). Consent is PER-DEVICE and off by
+                        default; the copy states the exposure plainly: the
+                        boat's OWN transponder reports are part of what is
+                        shared, and AISHub is public. */}
+                    <FleetSharingCard connected={isConnected} />
 
                     {/* ═══ INSTRUMENT PANEL CTA ═══ */}
                     {onNavigateToGlass && (
@@ -610,6 +614,61 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
                     )}
                 </div>
             </div>
+        </div>
+    );
+};
+
+/** The crowd-feed consent card. Renders inert-with-reason when the share
+ *  relay is not configured in this build or the gateway is disconnected —
+ *  a dead control must look dead, never silently do nothing. */
+const FleetSharingCard: React.FC<{ connected: boolean }> = ({ connected }) => {
+    const [enabled, setEnabled] = useState(() => isShareEnabled());
+    const [, force] = useState(0);
+    useEffect(() => subscribeShareStats(() => force((n) => n + 1)), []);
+
+    const configured = isShareConfigured();
+    const stats = getShareStats();
+    const active = enabled && configured && connected;
+
+    return (
+        <div className="shrink-0 mb-3 rounded-2xl border border-white/[0.08] bg-slate-900/60 p-4">
+            <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                    <p className="text-sm font-bold text-gray-100">Share received AIS</p>
+                    <p className="mt-1 text-[11px] leading-relaxed text-gray-400">
+                        Contribute the AIS traffic this gateway hears to the Thalassa fleet map and to AISHub&rsquo;s
+                        public network. Off by default &mdash; sharing is an explicit choice.
+                    </p>
+                </div>
+                <Toggle
+                    checked={enabled}
+                    onChange={(value) => {
+                        setShareEnabled(value);
+                        setEnabled(value);
+                    }}
+                    label="Share received AIS"
+                />
+            </div>
+            <p className="mt-2 text-[11px] leading-relaxed text-amber-200/80">
+                Includes your own vessel&rsquo;s transponder reports &mdash; with sharing on, your boat&rsquo;s position
+                is publicly visible via AISHub, like any AIS-equipped vessel.
+            </p>
+            {enabled && !configured && (
+                <p className="mt-2 text-[11px] font-semibold text-amber-300">
+                    This build has no share relay configured &mdash; nothing is being sent.
+                </p>
+            )}
+            {enabled && configured && !connected && (
+                <p className="mt-2 text-[11px] font-semibold text-gray-400">
+                    Waiting for the gateway &mdash; sharing runs while NMEA is connected.
+                </p>
+            )}
+            {active && (
+                <p className="mt-2 text-[11px] font-semibold text-emerald-300">
+                    Sharing live &middot; {stats.sharedTotal.toLocaleString()} sentences this session
+                    {stats.lastFlushOk === false ? ' · last send failed, retrying with fresh data' : ''}
+                </p>
+            )}
         </div>
     );
 };
