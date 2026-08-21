@@ -118,6 +118,9 @@ export function useSquallMap(
             }
         };
         const startLoad = () => {
+            // Clouds go up FIRST and unconditionally — they need nothing from
+            // Rainbow, so they must not wait on (or be lost to) its fetch.
+            mountSatelliteLayer(map);
             if (inflightControllerRef.current) {
                 log.info('Squall snapshot fetch already in flight — skipping');
                 return;
@@ -319,6 +322,61 @@ async function loadSquallTiles(
 }
 
 /**
+ * Mount the satellite cloud layer. INDEPENDENT of Rainbow by design.
+ *
+ * This lived inside mountSquallLayer when it was restored earlier today,
+ * which coupled it to the Rainbow snapshot fetch — and that path has five
+ * early returns (no Supabase URL, fetch throw, 3 s timeout, non-OK status,
+ * empty snapshot). Any one of them meant no clouds either, even though GIBS
+ * needs nothing from Rainbow: no key, no proxy, no snapshot. Shane saw
+ * exactly that on 2026-08-21 ("the storms layer does not show the satellite
+ * info").
+ *
+ * The two halves of this composite now fail independently, which is the
+ * whole point of it being a composite.
+ */
+function mountSatelliteLayer(map: mapboxgl.Map): void {
+    try {
+        if (map.getLayer(IR_LAYER)) map.removeLayer(IR_LAYER);
+        if (map.getSource(IR_SOURCE)) map.removeSource(IR_SOURCE);
+    } catch (err) {
+        log.warn('Squall IR pre-mount cleanup error', err);
+    }
+    try {
+        map.addSource(IR_SOURCE, {
+            type: 'raster',
+            tiles: [buildGibsTileUrl(todayDateStr())],
+            tileSize: 256,
+            // GoogleMapsCompatible_Level6 is GIBS's ceiling for this product.
+            // The precip layer runs to z8; past z6 the cloud simply stops
+            // sharpening rather than 404-ing every tile.
+            maxzoom: GIBS_MAX_ZOOM,
+        });
+        // Below the first symbol layer so coastlines and labels stay on top;
+        // the precip layer mounts against the same anchor later and therefore
+        // lands ABOVE this one — cloud mass underneath, rain cells over it.
+        const styleLayers = map.getStyle()?.layers ?? [];
+        const beforeId = styleLayers.find((l) => l.type === 'symbol')?.id;
+        map.addLayer(
+            {
+                id: IR_LAYER,
+                type: 'raster',
+                source: IR_SOURCE,
+                paint: {
+                    'raster-opacity': 0.85,
+                    'raster-fade-duration': 0,
+                    'raster-resampling': 'nearest',
+                },
+            },
+            beforeId,
+        );
+        log.warn(`📡 GIBS Himawari IR mounted (${todayDateStr()})`);
+    } catch (err) {
+        log.warn('Squall IR mount failed — continuing with precip only', err);
+    }
+}
+
+/**
  * Add (or replace) the Mapbox raster source + layer for the current
  * snapshot. We tear down the previous source/layer and add fresh ones
  * so Mapbox actually re-fetches tiles — `setData` on a raster source
@@ -356,44 +414,6 @@ function mountSquallLayer(map: mapboxgl.Map, supabaseUrl: string, snapshot: numb
     // labels/coastlines stay visible over the squall cells.
     const styleLayers = map.getStyle()?.layers ?? [];
     const beforeId = styleLayers.find((l) => l.type === 'symbol')?.id;
-
-    // ── Cloud tops FIRST, so the precip cells paint on top of them ──
-    // The two are complementary, not alternatives: IR shows the organised
-    // cloud mass, the Rainbow layer shows where it is actually raining.
-    try {
-        if (map.getLayer(IR_LAYER)) map.removeLayer(IR_LAYER);
-        if (map.getSource(IR_SOURCE)) map.removeSource(IR_SOURCE);
-    } catch (err) {
-        log.warn('Squall IR pre-mount cleanup error', err);
-    }
-    try {
-        map.addSource(IR_SOURCE, {
-            type: 'raster',
-            tiles: [buildGibsTileUrl(todayDateStr())],
-            tileSize: 256,
-            // GoogleMapsCompatible_Level6 is GIBS's ceiling for this product.
-            // The precip layer runs to z8; past z6 the cloud simply stops
-            // sharpening rather than 404-ing every tile.
-            maxzoom: GIBS_MAX_ZOOM,
-        });
-        map.addLayer(
-            {
-                id: IR_LAYER,
-                type: 'raster',
-                source: IR_SOURCE,
-                paint: {
-                    'raster-opacity': 0.85,
-                    'raster-fade-duration': 0,
-                    'raster-resampling': 'nearest',
-                },
-            },
-            beforeId,
-        );
-        log.info(`📡 GIBS Himawari IR added (${todayDateStr()})`);
-    } catch (err) {
-        // A satellite outage must never take the precipitation layer with it.
-        log.warn('Squall IR mount failed — continuing with precip only', err);
-    }
 
     map.addLayer(
         {
