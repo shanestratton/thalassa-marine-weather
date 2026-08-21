@@ -714,11 +714,15 @@ export function useWeatherLayers(
                         // is often first created by a scrub AFTER the mode
                         // was decided.
                         layout: { visibility: pressureOverlayModeRef.current ? 'none' : 'visible' },
-                        // A little more field contrast gives the chart a
-                        // clearer low/high story while keeping the basemap
-                        // and the navigation layers readable.
+                        // ONE transparency authority: the ramp's own per-value
+                        // alpha (isobars.ts colorStops). A flat 0.82 on top of
+                        // it double-dimmed the extremes — the part of the
+                        // field that must carry — while doing nothing to make
+                        // ordinary pressure recede, because JPEG had already
+                        // thrown the alpha away. PNG restored it; this lets it
+                        // do its job (2026-08-21).
                         paint: {
-                            'raster-opacity': 0.82,
+                            'raster-opacity': 1,
                             'raster-saturation': 0.08,
                             'raster-contrast': 0.08,
                             'raster-fade-duration': 0,

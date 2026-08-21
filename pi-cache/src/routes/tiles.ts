@@ -185,7 +185,15 @@ export function createTileRoutes(cache: Cache, _config: ProxyConfig): Router {
                 return;
             }
 
-            const url = `https://tilecache.rainviewer.com${tilePath}/512/${zoom}/${tileX}/${tileY}/2/1_1.png`;
+// Palette 4 (Weather Channel) — the ONE colour language the app speaks
+            // for rain since 2026-08-21. The digit is part of the tile URL and
+            // therefore part of the cache key, so a Pi baking a different scheme
+            // than the app requests would both miss cache AND serve a different
+            // palette with the Pi connected than without it. Keep this in step
+            // with RAINVIEWER_COLOR_SCHEME (services/weather/api/rainviewerTiles.ts).
+            // NOTE the axis order: z/x/y. A past bug shipped z/y/x (transposed
+            // tiles); RainViewerTileContract pins against that string.
+            const url = `https://tilecache.rainviewer.com${tilePath}/512/${zoom}/${tileX}/${tileY}/4/1_1.png`;
             // Match /api/passthrough-tile so scheduled prefetches, the
             // dedicated endpoint, and live map requests share one entry.
             const key = `passthrough-tile:${url}`;
