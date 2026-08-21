@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const piCache = vi.hoisted(() => ({
     isAvailable: vi.fn(),
@@ -8,6 +8,10 @@ const piCache = vi.hoisted(() => ({
 const nativeRuntime = vi.hoisted(() => ({
     enabled: false,
     convertFileSrc: vi.fn((uri: string) => uri.replace('file://', 'capacitor://localhost/_capacitor_file_/')),
+}));
+const piTls = vi.hoisted(() => ({
+    isPinnedTransportAvailable: vi.fn(() => false),
+    piRequest: vi.fn(),
 }));
 const filesystem = vi.hoisted(() => ({
     mkdir: vi.fn().mockResolvedValue(undefined),
@@ -29,6 +33,7 @@ vi.mock('@capacitor/filesystem', () => ({
 }));
 
 vi.mock('../services/PiCacheService', () => ({ piCache }));
+vi.mock('../services/piTls', () => piTls);
 vi.mock('../utils/createLogger', () => ({
     createLogger: () => ({
         info: vi.fn(),
@@ -55,6 +60,8 @@ beforeEach(() => {
     vi.clearAllMocks();
     nativeRuntime.enabled = false;
     piCache.isAvailable.mockReturnValue(false);
+    piTls.isPinnedTransportAvailable.mockReturnValue(false);
+    piTls.piRequest.mockReset();
     piCache.passthroughTileUrl.mockImplementation(
         (url: string) => `http://pi.test/tile?url=${encodeURIComponent(url)}`,
     );
@@ -169,5 +176,97 @@ describe('autoDownloadAroundUser', () => {
         expect(piCache.getStatus).not.toHaveBeenCalled();
         expect(piCache.passthroughTileUrl).not.toHaveBeenCalled();
         expect(fetch).not.toHaveBeenCalled();
+    });
+});
+
+// ── Offline downloads: transport and persistence ──────────────────────
+// Two defects found 2026-08-22 while tracing why rain would not paint.
+// Both are latent (BULK_OFFLINE_PREFETCH_CAPABILITY is fail-closed), but
+// they are armed for whoever enables a licensed provider.
+describe('offline tile download lanes', () => {
+    const oneTileBounds = { north: 1, south: -1, east: 1, west: -1 };
+    const enableCapability = () => {
+        (BULK_OFFLINE_PREFETCH_CAPABILITY as unknown as { enabled: boolean }).enabled = true;
+    };
+
+    afterEach(() => {
+        (BULK_OFFLINE_PREFETCH_CAPABILITY as unknown as { enabled: boolean }).enabled = false;
+    });
+
+    it('persists tiles the Pi lane carried, instead of storing nothing', async () => {
+        enableCapability();
+        nativeRuntime.enabled = true;
+        piCache.isAvailable.mockReturnValue(true);
+        piTls.isPinnedTransportAvailable.mockReturnValue(true);
+        // 1x1 transparent PNG bytes are irrelevant; non-empty is what matters.
+        piTls.piRequest.mockResolvedValue({ status: 200, headers: {}, data: btoa('tile-bytes'), peerSpki: '' });
+        vi.stubGlobal('fetch', vi.fn());
+
+        await downloadArea({ bounds: oneTileBounds, minZoom: 0, maxZoom: 0, concurrency: 1 }, vi.fn());
+
+        // THE BUG: this used to be `else if (!usePi)`, so a Pi-routed download
+        // counted to 100%, reported success, and wrote nothing to the device.
+        // Nothing can read tiles back off the Pi — getOfflineTileTemplates()
+        // returns Directory.Data paths — so that cache was unreachable.
+        expect(filesystem.writeFile).toHaveBeenCalled();
+        vi.unstubAllGlobals();
+    });
+
+    it('carries the Pi hop over the pinned transport, never plain fetch', async () => {
+        enableCapability();
+        piCache.isAvailable.mockReturnValue(true);
+        piTls.isPinnedTransportAvailable.mockReturnValue(true);
+        piTls.piRequest.mockResolvedValue({ status: 200, headers: {}, data: btoa('tile-bytes'), peerSpki: '' });
+        const fetchMock = vi.fn();
+        vi.stubGlobal('fetch', fetchMock);
+
+        await downloadArea({ bounds: oneTileBounds, minZoom: 0, maxZoom: 0, concurrency: 1 }, vi.fn());
+
+        // A plain fetch at a Pi URL cannot present the self-signed cert and
+        // dies with NSURLErrorDomain -1202 on every single tile.
+        expect(piTls.piRequest).toHaveBeenCalled();
+        expect(fetchMock).not.toHaveBeenCalled();
+        vi.unstubAllGlobals();
+    });
+
+    it('falls through to direct when the Pi hop fails, and still persists', async () => {
+        enableCapability();
+        nativeRuntime.enabled = true;
+        piCache.isAvailable.mockReturnValue(true);
+        piTls.isPinnedTransportAvailable.mockReturnValue(true);
+        piTls.piRequest.mockRejectedValue(new Error('pinned transport refused'));
+        vi.stubGlobal(
+            'fetch',
+            vi.fn(async () => new Response(new Uint8Array([1, 2, 3]))),
+        );
+
+        const result = await downloadArea(
+            { bounds: oneTileBounds, minZoom: 0, maxZoom: 0, concurrency: 1 },
+            vi.fn(),
+        );
+
+        // The Pi is an optimisation. A dead Pi must cost speed, not the tile.
+        expect(result.failed).toBe(0);
+        expect(filesystem.writeFile).toHaveBeenCalled();
+        vi.unstubAllGlobals();
+    });
+
+    it('skips the Pi entirely when the pinned transport is absent', async () => {
+        enableCapability();
+        nativeRuntime.enabled = true;
+        piCache.isAvailable.mockReturnValue(true);
+        piTls.isPinnedTransportAvailable.mockReturnValue(false);
+        vi.stubGlobal(
+            'fetch',
+            vi.fn(async () => new Response(new Uint8Array([1, 2, 3]))),
+        );
+
+        await downloadArea({ bounds: oneTileBounds, minZoom: 0, maxZoom: 0, concurrency: 1 }, vi.fn());
+
+        // No verifier in this build means there is no lane that can reach the
+        // Pi safely — go direct rather than attempt an unverified hop.
+        expect(piTls.piRequest).not.toHaveBeenCalled();
+        expect(filesystem.writeFile).toHaveBeenCalled();
+        vi.unstubAllGlobals();
     });
 });
