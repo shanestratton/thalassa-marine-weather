@@ -218,6 +218,7 @@ export function MapWeatherControls({
             let framesReady: number | undefined;
             let nowIndex: number | undefined;
             let dualColor = false;
+            let showRainRetry = false;
             const forecastAccent = '#fbbf24';
             let onScrub = (_frame: number) => {};
             let onScrubStart: (() => void) | undefined;
@@ -461,12 +462,30 @@ export function MapWeatherControls({
                     onPlayToggle = () => weather.setRainPlaying(!weather.rainPlaying);
                     onScrubStart = () => weather.setRainPlaying(false);
                 } else {
-                    frameLabel = 'No Data';
-                    sublabel = 'Retry';
+                    // The scrubber has nothing to scrub, so don't render one
+                    // wearing the word "Retry" over dead handlers — render the
+                    // retry itself.
+                    showRainRetry = true;
                 }
             }
 
-            content = showInlineLoading ? (
+            content = showRainRetry ? (
+                <button
+                    type="button"
+                    onClick={() => weather.retryRain()}
+                    className="absolute z-[500] flex min-h-12 min-w-40 items-center gap-2 rounded-2xl border border-white/10 bg-slate-950/80 px-4 py-2 text-left text-white shadow-lg backdrop-blur-xl active:bg-slate-800/80"
+                    style={{ left: 12, bottom: embedded ? 12 : 'calc(80px + env(safe-area-inset-bottom))' }}
+                    aria-label="Rain radar unavailable — tap to retry"
+                >
+                    <span className="text-lg leading-none" aria-hidden="true">
+                        ↻
+                    </span>
+                    <span className="leading-tight">
+                        <span className="block text-sm font-bold">No Radar</span>
+                        <span className="block text-[11px] font-semibold text-cyan-300">Tap to retry</span>
+                    </span>
+                </button>
+            ) : showInlineLoading ? (
                 <div
                     className="absolute z-[500] flex min-h-12 min-w-40 items-center gap-2 rounded-2xl border border-white/10 bg-slate-950/80 px-4 py-2 text-white shadow-lg backdrop-blur-xl"
                     style={{ left: 12, bottom: embedded ? 12 : 'calc(80px + env(safe-area-inset-bottom))' }}

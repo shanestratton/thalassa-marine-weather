@@ -2322,6 +2322,30 @@ export function useWeatherLayers(
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [mapReady, activeKey]);
 
+    // ── Rain manual retry ─────────────────────────────────────────────
+    // The self-heal timer above eventually recovers a failed fetch, but it
+    // only looks once a minute. The scrubber has been advertising "Retry"
+    // under "No Data" the whole time with nothing wired to it, so a skipper
+    // who lost radar tapped that word and watched it do nothing for up to 60
+    // seconds. This is what the label promised.
+    //
+    // It routes through the session cleanup rather than just clearing the
+    // frame array: that aborts the in-flight fetch and removes the radar-*
+    // and rainbow-fc-* layers, so a retry can't leave orphaned tiles painted
+    // under a fresh timeline. Clearing the frames is also what guarantees the
+    // build guard re-enters — setting rainFetchedAtRef to 0 alone would NOT,
+    // because staleness requires a non-zero stamp, and the spinner we raise
+    // here would then never come down.
+    const retryRain = useCallback(() => {
+        log.info('[rain] manual retry requested');
+        rainCleanupRef.current?.();
+        rainCleanupRef.current = null;
+        rainFetchedAtRef.current = 0;
+        rainLastAttemptRef.current = 0;
+        setRainLoading(true);
+        setRainRefreshNonce((n) => n + 1);
+    }, []);
+
     // ── Rain z-order healer ───────────────────────────────────────────
     // Deferred out of the styledata callback frame (style mutation inside the
     // render pass crashes placement) and coalesced like the wind heatmap's.
@@ -2528,6 +2552,7 @@ export function useWeatherLayers(
         setRainPlaying,
         rainReady,
         rainLoading,
+        retryRain,
         rainImageLoading,
         rainNowIdxRef,
         // GRIB
