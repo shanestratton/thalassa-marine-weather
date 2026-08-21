@@ -520,8 +520,18 @@ export function initIsobarLayers(map: mapboxgl.Map) {
 }
 
 /**
- * RainViewer dBZ → color ramp for Rainbow.ai forecast tiles.
- * Matches RainViewer scheme 4 exactly.
+ * RainViewer dBZ → colour ramp for Rainbow.ai forecast tiles.
+ *
+ * THE SHARED COLOUR LANGUAGE. Rainbow serves the forecast half as grayscale
+ * dbz_u8 tiles, which this ramp paints; RainViewer bakes the observed half
+ * server-side at RAINVIEWER_COLOR_SCHEME. Those two must describe the same
+ * palette family — scheme 4, the Weather Channel ramp — or the chart shows
+ * two colour maps for one physical quantity and the legend (which mirrors
+ * THIS ramp) describes colours the radar never shows. That was the state
+ * until 2026-08-21, when the observed tiles were baked at scheme 2.
+ *
+ * If you change this ramp, change RAINVIEWER_COLOR_SCHEME and the LegendDock
+ * rain gradient with it. RainRadarPalette.test.ts fails if they drift.
  */
 export const RAINVIEWER_COLOR_RAMP: mapboxgl.Expression = [
     'interpolate',
