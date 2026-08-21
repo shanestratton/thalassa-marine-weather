@@ -382,15 +382,22 @@ describe('WindDataController request generation', () => {
         const wideGrid = grid('wide-initial');
         const refined = deferred<ReturnType<typeof grid> | null>();
         const far = deferred<ReturnType<typeof grid> | null>();
-        // Dispatch by requested resolution: the 0.25° fine prefetch stays
-        // pending forever, the 1.0° wide boot fetch resolves immediately,
-        // everything else drains the queue in call order.
-        const queue: Promise<ReturnType<typeof grid> | null>[] = [refined.promise, far.promise];
-        mocks.fetchModelWindGrid.mockImplementation((_m: unknown, _b: unknown, _h: unknown, res: number) => {
-            if (res === 0.25) return new Promise(() => {});
-            if (res === 1.0) return Promise.resolve(wideGrid);
-            return queue.shift() ?? Promise.resolve(null);
-        });
+        // Dispatch by BOUNDS, not by call order. This used to drain a shared
+        // queue, which silently assumed the only in-flight fetches were this
+        // test's own — background cache warms (the 0.25° fine prefetch, the
+        // ~2.08° synoptic warm) interleave and shift who gets which promise.
+        // Each viewport here has a distinct latitude signature, so keying on
+        // that is stable however the warms are scheduled.
+        mocks.fetchModelWindGrid.mockImplementation(
+            (_m: unknown, b: { north: number; south: number }, _h: unknown, res: number) => {
+                // Background warms: never this test's subject, never settle.
+                if (res === 0.25 || res >= 2) return new Promise(() => {});
+                const span = b.north - b.south;
+                if (b.north > 0) return far.promise; // panned clean away to the equator
+                if (span >= 20) return Promise.resolve(wideGrid); // the wide boot viewport
+                return refined.promise; // the zoom-in refinement
+            },
+        );
         const { map, setBounds, setZoom } = makeMap();
 
         await controller.activate(map as never);
@@ -438,9 +445,13 @@ describe('WindDataController request generation', () => {
             east: 155.02,
         };
         const viewportGrid = grid('coarse-viewport');
-        mocks.fetchModelWindGrid.mockImplementation((_model: unknown, b: { north: number; south: number }) =>
-            Promise.resolve(b.north - b.south >= 3.9 ? fineGrid : viewportGrid),
-        );
+        mocks.fetchModelWindGrid.mockImplementation((_model: unknown, b: { north: number; south: number }) => {
+            const span = b.north - b.south;
+            // The synoptic warm shares this moveend and spans ~50°, so a bare
+            // ">= 3.9" would hand it the fine grid. Bound the window.
+            if (span > 20) return new Promise(() => {});
+            return Promise.resolve(span >= 3.9 ? fineGrid : viewportGrid);
+        });
         const { map, on, setBounds, setZoom } = makeMap();
         setZoom(8);
         setBounds({ north: -27, south: -28, west: 152.5, east: 153.5 });
@@ -454,12 +465,22 @@ describe('WindDataController request generation', () => {
         moveEnd();
         await new Promise((resolve) => setTimeout(resolve, 900));
         await vi.waitFor(() => expect(mocks.state.current.grid).toBe(fineGrid));
-        const callsAfterWarmup = mocks.fetchModelWindGrid.mock.calls.length;
+        // Count only fetches for THIS test's viewports. The synoptic warm
+        // shares this moveend and lands on its own schedule, so counting every
+        // call makes the assertion race a background download.
+        const localCalls = () =>
+            mocks.fetchModelWindGrid.mock.calls.filter(
+                (call: unknown[]) =>
+                    (call[1] as { north: number; south: number }).north -
+                        (call[1] as { north: number; south: number }).south <=
+                    20,
+            ).length;
+        const callsAfterWarmup = localCalls();
 
         // Parked over the same patch: the next moveend is served from memory.
         moveEnd();
         await new Promise((resolve) => setTimeout(resolve, 900));
-        expect(mocks.fetchModelWindGrid).toHaveBeenCalledTimes(callsAfterWarmup);
+        expect(localCalls()).toBe(callsAfterWarmup);
         expect(mocks.state.current.grid).toBe(fineGrid);
 
         // clearAllMocks does not drop a persistent implementation — remove it
@@ -494,9 +515,100 @@ describe('WindDataController request generation', () => {
             const moveEnd = on.mock.calls[0][1] as () => void;
             moveEnd();
             await vi.advanceTimersByTimeAsync(800);
-            expect(mocks.fetchModelWindGrid).toHaveBeenCalledTimes(1);
+            // Count VIEWPORT fetches only. The background synoptic warm is a
+            // separate, deliberate request at a much coarser resolution; what
+            // this test guards is that the normalized camera does not trigger
+            // a second fetch of the same viewport.
+            const viewportCalls = mocks.fetchModelWindGrid.mock.calls.filter(
+                (call: unknown[]) => (call[3] as number) < 2,
+            );
+            expect(viewportCalls).toHaveLength(1);
         } finally {
             vi.useRealTimers();
         }
+    });
+
+    // ── Synoptic warm: the other end of wind's zoom range ─────────────
+    // Wind opens local at z9 and pinches out to z3. Boot only ever warmed the
+    // fine tier, so the first pinch-out fell off the cache and paid a full
+    // wide fetch (Shane 2026-08-22: "have the wind load in the background for
+    // the zoom 3 level as well as the zoom 9 level").
+    it('warms a synoptic grid in the background once the camera settles', async () => {
+        const viewportGrid = grid('viewport');
+        const synopticGrid = { ...grid('synoptic'), north: -2.47, south: -52.47, west: 128.02, east: 178.02 };
+        mocks.fetchModelWindGrid.mockImplementation((_m: unknown, b: { north: number; south: number }) =>
+            Promise.resolve(b.north - b.south >= 49 ? synopticGrid : viewportGrid),
+        );
+        const { map, on, setZoom, setBounds } = makeMap();
+        setZoom(9);
+        setBounds({ north: -27, south: -28, west: 152.5, east: 153.5 });
+
+        await controller.activate(map as never);
+        // Same trigger as the fine warm: once the camera has settled, so a
+        // background download never competes with the local field.
+        (on.mock.calls[0][1] as () => void)();
+        await new Promise((resolve) => setTimeout(resolve, 900));
+        await vi.waitFor(() =>
+            expect(
+                mocks.fetchModelWindGrid.mock.calls.some(
+                    (c: unknown[]) => (c[1] as { north: number; south: number }).north - (c[1] as { north: number; south: number }).south >= 49,
+                ),
+            ).toBe(true),
+        );
+
+        // A cache WARM, not a publish. Dropping a 2-degree field over the z9
+        // harbour view the punter is looking at would be a downgrade they
+        // never asked for — the fine warm republishes because sharper is an
+        // upgrade; this is the opposite direction.
+        expect(mocks.state.current.grid).toBe(viewportGrid);
+        mocks.fetchModelWindGrid.mockReset();
+    });
+
+    it('publishes that synoptic grid from memory when the punter pinches out', async () => {
+        const viewportGrid = grid('viewport');
+        const synopticGrid = { ...grid('synoptic'), north: -2.47, south: -52.47, west: 128.02, east: 178.02 };
+        mocks.fetchModelWindGrid.mockImplementation((_m: unknown, b: { north: number; south: number }) =>
+            Promise.resolve(b.north - b.south >= 49 ? synopticGrid : viewportGrid),
+        );
+        const { map, on, setZoom, setBounds } = makeMap();
+        setZoom(9);
+        setBounds({ north: -27, south: -28, west: 152.5, east: 153.5 });
+        await controller.activate(map as never);
+        (on.mock.calls[0][1] as () => void)();
+        await new Promise((resolve) => setTimeout(resolve, 900));
+        await vi.waitFor(() =>
+            expect(
+                mocks.fetchModelWindGrid.mock.calls.some(
+                    (c: unknown[]) => (c[1] as { north: number; south: number }).north - (c[1] as { north: number; south: number }).south >= 49,
+                ),
+            ).toBe(true),
+        );
+        const callsAfterWarm = mocks.fetchModelWindGrid.mock.calls.length;
+
+        // Pinch out to a wide view the synoptic warm covers. This is the whole
+        // point: instant, from memory, instead of a blank map for a wide fetch.
+        setZoom(3);
+        setBounds({ north: -10, south: -40, west: 140, east: 170 });
+        await controller.fetchOnline(map as never);
+
+        expect(mocks.state.current.grid).toBe(synopticGrid);
+        expect(mocks.fetchModelWindGrid).toHaveBeenCalledTimes(callsAfterWarm);
+        mocks.fetchModelWindGrid.mockReset();
+    });
+
+    it('does not warm synoptic for the full-earth GFS lane, which already covers it', async () => {
+        // GFS sustained wind in global mode is a fetch-once full-earth GRIB —
+        // a synoptic warm would re-download a picture already in hand. Drives
+        // the listener directly: that lane never even registers one through
+        // activate, so the guard is what matters, not the boot path.
+        mocks.state.current = { ...mocks.state.current, model: 'gfs', field: 'wind', isGlobalMode: true };
+        const { map, on, setZoom } = makeMap();
+        setZoom(9);
+
+        controller.registerMoveListener(map as never);
+        (on.mock.calls[0][1] as () => void)();
+        await new Promise((resolve) => setTimeout(resolve, 900));
+
+        expect(mocks.fetchModelWindGrid).not.toHaveBeenCalled();
     });
 });

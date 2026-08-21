@@ -55,6 +55,25 @@ let lastFetchedBounds: CachedBounds | null = null;
 // or a covering grid is coarser than the zoom deserves (refined behind it).
 const FINE_GRID_RES_DEG = 0.25;
 const FINE_GRID_HALF_SPAN_DEG = 2;
+/**
+ * Synoptic warm — the OTHER end of wind's zoom range.
+ *
+ * Wind opens local at z9 and pinches out to z3 (LAYER_FRAME_ZOOM /
+ * LAYER_MIN_ZOOM). Boot therefore only ever warmed the fine tier, so the first
+ * pinch-out fell off the cache and paid a full wide fetch — the exact "hard-
+ * edged rectangle over a dark map" this cache exists to prevent (Shane,
+ * 2026-08-22: "have the wind load in the background for the zoom 3 level as
+ * well as the zoom 9 level").
+ *
+ * The span is generous on purpose and it is FREE to be. The main path picks
+ * `max(tier, maxSpan / 24)`, so resolution scales with span and the point
+ * count stays ~24×24 whatever half-span we choose here. A wider warm buys a
+ * better chance of covering whatever the punter actually pinches out to, at
+ * identical download size — it only costs sharpness, which is meaningless at
+ * synoptic scale.
+ */
+const SYNOPTIC_HALF_SPAN_DEG = 25;
+const SYNOPTIC_GRID_RES_DEG = (SYNOPTIC_HALF_SPAN_DEG * 2) / 24;
 /** Camera crossing this (with the layer on) starts the fine prefetch. */
 const FINE_PREFETCH_MIN_ZOOM = 5;
 const CHART_HOURS = 48;
@@ -71,6 +90,7 @@ interface CachedWindGrid {
 
 const windGridCache = new Map<string, CachedWindGrid>();
 let fineGridInflight = false;
+let synopticGridInflight = false;
 /** Identity of the published cache entry, so parked moveends don't re-publish
  *  (every setGrid restarts the particle overlay). */
 let lastPublishedCacheKey: string | null = null;
@@ -85,10 +105,18 @@ function publishKeyFor(res: number, fetchedAt: number, field: string): string {
 
 function storeCachedGrid(entry: CachedWindGrid): void {
     windGridCache.set(cacheKeyForRes(entry.res), entry);
+    // The synoptic warm is fetched once at boot, so by definition it is always
+    // the OLDEST entry — a plain oldest-first eviction would throw it away
+    // after a few zoom levels of exploring, which is precisely when the punter
+    // is most likely to pinch out and want it. Exempt it: it is the smallest
+    // grid in the cache (~24×24) and bestCoveringGrid already refuses stale
+    // entries, so keeping it cannot serve old wind, only save a fetch.
+    const synopticKey = cacheKeyForRes(SYNOPTIC_GRID_RES_DEG);
     while (windGridCache.size > MAX_CACHED_GRIDS) {
         let oldestKey: string | null = null;
         let oldestAt = Infinity;
         for (const [key, cached] of windGridCache) {
+            if (key === synopticKey && windGridCache.size > 1) continue;
             if (cached.fetchedAt < oldestAt) {
                 oldestAt = cached.fetchedAt;
                 oldestKey = key;
@@ -172,6 +200,68 @@ async function prefetchLocalFineGrid(map: mapboxgl.Map, model: CachedWindGrid['m
         log.warn('[WindController] Fine grid prefetch failed', e);
     } finally {
         fineGridInflight = false;
+    }
+}
+
+/**
+ * Warm the synoptic grid around the punter, so pinching out to z3 publishes
+ * from memory instead of blanking for a wide fetch.
+ *
+ * Deliberately does NOT publish or re-run fetchOnline when it lands. The
+ * fine-grid warm does, because a sharper field replacing a coarse one at the
+ * SAME camera is an upgrade. This is the opposite: dropping a 2° field over a
+ * z9 harbour view would be a downgrade the punter never asked for. It is a
+ * cache warm and nothing else — bestCoveringGrid picks it up if and when the
+ * camera actually goes wide.
+ *
+ * Takes no map for the same reason: it is anchored on the punter, not the
+ * camera, so it is correct whatever the user is looking at while it lands.
+ */
+async function prefetchSynopticGrid(model: CachedWindGrid['model']): Promise<void> {
+    if (synopticGridInflight) return;
+    const { lat, lon } = LocationStore.getState();
+    const existing = windGridCache.get(cacheKeyForRes(SYNOPTIC_GRID_RES_DEG));
+    if (
+        existing &&
+        existing.model === model &&
+        Date.now() - existing.fetchedAt < WIND_GRID_MAX_AGE_MS &&
+        // A synoptic field stays useful over a much bigger move than a fine
+        // one, so the re-warm threshold is correspondingly wider — a few
+        // degrees of travel does not invalidate a 50-degree picture.
+        Math.abs((existing.bounds.north + existing.bounds.south) / 2 - lat) < 5 &&
+        Math.abs((existing.bounds.west + existing.bounds.east) / 2 - lon) < 5
+    ) {
+        return;
+    }
+    const bounds = {
+        north: Math.min(lat + SYNOPTIC_HALF_SPAN_DEG, 85),
+        south: Math.max(lat - SYNOPTIC_HALF_SPAN_DEG, -85),
+        west: lon - SYNOPTIC_HALF_SPAN_DEG,
+        east: lon + SYNOPTIC_HALF_SPAN_DEG,
+    };
+    // Something fresh already covers this whole area — most often because the
+    // punter opened the app already zoomed out, so the ordinary viewport fetch
+    // did this job. Warming again would be a second download of the same
+    // picture at a different resolution key.
+    if (bestCoveringGrid(model, bounds)) return;
+    synopticGridInflight = true;
+    try {
+        const { fetchModelWindGrid } = await import('./OpenMeteoWindFetcher');
+        const grid = await withDeadline(
+            fetchModelWindGrid(model, bounds, CHART_HOURS, SYNOPTIC_GRID_RES_DEG),
+            30_000,
+            'om-synoptic-grid',
+        );
+        if (grid) {
+            storeCachedGrid({ grid, bounds, res: SYNOPTIC_GRID_RES_DEG, model, fetchedAt: Date.now() });
+            log.info(
+                `[WindController] Synoptic grid warmed: ${grid.width}×${grid.height} @ ${SYNOPTIC_GRID_RES_DEG.toFixed(2)}°`,
+            );
+        }
+    } catch (e) {
+        log.warn('[WindController] Synoptic grid prefetch failed', e);
+    } finally {
+        synopticGridInflight = false;
     }
 }
 
@@ -622,6 +712,14 @@ export const WindDataController = {
                 // so harbour zoom publishes from memory. Fire-and-forget.
                 if (useOpenMeteoGridded && (map.getZoom?.() ?? 0) > FINE_PREFETCH_MIN_ZOOM) {
                     void prefetchLocalFineGrid(map, model);
+                    // ...and the OTHER end of the range, so the first pinch-out
+                    // to synoptic publishes from memory instead of blanking for
+                    // a wide fetch (Shane 2026-08-22). Same trigger as the fine
+                    // warm on purpose: it runs once the camera has SETTLED, so
+                    // a background download can never compete with the local
+                    // field the punter is waiting on. Wind boots by flying to
+                    // its z9 frame, so this still lands moments after startup.
+                    void prefetchSynopticGrid(model);
                 }
                 this.fetchOnline(map);
             }, 800);
