@@ -271,7 +271,15 @@ export async function planRadarFrames(): Promise<RadarTimeline> {
                 needsSupabaseAuth: true,
                 buildTileUrl: (t, v) =>
                     `${supabaseUrl}/functions/v1/proxy-rainbow?action=tile` +
-                    `&snapshot=${snapshot}&forecast=${f}&z=${v.zt}&x=${t.tx}&y=${t.ty}&color=6`,
+                    // color=4 (Weather Channel), not 6: this canvas has no
+                    // Mapbox raster-color to ramp grayscale with, so it must
+                    // take a server-baked palette — and it must be the SAME
+                    // family the observed RainViewer tiles beside it are baked
+                    // in (RAINVIEWER_COLOR_SCHEME = 4) and the Obs map's
+                    // forecast ramp targets. Otherwise this card shows two
+                    // colour maps for one quantity, exactly as the chart did
+                    // until 2026-08-21.
+                    `&snapshot=${snapshot}&forecast=${f}&z=${v.zt}&x=${t.tx}&y=${t.ty}&color=4`,
             });
         }
     }
@@ -409,7 +417,13 @@ async function compositeFrame(frame: RadarFrame, view: RadarView, signal: AbortS
         canvas.height = view.hCss;
         const ctx = canvas.getContext('2d');
         if (!ctx) return false;
-        ctx.imageSmoothingEnabled = true;
+        // OFF for indexed-palette radar tiles. Bilinear smoothing averages
+        // ADJACENT PALETTE COLOURS — blending a blue light-rain pixel with a
+        // red heavy-rain pixel yields a purple that means no intensity at all,
+        // and the palette stops matching the legend at every tile seam. Sharp
+        // pixels tell the truth; the softness was never worth an invented
+        // colour (recon, 2026-08-21).
+        ctx.imageSmoothingEnabled = false;
         for (let i = 0; i < tiles.length; i++) {
             const d = drawables[i];
             if (!d) continue;

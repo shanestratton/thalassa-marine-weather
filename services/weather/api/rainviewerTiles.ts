@@ -6,7 +6,25 @@
  */
 export const RAINVIEWER_TILE_HOST = 'https://tilecache.rainviewer.com';
 export const RAINVIEWER_NATIVE_MAX_ZOOM = 7;
-export const RAINVIEWER_COLOR_SCHEME = 2;
+/**
+ * ONE colour language for rain, past and future (Shane, 2026-08-21: real and
+ * forecast rain must not be coloured differently; "it needs to pop a bit
+ * more").
+ *
+ * Scheme 4 — the Weather Channel ramp — because the FORECAST half is already
+ * painted with RAINVIEWER_COLOR_RAMP (isobarLayerSetup.ts), which targets
+ * scheme 4, and the on-screen legend gradient mirrors that same warm ramp.
+ * With the past frames baked at scheme 2 (blue-dominant) the app was showing
+ * two colour maps for one physical quantity, and the legend described colours
+ * the NOW frame never displayed. Scheme 2 also sat blue-on-blue over the
+ * chart's marine-blue water (#1f5a85, useMapInit), which is exactly why rain
+ * washed out on the dark chart.
+ *
+ * This constant is the shared authority: the Obs map radar, the Glass hero
+ * radar card and the chart page all build tiles through buildRainViewerTileUrl,
+ * so all three surfaces speak one palette (owner's call, all-three scope).
+ */
+export const RAINVIEWER_COLOR_SCHEME = 4;
 export const RAINVIEWER_MAP_TILE_SIZE = 512;
 
 type TileCoordinate = number | string;

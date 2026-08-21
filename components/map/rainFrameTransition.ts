@@ -7,7 +7,23 @@
  * to load before it can replace the frame already on screen.
  */
 
-export const RAIN_FRAME_OPACITY = 0.75;
+/**
+ * 0.85, was 0.75 (Shane 2026-08-21: "it needs to pop a bit more"). Rain is
+ * the layer a skipper switches ON to see; at 0.75 over a dark chart it read
+ * like a stain rather than weather. Still short of opaque so the coastline
+ * and marks stay legible underneath.
+ */
+export const RAIN_FRAME_OPACITY = 0.85;
+/**
+ * Radar-frame enhancement (Shane 2026-08-21, "pop"). RainViewer bakes its
+ * palette server-side, so these are the only dials that lift it off a dark
+ * chart without inventing colours the legend does not describe. Values follow
+ * the pressure-heatmap precedent (0.08/0.08), nudged up because rain competes
+ * with marine-blue water rather than a neutral field.
+ */
+export const RAIN_FRAME_SATURATION = 0.15;
+export const RAIN_FRAME_CONTRAST = 0.1;
+
 export const RAIN_FRAME_FADE_MS = 220;
 /**
  * How long a staged frame may sit tile-less before the stage is abandoned.

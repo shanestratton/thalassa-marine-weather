@@ -43,7 +43,13 @@ import {
     RAINVIEWER_NATIVE_MAX_ZOOM,
 } from '../../services/weather/api/rainviewerTiles';
 import { windForecastHoursForGrid } from './windTimeAxis';
-import { RAIN_FRAME_OPACITY, RainFrameTransitionController, type RainFrameMap } from './rainFrameTransition';
+import {
+    RAIN_FRAME_CONTRAST,
+    RAIN_FRAME_OPACITY,
+    RAIN_FRAME_SATURATION,
+    RainFrameTransitionController,
+    type RainFrameMap,
+} from './rainFrameTransition';
 import { CMEMS_DATASETS } from '../../services/weather/api/cmemsGridTrust';
 import { isWeatherLayerAvailable } from './cmemsFeatureAvailability';
 // PrecipHeatmapResult removed — replaced by Rainbow.ai XYZ tiles
@@ -2014,6 +2020,14 @@ export function useWeatherLayers(
                                     'raster-opacity': RAIN_FRAME_OPACITY,
                                     'raster-opacity-transition': { duration: 200, delay: 0 },
                                     'raster-fade-duration': 0,
+                                    // Lift the baked tiles off a dark chart —
+                                    // the same treatment the pressure heatmap
+                                    // already uses for the same reason. Modest
+                                    // on purpose: enough that a cell reads as
+                                    // weather, not so much that the palette
+                                    // stops meaning what the legend says.
+                                    'raster-saturation': RAIN_FRAME_SATURATION,
+                                    'raster-contrast': RAIN_FRAME_CONTRAST,
                                 },
                             },
                             rainBeforeId,
@@ -2142,6 +2156,12 @@ export function useWeatherLayers(
                                     source: srcId,
                                     paint: {
                                         'raster-opacity': RAIN_FRAME_OPACITY,
+                                        // Matched to the radar frames: one
+                                        // palette AND one treatment, so
+                                        // scrubbing across "now" changes the
+                                        // data, never the colour language.
+                                        'raster-saturation': RAIN_FRAME_SATURATION,
+                                        'raster-contrast': RAIN_FRAME_CONTRAST,
                                         'raster-opacity-transition': { duration: 200, delay: 0 },
                                         'raster-fade-duration': 0,
                                         'raster-color': RAINVIEWER_COLOR_RAMP,
