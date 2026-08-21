@@ -20,14 +20,29 @@ import type { VesselRecord } from './parser.js';
 
 // ── NMEA framing ─────────────────────────────────────────────────────
 
-/** `*hh` checksum over everything between `!`/`$` and `*`. */
+/**
+ * `*hh` checksum over everything between `!`/`$` and `*`. STRICT framing:
+ * the sentence must END at the two hex digits, and no control character may
+ * appear in the body. Without both, a punter could append bytes after the
+ * checksum (a second `\r`-separated NMEA line) and smuggle arbitrary text
+ * to AISHub through the verbatim forward — a station-ban-grade injection the
+ * app's own validateNmeaSentence already blocks, and which this must match
+ * because the fleet-feed endpoint is reachable outside the app (review,
+ * 2026-08-21).
+ */
 export function nmeaChecksumOk(sentence: string): boolean {
     const star = sentence.lastIndexOf('*');
-    if (star < 0 || star + 3 > sentence.length) return false;
-    const stated = Number.parseInt(sentence.slice(star + 1, star + 3), 16);
-    if (!Number.isFinite(stated)) return false;
+    // The checksum's two hex digits must be the FINAL two characters.
+    if (star < 0 || star !== sentence.length - 3) return false;
+    if (!/^[0-9A-Fa-f]{2}$/.test(sentence.slice(star + 1))) return false;
+    const stated = Number.parseInt(sentence.slice(star + 1), 16);
     let sum = 0;
-    for (let i = 1; i < star; i++) sum ^= sentence.charCodeAt(i);
+    for (let i = 1; i < star; i++) {
+        const code = sentence.charCodeAt(i);
+        // No control characters in the body — a stray CR/LF is an injection.
+        if (code <= 0x1f || code === 0x7f) return false;
+        sum ^= code;
+    }
     return sum === stated;
 }
 
