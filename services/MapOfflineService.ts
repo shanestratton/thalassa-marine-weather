@@ -26,6 +26,7 @@
  */
 
 import { piCache } from './PiCacheService';
+import { isPinnedTransportAvailable, piRequest } from './piTls';
 import { createLogger } from '../utils/createLogger';
 import { calculateDistance } from '../utils/navigationCalculations';
 import { Capacitor } from '@capacitor/core';
@@ -192,6 +193,42 @@ async function ensureNativeDirectory(path: string): Promise<void> {
     nativeDirectories.add(path);
 }
 
+/**
+ * Fetch one tile's bytes as a Response, over whichever lane can actually
+ * carry them.
+ *
+ * The Pi hop is worth having on the boat — it shares one uplink fetch across
+ * the fleet — but a PLAIN fetch cannot take it. The Pi serves HTTPS with a
+ * self-signed certificate and only the pinned native transport can present
+ * that pin, so `fetch()` at this URL fails 100% of the time on iOS with
+ * NSURLErrorDomain -1202 (confirmed from a device log, 2026-08-22). piRequest
+ * is the lane that works; it hands back base64, which becomes a Response so
+ * the persist path below stays uniform across both lanes.
+ *
+ * A failed or unavailable Pi hop falls through to direct rather than failing
+ * the tile — same rule as the radar index. The Pi is an optimisation.
+ */
+async function fetchTileResponse(directUrl: string, usePi: boolean, signal?: AbortSignal): Promise<Response> {
+    if (usePi && isPinnedTransportAvailable()) {
+        const piUrl = piCache.passthroughTileUrl(directUrl, OFFLINE_TTL_MS);
+        if (piUrl) {
+            try {
+                const res = await piRequest({ url: piUrl, responseType: 'arraybuffer' });
+                if (res.status >= 200 && res.status < 300 && res.data) {
+                    const binary = atob(res.data);
+                    const bytes = new Uint8Array(binary.length);
+                    for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+                    if (bytes.byteLength > 0) return new Response(bytes);
+                }
+                log.warn(`Pi tile hop returned ${res.status} — using direct`);
+            } catch (err) {
+                log.warn('Pi tile hop failed — using direct', err);
+            }
+        }
+    }
+    return fetch(directUrl, { signal, cache: 'reload' });
+}
+
 async function persistDirectTile(
     source: (typeof TILE_TEMPLATES)[number]['name'],
     coordinates: { z: number; x: number; y: number },
@@ -312,17 +349,18 @@ export async function downloadArea(
             const target = queue.shift();
             if (!target) return;
 
-            let fetchUrl = target.url;
-            if (usePi) {
-                const piUrl = piCache.passthroughTileUrl(target.url, OFFLINE_TTL_MS);
-                if (piUrl) fetchUrl = piUrl;
-            }
-
             try {
-                const res = await fetch(fetchUrl, { signal, cache: 'reload' });
+                const res = await fetchTileResponse(target.url, usePi, signal);
                 if (!res.ok) {
                     failed++;
-                } else if (!usePi) {
+                } else {
+                    // ALWAYS persist. This used to be `else if (!usePi)`, on the
+                    // theory that the Pi was holding the cache — but nothing can
+                    // read it back from there. getOfflineTileTemplates() returns
+                    // Directory.Data file paths on native, so the offline layer
+                    // reads local files and only local files. Skipping the write
+                    // when the Pi was used produced a download that counted to
+                    // 100%, reported success, and left nothing on the device.
                     await persistDirectTile(target.source, target.coordinates, target.url, res.clone());
                 }
             } catch (err) {
