@@ -117,10 +117,24 @@ export const ATMOSPHERE_LAYERS: WeatherLayer[] = ['rain', 'wind', 'velocity', 't
 /**
  * The framing zoom each forecast overlay claims when switched on.
  *
- * PER LAYER, because these fields are not read at the same scale. Wind opens
- * at z3 for a broad synoptic read (Shane 2026-07-26); rain retains its z5
- * regional frame. Its controller deliberately uses the wide-viewport grid at
- * that scale. Currents retain the tighter z7.5 local frame.
+ * PER LAYER, because these fields are not read at the same scale. Rain
+ * retains its z5 regional frame; its controller deliberately uses the
+ * wide-viewport grid at that scale. Currents retain the tighter z7.5 local
+ * frame.
+ *
+ * WIND OPENS LOCAL AT z9 (Shane 2026-08-22), reversing the z3 synoptic frame
+ * he asked for on 2026-07-26. Two reasons, and the second is why it was worth
+ * changing:
+ *
+ *  1. What a skipper wants first is the wind where the boat is. Panning out to
+ *     the synoptic picture is a deliberate second question, and scrolling out
+ *     is cheap; scrolling IN to find your own harbour is not.
+ *  2. It is also the fix for "wind is slow". WindDataController picks its grid
+ *     from the camera: at z9 it serves the punter-centred fine grid
+ *     (FINE_GRID_HALF_SPAN_DEG = 2°, already warmed on boot), while z3 forced
+ *     the wide coarse grid — a far larger fetch before anything could paint.
+ *     Wind was slow BECAUSE it opened synoptic, so framing local buys the
+ *     speed as a side effect rather than needing a separate optimisation.
  *
  * PRESSURE is the exception and gets 2.0 (Shane 2026-07-22). Isobars are a
  * SYNOPTIC read: the useful question is where the high and the low sit and
@@ -137,8 +151,8 @@ export const ATMOSPHERE_LAYERS: WeatherLayer[] = ['rain', 'wind', 'velocity', 't
  * disagreed, Mapbox clamped easeTo at call time and the tap looked ineffective.
  */
 export const LAYER_FRAME_ZOOM: Partial<Record<WeatherLayer, number>> = {
-    wind: 3,
-    velocity: 3,
+    wind: 9,
+    velocity: 9,
     currents: 7.5,
     rain: 5,
     pressure: 2.0,
