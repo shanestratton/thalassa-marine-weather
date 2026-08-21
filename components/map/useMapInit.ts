@@ -7,6 +7,7 @@
  */
 
 import { useRef, useEffect, useCallback, type MutableRefObject } from 'react';
+import { Capacitor } from '@capacitor/core';
 import mapboxgl from 'mapbox-gl';
 import { LocationStore } from '../../stores/LocationStore';
 import { triggerHaptic } from '../../utils/system';
@@ -351,16 +352,20 @@ export function useMapInit(opts: UseMapInitOptions) {
             pitch: 0,
             maxPitch: 0,
             // Bounded HARD (2026-07-13): was 500 — ~10× Mapbox's default.
-            // maxTileCacheSize is retained tiles PER SOURCE in memory, and
-            // a retina @2x satellite tile decodes to ~1 MB of texture, so
-            // 500 let the satellite + MapTiler-ocean + ENC-vector caches
-            // grow to ~1 GB of GPU/native memory as the punter panned —
-            // invisible to the JS heap (which stayed ~20 MB) and fatal to
-            // Chrome's renderer after ~a minute of use ("Aw, Snap",
-            // Shane 2026-07-13, "fine then locks up after ~1 min"). The
+            // maxTileCacheSize is retained tiles PER SOURCE in memory. The
             // SW still caches tiles to DISK for offline, so this only
             // bounds the in-memory working set, not offline coverage.
-            maxTileCacheSize: 60,
+            //
+            // 60 → 20 on phones (Lady Musgrave kill, 2026-08-21): the 2026-
+            // 07-13 arithmetic assumed a retina @2x satellite tile decodes
+            // to ~1 MB — it is a 1024×1024 RGBA texture, ~4 MB. At 60 tiles
+            // per source, satellite + MapTiler-ocean alone could pin
+            // ~480 MB of GPU/native memory — invisible to the JS heap, and
+            // sitting under the ENC merge transients at exactly the zoom
+            // where the WKWebView was being jetsammed. 20 tiles still
+            // covers a phone viewport (~12 visible + margin); desktop keeps
+            // 60 for its larger windows and looser memory ceiling.
+            maxTileCacheSize: Capacitor.isNativePlatform() ? 20 : 60,
             // Free-flowing camera (Shane 2026-07-14: "a little jerky at
             // times when I am zooming and moving about"):
             //  - crossSourceCollisions:false — collision-test each symbol

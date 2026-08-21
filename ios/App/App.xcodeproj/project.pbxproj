@@ -44,6 +44,8 @@
 		AA000024AAAA002400000001 /* BarometerPlugin.m in Sources */ = {isa = PBXBuildFile; fileRef = AA000024AAAA002400000002 /* BarometerPlugin.m */; };
 		AA000025AAAA002500000001 /* NetworkInterfacesPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000025AAAA002500000002 /* NetworkInterfacesPlugin.swift */; };
 		AA000026AAAA002600000001 /* NetworkInterfacesPlugin.m in Sources */ = {isa = PBXBuildFile; fileRef = AA000026AAAA002600000002 /* NetworkInterfacesPlugin.m */; };
+		AA000027AAAA002700000001 /* MemoryGaugePlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000027AAAA002700000002 /* MemoryGaugePlugin.swift */; };
+		AA000028AAAA002800000001 /* MemoryGaugePlugin.m in Sources */ = {isa = PBXBuildFile; fileRef = AA000028AAAA002800000002 /* MemoryGaugePlugin.m */; };
 		B3A100012026080400000001 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = B3A100012026080400000002 /* PrivacyInfo.xcprivacy */; };
 /* End PBXBuildFile section */
 
@@ -90,6 +92,8 @@
 		AA000024AAAA002400000002 /* BarometerPlugin.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = BarometerPlugin.m; sourceTree = "<group>"; };
 		AA000025AAAA002500000002 /* NetworkInterfacesPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkInterfacesPlugin.swift; sourceTree = "<group>"; };
 		AA000026AAAA002600000002 /* NetworkInterfacesPlugin.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = NetworkInterfacesPlugin.m; sourceTree = "<group>"; };
+		AA000027AAAA002700000002 /* MemoryGaugePlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoryGaugePlugin.swift; sourceTree = "<group>"; };
+		AA000028AAAA002800000002 /* MemoryGaugePlugin.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = MemoryGaugePlugin.m; sourceTree = "<group>"; };
 		B3A100012026080400000002 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -170,6 +174,8 @@
 				AA00001AAAAA001A00000002 /* PiTlsPlugin.m */,
 				AA000023AAAA002300000002 /* BarometerPlugin.swift */,
 				AA000024AAAA002400000002 /* BarometerPlugin.m */,
+				AA000027AAAA002700000002 /* MemoryGaugePlugin.swift */,
+				AA000028AAAA002800000002 /* MemoryGaugePlugin.m */,
 				AA000025AAAA002500000002 /* NetworkInterfacesPlugin.swift */,
 				AA000026AAAA002600000002 /* NetworkInterfacesPlugin.m */,
 				AA000014AAAA001400000002 /* MdnsBrowserPlugin.m */,
@@ -403,6 +409,8 @@
 				AA00001AAAAA001A00000001 /* PiTlsPlugin.m in Sources */,
 				AA000023AAAA002300000001 /* BarometerPlugin.swift in Sources */,
 				AA000024AAAA002400000001 /* BarometerPlugin.m in Sources */,
+				AA000027AAAA002700000001 /* MemoryGaugePlugin.swift in Sources */,
+				AA000028AAAA002800000001 /* MemoryGaugePlugin.m in Sources */,
 				AA000025AAAA002500000001 /* NetworkInterfacesPlugin.swift in Sources */,
 				AA000026AAAA002600000001 /* NetworkInterfacesPlugin.m in Sources */,
 				AA000014AAAA001400000001 /* MdnsBrowserPlugin.m in Sources */,

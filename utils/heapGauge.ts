@@ -19,6 +19,8 @@
  * kills are not JS-heap OOM at all and the hunt moves to GL/native memory.
  * Either way the next trail answers the question this round could not.
  */
+import { recentAvailableMemory, refreshAvailableMemory } from '../services/native/memoryGauge';
+
 type ChromeMemory = { usedJSHeapSize: number; jsHeapSizeLimit: number };
 
 export function heapMB(): { used: number; limit: number } | null {
@@ -41,7 +43,15 @@ export function heapMB(): { used: number; limit: number } | null {
  */
 export function heapTag(): string {
     const h = heapMB();
-    return h ? `,h${h.used}` : '';
+    if (h) return `,h${h.used}`;
+    // WKWebView: no JS-heap gauge, but the native plugin may hold a recent
+    // available-memory reading — ",a212" = 212 MB left before jetsam. The
+    // 2026-08-10 hunts flew blind here; the trail finally shows what the
+    // PROCESS holds on the platform where the deaths actually happen.
+    const native = recentAvailableMemory();
+    if (native && native.availableMB > 0) return `,a${native.availableMB}${native.warning ? ',warn' : ''}`;
+    if (native?.warning) return ',warn';
+    return '';
 }
 
 /**
@@ -68,19 +78,57 @@ const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
  * between tasks, and the trail proves one collection returns the heap to
  * ~400 MB. Waiting a beat IS the fix.
  */
+/**
+ * Below this much allocatable memory, a heavy build should WAIT on iOS.
+ *
+ * os_proc_available_memory reports what the app may still allocate before
+ * jetsam. A windowed ENC merge costs a ~32 MB register plus JSON.parse
+ * transients of the same order, landing on top of Mapbox worker re-tiling
+ * and fresh @2x raster decode — 250 MB of slack is the line between "the
+ * GC and the tile evictor can catch up" and the Lady Musgrave kill.
+ */
+export const NATIVE_AVAILABLE_FLOOR_MB = 250;
+
 export async function awaitHeapHeadroom(ceilingMB = HEAP_SOFT_CEILING_MB, maxWaitMs = 4000): Promise<void> {
     const first = heapMB();
-    if (!first || first.used < ceilingMB) return;
+    if (first) {
+        // Chrome path — the JS heap gauge is authoritative.
+        if (first.used < ceilingMB) return;
+        try {
+            const { crumb } = await import('./flightRecorder');
+            crumb('heap:backoff', `h${first.used}`);
+        } catch {
+            /* the brake must not depend on the recorder */
+        }
+        const t0 = Date.now();
+        while (Date.now() - t0 < maxWaitMs) {
+            await sleep(250);
+            const now = heapMB();
+            if (!now || now.used < ceilingMB) return;
+        }
+        return;
+    }
+
+    // WKWebView path (Lady Musgrave kill, 2026-08-21): no JS-heap gauge, but
+    // the native MemoryGauge plugin reports allocatable memory and system
+    // memory warnings. This was the documented no-op — on the one platform
+    // where the WebContent process actually gets jetsammed. Parking a merge
+    // for up to maxWaitMs lets the GC and Mapbox's tile evictor reclaim,
+    // which is exactly what the process needed in every recorded death.
+    const native = await refreshAvailableMemory();
+    if (!native) return; // no gauge anywhere — historical behaviour
+    if (native.availableMB >= NATIVE_AVAILABLE_FLOOR_MB && !native.warning) return;
     try {
         const { crumb } = await import('./flightRecorder');
-        crumb('heap:backoff', `h${first.used}`);
+        crumb('heap:backoff', `a${native.availableMB}${native.warning ? ',warn' : ''}`);
     } catch {
         /* the brake must not depend on the recorder */
     }
     const t0 = Date.now();
     while (Date.now() - t0 < maxWaitMs) {
         await sleep(250);
-        const now = heapMB();
-        if (!now || now.used < ceilingMB) return;
+        const now = await refreshAvailableMemory();
+        if (!now) return;
+        if (now.availableMB >= NATIVE_AVAILABLE_FLOOR_MB && !now.warning) return;
     }
 }

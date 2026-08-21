@@ -151,6 +151,7 @@ public class ThalassaBridgeViewController: CAPBridgeViewController {
         bridge?.registerPluginInstance(AnchorSafetyNotificationPlugin())
         bridge?.registerPluginInstance(PiTlsPlugin())
         bridge?.registerPluginInstance(BarometerPlugin())
+        bridge?.registerPluginInstance(MemoryGaugePlugin())
         bridge?.registerPluginInstance(NetworkInterfacesPlugin())
         // SshClientPlugin not added yet: its .swift/.m files exist on
         // disk but aren't in the pbxproj build graph yet (separate fix).

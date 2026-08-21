@@ -1566,6 +1566,19 @@ export function refreshEncVectorData(map: mapboxgl.Map, data: EncMergedVectorDat
             schedule(step);
             return;
         }
+        // Also park while raster tiles are still decoding (same ~3 s cap):
+        // a zoom-in at the satellite threshold otherwise lands 14 setData
+        // worker re-tilings ON TOP of fresh @2x tile decode — the exact
+        // coincident spike that jetsammed the WKWebView over reef water
+        // (Lady Musgrave kill, 2026-08-21).
+        if (
+            typeof map.areTilesLoaded === 'function' &&
+            !map.areTilesLoaded() &&
+            Date.now() - deferStart < 3000
+        ) {
+            schedule(step);
+            return;
+        }
         const job = uploads.shift();
         if (!job) return;
         try {
