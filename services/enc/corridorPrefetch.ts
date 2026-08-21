@@ -20,9 +20,36 @@
 import { cellsForBBox } from './EncCellMetadata';
 import { hasCellGeoJSON, loadCellGeoJSON } from './EncCellStore';
 import { registerCloudCells } from './cloudCellSync';
+import { crumb } from '../../utils/flightRecorder';
 import { createLogger } from '../../utils/createLogger';
 
 const log = createLogger('corridorPrefetch');
+
+/**
+ * The span above which the padded-bbox prefetch stops being a corridor.
+ *
+ * The pad formula below mirrors the inshore engine's request box — but the
+ * ENGINE refuses any route beyond MAX_INSHORE_NM (50 NM, ~0.83°), so its
+ * version of the formula is bounded by construction. This module copied the
+ * formula WITHOUT the ceiling. On a passage-scale trace the pad grows with the
+ * route: Moreton Bay to the start of the GBR spans ~4°, pads by ~2° a side,
+ * and the "corridor" becomes an ~8°×5° box over the densest cell region on
+ * the coast. Every pin edit then hydrated another 12 reef cells, every import
+ * bumped the registry, every bump re-ran a ~27 MB display merge — the storm
+ * under the Plan-page deaths at the southern reef (Shane, 2026-08-22:
+ * "continually crashes around the beginning of the GBR", phone AND web).
+ *
+ * At or below this span the engine can genuinely consume the whole padded box,
+ * so behaviour is byte-identical to the original. Above it, no consumer exists
+ * for the corners: auto-route refuses the route outright and leg grading works
+ * in ≤40 km windows around the line — so we fetch cells NEAR THE LINE instead.
+ */
+export const ENGINE_MAX_SPAN_DEG = 0.84;
+
+/** Segment-corridor half-width for passage-scale traces: the engine's own
+ *  maximum legal pad (0.84° span × 0.5 = 0.42°), so a cell the engine could
+ *  ever legally request for any sub-50NM leg of the trace is still inside. */
+export const CORRIDOR_PAD_DEG = 0.42;
 
 /** Cells pulled per run — bounds one run's network/disk cost; later edits
  *  (or the next debounce) continue the fill. */
@@ -56,6 +83,61 @@ export function corridorBBox(pins: ReadonlyArray<{ lat: number; lon: number }>):
     return [minLon - pad, minLat - pad, maxLon + pad, maxLat + pad];
 }
 
+/** Minimum degree-distance from a bbox to a polyline segment set (approx —
+ *  treats degrees as planar, which over-includes slightly at these spans;
+ *  over-inclusion is the safe direction for a prefetch filter). */
+function bboxNearPolyline(
+    bbox: [number, number, number, number],
+    pins: ReadonlyArray<{ lat: number; lon: number }>,
+    padDeg: number,
+): boolean {
+    const [w, s, e, n] = [bbox[0] - padDeg, bbox[1] - padDeg, bbox[2] + padDeg, bbox[3] + padDeg];
+    // A segment intersects the padded bbox iff either endpoint is inside, or
+    // the segment crosses it. Endpoint-inside covers the overwhelmingly common
+    // case; the crossing test catches a long leg that vaults a small cell.
+    const inside = (p: { lat: number; lon: number }): boolean =>
+        p.lon >= w && p.lon <= e && p.lat >= s && p.lat <= n;
+    for (let i = 0; i + 1 < pins.length; i++) {
+        const a = pins[i];
+        const b = pins[i + 1];
+        if (inside(a) || inside(b)) return true;
+        // Conservative segment/rect overlap: reject only when the whole
+        // segment lies strictly on one side of the rect.
+        if (Math.max(a.lon, b.lon) < w || Math.min(a.lon, b.lon) > e) continue;
+        if (Math.max(a.lat, b.lat) < s || Math.min(a.lat, b.lat) > n) continue;
+        return true;
+    }
+    return false;
+}
+
+/**
+ * The cells a prefetch run should pull for this pin set.
+ *
+ * Exported pure so the passage-scale trim is testable: short traces get the
+ * engine-parity padded bbox untouched; long traces keep only cells near the
+ * traced line, because nothing can consume the rest (see ENGINE_MAX_SPAN_DEG).
+ */
+export function selectCorridorCells<T extends { bbox: [number, number, number, number] }>(
+    pins: ReadonlyArray<{ lat: number; lon: number }>,
+    cellsInBBox: (bbox: [number, number, number, number]) => T[],
+): T[] {
+    const bbox = corridorBBox(pins);
+    let minLat = Infinity,
+        maxLat = -Infinity,
+        minLon = Infinity,
+        maxLon = -Infinity;
+    for (const p of pins) {
+        minLat = Math.min(minLat, p.lat);
+        maxLat = Math.max(maxLat, p.lat);
+        minLon = Math.min(minLon, p.lon);
+        maxLon = Math.max(maxLon, p.lon);
+    }
+    const span = Math.max(maxLat - minLat, maxLon - minLon);
+    const covering = cellsInBBox(bbox);
+    if (span <= ENGINE_MAX_SPAN_DEG) return covering;
+    return covering.filter((c) => bboxNearPolyline(c.bbox, pins, CORRIDOR_PAD_DEG));
+}
+
 /**
  * Ensure the corridor's cells are local. Never rejects; safe to fire-and-
  * forget on every (debounced) pin edit. Re-entrant calls while a run is in
@@ -73,8 +155,7 @@ export async function prefetchCorridorCells(
             // known (memoized — one manifest fetch per session). Signed-out /
             // offline quietly registers nothing; Pi-synced cells are already in.
             await registerCloudCells().catch(() => 0);
-            const bbox = corridorBBox(pins);
-            const covering = cellsForBBox(bbox);
+            const covering = selectCorridorCells(pins, cellsForBBox);
             const missing: string[] = [];
             for (const c of covering) {
                 if (!(await hasCellGeoJSON(c.id))) missing.push(c.id);
@@ -85,6 +166,9 @@ export async function prefetchCorridorCells(
             }
             const key = missing.join(',');
             if (key === lastKey) return { needed: missing.length, fetched: 0 }; // already tried this exact set
+            // Crumb the population, not just the pulls: the Plan-page fatal
+            // trails need to SHOW when a trace's missing-cell set is huge.
+            crumb('corridor:prefetch', `${missing.length}missing`);
             let fetched = 0;
             for (const id of missing.slice(0, MAX_CELLS_PER_RUN)) {
                 // The ladder does the work: Pi first (on the boat), cloud else.

@@ -1305,9 +1305,23 @@ async function loadCellBlobsAndExtents(
                 blob = null;
             }
             if (!blob) {
+                // Loud ONLY for the contradiction (2026-08-22): a cell the
+                // last walk downloaded "successfully" that still cannot be
+                // read here was the dark half of the Lady Musgrave loop — the
+                // walk kept claiming success while this line kept quietly
+                // disagreeing, and nothing in the log tied the two together.
+                // raw0.kind says HOW the read failed, which is the diagnostic
+                // the next device log needs. Ordinary not-yet-hydrated cells
+                // stay quiet as before — a cold coast lists dozens.
+                if (lastWalkOkCells.has(cell.id)) {
+                    log.warn(`cell ${cell.id}: downloaded ok last walk, yet no readable blob at merge (read=${raw0.kind})`);
+                }
                 missingBlobs.push(cell.id);
                 continue;
             }
+            // A good read-back retires the fruitless-success latch state.
+            lastWalkOkCells.delete(cell.id);
+            fruitlessOkWalks.delete(cell.id);
             loadedBlobs.set(cell.id, blob);
             let raw = depareExtentCache.get(blob);
             if (raw === undefined) {
@@ -1673,6 +1687,37 @@ export function setEncHydrationPaused(paused: boolean): void {
 const hydrationCooldownUntil = new Map<string, number>();
 const HYDRATION_RETRY_COOLDOWN_MS = 60_000;
 
+// ── Fruitless-success latch (Lady Musgrave loop, 2026-08-22) ──────
+//
+// The cooldown above only arms on download FAILURE. Shane's plan page died
+// unattended (~10 min, phone AND web, always at Lady Musgrave) on the gap
+// that leaves: a cell whose download SUCCEEDS — validation, identity, bbox
+// all pass — but whose blob still cannot be read back at the next merge.
+// That merge lists it missing again, the walk downloads it again, the
+// success clears its own cooldown again, the import bumps the registry
+// again, the re-merge allocates the full ~27 MB register again... forever,
+// with zero interaction. His flight trail is the loop verbatim:
+// walk-start(1cells) → walk-done → merge → walk-start(1cells), heap tags
+// climbing h154→h420 and never coming back.
+//
+// The latch: remember which cells the LAST walk claimed success for. If one
+// of them is back in the missing list, the success was fruitless — arm the
+// failure cooldown with escalation (60 s, 2 m, 4 m … capped at 1 h) and say
+// so loudly, naming the cell. The loop becomes one bounded retry per
+// cooldown instead of one per merge, whatever the underlying read-back bug
+// turns out to be. A successful read-back clears both maps.
+const lastWalkOkCells = new Set<string>();
+const fruitlessOkWalks = new Map<string, number>();
+const FRUITLESS_WALK_MAX_COOLDOWN_MS = 60 * 60 * 1000;
+
+/** Pure escalation policy, exported for the regression test. */
+export function fruitlessWalkCooldownMs(consecutiveFruitlessWalks: number): number {
+    return Math.min(
+        HYDRATION_RETRY_COOLDOWN_MS * 2 ** Math.max(0, consecutiveFruitlessWalks - 1),
+        FRUITLESS_WALK_MAX_COOLDOWN_MS,
+    );
+}
+
 /** Cells per paint wave during a hydration walk. Each wave costs one
  *  full wide-band re-merge + a 14-source Mapbox re-upload, so this is
  *  the direct lever on the OOM: a 40-cell walk goes from ~40 merges to
@@ -1733,6 +1778,24 @@ export function subscribeHydration(listener: (p: EncHydrationProgress) => void):
 async function hydrateMissingCells(cellIds: string[]): Promise<void> {
     if (hydrationRunning || cellIds.length === 0) return;
     hydrationRunning = true;
+    // Fruitless-success check BEFORE the cooldown filter: a cell the last
+    // walk downloaded "successfully" that is nonetheless back in the missing
+    // list gets the failure cooldown it never armed, with escalation.
+    const nowForLatch = Date.now();
+    for (const id of cellIds) {
+        if (!lastWalkOkCells.has(id)) continue;
+        lastWalkOkCells.delete(id);
+        const n = (fruitlessOkWalks.get(id) ?? 0) + 1;
+        fruitlessOkWalks.set(id, n);
+        const coolMs = fruitlessWalkCooldownMs(n);
+        hydrationCooldownUntil.set(id, nowForLatch + coolMs);
+        log.warn(
+            `cell ${id}: downloaded ok but STILL unreadable at the next merge ` +
+                `(fruitless walk #${n}) — cooling ${Math.round(coolMs / 1000)}s. ` +
+                `This is the merge↔hydration loop guard; the read-back failure itself still needs diagnosing.`,
+        );
+        crumb('enc:walk-loop', `${id}#${n}`);
+    }
     // Cooldown-filtered up front so the chip's "n of m" is honest —
     // cells sitting out a failure cooldown aren't "downloading".
     const now = Date.now();
@@ -1776,6 +1839,9 @@ async function hydrateMissingCells(cellIds: string[]): Promise<void> {
             const ok = await downloadRemoteCell(id);
             if (ok) {
                 hydrationCooldownUntil.delete(id);
+                // Success is provisional until the next merge actually READS
+                // the blob — see the fruitless-success latch above.
+                lastWalkOkCells.add(id);
                 // Guarantee a notify even when the download didn't patch
                 // provenance — an idempotent registry touch re-triggers
                 // the debounced merge.
