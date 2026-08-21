@@ -1873,7 +1873,22 @@ export function useWeatherLayers(
                     try {
                         const upstream = `${supabaseUrl}/functions/v1/proxy-rainbow?action=snapshot&layer=precip-global`;
                         const piUrl = piCache.passthroughUrl(upstream, RAINBOW_SNAPSHOT_TTL_MS, 'rainbow-snapshot');
-                        const snapResp = await fetch(piUrl ?? upstream, { signal: timeoutCtrl.signal });
+                        // Same fall-through the radar index needs, for the
+                        // same reason: piCache.isAvailable() is the LAST
+                        // health probe, so a Pi that has since gone out of
+                        // range makes this fetch REJECT. Without the retry
+                        // that throw costs every forecast frame while the
+                        // upstream is perfectly reachable — quietly, because
+                        // Phase 2 is designed to fail soft.
+                        let snapResp: Response | null = null;
+                        if (piUrl) {
+                            snapResp = await fetch(piUrl, { signal: timeoutCtrl.signal }).catch(() => null);
+                            if (!snapResp?.ok) {
+                                log.warn('Rainbow.ai snapshot: Pi lane unusable — falling through to direct');
+                                snapResp = null;
+                            }
+                        }
+                        snapResp ??= await fetch(upstream, { signal: timeoutCtrl.signal });
                         if (!snapResp.ok) {
                             log.warn(`Rainbow.ai snapshot failed: ${snapResp.status}`);
                             return null;

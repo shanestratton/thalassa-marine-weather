@@ -15,6 +15,7 @@ import { isUsableWindGrid, windHoursFromNow } from './windTimeAxis';
 import type { CmemsLayerId } from './CmemsAttribution';
 import type { CmemsLayerLoadState } from './useCmemsGridRefresh';
 import { isCmemsRenderedStepReady } from './useCmemsPlayback';
+import { useUIStore } from '../../stores/uiStore';
 
 type WeatherControlsWeather = ReturnType<typeof useWeatherLayers>;
 
@@ -219,6 +220,18 @@ export function MapWeatherControls({
             let nowIndex: number | undefined;
             let dualColor = false;
             let showRainRetry = false;
+            // Radar needs the WAN, and on a boat "connected" usually means
+            // connected to the vessel's own LAN with the uplink down — so a
+            // bare "No Radar" leaves the skipper unable to tell a broken app
+            // from a broken link. isOffline is a real WAN probe (see
+            // services/internetProbe.ts), not navigator.onLine, which is
+            // exactly the distinction that matters here.
+            //
+            // Read imperatively rather than subscribed: this component
+            // early-returns above on `!visible`, so a hook here would be a
+            // conditional-hook violation. The pill re-renders on every rain
+            // state change and on tap, which is often enough for a label.
+            const rainOffline = useUIStore.getState().isOffline;
             const forecastAccent = '#fbbf24';
             let onScrub = (_frame: number) => {};
             let onScrubStart: (() => void) | undefined;
@@ -475,14 +488,22 @@ export function MapWeatherControls({
                     onClick={() => weather.retryRain()}
                     className="absolute z-[500] flex min-h-12 min-w-40 items-center gap-2 rounded-2xl border border-white/10 bg-slate-950/80 px-4 py-2 text-left text-white shadow-lg backdrop-blur-xl active:bg-slate-800/80"
                     style={{ left: 12, bottom: embedded ? 12 : 'calc(80px + env(safe-area-inset-bottom))' }}
-                    aria-label="Rain radar unavailable — tap to retry"
+                    aria-label={
+                        rainOffline
+                            ? 'Rain radar unavailable — no internet connection. Tap to retry.'
+                            : 'Rain radar unavailable — tap to retry'
+                    }
                 >
                     <span className="text-lg leading-none" aria-hidden="true">
-                        ↻
+                        {rainOffline ? '⚠' : '↻'}
                     </span>
                     <span className="leading-tight">
                         <span className="block text-sm font-bold">No Radar</span>
-                        <span className="block text-[11px] font-semibold text-cyan-300">Tap to retry</span>
+                        <span
+                            className={`block text-[11px] font-semibold ${rainOffline ? 'text-amber-300' : 'text-cyan-300'}`}
+                        >
+                            {rainOffline ? 'No internet — tap to retry' : 'Tap to retry'}
+                        </span>
                     </span>
                 </button>
             ) : showInlineLoading ? (

@@ -71,49 +71,38 @@ export async function fetchRainviewerIndex(): Promise<RainViewerIndex | null> {
             // publishes a new past frame every ~10 min, so 5 min keeps us
             // within one frame of live.
             const piUrl = piCache.passthroughUrl(URL, TTL_MS, 'rainviewer-index');
-            const fetchUrl = piUrl ?? URL;
-            // 'default' lets the browser do its own conditional GET if
-            // RainViewer's response carries cache-control headers.
+
+            // TRY THE PI, THEN ALWAYS TRY DIRECT. The Pi is an OPTIMISATION —
+            // it must never be the reason a skipper has no radar.
             //
-            // BOUNDED. This is the fetch the whole rain layer waits on before
-            // it can paint anything, and it had no timeout and no signal — and
-            // per utils/deadline.ts, CapacitorHttp ignores AbortSignal on the
-            // native build, so the effective ceiling was the native default of
-            // ten minutes. A stalled marine-LTE socket, or a Pi that probed
-            // reachable and then went out of range, pinned rain on "loading"
-            // for the rest of the passage. 6s is generous for a small JSON and
-            // still short enough to feel like a failure rather than a hang.
-            let res = await withTimeout(fetch(fetchUrl, { cache: 'default' }), null, 6000);
-
-            // FALL BACK TO DIRECT when the Pi lane fails (2026-08-21). The Pi
-            // is an OPTIMISATION — it must never be the reason a skipper has
-            // no radar. isAvailable() reflects the last health probe, so a Pi
-            // that answered once and then went out of range (or a host left
-            // pointing at a bench address) sent this fetch somewhere
-            // unreachable, and the null return reads downstream as "no
-            // frames" — the rain scrubber shows "No Data" with a working
-            // RainViewer API one hop away. Shane hit exactly that today.
-            if (piUrl && (!res || !res.ok)) {
-                log.warn('[rainviewer] Pi lane failed — retrying direct');
-                res = await withTimeout(fetch(URL, { cache: 'default' }), null, 6000);
+            // The first version of this fallback (2026-08-21) only re-tried
+            // when the Pi lane RESOLVED badly — a timeout or a non-OK status.
+            // That missed the failure mode that actually strands a boat.
+            // isAvailable() reflects the LAST health probe, so the common case
+            // is a Pi that answered once and then went out of range: that
+            // fetch REJECTS, and per utils/deadline.ts withTimeout propagates
+            // rejections by design. The throw sailed past the retry into the
+            // outer catch and returned null with RainViewer working one hop
+            // away — the same "No Radar" the fallback was written to prevent.
+            //
+            // attemptLane() therefore collapses every way a lane can fail —
+            // throw, timeout, bad status, unusable body — into one null, so
+            // the fall-through cannot be skipped by the failure shape.
+            let data = piUrl ? await attemptLane(piUrl, 'pi') : null;
+            if (!data) {
+                if (piUrl) log.warn('[rainviewer] Pi lane unusable — falling through to direct');
+                data = await attemptLane(URL, 'direct');
             }
 
-            if (!res) {
-                log.warn('[rainviewer] index timed out — no radar frames this pass');
+            if (!data) {
+                log.warn('[rainviewer] no lane returned a usable index — no radar frames this pass');
                 return null;
             }
-            if (!res.ok) {
-                log.warn(`[rainviewer] index HTTP ${res.status} — no radar frames this pass`);
-                return null;
-            }
-            const data = (await res.json()) as RainViewerIndex;
             memo = { at: Date.now(), data };
             return data;
         } catch (e) {
-            // Was a bare `return null`. The caller then drew an empty rain
-            // layer and reported it healthy, so a dead radar feed looked
-            // exactly like clear skies with nothing in the console to say
-            // otherwise. warn(), not info() — info is a no-op in prod builds.
+            // Belt and braces: attemptLane already swallows per-lane failures,
+            // so reaching here means something outside the lanes broke.
             log.warn('[rainviewer] index fetch failed', e);
             return null;
         } finally {
@@ -121,4 +110,53 @@ export async function fetchRainviewerIndex(): Promise<RainViewerIndex | null> {
         }
     })();
     return inflight;
+}
+
+/**
+ * One fetch attempt, reduced to "usable index or null".
+ *
+ * Every failure mode is caught HERE rather than at the call site, because the
+ * call site's job is to decide which lane to try next and it cannot do that if
+ * one class of failure throws past it.
+ *
+ * The body check is not paranoia. The Pi's /api/passthrough answers 200 from
+ * `cachedJsonFetch`, so a poisoned or stale cache entry — or its own
+ * `{ error: ... }` envelope, which it returns with a status only on the throw
+ * path — arrives as a perfectly valid 200 JSON document with no frames in it.
+ * Accepting that as success would pin us to the bad lane and skip the direct
+ * retry, which is exactly the "reports healthy, paints nothing" shape this
+ * module already got caught by once.
+ */
+async function attemptLane(url: string, lane: 'pi' | 'direct'): Promise<RainViewerIndex | null> {
+    try {
+        // 'default' lets the browser do its own conditional GET if
+        // RainViewer's response carries cache-control headers.
+        //
+        // BOUNDED. This is the fetch the whole rain layer waits on before it
+        // can paint anything, and it had no timeout and no signal — and per
+        // utils/deadline.ts, CapacitorHttp ignores AbortSignal on the native
+        // build, so the effective ceiling was the native default of ten
+        // minutes. A stalled marine-LTE socket pinned rain on "loading" for
+        // the rest of the passage. 6s is generous for a small JSON and still
+        // short enough to feel like a failure rather than a hang.
+        const res = await withTimeout(fetch(url, { cache: 'default' }), null, 6000);
+        if (!res) {
+            log.warn(`[rainviewer] ${lane} lane timed out after 6s`);
+            return null;
+        }
+        if (!res.ok) {
+            log.warn(`[rainviewer] ${lane} lane HTTP ${res.status}`);
+            return null;
+        }
+        const body = (await res.json()) as RainViewerIndex | null;
+        if (!body || !Array.isArray(body.radar?.past) || body.radar.past.length === 0) {
+            log.warn(`[rainviewer] ${lane} lane returned 200 with no radar frames`);
+            return null;
+        }
+        return body;
+    } catch (e) {
+        // Includes the one that mattered: an unreachable host rejects.
+        log.warn(`[rainviewer] ${lane} lane threw`, e);
+        return null;
+    }
 }

@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { MapWeatherControls } from '../components/map/MapWeatherControls';
+import { useUIStore } from '../stores/uiStore';
 import type { useWeatherLayers } from '../components/map/useWeatherLayers';
 
 type WeatherControlsWeather = ReturnType<typeof useWeatherLayers>;
@@ -44,7 +45,10 @@ function renderControls(w: WeatherControlsWeather) {
     );
 }
 
-afterEach(() => cleanup());
+afterEach(() => {
+    cleanup();
+    useUIStore.setState({ isOffline: false });
+});
 
 describe('rain retry affordance', () => {
     it('offers a tappable retry when there are no frames', () => {
@@ -81,6 +85,37 @@ describe('rain retry affordance', () => {
         );
 
         expect(screen.queryByRole('button', { name: /retry/i })).toBeNull();
+    });
+
+    // A skipper offshore needs to know whether the app is broken or the link
+    // is. Radar is WAN-only, and on a boat "connected" usually means connected
+    // to the vessel's own LAN with the uplink down, so the bare label is
+    // actively unhelpful in the exact situation it appears in.
+    it('names the link as the cause when there is no WAN', () => {
+        useUIStore.setState({ isOffline: true });
+        renderControls(weather());
+
+        expect(screen.getByText(/no internet/i)).toBeTruthy();
+    });
+
+    it('does not blame the link when the device is online', () => {
+        useUIStore.setState({ isOffline: false });
+        renderControls(weather());
+
+        expect(screen.queryByText(/no internet/i)).toBeNull();
+        expect(screen.getByText(/tap to retry/i)).toBeTruthy();
+    });
+
+    it('still offers the retry while offline — the probe can be stale', () => {
+        useUIStore.setState({ isOffline: true });
+        const w = weather();
+        renderControls(w);
+
+        // The WAN probe runs every 2 min (30 s after a failure), so it can lag
+        // reality by a long way on a boat drifting back into cell range.
+        // Refusing the tap would strand the skipper behind a stale flag.
+        fireEvent.click(screen.getByRole('button', { name: /retry/i }));
+        expect(w.retryRain).toHaveBeenCalledTimes(1);
     });
 
     it('routes the retry through the session cleanup, not a bare frame clear', () => {
