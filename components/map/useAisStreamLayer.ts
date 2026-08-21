@@ -538,10 +538,25 @@ export function typeBucketColor(shipType: number): string {
 }
 
 /**
+ * The one colour a hazard vessel wears — deliberately OUTSIDE the type
+ * palette (no bucket is magenta), because "safety overrides type" is
+ * meaningless if the override reuses tanker-red or fishing-orange. A NUC or
+ * aground vessel must be unmistakable at a glance.
+ */
+export const AIS_DANGER_COLOR = '#f5009b';
+
+/** Nav statuses that make a vessel a HAZARD regardless of what it is:
+ *  2 not-under-command, 3 restricted manoeuvrability, 4 constrained by
+ *  draught, 6 AGROUND (dropped from the first cut — the very state a
+ *  skipper most needs to see). Moored/anchored are not hazards. */
+const DANGER_NAV_STATUS = new Set([2, 3, 4, 6]);
+
+/**
  * Presentation properties for one target. The rules, in priority order:
- *  - SAFETY OVERRIDES TYPE: nav status 2 (not under command), 3/4
- *    (restricted/constrained) keep their status colour — a red NUC target
- *    must never render as a friendly green cargo ship.
+ *  - SAFETY OVERRIDES TYPE: a hazard nav status paints the dedicated danger
+ *    colour, never a type bucket — so a not-under-command vessel can never
+ *    read as a friendly green cargo ship, and an aground one is never mistaken
+ *    for its type.
  *  - MOTION PICKS THE SHAPE: underway (sog >= 0.5) with a KNOWN orientation
  *    renders as the rotated boat; everything else is a dot. This also kills
  *    the north-pointing-fleet artefact: a null COG used to coerce to 0 and
@@ -562,10 +577,9 @@ export function targetPresentation(p: Record<string, unknown>): {
 
     const moving = sog !== null && sog >= 0.5;
     const orientation = heading !== null ? heading : moving && cog !== null ? cog : null;
-    const dangerStatus = navStatus === 2 || navStatus === 3 || navStatus === 4;
 
     return {
-        typeColor: dangerStatus ? navStatusColor(navStatus) : typeBucketColor(shipType),
+        typeColor: DANGER_NAV_STATUS.has(navStatus) ? AIS_DANGER_COLOR : typeBucketColor(shipType),
         iconKind: moving && orientation !== null ? 'boat' : 'dot',
         orientation: orientation ?? 0,
     };

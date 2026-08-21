@@ -1157,7 +1157,7 @@ export function useMapInit(opts: UseMapInitOptions) {
                 type: 'line',
                 source: 'ais-predicted-tracks',
                 paint: {
-                    'line-color': ['get', 'statusColor'],
+                    'line-color': ['coalesce', ['get', 'typeColor'], ['get', 'statusColor']],
                     'line-width': 1.5,
                     'line-opacity': [
                         'interpolate',
@@ -1182,7 +1182,7 @@ export function useMapInit(opts: UseMapInitOptions) {
                 filter: ['==', ['geometry-type'], 'Point'],
                 paint: {
                     'circle-radius': 3,
-                    'circle-color': ['get', 'statusColor'],
+                    'circle-color': ['coalesce', ['get', 'typeColor'], ['get', 'statusColor']],
                     'circle-opacity': [
                         'interpolate',
                         ['linear'],
@@ -1234,7 +1234,7 @@ export function useMapInit(opts: UseMapInitOptions) {
                     'circle-radius': ['interpolate', ['linear'], ['zoom'], 5, 5, 10, 10, 14, 16],
                     'circle-blur': 0.8,
                     'circle-opacity': 0.4,
-                    'circle-color': ['get', 'statusColor'],
+                    'circle-color': ['coalesce', ['get', 'typeColor'], ['get', 'statusColor']],
                 },
             });
 

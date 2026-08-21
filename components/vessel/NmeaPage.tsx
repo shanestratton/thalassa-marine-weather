@@ -21,6 +21,7 @@ import {
     subscribeShareStats,
 } from '../../services/AisShareService';
 import { Toggle } from '../settings/SettingsPrimitives';
+import { useAuthStore } from '../../stores/authStore';
 import {
     discoverGateways,
     subnetPrefixOf,
@@ -625,10 +626,14 @@ const FleetSharingCard: React.FC<{ connected: boolean }> = ({ connected }) => {
     const [enabled, setEnabled] = useState(() => isShareEnabled());
     const [, force] = useState(0);
     useEffect(() => subscribeShareStats(() => force((n) => n + 1)), []);
+    // Sharing uploads through an authenticated endpoint — signed out, every
+    // batch is dropped by getAuthenticatedFunctionHeaders. The card must not
+    // claim "Sharing live" in that state (review, 2026-08-21).
+    const signedIn = useAuthStore((state) => state.user !== null);
 
     const configured = isShareConfigured();
     const stats = getShareStats();
-    const active = enabled && configured && connected;
+    const active = enabled && configured && connected && signedIn;
 
     return (
         <div className="shrink-0 mb-3 rounded-2xl border border-white/[0.08] bg-slate-900/60 p-4">
@@ -661,6 +666,11 @@ const FleetSharingCard: React.FC<{ connected: boolean }> = ({ connected }) => {
             {enabled && configured && !connected && (
                 <p className="mt-2 text-[11px] font-semibold text-gray-400">
                     Waiting for the gateway &mdash; sharing runs while NMEA is connected.
+                </p>
+            )}
+            {enabled && configured && connected && !signedIn && (
+                <p className="mt-2 text-[11px] font-semibold text-amber-300">
+                    Sign in to share &mdash; the fleet feed needs a Thalassa account.
                 </p>
             )}
             {active && (
