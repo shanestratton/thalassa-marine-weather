@@ -520,6 +520,58 @@ function clipFeaturesToView(map: mapboxgl.Map, features: GeoJSON.Feature[]): Geo
 }
 
 /**
+ * Vessel-type colour buckets — the palette punters already read from every
+ * AIS site (cargo green, tanker red, passenger blue, fishing orange,
+ * sailing/pleasure purple), with an HONEST grey for unknown: the vessels
+ * table defaults ship_type to 0 and many Class B never send statics, so
+ * pretending a type would paint most small craft wrong.
+ */
+export function typeBucketColor(shipType: number): string {
+    if (shipType >= 70 && shipType <= 79) return '#22c55e'; // cargo
+    if (shipType >= 80 && shipType <= 89) return '#ef4444'; // tanker
+    if (shipType >= 60 && shipType <= 69) return '#3b82f6'; // passenger
+    if (shipType === 30) return '#f97316'; // fishing
+    if (shipType === 36 || shipType === 37) return '#a855f7'; // sailing / pleasure
+    if ((shipType >= 31 && shipType <= 35) || (shipType >= 50 && shipType <= 58)) return '#eab308'; // tug/pilot/SAR/special
+    if (shipType >= 40 && shipType <= 49) return '#06b6d4'; // high-speed craft
+    return '#94a3b8'; // unknown — grey, honestly
+}
+
+/**
+ * Presentation properties for one target. The rules, in priority order:
+ *  - SAFETY OVERRIDES TYPE: nav status 2 (not under command), 3/4
+ *    (restricted/constrained) keep their status colour — a red NUC target
+ *    must never render as a friendly green cargo ship.
+ *  - MOTION PICKS THE SHAPE: underway (sog >= 0.5) with a KNOWN orientation
+ *    renders as the rotated boat; everything else is a dot. This also kills
+ *    the north-pointing-fleet artefact: a null COG used to coerce to 0 and
+ *    rotate every stopped target to due north.
+ *  - Orientation prefers true heading; COG only substitutes when actually
+ *    moving (a drifting boat's COG is noise).
+ */
+export function targetPresentation(p: Record<string, unknown>): {
+    typeColor: string;
+    iconKind: 'boat' | 'dot';
+    orientation: number;
+} {
+    const navStatus = typeof p.navStatus === 'number' ? p.navStatus : 15;
+    const shipType = typeof p.shipType === 'number' ? p.shipType : 0;
+    const sog = typeof p.sog === 'number' && Number.isFinite(p.sog) ? p.sog : null;
+    const heading = typeof p.heading === 'number' && p.heading !== 511 && Number.isFinite(p.heading) ? p.heading : null;
+    const cog = typeof p.cog === 'number' && Number.isFinite(p.cog) && p.cog > 0 ? p.cog : null;
+
+    const moving = sog !== null && sog >= 0.5;
+    const orientation = heading !== null ? heading : moving && cog !== null ? cog : null;
+    const dangerStatus = navStatus === 2 || navStatus === 3 || navStatus === 4;
+
+    return {
+        typeColor: dangerStatus ? navStatusColor(navStatus) : typeBucketColor(shipType),
+        iconKind: moving && orientation !== null ? 'boat' : 'dot',
+        orientation: orientation ?? 0,
+    };
+}
+
+/**
  * Map AIS navigational status code to a display colour.
  */
 function navStatusColor(status: number): string {
@@ -686,6 +738,16 @@ export function useAisStreamLayer(map: mapboxgl.Map | null, enabled: boolean): v
         // panning, so only vessels near where you're LOOKING ever render. ──
         const clipped = clipFeaturesToView(map, merged.features);
 
+        // Presentation pass — ONE place, both sources: type colour with
+        // safety override, motion shape, honest orientation.
+        for (const feat of clipped.features) {
+            if (!feat.properties) continue;
+            const pres = targetPresentation(feat.properties);
+            feat.properties.typeColor = pres.typeColor;
+            feat.properties.iconKind = pres.iconKind;
+            feat.properties.orientation = pres.orientation;
+        }
+
         const source = map.getSource(AIS_SOURCE_ID) as mapboxgl.GeoJSONSource | undefined;
         if (source) {
             source.setData(clipped);
@@ -720,7 +782,7 @@ export function useAisStreamLayer(map: mapboxgl.Map | null, enabled: boolean): v
                 trackFeatures.push({
                     type: 'Feature',
                     geometry: { type: 'Point', coordinates: projected },
-                    properties: { statusColor: color, staleMinutes: stale, minutes },
+                    properties: { statusColor: color, typeColor: p.typeColor ?? color, staleMinutes: stale, minutes },
                 });
             }
 
@@ -728,7 +790,7 @@ export function useAisStreamLayer(map: mapboxgl.Map | null, enabled: boolean): v
             trackFeatures.push({
                 type: 'Feature',
                 geometry: { type: 'LineString', coordinates: lineCoords },
-                properties: { statusColor: color, staleMinutes: stale },
+                properties: { statusColor: color, typeColor: p.typeColor ?? color, staleMinutes: stale },
             });
         }
 

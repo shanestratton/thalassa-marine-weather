@@ -1119,6 +1119,27 @@ export function useMapInit(opts: UseMapInitOptions) {
             const boatImageData = ctx.getImageData(0, 0, boatSize, boatSize);
             map.addImage('ais-boat', boatImageData, { sdf: true });
 
+            // Stopped-target dot: anchored/moored/orientation-unknown vessels
+            // render as this instead of a north-pointing boat (the null-COG
+            // coercion used to aim every stopped target at the pole).
+            const dotSize = 32;
+            const dotCanvas = document.createElement('canvas');
+            dotCanvas.width = dotSize;
+            dotCanvas.height = dotSize;
+            const dotCtx = dotCanvas.getContext('2d')!;
+            dotCtx.fillStyle = 'white';
+            dotCtx.strokeStyle = 'rgba(0,0,0,0.35)';
+            dotCtx.lineWidth = 2;
+            dotCtx.beginPath();
+            dotCtx.arc(dotSize / 2, dotSize / 2, dotSize * 0.28, 0, Math.PI * 2);
+            dotCtx.fill();
+            dotCtx.stroke();
+            // Thin outer ring so a dense anchorage reads as boats, not noise.
+            dotCtx.beginPath();
+            dotCtx.arc(dotSize / 2, dotSize / 2, dotSize * 0.42, 0, Math.PI * 2);
+            dotCtx.stroke();
+            map.addImage('ais-stopped', dotCtx.getImageData(0, 0, dotSize, dotSize), { sdf: true });
+
             map.addSource('ais-targets', {
                 type: 'geojson',
                 data: { type: 'FeatureCollection', features: [] },
@@ -1223,20 +1244,30 @@ export function useMapInit(opts: UseMapInitOptions) {
                 type: 'symbol',
                 source: 'ais-targets',
                 layout: {
-                    'icon-image': 'ais-boat',
-                    'icon-size': ['interpolate', ['linear'], ['zoom'], 3, 0.2, 7, 0.35, 10, 0.5, 14, 0.8],
-                    'icon-rotate': [
-                        'case',
-                        ['has', 'heading'],
-                        ['case', ['!=', ['get', 'heading'], 511], ['get', 'heading'], ['get', 'cog']],
-                        ['get', 'cog'],
+                    // Motion picks the shape: underway-with-orientation is the
+                    // rotated boat, everything else the dot (see
+                    // targetPresentation in useAisStreamLayer — precomputed,
+                    // the established pattern for this source).
+                    'icon-image': [
+                        'match',
+                        ['coalesce', ['get', 'iconKind'], 'boat'],
+                        'dot',
+                        'ais-stopped',
+                        'ais-boat',
                     ],
+                    'icon-size': ['interpolate', ['linear'], ['zoom'], 3, 0.2, 7, 0.35, 10, 0.5, 14, 0.8],
+                    // Precomputed orientation (heading-first, COG only when
+                    // moving); dots ignore rotation by shape.
+                    'icon-rotate': ['coalesce', ['get', 'orientation'], 0],
                     'icon-rotation-alignment': 'map',
                     'icon-allow-overlap': true,
                     'icon-pitch-alignment': 'map',
                 },
                 paint: {
-                    'icon-color': ['get', 'statusColor'],
+                    // Type colour with safety override (NUC/restricted keep
+                    // their status colour); statusColor is the fallback for
+                    // any feature that predates the presentation pass.
+                    'icon-color': ['coalesce', ['get', 'typeColor'], ['get', 'statusColor']],
                     // Ghost ship effect: fade vessels by age (staleMinutes)
                     // 0-30 min: fully opaque, 30-120 min: fading, 120+: ghostly
                     'icon-opacity': [
