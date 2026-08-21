@@ -386,3 +386,99 @@ describe('parseAisStreamMessage — edge cases', () => {
         expect(result!.heading).toBeUndefined();
     });
 });
+
+describe('StaticDataReport (message 24 — Class B static)', () => {
+    // Class B vessels — every yacht with a Class B transponder — send their
+    // name here, NOT in ShipStaticData (msg 5, Class A only). Dropping msg 24
+    // filled the table with nameless positions no name-search could find.
+    const frame = (payload: Record<string, unknown>) =>
+        JSON.stringify({ MessageType: 'StaticDataReport', Message: { StaticDataReport: payload } });
+
+    it('takes the name from a valid Part A', () => {
+        const rec = parseAisStreamMessage(
+            frame({ Valid: true, UserID: 503101240, ReportA: { Valid: true, Name: 'WHISKERS@@@' } }),
+        );
+        expect(rec).toEqual({ mmsi: 503101240, name: 'WHISKERS' });
+    });
+
+    it('takes call sign, type and dimensions from a valid Part B', () => {
+        const rec = parseAisStreamMessage(
+            frame({
+                Valid: true,
+                UserID: 503101240,
+                ReportB: {
+                    Valid: true,
+                    CallSign: 'VJN4567',
+                    ShipType: 36,
+                    Dimension: { A: 8, B: 4, C: 2, D: 2 },
+                },
+            }),
+        );
+        expect(rec).toMatchObject({
+            mmsi: 503101240,
+            call_sign: 'VJN4567',
+            ship_type: 36,
+            dimension_a: 8,
+            dimension_b: 4,
+            dimension_c: 2,
+            dimension_d: 2,
+        });
+        expect(rec?.name).toBeUndefined();
+    });
+
+    it('rejects a report whose parts are both invalid', () => {
+        expect(
+            parseAisStreamMessage(
+                frame({ Valid: true, UserID: 503101240, ReportA: { Valid: false }, ReportB: { Valid: false } }),
+            ),
+        ).toBeNull();
+    });
+
+    it('rejects a valid part that carried nothing usable', () => {
+        // Part A valid but the name is all padding — an empty record would
+        // only refresh updated_at, which the change detector exists to stop.
+        expect(
+            parseAisStreamMessage(frame({ Valid: true, UserID: 503101240, ReportA: { Valid: true, Name: '@@@' } })),
+        ).toBeNull();
+    });
+
+    it('rejects a bad MMSI', () => {
+        expect(
+            parseAisStreamMessage(frame({ Valid: true, UserID: 42, ReportA: { Valid: true, Name: 'GHOST' } })),
+        ).toBeNull();
+    });
+});
+
+describe('MetaData.ShipName fallback', () => {
+    it('a position report carries the envelope name so search works from frame one', () => {
+        const rec = parseAisStreamMessage(
+            JSON.stringify({
+                MessageType: 'StandardClassBPositionReport',
+                MetaData: { ShipName: 'WHISKERS   ' },
+                Message: {
+                    StandardClassBPositionReport: {
+                        Valid: true,
+                        UserID: 503101240,
+                        Latitude: -27.2,
+                        Longitude: 153.09,
+                    },
+                },
+            }),
+        );
+        expect(rec?.name).toBe('WHISKERS');
+    });
+
+    it('padding artefacts are rejected, not stored', () => {
+        const rec = parseAisStreamMessage(
+            JSON.stringify({
+                MessageType: 'PositionReport',
+                MetaData: { ShipName: 'COASTGUARD@@@@@@@@H' },
+                Message: {
+                    PositionReport: { Valid: true, UserID: 123456789, Latitude: -27.2, Longitude: 153.09 },
+                },
+            }),
+        );
+        expect(rec).not.toBeNull();
+        expect(rec?.name).toBeUndefined();
+    });
+});

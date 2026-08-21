@@ -1,7 +1,8 @@
 /**
  * parser.ts — Extract vessel records from AISStream.io messages.
  *
- * Handles PositionReport and ShipStaticData message types.
+ * Handles PositionReport, ShipStaticData, StandardClassBPositionReport and
+ * StaticDataReport message types.
  */
 
 export interface VesselRecord {
@@ -105,10 +106,27 @@ export function parseAisStreamMessage(raw: string): VesselRecord | null {
     const message = parsed.Message;
     if (typeof type !== 'string' || !isRecord(message)) return null;
 
+    // Every aisstream envelope carries MetaData.ShipName — their own static-
+    // data cache joined onto the frame. It is not part of the AIS message,
+    // but as a FALLBACK name it means a vessel can be searchable from its
+    // very first position report, without waiting to catch a msg 5/24 in
+    // flight. Real static messages keep overwriting it via the merge, and a
+    // name still carrying '@' anywhere is six-bit padding artefact, never a
+    // real name — reject rather than store garbage.
+    const metaData = isRecord(parsed.MetaData) ? parsed.MetaData : null;
+    const metaName = (() => {
+        const cleaned = optionalAisText(metaData?.ShipName, 20);
+        return cleaned !== undefined && !cleaned.includes('@') ? cleaned : undefined;
+    })();
+    const withMetaName = (record: VesselRecord | null): VesselRecord | null => {
+        if (record && record.name === undefined && metaName !== undefined) record.name = metaName;
+        return record;
+    };
+
     // ── PositionReport (AIS message types 1, 2, 3) ──
     if (type === 'PositionReport') {
         const payload = message.PositionReport;
-        return isRecord(payload) ? positionRecord(payload, false) : null;
+        return isRecord(payload) ? withMetaName(positionRecord(payload, false)) : null;
     }
 
     // ── ShipStaticData (AIS message type 5) ──
@@ -135,7 +153,47 @@ export function parseAisStreamMessage(raw: string): VesselRecord | null {
     // ── StandardClassBPositionReport (AIS message type 18) ──
     if (type === 'StandardClassBPositionReport') {
         const payload = message.StandardClassBPositionReport;
-        return isRecord(payload) ? positionRecord(payload, true) : null;
+        return isRecord(payload) ? withMetaName(positionRecord(payload, true)) : null;
+    }
+
+    // ── StaticDataReport (AIS message type 24) ──
+    // Class B vessels — every yacht with a Class B transponder — send their
+    // NAME here, in Part A, and their call sign / type / dimensions in
+    // Part B. Message 5 (ShipStaticData) is Class A only. Without this
+    // branch the table filled with nameless Class B positions, so a name
+    // search could never find a yacht — including the owner's own boat
+    // (Shane, 2026-08-21: "it never finds them. not even my own yacht").
+    if (type === 'StaticDataReport') {
+        const payload = message.StaticDataReport;
+        if (!isRecord(payload) || payload.Valid !== true || !validMmsi(payload.UserID)) return null;
+        const partA = isRecord(payload.ReportA) ? payload.ReportA : null;
+        const partB = isRecord(payload.ReportB) ? payload.ReportB : null;
+        const partAValid = partA?.Valid === true;
+        const partBValid = partB?.Valid === true;
+        if (!partAValid && !partBValid) return null;
+        const dimension = partBValid && isRecord(partB.Dimension) ? partB.Dimension : {};
+
+        const record: VesselRecord = { mmsi: payload.UserID };
+        if (partAValid) {
+            const name = optionalAisText(partA.Name, 20);
+            if (name !== undefined) record.name = name;
+        }
+        if (partBValid) {
+            const callSign = optionalAisText(partB.CallSign, 7);
+            if (callSign !== undefined) record.call_sign = callSign;
+            const shipType = optionalInteger(partB.ShipType, 0, 99);
+            if (shipType !== undefined) record.ship_type = shipType;
+            const dimA = optionalInteger(dimension.A, 0, 511);
+            if (dimA !== undefined) record.dimension_a = dimA;
+            const dimB = optionalInteger(dimension.B, 0, 511);
+            if (dimB !== undefined) record.dimension_b = dimB;
+            const dimC = optionalInteger(dimension.C, 0, 63);
+            if (dimC !== undefined) record.dimension_c = dimC;
+            const dimD = optionalInteger(dimension.D, 0, 63);
+            if (dimD !== undefined) record.dimension_d = dimD;
+        }
+        // A part that carried nothing usable is not a record.
+        return Object.keys(record).length > 1 ? record : null;
     }
 
     return null;
