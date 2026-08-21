@@ -4,22 +4,53 @@
 import mapboxgl from 'mapbox-gl';
 import { createLogger } from '../../utils/createLogger';
 import { particleScale } from '../../utils/deviceTier';
+import { crumb } from '../../utils/flightRecorder';
 
 const log = createLogger('WindParticleLayer');
 import type { WindGrid } from '../../services/weather/windField';
 
 const MAX_SPEED = 60.0;
-// Device-tiered: 30k on high-end, 21k on mid, 12k on low (iPhone 8/SE).
-const NUM_PARTICLES = Math.round(30000 * particleScale());
+/**
+ * Particle budget (Shane 2026-08-22: "speed, speed and speed … not too many
+ * and not too fast, but maintain the colouring").
+ *
+ * This layer keeps its particle state on the CPU and re-uploads the WHOLE
+ * trail buffer to the GPU every frame (bufferSubData in render). The cost is
+ * therefore particles × trail × 5 floats × 4 bytes, per frame, on top of a
+ * CPU loop that shifts every trail point. At the old 30 000 × 30 that was an
+ * 18 MB upload and ~900 k float moves per frame — ~1 GB/s of bus traffic at
+ * 60 fps on a phone, which is what "slow to load" felt like: the first
+ * seconds after the grid landed were spent choking on the animation, not
+ * the data. Windy runs a few thousand particles with GPU-side state.
+ *
+ * 9 000 × 18 is 3.2 MB per frame — 5.6× less — and the colour ramp in
+ * PARTICLE_FRAG is per-particle speed, so fewer particles do not change what
+ * a given wind looks like, only how crowded it is. Tiers scale from here.
+ */
+// Device-tiered: 9k on high-end, 6.3k on mid, 3.6k on low (iPhone 8/SE).
+const NUM_PARTICLES = Math.round(9000 * particleScale());
 const MAX_AGE = 250;
-const SPEED_FACTOR = 0.00025;
+/** Advection step per frame. 0.00025 read as "too fast" on the phone — the
+ *  sperm sprinted. Slower also makes the speed COLOUR do more of the work of
+ *  saying "it is blowing here", which is the honest signal anyway. */
+const SPEED_FACTOR = 0.00016;
 const MS_TO_KNOTS = 1.94384;
 const VELOCITY_KILL_THRESHOLD = 0.3; // knots — kill particles in convergence zones
 const RANDOM_DROP_RATE = 0.004; // 0.4% chance per frame of spontaneous respawn
-const TRAIL_LENGTH = 30;
+const TRAIL_LENGTH = 18;
 const FLOATS_PER_TRAIL_PT = 5; // x, y, speed, alpha, opposition
 const FLOATS_PER_PARTICLE = TRAIL_LENGTH * FLOATS_PER_TRAIL_PT;
 const TOTAL_POINTS = NUM_PARTICLES * TRAIL_LENGTH;
+
+/** The budget, exported so a contract test can hold the per-frame upload to
+ *  a ceiling instead of someone quietly nudging the count back up. */
+export const WIND_PARTICLE_BUDGET = {
+    baseParticles: 9000,
+    trailLength: TRAIL_LENGTH,
+    speedFactor: SPEED_FACTOR,
+    /** Bytes re-uploaded to the GPU per frame at the high-end tier. */
+    bytesPerFrameHighTier: 9000 * TRAIL_LENGTH * FLOATS_PER_TRAIL_PT * 4,
+} as const;
 
 interface WindBounds {
     north: number;
@@ -464,8 +495,15 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
      * Load a full WindGrid and build the timeline of all hourly timesteps.
      * Accepts a fractional starting hour for smooth initial positioning.
      */
+    /** performance.now() at the last setGrid; the first render after it
+     *  reports the grid→first-frame latency, which is the number the
+     *  skipper actually feels. */
+    private _gridSetAt = 0;
+    private _firstFrameReported = true;
+
     setGrid(grid: WindGrid, hour: number = 0): void {
         this.currentGrid = grid;
+        const perfT0 = performance.now();
 
         if (!this.gl) {
             this.pendingGrid = { grid, hour };
@@ -539,7 +577,16 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
 
         // Reset render log counter so we see the first render with actual data
         this._renderLogCount = 0;
-        log.info(`[WindGL] setGrid complete — triggering repaint`);
+        // warn, not info (info is silent in prod): this is the boot-speed
+        // ground truth for wind, split so fetch vs GPU vs first paint are
+        // separately visible in a device log (Shane 2026-08-22).
+        log.warn(
+            `[perf] wind grid→GPU ${Math.round(performance.now() - perfT0)}ms ` +
+                `(${grid.width}×${grid.height}×${this.windTimeline.length}h, ${NUM_PARTICLES} particles)`,
+        );
+        crumb('wind:gpu', `${Math.round(performance.now() - perfT0)}ms`);
+        this._gridSetAt = performance.now();
+        this._firstFrameReported = false;
         this.map?.triggerRepaint();
     }
 
@@ -1116,6 +1163,13 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
             return;
         }
         this._lastRenderTime = now;
+
+        if (!this._firstFrameReported && this.windTimeline.length > 0) {
+            this._firstFrameReported = true;
+            const sinceGrid = Math.round(now - this._gridSetAt);
+            log.warn(`[perf] wind first frame +${sinceGrid}ms after grid`);
+            crumb('wind:first-frame', `+${sinceGrid}ms`);
+        }
 
         if (!this.program || !this.particleBuffer || !matrixOrOptions) {
             if (this._renderLogCount < 3) {

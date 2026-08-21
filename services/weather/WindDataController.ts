@@ -20,6 +20,8 @@ import { WindStore } from '../../stores/WindStore';
 import { LocationStore } from '../../stores/LocationStore';
 import { piCache } from '../PiCacheService';
 import { withDeadline } from '../../utils/deadline';
+import { crumb } from '../../utils/flightRecorder';
+import { heapTag } from '../../utils/heapGauge';
 import { continuousEastForLongitudeRange } from './windLongitude';
 const log = createLogger('WindCtrl');
 
@@ -541,11 +543,20 @@ export const WindDataController = {
             if (useOpenMeteoGridded) {
                 const { fetchModelWindGrid } = await import('./OpenMeteoWindFetcher');
                 if (!isCurrentWindRequest(request)) return false;
+                const fetchT0 = performance.now();
+                crumb('wind:fetch-start', `${model} ${desiredRes.toFixed(2)}°${heapTag()}`);
                 const rawGrid = await withDeadline(
                     fetchModelWindGrid(model, { north, south, west, east }, CHART_HOURS, desiredRes),
                     30_000,
                     'om-model-grid',
                 );
+                // warn, not info: the network half of "wind is slow", split
+                // from the GPU half logged by WindParticleLayer.setGrid.
+                const fetchMs = Math.round(performance.now() - fetchT0);
+                log.warn(
+                    `[perf] wind fetch ${model} ${rawGrid ? `${rawGrid.width}×${rawGrid.height}×${rawGrid.totalHours}h` : 'FAILED'} ${fetchMs}ms`,
+                );
+                crumb('wind:fetch', `${fetchMs}ms${rawGrid ? '' : ',fail'}`);
                 if (!isCurrentWindRequest(request)) return false;
                 let grid = rawGrid;
                 if (grid && field === 'gust') {
