@@ -23,6 +23,7 @@ import { MAX_AIS_MESSAGE_CHARS, parseAisStreamMessage } from './parser.js';
 import { VesselDB } from './db.js';
 import { isGuardianWatchdogEnabled, startWatchdog } from './watchdog.js';
 import { getAishubStats, startAishubPoller } from './aishub.js';
+import { getFleetFeedStats, handleFleetFeed } from './fleetFeed.js';
 
 // ── Config ──
 const AISSTREAM_URL = 'wss://stream.aisstream.io/v0/stream';
@@ -278,7 +279,36 @@ function checkStaleConnection(): void {
 
 // ── Health Check HTTP Server ──
 
+const FLEET_FEED_ANON_KEY = process.env.SUPABASE_ANON_KEY;
+
 const healthServer = http.createServer((req, res) => {
+    // ── Punter crowd-feed (authorized: AISHub 2026-03-18, port for all
+    // feeds). Requires SUPABASE_ANON_KEY for user-token verification —
+    // absent, the endpoint answers 503 and the rest of the worker is
+    // unaffected. AISHub forward reuses the same env pair as the bridge.
+    if (req.url === '/fleet-feed') {
+        if (!SUPABASE_URL || !FLEET_FEED_ANON_KEY) {
+            res.writeHead(503, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'fleet feed not configured' }));
+            return;
+        }
+        void handleFleetFeed(req, res, {
+            db,
+            supabaseUrl: SUPABASE_URL,
+            supabaseAnonKey: FLEET_FEED_ANON_KEY,
+            aishubHost: process.env.AISHUB_HOST,
+            aishubPort: parseInt(process.env.AISHUB_PORT || '0', 10) || undefined,
+        }).catch((e) => {
+            console.error('[FLEET] handler error:', e);
+            try {
+                res.writeHead(500, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: 'internal' }));
+            } catch {
+                /* headers already sent */
+            }
+        });
+        return;
+    }
     if (req.url === '/health' || req.url === '/') {
         const staleDuration = Date.now() - lastMessageAt;
         const isStale = staleDuration > STALE_THRESHOLD_MS;
@@ -314,6 +344,7 @@ const healthServer = http.createServer((req, res) => {
             staleThresholdMs: STALE_THRESHOLD_MS,
             guardianWatchdogEnabled: guardianWatchdogStarted,
             aishub: getAishubStats(),
+            fleetFeed: getFleetFeedStats(),
         });
 
         res.writeHead(dbWedged ? 503 : 200, {

@@ -117,3 +117,16 @@ describe('AIVDO → AIVDM rewrite for the AISHub forward', () => {
         expect(aivdoToAivdm(T18_AIVDO.replace('B7', 'B8'))).toBeNull();
     });
 });
+
+describe('fragment isolation between sources (the fleet-feed dimension)', () => {
+    it('two sources sharing a sequence id cannot cross-assemble', () => {
+        // Boat A sends fragment 1 of a type 5; boat B sends fragment 2 of a
+        // DIFFERENT type 5 with the same seq id and channel. Without the
+        // source key these would merge into a chimera vessel.
+        expect(decodeAisSentence(T5_F1, Date.now(), 'user-a')).toBeNull();
+        expect(decodeAisSentence(T5_F2, Date.now(), 'user-b')).toBeNull();
+        // Each source completing its OWN pair still works.
+        expect(decodeAisSentence(T5_F2, Date.now(), 'user-a')).toMatchObject({ name: 'EVER DIADEM' });
+        expect(decodeAisSentence(T5_F1, Date.now(), 'user-b')).toMatchObject({ name: 'EVER DIADEM' });
+    });
+});
