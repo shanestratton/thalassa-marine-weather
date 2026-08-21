@@ -105,6 +105,16 @@ vi.mock('../services/ShipLogService', () => ({
         deleteVoyage: (...args: unknown[]) => mocks.deleteVoyage(...args),
         importGPXVoyage: vi.fn().mockResolvedValue({ savedCount: 0 }),
     },
+    // useLogPageState imports this as a NAMED export alongside the service, and
+    // omitting it made every prune sweep throw. The sweep is scheduled, so the
+    // throw landed as an Unhandled Rejection AFTER the test had finished — 22
+    // of them in a full run, each firing into a worker that had already moved
+    // on to another file. That is what intermittently corrupted an unrelated
+    // suite's environment ("setTimeout is not a function" in
+    // WeatherContextIdentity, which passes 5/5 in isolation). The tests here
+    // all passed throughout; only the exit code and the collateral gave it
+    // away (2026-08-22).
+    getRecentDeviceStops: () => new Set<string>(),
 }));
 
 import { setAuthIdentityScope } from '../services/authIdentityScope';
