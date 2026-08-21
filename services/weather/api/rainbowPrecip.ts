@@ -154,13 +154,18 @@ async function fetchRainbowPrecipUncached(
         // Try Pi Cache first for offline support
         if (piCache.isAvailable()) {
             try {
-                const piUrl = piCache.passthroughUrl(nowcastUrl, 5 * 60 * 1000, 'rainbow-nowcast');
-                if (piUrl) {
-                    const piRes = await fetch(piUrl, { signal: AbortSignal.timeout(8000) });
-                    if (piRes.ok) {
-                        nowcastData = await piRes.json();
-                        log.info('Rainbow.ai nowcast served from Pi Cache');
-                    }
+                // passthroughJson carries the pinned transport. A plain
+                // fetch() at the Pi's URL cannot present its self-signed
+                // cert, so this branch never once succeeded on iOS.
+                const piData = await piCache.passthroughJson<typeof nowcastData>(
+                    nowcastUrl,
+                    5 * 60 * 1000,
+                    'rainbow-nowcast',
+                    8_000,
+                );
+                if (piData) {
+                    nowcastData = piData;
+                    log.info('Rainbow.ai nowcast served from Pi Cache');
                 }
             } catch {
                 // Pi failed — try direct

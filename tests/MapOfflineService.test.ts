@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const piCache = vi.hoisted(() => ({
     isAvailable: vi.fn(),
     passthroughTileUrl: vi.fn(),
+    passthroughTileResponse: vi.fn(),
     getStatus: vi.fn(),
 }));
 const nativeRuntime = vi.hoisted(() => ({
@@ -62,6 +63,8 @@ beforeEach(() => {
     piCache.isAvailable.mockReturnValue(false);
     piTls.isPinnedTransportAvailable.mockReturnValue(false);
     piTls.piRequest.mockReset();
+    // Default: no usable Pi lane, so callers go direct.
+    piCache.passthroughTileResponse.mockResolvedValue(null);
     piCache.passthroughTileUrl.mockImplementation(
         (url: string) => `http://pi.test/tile?url=${encodeURIComponent(url)}`,
     );
@@ -197,9 +200,7 @@ describe('offline tile download lanes', () => {
         enableCapability();
         nativeRuntime.enabled = true;
         piCache.isAvailable.mockReturnValue(true);
-        piTls.isPinnedTransportAvailable.mockReturnValue(true);
-        // 1x1 transparent PNG bytes are irrelevant; non-empty is what matters.
-        piTls.piRequest.mockResolvedValue({ status: 200, headers: {}, data: btoa('tile-bytes'), peerSpki: '' });
+        piCache.passthroughTileResponse.mockResolvedValue(new Response(new Uint8Array([1, 2, 3])));
         vi.stubGlobal('fetch', vi.fn());
 
         await downloadArea({ bounds: oneTileBounds, minZoom: 0, maxZoom: 0, concurrency: 1 }, vi.fn());
@@ -212,11 +213,10 @@ describe('offline tile download lanes', () => {
         vi.unstubAllGlobals();
     });
 
-    it('carries the Pi hop over the pinned transport, never plain fetch', async () => {
+    it('takes the Pi hop through the pinned-transport wrapper, never a plain fetch', async () => {
         enableCapability();
         piCache.isAvailable.mockReturnValue(true);
-        piTls.isPinnedTransportAvailable.mockReturnValue(true);
-        piTls.piRequest.mockResolvedValue({ status: 200, headers: {}, data: btoa('tile-bytes'), peerSpki: '' });
+        piCache.passthroughTileResponse.mockResolvedValue(new Response(new Uint8Array([1, 2, 3])));
         const fetchMock = vi.fn();
         vi.stubGlobal('fetch', fetchMock);
 
@@ -224,17 +224,16 @@ describe('offline tile download lanes', () => {
 
         // A plain fetch at a Pi URL cannot present the self-signed cert and
         // dies with NSURLErrorDomain -1202 on every single tile.
-        expect(piTls.piRequest).toHaveBeenCalled();
+        expect(piCache.passthroughTileResponse).toHaveBeenCalled();
         expect(fetchMock).not.toHaveBeenCalled();
         vi.unstubAllGlobals();
     });
 
-    it('falls through to direct when the Pi hop fails, and still persists', async () => {
+    it('falls through to direct when the Pi hop yields null, and still persists', async () => {
         enableCapability();
         nativeRuntime.enabled = true;
         piCache.isAvailable.mockReturnValue(true);
-        piTls.isPinnedTransportAvailable.mockReturnValue(true);
-        piTls.piRequest.mockRejectedValue(new Error('pinned transport refused'));
+        piCache.passthroughTileResponse.mockResolvedValue(null);
         vi.stubGlobal(
             'fetch',
             vi.fn(async () => new Response(new Uint8Array([1, 2, 3]))),
@@ -251,11 +250,10 @@ describe('offline tile download lanes', () => {
         vi.unstubAllGlobals();
     });
 
-    it('skips the Pi entirely when the pinned transport is absent', async () => {
+    it('does not attempt the Pi at all when it is unavailable', async () => {
         enableCapability();
         nativeRuntime.enabled = true;
-        piCache.isAvailable.mockReturnValue(true);
-        piTls.isPinnedTransportAvailable.mockReturnValue(false);
+        piCache.isAvailable.mockReturnValue(false);
         vi.stubGlobal(
             'fetch',
             vi.fn(async () => new Response(new Uint8Array([1, 2, 3]))),
@@ -263,9 +261,7 @@ describe('offline tile download lanes', () => {
 
         await downloadArea({ bounds: oneTileBounds, minZoom: 0, maxZoom: 0, concurrency: 1 }, vi.fn());
 
-        // No verifier in this build means there is no lane that can reach the
-        // Pi safely — go direct rather than attempt an unverified hop.
-        expect(piTls.piRequest).not.toHaveBeenCalled();
+        expect(piCache.passthroughTileResponse).not.toHaveBeenCalled();
         expect(filesystem.writeFile).toHaveBeenCalled();
         vi.unstubAllGlobals();
     });

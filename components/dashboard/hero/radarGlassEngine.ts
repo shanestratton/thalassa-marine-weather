@@ -192,17 +192,15 @@ export async function fetchRainbowSnapshot(): Promise<number | null> {
         try {
             let data: { snapshot?: unknown } | null = null;
             // Boat network first — the Pi shares one upstream fetch fleet-wide.
-            if (piCache.isAvailable()) {
-                try {
-                    const piUrl = piCache.passthroughUrl(url, SNAPSHOT_TTL_MS, 'rainbow-snapshot');
-                    if (piUrl) {
-                        const res = await fetch(piUrl, { signal: AbortSignal.timeout(8000) });
-                        if (res.ok) data = await res.json();
-                    }
-                } catch {
-                    /* Pi down — fall through to direct */
-                }
-            }
+            // Over the PINNED transport: a plain fetch cannot present the Pi's
+            // self-signed cert, so the old form threw on every call and this
+            // hop only ever cost a wasted round trip before going direct.
+            data = await piCache.passthroughJson<{ snapshot?: unknown }>(
+                url,
+                SNAPSHOT_TTL_MS,
+                'rainbow-snapshot',
+                8_000,
+            );
             if (!data) {
                 // CapacitorHttp: WebView fetch() to Supabase functions has
                 // silently failed on iOS before (see rainbowPrecip.ts).
@@ -320,14 +318,16 @@ async function fetchTileDrawable(
     needsSupabaseAuth: boolean,
     signal: AbortSignal,
 ): Promise<ImageBitmap | HTMLImageElement | null> {
-    // Boat network cache first — no credential needed on the LAN hop.
-    const piUrl = piCache.passthroughTileUrl(directUrl);
-    if (piUrl) {
+    // Boat network cache first — no credential needed on the LAN hop, and
+    // over the pinned transport so the hop can actually complete. Under the
+    // old plain fetch this failed on every tile, which is why the Essentials
+    // card was issuing roughly two requests per tile (2026-08-22).
+    const piRes = await piCache.passthroughTileResponse(directUrl);
+    if (piRes) {
         try {
-            const res = await fetch(piUrl, { signal });
-            if (res.ok) return await blobToDrawable(await res.blob());
+            return await blobToDrawable(await piRes.blob());
         } catch {
-            /* Pi miss — fall through to direct */
+            /* Unreadable body — fall through to direct */
         }
     }
     const headers = needsSupabaseAuth ? await getRainbowHeaders() : undefined;

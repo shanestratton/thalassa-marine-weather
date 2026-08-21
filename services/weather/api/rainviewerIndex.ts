@@ -65,32 +65,25 @@ export async function fetchRainviewerIndex(): Promise<RainViewerIndex | null> {
 
     inflight = (async () => {
         try {
-            // Route through the Pi when available so the boat-fleet shares
-            // one fetch and subsequent requests come straight off the Pi's
-            // disk. TTL matches our in-memory memo (5 min) — RainViewer
-            // publishes a new past frame every ~10 min, so 5 min keeps us
-            // within one frame of live.
-            const piUrl = piCache.passthroughUrl(URL, TTL_MS, 'rainviewer-index');
-
             // TRY THE PI, THEN ALWAYS TRY DIRECT. The Pi is an OPTIMISATION —
             // it must never be the reason a skipper has no radar.
             //
-            // The first version of this fallback (2026-08-21) only re-tried
-            // when the Pi lane RESOLVED badly — a timeout or a non-OK status.
-            // That missed the failure mode that actually strands a boat.
-            // isAvailable() reflects the LAST health probe, so the common case
-            // is a Pi that answered once and then went out of range: that
-            // fetch REJECTS, and per utils/deadline.ts withTimeout propagates
-            // rejections by design. The throw sailed past the retry into the
-            // outer catch and returned null with RainViewer working one hop
-            // away — the same "No Radar" the fallback was written to prevent.
+            // The Pi hop goes through passthroughJson, which carries the
+            // pinned transport. The previous version fetched the Pi's URL
+            // directly and the device log settled why that could not work:
+            // NSURLErrorDomain -1202, errSSLXCertChainInvalid, on the Pi's
+            // self-signed certificate. It threw every single time, and only
+            // the fall-through below kept radar alive at all (2026-08-22).
             //
-            // attemptLane() therefore collapses every way a lane can fail —
-            // throw, timeout, bad status, unusable body — into one null, so
-            // the fall-through cannot be skipped by the failure shape.
-            let data = piUrl ? await attemptLane(piUrl, 'pi') : null;
+            // Both lanes still collapse every failure — throw, timeout, bad
+            // status, unusable body — into one null, so the fall-through
+            // cannot be skipped by the SHAPE of a failure.
+            let data = await piCache.passthroughJson<RainViewerIndex>(URL, TTL_MS, 'rainviewer-index', 6000);
+            if (data && !hasRadarFrames(data)) {
+                log.warn('[rainviewer] pi lane returned a body with no radar frames');
+                data = null;
+            }
             if (!data) {
-                if (piUrl) log.warn('[rainviewer] Pi lane unusable — falling through to direct');
                 data = await attemptLane(URL, 'direct');
             }
 
@@ -113,19 +106,25 @@ export async function fetchRainviewerIndex(): Promise<RainViewerIndex | null> {
 }
 
 /**
- * One fetch attempt, reduced to "usable index or null".
+ * A body with no past frames is not an answer, whichever lane produced it.
+ *
+ * Not paranoia. The Pi's /api/passthrough answers 200 from `cachedJsonFetch`,
+ * so a poisoned or stale cache entry — or its own `{ error: ... }` envelope,
+ * which carries a status only on the throw path — arrives as a perfectly valid
+ * 200 JSON document with no frames in it. Accepting that as success pins us to
+ * the bad lane and skips the direct retry: the "reports healthy, paints
+ * nothing" shape this module has already been caught by once.
+ */
+function hasRadarFrames(body: RainViewerIndex | null): boolean {
+    return Boolean(body && Array.isArray(body.radar?.past) && body.radar.past.length > 0);
+}
+
+/**
+ * One direct fetch attempt, reduced to "usable index or null".
  *
  * Every failure mode is caught HERE rather than at the call site, because the
  * call site's job is to decide which lane to try next and it cannot do that if
  * one class of failure throws past it.
- *
- * The body check is not paranoia. The Pi's /api/passthrough answers 200 from
- * `cachedJsonFetch`, so a poisoned or stale cache entry — or its own
- * `{ error: ... }` envelope, which it returns with a status only on the throw
- * path — arrives as a perfectly valid 200 JSON document with no frames in it.
- * Accepting that as success would pin us to the bad lane and skip the direct
- * retry, which is exactly the "reports healthy, paints nothing" shape this
- * module already got caught by once.
  */
 async function attemptLane(url: string, lane: 'pi' | 'direct'): Promise<RainViewerIndex | null> {
     try {
@@ -149,7 +148,7 @@ async function attemptLane(url: string, lane: 'pi' | 'direct'): Promise<RainView
             return null;
         }
         const body = (await res.json()) as RainViewerIndex | null;
-        if (!body || !Array.isArray(body.radar?.past) || body.radar.past.length === 0) {
+        if (!hasRadarFrames(body)) {
             log.warn(`[rainviewer] ${lane} lane returned 200 with no radar frames`);
             return null;
         }

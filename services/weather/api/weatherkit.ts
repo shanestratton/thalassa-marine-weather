@@ -379,14 +379,16 @@ export const fetchWeatherKitFull = async (lat: number, lon: number): Promise<Wea
         // ── Pi Cache shortcut: route through local Pi for offline availability ──
         if (piCache.isAvailable()) {
             try {
-                const piUrl = piCache.passthroughUrl(
+                // passthroughJson carries the pinned transport. CapacitorHttp
+                // cannot present the Pi's self-signed cert either, so the old
+                // form threw on iOS and this shortcut never fired.
+                const piData = await piCache.passthroughJson<any>(
                     `${url}?lat=${lat}&lon=${lon}&dataSets=currentWeather,forecastHourly,forecastDaily,forecastNextHour`,
                     15 * 60 * 1000,
                     'weatherkit',
+                    15_000,
                 );
-                if (piUrl) {
-                    const piRes = await CapacitorHttp.get({ url: piUrl, connectTimeout: 5000, readTimeout: 15000 });
-                    const piData = typeof piRes.data === 'string' ? JSON.parse(piRes.data) : piRes.data;
+                {
                     if (piData && piData.currentWeather) {
                         log.info('[weatherkit] Served from Pi Cache');
                         json = piData;
