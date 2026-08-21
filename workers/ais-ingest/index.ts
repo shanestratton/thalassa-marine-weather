@@ -97,14 +97,32 @@ function connect(): void {
 
     console.log(`[WS] Bounding boxes: ${JSON.stringify(BOUNDING_BOXES)}`);
 
-    ws = new WebSocket(AISSTREAM_URL, {
+    // Every handler closes over ITS socket and checks it is still the
+    // current one. Without this, the dead-man's terminate raced the dying
+    // socket's close event: both paths dialled, two sockets ran at once, and
+    // a superseded socket's open-handler read `ws` as null (the exact
+    // "Cannot read properties of null (reading 'send')" caught in the
+    // 2026-08-21 01:15:34Z Railway log — an outright crash on builds before
+    // the send guard). A superseded socket now stands down silently.
+    const socket = new WebSocket(AISSTREAM_URL, {
         // A normal decoded AIS envelope is only a few kilobytes. Bounding the
         // frame at the socket prevents an upstream/proxy fault from allocating
         // an arbitrarily large Buffer before the parser can reject it.
         maxPayload: MAX_AIS_MESSAGE_CHARS,
     });
+    ws = socket;
 
-    ws.on('open', () => {
+    socket.on('open', () => {
+        if (ws !== socket) {
+            // Superseded while the dial was in flight — close quietly; the
+            // current socket owns the stream now.
+            try {
+                socket.terminate();
+            } catch {
+                /* ignore */
+            }
+            return;
+        }
         console.log('[WS] Connected! Sending subscription...');
         reconnectAttempts = 0;
         unparsedLogged = 0;
@@ -132,7 +150,7 @@ function connect(): void {
         };
 
         try {
-            ws!.send(JSON.stringify(subscription));
+            socket.send(JSON.stringify(subscription));
         } catch (e) {
             console.error('[WS] Subscription send failed:', e);
             return; // close handler will schedule the reconnect
@@ -141,7 +159,8 @@ function connect(): void {
         console.log('[WS] Subscription sent. Listening for AIS messages...');
     });
 
-    ws.on('message', (data: WebSocket.Data) => {
+    socket.on('message', (data: WebSocket.Data) => {
+        if (ws !== socket) return; // superseded — not this stream's frames
         messageCount++;
         lastMessageAt = Date.now(); // ← Dead man's switch heartbeat
         const raw = data.toString();
@@ -167,11 +186,12 @@ function connect(): void {
         }
     });
 
-    ws.on('error', (err: Error) => {
+    socket.on('error', (err: Error) => {
         console.error('[WS] Error:', err.message);
     });
 
-    ws.on('close', (code: number, reason: Buffer) => {
+    socket.on('close', (code: number, reason: Buffer) => {
+        if (ws !== socket) return; // a superseded socket's death is not news
         console.warn(`[WS] Disconnected (code=${code}, reason=${reason.toString()})`);
         ws = null;
         scheduleReconnect();
@@ -231,14 +251,17 @@ function checkStaleConnection(): void {
             );
         }
 
-        // Kill the current connection and force reconnect
-        if (ws) {
+        // Kill the current connection and force reconnect. Ownership is
+        // released FIRST so the dying socket's close event sees itself
+        // superseded and stands down instead of scheduling a second dial.
+        const old = ws;
+        ws = null;
+        if (old) {
             try {
-                ws.terminate();
+                old.terminate();
             } catch {
                 /* ignore */
             }
-            ws = null;
         }
 
         // Clear any pending reconnect timer
