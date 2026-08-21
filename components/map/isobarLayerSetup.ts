@@ -348,10 +348,17 @@ export function initIsobarLayers(map: mapboxgl.Map) {
         filter: ['==', ['get', 'isMajor'], false],
         layout: { 'line-cap': 'round', 'line-join': 'round' },
         paint: {
-            // 4 hPa detail remains visible, but yields to the 8 hPa rhythm.
-            'line-color': 'rgba(222, 236, 248, 0.68)',
-            'line-width': ['interpolate', ['linear'], ['zoom'], 2, 0.8, 5, 1.05, 8, 1.4],
-            'line-opacity': 0.9,
+            // THE 4 hPa LINES ARE THE CHART (2026-08-21). This is a 4 hPa
+            // analysis — the synoptic standard, and what BOM's own MSLP
+            // charts draw — so these are ordinary isobars, not detail that
+            // "yields". At 0.68 colour alpha over 0.9 opacity they rendered
+            // at ~0.61 against the majors' ~0.94, half the width, and the
+            // whole chart read as an 8 hPa one with decoration between the
+            // lines. Near-equal weight now; the 8 hPa rhythm survives as a
+            // modest width step, which is all a reading aid needs to be.
+            'line-color': 'rgba(238, 246, 253, 0.9)',
+            'line-width': ['interpolate', ['linear'], ['zoom'], 2, 1.2, 5, 1.55, 8, 2.0],
+            'line-opacity': 0.95,
         },
     });
 
@@ -362,10 +369,11 @@ export function initIsobarLayers(map: mapboxgl.Map) {
         filter: ['==', ['get', 'isMajor'], true],
         layout: { 'line-cap': 'round', 'line-join': 'round' },
         paint: {
-            // Major contours are deliberately brighter rather than wider by
-            // much, keeping the synoptic chart confident but not garish.
-            'line-color': 'rgba(252, 254, 255, 0.96)',
-            'line-width': ['interpolate', ['linear'], ['zoom'], 2, 1.5, 5, 1.9, 8, 2.4],
+            // Major contours keep the 8 hPa rhythm readable — a touch wider
+            // and brighter than their neighbours, not a different class of
+            // line.
+            'line-color': 'rgba(252, 254, 255, 0.98)',
+            'line-width': ['interpolate', ['linear'], ['zoom'], 2, 1.7, 5, 2.15, 8, 2.7],
             'line-opacity': 0.98,
         },
     });
