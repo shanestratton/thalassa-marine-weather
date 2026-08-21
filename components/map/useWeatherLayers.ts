@@ -1492,7 +1492,11 @@ export function useWeatherLayers(
         // activation. Keep the current map centre so we don't yank the user
         // away from wherever they were already looking; only ease the zoom if
         // the user isn't already there or deeper.
-        if (!planMode && layerCount > 0 && prevLayerCountRef.current === 0) {
+        // Wind frames itself in the dedicated effect below — EVERY time it is
+        // switched on, not only on first activation, and in both directions.
+        // Leaving it in here too would fire two flyTos at the same camera.
+        const windFramesItself = activeLayers.has('wind') || activeLayers.has('velocity');
+        if (!planMode && !windFramesItself && layerCount > 0 && prevLayerCountRef.current === 0) {
             const currentZoom = map.getZoom();
             const centre = map.getCenter();
             const activationZoom = getActiveLayerFrameZoom(activeLayers) ?? 5;
@@ -1506,6 +1510,42 @@ export function useWeatherLayers(
         prevLayerCountRef.current = planMode ? userLayers.size : layerCount;
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [mapReady, embedded, activeKey, userKey, planMode]);
+
+    // ── Wind ALWAYS opens at its local frame (Shane 2026-08-22) ─────────
+    // "If someone presses wind, it always zooms in to level 9, regardless of
+    // where we are on the page." The generic activation effect above only
+    // framed on the FIRST layer activation and only ever zoomed IN; pressing
+    // wind on a synoptic view with another layer already up did nothing, and
+    // pressing it from a harbour left the camera where it was. Both read as
+    // wind being unpredictable. This fires on every off→on transition of the
+    // wind layer, keeps the current centre (never yank the skipper to a
+    // different place, only to the right scale), and targets
+    // LAYER_FRAME_ZOOM.wind so the number lives in one place.
+    //
+    // Not on mount: the boot path frames z9 via MapHub's jumpTo, and a second
+    // flyTo on top of it would fight the landing. The ref starts as the
+    // current state the first time the map is ready, so only real toggles
+    // after that count.
+    //
+    // It is also the SPEED lever, not just a UX nicety: WindDataController
+    // picks its grid from the camera, and z9 is where the already-warmed
+    // punter-centred fine grid covers the viewport — so framing local is what
+    // makes the first paint come from memory instead of a wide fetch.
+    const prevWindOnRef = useRef<boolean | null>(null);
+    useEffect(() => {
+        const map = mapRef.current;
+        if (!map || !mapReady) return;
+        const windOn = activeLayers.has('wind') || activeLayers.has('velocity');
+        const prev = prevWindOnRef.current;
+        prevWindOnRef.current = windOn;
+        if (prev === null || prev === windOn || !windOn) return;
+        if (planMode || embedded) return;
+        const target = LAYER_FRAME_ZOOM.wind ?? 9;
+        if (Math.abs(map.getZoom() - target) < 0.05) return;
+        const centre = map.getCenter();
+        map.flyTo({ center: [centre.lng, centre.lat], zoom: target, duration: 700 });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [activeKey, mapReady, planMode, embedded]);
 
     // Rain auto-play (unified radar + forecast) — loops continuously
     useEffect(() => {
