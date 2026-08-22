@@ -23,6 +23,7 @@ import { withDeadline } from '../../utils/deadline';
 import { crumb } from '../../utils/flightRecorder';
 import { heapTag } from '../../utils/heapGauge';
 import { continuousEastForLongitudeRange } from './windLongitude';
+import { loadWindGrids, saveWindGrids } from './windGridPersist';
 const log = createLogger('WindCtrl');
 
 // ── Bounds Cache (avoid redundant re-fetches) ──
@@ -105,6 +106,64 @@ function publishKeyFor(res: number, fetchedAt: number, field: string): string {
     return `${cacheKeyForRes(res)}:${fetchedAt}:${field}`;
 }
 
+/** Rehydrate-once latch: the disk read happens on the first activate, not at
+ *  module scope (tests import this module with storage mocked out, and a
+ *  read at import time would run before their mocks are installed). */
+let persistRehydrated = false;
+let persistTimer: ReturnType<typeof setTimeout> | null = null;
+
+/**
+ * Pull the last session's grids back into the memory cache.
+ *
+ * Freshness is the memory cache's own window, passed in rather than
+ * redefined — see windGridPersist for why that boundary matters.
+ */
+function rehydratePersistedGrids(): void {
+    if (persistRehydrated) return;
+    persistRehydrated = true;
+    try {
+        const entries = loadWindGrids(WIND_GRID_MAX_AGE_MS);
+        for (const entry of entries) {
+            const key = cacheKeyForRes(entry.res);
+            // Never overwrite a grid this session already fetched — memory is
+            // by definition at least as fresh as disk.
+            if (windGridCache.has(key)) continue;
+            windGridCache.set(key, {
+                grid: entry.grid,
+                bounds: entry.bounds,
+                res: entry.res,
+                model: entry.model as CachedWindGrid['model'],
+                fetchedAt: entry.fetchedAt,
+            });
+        }
+        if (entries.length > 0) {
+            const ageMin = Math.round((Date.now() - Math.max(...entries.map((e) => e.fetchedAt))) / 60000);
+            log.warn(`[perf] wind cache rehydrated: ${entries.length} grid(s), newest ${ageMin}m old`);
+            crumb('wind:rehydrate', `${entries.length}grids,${ageMin}m`);
+        }
+    } catch (err) {
+        log.warn('[WindController] rehydrate failed', err);
+    }
+}
+
+/** Debounced write-behind — a burst of stores during a pan must not turn into
+ *  a burst of multi-hundred-kB serializations on the main thread. */
+function schedulePersist(): void {
+    if (persistTimer) clearTimeout(persistTimer);
+    persistTimer = setTimeout(() => {
+        persistTimer = null;
+        saveWindGrids(
+            [...windGridCache.values()].map((c) => ({
+                grid: c.grid,
+                bounds: c.bounds,
+                res: c.res,
+                model: String(c.model),
+                fetchedAt: c.fetchedAt,
+            })),
+        );
+    }, 3_000);
+}
+
 function storeCachedGrid(entry: CachedWindGrid): void {
     windGridCache.set(cacheKeyForRes(entry.res), entry);
     // The synoptic warm is fetched once at boot, so by definition it is always
@@ -127,6 +186,7 @@ function storeCachedGrid(entry: CachedWindGrid): void {
         if (!oldestKey) break;
         windGridCache.delete(oldestKey);
     }
+    schedulePersist();
 }
 
 /** Does `outer` fully cover this (unpadded) viewport? Date-Line safe. */
@@ -383,6 +443,9 @@ export const WindDataController = {
      * Registers map listeners for online mode, loads file for offline mode.
      */
     async activate(map: mapboxgl.Map) {
+        // Disk → memory BEFORE the fetch decision, so a covering grid from the
+        // last launch can publish instantly and the network runs behind it.
+        rehydratePersistedGrids();
         const generation = ++windRequestGeneration;
         const { isGlobalMode, model, field } = WindStore.getState();
         // Non-GFS models and the gust field come from Open-Meteo's point-batch
