@@ -663,6 +663,10 @@ export function useWeatherLayers(
     const [framesReady, setFramesReady] = useState(0);
     const [pressureFrameStepHours, setPressureFrameStepHours] = useState(1);
     const [pressureSource, setPressureSource] = useState<'gfs' | 'open-meteo' | null>(null);
+    /** The GFS cycle these frames came from. Already on the grid and already
+     *  used to align "Now"; it just never reached the UI, so the pill could
+     *  not say WHICH run a skipper was reading (2026-08-22). */
+    const [pressureRefTime, setPressureRefTime] = useState<string | null>(null);
     /** Sub-frame index that corresponds to wall-clock "Now", computed from
      *  the GFS cycle refTime + keyframe fhrs + subFrameStepHours. When the
      *  GFS cycle is 4h old, this is the sub-frame that represents "+4h of
@@ -861,6 +865,7 @@ export function useWeatherLayers(
                 isobarFetchedAtRef.current = Date.now();
                 setPressureFrameStepHours(data.grid.subFrameStepHours || 1);
                 setPressureSource(data.grid.source);
+                setPressureRefTime(data.grid.refTime ?? null);
 
                 // Align the scrubber to wall-clock "Now" so a stale GFS cycle
                 // (e.g. 4h old) shows the +4h sub-frame labelled Now, not the
@@ -2688,6 +2693,7 @@ export function useWeatherLayers(
          *  hourly after interpolation; the fallback is already hourly. */
         pressureFrameStepHours,
         pressureSource,
+        pressureRefTime,
         isPlaying,
         setIsPlaying,
         totalFrames,

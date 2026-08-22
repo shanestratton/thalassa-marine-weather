@@ -17,6 +17,7 @@ import type { CmemsLayerLoadState } from './useCmemsGridRefresh';
 import { isCmemsRenderedStepReady } from './useCmemsPlayback';
 import { useUIStore } from '../../stores/uiStore';
 import { openExternalUrl } from '../../services/externalLinks';
+import { pressureProvenance, pressureSourceText } from '../../services/weather/pressureProvenance';
 
 type WeatherControlsWeather = ReturnType<typeof useWeatherLayers>;
 
@@ -247,7 +248,12 @@ export function MapWeatherControls({
                 const pressureNowIndex = weather.pressureNowIdx;
                 nowIndex = pressureNowIndex;
                 const forecastHours = (frameIndex - pressureNowIndex) * weather.pressureFrameStepHours;
-                const pressureSource = weather.pressureSource === 'open-meteo' ? 'Fallback' : 'GFS';
+                // Names the provider and the model RUN. "Fallback" told the
+                // skipper nothing about which forecast they were reading and
+                // failed to credit Open-Meteo, whose CC-BY terms require it.
+                const pressureSource = pressureSourceText(
+                    pressureProvenance(weather.pressureSource, weather.pressureRefTime),
+                );
                 if (frameIndex === pressureNowIndex) {
                     frameLabel = 'Now';
                     sublabel = `${pressureSource} · Current`;
