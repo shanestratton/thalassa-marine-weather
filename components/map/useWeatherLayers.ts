@@ -24,6 +24,7 @@ import {
     type WeatherLayer,
     getActiveLayerFrameZoom,
     LAYER_MIN_ZOOM,
+    tileSourceMaxZoom,
     getTileUrl,
     getWindColor,
     isParkedLayer,
@@ -2352,7 +2353,10 @@ export function useWeatherLayers(
                     type: 'raster',
                     tiles: [tileUrl],
                     tileSize: 256,
-                    maxzoom: 18,
+                    // Per-provider, not a blanket 18 — see TILE_SOURCE_MAX_ZOOM.
+                    // Past a provider's real resolution, native requests carry
+                    // no new information and their COUNT quadruples per level.
+                    maxzoom: tileSourceMaxZoom(tl),
                 });
                 // Per-layer opacity: sea marks stay solid, weather heatmaps
                 // are translucent so coastlines/countries remain visible.
