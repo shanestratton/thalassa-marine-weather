@@ -365,46 +365,86 @@ function mountSatelliteLayer(map: mapboxgl.Map): void {
             // sharpening rather than 404-ing every tile.
             maxzoom: GIBS_MAX_ZOOM,
         });
-        // ANCHOR ABOVE THE CHART, not at the first symbol layer.
+        // THE CLOUD IS OPAQUE — STACKING ALONE CAN NEVER SHOW IT.
         //
-        // "The satellite imagery is still not coming through" (Shane
-        // 2026-08-22) — and the tiles were never the problem: the exact URL
-        // this builds returns 76 kB of real Himawari PNG. The clouds were
-        // painting and then being buried, which is the SAME bug the rain
-        // layer hit on 2026-07-23 ("my rain layer does not seem to be
-        // working"). The style's first symbol layer sat at the bottom of the
-        // stack when this was written; it does not any more. The hybrid
-        // imagery now sits just below the ENC stack and ENC anchors at
-        // settlement-major-label, both far ABOVE the first symbol — so an
-        // IR layer inserted there goes underneath the opaque base imagery
-        // and the ENC depth fills.
+        // Third report of "the satellite imagery is still not showing"
+        // (Shane 2026-08-23). The first two rounds moved the layer's ANCHOR,
+        // which could not have worked, because the tile is not an overlay:
         //
-        // Anchoring on the SAME candidates ENC uses puts the cloud
-        // immediately below that anchor and therefore above the chart, while
-        // leaving place labels on top. Mirrors rainBeforeId in
-        // useWeatherLayers deliberately: when these two drifted apart, one of
-        // them was invisible.
+        //   measured 2026-08-23, z3 tile over the Coral Sea, 76 080 B PNG:
+        //   colour type 6 (RGBA), and alpha == 255 on 100% of sampled
+        //   pixels. Clear sky is not transparent — it is mid-grey
+        //   (luminance clusters at 96-160 of 255; only the cold cloud tops
+        //   run above ~192).
+        //
+        // So below the base imagery it is hidden, and above it, it would
+        // grey out the entire world. There is no anchor that shows cloud and
+        // keeps the chart. The alpha has to come from the PIXELS.
+        //
+        // raster-color does exactly that, and this file already proves the
+        // technique works — mountSquallLayer ramps Rainbow's grayscale dbz
+        // the same way. Map brightness → colour+alpha: warm background
+        // (dark/mid) to fully transparent, cold tops (bright) to white.
+        // Thresholds come from the measured histogram above, not taste.
         const styleLayers = map.getStyle()?.layers ?? [];
-        const beforeId = (() => {
-            for (const id of ['settlement-major-label', 'place-city', 'country-label', 'admin-0-boundary']) {
-                if (styleLayers.some((l) => l.id === id)) return id;
-            }
-            return styleLayers.find((l) => l.type === 'symbol')?.id;
-        })();
+        // Anchor immediately ABOVE the base imagery and BELOW the ENC stack.
+        // Deliberately not the top of the stack: if raster-color is ever not
+        // honoured, an opaque IR on top would hide the whole chart, while
+        // here the chart still paints over it and the failure is cosmetic.
+        // Deliberately not 'settlement-major-label' either — MapHub's
+        // ordering pass RELOCATES that layer to encBottom whenever imagery
+        // is lit, so it is not the stable high-water mark it looks like.
+        const imageryIdx = ['satellite-base-layer', 'hybrid-base-layer', 'maptiler-ocean-layer']
+            .map((id) => styleLayers.findIndex((l) => l.id === id))
+            .reduce((hi, i) => Math.max(hi, i), -1);
+        const beforeId =
+            imageryIdx >= 0 && imageryIdx + 1 < styleLayers.length
+                ? styleLayers[imageryIdx + 1].id
+                : (styleLayers.find((l) => l.id.startsWith('enc-vec-')) ?? styleLayers.find((l) => l.type === 'symbol'))
+                      ?.id;
         map.addLayer(
             {
                 id: IR_LAYER,
                 type: 'raster',
                 source: IR_SOURCE,
                 paint: {
-                    'raster-opacity': 0.85,
+                    'raster-opacity': 0.9,
                     'raster-fade-duration': 0,
                     'raster-resampling': 'nearest',
+                    // Luminance of the RGB channels (the product is near-grey
+                    // but not exactly R==G==B, so weight rather than take one
+                    // channel), looked up over the full 0-1 range.
+                    'raster-color-mix': [0.2126, 0.7152, 0.0722, 0],
+                    'raster-color-range': [0, 1],
+                    'raster-color': [
+                        'interpolate',
+                        ['linear'],
+                        ['raster-value'],
+                        // Everything at or below the warm-background band is sky.
+                        0.0,
+                        'rgba(255,255,255,0)',
+                        0.64,
+                        'rgba(255,255,255,0)',
+                        // Mid cloud feathers in…
+                        0.72,
+                        'rgba(235,245,255,0.35)',
+                        0.82,
+                        'rgba(248,251,255,0.72)',
+                        // …cold tops (deep convection) paint solid.
+                        1.0,
+                        'rgba(255,255,255,0.95)',
+                    ],
                 },
             },
             beforeId,
         );
-        log.warn(`📡 GIBS Himawari IR mounted (${todayDateStr()})`);
+        // Says WHERE it landed, so a fourth "still not showing" is one log
+        // line to diagnose instead of another round of reasoning from source.
+        const idx = (map.getStyle()?.layers ?? []).findIndex((l) => l.id === IR_LAYER);
+        log.warn(
+            `📡 GIBS Himawari IR mounted (${todayDateStr()}) at layer ${idx}/${styleLayers.length}` +
+                `${beforeId ? ` before '${beforeId}'` : ' on top'}, imageryIdx=${imageryIdx}`,
+        );
     } catch (err) {
         log.warn('Squall IR mount failed — continuing with precip only', err);
     }
