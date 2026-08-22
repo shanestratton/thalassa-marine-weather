@@ -110,4 +110,35 @@ describe('the cyclone details card exists and is mounted', () => {
         expect(cyclone).toContain('tickDataAge');
         expect(cyclone).toContain('cyclone-data-age');
     });
+
+    // ── The satellite's THIRD failure mode (2026-08-22) ────────────────
+    // "The satellite imagery is still not coming through" — after the mount
+    // was decoupled from Rainbow, and after the Pi tile proxy was gated. The
+    // tiles were never the problem: the exact URL this builds returns ~76 kB
+    // of real Himawari PNG. The clouds were painting and being BURIED, which
+    // is the same bug the rain layer hit on 2026-07-23 ("my rain layer does
+    // not seem to be working"). Anchoring at the style's first symbol layer
+    // was right when imagery sat at the bottom of the stack; the hybrid
+    // imagery and the ENC fills now sit far above it.
+    it('anchors the IR cloud above the chart, not at the first symbol layer', () => {
+        const src = readFileSync('components/map/useSquallMap.ts', 'utf8');
+        const mount = src.slice(src.indexOf('function mountSatelliteLayer'), src.indexOf('function mountSquallLayer'));
+        // The SAME candidates ENC uses, so cloud lands above the depth fills.
+        expect(mount).toContain("'settlement-major-label'");
+        expect(mount).toContain("'place-city'");
+        // First-symbol survives only as the last-resort fallback.
+        const firstSymbolAt = mount.indexOf("find((l) => l.type === 'symbol')");
+        expect(firstSymbolAt).toBeGreaterThan(mount.indexOf("'admin-0-boundary'"));
+    });
+
+    it('keeps the IR anchor in step with the rain layer that solved this first', () => {
+        // When these two drifted apart, one of them was invisible. Whichever
+        // is fixed next, both must move.
+        const squall = readFileSync('components/map/useSquallMap.ts', 'utf8');
+        const weather = readFileSync('components/map/useWeatherLayers.ts', 'utf8');
+        for (const id of ['settlement-major-label', 'place-city', 'country-label', 'admin-0-boundary']) {
+            expect(squall).toContain(`'${id}'`);
+            expect(weather).toContain(`'${id}'`);
+        }
+    });
 });
