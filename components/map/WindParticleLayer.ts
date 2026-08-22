@@ -511,6 +511,10 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
             return;
         }
 
+        // Keep the OUTGOING bounds so particles can be carried across the
+        // change geographically instead of being teleported — see
+        // remapParticlesAcrossBounds.
+        const prevBounds = this.windTimeline.length > 0 ? { ...this.gridBounds } : null;
         this.dataBounds = this.sanitizeBounds({
             north: grid.north,
             south: grid.south,
@@ -573,7 +577,7 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
 
         // Set initial hour and upload first pair of textures
         this.setForecastHour(hour);
-        this.respawnAllParticles();
+        this.remapParticlesAcrossBounds(prevBounds);
 
         // Reset render log counter so we see the first render with actual data
         this._renderLogCount = 0;
@@ -953,6 +957,76 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
             data[base + 3] = 0.85;
             ages[i] = Math.floor(Math.random() * MAX_AGE);
         }
+    }
+
+    /**
+     * Carry particles across a grid change instead of teleporting them.
+     *
+     * Every setGrid used to call respawnAllParticles(), so each publish
+     * relocated all NUM_PARTICLES at once — and a zoom-out publishes two or
+     * three times in a row (cached synoptic, then the refined fetch). That
+     * visible reset is the "jerky" (Shane 2026-08-22: "make it so that it
+     * flows nicely").
+     *
+     * Particle x/y are NORMALISED to the grid bounds, so the same 0..1 pair
+     * means a different place on a different grid — which is exactly why a
+     * naive keep would smear the field sideways. Converting through lon/lat
+     * and back keeps every particle where it physically is; only the frame of
+     * reference changes.
+     *
+     * Particles that fall outside the new grid ARE respawned, and that is
+     * free visually: the grid always covers the viewport, so anything outside
+     * it was off-screen anyway. Which means the particles a skipper can
+     * actually see never move.
+     */
+    private remapParticlesAcrossBounds(prev: WindBounds | null): void {
+        const gb = this.gridBounds;
+        const prevLon = prev ? prev.east - prev.west : 0;
+        const prevLat = prev ? prev.north - prev.south : 0;
+        const newLon = gb.east - gb.west;
+        const newLat = gb.north - gb.south;
+        if (!prev || prevLon <= 0 || prevLat <= 0 || newLon <= 0 || newLat <= 0) {
+            this.respawnAllParticles();
+            return;
+        }
+
+        const data = this.trailData;
+        const ages = this.particleAges;
+        let carried = 0;
+        for (let i = 0; i < NUM_PARTICLES; i++) {
+            const base = i * FLOATS_PER_PARTICLE;
+            // The HEAD decides whether this particle survives the change.
+            const headLon = prev.west + data[base] * prevLon;
+            const headLat = prev.south + data[base + 1] * prevLat;
+            const hx = (headLon - gb.west) / newLon;
+            const hy = (headLat - gb.south) / newLat;
+            if (hx < 0 || hx > 1 || hy < 0 || hy > 1) {
+                const [px, py] = this.randomWithinBounds();
+                for (let t = 0; t < TRAIL_LENGTH; t++) {
+                    const off = base + t * FLOATS_PER_TRAIL_PT;
+                    data[off] = px;
+                    data[off + 1] = py;
+                    data[off + 2] = 0;
+                    data[off + 3] = 0;
+                    data[off + 4] = 0;
+                }
+                data[base + 3] = 0.85;
+                ages[i] = Math.floor(Math.random() * MAX_AGE);
+                continue;
+            }
+            // Whole trail, not just the head: remapping only the head would
+            // stretch each trail between two coordinate systems and read as a
+            // one-frame streak across the screen.
+            for (let t = 0; t < TRAIL_LENGTH; t++) {
+                const off = base + t * FLOATS_PER_TRAIL_PT;
+                const lon = prev.west + data[off] * prevLon;
+                const lat = prev.south + data[off + 1] * prevLat;
+                data[off] = (lon - gb.west) / newLon;
+                data[off + 1] = (lat - gb.south) / newLat;
+            }
+            carried++;
+        }
+        log.info(`[WindGL] bounds change: ${carried}/${NUM_PARTICLES} particles carried across`);
     }
 
     private advectParticles(): void {
