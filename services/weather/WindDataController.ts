@@ -330,7 +330,12 @@ async function prefetchSynopticGrid(model: CachedWindGrid['model']): Promise<voi
     // punter opened the app already zoomed out, so the ordinary viewport fetch
     // did this job. Warming again would be a second download of the same
     // picture at a different resolution key.
-    if (bestCoveringGrid(model, bounds)) return;
+    if (bestCoveringGrid(model, bounds)) {
+        // Silence here was ambiguous: an absent "warm ready" line could mean
+        // the warm never ran OR that it correctly had nothing to do. Say which.
+        log.warn('[perf] wind synoptic warm skipped — a fresh grid already covers');
+        return;
+    }
     synopticGridInflight = true;
     try {
         const { fetchModelWindGrid } = await import('./OpenMeteoWindFetcher');
@@ -588,8 +593,13 @@ export const WindDataController = {
                     WindStore.setGrid(grid);
                     lastPublishedCacheKey = publishKey;
                     lastFetchedBounds = { ...covering.bounds, zoom: currentZoom, fetchedAt: covering.fetchedAt };
-                    log.info(
-                        `[WindController] Cached ${cacheKeyForRes(covering.res)}° grid published instantly (covers viewport)`,
+                    // warn, not info: this is the line that says the zoom-out
+                    // painted from memory instead of waiting on a fetch, and
+                    // info is silent in prod — so a device log could show a
+                    // slow fetch without revealing that a field was already up
+                    // in front of it (2026-08-22).
+                    log.warn(
+                        `[perf] wind published cached ${cacheKeyForRes(covering.res)}° grid instantly (covers viewport)`,
                     );
                 }
                 // Fine enough for this zoom → done. Coarser than the tier

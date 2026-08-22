@@ -108,17 +108,34 @@ describe('wind grid persistence', () => {
         expect(deserializeEntry(good.slice(0, good.length - 40))).toBeNull();
     });
 
-    it('keeps only the newest tiers so wind cannot eat the storage budget', () => {
+    it('always keeps the coarsest tier, even though it is always the oldest', () => {
+        // THE BUG this replaces: a plain newest-first cut threw the synoptic
+        // grid away every single time. It is warmed ONCE, early, so every
+        // viewport fetch afterwards is newer — sorting by fetchedAt kept the
+        // two most recent VIEWPORT grids and dropped the wide one, which is
+        // precisely the tier that prevents a zoom-out blank. The in-memory
+        // cache already exempts it; the disk cache was silently undoing that.
         const now = Date.now();
         saveWindGrids([
-            entry({ res: 0.25, fetchedAt: now - 3000 }),
-            entry({ res: 1.0, fetchedAt: now - 2000 }),
-            entry({ res: 2.08, fetchedAt: now - 1000 }),
+            entry({ res: 2.08, fetchedAt: now - 600_000 }), // synoptic: oldest by design
+            entry({ res: 0.25, fetchedAt: now - 2000 }),
+            entry({ res: 0.5, fetchedAt: now - 1000 }),
         ]);
         const loaded = loadWindGrids(3 * HOUR);
         expect(loaded.length).toBeLessThanOrEqual(2);
-        // Newest survive — the oldest tier is the one worth re-fetching.
-        expect(loaded.map((e) => e.res).sort()).toEqual([1.0, 2.08]);
+        const kept = loaded.map((e) => e.res).sort((a, b) => a - b);
+        // Coarsest survives, plus the freshest fine tier for the local view.
+        expect(kept).toEqual([0.5, 2.08]);
+    });
+
+    it('still bounds the write when every tier is the same resolution', () => {
+        const now = Date.now();
+        saveWindGrids([
+            entry({ res: 0.25, fetchedAt: now - 3000 }),
+            entry({ res: 0.25, fetchedAt: now - 2000 }),
+            entry({ res: 0.25, fetchedAt: now - 1000 }),
+        ]);
+        expect(loadWindGrids(3 * HOUR).length).toBeLessThanOrEqual(2);
     });
 
     it('survives a storage failure without breaking wind', () => {
