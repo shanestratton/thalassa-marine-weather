@@ -16,6 +16,7 @@ import type { CmemsLayerId } from './CmemsAttribution';
 import type { CmemsLayerLoadState } from './useCmemsGridRefresh';
 import { isCmemsRenderedStepReady } from './useCmemsPlayback';
 import { useUIStore } from '../../stores/uiStore';
+import { openExternalUrl } from '../../services/externalLinks';
 
 type WeatherControlsWeather = ReturnType<typeof useWeatherLayers>;
 
@@ -550,21 +551,44 @@ export function MapWeatherControls({
         <>
             {windFieldControls}
             {content}
+            {/* RainViewer credit. It STAYS — their terms ask for the source to
+                be named with a link, and they give us the radar for free — but
+                a bare <a target="_blank"> navigated the WebView away from the
+                app, so an accidental brush while scrubbing dumped the skipper
+                out of the chart entirely (Shane 2026-08-22, "i have
+                accidently pressed it twice"). On a navigation app that is a
+                genuinely bad outcome, not just an annoyance.
+
+                Now: openExternalUrl presents a dismissible sheet over the app
+                (Done returns with chart state intact), the label is plain
+                non-interactive text, and only the small ⓘ is a tap target —
+                moved to the far corner, away from the scrubber thumb path. */}
             {showRainViewerAttribution && (
-                <a
-                    href="https://www.rainviewer.com/"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="absolute right-4 z-[509] rounded-md bg-slate-950/70 px-2 py-1 text-[10px] font-semibold text-slate-300/80 backdrop-blur-sm"
+                <div
+                    className="absolute right-2 z-[509] flex items-center gap-1 rounded-md bg-slate-950/70 px-2 py-1 backdrop-blur-sm"
                     style={{
                         bottom: controlsHidden
                             ? 'calc(84px + env(safe-area-inset-bottom))'
                             : 'calc(196px + env(safe-area-inset-bottom))',
                     }}
-                    aria-label="Rain radar data by RainViewer"
                 >
-                    Radar by RainViewer
-                </a>
+                    <span className="text-[10px] font-semibold text-slate-300/80">Radar by RainViewer</span>
+                    {/* A REAL anchor with a real href, so this is still a link
+                        in the sense their terms ask for — copyable, and it
+                        long-presses like one. The click is intercepted only so
+                        it opens over the app instead of replacing it. */}
+                    <a
+                        href="https://www.rainviewer.com/"
+                        onClick={(e) => {
+                            e.preventDefault();
+                            void openExternalUrl('https://www.rainviewer.com/');
+                        }}
+                        className="flex h-4 w-4 items-center justify-center rounded-full text-[9px] font-bold text-slate-400/80 active:text-sky-300"
+                        aria-label="Rain radar data by RainViewer"
+                    >
+                        ⓘ
+                    </a>
+                </div>
             )}
             {controlsHidden ? (
                 <button
