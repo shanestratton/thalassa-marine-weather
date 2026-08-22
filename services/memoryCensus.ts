@@ -140,13 +140,41 @@ export interface MemoryCensus {
      * which is exactly the shape of kills 11 and 13.
      */
     glContextLost: boolean;
+
+    /**
+     * MAPBOX-SIDE TILES, and what they cost in texture.
+     *
+     * The blind spot every previous round measured around. Shane's plan page
+     * dies at Lady Musgrave with the flight trail SILENT and this census
+     * reading heap 220 MB of a 4192 MB limit — because the memory is not on
+     * the JS heap at all. It is decoded tiles.
+     *
+     * He named the trigger himself on 2026-08-23: "at zoom 9, no issues, but
+     * at zoom 14 it crashes — that is when it goes to proper satellite
+     * imagery." maxTileCacheSize is per SOURCE, and the style carries ~20 of
+     * them; a single @2x 512 imagery tile decodes to a 1024×1024 RGBA
+     * texture, ~4 MB. Nothing in this app could see that number until now.
+     *
+     * `tileTextureMB` is an ESTIMATE, deliberately: sources report their tile
+     * size, not their decoded footprint, so it multiplies tiles by 4 MB for
+     * @2x-512 raster, 1 MB for plain raster and 0 for vector/GeoJSON (whose
+     * cost is bucket geometry, counted nowhere and not guessed at here).
+     * Wrong in detail, right in magnitude — which is what was missing.
+     */
+    tiles: number;
+    tileSources: number;
+    tileTextureMB: number;
+    peakTiles: number;
+    peakTileTextureMB: number;
+    /** The single heaviest source, as "id:count" — names the hog directly. */
+    topTileSource: string | null;
 }
 
 let timer: ReturnType<typeof setTimeout> | null = null;
 let plotting = false;
 const bootAt = Date.now();
 let glContextLost = false;
-const peaks = { encTextMB: 0, pinnedCells: 0, domNodes: 0, canvases: 0, glLive: 0, heapUsedMB: 0 };
+const peaks = { encTextMB: 0, pinnedCells: 0, domNodes: 0, canvases: 0, glLive: 0, heapUsedMB: 0, tiles: 0, tileTextureMB: 0 };
 
 /** WebGL contexts created since boot, and weak handles to their canvases. */
 let glCreated = 0;
@@ -257,6 +285,12 @@ export async function takeCensus(now = Date.now()): Promise<MemoryCensus> {
         glLive: 0,
         peakGlLive: 0,
         glContextLost,
+        tiles: 0,
+        tileSources: 0,
+        tileTextureMB: 0,
+        peakTiles: 0,
+        peakTileTextureMB: 0,
+        topTileSource: null,
     };
 
     try {
@@ -297,6 +331,16 @@ export async function takeCensus(now = Date.now()): Promise<MemoryCensus> {
     }
 
     try {
+        const t = countMapTiles();
+        census.tiles = t.tiles;
+        census.tileSources = t.sources;
+        census.tileTextureMB = t.textureMB;
+        census.topTileSource = t.top;
+    } catch {
+        /* no map on this screen — leave at zero */
+    }
+
+    try {
         const { heapMB } = await import('../utils/heapGauge');
         const h = heapMB();
         if (h) {
@@ -309,6 +353,10 @@ export async function takeCensus(now = Date.now()): Promise<MemoryCensus> {
         /* leave at null */
     }
 
+    peaks.tiles = Math.max(peaks.tiles, census.tiles);
+    peaks.tileTextureMB = Math.max(peaks.tileTextureMB, census.tileTextureMB);
+    census.peakTiles = peaks.tiles;
+    census.peakTileTextureMB = peaks.tileTextureMB;
     peaks.encTextMB = Math.max(peaks.encTextMB, census.encTextMB);
     peaks.pinnedCells = Math.max(peaks.pinnedCells, census.pinnedCells);
     peaks.domNodes = Math.max(peaks.domNodes, census.domNodes);
@@ -322,6 +370,48 @@ export async function takeCensus(now = Date.now()): Promise<MemoryCensus> {
     census.peakCanvases = peaks.canvases;
 
     return census;
+}
+
+/**
+ * Retained tiles across every Mapbox source cache, and an estimate of what
+ * they cost in decoded texture.
+ *
+ * Reads mapbox-gl internals (`style._sourceCaches[..]._tiles`), which is why
+ * every access is defensive: there is no public API for this, and a version
+ * bump may rename it. A rename must degrade to "0 tiles", never to a throw
+ * inside the instrument that is supposed to survive the crash.
+ */
+function countMapTiles(): { tiles: number; sources: number; textureMB: number; top: string | null } {
+    const out = { tiles: 0, sources: 0, textureMB: 0, top: null as string | null };
+    const map = (globalThis as unknown as Record<string, unknown>).__thalassaMap as
+        | { style?: { _sourceCaches?: Record<string, unknown> } }
+        | undefined;
+    const caches = map?.style?._sourceCaches;
+    if (!caches) return out;
+    let topCount = 0;
+    for (const key of Object.keys(caches)) {
+        const sc = caches[key] as
+            | { _tiles?: Record<string, unknown>; _source?: { type?: string; tileSize?: number; tiles?: string[] } }
+            | undefined;
+        const tiles = sc?._tiles ? Object.keys(sc._tiles).length : 0;
+        if (tiles === 0) continue;
+        out.sources += 1;
+        out.tiles += tiles;
+        const src = sc?._source;
+        if (src?.type === 'raster') {
+            // @2x 512 → a 1024×1024 RGBA texture (~4 MB). Anything else
+            // raster → ~1 MB. Vector/GeoJSON contribute bucket geometry, not
+            // texture, so they are counted as tiles but not as MB.
+            const retina = src.tileSize === 512 || (src.tiles ?? []).some((u) => u.includes('@2x'));
+            out.textureMB += tiles * (retina ? 4 : 1);
+        }
+        if (tiles > topCount) {
+            topCount = tiles;
+            // Source-cache keys are prefixed ("other:<id>") — strip for legibility.
+            out.top = `${key.replace(/^[a-z]+:/, '')}:${tiles}`;
+        }
+    }
+    return out;
 }
 
 function persist(census: MemoryCensus): void {
@@ -360,6 +450,8 @@ export function describeCensus(c: MemoryCensus): string {
         `${c.merges} merges pinning ${c.pinnedCells} cells (peak ${c.peakPinnedCells ?? 0}), ` +
         `glaze ${c.glaze}, contours ${c.contours}, indexes ${c.indexes}, ` +
         `DOM ${c.domNodes} (peak ${c.peakDomNodes ?? 0}), canvas ${c.canvases ?? 0} (peak ${c.peakCanvases ?? 0}), ` +
+        `tiles ${c.tiles ?? 0} across ${c.tileSources ?? 0} srcs ~${c.tileTextureMB ?? 0}MB tex ` +
+        `(peak ${c.peakTiles ?? 0}/~${c.peakTileTextureMB ?? 0}MB${c.topTileSource ? `, top ${c.topTileSource}` : ''}), ` +
         `WebGL ${c.glLive ?? 0} live / ${c.glCreated ?? 0} created (peak live ${c.peakGlLive ?? 0})` +
         `${c.glRefused ? ` [${c.glRefused} CONTEXT REFUSALS]` : ''}`
     );
