@@ -20,6 +20,7 @@
 import { useEffect, useRef } from 'react';
 import mapboxgl from 'mapbox-gl';
 import { createLogger } from '../../utils/createLogger';
+import { alertOverlayBeforeId } from './imageryOrder';
 import {
     subscribeLightningStrikes,
     setLightningViewportStats,
@@ -42,6 +43,9 @@ const LIGHTNING_LAYER_SHOCKWAVE = 'lightning-blitz-layer-shockwave';
 const LIGHTNING_LAYER_HALO = 'lightning-blitz-layer-halo';
 const LIGHTNING_LAYER_HIT = 'lightning-blitz-layer-hit';
 const LIGHTNING_LAYER_BOLT = 'lightning-blitz-layer-bolt';
+const LIGHTNING_LAYER_CRATER = 'lightning-blitz-layer-crater';
+const LIGHTNING_LAYER_RIM = 'lightning-blitz-layer-rim';
+const BOLT_ICON = 'lightning-bolt-icon';
 
 // How long the expanding shockwave ring takes to play out. Short
 // enough to read as "BANG" not "shimmer", long enough to actually
@@ -115,10 +119,21 @@ export function useLightningLayer(
                     });
                 }
 
+                // "it says they are there, but i cannot see them" (Shane
+                // 2026-08-23) — and this anchor is why. It was the style's
+                // first SYMBOL layer, which is the same unstable landmark that
+                // hid both cloud layers: useMapInit adds the opaque satellite
+                // raster with beforeId = encBottom, and an undefined encBottom
+                // APPENDS IT TO THE TOP. So with satellite lit, all four
+                // lightning layers could sit underneath the imagery.
+                //
+                // Lightning clears the ENC stack too, not just the imagery. A
+                // cloud belongs under the chart; a strike does not — it is a
+                // ten-minute event and it is worthless with a depth-area fill
+                // painted over it.
                 const styleLayers = map.getStyle()?.layers ?? [];
-                const beforeId =
-                    styleLayers.find((l) => l.type === 'symbol')?.id ??
-                    (map.getLayer('route-line-layer') ? 'route-line-layer' : undefined);
+                const beforeId = alertOverlayBeforeId(styleLayers);
+                registerBoltIcon(map);
 
                 // 1. SHOCKWAVE — hollow ring that expands and fades in
                 //    the first ~1.5s of each strike. This is the
@@ -184,6 +199,60 @@ export function useLightningLayer(
                     );
                 }
 
+                // 2b. CRATER — the scorch mark (Shane 2026-08-23: "a bit of a
+                //     crater left in the earth"). A charred disc that stays for
+                //     the strike's whole life, so a stationary chart reads as
+                //     ground that has been hit rather than a dot that is
+                //     blinking. Sits over the halo so the glow rings it.
+                if (!map.getLayer(LIGHTNING_LAYER_CRATER)) {
+                    map.addLayer(
+                        {
+                            id: LIGHTNING_LAYER_CRATER,
+                            type: 'circle',
+                            source: LIGHTNING_SOURCE,
+                            paint: {
+                                'circle-radius': ['interpolate', ['linear'], ['zoom'], 2, 5, 5, 8, 10, 14, 14, 20],
+                                'circle-color': '#1a1005', // charred earth
+                                'circle-blur': 0.25,
+                                // Deliberately NOT full opacity: the chart
+                                // underneath must stay readable. A strike is
+                                // information, not an occlusion.
+                                'circle-opacity': ['*', 0.7, ['get', 'alpha']],
+                            },
+                        },
+                        beforeId,
+                    );
+                }
+
+                // 2c. EMBER RIM — the hot lip of the crater. Hollow ring at the
+                //     crater's edge; this is what makes the scorch read as a
+                //     hole punched in the ground rather than a grey smudge.
+                if (!map.getLayer(LIGHTNING_LAYER_RIM)) {
+                    map.addLayer(
+                        {
+                            id: LIGHTNING_LAYER_RIM,
+                            type: 'circle',
+                            source: LIGHTNING_SOURCE,
+                            paint: {
+                                'circle-radius': ['interpolate', ['linear'], ['zoom'], 2, 5, 5, 8, 10, 14, 14, 20],
+                                'circle-color': 'rgba(0,0,0,0)',
+                                'circle-stroke-color': [
+                                    'match',
+                                    ['get', 'pol'],
+                                    'positive',
+                                    '#fb923c',
+                                    'negative',
+                                    '#f97316',
+                                    /* unknown */ '#fdba74',
+                                ],
+                                'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 2, 1, 10, 2, 14, 3],
+                                'circle-stroke-opacity': ['*', 0.9, ['get', 'alpha']],
+                            },
+                        },
+                        beforeId,
+                    );
+                }
+
                 // 3. HIT CORE — bright white-hot centre. Bumped 3-4×
                 //    from the previous radius (1.5–6px → 5–18px) so a
                 //    single strike actually reads at hand-held viewing
@@ -208,13 +277,25 @@ export function useLightningLayer(
                     );
                 }
 
-                // 4. BOLT — white ⚡ glyph rendered via Mapbox's text-field.
-                //    Using the unicode glyph means we don't need to ship a
-                //    PNG/SVG icon image and register it with the map; iOS's
-                //    built-in emoji fonts handle the rasterising. Bottom-
-                //    anchored + a small upward offset so the base of the
-                //    bolt visually touches the hit-spot dot. Bumped ~50%
-                //    larger to match the new core/halo scale.
+                // 4. BOLT — a real drawn bolt, not the ⚡ text glyph.
+                //
+                //    The glyph was the SECOND reason these were invisible, and
+                //    independent of the anchor. Mapbox does not rasterise
+                //    text with the device's fonts: it fetches SDF glyph
+                //    ranges from the style's `glyphs` endpoint, and emoji are
+                //    not in the standard Mapbox font stacks. The old comment
+                //    here said "iOS's built-in emoji fonts handle the
+                //    rasterising" — they do not, and a missing glyph draws
+                //    nothing at all with no error.
+                //
+                //    An icon registered on the map has no font dependency and
+                //    no glyph fetch. Drawn on a canvas rather than raced in
+                //    from an SVG data URI, so registration is SYNCHRONOUS and
+                //    this layer cannot reference an image that has not landed
+                //    yet — the failure mode the chart's seamark icons are
+                //    currently in.
+                //
+                //    Bottom-anchored so the bolt's tip strikes the crater.
                 if (!map.getLayer(LIGHTNING_LAYER_BOLT)) {
                     map.addLayer(
                         {
@@ -222,22 +303,19 @@ export function useLightningLayer(
                             type: 'symbol',
                             source: LIGHTNING_SOURCE,
                             layout: {
-                                'text-field': '⚡',
-                                'text-size': ['interpolate', ['linear'], ['zoom'], 2, 18, 5, 24, 10, 34, 14, 44],
-                                'text-anchor': 'bottom',
-                                'text-offset': [0, -0.1],
-                                'text-allow-overlap': true,
-                                'text-ignore-placement': true,
+                                'icon-image': BOLT_ICON,
+                                'icon-size': ['interpolate', ['linear'], ['zoom'], 2, 0.55, 5, 0.75, 10, 1.05, 14, 1.4],
+                                'icon-anchor': 'bottom',
+                                'icon-offset': [0, 4],
+                                'icon-allow-overlap': true,
+                                'icon-ignore-placement': true,
                                 // Keep upright on rotated maps so a bolt
                                 // doesn't look weird if user tilts/rotates.
-                                'text-rotation-alignment': 'viewport',
-                                'text-pitch-alignment': 'viewport',
+                                'icon-rotation-alignment': 'viewport',
+                                'icon-pitch-alignment': 'viewport',
                             },
                             paint: {
-                                'text-color': '#ffffff',
-                                'text-halo-color': 'rgba(0, 0, 0, 0.55)',
-                                'text-halo-width': 1.5,
-                                'text-opacity': ['get', 'alpha'],
+                                'icon-opacity': ['get', 'alpha'],
                             },
                         },
                         beforeId,
@@ -365,6 +443,16 @@ export function useLightningLayer(
                 /* already removed */
             }
             try {
+                if (map.getLayer(LIGHTNING_LAYER_RIM)) map.removeLayer(LIGHTNING_LAYER_RIM);
+            } catch {
+                /* already removed */
+            }
+            try {
+                if (map.getLayer(LIGHTNING_LAYER_CRATER)) map.removeLayer(LIGHTNING_LAYER_CRATER);
+            } catch {
+                /* already removed */
+            }
+            try {
                 if (map.getLayer(LIGHTNING_LAYER_HALO)) map.removeLayer(LIGHTNING_LAYER_HALO);
             } catch {
                 /* already removed */
@@ -410,6 +498,67 @@ export function useLightningLayer(
             }
         };
     }, [mapRef, mapReady, visible]);
+}
+
+/**
+ * Draw the bolt once and register it with the map.
+ *
+ * Canvas paths, not an SVG data URI: an <img> load is asynchronous, and a
+ * symbol layer that references an image which has not arrived yet renders
+ * nothing while Mapbox logs "could not be loaded" per tile — which is exactly
+ * the state the chart's seamark icons are in right now. This is synchronous,
+ * so the layer added on the next line can never out-run it.
+ *
+ * Idempotent: hasImage() short-circuits, and a style reload clears images so
+ * the mount path re-registers.
+ */
+function registerBoltIcon(map: mapboxgl.Map): void {
+    try {
+        if (map.hasImage(BOLT_ICON)) return;
+        const ratio = Math.min(Math.max(window.devicePixelRatio || 1, 1), 3);
+        const W = 26;
+        const H = 36;
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.round(W * ratio);
+        canvas.height = Math.round(H * ratio);
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+        ctx.scale(ratio, ratio);
+
+        // Classic jagged bolt: down-left, kick right, down to the tip, then
+        // back up the other edge.
+        const pts: readonly (readonly [number, number])[] = [
+            [16, 1],
+            [6, 20],
+            [12, 20],
+            [9, 35],
+            [20, 14],
+            [13, 14],
+        ];
+        ctx.beginPath();
+        ctx.moveTo(pts[0][0], pts[0][1]);
+        for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+        ctx.closePath();
+
+        // Warm glow behind the fill so the bolt separates from dark water and
+        // from bright satellite land equally well.
+        ctx.shadowColor = 'rgba(253, 224, 71, 0.95)';
+        ctx.shadowBlur = 7;
+        ctx.fillStyle = '#fffbeb';
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        // Dark keyline — without it the bolt disappears into cloud tops.
+        ctx.lineJoin = 'round';
+        ctx.lineWidth = 1.4;
+        ctx.strokeStyle = 'rgba(28, 18, 4, 0.9)';
+        ctx.stroke();
+
+        map.addImage(BOLT_ICON, ctx.getImageData(0, 0, canvas.width, canvas.height), { pixelRatio: ratio });
+    } catch (err) {
+        // A missing icon costs the bolt, not the strike: the crater, rim,
+        // core and halo are all circle layers and need no image.
+        log.warn('lightning bolt icon registration failed — strikes still paint', err);
+    }
 }
 
 /** Compute alpha for a strike given its age. Newer = brighter; the
