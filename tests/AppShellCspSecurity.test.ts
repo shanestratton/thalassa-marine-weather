@@ -37,3 +37,49 @@ describe('application shell CSP', () => {
         expect(nativeApiBase).toContain("const DEFAULT_NATIVE_BASE = 'https://thalassawx.vercel.app/api'");
     });
 });
+
+describe('the coastline mirrors are allowed, and only those two', () => {
+    // Shane 2026-08-23, seeing red in the console: the shelter lookup calls
+    // two public OSM Overpass mirrors, and CSP blocked them on web — while
+    // CapacitorHttp bypasses CSP on iOS, so the phone was already making the
+    // request. The policy was not protecting anything; it was just
+    // inconsistent with the platform that actually goes to sea.
+    //
+    // Allowed deliberately, on his call, with the trade understood: the query
+    // carries the boat's position at ~11 m to a third party. That is why the
+    // Russian-operated mirror was REMOVED the same day — the objection was
+    // jurisdiction, not Overpass.
+    const files = ['index.html', 'vercel.json'];
+
+    it('allows the two mirrors in BOTH policies', () => {
+        // Two policies exist and they are not identical: index.html ships in
+        // the native bundle, vercel.json serves the web app. A host added to
+        // one only is a bug that shows up on exactly one platform.
+        for (const f of files) {
+            const src = readFileSync(f, 'utf8');
+            expect(src).toContain('https://overpass-api.de');
+            expect(src).toContain('https://overpass.kumi.systems');
+        }
+    });
+
+    it('does NOT reinstate the mirror removed for jurisdiction', () => {
+        for (const f of files) {
+            expect(readFileSync(f, 'utf8')).not.toContain('maps.mail.ru');
+        }
+        // …and nothing in the app may reach for it either.
+        expect(readFileSync('services/SeamarkService.ts', 'utf8')).not.toMatch(/'https:\/\/maps\.mail\.ru/);
+        expect(readFileSync('services/weather/shelter/coastlineSource.ts', 'utf8')).not.toMatch(
+            /'https:\/\/maps\.mail\.ru/,
+        );
+    });
+
+    it('keeps the allowance to Overpass — not all of OSM', () => {
+        // A wildcard here would quietly admit every OSM-adjacent host anyone
+        // ever adds. These are two named endpoints.
+        for (const f of files) {
+            const src = readFileSync(f, 'utf8');
+            expect(src).not.toContain('https://*.openstreetmap.de');
+            expect(src).not.toContain('https://*.kumi.systems');
+        }
+    });
+});
