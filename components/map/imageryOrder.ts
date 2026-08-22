@@ -40,3 +40,27 @@ export function cloudOverlayBeforeId(layers: readonly { id: string; type?: strin
     if (idx >= 0 && idx + 1 < layers.length) return layers[idx + 1].id;
     return (layers.find((l) => l.id.startsWith('enc-vec-')) ?? layers.find((l) => l.type === 'symbol'))?.id;
 }
+
+/**
+ * The `beforeId` for a TRANSIENT ALERT overlay — lightning strikes, and
+ * anything else that must be seen over everything the chart draws.
+ *
+ * Different from cloudOverlayBeforeId, deliberately. A cloud belongs under the
+ * chart: you navigate by the chart and read weather around it. A lightning
+ * strike is the opposite — it is an event, it lasts ten minutes, and it is
+ * worthless if a depth-area fill paints over it. So this clears the ENC stack
+ * as well as the imagery.
+ *
+ * Returns undefined when there is nothing to clear, which puts the layer on
+ * top. That is the correct answer for a handful of small transient marks.
+ */
+export function alertOverlayBeforeId(layers: readonly { id: string; type?: string }[]): string | undefined {
+    let top = imageryTopIndex(layers);
+    for (let i = layers.length - 1; i > top; i--) {
+        if (layers[i].id.startsWith('enc-vec-')) {
+            top = i;
+            break;
+        }
+    }
+    return top >= 0 && top + 1 < layers.length ? layers[top + 1].id : undefined;
+}
