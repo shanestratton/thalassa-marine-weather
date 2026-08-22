@@ -24,6 +24,13 @@
  * problem.
  */
 import { createLogger } from '../utils/createLogger';
+import {
+    canvasProbeArmed,
+    glCreatedCount,
+    glRefusedCount,
+    installCanvasProbe,
+    liveGlContexts,
+} from '../utils/canvasProbe';
 
 const log = createLogger('memoryCensus');
 
@@ -140,6 +147,9 @@ export interface MemoryCensus {
      * which is exactly the shape of kills 11 and 13.
      */
     glContextLost: boolean;
+    /** False means the getContext probe was not installed in time, so the
+     *  glCreated/glLive numbers above are "we were not watching", not zero. */
+    glProbeArmed: boolean;
 
     /**
      * MAPBOX-SIDE TILES, and what they cost in texture.
@@ -190,66 +200,6 @@ const bootAt = Date.now();
 let glContextLost = false;
 const peaks = { encTextMB: 0, pinnedCells: 0, domNodes: 0, canvases: 0, glLive: 0, heapUsedMB: 0, tiles: 0, tileTextureMB: 0 };
 
-/** WebGL contexts created since boot, and weak handles to their canvases. */
-let glCreated = 0;
-let glRefused = 0;
-const glCanvases: WeakRef<HTMLCanvasElement>[] = [];
-let canvasProbeInstalled = false;
-
-/**
- * Count WebGL context creations by wrapping getContext.
- *
- * There is no API that reports live GL contexts, and probing a canvas with
- * getContext('webgl') would CREATE one — making the instrument the bug. The
- * only honest way to count them is to watch them being made.
- *
- * Weak handles so the probe cannot itself retain a canvas. A context whose
- * canvas has been collected is one WebKit may still be holding GPU memory
- * for, which is the whole point of the measurement.
- */
-function installCanvasProbe(): void {
-    if (canvasProbeInstalled) return;
-    if (typeof HTMLCanvasElement === 'undefined') return;
-    canvasProbeInstalled = true;
-    try {
-        const proto = HTMLCanvasElement.prototype;
-        const original = proto.getContext;
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        proto.getContext = function (this: HTMLCanvasElement, kind: string, ...rest: any[]) {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const context = (original as any).call(this, kind, ...rest);
-            if (!context && /webgl/i.test(kind)) {
-                // WebKit refused. Past the per-process context cap it returns
-                // null rather than throwing, so this is the only place the
-                // refusal is visible at all.
-                glRefused += 1;
-            }
-            if (context && /webgl/i.test(kind)) {
-                // getContext returns the SAME context on repeat calls, so only
-                // count a canvas once or the number is meaningless.
-                const already = glCanvases.some((ref) => ref.deref() === this);
-                if (!already) {
-                    glCreated += 1;
-                    glCanvases.push(new WeakRef(this));
-                }
-            }
-            return context;
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        } as any;
-    } catch (err) {
-        log.warn('could not install the canvas probe', err);
-    }
-}
-
-/** How many probed canvases are still reachable. */
-function liveGlContexts(): number {
-    let live = 0;
-    for (let i = glCanvases.length - 1; i >= 0; i--) {
-        if (glCanvases[i].deref()) live += 1;
-        else glCanvases.splice(i, 1);
-    }
-    return live;
-}
 
 /** Told by the tracer, so a census line says whether a leg was being drawn. */
 export function setCensusPlotting(active: boolean): void {
@@ -294,11 +244,12 @@ export async function takeCensus(now = Date.now()): Promise<MemoryCensus> {
         heapLimitMB: null,
         peakHeapUsedMB: null,
         canvases: 0,
-        glCreated,
-        glRefused,
+        glCreated: glCreatedCount(),
+        glRefused: glRefusedCount(),
         glLive: 0,
         peakGlLive: 0,
         glContextLost,
+        glProbeArmed: canvasProbeArmed(),
         tiles: 0,
         tilesCached: 0,
         tileSources: 0,
@@ -572,6 +523,9 @@ export function describeCensus(c: MemoryCensus): string {
         `[${c.platform ?? '?'}] tiles ${c.tiles ?? 0} live +${c.tilesCached ?? 0} cached across ${c.tileSources ?? 0} srcs ~${c.tileTextureMB ?? 0}MB tex ` +
         `(peak ${c.peakTiles ?? 0}/~${c.peakTileTextureMB ?? 0}MB${c.topTileSource ? `, top ${c.topTileSource}` : ''}), ` +
         `WebGL ${c.glLive ?? 0} live / ${c.glCreated ?? 0} created (peak live ${c.peakGlLive ?? 0})` +
+        // "0 created" with a map on screen used to mean the probe lost a race
+        // with Mapbox, not that there were no contexts. Say which.
+        `${c.glProbeArmed === false ? ' [GL PROBE NOT ARMED]' : ''}` +
         `${c.glRefused ? ` [${c.glRefused} CONTEXT REFUSALS]` : ''}`
     );
 }
