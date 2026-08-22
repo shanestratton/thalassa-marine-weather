@@ -66,22 +66,52 @@ describe('the census can actually see tiles', () => {
     // catch that class of failure; a fake map can.
     const tex = (w: number, h: number, useMipmap = true) => ({ texture: { size: [w, h], useMipmap } });
 
-    /** A mapbox-gl 3.x style with the three cache buckets v3 actually uses. */
-    const fakeMap = (buckets: Record<string, Record<string, unknown>>) => ({ style: buckets });
+    /**
+     * A mapbox-gl 3.19 style, modelled on Style#addSource: every source gets an
+     * `other:<id>` SourceCache, and vector/geojson sources get a SECOND
+     * `symbol:<id>` one. `_mergedSourceCaches` holds both; `_mergedOther…` and
+     * `_mergedSymbol…` hold the SAME objects under bare ids.
+     */
+    const fakeMap = (merged: Record<string, unknown>, alsoSplit = true) => {
+        const other: Record<string, unknown> = {};
+        const symbol: Record<string, unknown> = {};
+        for (const key of Object.keys(merged)) {
+            const bare = key.replace(/^[a-z]+:/, '');
+            (key.startsWith('symbol:') ? symbol : other)[bare] = merged[key];
+        }
+        return {
+            style: alsoSplit
+                ? {
+                      _mergedSourceCaches: merged,
+                      _mergedOtherSourceCaches: other,
+                      _mergedSymbolSourceCaches: symbol,
+                  }
+                : { _mergedSourceCaches: merged },
+        };
+    };
 
-    it('reads the v3 merged buckets, including the "other" one rasters live in', () => {
-        // v3 splits caches three ways. Reading only _sourceCaches — as the
-        // first cut did — misses the raster imagery entirely, which is the
-        // one thing that holds real texture.
+    it('counts every cache exactly ONCE', () => {
+        // THE BUG THIS REPLACES. The first cut walked all three merged maps,
+        // but other+symbol are the same objects the merged map already holds —
+        // so every cache was visited twice. Shane's 2026-08-23 report read
+        // "208 live +1412 cached across 74 srcs ~232MB tex"; every number was
+        // double. A gauge that is wrong in the direction you expect is more
+        // dangerous than one that reads zero.
         const map = fakeMap({
-            _mergedSourceCaches: { 'enc-depare': { _tiles: { a: {}, b: {} } } },
-            _mergedOtherSourceCaches: { 'other:satellite-base': { _tiles: { c: tex(512, 512) } } },
-            _mergedSymbolSourceCaches: { 'symbol:composite': { _tiles: { d: {} } } },
+            'other:satellite-base': { _tiles: { c: tex(512, 512, false) } },
+            'other:enc-depare': { _tiles: { a: {}, b: {} } },
+            'symbol:enc-depare': { _tiles: { d: {} } },
         });
         registerCensusMap(map);
         const out = countMapTiles();
         expect(out.sources).toBe(3);
         expect(out.live).toBe(4);
+        expect(out.textureMB).toBe(1);
+    });
+
+    it('falls back to _sourceCaches only when the merged map is absent', () => {
+        registerCensusMap({ style: { _sourceCaches: { 'other:x': { _tiles: { a: tex(256, 256, false) } } } } });
+        expect(countMapTiles().sources).toBe(1);
     });
 
     it('counts the RETAINED cache, which is what maxTileCacheSize bounds', () => {
@@ -90,11 +120,9 @@ describe('the census can actually see tiles', () => {
         // version skipped on `tiles === 0` and printed zeros over live
         // textures.
         const map = fakeMap({
-            _mergedOtherSourceCaches: {
-                'other:hybrid-base': {
-                    _tiles: {},
-                    _cache: { data: { k1: [{ value: tex(1024, 1024) }], k2: [{ value: tex(1024, 1024) }] } },
-                },
+            'other:hybrid-base': {
+                _tiles: {},
+                _cache: { data: { k1: [{ value: tex(1024, 1024) }], k2: [{ value: tex(1024, 1024) }] } },
             },
         });
         registerCensusMap(map);
@@ -109,9 +137,7 @@ describe('the census can actually see tiles', () => {
     it('uses the tile\'s real dimensions, not a per-tile guess', () => {
         // The 4 MB-per-retina-tile heuristic assumed mapbox.satellite @2x
         // decodes to 1024×1024. It serves 512×512, so the guess was ~3x high.
-        const map = fakeMap({
-            _mergedOtherSourceCaches: { s: { _tiles: { a: tex(512, 512, false), b: tex(512, 512, false) } } },
-        });
+        const map = fakeMap({ 'other:s': { _tiles: { a: tex(512, 512, false), b: tex(512, 512, false) } } });
         registerCensusMap(map);
         // 512×512×4 = 1 MiB each, no mipmap → 2, not 8.
         expect(countMapTiles().textureMB).toBe(2);
@@ -119,10 +145,8 @@ describe('the census can actually see tiles', () => {
 
     it('names the heaviest source, split live vs cached', () => {
         const map = fakeMap({
-            _mergedOtherSourceCaches: {
-                'other:satellite-base': { _tiles: { a: tex(512, 512), b: tex(512, 512) }, _cache: { data: { k: [{ value: tex(512, 512) }] } } },
-                'other:openseamap': { _tiles: { c: tex(256, 256) } },
-            },
+            'other:satellite-base': { _tiles: { a: tex(512, 512), b: tex(512, 512) }, _cache: { data: { k: [{ value: tex(512, 512) }] } } },
+            'other:openseamap': { _tiles: { c: tex(256, 256) } },
         });
         registerCensusMap(map);
         expect(countMapTiles().top).toBe('satellite-base:2+1');
