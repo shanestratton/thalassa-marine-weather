@@ -187,3 +187,41 @@ describe('the cyclone details card exists and is mounted', () => {
         }
     });
 });
+
+describe('the precip half actually gets time to load', () => {
+    it('gives the direct snapshot fetch its own budget, armed only when it starts', () => {
+        // "the squall layer is not working" (Shane 2026-08-23). The backend was
+        // fine — measured that day: the snapshot endpoint returns 200 with
+        // {"snapshot":…} and the tile endpoint a real 9.5 kB dbz_u8 PNG.
+        //
+        // ONE 3 s abort timer was armed BEFORE the Pi attempt and covered both
+        // it and the direct fetch. A configured-but-out-of-range Pi burns its
+        // whole read timeout first, so the direct fetch was aborted the moment
+        // it started; and with no Pi at all the margin was still thin, against
+        // an endpoint measured at 0.69-1.76 s warm and 2.3 s on a cold start —
+        // on shore broadband, not a marine link.
+        const src = readFileSync('components/map/useSquallMap.ts', 'utf8');
+        expect(src).toContain('const PI_BUDGET_MS');
+        expect(src).toContain('const DIRECT_BUDGET_MS');
+
+        // The timer must be INSIDE the direct-fetch branch, not above the Pi
+        // attempt — that placement is the entire bug.
+        const load = src.slice(src.indexOf('async function loadSquallTiles'), src.indexOf('mountSquallLayer(map, supabaseUrl'));
+        // Match the CODE form, not the prose: the comment above it quotes the
+        // old `setTimeout(() => controller.abort(), 3000)` to explain the bug.
+        const armAt = load.indexOf('setTimeout(() => controller.abort(), DIRECT_BUDGET_MS)');
+        const piAt = load.indexOf('piCache.passthroughJson');
+        const directAt = load.indexOf('await fetch(upstream');
+        expect(armAt).toBeGreaterThan(piAt);
+        expect(armAt).toBeLessThan(directAt);
+        expect(load).toContain('DIRECT_BUDGET_MS');
+    });
+
+    it('says WHY it gave up, and how long it took', () => {
+        // A timeout and a teardown aborted the same controller and logged the
+        // same line, which is part of why this needed a bug report to find.
+        const src = readFileSync('components/map/useSquallMap.ts', 'utf8');
+        expect(src).toContain('view torn down');
+        expect(src).toContain('timed out — budget ${DIRECT_BUDGET_MS}ms');
+    });
+});
