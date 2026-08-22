@@ -186,10 +186,31 @@ export function deserializeEntry(json: string): PersistableEntry | null {
     }
 }
 
-/** Persist up to MAX_ENTRIES, newest first, within the byte budget. */
+/**
+ * The coarsest tier is the one that prevents a zoom-out blank, so it is kept
+ * even though it is always the oldest.
+ *
+ * A plain newest-first cut threw it away every time. The synoptic grid is
+ * warmed ONCE, early, and every viewport fetch afterwards is newer — so
+ * sorting by fetchedAt and keeping two guaranteed the two most recent
+ * VIEWPORT grids survived and the wide one did not. The in-memory cache was
+ * already given exactly this exemption; the disk cache silently undid it, and
+ * the symptom was a relaunch that rehydrated two grids and still paid a full
+ * ~3 s fetch on the first pinch-out (Shane 2026-08-22).
+ */
+function selectForPersist(entries: readonly PersistableEntry[]): PersistableEntry[] {
+    const byRes = [...entries].sort((a, b) => b.res - a.res);
+    const coarsest = byRes[0];
+    const rest = entries
+        .filter((e) => e !== coarsest)
+        .sort((a, b) => b.fetchedAt - a.fetchedAt);
+    return coarsest ? [coarsest, ...rest].slice(0, MAX_ENTRIES) : rest.slice(0, MAX_ENTRIES);
+}
+
+/** Persist up to MAX_ENTRIES within the byte budget, coarsest tier first. */
 export function saveWindGrids(entries: readonly PersistableEntry[]): void {
     try {
-        const newestFirst = [...entries].sort((a, b) => b.fetchedAt - a.fetchedAt).slice(0, MAX_ENTRIES);
+        const newestFirst = selectForPersist(entries);
         const encoded: string[] = [];
         let total = 0;
         for (const entry of newestFirst) {
