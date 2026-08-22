@@ -120,24 +120,49 @@ describe('the cyclone details card exists and is mounted', () => {
     // not seem to be working"). Anchoring at the style's first symbol layer
     // was right when imagery sat at the bottom of the stack; the hybrid
     // imagery and the ENC fills now sit far above it.
-    it('anchors the IR cloud above the chart, not at the first symbol layer', () => {
+    //
+    // …and that whole line of reasoning was still wrong, twice over. The
+    // assertions below replace it (Shane 2026-08-23, third report of "the
+    // satellite imagery is still not showing").
+    it('gets the cloud\'s alpha from the pixels, because the tile is opaque', () => {
+        // MEASURED, not reasoned. The exact URL this builds was fetched on
+        // 2026-08-23: HTTP 200, 76 080 B, PNG colour type 6 (RGBA), and
+        // alpha == 255 on 100% of sampled pixels, with the clear-sky
+        // background sitting at luminance 96-160 of 255.
+        //
+        // An opaque tile is not an overlay. Under the base imagery it is
+        // invisible and over it, it greys out the world — so NO anchor could
+        // ever have fixed this, which is why two anchor rounds did nothing.
         const src = readFileSync('components/map/useSquallMap.ts', 'utf8');
         const mount = src.slice(src.indexOf('function mountSatelliteLayer'), src.indexOf('function mountSquallLayer'));
-        // The SAME candidates ENC uses, so cloud lands above the depth fills.
-        expect(mount).toContain("'settlement-major-label'");
-        expect(mount).toContain("'place-city'");
-        // First-symbol survives only as the last-resort fallback.
-        const firstSymbolAt = mount.indexOf("find((l) => l.type === 'symbol')");
-        expect(firstSymbolAt).toBeGreaterThan(mount.indexOf("'admin-0-boundary'"));
+        expect(mount).toContain("'raster-color'");
+        expect(mount).toContain("'raster-color-mix'");
+        // The precip half of this same file already proved the technique on
+        // Rainbow's grayscale dbz — it just was never applied to the cloud.
+        expect(src).toContain("'raster-color': SQUALL_COLOR_RAMP");
     });
 
-    it('keeps the IR anchor in step with the rain layer that solved this first', () => {
-        // When these two drifted apart, one of them was invisible. Whichever
-        // is fixed next, both must move.
-        const squall = readFileSync('components/map/useSquallMap.ts', 'utf8');
+    it('anchors the cloud above the imagery, and not to a layer that moves', () => {
+        const src = readFileSync('components/map/useSquallMap.ts', 'utf8');
+        const mount = src.slice(src.indexOf('function mountSatelliteLayer'), src.indexOf('function mountSquallLayer'));
+        const anchor = mount.slice(mount.indexOf('const imageryIdx ='), mount.indexOf('map.addLayer('));
+        expect(anchor).toContain("'satellite-base-layer'");
+        expect(anchor).toContain("'hybrid-base-layer'");
+        // 'settlement-major-label' looks like a stable high-water mark and is
+        // not one: MapHub's ordering pass RELOCATES it to encBottom whenever
+        // imagery is lit — which is exactly the configuration Shane runs.
+        expect(anchor).not.toContain("'settlement-major-label'");
+    });
+
+    it('does NOT keep the IR anchor coupled to the rain layer', () => {
+        // The previous round asserted these two must move together. They must
+        // not: RainViewer's tiles composite as an overlay, and the GIBS Clean
+        // IR tile was measured fully opaque. Coupling them is what carried a
+        // fix that worked for rain onto a layer it could not work for.
+        //
+        // Rain's own anchor still stands and is still asserted — on its own.
         const weather = readFileSync('components/map/useWeatherLayers.ts', 'utf8');
         for (const id of ['settlement-major-label', 'place-city', 'country-label', 'admin-0-boundary']) {
-            expect(squall).toContain(`'${id}'`);
             expect(weather).toContain(`'${id}'`);
         }
     });

@@ -1793,19 +1793,26 @@ export function useCycloneLayer(
 
         const hud = document.createElement('div');
         hud.id = HUD_ID;
-        // top:108px, NOT 56px (Shane 2026-08-22: "it is too high up on the
-        // screen and is in the heading area along with the zoom level etc").
-        // 56px is the header FAB row — the mic FAB, the status pill and the
-        // zoom readout all live there, so the badge was landing on top of
-        // them. 104px is where this app already starts the next row
-        // (ChartDepthControls); 108 clears it.
+        // TOP ALIGNS WITH THE MOB FAB (Shane 2026-08-23) — and that is not a
+        // constant, so it cannot live here as one.
+        //
+        // MOB sits inside .radial-helm-menu (absolute top:192px) at
+        // .radial-helm-mob { top: calc(env(safe-area-inset-top)/2 - 95px) },
+        // i.e. 97px + half the notch inset, and it moves to a different
+        // anchor entirely in short landscape. A hard-coded 108/116 here was
+        // right on exactly one device and drifted on every other, which is
+        // how it landed in the pill row in the first place.
+        //
+        // So the offset moves to index.css beside .radial-helm-mob, derived
+        // from the same numbers and carrying the same landscape override.
+        // Keeping the two adjacent is the point: they are now one decision.
         //
         // z-index 760, NOT 600: the FAB rail is z-700 and the route banner
         // z-720, so at 600 the storm card could be covered by furniture —
         // "make sure that it is on top of all other layers".
+        hud.className = 'storm-hud-badges';
         hud.style.cssText = `
             position: absolute;
-            top: 108px;
             left: 16px;
             z-index: 760;
             display: flex;
@@ -1821,6 +1828,21 @@ export function useCycloneLayer(
         // name rather than erroring.
         injectCycloneCSS();
         hud.appendChild(createStormBadgeStatic(selectedStorm));
+        // STEP BETWEEN STORMS WITHOUT THE MENU (Shane 2026-08-23: "we need a
+        // way to select a different storm without having to go back through
+        // the menu").
+        //
+        // Tapping a marker already selects (onSelectStorm), but the cyclone
+        // view LOCKS the camera on the selected storm — so in a live Pacific
+        // the other three are off-screen and there is nothing left to tap.
+        // The only route back was the StormPicker modal, which is the menu he
+        // is describing. A stepper on the card needs no camera and no modal.
+        const switcher = createStormSwitcher(
+            cyclonesRef.current,
+            selectedStorm,
+            (next) => onSelectStormRef.current?.(next),
+        );
+        if (switcher) hud.appendChild(switcher);
         map.getContainer().appendChild(hud);
 
         // Update the center lock to the newly selected storm
@@ -1983,6 +2005,80 @@ function buildBadgeData(cyclone: ActiveCyclone, onClose?: () => void): StormBadg
         devProbability: computeDevProbability(cyclone),
         onClose,
     };
+}
+
+/**
+ * The prev/next storm stepper that sits under the details card.
+ *
+ * Returns null for a single storm — a stepper that cannot step is furniture.
+ *
+ * Ordered by NAME, not by the load order of `cyclonesRef`: that array is
+ * rebuilt by the 30-minute refresh and its order is whatever the feed
+ * returned, so stepping "next" twice could land you back where you started.
+ * Alphabetical is arbitrary but STABLE, which is the property that matters
+ * when the control is a pair of arrows.
+ */
+export function createStormSwitcher(
+    all: readonly ActiveCyclone[],
+    current: ActiveCyclone,
+    onPick: (storm: ActiveCyclone) => void,
+): HTMLDivElement | null {
+    const storms = [...all].sort((a, b) => resolveStormName(a).localeCompare(resolveStormName(b)));
+    if (storms.length < 2) return null;
+    const idx = Math.max(
+        0,
+        storms.findIndex((c) => c.sid === current.sid),
+    );
+
+    const bar = document.createElement('div');
+    bar.style.cssText = `
+        display:flex;align-items:center;justify-content:space-between;gap:6px;
+        background:rgba(10,15,30,0.92);backdrop-filter:blur(20px);
+        -webkit-backdrop-filter:blur(20px);border:1px solid rgba(255,255,255,0.12);
+        border-radius:12px;padding:4px;pointer-events:auto;
+        font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display',sans-serif;
+        box-shadow:0 6px 20px rgba(0,0,0,0.6);
+    `;
+
+    const step = (delta: number): void => {
+        // Wrap both ways so the last storm steps forward to the first.
+        const next = storms[(idx + delta + storms.length) % storms.length];
+        if (next && next.sid !== current.sid) onPick(next);
+    };
+
+    const arrow = (label: string, dir: -1 | 1, aria: string): HTMLButtonElement => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.setAttribute('aria-label', aria);
+        // 44px minimum: this is a helm control on a moving boat.
+        b.style.cssText = `
+            min-width:44px;min-height:36px;border:0;border-radius:9px;
+            background:rgba(255,255,255,0.06);color:#fff;font-size:15px;
+            line-height:1;cursor:pointer;flex-shrink:0;
+        `;
+        b.textContent = label;
+        b.addEventListener('click', (e) => {
+            // The card behind this bar toggles expand on click; without this
+            // an arrow tap would also open the advisory table.
+            e.stopPropagation();
+            step(dir);
+        });
+        return b;
+    };
+
+    bar.appendChild(arrow('‹', -1, 'Previous storm'));
+
+    const label = document.createElement('div');
+    label.style.cssText = `
+        flex:1;min-width:0;text-align:center;color:rgba(255,255,255,0.75);
+        font-size:10px;font-weight:700;letter-spacing:0.4px;text-transform:uppercase;
+        overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+    `;
+    label.textContent = `${idx + 1} / ${storms.length} · ${resolveStormName(current)}`;
+    bar.appendChild(label);
+
+    bar.appendChild(arrow('›', 1, 'Next storm'));
+    return bar;
 }
 
 // ── Static badge builder (accessible outside the main effect closure) ──

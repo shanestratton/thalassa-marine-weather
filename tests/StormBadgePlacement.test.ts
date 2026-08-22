@@ -13,11 +13,32 @@ const hud = src.slice(src.indexOf('const hud = document.createElement'), src.ind
 const card = src.slice(src.indexOf('function buildStormBadgeDOM'), src.indexOf('// ── Header: Storm name'));
 
 describe('storm badge placement', () => {
-    it('sits below the header FAB row, not in it', () => {
-        // 56px is the header row — mic FAB, status pill, zoom readout. 104px
-        // is where this app already starts the next row (ChartDepthControls).
-        expect(hud).toContain('top: 108px;');
-        expect(hud).not.toContain('top: 56px;');
+    it('top-aligns with the MOB FAB, derived rather than hard-coded', () => {
+        // Shane 2026-08-23: "the top of the info box for storms should be at
+        // the same height as the top of the mob fab."
+        //
+        // MOB's height is not a constant — .radial-helm-menu anchors at 192px
+        // and .radial-helm-mob offsets by (safe-area-inset-top / 2 - 95px),
+        // so the target slides with the notch. Two previous hard-coded values
+        // (56px, then 108px) were each right on one device. The offset must
+        // therefore live in CSS, next to the rule it is derived from.
+        expect(hud).toContain("hud.className = 'storm-hud-badges'");
+        expect(hud).not.toMatch(/top:\s*\d+px;/);
+
+        const css = readFileSync('index.css', 'utf8');
+        const mob = /\.radial-helm-mob\s*\{[^}]*top:\s*([^;]+);/.exec(css)?.[1];
+        const badge = /\.storm-hud-badges\s*\{[^}]*top:\s*([^;]+);/.exec(css)?.[1];
+        expect(mob).toBe('calc(env(safe-area-inset-top) / 2 - 95px)');
+        // 192 (menu anchor) - 95 = 97, plus the same half-inset MOB uses.
+        expect(badge).toBe('calc(97px + env(safe-area-inset-top) / 2)');
+
+        // …and the same in short landscape, where MOB re-anchors to the
+        // menu's own top instead of sitting above it.
+        const landscape = css.slice(css.indexOf('@media (orientation: landscape) and (max-height: 500px)'));
+        const lMob = /\.radial-helm-mob\s*\{[^}]*top:\s*([^;]+);/.exec(landscape)?.[1];
+        const lBadge = /\.storm-hud-badges\s*\{[^}]*top:\s*([^;]+);/.exec(landscape)?.[1];
+        expect(lMob).toBe('0 !important');
+        expect(lBadge).toBe('max(64px, calc(env(safe-area-inset-top) + 52px)) !important');
     });
 
     it('stacks above the FAB rail and the route banner', () => {

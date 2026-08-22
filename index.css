@@ -3356,6 +3356,15 @@ body,
     top: calc(env(safe-area-inset-top) / 2 - 95px);
 }
 
+/* Storm info card — TOP-ALIGNED WITH THE MOB FAB (Shane 2026-08-23).
+   MOB resolves to 192px (.radial-helm-menu) + (inset/2 - 95px), so the same
+   height is 97px + half the notch inset. Derived from the rule directly
+   above, and deliberately next to it: these two must move together, and a
+   constant in the TS file could not track the safe-area inset at all. */
+.storm-hud-badges {
+    top: calc(97px + env(safe-area-inset-top) / 2);
+}
+
 /* ── Chart map credits must clear the bottom tab bar ───────────────
    THIS IS A LICENCE CONDITION, not styling. Mapbox, OpenStreetMap, Maxar,
    MapTiler and OpenSeaMap all require visible attribution.
@@ -3640,6 +3649,11 @@ body.animation-diet [class*='slide-in'] {
     .radial-helm-mob {
         top: 0 !important;
         right: 60px !important;
+    }
+
+    /* MOB's landscape anchor is the menu's own top, so match it literally. */
+    .storm-hud-badges {
+        top: max(64px, calc(env(safe-area-inset-top) + 52px)) !important;
     }
 
     .radial-helm-layer-grid {
