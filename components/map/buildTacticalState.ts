@@ -80,16 +80,41 @@ export function buildTacticalState(deps: BuildTacticalStateDeps): NonNullable<Ra
         },
         cycloneVisible,
         onToggleCyclones: () => {
+            // OFF ALWAYS WINS (Shane 2026-08-23: "i can not exit from the
+            // storm layer").
+            //
+            // The multi-storm branch below opens the picker and returns, so
+            // with more than one storm live this control could only ever turn
+            // the layer ON. Tapping "Storms" again re-opened the picker; there
+            // was no path back out. Shane had three storms up, which is why he
+            // hit it and earlier sessions did not — the side doors (Locate Me,
+            // turning on a weather layer, the picker's own "clear") all still
+            // worked, so the layer was escapable, just not by the control that
+            // turned it on.
+            //
+            // A toggle that cannot untoggle is the bug. Check visibility
+            // FIRST; the picker is for entering and for switching, never for
+            // leaving.
+            if (cycloneVisible) {
+                setCycloneVisible(false);
+                return;
+            }
             // When MULTIPLE cyclones are active, open the picker modal
             // instead of just toggling — otherwise the user has no way
             // to switch between storms (previous behaviour auto-focused
             // only the closest one). With 0 or 1 storms, fall back to
             // the simple toggle.
+            //
+            // (Switching is no longer picker-only — the storm card carries a
+            // prev/next stepper as of 2026-08-23 — but the picker is still the
+            // better door in: it names all the storms at once.)
             if (allCyclones.length > 1) {
                 cyclonePickerPendingRef.current = false;
                 setStormPickerOpen(true);
-                // Also enable the layer if it's off so the picked storm
-                // becomes visible immediately.
+                // Enable the layer so the picked storm becomes visible
+                // immediately. (Always true now that the visible case returns
+                // above — kept as a guard rather than deleted, so this block
+                // stays correct if the early return is ever moved.)
                 if (!cycloneVisible) {
                     setCycloneVisible(true);
                     setSquallVisible(false);
