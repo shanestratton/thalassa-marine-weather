@@ -204,6 +204,31 @@ function boundsCover(
     );
 }
 
+/**
+ * Do these two boxes share any water at all? Date-Line safe, same
+ * normalisation as boundsCover.
+ *
+ * The weaker sibling of boundsCover, and the distinction is a SAFETY one.
+ * Retaining a field while its replacement loads is fine when the old grid
+ * OVERLAPS the new view — zooming out, the retained wind is still drawn where
+ * it actually belongs, just not everywhere. It is NOT fine when the two are
+ * disjoint: pan clean away and the old field paints Brisbane's wind over
+ * Indonesia, which is not "incomplete" but wrong, and wrong wind on a chart is
+ * a hazard rather than a rough edge.
+ */
+export function boundsOverlap(
+    a: { north: number; south: number; west: number; east: number },
+    b: { north: number; south: number; west: number; east: number },
+): boolean {
+    const aEast = continuousEastForLongitudeRange(a.west, a.east);
+    const aCenter = (a.west + aEast) / 2;
+    const bEast = continuousEastForLongitudeRange(b.west, b.east);
+    const shift = Math.round((aCenter - (b.west + bEast) / 2) / 360) * 360;
+    const bWest = b.west + shift;
+    if (a.north < b.south || a.south > b.north) return false;
+    return !(aEast < bWest || a.west > bEast + shift);
+}
+
 /** Finest fresh cached grid that fully covers the viewport for this model. */
 function bestCoveringGrid(
     model: CachedWindGrid['model'],
@@ -316,9 +341,13 @@ async function prefetchSynopticGrid(model: CachedWindGrid['model']): Promise<voi
         );
         if (grid) {
             storeCachedGrid({ grid, bounds, res: SYNOPTIC_GRID_RES_DEG, model, fetchedAt: Date.now() });
-            log.info(
-                `[WindController] Synoptic grid warmed: ${grid.width}×${grid.height} @ ${SYNOPTIC_GRID_RES_DEG.toFixed(2)}°`,
+            // warn, not info: info is silent in prod, so there was no way to
+            // tell from a device log whether the warm that prevents the
+            // zoom-out blank had actually run.
+            log.warn(
+                `[perf] wind synoptic warm ready ${grid.width}×${grid.height} @ ${SYNOPTIC_GRID_RES_DEG.toFixed(2)}°`,
             );
+            crumb('wind:synoptic', `${grid.width}x${grid.height}`);
         }
     } catch (e) {
         log.warn('[WindController] Synoptic grid prefetch failed', e);
@@ -587,15 +616,34 @@ export const WindDataController = {
         }
 
         // Viewport refinement keeps the old field animating while the
-        // replacement loads — but ONLY while that field actually covers the
-        // new viewport. Zooming out past its bounds used to leave its
-        // hard-edged rectangle floating over a dark map for the whole wide
-        // fetch; an honest clear (+ the loading pill) reads better there.
+        // replacement loads.
+        //
+        // COVERAGE IS NO LONGER REQUIRED (2026-08-22). This used to also
+        // demand boundsCover(), on the reasoning that a hard-edged rectangle
+        // floating over a dark map read worse than an honest clear. That
+        // reasoning was made when a clear lasted one fetch; measured on
+        // Shane's device a zoom-out clear now lasts 3140 ms of black, because
+        // the wide grid is the slowest fetch there is — "when i zoom out, it
+        // is a little jerky, can we make it so that it flows nicely and does
+        // not show any blank areas".
+        //
+        // Keeping a partial field is strictly more information than keeping
+        // none, and the synoptic warm usually means SOME cached grid already
+        // covers the wider view and publishes instantly above, so this branch
+        // is the rare gap rather than the normal zoom-out path.
+        //
+        // OVERLAP, not coverage — and the difference is safety, not polish.
+        // Zooming out, the retained field is still drawn where it belongs and
+        // is merely incomplete. Panning CLEAN AWAY is different in kind: the
+        // old grid would paint Brisbane's wind over Indonesia, which is not
+        // incomplete but wrong, and wrong wind on a chart is a hazard. So a
+        // disjoint view still clears honestly and lets the loading pill own
+        // the wait, exactly as before. Stale is refused either way.
         const keepRenderedGrid =
             Boolean(WindStore.getState().grid) &&
             lastFetchedBounds !== null &&
             !isCacheStale(lastFetchedBounds) &&
-            boundsCover(lastFetchedBounds, visibleBounds);
+            boundsOverlap(lastFetchedBounds, visibleBounds);
         if (!beginWindGridLoad(request, keepRenderedGrid)) return false;
 
         try {
