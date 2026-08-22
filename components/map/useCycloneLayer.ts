@@ -20,6 +20,22 @@ import { WindStore } from '../../stores/WindStore';
 
 import { createLogger } from '../../utils/createLogger';
 
+/**
+ * The zoom the storm view opens at (Shane 2026-08-23: "can we start the storm
+ * layer at zoom 2.1?").
+ *
+ * It used to open at 1 in three separate places, hard-coded. z1 is the whole
+ * globe: at Newport that puts the Coral Sea storms and the Atlantic on screen
+ * together, most of it ocean nobody is looking at. 2.1 is the frame Shane
+ * settled on himself and asked for by name — the west Pacific and Australia,
+ * which is the basin pair that actually matters from this boat.
+ *
+ * Not a floor: minZoom stays 1, so pulling further out still works. This is
+ * only where the view LANDS.
+ */
+export const CYCLONE_OPEN_ZOOM = 2.1;
+
+
 // ── Lazy-loaded heavy services (split into separate chunks) ──
 // These are only fetched when the cyclone layer is activated.
 const getCycloneService = () => import('../../services/weather/CycloneTrackingService');
@@ -1283,6 +1299,9 @@ export function useCycloneLayer(
     const selfMoveRef = useRef(false);
     /** Max zoom for the cyclone view — satellite IR is ~4 km, blurry past z8 */
     const CYCLONE_MAX_ZOOM = 8;
+    /** The zoom this view intends to be at, for anything that needs to know
+     *  the target while the opening flight is still in the air. */
+    const openZoomRef = useRef(CYCLONE_OPEN_ZOOM);
 
     userLatRef.current = userLat;
     userLonRef.current = userLon;
@@ -1361,17 +1380,19 @@ export function useCycloneLayer(
 
         injectCycloneCSS();
 
-        // ── Synoptic view: zoom 1, user dead centre ──
+        // ── Synoptic view: CYCLONE_OPEN_ZOOM, user dead centre ──
+        // minZoom stays 1 — the opening frame changed, not the floor.
         prevMaxZoomRef.current = map.getMaxZoom();
         map.setMinZoom(1);
         map.setMaxZoom(CYCLONE_MAX_ZOOM);
+        openZoomRef.current = CYCLONE_OPEN_ZOOM;
 
         const uLat = userLatRef.current;
         const uLon = userLonRef.current;
         if (isFinite(uLat) && isFinite(uLon) && (uLat !== 0 || uLon !== 0)) {
-            map.flyTo({ center: [uLon, uLat], zoom: 1, duration: 800 });
+            map.flyTo({ center: [uLon, uLat], zoom: CYCLONE_OPEN_ZOOM, duration: 800 });
         } else {
-            map.easeTo({ center: [145, -28], zoom: 1, duration: 400 });
+            map.easeTo({ center: [145, -28], zoom: CYCLONE_OPEN_ZOOM, duration: 400 });
         }
 
         const onMoveEnd = () => {
@@ -1744,7 +1765,7 @@ export function useCycloneLayer(
                         );
                         map.flyTo({
                             center: [flyLon, flyLat],
-                            zoom: 1,
+                            zoom: CYCLONE_OPEN_ZOOM,
                             duration: 2000,
                             essential: true,
                         });
@@ -1894,7 +1915,19 @@ export function useCycloneLayer(
         const newCenter: [number, number] = [selectedStorm.currentPosition.lon, selectedStorm.currentPosition.lat];
         stormCenterRef.current = newCenter;
         selfMoveRef.current = true;
-        map.flyTo({ center: newCenter, zoom: Math.min(map.getZoom(), CYCLONE_MAX_ZOOM), duration: 1200 });
+        // Recentre on the picked storm and OTHERWISE LEAVE THE ZOOM ALONE —
+        // but map.getZoom() mid-flight is a transient, not the user's choice.
+        // The opening sequence flies from the chart's boot zoom (10) down to
+        // CYCLONE_OPEN_ZOOM, and this effect fires the moment a storm is
+        // selected, which on a first open is while that flight is still in
+        // the air. Reading the camera then clamps to CYCLONE_MAX_ZOOM and
+        // parks the view at z8 — so "opens at 2.1" would have held only when
+        // no storm was selected, i.e. almost never.
+        const settledZoom =
+            typeof map.isMoving === 'function' && map.isMoving()
+                ? openZoomRef.current
+                : Math.min(map.getZoom(), CYCLONE_MAX_ZOOM);
+        map.flyTo({ center: newCenter, zoom: settledZoom, duration: 1200 });
 
         return () => {
             const card = map.getContainer().querySelector(`#${HUD_ID}`);
