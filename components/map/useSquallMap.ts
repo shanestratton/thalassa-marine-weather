@@ -27,6 +27,7 @@
 import { useEffect, useRef } from 'react';
 import mapboxgl from 'mapbox-gl';
 import { createLogger } from '../../utils/createLogger';
+import { cloudOverlayBeforeId, imageryTopIndex } from './imageryOrder';
 import type { ActiveCyclone } from '../../services/weather/CycloneTrackingService';
 import { piCache } from '../../services/PiCacheService';
 import { SQUALL_COLOR_RAMP } from './isobarLayerSetup';
@@ -103,6 +104,8 @@ export function useSquallMap(
     const lastRefreshAtRef = useRef<number>(0);
     const loadSessionRef = useRef(0);
     const inflightControllerRef = useRef<AbortController | null>(null);
+    /** Detach for the styledata re-assert that keeps the cloud up. */
+    const styleWatchRef = useRef<(() => void) | null>(null);
 
     useEffect(() => {
         const map = mapRef.current;
@@ -120,7 +123,7 @@ export function useSquallMap(
         const startLoad = () => {
             // Clouds go up FIRST and unconditionally — they need nothing from
             // Rainbow, so they must not wait on (or be lost to) its fetch.
-            mountSatelliteLayer(map);
+            ensureSatelliteLayer(map, loadSession, () => loadSessionRef.current);
             if (inflightControllerRef.current) {
                 log.info('Squall snapshot fetch already in flight — skipping');
                 return;
@@ -137,6 +140,8 @@ export function useSquallMap(
         // ── Teardown when hidden ──
         if (!visible) {
             cancelInflightLoad();
+            styleWatchRef.current?.();
+            styleWatchRef.current = null;
             cleanupLayers(map);
             isSetUp.current = false;
             if (refreshTimer.current) {
@@ -194,6 +199,39 @@ export function useSquallMap(
 
             // Kick off the first Rainbow load.
             startLoad();
+
+            // KEEP the cloud up for as long as storms are on.
+            //
+            // Before this, the IR layer was mounted exactly twice: once here
+            // and once every five minutes on the refresh timer. A style event
+            // in between — a basemap swap, the ENC stack mounting, the
+            // imagery layers arriving after us — could drop or bury it, and
+            // nothing noticed until the next refresh. That is the "cloud
+            // layer is not there" on a first open (Shane 2026-08-23).
+            //
+            // Coalesced, because styledata fires in bursts (every tile load,
+            // every setData); and CONDITIONAL, because an unconditional write
+            // in a styledata handler re-fires itself — the ~8 Hz loop this
+            // file's neighbours all carry warnings about.
+            let pendingId: number | null = null;
+            const onStyleData = () => {
+                if (pendingId !== null) return;
+                pendingId = window.setTimeout(() => {
+                    pendingId = null;
+                    if (!isSetUp.current) return;
+                    ensureSatelliteLayer(map, loadSession, () => loadSessionRef.current);
+                }, 250);
+            };
+            map.on('styledata', onStyleData);
+            // Detach BOTH: a pending tick outlives map.off() and would fire
+            // against a torn-down view.
+            styleWatchRef.current = () => {
+                map.off('styledata', onStyleData);
+                if (pendingId !== null) {
+                    window.clearTimeout(pendingId);
+                    pendingId = null;
+                }
+            };
         }
 
         // Auto-refresh every 5 min so the user always sees recent cells.
@@ -208,6 +246,13 @@ export function useSquallMap(
                 loadSessionRef.current += 1;
             }
             cancelInflightLoad();
+            styleWatchRef.current?.();
+            styleWatchRef.current = null;
+            // Reset the setup latch here too, not only in the !visible branch:
+            // a StrictMode mount -> cleanup -> remount with visible still true
+            // otherwise detaches the watcher and then skips the whole setup
+            // block, so nothing re-establishes it.
+            isSetUp.current = false;
             if (refreshTimer.current) {
                 clearInterval(refreshTimer.current);
                 refreshTimer.current = null;
@@ -348,7 +393,73 @@ async function loadSquallTiles(
  * The two halves of this composite now fail independently, which is the
  * whole point of it being a composite.
  */
-function mountSatelliteLayer(map: mapboxgl.Map): void {
+/**
+ * Put the cloud up, and KEEP it up.
+ *
+ * "when i first open it up the info box is there but it disappears. when i go
+ * back in, it stays. also the cloud layer is not there" (Shane 2026-08-23).
+ * Both halves of that are the same shape — a first-open ordering race — and
+ * for the cloud it is this: mountSatelliteLayerNow calls addSource/addLayer
+ * immediately and wraps the whole thing in a try/catch that only LOGS. On a
+ * first open the style can still be loading (mapbox throws) or the imagery
+ * layers this anchors against may not be added yet (the anchor silently
+ * degrades and the opaque base paints over the cloud). Either way nothing
+ * retried for five minutes, until the refresh timer came round — which is
+ * exactly why the second open worked.
+ *
+ * So: wait for the style, then mount; and re-assert on styledata.
+ *
+ * The re-assert is CONDITIONAL and self-limiting, deliberately. This file's
+ * neighbours carry scars from an unconditional styledata handler that wrote
+ * every tick and re-fired itself at ~8 Hz. Here, a present, correctly-placed
+ * layer means the handler does nothing at all, and the one write it can make
+ * (mount, or move above the imagery) puts the layer in the state the handler
+ * tests for — so it settles after one pass.
+ */
+function ensureSatelliteLayer(map: mapboxgl.Map, session: number, liveSession: () => number): void {
+    // WHOLE BODY GUARDED. The first cut of this called map.isStyleLoaded()
+    // bare, and it is the FIRST statement of startLoad — so on any map object
+    // without that method the TypeError escaped the effect body and took the
+    // Rainbow precip load down with it. That is the two-halves-coupled failure
+    // StormLayerRestoration.test.ts exists as a tripwire against, reintroduced
+    // in the opposite direction (it broke 4 tests before it was caught).
+    try {
+        // addSource/addLayer throw outright before the style is ready.
+        if (typeof map.isStyleLoaded === 'function' && !map.isStyleLoaded()) {
+            map.once('idle', () => {
+                // Gate on the LIVE LOAD SESSION, not on the source's presence.
+                // The first version read `if (map.getSource(IR_SOURCE)) return`,
+                // which is backwards: it bailed when the layer was already up
+                // and proceeded when cleanupLayers had torn it down. Tapping a
+                // storm spinner while this was armed switches to the cyclone
+                // view and then mounts our GIBS raster on top of ITS satellite
+                // layer — two IR clouds, one of them nobody asked for.
+                // loadSessionRef is already bumped on teardown, so this needs
+                // no new machinery to become cancellable.
+                if (liveSession() !== session) return;
+                ensureSatelliteLayer(map, session, liveSession);
+            });
+            return;
+        }
+        if (!map.getLayer(IR_LAYER)) {
+            mountSatelliteLayerNow(map);
+            return;
+        }
+        // Present — but is it under the opaque imagery? An IR layer below the
+        // satellite base is invisible, which reads to the user as "not there".
+        const layers = map.getStyle()?.layers ?? [];
+        const irIdx = layers.findIndex((l) => l.id === IR_LAYER);
+        const imageryIdx = imageryTopIndex(layers);
+        if (irIdx >= 0 && imageryIdx > irIdx) {
+            map.moveLayer(IR_LAYER, cloudOverlayBeforeId(layers));
+            log.warn(`📡 GIBS IR was buried under imagery — lifted above layer ${imageryIdx}`);
+        }
+    } catch (err) {
+        log.warn('Squall IR ensure failed — continuing with precip only', err);
+    }
+}
+
+function mountSatelliteLayerNow(map: mapboxgl.Map): void {
     try {
         if (map.getLayer(IR_LAYER)) map.removeLayer(IR_LAYER);
         if (map.getSource(IR_SOURCE)) map.removeSource(IR_SOURCE);
@@ -394,14 +505,8 @@ function mountSatelliteLayer(map: mapboxgl.Map): void {
         // Deliberately not 'settlement-major-label' either — MapHub's
         // ordering pass RELOCATES that layer to encBottom whenever imagery
         // is lit, so it is not the stable high-water mark it looks like.
-        const imageryIdx = ['satellite-base-layer', 'hybrid-base-layer', 'maptiler-ocean-layer']
-            .map((id) => styleLayers.findIndex((l) => l.id === id))
-            .reduce((hi, i) => Math.max(hi, i), -1);
-        const beforeId =
-            imageryIdx >= 0 && imageryIdx + 1 < styleLayers.length
-                ? styleLayers[imageryIdx + 1].id
-                : (styleLayers.find((l) => l.id.startsWith('enc-vec-')) ?? styleLayers.find((l) => l.type === 'symbol'))
-                      ?.id;
+        const imageryIdx = imageryTopIndex(styleLayers);
+        const beforeId = cloudOverlayBeforeId(styleLayers);
         map.addLayer(
             {
                 id: IR_LAYER,

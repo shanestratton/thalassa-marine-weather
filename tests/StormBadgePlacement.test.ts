@@ -76,4 +76,20 @@ describe('storm badge placement', () => {
         const badgeMount = src.slice(src.indexOf('const HUD_ID ='), src.indexOf('map.getContainer().appendChild(hud)'));
         expect(badgeMount).toContain('injectCycloneCSS();');
     });
+
+    it('rebuildMarkers never removes the card it does not build', () => {
+        // The card has now been lost to an orphaned teardown twice. It is
+        // created by one effect (deps [selectedStorm?.sid, visible, mapReady])
+        // and, because the 30-minute refresh hands React a fresh cyclone
+        // object with an UNCHANGED sid, that effect does not re-run — so any
+        // stray removal is permanent for the session.
+        //
+        // Asserted on SHAPE, not on the identifier: the explanatory comment in
+        // that function names the literal id, so a substring check would pass
+        // by accident of spelling.
+        const src = readFileSync('components/map/useCycloneLayer.ts', 'utf8');
+        const fn = src.slice(src.indexOf('const rebuildMarkers = () => {'), src.indexOf('let lastZoomInt'));
+        expect(fn.length).toBeGreaterThan(100);
+        expect(fn).not.toMatch(/querySelector\(\s*[`'"]#/);
+    });
 });

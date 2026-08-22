@@ -52,14 +52,18 @@ describe('the IR cloud gets its alpha from the pixels', () => {
         // 'settlement-major-label' looks like a stable high-water mark and is
         // not: MapHub's ordering pass RELOCATES it to encBottom whenever
         // imagery is lit, which is precisely Shane's configuration.
-        // Scope to the CODE, not the comment above it, which names the
-        // rejected anchor in order to explain why it is rejected.
+        // The anchor list now lives in ONE place, shared by both cloud
+        // implementations (the GIBS layer here and the RealEarth layer the
+        // cyclone view mounts). Two subsystems that anchor differently is how
+        // one of them ended up under an opaque satellite tile.
+        const order = readFileSync('components/map/imageryOrder.ts', 'utf8');
+        expect(order).toContain("['satellite-base-layer', 'hybrid-base-layer', 'maptiler-ocean-layer']");
         const code = ir.slice(ir.indexOf('const imageryIdx ='), ir.indexOf('map.addLayer('));
-        expect(code).toContain("['satellite-base-layer', 'hybrid-base-layer', 'maptiler-ocean-layer']");
+        expect(code).toContain('cloudOverlayBeforeId(styleLayers)');
         expect(code).not.toContain("'settlement-major-label'");
         // If raster-color is ever not honoured, the chart still paints over
         // an opaque IR — a cosmetic failure rather than a blanked map.
-        expect(ir).toContain("styleLayers.find((l) => l.id.startsWith('enc-vec-'))");
+        expect(order).toContain("l.id.startsWith('enc-vec-')");
     });
 
     it('says where it landed, so a fourth report is one log line', () => {
