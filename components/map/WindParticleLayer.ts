@@ -38,9 +38,47 @@ const MS_TO_KNOTS = 1.94384;
 const VELOCITY_KILL_THRESHOLD = 0.3; // knots — kill particles in convergence zones
 const RANDOM_DROP_RATE = 0.004; // 0.4% chance per frame of spontaneous respawn
 const TRAIL_LENGTH = 18;
+
+/**
+ * ONE RAMP DRIVES BOTH COUNT AND SPEED (Shane 2026-08-23: "at zoom level 9
+ * there are too many sperm and they are travelling way too fast. can we cut
+ * the number in half and slow them down and increment as the zooms move
+ * out").
+ *
+ * WHY IT LOOKS WORSE THE FURTHER YOU ZOOM IN, and why one factor fixes both:
+ * the advection step is in DEGREES per frame and has been fixed. Screen
+ * pixels per degree double with every zoom level, so an unchanged step is
+ * twice as fast on screen at z9 as at z8, and 64x as fast as at z3. The
+ * particles were never accelerating — the map was.
+ *
+ * Density has the mirror problem. A fixed 9 000 particles spread over the
+ * whole Coral Sea at z3 is sparse; the same 9 000 packed into one bay at z9
+ * is a swarm.
+ *
+ * So both scale together, 0.5 at z9 and above, back to 1.0 at z3 and below.
+ * Deliberately anchored so the WIDE end is unchanged: at z3 this is exactly
+ * today's count and today's step. Nothing he has not complained about gets
+ * slower or sparser — only the zoomed-in end moves.
+ */
+const WIND_ZOOM_TIGHT = 9;
+const WIND_ZOOM_WIDE = 3;
+const WIND_ZOOM_MIN_FACTOR = 0.5;
+
+/** 0.5 at z9+, 1.0 at z3-, linear between. Drives particle count AND step. */
+export function windZoomFactor(zoom: number): number {
+    if (!Number.isFinite(zoom)) return 1;
+    const t = (WIND_ZOOM_TIGHT - zoom) / (WIND_ZOOM_TIGHT - WIND_ZOOM_WIDE);
+    const clamped = Math.min(1, Math.max(0, t));
+    return WIND_ZOOM_MIN_FACTOR + (1 - WIND_ZOOM_MIN_FACTOR) * clamped;
+}
+
+/** Particles actually simulated and drawn at this zoom. The buffer is always
+ *  allocated for the maximum, so this never reallocates — it just draws less. */
+export function windParticlesForZoom(zoom: number, max: number): number {
+    return Math.max(1, Math.round(max * windZoomFactor(zoom)));
+}
 const FLOATS_PER_TRAIL_PT = 5; // x, y, speed, alpha, opposition
 const FLOATS_PER_PARTICLE = TRAIL_LENGTH * FLOATS_PER_TRAIL_PT;
-const TOTAL_POINTS = NUM_PARTICLES * TRAIL_LENGTH;
 
 /** The budget, exported so a contract test can hold the per-frame upload to
  *  a ceiling instead of someone quietly nudging the count back up. */
@@ -48,8 +86,12 @@ export const WIND_PARTICLE_BUDGET = {
     baseParticles: 9000,
     trailLength: TRAIL_LENGTH,
     speedFactor: SPEED_FACTOR,
-    /** Bytes re-uploaded to the GPU per frame at the high-end tier. */
+    /** Bytes re-uploaded to the GPU per frame at the high-end tier, at the
+     *  WIDEST zoom — the worst case, and unchanged by the zoom ramp. */
     bytesPerFrameHighTier: 9000 * TRAIL_LENGTH * FLOATS_PER_TRAIL_PT * 4,
+    /** …and at the tightest zoom, where the ramp halves it. */
+    bytesPerFrameTightZoom: Math.round(9000 * WIND_ZOOM_MIN_FACTOR) * TRAIL_LENGTH * FLOATS_PER_TRAIL_PT * 4,
+    zoomFactorRange: [WIND_ZOOM_MIN_FACTOR, 1] as const,
 } as const;
 
 interface WindBounds {
@@ -330,6 +372,18 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
     private _debugFrame = 0;
     private _lastRenderTime = 0;
     private particleAges: Int32Array;
+    /** Particles simulated and drawn right now — never above NUM_PARTICLES,
+     *  which is what the buffer is sized for. Zoom moves this, not the
+     *  allocation, so tightening the view frees GPU upload without ever
+     *  reallocating. */
+    private activeParticles = NUM_PARTICLES;
+    /** Advection step for the current zoom (degrees/frame). */
+    private speedFactor = SPEED_FACTOR;
+    /** Rounded zoom the two above were computed for. */
+    private zoomBudgetFor = Number.NaN;
+    /** Cached view over the active slice, so the per-frame upload does not
+     *  allocate a new subarray every frame. */
+    private uploadView: Float32Array | null = null;
 
     // ── Timeline: all timesteps stored as CPU arrays ──
     private windTimeline: WindTimestep[] = [];
@@ -941,22 +995,10 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
     }
 
     private respawnAllParticles(): void {
-        const data = this.trailData;
-        const ages = this.particleAges;
-        for (let i = 0; i < NUM_PARTICLES; i++) {
-            const [px, py] = this.randomWithinBounds();
-            const base = i * FLOATS_PER_PARTICLE;
-            for (let t = 0; t < TRAIL_LENGTH; t++) {
-                const offset = base + t * FLOATS_PER_TRAIL_PT;
-                data[offset] = px;
-                data[offset + 1] = py;
-                data[offset + 2] = 0;
-                data[offset + 3] = 0;
-                data[offset + 4] = 0; // opposition
-            }
-            data[base + 3] = 0.85;
-            ages[i] = Math.floor(Math.random() * MAX_AGE);
-        }
+        // The WHOLE buffer, not just the active slice: a slot that is inactive
+        // now becomes active the moment the user zooms out, and it must not
+        // wake up holding a position from the previous grid.
+        for (let i = 0; i < NUM_PARTICLES; i++) this.respawnParticle(i);
     }
 
     /**
@@ -1029,13 +1071,65 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
         log.info(`[WindGL] bounds change: ${carried}/${NUM_PARTICLES} particles carried across`);
     }
 
+    /**
+     * Re-point the count and the step at the current zoom.
+     *
+     * Bucketed on the ROUNDED zoom so a pinch does not respawn particles on
+     * every frame of the gesture; the step itself reads the exact zoom, so it
+     * stays smooth through the pinch while the population only steps.
+     *
+     * Growing the population activates slots whose trail data is stale — the
+     * last thing simulated there, possibly a whole ocean away — so newly
+     * active particles are respawned rather than teleported in mid-trail.
+     */
+    private syncZoomBudget(): void {
+        const zoom = this.map?.getZoom?.();
+        if (typeof zoom !== 'number' || !Number.isFinite(zoom)) return;
+        this.speedFactor = SPEED_FACTOR * windZoomFactor(zoom);
+
+        const bucket = Math.round(zoom);
+        if (bucket === this.zoomBudgetFor) return;
+        this.zoomBudgetFor = bucket;
+
+        const next = Math.min(NUM_PARTICLES, windParticlesForZoom(bucket, NUM_PARTICLES));
+        if (next === this.activeParticles) return;
+
+        if (next > this.activeParticles) {
+            for (let i = this.activeParticles; i < next; i++) this.respawnParticle(i);
+        }
+        this.activeParticles = next;
+        this.uploadView = null; // slice changed
+    }
+
+    /** Seed one particle at a random point in bounds, whole trail collapsed
+     *  onto it so it does not draw a streak from wherever it used to be. */
+    private respawnParticle(i: number): void {
+        const data = this.trailData;
+        const [px, py] = this.randomWithinBounds();
+        const base = i * FLOATS_PER_PARTICLE;
+        for (let t = 0; t < TRAIL_LENGTH; t++) {
+            const offset = base + t * FLOATS_PER_TRAIL_PT;
+            data[offset] = px;
+            data[offset + 1] = py;
+            data[offset + 2] = 0;
+            data[offset + 3] = 0;
+            data[offset + 4] = 0;
+        }
+        data[base + 3] = 0.85;
+        this.particleAges[i] = Math.floor(Math.random() * MAX_AGE);
+    }
+
     private advectParticles(): void {
+        this.syncZoomBudget();
         const data = this.trailData;
         const ages = this.particleAges;
         const hasWind = this.windTimeline.length > 0;
         const b = this.dataBounds;
 
-        for (let i = 0; i < NUM_PARTICLES; i++) {
+        // Active slice only. Inactive slots keep their last state and are
+        // respawned on the way back in, so zooming out does not stream a
+        // sudden wall of particles from wherever they were left.
+        for (let i = 0; i < this.activeParticles; i++) {
             const base = i * FLOATS_PER_PARTICLE;
 
             for (let t = TRAIL_LENGTH - 1; t > 0; t--) {
@@ -1060,8 +1154,8 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
                 const latDeg = this.gridBounds.south + y * (this.gridBounds.north - this.gridBounds.south);
                 const lonDeg = this.gridBounds.west + x * (this.gridBounds.east - this.gridBounds.west);
                 const cosLat = Math.max(0.1, Math.cos((latDeg * Math.PI) / 180));
-                x += u * SPEED_FACTOR * cosLat;
-                y += v * SPEED_FACTOR * cosLat;
+                x += u * this.speedFactor * cosLat;
+                y += v * this.speedFactor * cosLat;
 
                 // Wind-Against-Current: compute opposition factor via dot product
                 const current = sampleCurrentDirection(latDeg, lonDeg);
@@ -1429,9 +1523,19 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
 
         // Update buffer data (our VAO keeps the buffer binding)
         gl.bindBuffer(gl.ARRAY_BUFFER, this.particleBuffer);
-        gl.bufferSubData(gl.ARRAY_BUFFER, 0, this.trailData);
+        // Upload ONLY what is simulated. At z9 that halves the per-frame
+        // transfer — this buffer is re-uploaded every single frame, so the
+        // saving is continuous, not one-off. The view is cached because
+        // subarray() allocates, and allocating 60x a second to avoid
+        // uploading is a poor trade.
+        const active = Math.min(this.activeParticles, NUM_PARTICLES);
+        if (!this.uploadView || this.uploadView.length !== active * FLOATS_PER_PARTICLE) {
+            this.uploadView =
+                active >= NUM_PARTICLES ? this.trailData : this.trailData.subarray(0, active * FLOATS_PER_PARTICLE);
+        }
+        gl.bufferSubData(gl.ARRAY_BUFFER, 0, this.uploadView);
 
-        const drawCount = TOTAL_POINTS;
+        const drawCount = active * TRAIL_LENGTH;
         // Draw particles for 3 world copies: offset by -360°, 0°, +360°
         const worldOffsets = this.globalMode ? [-360, 0, 360] : [0];
         for (const offset of worldOffsets) {
