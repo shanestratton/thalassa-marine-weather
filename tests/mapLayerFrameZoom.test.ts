@@ -8,16 +8,16 @@ import {
 import { RAINVIEWER_NATIVE_MAX_ZOOM } from '../services/weather/api/rainviewerTiles';
 
 describe('weather-layer framing zooms', () => {
-    it('opens wind at z9 and rain at z8 — both local-first', () => {
+    it('opens wind at z9 local-first, rain at its regional z5 frame', () => {
         expect(LAYER_FRAME_ZOOM.wind).toBe(9);
         expect(LAYER_FRAME_ZOOM.velocity).toBe(9);
-        expect(LAYER_FRAME_ZOOM.rain).toBe(8);
+        expect(LAYER_FRAME_ZOOM.rain).toBe(5);
         // Local-first (Shane 2026-08-22), reversing the z3 synoptic frame.
         // This also drives WindDataController onto the fine local grid, which
         // is what makes wind paint quickly — see mapConstants for the why.
         expect(getActiveLayerFrameZoom(new Set<WeatherLayer>(['wind']))).toBe(9);
         expect(getActiveLayerFrameZoom(new Set<WeatherLayer>(['velocity']))).toBe(9);
-        expect(getActiveLayerFrameZoom(new Set<WeatherLayer>(['rain']))).toBe(8);
+        expect(getActiveLayerFrameZoom(new Set<WeatherLayer>(['rain']))).toBe(5);
     });
 
     it('leaves the other weather-layer frames unchanged', () => {
@@ -51,9 +51,11 @@ describe('weather-layer framing zooms', () => {
     });
 
     it('keeps rain within one step of RainViewer native tiles', () => {
-        // z8 is one beyond RAINVIEWER_NATIVE_MAX_ZOOM (7), so the radar is
-        // Mapbox-overzoomed from the z7 image — a closer VIEW, not more
-        // detail. Framing further in would just upscale the same pixels.
+        // Rain's frame is a dial Shane is still turning (z5 → z8 → z5 across
+        // 22-23 Aug). This is the constraint that does NOT move: past
+        // RAINVIEWER_NATIVE_MAX_ZOOM (7) Mapbox overzooms the z7 image, so a
+        // closer frame buys VIEW, not detail — and beyond z8 it is purely
+        // magnifying the same pixels.
         expect(LAYER_FRAME_ZOOM.rain!).toBeLessThanOrEqual(RAINVIEWER_NATIVE_MAX_ZOOM + 1);
     });
 });
