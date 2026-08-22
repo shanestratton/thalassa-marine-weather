@@ -98,7 +98,7 @@ export function bestProductForBasin(basin: string): SatelliteLayer {
  * Add a satellite tile layer to the map.
  * Places it below symbol layers (labels stay on top).
  */
-export function addSatelliteLayer(map: mapboxgl.Map, type: SatelliteLayer = 'global-ir'): void {
+export function addSatelliteLayer(map: mapboxgl.Map, type: SatelliteLayer = 'global-ir', beforeId?: string): void {
     // Clean up existing layer if present
     removeSatelliteLayer(map);
 
@@ -118,9 +118,22 @@ export function addSatelliteLayer(map: mapboxgl.Map, type: SatelliteLayer = 'glo
         attribution,
     });
 
-    // Insert below the first symbol layer so labels float above
-    const firstSymbolLayer = map.getStyle()?.layers?.find((l) => l.type === 'symbol');
-
+    // THE ANCHOR IS THE CALLER'S, NOT OURS (Shane 2026-08-23: "the cloud
+    // layer is not there" on a first open, present on the next).
+    //
+    // This used to anchor on the style's first SYMBOL layer, which is not a
+    // stable landmark here: useMapInit adds the opaque satellite raster with
+    // `beforeId = encBottom`, and an undefined encBottom APPENDS IT TO THE
+    // TOP. At the zoom the storm view opens at, over open ocean, no
+    // `enc-vec-*` layer exists yet — so the imagery can sit above the first
+    // symbol layer, and this raster went under it. Painting perfectly,
+    // visible to nobody. Once ENC mounts and MapHub's ordering pass demotes
+    // the imagery, the same code lands above it and the cloud appears.
+    //
+    // The caller knows where the imagery is (components/map/imageryOrder.ts);
+    // a service must not guess. No import from components/ — hence the
+    // parameter. Undefined keeps the old append-to-top behaviour for any
+    // caller that has no opinion.
     map.addLayer(
         {
             id: LAYER_ID,
@@ -132,7 +145,20 @@ export function addSatelliteLayer(map: mapboxgl.Map, type: SatelliteLayer = 'glo
                 'raster-resampling': 'nearest',
             },
         },
-        firstSymbolLayer?.id,
+        beforeId,
+    );
+
+    // Says WHERE it landed. The anchor above is a reasoned fix for an
+    // intermittent, first-open-only symptom that has never been observed at
+    // runtime — so it ships with the measurement that confirms or kills it.
+    // If LAYER_ID sits below satellite-base on a bad open and above it on a
+    // good one, the anchor was the cause.
+    const after = map.getStyle()?.layers?.map((l) => l.id) ?? [];
+    log.info(
+        `[SAT] ${type} at layer ${after.indexOf(LAYER_ID)}/${after.length}` +
+            ` (satellite-base=${after.indexOf('satellite-base-layer')},` +
+            ` hybrid-base=${after.indexOf('hybrid-base-layer')},` +
+            ` encBottom=${after.findIndex((id) => id.startsWith('enc-vec-'))})`,
     );
 }
 

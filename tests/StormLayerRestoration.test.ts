@@ -50,15 +50,30 @@ describe('squall keeps its satellite cloud half', () => {
         // Self-contained BY SIGNATURE: it takes the map and nothing else, so
         // it cannot be made to depend on the Rainbow snapshot or the Supabase
         // URL without changing this line.
-        expect(squall).toContain('function mountSatelliteLayer(map: mapboxgl.Map): void {');
+        expect(squall).toContain('function mountSatelliteLayerNow(map: mapboxgl.Map): void {');
         // And its own failure degrades to precip-only rather than throwing
         // out of the mount path.
-        const irFn = squall.slice(squall.indexOf('function mountSatelliteLayer(map'), squall.indexOf('/**\n * Add (or replace) the Mapbox raster source'));
+        const irFn = squall.slice(
+            squall.indexOf('function mountSatelliteLayerNow(map'),
+            squall.indexOf('/**\n * Add (or replace) the Mapbox raster source'),
+        );
         expect(irFn).toContain('catch');
         expect(irFn).toContain('continuing with precip only');
+        // …and so does the guarded ENTRY POINT, which is what startLoad calls.
+        // The first cut of ensureSatelliteLayer called map.isStyleLoaded()
+        // bare as the first statement of startLoad, so a TypeError escaped the
+        // effect and took the Rainbow load down with it — this coupling, in
+        // the opposite direction, is the thing this spec exists to catch.
+        const ensureFn = squall.slice(
+            squall.indexOf('function ensureSatelliteLayer('),
+            squall.indexOf('function mountSatelliteLayerNow(map'),
+        );
+        expect(ensureFn).toContain('try {');
+        expect(ensureFn).toContain('continuing with precip only');
+        expect(ensureFn).toContain("typeof map.isStyleLoaded === 'function'");
         // Mounted before the Rainbow fetch is even attempted.
         const startLoad = squall.slice(squall.indexOf('const startLoad'), squall.indexOf('loadSquallTiles(map'));
-        expect(startLoad).toContain('mountSatelliteLayer(map)');
+        expect(startLoad).toContain('ensureSatelliteLayer(map');
     });
 
     it('tears both layers down together', () => {
@@ -145,9 +160,14 @@ describe('the cyclone details card exists and is mounted', () => {
     it('anchors the cloud above the imagery, and not to a layer that moves', () => {
         const src = readFileSync('components/map/useSquallMap.ts', 'utf8');
         const mount = src.slice(src.indexOf('function mountSatelliteLayer'), src.indexOf('function mountSquallLayer'));
+        // The anchor list moved into components/map/imageryOrder.ts so BOTH
+        // cloud implementations resolve it identically — assert there, and
+        // assert this file defers to it rather than re-deriving one.
+        const order = readFileSync('components/map/imageryOrder.ts', 'utf8');
+        expect(order).toContain("'satellite-base-layer'");
+        expect(order).toContain("'hybrid-base-layer'");
         const anchor = mount.slice(mount.indexOf('const imageryIdx ='), mount.indexOf('map.addLayer('));
-        expect(anchor).toContain("'satellite-base-layer'");
-        expect(anchor).toContain("'hybrid-base-layer'");
+        expect(anchor).toContain('cloudOverlayBeforeId(styleLayers)');
         // 'settlement-major-label' looks like a stable high-water mark and is
         // not one: MapHub's ordering pass RELOCATES it to encBottom whenever
         // imagery is lit — which is exactly the configuration Shane runs.

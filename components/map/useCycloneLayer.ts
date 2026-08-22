@@ -15,6 +15,7 @@
 import { useEffect, useRef } from 'react';
 import mapboxgl from 'mapbox-gl';
 import type { ActiveCyclone, CyclonePosition, GfsTrackerPosition } from '../../services/weather/CycloneTrackingService';
+import { cloudOverlayBeforeId } from './imageryOrder';
 import { WindStore } from '../../stores/WindStore';
 
 import { createLogger } from '../../utils/createLogger';
@@ -1438,11 +1439,46 @@ export function useCycloneLayer(
         // ── Rebuild markers — HUD badge + geo-anchored storm eye markers ──
         const HUD_CONTAINER_ID = 'cyclone-hud-badges';
         const rebuildMarkers = () => {
-            // Remove old HUD
-            const old = map.getContainer().querySelector(`#${HUD_CONTAINER_ID}`);
-            if (old) old.remove();
+            // DOES NOT TOUCH THE HUD ANY MORE (Shane 2026-08-23: "when i first
+            // open it up the info box is there but it disappears. when i go
+            // back in, it stays").
+            //
+            // This function used to BUILD the storm badge as well as the
+            // markers, so removing it here was correct. The badge half was
+            // stripped on 2026-04-15 (see the note at the tail of this
+            // function) and, when the card was restored on 2026-08-21, it came
+            // back in a SEPARATE effect — but this removal was left behind. So
+            // rebuildMarkers deleted a card it no longer creates, and the
+            // deletion was PERMANENT: the card effect's deps are
+            // [selectedStorm?.sid, visible, mapReady], and the 30-minute
+            // refresh hands React a fresh ActiveCyclone with an UNCHANGED sid,
+            // so nothing ever re-runs it.
+            //
+            // Two routes reach here after the card has mounted, and this
+            // removal killed it on both:
+            //   · onZoomEnd (below) calls rebuildMarkers whenever the rounded
+            //     zoom changes. The view opens at the chart's boot zoom, gets
+            //     clamped to CYCLONE_MAX_ZOOM and then flown to the synoptic
+            //     frame — several integer steps, landing a second or two
+            //     AFTER the card. Re-open and the camera is already there, so
+            //     nothing fires. That is the first-open/second-open asymmetry.
+            //   · the storm picker: handleSelectStorm sets skipAutoFlyRef, so
+            //     the `if (!skipAutoFlyRef?.current)` guard below suppresses
+            //     the setState, the sid never changes, and the rebuild that
+            //     follows wipes the card the pick just mounted.
+            //
+            // (An earlier draft of this comment blamed the async fetches
+            // landing late. That was wrong: onClosestStorm and rebuildMarkers
+            // are adjacent synchronous statements, so React cannot flush the
+            // card between them — and both fetches are module-cached on the
+            // same TTL, which would make a warm second open worse, not better.)
+            //
+            // The card effect owns #cyclone-hud-badges outright: it replaces
+            // any existing one before appending and removes it on cleanup.
+            // The other three removers are the !visible teardown, the main
+            // effect's cleanup, and the card effect's own — all owners.
 
-            // Also clean up any old geo-anchored markers
+            // Clean up any old geo-anchored markers
             for (const m of markersRef.current) m.remove();
             markersRef.current = [];
 
@@ -1655,8 +1691,17 @@ export function useCycloneLayer(
                 // Uses RealEarth SSEC/CIMSS XYZ tile API (free, CORS-enabled, no API key)
                 // Auto-selects the best satellite for the storm's basin:
                 //   Global IR composite | GOES-East (Americas) | GOES-West (Pacific) | Meteosat (Europe/Africa/IO)
-                const satProduct = closest ? _ss!.bestProductForBasin(closest.basin) : 'global-ir';
-                _ss!.addSatelliteLayer(map, satProduct);
+                // Pick the satellite from the storm the user is LOOKING AT,
+                // falling back to the geo-closest. Himawari-9 sits at 140.7°E
+                // and cannot see the central Pacific, so a basin-C storm needs
+                // GOES — and now that the card carries a prev/next stepper,
+                // stepping to a storm in another basin has to bring its
+                // satellite with it. Keyed off basin, so it only re-mounts
+                // when the product actually changes.
+                const satStorm = selectedStormRef.current ?? closest;
+                const satProduct = satStorm ? _ss!.bestProductForBasin(satStorm.basin) : 'global-ir';
+                const satLayers = map.getStyle()?.layers ?? [];
+                _ss!.addSatelliteLayer(map, satProduct, cloudOverlayBeforeId(satLayers));
                 log.info(`[CYCLONE] 🛰️ Satellite IR overlay activated: ${satProduct}`);
 
                 // Country borders removed — they were obstructing satellite imagery
