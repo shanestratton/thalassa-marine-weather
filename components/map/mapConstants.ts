@@ -117,10 +117,21 @@ export const ATMOSPHERE_LAYERS: WeatherLayer[] = ['rain', 'wind', 'velocity', 't
 /**
  * The framing zoom each forecast overlay claims when switched on.
  *
- * PER LAYER, because these fields are not read at the same scale. Rain
- * retains its z5 regional frame; its controller deliberately uses the
- * wide-viewport grid at that scale. Currents retain the tighter z7.5 local
- * frame.
+ * PER LAYER, because these fields are not read at the same scale. Currents
+ * retain the tighter z7.5 local frame.
+ *
+ * RAIN OPENS AT z8 (Shane 2026-08-22), up from the old z5 regional frame —
+ * the same local-first reasoning as wind: what a skipper wants first is the
+ * rain where the boat is, and pinching out to the regional picture is the
+ * cheap direction.
+ *
+ * Note z8 is ONE STEP BEYOND RainViewer's native tiles
+ * (RAINVIEWER_NATIVE_MAX_ZOOM = 7), so the radar is Mapbox-overzoomed from
+ * the z7 image rather than sharper data. That is deliberate and safe — the
+ * source is capped at z7 precisely so overzoom happens instead of the
+ * provider's "Zoom Level Not Supported" error tile — but it does mean z8
+ * buys a closer VIEW, not more detail. Anything past z8 keeps upscaling the
+ * same pixels, which is why this is not set higher.
  *
  * WIND OPENS LOCAL AT z9 (Shane 2026-08-22), reversing the z3 synoptic frame
  * he asked for on 2026-07-26. Two reasons, and the second is why it was worth
@@ -154,7 +165,7 @@ export const LAYER_FRAME_ZOOM: Partial<Record<WeatherLayer, number>> = {
     wind: 9,
     velocity: 9,
     currents: 7.5,
-    rain: 5,
+    rain: 8,
     pressure: 2.0,
 };
 
