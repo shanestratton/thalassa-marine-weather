@@ -120,18 +120,17 @@ export const ATMOSPHERE_LAYERS: WeatherLayer[] = ['rain', 'wind', 'velocity', 't
  * PER LAYER, because these fields are not read at the same scale. Currents
  * retain the tighter z7.5 local frame.
  *
- * RAIN OPENS AT z8 (Shane 2026-08-22), up from the old z5 regional frame —
- * the same local-first reasoning as wind: what a skipper wants first is the
- * rain where the boat is, and pinching out to the regional picture is the
- * cheap direction.
+ * RAIN OPENS AT z5 — its regional frame. Shane tried z8 on 2026-08-22 and
+ * moved it back the next day while comparing layouts, so treat this number as
+ * a dial he is still turning rather than a settled decision.
  *
- * Note z8 is ONE STEP BEYOND RainViewer's native tiles
- * (RAINVIEWER_NATIVE_MAX_ZOOM = 7), so the radar is Mapbox-overzoomed from
- * the z7 image rather than sharper data. That is deliberate and safe — the
- * source is capped at z7 precisely so overzoom happens instead of the
- * provider's "Zoom Level Not Supported" error tile — but it does mean z8
- * buys a closer VIEW, not more detail. Anything past z8 keeps upscaling the
- * same pixels, which is why this is not set higher.
+ * The one hard constraint on that dial: RainViewer's native tiles stop at
+ * RAINVIEWER_NATIVE_MAX_ZOOM (7). At z5 the radar is real data at native
+ * resolution. Past z7 Mapbox overzooms the z7 image — safe and deliberate
+ * (the source maxzoom is capped precisely so overzoom happens instead of the
+ * provider serving its "Zoom Level Not Supported" error tile) but it buys a
+ * closer VIEW, not more detail, and beyond z8 it is just magnifying the same
+ * pixels. A test keeps this within one step of that ceiling.
  *
  * WIND OPENS LOCAL AT z9 (Shane 2026-08-22), reversing the z3 synoptic frame
  * he asked for on 2026-07-26. Two reasons, and the second is why it was worth
@@ -165,7 +164,7 @@ export const LAYER_FRAME_ZOOM: Partial<Record<WeatherLayer, number>> = {
     wind: 9,
     velocity: 9,
     currents: 7.5,
-    rain: 8,
+    rain: 5,
     pressure: 2.0,
 };
 
