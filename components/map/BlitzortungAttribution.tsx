@@ -24,6 +24,7 @@
  */
 import React, { useEffect, useState } from 'react';
 import { subscribeLightningStatus, type StatusSnapshot } from '../../services/weather/api/blitzortungLightning';
+import { LIGHTNING_POLARITY, POLARITY_ORDER } from './lightningPalette';
 
 interface BlitzortungAttributionProps {
     visible: boolean;
@@ -83,15 +84,12 @@ export const BlitzortungAttribution: React.FC<BlitzortungAttributionProps> = ({ 
     const styles = status ? STATUS_STYLES[status.status] : STATUS_STYLES.connecting;
     const label = status ? styles.label(status) : 'Connecting…';
 
-    // Three strike styles — must stay visually identical to the actual
-    // strike rendering in useLightningLayer.ts (white ⚡ glyph on a dark
-    // polarity-tinted hit-spot). If you change the colors there, change
-    // them here too.
-    const POLARITY_LEGEND: { label: string; color: string }[] = [
-        { label: '+CG', color: '#7c2d12' }, // deep amber-brown — positive cloud-to-ground
-        { label: '−CG', color: '#0c4a6e' }, // deep navy — negative (most strikes)
-        { label: 'Unknown', color: '#312e81' }, // deep indigo
-    ];
+    // Colours come from lightningPalette — the SAME constants the map paints
+    // with. This used to be a hand-kept copy under a comment telling the next
+    // person to keep it in sync, and by 2026-08-23 all three swatches were
+    // wrong: navy against amber, brown against orange, indigo against yellow.
+    // A legend that names the wrong colour is worse than no legend on a chart.
+    const POLARITY_LEGEND = POLARITY_ORDER.map((p) => LIGHTNING_POLARITY[p]);
 
     // Positioning is owned by MapHub's bottom-left legend stack so this
     // chip composes cleanly with SquallLegend / others when multiple
@@ -114,14 +112,17 @@ export const BlitzortungAttribution: React.FC<BlitzortungAttributionProps> = ({ 
                 miniature of the actual strike rendering (white ⚡ on
                 a dark polarity-tinted disc) plus its label. */}
             <div className="flex flex-col gap-1">
-                {POLARITY_LEGEND.map(({ label: l, color }) => (
-                    <div key={l} className="flex items-center gap-1.5">
+                {POLARITY_LEGEND.map(({ label: l, glow, rim, meaning }) => (
+                    <div key={l} className="flex items-center gap-1.5" title={meaning}>
+                        {/* A miniature of the mark on the map: scorched centre,
+                            ember rim, warm glow. */}
                         <span
                             className="inline-flex items-center justify-center h-4 w-4 rounded-full text-[10px] leading-none"
                             style={{
-                                background: color,
-                                border: '0.5px solid rgba(255,255,255,0.45)',
-                                color: '#ffffff',
+                                background: '#1a1005',
+                                border: `1.5px solid ${rim}`,
+                                boxShadow: `0 0 4px ${glow}`,
+                                color: '#fffbeb',
                             }}
                             aria-hidden
                         >

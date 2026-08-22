@@ -19,6 +19,7 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { alertOverlayBeforeId, cloudOverlayBeforeId } from '../components/map/imageryOrder';
+import { LIGHTNING_POLARITY, POLARITY_ORDER, polarityMatch } from '../components/map/lightningPalette';
 
 const src = readFileSync('components/map/useLightningLayer.ts', 'utf8');
 const L = (...ids: string[]) => ids.map((id) => ({ id, type: /label|^place-/.test(id) ? 'symbol' : 'raster' }));
@@ -122,5 +123,67 @@ describe('the crater', () => {
         );
         expect(order.every((n) => n > 0)).toBe(true);
         expect([...order].sort((a, b) => a - b)).toEqual(order);
+    });
+});
+
+describe('the legend tells the truth about the map', () => {
+    it('both sides read the SAME colours', () => {
+        // The legend carried a comment ordering the next person to keep it in
+        // sync by hand. By 2026-08-23 all three swatches were wrong: deep navy
+        // for −CG against amber on the map, brown for +CG against orange,
+        // indigo for unknown against yellow. On a chart, a legend that names
+        // the wrong colour is worse than no legend — it invites you to read
+        // polarity off the map and get it backwards.
+        const legend = readFileSync('components/map/BlitzortungAttribution.tsx', 'utf8');
+        expect(legend).toContain("from './lightningPalette'");
+        expect(src).toContain("from './lightningPalette'");
+        expect(src).toContain("polarityMatch('glow')");
+        expect(src).toContain("polarityMatch('rim')");
+        // Neither side may hard-code a hex for polarity any more.
+        expect(legend).not.toMatch(/#7c2d12|#0c4a6e|#312e81/);
+        const halo = src.slice(src.indexOf('id: LIGHTNING_LAYER_HALO'), src.indexOf('id: LIGHTNING_LAYER_CRATER'));
+        expect(halo).not.toMatch(/'#[0-9a-f]{6}'/i);
+    });
+
+    it('covers all three polarities the feed can report', () => {
+        expect(POLARITY_ORDER).toEqual(['positive', 'negative', 'unknown']);
+        for (const p of POLARITY_ORDER) {
+            expect(LIGHTNING_POLARITY[p].glow).toMatch(/^#[0-9a-f]{6}$/i);
+            expect(LIGHTNING_POLARITY[p].rim).toMatch(/^#[0-9a-f]{6}$/i);
+            expect(LIGHTNING_POLARITY[p].meaning.length).toBeGreaterThan(20);
+        }
+        // The match expression must carry a default branch, or an unexpected
+        // `pol` value makes Mapbox drop the whole layer.
+        expect(polarityMatch('rim').at(-1)).toBe(LIGHTNING_POLARITY.unknown.rim);
+    });
+
+    it('says what the labels mean, where someone will read it', () => {
+        // Shane had to ask what +CG meant. The answer belongs next to the
+        // colours, not in a commit message.
+        const palette = readFileSync('components/map/lightningPalette.ts', 'utf8');
+        expect(palette).toContain('cloud-to-ground');
+        expect(palette).toContain('bolt from the blue');
+        expect(LIGHTNING_POLARITY.positive.meaning).toContain('outside the rain');
+        // And the legend surfaces it rather than hiding it in source.
+        const legend = readFileSync('components/map/BlitzortungAttribution.tsx', 'utf8');
+        expect(legend).toContain('title={meaning}');
+    });
+});
+
+describe('the lightning layer opens on a readable frame', () => {
+    it('pulls back to zoom 5', () => {
+        expect(src).toContain('const LIGHTNING_OPEN_ZOOM = 5;');
+        expect(src).toContain('zoom: LIGHTNING_OPEN_ZOOM, duration: 900');
+    });
+
+    it('never zooms IN — at z3 you can see a whole front', () => {
+        // Forcing the camera closer would throw away exactly the context this
+        // layer exists to provide.
+        expect(src).toContain('if (map.getZoom() > LIGHTNING_OPEN_ZOOM) {');
+    });
+
+    it('leaves the centre alone', () => {
+        const open = src.slice(src.indexOf('if (map.getZoom() > LIGHTNING_OPEN_ZOOM)'), src.indexOf('isSetUp.current = true;'));
+        expect(open).not.toContain('center:');
     });
 });

@@ -21,6 +21,7 @@ import { useEffect, useRef } from 'react';
 import mapboxgl from 'mapbox-gl';
 import { createLogger } from '../../utils/createLogger';
 import { alertOverlayBeforeId } from './imageryOrder';
+import { polarityMatch } from './lightningPalette';
 import {
     subscribeLightningStrikes,
     setLightningViewportStats,
@@ -46,6 +47,20 @@ const LIGHTNING_LAYER_BOLT = 'lightning-blitz-layer-bolt';
 const LIGHTNING_LAYER_CRATER = 'lightning-blitz-layer-crater';
 const LIGHTNING_LAYER_RIM = 'lightning-blitz-layer-rim';
 const BOLT_ICON = 'lightning-bolt-icon';
+/**
+ * The zoom the lightning layer opens at (Shane 2026-08-23: "can we start
+ * lightning at zoom level 5").
+ *
+ * Blitzortung is a global network and a strike ten miles away matters more
+ * than the hillside under the cursor. He hit this at z15.3 — close enough to
+ * count trees, and two strikes filled the screen with no sense of where the
+ * cell was.
+ *
+ * ONLY EVER PULLS BACK. If the chart is already wider than this, leave it:
+ * at z3 you can see a whole front, and forcing the view IN would throw away
+ * context the layer exists to give.
+ */
+const LIGHTNING_OPEN_ZOOM = 5;
 
 // How long the expanding shockwave ring takes to play out. Short
 // enough to read as "BANG" not "shimmer", long enough to actually
@@ -180,15 +195,9 @@ export function useLightningLayer(
                             source: LIGHTNING_SOURCE,
                             paint: {
                                 'circle-radius': ['interpolate', ['linear'], ['zoom'], 2, 8, 5, 14, 10, 22, 14, 32],
-                                'circle-color': [
-                                    'match',
-                                    ['get', 'pol'],
-                                    'positive',
-                                    '#fb923c', // warm orange for +CG
-                                    'negative',
-                                    '#fbbf24', // amber for -CG (most common)
-                                    /* unknown */ '#facc15', // bright yellow
-                                ],
+                                // Colours come from lightningPalette so the
+                                // legend cannot drift from the map again.
+                                'circle-color': polarityMatch('glow'),
                                 'circle-blur': 0.65,
                                 // Halo at ~40% of the strike's overall alpha — present
                                 // but subordinate to the bright core.
@@ -236,15 +245,7 @@ export function useLightningLayer(
                             paint: {
                                 'circle-radius': ['interpolate', ['linear'], ['zoom'], 2, 5, 5, 8, 10, 14, 14, 20],
                                 'circle-color': 'rgba(0,0,0,0)',
-                                'circle-stroke-color': [
-                                    'match',
-                                    ['get', 'pol'],
-                                    'positive',
-                                    '#fb923c',
-                                    'negative',
-                                    '#f97316',
-                                    /* unknown */ '#fdba74',
-                                ],
+                                'circle-stroke-color': polarityMatch('rim'),
                                 'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 2, 1, 10, 2, 14, 3],
                                 'circle-stroke-opacity': ['*', 0.9, ['get', 'alpha']],
                             },
@@ -412,6 +413,13 @@ export function useLightningLayer(
                     rafRef.current = requestAnimationFrame(tick);
                 };
                 rafRef.current = requestAnimationFrame(tick);
+
+                // Open on a frame you can read weather in, not the one the
+                // chart happened to be at. Centre is left alone: strikes near
+                // where you are already looking are the point.
+                if (map.getZoom() > LIGHTNING_OPEN_ZOOM) {
+                    map.flyTo({ zoom: LIGHTNING_OPEN_ZOOM, duration: 900, essential: true });
+                }
 
                 isSetUp.current = true;
                 // Use warn so this survives prod builds — without it,
