@@ -371,7 +371,22 @@ Deno.serve(async (req: Request) => {
                 // r=0 → southernmost → read from GRIB row (height-1)
                 const gribRow = frame.height - 1 - r;
                 for (let c = 0; c < frame.width; c++) {
-                    row.push(frame.pressure[gribRow * frame.width + c]);
+                    // ROUND TO 0.1 hPa BEFORE SERIALISING. The unpack at the
+                    // top is (ref + packed*E)/D/100, i.e. raw float division,
+                    // so a value arrives as 1003.0784359608183 — eighteen
+                    // characters of JSON for a number GFS does not resolve
+                    // anywhere near that finely. Measured on a global 1°
+                    // grid (360x171) x 8 frames: 9.11 MB raw vs 3.56 MB at
+                    // one decimal, a 61% cut, and that payload is what the
+                    // phone waits on before a single isobar can draw (Shane
+                    // 2026-08-22: "it is a little slow in arriving").
+                    //
+                    // 0.1 hPa is far below anything the display can express:
+                    // isobars are drawn on a 4 hPa interval and the wash is a
+                    // gradient over the same field. Integer hPa would save
+                    // another 0.9 MB but risks visible banding in the wash,
+                    // which is not worth it — this is already the big win.
+                    row.push(Math.round(frame.pressure[gribRow * frame.width + c] * 10) / 10);
                 }
                 rows.push(row);
             }

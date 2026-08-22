@@ -169,7 +169,10 @@ describe('MapWeatherControls', () => {
 
         expect(screen.getByText('+9h')).toBeInTheDocument();
         expect(screen.queryByText('+2.3h')).not.toBeInTheDocument();
-        expect(screen.getByText('Fallback · Forecast')).toBeInTheDocument();
+        // "Fallback" until 2026-08-22. It named no provider — and Open-Meteo's
+        // CC-BY terms require crediting them, on exactly this screen, which is
+        // the one place the substitution is visible.
+        expect(screen.getByText('Open-Meteo · Forecast')).toBeInTheDocument();
         expect(screen.queryByRole('switch', { name: 'Particles animation' })).not.toBeInTheDocument();
     });
 
