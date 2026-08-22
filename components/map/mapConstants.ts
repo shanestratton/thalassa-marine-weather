@@ -166,7 +166,52 @@ export const LAYER_FRAME_ZOOM: Partial<Record<WeatherLayer, number>> = {
     currents: 7.5,
     rain: 5,
     pressure: 2.0,
+    // Temperature and cloud both open at z4 (Shane 2026-08-23). Broad
+    // fields — a sea-surface temperature gradient or a cloud band is a
+    // regional read, not a harbour one — and z4 is comfortably inside
+    // OpenWeatherMap's native tile range (see TILE_SOURCE_MAX_ZOOM), so
+    // what draws there is real data rather than an upscale.
+    temperature: 4,
+    clouds: 4,
 };
+
+/**
+ * Source-level zoom ceiling per raster tile layer.
+ *
+ * Mapbox requests NATIVE tiles up to a source's maxzoom and only overzooms
+ * (upscales the deepest real tile) beyond it. Everything here used to sit at
+ * 18, which meant that past a provider's actual data resolution the app kept
+ * asking for tiles that carry no new information — and the count quadruples
+ * per level, so a z12 view fetched 64 tiles where one z9 tile stretched
+ * locally would have looked identical. On cellular that is 64 round trips
+ * against 1.
+ *
+ * Measured on OpenWeatherMap clouds_new, same location, 2026-08-23:
+ * z4 71 kB, z6 40 kB, z9 6.5 kB, z10 1.8 kB, z12 1.5 kB. The content
+ * collapses past z9, which is where OWM documents its weather rasters
+ * ending. Capping there costs nothing visible — the paint already sets
+ * raster-resampling 'linear' precisely so an overzoomed tile stays smooth,
+ * a comment that was describing behaviour the maxzoom:18 prevented.
+ *
+ * This is the same rule RainViewer already follows here via
+ * RAINVIEWER_NATIVE_MAX_ZOOM; it simply had not been applied to the OWM
+ * layers.
+ */
+export const TILE_SOURCE_MAX_ZOOM: Partial<Record<WeatherLayer, number>> = {
+    // NOT capped: OpenSeaMap seamarks are genuine detail all the way in, and
+    // they are the one layer here a skipper reads at berthing zoom.
+    sea: 18,
+    temperature: 9,
+    clouds: 9,
+    waves: 9,
+    currents: 9,
+    sst: 9,
+};
+
+/** Ceiling for a raster tile source, defaulting to full depth. */
+export function tileSourceMaxZoom(layer: WeatherLayer): number {
+    return TILE_SOURCE_MAX_ZOOM[layer] ?? 18;
+}
 
 /**
  * How far OUT each layer may be pinched — a DIFFERENT question from where it
