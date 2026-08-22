@@ -81,6 +81,18 @@ function todayDateStr(): string {
     return new Date().toISOString().split('T')[0];
 }
 
+/** LAN hop. Fast or not at all — falling through to the cloud beats waiting. */
+const PI_BUDGET_MS = 2_500;
+/**
+ * Budget for the DIRECT snapshot fetch, armed only once that fetch starts.
+ *
+ * 8 s, not the old shared 3 s: measured warm latency is 0.69-1.76 s and an
+ * edge cold start 2.3 s, all on shore broadband, and this runs on a marine
+ * link. The refresh cadence is five minutes, so a generous budget costs
+ * nothing and a tight one costs the whole layer.
+ */
+const DIRECT_BUDGET_MS = 8_000;
+
 const SQUALL_MAX_ZOOM = 8;
 const REFRESH_INTERVAL_MS = 5 * 60 * 1000; // Rainbow snapshot cadence
 const SNAPSHOT_TTL_MS = 5 * 60 * 1000;
@@ -324,47 +336,75 @@ async function loadSquallTiles(
     // passthrough so the boat fleet shares one fetch.
     const upstream = `${supabaseUrl}/functions/v1/proxy-rainbow?action=snapshot&layer=precip-global`;
 
-    // The same controller handles both the 3s timeout and a Chart → Plan
-    // transition. Aborting alone is not sufficient because a mocked/cached
-    // response may still settle; the session guard below is the final fence
-    // before any Mapbox mutation.
-    const timer = setTimeout(() => controller.abort(), 3000);
+    // THE TIMEOUT USED TO COVER BOTH ATTEMPTS, WHICH IS WHY THE PRECIP HALF
+    // NEVER LOADED (Shane 2026-08-23: "the squall layer is not working").
+    //
+    // One `setTimeout(() => controller.abort(), 3000)` was armed HERE, before
+    // the Pi attempt, and the direct fetch below then ran on whatever was
+    // left of it. A Pi that is configured but out of range burns its full
+    // read timeout first, so the direct fetch was aborted the instant it
+    // started — and even with no Pi at all the margin was thin: the snapshot
+    // endpoint measured 0.69-1.76 s warm and 2.3 s on an edge cold start
+    // (2026-08-23, four samples on a good shore connection). On the boat's
+    // link there was nothing left to spend.
+    //
+    // The backend was never the problem: the same endpoint returns
+    // {"snapshot":…} 200 and a real 9.5 kB dbz_u8 PNG tile.
+    //
+    // Each attempt now gets its OWN budget. The controller still exists for
+    // teardown (Chart → Plan), which is a different concern from a slow link
+    // and should never have shared a clock with it.
     let snapshot: number | null = null;
+    const t0 = Date.now();
     try {
         // Pi first over the pinned transport, then direct. This used to be
         // `fetch(piUrl ?? upstream)`, which could not present the Pi's
         // self-signed cert and therefore threw on iOS whenever the Pi was
         // reachable — taking the snapshot with it instead of going direct.
+        // The Pi is a LAN hop: if it cannot answer inside PI_BUDGET_MS it is
+        // not going to, and the cloud is the better bet.
         const piData = await piCache.passthroughJson<{ snapshot?: number | null }>(
             upstream,
             SNAPSHOT_TTL_MS,
             'rainbow-snapshot',
-            3_000,
+            PI_BUDGET_MS,
         );
         if (!isCurrent()) return;
         let data = piData;
         if (!data) {
-            const res = await fetch(upstream, { signal: controller.signal });
-            if (!isCurrent()) return;
-            if (!res.ok) {
-                log.warn(`Rainbow snapshot HTTP ${res.status}`);
-                return;
+            // Fresh budget, armed only now — this is the fix.
+            const timer = setTimeout(() => controller.abort(), DIRECT_BUDGET_MS);
+            try {
+                const res = await fetch(upstream, { signal: controller.signal });
+                if (!isCurrent()) return;
+                if (!res.ok) {
+                    log.warn(`Rainbow snapshot HTTP ${res.status} after ${Date.now() - t0}ms`);
+                    return;
+                }
+                data = await res.json();
+            } finally {
+                clearTimeout(timer);
             }
-            data = await res.json();
         }
         if (!isCurrent()) return;
         snapshot = data?.snapshot ?? null;
     } catch (err) {
         if (!controller.signal.aborted) {
-            log.warn('Rainbow snapshot fetch failed/timed out', err);
+            log.warn(`Rainbow snapshot fetch failed after ${Date.now() - t0}ms`, err);
+        } else {
+            // Distinguish "we ran out of time" from "the view was torn down".
+            // Both aborted the same controller and both logged the same line,
+            // which is part of why this took a report to find.
+            log.warn(
+                `Rainbow snapshot aborted after ${Date.now() - t0}ms ` +
+                    `(${isCurrentLoadSession() ? `timed out — budget ${DIRECT_BUDGET_MS}ms` : 'view torn down'})`,
+            );
         }
         return;
-    } finally {
-        clearTimeout(timer);
     }
 
     if (!snapshot) {
-        log.warn('Rainbow snapshot empty');
+        log.warn(`Rainbow snapshot empty after ${Date.now() - t0}ms`);
         return;
     }
     if (!isCurrent()) return;

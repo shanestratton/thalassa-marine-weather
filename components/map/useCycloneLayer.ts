@@ -1708,6 +1708,13 @@ export function useCycloneLayer(
 
                 rebuildMarkers();
 
+                // The card's numbers come from the catalogue we just loaded,
+                // not from a prop: React never re-runs the card effect,
+                // because the sid has not changed. In place, no camera move.
+                const sel = selectedStormRef.current;
+                const freshSel = sel ? cyclones.find((c) => c.sid === sel.sid) : undefined;
+                if (freshSel) refreshStormCardInPlace(map.getContainer(), freshSel);
+
                 // ── Satellite IR overlay — all 4 NOAA/SSEC geostationary satellites ──
                 // Uses RealEarth SSEC/CIMSS XYZ tile API (free, CORS-enabled, no API key)
                 // Auto-selects the best satellite for the storm's basin:
@@ -2160,10 +2167,64 @@ export function createStormSwitcher(
 }
 
 // ── Static badge builder (accessible outside the main effect closure) ──
-function createStormBadgeStatic(cyclone: ActiveCyclone): HTMLDivElement {
+export function createStormBadgeStatic(cyclone: ActiveCyclone, opts?: StormBadgeOpts): HTMLDivElement {
     const wrapper = document.createElement('div');
-    buildStormBadgeDOM(wrapper, buildBadgeData(cyclone));
+    buildStormBadgeDOM(wrapper, buildBadgeData(cyclone), opts);
     return wrapper;
+}
+
+/** How the card was left: expanded or collapsed, and whether it should
+ *  re-play its entry animation. A refresh keeps both. */
+interface StormBadgeOpts {
+    expanded?: boolean;
+    animate?: boolean;
+}
+
+/** Everything on the card that can change between advisories. Cheap, and it
+ *  is what decides whether a refresh is worth doing at all. */
+export function badgeSignature(c: ActiveCyclone): string {
+    return [
+        c.category,
+        c.categoryLabel,
+        c.maxWindKts,
+        c.minPressureMb,
+        c.currentPosition?.lat,
+        c.currentPosition?.lon,
+        c.lastAdvisoryTime ?? c.currentPosition?.time,
+        c.track?.length ?? 0,
+    ].join('|');
+}
+
+/**
+ * REFRESH THE CARD IN PLACE, WITHOUT MOVING THE CAMERA (Shane 2026-08-23:
+ * "fix the storm card numbers").
+ *
+ * The card is built by an effect keyed on [selectedStorm?.sid, visible,
+ * mapReady], and the 30-minute reload hands React a new object with the SAME
+ * sid — so the effect never re-ran and the pressure, category, wind and
+ * position on screen were whatever they were when you opened the view. Only
+ * the 60 s age tick moved, which made it look live while it was not. On a
+ * card that exists to tell you what a cyclone is doing, that is the worst
+ * kind of stale: confidently wrong.
+ *
+ * Widening the effect's deps was the obvious fix and is the wrong one — it
+ * ends in a 1.2 s flyTo, so the camera would lurch every half hour.
+ *
+ * The fresh data is already local: loadCyclones writes cyclonesRef, so the
+ * selected storm's new numbers are in hand without any prop round trip. This
+ * swaps the card's contents for the same storm, keeps it expanded if the user
+ * had it open, and skips the unroll so it does not flash.
+ */
+export function refreshStormCardInPlace(container: HTMLElement, fresh: ActiveCyclone): void {
+    const hud = container.querySelector('#cyclone-hud-badges');
+    const wrapper = hud?.firstElementChild as HTMLElement | null;
+    if (!wrapper) return;
+    if (wrapper.dataset.sig === badgeSignature(fresh)) return; // nothing moved
+    // The body is display:block only while the user has it open.
+    const wasExpanded = (wrapper.querySelector('[data-storm-body]') as HTMLElement | null)?.style.display === 'block';
+    wrapper.replaceChildren();
+    buildStormBadgeDOM(wrapper, buildBadgeData(fresh), { expanded: wasExpanded, animate: false });
+    wrapper.dataset.sig = badgeSignature(fresh);
 }
 
 // ── Shared storm badge DOM builder (no innerHTML) ──
@@ -2190,7 +2251,7 @@ interface StormBadgeData {
     onClose?: () => void;
 }
 
-function buildStormBadgeDOM(wrapper: HTMLElement, d: StormBadgeData): void {
+function buildStormBadgeDOM(wrapper: HTMLElement, d: StormBadgeData, opts?: StormBadgeOpts): void {
     const card = document.createElement('div');
     card.style.cssText = `
         background:rgba(10,15,30,0.92);backdrop-filter:blur(20px);
@@ -2201,7 +2262,7 @@ function buildStormBadgeDOM(wrapper: HTMLElement, d: StormBadgeData): void {
         min-width:200px;max-width:320px;z-index:760;
         box-shadow:0 8px 32px rgba(0,0,0,0.7),0 0 16px ${d.accentColor}15;
         overflow:hidden;pointer-events:auto;cursor:pointer;
-        animation:storm-badge-unroll 260ms cubic-bezier(0.22,1,0.36,1);
+        ${opts?.animate === false ? '' : 'animation:storm-badge-unroll 260ms cubic-bezier(0.22,1,0.36,1);'}
     `;
 
     // ── Header: Storm name + classification + close button ──
@@ -2242,15 +2303,18 @@ function buildStormBadgeDOM(wrapper: HTMLElement, d: StormBadgeData): void {
         color:rgba(255,255,255,0.4);
     `;
     chevron.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>`;
+    if (opts?.expanded === true) chevron.style.transform = 'rotate(180deg)';
     header.appendChild(chevron);
 
     card.appendChild(header);
 
     // ── Collapsible body — hidden by default ──
     const body = document.createElement('div');
-    body.style.cssText = 'display:none;';
-
-    let expanded = false;
+    // Tagged so an in-place refresh can read back whether the user had it
+    // open, and restore that rather than snapping it shut every 30 minutes.
+    body.setAttribute('data-storm-body', '');
+    let expanded = opts?.expanded === true;
+    body.style.cssText = expanded ? 'display:block;' : 'display:none;';
     card.addEventListener('click', (e) => {
         e.stopPropagation();
         expanded = !expanded;
