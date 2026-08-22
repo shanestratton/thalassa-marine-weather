@@ -1,6 +1,7 @@
 // Sentry must be imported FIRST — before any other app code
 import { captureException } from './services/sentry';
 import { crumb, startFlightRecorder } from './utils/flightRecorder';
+import { installCanvasProbe } from './utils/canvasProbe';
 import { Capacitor } from '@capacitor/core';
 import { getAuthIdentityScope } from './services/authIdentityScope';
 import { writeScopedNativeDiagnostic } from './services/nativeDiagnostic';
@@ -398,6 +399,13 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
 // Black box for crashes that only happen on the boat. Must run before
 // anything heavy so it can classify how the PREVIOUS run ended and report it
 // where Xcode can see it. log.warn, not info — info is a no-op in prod.
+// Arm the WebGL counter SYNCHRONOUSLY, before anything can create a context.
+// startCensus() also installs it, but that runs from a useEffect behind three
+// dynamic imports and was losing the race with Mapbox — the same install
+// reported "WebGL 1 live / 1 created" and "0 live / 0 created" hours apart
+// with a map rendering both times.
+installCanvasProbe();
+
 const flight = startFlightRecorder();
 if (flight.verdict !== 'clean-start') {
     const trail = flight.trail.map((c) => `${c.tag}${c.info ? `(${c.info})` : ''}@${c.t}`).join(' → ');

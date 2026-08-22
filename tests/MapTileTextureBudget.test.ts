@@ -171,3 +171,35 @@ describe('the census can actually see tiles', () => {
         expect(src).toContain('[${c.platform ?? \'?\'}]');
     });
 });
+
+describe('the WebGL probe is armed before anything can create a context', () => {
+    it('is installed synchronously at boot, not from an async effect', () => {
+        // Shane's install reported "WebGL 1 live / 1 created" on the morning
+        // of 2026-08-23 and "0 live / 0 created" that afternoon, with a map
+        // plainly rendering both times. startCensus() installs the probe, and
+        // useAppBootstrap calls it from a useEffect behind three dynamic
+        // imports — so it raced Mapbox and sometimes lost.
+        const entry = readFileSync('index.tsx', 'utf8');
+        expect(entry).toContain("import { installCanvasProbe } from './utils/canvasProbe'");
+        // Before React is asked to render anything.
+        const armAt = entry.indexOf('installCanvasProbe();');
+        expect(armAt).toBeGreaterThan(-1);
+        expect(armAt).toBeLessThan(entry.indexOf('ReactDOM.createRoot'));
+        // …and at module scope, not inside a callback or effect.
+        const line = entry.slice(entry.lastIndexOf('\n', armAt) + 1, armAt);
+        expect(line.trim()).toBe('');
+    });
+
+    it('says when it was NOT watching, so zero is not read as none', () => {
+        const src = readFileSync('services/memoryCensus.ts', 'utf8');
+        expect(src).toContain('glProbeArmed: canvasProbeArmed()');
+        expect(src).toContain('GL PROBE NOT ARMED');
+    });
+
+    it('cannot itself retain a canvas', () => {
+        const probe = readFileSync('utils/canvasProbe.ts', 'utf8');
+        expect(probe).toContain('WeakRef<HTMLCanvasElement>[]');
+        // A frozen prototype must cost the counts, not the map.
+        expect(probe).toContain('catch');
+    });
+});
