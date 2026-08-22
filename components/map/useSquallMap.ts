@@ -365,11 +365,32 @@ function mountSatelliteLayer(map: mapboxgl.Map): void {
             // sharpening rather than 404-ing every tile.
             maxzoom: GIBS_MAX_ZOOM,
         });
-        // Below the first symbol layer so coastlines and labels stay on top;
-        // the precip layer mounts against the same anchor later and therefore
-        // lands ABOVE this one — cloud mass underneath, rain cells over it.
+        // ANCHOR ABOVE THE CHART, not at the first symbol layer.
+        //
+        // "The satellite imagery is still not coming through" (Shane
+        // 2026-08-22) — and the tiles were never the problem: the exact URL
+        // this builds returns 76 kB of real Himawari PNG. The clouds were
+        // painting and then being buried, which is the SAME bug the rain
+        // layer hit on 2026-07-23 ("my rain layer does not seem to be
+        // working"). The style's first symbol layer sat at the bottom of the
+        // stack when this was written; it does not any more. The hybrid
+        // imagery now sits just below the ENC stack and ENC anchors at
+        // settlement-major-label, both far ABOVE the first symbol — so an
+        // IR layer inserted there goes underneath the opaque base imagery
+        // and the ENC depth fills.
+        //
+        // Anchoring on the SAME candidates ENC uses puts the cloud
+        // immediately below that anchor and therefore above the chart, while
+        // leaving place labels on top. Mirrors rainBeforeId in
+        // useWeatherLayers deliberately: when these two drifted apart, one of
+        // them was invisible.
         const styleLayers = map.getStyle()?.layers ?? [];
-        const beforeId = styleLayers.find((l) => l.type === 'symbol')?.id;
+        const beforeId = (() => {
+            for (const id of ['settlement-major-label', 'place-city', 'country-label', 'admin-0-boundary']) {
+                if (styleLayers.some((l) => l.id === id)) return id;
+            }
+            return styleLayers.find((l) => l.type === 'symbol')?.id;
+        })();
         map.addLayer(
             {
                 id: IR_LAYER,

@@ -370,6 +370,15 @@ function injectCycloneCSS() {
             75%  { border-radius: 60% 40% 45% 55% / 40% 60% 55% 45%; }
             100% { border-radius: 50% 50% 55% 45% / 45% 55% 50% 50%; }
         }
+        /* Unrolls LEFT TO RIGHT (Shane 2026-08-22), not top-to-bottom.
+           Animating max-width rather than transform:scaleX keeps the text
+           inside at its true size — a scaleX card arrives with its type
+           stretched and snaps straight, which reads as a glitch. The card's
+           own overflow:hidden does the clipping. */
+        @keyframes storm-badge-unroll {
+            from { max-width: 0; opacity: 0.4; }
+            to   { max-width: 320px; opacity: 1; }
+        }
         @keyframes cyclone-blob {
             0%   { border-radius: 45% 55% 50% 50% / 50% 45% 55% 50%; transform: rotate(0deg); }
             33%  { border-radius: 55% 45% 45% 55% / 45% 55% 50% 50%; }
@@ -1784,16 +1793,33 @@ export function useCycloneLayer(
 
         const hud = document.createElement('div');
         hud.id = HUD_ID;
+        // top:108px, NOT 56px (Shane 2026-08-22: "it is too high up on the
+        // screen and is in the heading area along with the zoom level etc").
+        // 56px is the header FAB row — the mic FAB, the status pill and the
+        // zoom readout all live there, so the badge was landing on top of
+        // them. 104px is where this app already starts the next row
+        // (ChartDepthControls); 108 clears it.
+        //
+        // z-index 760, NOT 600: the FAB rail is z-700 and the route banner
+        // z-720, so at 600 the storm card could be covered by furniture —
+        // "make sure that it is on top of all other layers".
         hud.style.cssText = `
             position: absolute;
-            top: 56px;
+            top: 108px;
             left: 16px;
-            z-index: 600;
+            z-index: 760;
             display: flex;
             flex-direction: column;
             gap: 8px;
             pointer-events: none;
         `;
+        // Idempotent, and NOT redundant: the keyframes are injected by the
+        // [visible, mapReady] effect, which is a different effect from this
+        // one. In practice it runs first, but "in practice" is not a
+        // guarantee — and if this ever ran first the card would silently
+        // appear with no unroll, because CSS ignores an unknown animation
+        // name rather than erroring.
+        injectCycloneCSS();
         hud.appendChild(createStormBadgeStatic(selectedStorm));
         map.getContainer().appendChild(hud);
 
@@ -1998,9 +2024,10 @@ function buildStormBadgeDOM(wrapper: HTMLElement, d: StormBadgeData): void {
         border-top:3px solid ${d.accentColor};border-radius:14px;
         padding:0;color:#fff;
         font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display',sans-serif;
-        min-width:200px;max-width:320px;z-index:600;
+        min-width:200px;max-width:320px;z-index:760;
         box-shadow:0 8px 32px rgba(0,0,0,0.7),0 0 16px ${d.accentColor}15;
         overflow:hidden;pointer-events:auto;cursor:pointer;
+        animation:storm-badge-unroll 260ms cubic-bezier(0.22,1,0.36,1);
     `;
 
     // ── Header: Storm name + classification + close button ──
