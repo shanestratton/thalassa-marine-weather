@@ -435,9 +435,29 @@ export function countMapTiles(): {
         bytes += size[0] * size[1] * 4 * (t?.texture?.useMipmap ? 4 / 3 : 1);
     };
 
-    // Every bucket v3 splits caches across. A rename must degrade to zero,
-    // never throw: this instrument has to survive the crash it reports on.
-    for (const bucket of ['_mergedSourceCaches', '_mergedOtherSourceCaches', '_mergedSymbolSourceCaches']) {
+    // ONE bucket, not three — `_mergedSourceCaches` IS the union.
+    //
+    // Read from mapbox-gl 3.19.0's Style#addSource (mapbox-gl-unminified.js
+    // :66038-66047): every source gets a SourceCache keyed `other:<id>`, and
+    // vector/geojson sources get a SECOND one keyed `symbol:<id>`. Both land
+    // in `_sourceCaches`, and mergeSources() copies `_sourceCaches` into
+    // `_mergedSourceCaches`, `_otherSourceCaches` into `_mergedOther…` and
+    // `_symbolSourceCaches` into `_mergedSymbol…` — so other+symbol are the
+    // SAME objects the merged map already holds, under bare ids.
+    //
+    // Walking all three therefore visited every cache exactly twice. The
+    // first report to use this instrument (2026-08-23) read "tiles 208 live
+    // +1412 cached across 74 srcs ~232MB tex" — every one of those numbers
+    // was double. The truth was ~37 caches, ~810 tiles, ~116 MB.
+    //
+    // Which is the whole lesson of this week arriving a third time: a gauge
+    // that is wrong in the trustworthy direction is more dangerous than one
+    // that reads zero, because nobody double-checks a number that confirms
+    // what they expected.
+    //
+    // A rename must degrade to zero, never throw: this instrument has to
+    // survive the crash it reports on.
+    for (const bucket of ['_mergedSourceCaches', '_sourceCaches']) {
         const caches = style[bucket] as Record<string, SourceCacheLike> | undefined;
         if (!caches) continue;
         for (const key of Object.keys(caches)) {
@@ -459,10 +479,14 @@ export function countMapTiles(): {
             for (const t of cachedTiles) addTexture(t);
             if (total > topCount) {
                 topCount = total;
-                // Cache keys are prefixed ("other:<id>") — strip for legibility.
+                // Cache keys are prefixed ("other:<id>" / "symbol:<id>") —
+                // strip for legibility, but they ARE distinct caches.
                 out.top = `${key.replace(/^[a-z]+:/, '')}:${liveTiles.length}+${cachedTiles.length}`;
             }
         }
+        // `_sourceCaches` is only a fallback for a build where the merged map
+        // is missing. If the merged one answered, never walk it as well.
+        if (out.sources > 0) break;
     }
     out.textureMB = Math.round(bytes / 1048576);
     return out;
