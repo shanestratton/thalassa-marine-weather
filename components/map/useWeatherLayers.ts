@@ -1100,14 +1100,58 @@ export function useWeatherLayers(
         // still-moving camera costs at most a top-up, while 600 ms of every
         // single OBS open is pure waiting (Shane 2026-08-21: "make the wind
         // show up far quicker").
+        //
+        // ...and then WAIT FOR THE CAMERA TO LAND (2026-08-22). That
+        // "at most a top-up" reasoning stopped holding the moment wind got
+        // its own z9 framing flyTo, which starts in the effect below during
+        // this same commit and runs for 700 ms. Fetching at the 200 ms mark
+        // reads a camera we are actively leaving, and the landing then trips
+        // boundsChangedSignificantly (zoom moved by more than 1) into a FULL
+        // refetch rather than a top-up. Shane's log caught it exactly:
+        //
+        //     wind fetch ecmwf 4×8×48h  1528ms   <- thrown away
+        //     wind fetch ecmwf 9×16×48h 1680ms   <- the one that paints
+        //
+        // 3.2 s of fetching for one activation, half of it for a viewport
+        // that was never shown. Landing first makes it one fetch.
+        let cancelled = false;
+        let detachMoveEnd: (() => void) | null = null;
+        let settleGuard: ReturnType<typeof setTimeout> | null = null;
         const windTimer = setTimeout(() => {
             const m = mapRef.current;
-            if (!m) return;
-            void WindDataController.activate(m).catch((err) => {
-                log.warn('activate() failed:', err);
-            });
+            if (!m || cancelled) return;
+            const run = () => {
+                if (cancelled) return;
+                void WindDataController.activate(m).catch((err) => {
+                    log.warn('activate() failed:', err);
+                });
+            };
+            if (!(m.isMoving() || m.isZooming() || m.isEasing())) {
+                run();
+                return;
+            }
+            let fired = false;
+            const onSettled = () => {
+                if (fired) return;
+                fired = true;
+                detachMoveEnd?.();
+                if (settleGuard) clearTimeout(settleGuard);
+                run();
+            };
+            // Safety net: a flyTo interrupted by a gesture can finish without
+            // the moveend we are listening for, and wind must never sit
+            // waiting on a camera event that is not coming. 1.2 s covers the
+            // 700 ms framing flyTo with room to spare.
+            settleGuard = setTimeout(onSettled, 1_200);
+            m.on('moveend', onSettled);
+            detachMoveEnd = () => m.off('moveend', onSettled);
         }, 200);
-        return () => clearTimeout(windTimer);
+        return () => {
+            cancelled = true;
+            clearTimeout(windTimer);
+            if (settleGuard) clearTimeout(settleGuard);
+            detachMoveEnd?.();
+        };
         // Re-runs on model/field switch too. Grid metadata is synchronised by
         // the windState.grid effect above, including later viewport refreshes.
         // eslint-disable-next-line react-hooks/exhaustive-deps
