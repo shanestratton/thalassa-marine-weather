@@ -49,8 +49,19 @@ export interface SeamarkCollection {
 const OVERPASS_ENDPOINTS = [
     'https://overpass-api.de/api/interpreter',
     'https://overpass.kumi.systems/api/interpreter',
-    'https://maps.mail.ru/osm/tools/overpass/api/interpreter',
+    // maps.mail.ru REMOVED 2026-08-23. It is a Russian-operated Overpass
+    // mirror, and this query carries the boat's position: the bbox is built
+    // from live accepted GPS fixes at toFixed(4) — about 11 m. The app's CSP
+    // blocks it on web, but capacitor.config.ts enables CapacitorHttp, which
+    // replaces window.fetch on iOS and does NOT enforce CSP — so on the
+    // phone, the one platform actually used at sea, the request was live.
+    // Two healthy mirrors remain.
 ];
+// ROUND-ROBIN, not failover — worth stating, because it was read as failover.
+// _endpointIdx persists for the life of the module, so every query goes to a
+// DIFFERENT mirror whether or not the previous one was healthy. While mail.ru
+// was in this list that meant roughly one seamark query in three went to it,
+// with a healthy overpass-api.de sitting right there.
 let _endpointIdx = 0;
 function nextEndpoint(): string {
     const url = OVERPASS_ENDPOINTS[_endpointIdx % OVERPASS_ENDPOINTS.length];
