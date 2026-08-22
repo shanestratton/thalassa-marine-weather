@@ -18,6 +18,7 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { desktopTileCacheSize } from '../components/map/useMapInit';
+import { countMapTiles, registerCensusMap } from '../services/memoryCensus';
 
 const el = (w: number, h: number) => ({ clientWidth: w, clientHeight: h }) as HTMLElement;
 
@@ -57,26 +58,116 @@ describe('desktopTileCacheSize', () => {
     });
 });
 
-describe('the census can see tiles at all', () => {
-    const src = readFileSync('services/memoryCensus.ts', 'utf8');
+describe('the census can actually see tiles', () => {
+    // BEHAVIOURAL, not source-substring. The first version of this instrument
+    // passed a green suite while being unconditionally blind in production —
+    // it read window.__thalassaMap, which useMapInit only assigns under
+    // `if (import.meta.env.DEV)` and Vite eliminates. Source assertions cannot
+    // catch that class of failure; a fake map can.
+    const tex = (w: number, h: number, useMipmap = true) => ({ texture: { size: [w, h], useMipmap } });
 
-    it('counts retained tiles and estimates their texture cost', () => {
-        expect(src).toContain('function countMapTiles()');
-        // @2x 512 raster is the 4 MB case — the one that matters at z14.
-        expect(src).toContain("src.tileSize === 512 || (src.tiles ?? []).some((u) => u.includes('@2x'))");
-        expect(src).toContain('retina ? 4 : 1');
+    /** A mapbox-gl 3.x style with the three cache buckets v3 actually uses. */
+    const fakeMap = (buckets: Record<string, Record<string, unknown>>) => ({ style: buckets });
+
+    it('reads the v3 merged buckets, including the "other" one rasters live in', () => {
+        // v3 splits caches three ways. Reading only _sourceCaches — as the
+        // first cut did — misses the raster imagery entirely, which is the
+        // one thing that holds real texture.
+        const map = fakeMap({
+            _mergedSourceCaches: { 'enc-depare': { _tiles: { a: {}, b: {} } } },
+            _mergedOtherSourceCaches: { 'other:satellite-base': { _tiles: { c: tex(512, 512) } } },
+            _mergedSymbolSourceCaches: { 'symbol:composite': { _tiles: { d: {} } } },
+        });
+        registerCensusMap(map);
+        const out = countMapTiles();
+        expect(out.sources).toBe(3);
+        expect(out.live).toBe(4);
     });
 
-    it('degrades to zero rather than throwing when mapbox internals move', () => {
-        // There is no public API for this. An instrument that throws during a
-        // crash is worse than one that reports nothing.
-        const fn = src.slice(src.indexOf('function countMapTiles()'), src.indexOf('function persist('));
-        expect(fn).toContain('if (!caches) return out;');
-        expect(fn).toMatch(/\?\./);
+    it('counts the RETAINED cache, which is what maxTileCacheSize bounds', () => {
+        // _removeTile moves a tile into _cache WITH ITS TEXTURE. A layer set
+        // to visibility:'none' reports _tiles 0 and _cache full — the first
+        // version skipped on `tiles === 0` and printed zeros over live
+        // textures.
+        const map = fakeMap({
+            _mergedOtherSourceCaches: {
+                'other:hybrid-base': {
+                    _tiles: {},
+                    _cache: { data: { k1: [{ value: tex(1024, 1024) }], k2: [{ value: tex(1024, 1024) }] } },
+                },
+            },
+        });
+        registerCensusMap(map);
+        const out = countMapTiles();
+        expect(out.live).toBe(0);
+        expect(out.cached).toBe(2);
+        expect(out.sources).toBe(1);
+        // 1024×1024 RGBA = 4 MiB, ×4/3 for the mipmap chain, ×2 tiles ≈ 10.7.
+        expect(out.textureMB).toBe(11);
     });
 
-    it('reports tiles in the crash line, with the heaviest source named', () => {
-        expect(src).toContain('tiles ${c.tiles ?? 0} across ${c.tileSources ?? 0} srcs');
-        expect(src).toContain('top ${c.topTileSource}');
+    it('uses the tile\'s real dimensions, not a per-tile guess', () => {
+        // The 4 MB-per-retina-tile heuristic assumed mapbox.satellite @2x
+        // decodes to 1024×1024. It serves 512×512, so the guess was ~3x high.
+        const map = fakeMap({
+            _mergedOtherSourceCaches: { s: { _tiles: { a: tex(512, 512, false), b: tex(512, 512, false) } } },
+        });
+        registerCensusMap(map);
+        // 512×512×4 = 1 MiB each, no mipmap → 2, not 8.
+        expect(countMapTiles().textureMB).toBe(2);
+    });
+
+    it('names the heaviest source, split live vs cached', () => {
+        const map = fakeMap({
+            _mergedOtherSourceCaches: {
+                'other:satellite-base': { _tiles: { a: tex(512, 512), b: tex(512, 512) }, _cache: { data: { k: [{ value: tex(512, 512) }] } } },
+                'other:openseamap': { _tiles: { c: tex(256, 256) } },
+            },
+        });
+        registerCensusMap(map);
+        expect(countMapTiles().top).toBe('satellite-base:2+1');
+    });
+
+    it('degrades to zero rather than throwing when the internals move', () => {
+        // There is no public API for any of this. An instrument that throws
+        // during the crash it is meant to report on is worse than none.
+        registerCensusMap({ style: {} });
+        expect(countMapTiles()).toEqual({ live: 0, cached: 0, sources: 0, textureMB: 0, top: null });
+        registerCensusMap({});
+        expect(countMapTiles().sources).toBe(0);
+        registerCensusMap(null);
+        expect(countMapTiles().sources).toBe(0);
+    });
+
+    it('holds the map WEAKLY so the instrument can never retain a dead one', () => {
+        const src = readFileSync('services/memoryCensus.ts', 'utf8');
+        expect(src).toContain('let censusMapRef: WeakRef<object> | null = null');
+        expect(src).toContain('new WeakRef(map)');
+    });
+
+    it('is registered from a line that survives a production build', () => {
+        // The whole failure, in one assertion: the registration must NOT sit
+        // inside an import.meta.env.DEV branch.
+        const init = readFileSync('components/map/useMapInit.ts', 'utf8');
+        expect(init).toContain('registerCensusMap(map);');
+        expect(init).toContain('registerCensusMap(null);');
+        // Bound the slice to the DEV block itself — slicing to end-of-file
+        // sweeps up the teardown's own registerCensusMap(null) and the
+        // assertion passes or fails for the wrong reason.
+        const devAt = init.indexOf('if (import.meta.env.DEV)');
+        expect(devAt).toBeGreaterThan(-1);
+        const devBranch = init.slice(devAt, init.indexOf('\n        }', devAt));
+        expect(devBranch).toContain('__thalassaMap');
+        expect(devBranch).not.toContain('registerCensusMap');
+    });
+
+    it('records which engine died', () => {
+        // webContentKill counts WKWebView jetsams and Chrome renderer kills
+        // into one total. The 2026-08-23 report was desktop Chrome, but the
+        // memory model it was read against was built from iOS evidence.
+        const src = readFileSync('services/memoryCensus.ts', 'utf8');
+        expect(src).toContain('function censusPlatform()');
+        expect(src).toContain('platform: censusPlatform()');
+        expect(src).toContain('[${c.platform ?? \'?\'}]');
     });
 });

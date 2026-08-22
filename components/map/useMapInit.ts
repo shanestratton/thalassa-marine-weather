@@ -7,6 +7,7 @@
  */
 
 import { useRef, useEffect, useCallback, type MutableRefObject } from 'react';
+import { registerCensusMap } from '../../services/memoryCensus';
 import { Capacitor } from '@capacitor/core';
 import mapboxgl from 'mapbox-gl';
 import { LocationStore } from '../../stores/LocationStore';
@@ -112,7 +113,14 @@ interface UseMapInitOptions {
  *
  * Visible grid + one screenful of margin, on the same reasoning as the
  * phone's 20. Clamped: never below the phone's number, never above 28 — past
- * that the retention is speculation, and speculation is what kills it.
+ * that the retention is speculation.
+ *
+ * The /512 below is an APPROXIMATION, not the tile grid mapbox actually
+ * builds: it sizes the grid per source, so a `tileSize: 256` source like
+ * openseamap sees roughly 35 tiles on a screen where this derivation assumes
+ * 12. The cap is deliberately one number for every source, so this errs
+ * generous for 256-px sources and tight for 512-px ones. Stated rather than
+ * silently wrong.
  */
 export function desktopTileCacheSize(container: HTMLElement | null): number {
     const w = container?.clientWidth || (typeof window !== 'undefined' ? window.innerWidth : 1280);
@@ -377,13 +385,26 @@ export function useMapInit(opts: UseMapInitOptions) {
             // SW still caches tiles to DISK for offline, so this only
             // bounds the in-memory working set, not offline coverage.
             //
-            // 60 → 20 on phones (Lady Musgrave kill, 2026-08-21): the 2026-
-            // 07-13 arithmetic assumed a retina @2x satellite tile decodes
-            // to ~1 MB — it is a 1024×1024 RGBA texture, ~4 MB. At 60 tiles
-            // per source, satellite + MapTiler-ocean alone could pin
-            // ~480 MB of GPU/native memory — invisible to the JS heap, and
-            // sitting under the ENC merge transients at exactly the zoom
-            // where the WKWebView was being jetsammed.
+            // 60 → 20 on phones (Lady Musgrave kill, 2026-08-21) on the
+            // reasoning that a retina @2x satellite tile is a 1024×1024 RGBA
+            // texture, ~4 MB, so 60 per source pinned ~480 MB.
+            //
+            // THAT ARITHMETIC IS WRONG and the correction is measured
+            // (2026-08-23, fetching the real tiles at z14): mapbox.satellite
+            // v4 `@2x` serves **512×512**, not 1024×1024 — it is a 256-native
+            // endpoint — so ~1 MB, or ~1.4 MB once mapbox's mipmap chain is
+            // counted (it was not). Only `hybrid-base`, which requests the
+            // /512/ style endpoint at @2x, is genuinely 1024×1024. So the
+            // ~480 MB figure is roughly 3× high for two of the three sources.
+            //
+            // The cap change is kept anyway — a smaller speculative cache is
+            // still right — but nobody should read "480 MB" here as measured.
+            // What IS measured, on desktop Chrome: these textures live in the
+            // GPU process (+319 MB GPU / −2 MB renderer over 40 z14 pans), so
+            // they cannot exhaust the renderer directly. On iOS WKWebView,
+            // where the original jetsam evidence came from, there is no such
+            // split. The two platforms are NOT interchangeable here, and this
+            // file's history conflates them.
             //
             // …and the same cut for DESKTOP (Shane 2026-08-23). That round
             // left web on 60 on the reasoning that desktop has "larger
@@ -1485,6 +1506,11 @@ export function useMapInit(opts: UseMapInitOptions) {
         });
 
         mapRef.current = map;
+        // Hand the map to the crash census. NOT via a global: the DEV-only
+        // window.__thalassaMap below is eliminated from production builds, so
+        // the tile gauge shipped on 2026-08-23 read a handle that never
+        // existed and reported "tiles 0 across 0 srcs" over a live map.
+        registerCensusMap(map);
 
         // ENC boot pre-warm: run the first chart merge's CPU work (blob read/
         // parse/glaze) UNDER the style+tile network wait instead of after it —
@@ -1532,6 +1558,9 @@ export function useMapInit(opts: UseMapInitOptions) {
             window.removeEventListener('map-recenter', handleRecenter);
             resizeObserver.disconnect();
             crumb('map:remove', `#${mapInstanceSeq}`);
+            // Deregister BEFORE remove(), so a census tick landing mid-teardown
+            // cannot walk a half-destroyed style.
+            registerCensusMap(null);
             map.remove();
             mapRef.current = null;
         };

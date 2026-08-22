@@ -162,10 +162,24 @@ export interface MemoryCensus {
      * Wrong in detail, right in magnitude — which is what was missing.
      */
     tiles: number;
+    /** Retained-but-not-visible tiles — the set maxTileCacheSize bounds. */
+    tilesCached: number;
     tileSources: number;
     tileTextureMB: number;
     peakTiles: number;
     peakTileTextureMB: number;
+    /**
+     * WHICH ENGINE DIED.
+     *
+     * webContentKill counts iOS WKWebView jetsams and desktop Chrome renderer
+     * kills into one total with no platform tag, and this app's whole memory
+     * model was built from WKWebView evidence. The 2026-08-23 report turned
+     * out to be desktop Chrome — heapUsedMB is only ever non-null there, and
+     * the 4192 MB limit is Chrome's 64-bit jsHeapSizeLimit — which means
+     * "49 kills on one install" may be two different bugs on two platforms.
+     * Record it rather than infer it next time.
+     */
+    platform: string;
     /** The single heaviest source, as "id:count" — names the hog directly. */
     topTileSource: string | null;
 }
@@ -286,11 +300,13 @@ export async function takeCensus(now = Date.now()): Promise<MemoryCensus> {
         peakGlLive: 0,
         glContextLost,
         tiles: 0,
+        tilesCached: 0,
         tileSources: 0,
         tileTextureMB: 0,
         peakTiles: 0,
         peakTileTextureMB: 0,
         topTileSource: null,
+        platform: censusPlatform(),
     };
 
     try {
@@ -332,7 +348,8 @@ export async function takeCensus(now = Date.now()): Promise<MemoryCensus> {
 
     try {
         const t = countMapTiles();
-        census.tiles = t.tiles;
+        census.tiles = t.live;
+        census.tilesCached = t.cached;
         census.tileSources = t.sources;
         census.tileTextureMB = t.textureMB;
         census.topTileSource = t.top;
@@ -353,7 +370,7 @@ export async function takeCensus(now = Date.now()): Promise<MemoryCensus> {
         /* leave at null */
     }
 
-    peaks.tiles = Math.max(peaks.tiles, census.tiles);
+    peaks.tiles = Math.max(peaks.tiles, census.tiles + census.tilesCached);
     peaks.tileTextureMB = Math.max(peaks.tileTextureMB, census.tileTextureMB);
     census.peakTiles = peaks.tiles;
     census.peakTileTextureMB = peaks.tileTextureMB;
@@ -381,37 +398,139 @@ export async function takeCensus(now = Date.now()): Promise<MemoryCensus> {
  * bump may rename it. A rename must degrade to "0 tiles", never to a throw
  * inside the instrument that is supposed to survive the crash.
  */
-function countMapTiles(): { tiles: number; sources: number; textureMB: number; top: string | null } {
-    const out = { tiles: 0, sources: 0, textureMB: 0, top: null as string | null };
-    const map = (globalThis as unknown as Record<string, unknown>).__thalassaMap as
-        | { style?: { _sourceCaches?: Record<string, unknown> } }
+/**
+ * The map the census measures.
+ *
+ * A WeakRef, and registered explicitly — NOT read off a global.
+ *
+ * The first cut read `window.__thalassaMap`, which useMapInit only assigns
+ * inside `if (import.meta.env.DEV)`. Vite eliminates that branch, so in every
+ * build Shane has ever run the assignment does not exist: measured on the
+ * 2026-08-23 bundle, `grep -rno "__thalassaMap" dist/` returns exactly one
+ * hit and it is this file's READ. The instrument shipped blind and its
+ * "tiles 0 across 0 srcs" in the crash report meant "we did not look", not
+ * "tiles were fine" — which is worse than having no instrument at all.
+ *
+ * Weak so the census can never be the reason a torn-down map is retained; the
+ * whole point of this module is to not become its own bug.
+ */
+let censusMapRef: WeakRef<object> | null = null;
+
+/** Hand the census the live map (or null on teardown). Called by useMapInit. */
+export function registerCensusMap(map: object | null): void {
+    censusMapRef = map ? new WeakRef(map) : null;
+}
+
+interface SourceCacheLike {
+    used?: boolean;
+    _tiles?: Record<string, TileLike>;
+    _cache?: { data?: Record<string, { value: TileLike }[]> };
+    _source?: { type?: string; id?: string };
+}
+interface TileLike {
+    texture?: { size?: [number, number]; useMipmap?: boolean };
+}
+
+/**
+ * Retained tiles across every Mapbox source cache, and the texture they hold.
+ *
+ * THREE corrections over the first version, each measured against mapbox-gl
+ * 3.19.0 rather than reasoned:
+ *
+ * 1. v3 splits caches into `_mergedSourceCaches`, `_mergedOtherSourceCaches`
+ *    and `_mergedSymbolSourceCaches`. The first version read `_sourceCaches`,
+ *    which is the per-fragment map — and the RASTER imagery, the only thing
+ *    that holds real texture, lives in the "other" bucket. It would have
+ *    missed exactly what it was written to find.
+ *
+ * 2. `_tiles` is the LIVE set. `maxTileCacheSize` bounds `_cache`, the
+ *    retained set — and `_removeTile` moves a tile there WITH ITS TEXTURE.
+ *    Measured: two raster layers set to `visibility:'none'` report `_tiles`
+ *    0 and `_cache` 24 each, every texture still `gl.isTexture() === true`.
+ *    Skipping on `_tiles === 0` printed zeros over 48 live textures.
+ *
+ * 3. The 4 MB-per-retina-tile heuristic was 3-4x high on three of the four
+ *    raster sources (mapbox.satellite @2x serves 512x512, not 1024x1024) and
+ *    ignored mipmaps, which add a third again. The tile carries its real
+ *    dimensions; use them.
+ *
+ * Still an ESTIMATE, and still bounded in what it can prove: on desktop
+ * Chrome these textures live in the GPU process, which no code inside the
+ * renderer can see. This number bounds GPU-side residency. It cannot measure
+ * the process that actually died.
+ */
+export function countMapTiles(): {
+    live: number;
+    cached: number;
+    sources: number;
+    textureMB: number;
+    top: string | null;
+} {
+    const out = { live: 0, cached: 0, sources: 0, textureMB: 0, top: null as string | null };
+    const map = (censusMapRef?.deref() ??
+        (globalThis as unknown as Record<string, unknown>).__thalassaMap) as
+        | { style?: Record<string, unknown> }
         | undefined;
-    const caches = map?.style?._sourceCaches;
-    if (!caches) return out;
+    const style = map?.style;
+    if (!style) return out;
+
+    let bytes = 0;
     let topCount = 0;
-    for (const key of Object.keys(caches)) {
-        const sc = caches[key] as
-            | { _tiles?: Record<string, unknown>; _source?: { type?: string; tileSize?: number; tiles?: string[] } }
-            | undefined;
-        const tiles = sc?._tiles ? Object.keys(sc._tiles).length : 0;
-        if (tiles === 0) continue;
-        out.sources += 1;
-        out.tiles += tiles;
-        const src = sc?._source;
-        if (src?.type === 'raster') {
-            // @2x 512 → a 1024×1024 RGBA texture (~4 MB). Anything else
-            // raster → ~1 MB. Vector/GeoJSON contribute bucket geometry, not
-            // texture, so they are counted as tiles but not as MB.
-            const retina = src.tileSize === 512 || (src.tiles ?? []).some((u) => u.includes('@2x'));
-            out.textureMB += tiles * (retina ? 4 : 1);
-        }
-        if (tiles > topCount) {
-            topCount = tiles;
-            // Source-cache keys are prefixed ("other:<id>") — strip for legibility.
-            out.top = `${key.replace(/^[a-z]+:/, '')}:${tiles}`;
+    const addTexture = (t: TileLike | undefined): void => {
+        const size = t?.texture?.size;
+        if (!size) return;
+        // RGBA8, plus the mipmap chain when mapbox built one (it does for
+        // raster): 1 + 1/4 + 1/16 + ... = 4/3.
+        bytes += size[0] * size[1] * 4 * (t?.texture?.useMipmap ? 4 / 3 : 1);
+    };
+
+    // Every bucket v3 splits caches across. A rename must degrade to zero,
+    // never throw: this instrument has to survive the crash it reports on.
+    for (const bucket of ['_mergedSourceCaches', '_mergedOtherSourceCaches', '_mergedSymbolSourceCaches']) {
+        const caches = style[bucket] as Record<string, SourceCacheLike> | undefined;
+        if (!caches) continue;
+        for (const key of Object.keys(caches)) {
+            const sc = caches[key];
+            const liveTiles = sc?._tiles ? Object.values(sc._tiles) : [];
+            const cacheData = sc?._cache?.data;
+            const cachedTiles: TileLike[] = [];
+            if (cacheData) {
+                for (const k of Object.keys(cacheData)) {
+                    for (const entry of cacheData[k] ?? []) if (entry?.value) cachedTiles.push(entry.value);
+                }
+            }
+            const total = liveTiles.length + cachedTiles.length;
+            if (total === 0) continue;
+            out.sources += 1;
+            out.live += liveTiles.length;
+            out.cached += cachedTiles.length;
+            for (const t of liveTiles) addTexture(t);
+            for (const t of cachedTiles) addTexture(t);
+            if (total > topCount) {
+                topCount = total;
+                // Cache keys are prefixed ("other:<id>") — strip for legibility.
+                out.top = `${key.replace(/^[a-z]+:/, '')}:${liveTiles.length}+${cachedTiles.length}`;
+            }
         }
     }
+    out.textureMB = Math.round(bytes / 1048576);
     return out;
+}
+
+/** Which engine this session is running on — see MemoryCensus.platform. */
+function censusPlatform(): string {
+    try {
+        const native = (globalThis as unknown as { Capacitor?: { getPlatform?: () => string } }).Capacitor;
+        const p = native?.getPlatform?.();
+        if (p && p !== 'web') return p;
+    } catch {
+        /* not a Capacitor build */
+    }
+    // performance.memory is Chromium-only, so its presence is the cleanest
+    // web-side discriminator we have — and it is exactly the gauge whose
+    // readings appear in the crash line.
+    const hasMemoryGauge = typeof (performance as unknown as { memory?: unknown }).memory === 'object';
+    return hasMemoryGauge ? 'web-chromium' : 'web-other';
 }
 
 function persist(census: MemoryCensus): void {
@@ -450,7 +569,7 @@ export function describeCensus(c: MemoryCensus): string {
         `${c.merges} merges pinning ${c.pinnedCells} cells (peak ${c.peakPinnedCells ?? 0}), ` +
         `glaze ${c.glaze}, contours ${c.contours}, indexes ${c.indexes}, ` +
         `DOM ${c.domNodes} (peak ${c.peakDomNodes ?? 0}), canvas ${c.canvases ?? 0} (peak ${c.peakCanvases ?? 0}), ` +
-        `tiles ${c.tiles ?? 0} across ${c.tileSources ?? 0} srcs ~${c.tileTextureMB ?? 0}MB tex ` +
+        `[${c.platform ?? '?'}] tiles ${c.tiles ?? 0} live +${c.tilesCached ?? 0} cached across ${c.tileSources ?? 0} srcs ~${c.tileTextureMB ?? 0}MB tex ` +
         `(peak ${c.peakTiles ?? 0}/~${c.peakTileTextureMB ?? 0}MB${c.topTileSource ? `, top ${c.topTileSource}` : ''}), ` +
         `WebGL ${c.glLive ?? 0} live / ${c.glCreated ?? 0} created (peak live ${c.peakGlLive ?? 0})` +
         `${c.glRefused ? ` [${c.glRefused} CONTEXT REFUSALS]` : ''}`

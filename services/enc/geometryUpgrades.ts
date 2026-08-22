@@ -11,6 +11,7 @@
  */
 import type { Feature } from 'geojson';
 import { createLogger } from '../../utils/createLogger';
+import { crumb } from '../../utils/flightRecorder';
 import type { GeometryJobMsg, GeometryWorkerReply, GlazeCellJob } from './geometryWorkerProtocol';
 import { coverageVertexCount, type FineCoverage } from './clipDepareOverlap';
 import type { EncMergedVectorData } from './EncHazardService';
@@ -179,6 +180,7 @@ function getGeoWorker(): Worker | null {
         geoWorker = null;
         pendingGeometryJobs.clear();
         clearAllGlazeAssemblies();
+        crumb('enc:geo-died');
         log.warn('geometry worker died — staying on fast glaze/contours this session');
     };
     geoWorker.onmessage = (ev: MessageEvent<GeometryWorkerReply>) => {
@@ -217,6 +219,7 @@ function getGeoWorker(): Worker | null {
         }
         if (msg.type === 'done' && job) {
             pendingGeometryJobs.delete(jobId);
+            crumb('enc:geo-done', `#${jobId} ${msg.glazeStats ? `${msg.glazeStats.ms}ms` : 'nostats'}`);
             // Defensive leftover sweep — glaze-cell answers should have
             // consumed every parked entry; job-scoped so other jobs'
             // state is untouched (audit #5).
@@ -235,6 +238,7 @@ function getGeoWorker(): Worker | null {
         }
         if (msg.type === 'error') {
             pendingGeometryJobs.delete(jobId);
+            crumb('enc:geo-fail', `#${jobId} worker`);
             if (job) releaseGlazeAssemblies(jobId, job.queuedGlazeKeys);
             log.warn(`geometry worker job failed (fast version stays): ${msg.message ?? 'unknown'}`);
         }
@@ -352,6 +356,28 @@ export function dispatchGeometryWork(
     }
     try {
         const wireMsg: GeometryJobMsg = { jobId, glazeCells, coverageLib, contourPoints };
+        // THE BLACK BOX HAS NEVER WATCHED THIS PATH (2026-08-23).
+        //
+        // Measured: zero crumb() calls in this file, in encGeometryWorker.ts,
+        // in EncCellStore.ts or in either ENC render module — all 95 crumb
+        // sites are elsewhere. So when the Lady Musgrave trail went quiet for
+        // 28 s before the renderer died, that silence was read as "the ENC
+        // pipeline was idle". It was not evidence of anything: the instrument
+        // was never pointed here.
+        //
+        // This matters more than the general case. On Chrome a dedicated
+        // worker is a separate thread in the SAME renderer process, and its
+        // heap is invisible to performance.memory in both directions
+        // (measured: 0 MB main-thread delta for 512 MB allocated in a
+        // worker). This file's own header records an "Aw, Snap" kill from
+        // exactly that, on 2026-07-13. Glaze turns on at z9.5 and contours at
+        // z12 — between the zoom Shane says is fine and the one that dies.
+        //
+        // inflight so the trail shows overlapping jobs, which nothing gates.
+        crumb(
+            'enc:geo-dispatch',
+            `#${jobId} ${glazeCells.length}glaze/${contourPoints?.length ?? 0}snd w${payloadWeight} inflight${pendingGeometryJobs.size}`,
+        );
         worker.postMessage(wireMsg);
     } catch (err) {
         // Symmetric cleanup (audit #6): a failed dispatch must release its
@@ -360,6 +386,7 @@ export function dispatchGeometryWork(
         // exists to survive.
         pendingGeometryJobs.delete(jobId);
         releaseGlazeAssemblies(jobId, queuedGlazeKeys);
+        crumb('enc:geo-fail', `#${jobId} dispatch`);
         log.warn(`geometry worker dispatch failed: ${err instanceof Error ? err.message : String(err)}`);
     }
 }
