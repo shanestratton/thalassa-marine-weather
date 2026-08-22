@@ -101,6 +101,27 @@ interface UseMapInitOptions {
  * Initialises the Mapbox map and manages its lifecycle.
  * Returns the `dropPin` callback for imperative pin drops.
  */
+/**
+ * Retained tiles PER SOURCE for a desktop window.
+ *
+ * maxTileCacheSize bounds the cache of tiles that are NO LONGER VISIBLE —
+ * pure "in case you pan back" retention, held per source. With ~20 live
+ * sources at Lady Musgrave (17 ENC GeoJSON + satellite + hybrid + ocean +
+ * weather), a flat 60 let the two @2x 512 imagery sources alone speculatively
+ * pin ~240 MB of texture EACH, none of which any JS-side budget can see.
+ *
+ * Visible grid + one screenful of margin, on the same reasoning as the
+ * phone's 20. Clamped: never below the phone's number, never above 28 — past
+ * that the retention is speculation, and speculation is what kills it.
+ */
+export function desktopTileCacheSize(container: HTMLElement | null): number {
+    const w = container?.clientWidth || (typeof window !== 'undefined' ? window.innerWidth : 1280);
+    const h = container?.clientHeight || (typeof window !== 'undefined' ? window.innerHeight : 800);
+    // +1 per axis: a viewport almost never lands on tile boundaries.
+    const visible = (Math.ceil(w / 512) + 1) * (Math.ceil(h / 512) + 1);
+    return Math.min(28, Math.max(20, visible * 2));
+}
+
 export function useMapInit(opts: UseMapInitOptions) {
     const {
         containerRef,
@@ -362,10 +383,28 @@ export function useMapInit(opts: UseMapInitOptions) {
             // per source, satellite + MapTiler-ocean alone could pin
             // ~480 MB of GPU/native memory — invisible to the JS heap, and
             // sitting under the ENC merge transients at exactly the zoom
-            // where the WKWebView was being jetsammed. 20 tiles still
-            // covers a phone viewport (~12 visible + margin); desktop keeps
-            // 60 for its larger windows and looser memory ceiling.
-            maxTileCacheSize: Capacitor.isNativePlatform() ? 20 : 60,
+            // where the WKWebView was being jetsammed.
+            //
+            // …and the same cut for DESKTOP (Shane 2026-08-23). That round
+            // left web on 60 on the reasoning that desktop has "larger
+            // windows and a looser memory ceiling". The web layer has since
+            // died 44 times on one install, and Shane finally pinned the
+            // trigger himself: "at zoom 9, no issues, but at zoom 14 it
+            // crashes — that is when it goes to proper satellite imagery."
+            //
+            // That is this line. z14 over an island is the one configuration
+            // where every axis peaks together: the cell-selection floor is
+            // 0 (harbour cells), the glaze builds, contours densify, AND the
+            // @2x imagery is at full resolution. The flight trail is SILENT
+            // through the death — no merge, no walk, JS heap 220 MB of a
+            // 4192 MB limit — because none of it is JS. It is texture.
+            //
+            // 60 was never a derived number for desktop; it was the old
+            // global. Derive it the way the phone's 20 was derived — the
+            // visible tile grid plus one screen of pan-back margin — so a
+            // laptop stops speculatively pinning ~4× its viewport per
+            // source across ~20 live sources.
+            maxTileCacheSize: Capacitor.isNativePlatform() ? 20 : desktopTileCacheSize(containerRef.current),
             // Free-flowing camera (Shane 2026-07-14: "a little jerky at
             // times when I am zooming and moving about"):
             //  - crossSourceCollisions:false — collision-test each symbol
