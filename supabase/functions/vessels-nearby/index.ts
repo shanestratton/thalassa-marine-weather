@@ -135,7 +135,19 @@ Deno.serve(async (req: Request) => {
         return respond({ error: 'GET required' }, 405, { Allow: 'GET' });
     }
 
-    const caller = await requireAuthenticatedQuota(req, 'vessels_nearby', 360, 3600);
+    // 720/hr, and the number is derived rather than picked. THREE independent
+    // callers share this one bucket, and at 360 the sustained floor already
+    // exceeded it:
+    //   · the chart's adaptive poll — 10 s on WiFi  → 360/hr, the whole bucket
+    //   · the anchor radar's internet fill — 30 s    → 120/hr
+    //   · the map-idle debounced fetch — every pan, on top of both
+    // So a skipper anchored on marina WiFi with the chart open and anchor
+    // watch running starved this out in under an hour, and every pond failure
+    // in the app is a silent catch — the targets simply stopped arriving with
+    // nothing on screen to say why. 720 covers the 480/hr sustained floor with
+    // roughly four pans a minute of headroom. (Cellular drops the poll to 60 s,
+    // which is why this only ever bit at anchor, on wifi.)
+    const caller = await requireAuthenticatedQuota(req, 'vessels_nearby', 720, 3600);
     if (caller instanceof Response) return withCors(caller, corsHeaders);
 
     try {

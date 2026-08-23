@@ -95,18 +95,34 @@ describe('fleet-feed acceptance', () => {
         currentDeps = deps;
         const res = await post(`${T1}\n${T18_AIVDO}\n`);
         expect(res.status).toBe(200);
-        expect(await res.json()).toEqual({ accepted: 2, decoded: 2 });
+        expect(await res.json()).toEqual({
+            accepted: 2,
+            decoded: 2,
+            rejected: { tooLong: 0, notAis: 0, checksum: 0 },
+        });
         expect(enqueued).toHaveLength(2);
         // AIVDM forwarded as-is; own-ship AIVDO rewritten as a receipt.
         expect(sent[0]).toBe(T1);
         expect(sent[1].startsWith('!AIVDM,')).toBe(true);
     });
 
-    it('silently drops garbage, wrong talkers and bad checksums', async () => {
+    // Renamed 2026-08-23: it no longer drops them SILENTLY, which was the
+    // whole problem. Every rejection here used to be a bare `continue`, so a
+    // multiplexer mangling every fragment produced byte-for-byte the same 200
+    // as a perfect gateway — and the skipper got a green "sharing live" card
+    // either way. The reason now rides back in the response so the app can say
+    // which fault it is instead of just that something is wrong.
+    it('drops garbage, wrong talkers and bad checksums, and reports why', async () => {
         const { deps, enqueued, sent } = makeDeps();
         currentDeps = deps;
         const res = await post(['$GPGGA,junk*00', 'not a sentence', T1.replace('17Ojo', '17Ojp'), T1].join('\n'));
-        expect(await res.json()).toEqual({ accepted: 1, decoded: 1 });
+        expect(await res.json()).toEqual({
+            accepted: 1,
+            decoded: 1,
+            // Two wrong talkers, one mangled checksum — told apart, because
+            // they mean completely different things on a boat.
+            rejected: { tooLong: 0, notAis: 2, checksum: 1 },
+        });
         expect(enqueued).toHaveLength(1);
         expect(sent).toHaveLength(1);
     });
@@ -137,7 +153,13 @@ describe('injection hardening (review 2026-08-21)', () => {
         // the exact AISHub-injection vector.
         const injected = '!AIVDM,1,1,,A,15M,0*6F\r$GPGGA,INJECTED,TO,AISHUB';
         const res = await post(injected);
-        expect(await res.json()).toEqual({ accepted: 0, decoded: 0 });
+        expect(await res.json()).toEqual({
+            accepted: 0,
+            decoded: 0,
+            // Counted as a checksum failure: it opens with a valid talker, so
+            // the strict checksum gate is what actually stops it.
+            rejected: { tooLong: 0, notAis: 0, checksum: 1 },
+        });
         expect(sent).toHaveLength(0);
         expect(enqueued).toHaveLength(0);
     });

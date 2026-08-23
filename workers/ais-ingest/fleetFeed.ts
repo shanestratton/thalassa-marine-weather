@@ -56,6 +56,16 @@ interface FleetFeedStats {
     rejectedAuth: number;
     rejectedQuota: number;
     rejectedBad: number;
+    /** Per-sentence rejection reasons. Every one of these used to be a bare
+     *  `continue`, so a gateway emitting nothing but garbage produced exactly
+     *  the same 200 and the same green "sharing live" card as a perfect one.
+     *  A skipper cannot fix a fault nobody reports; these are what turn
+     *  "sharing isn't working" into "your multiplexer is mangling fragments"
+     *  or "that looks like a baud-rate fault". Diagnostics only — nothing here
+     *  may ever feed a credit, standing or access decision. */
+    rejectedTooLong: number;
+    rejectedNotAis: number;
+    rejectedChecksum: number;
 }
 
 const stats: FleetFeedStats = {
@@ -66,6 +76,9 @@ const stats: FleetFeedStats = {
     rejectedAuth: 0,
     rejectedQuota: 0,
     rejectedBad: 0,
+    rejectedTooLong: 0,
+    rejectedNotAis: 0,
+    rejectedChecksum: 0,
 };
 
 export function getFleetFeedStats(): FleetFeedStats {
@@ -238,12 +251,25 @@ export async function handleFleetFeed(req: IncomingMessage, res: ServerResponse,
     const lines = body.split('\n');
     let acceptedCount = 0;
     let decodedCount = 0;
+    let tooLong = 0;
+    let notAis = 0;
+    let badChecksum = 0;
     for (const rawLine of lines) {
         if (acceptedCount >= MAX_SENTENCES_PER_BATCH) break;
         const line = rawLine.trim();
-        if (!line || line.length > MAX_SENTENCE_CHARS || line.length > MAX_AIS_MESSAGE_CHARS) continue;
-        if (!line.startsWith('!AIVDM') && !line.startsWith('!AIVDO')) continue;
-        if (!nmeaChecksumOk(line)) continue;
+        if (!line) continue;
+        if (line.length > MAX_SENTENCE_CHARS || line.length > MAX_AIS_MESSAGE_CHARS) {
+            tooLong++;
+            continue;
+        }
+        if (!line.startsWith('!AIVDM') && !line.startsWith('!AIVDO')) {
+            notAis++;
+            continue;
+        }
+        if (!nmeaChecksumOk(line)) {
+            badChecksum++;
+            continue;
+        }
         acceptedCount++;
         // Fragments assemble per-user — no cross-boat chimeras.
         const record = decodeAisSentence(line, now(), userId);
@@ -261,5 +287,15 @@ export async function handleFleetFeed(req: IncomingMessage, res: ServerResponse,
     }
     stats.accepted += acceptedCount;
     stats.decoded += decodedCount;
-    json(res, 200, { accepted: acceptedCount, decoded: decodedCount });
+    stats.rejectedTooLong += tooLong;
+    stats.rejectedNotAis += notAis;
+    stats.rejectedChecksum += badChecksum;
+    // Echoed per-batch so the app can say WHICH fault it is. The client reads
+    // this; today it discards the body and shows five stats that die on every
+    // app launch.
+    json(res, 200, {
+        accepted: acceptedCount,
+        decoded: decodedCount,
+        rejected: { tooLong, notAis, checksum: badChecksum },
+    });
 }
