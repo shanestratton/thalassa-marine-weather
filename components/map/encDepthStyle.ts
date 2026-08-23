@@ -251,6 +251,64 @@ const SHALLOW_CAUTION_OPACITY = 0.3;
 export const CAUTION_BAND_COLOR = '#f0c26a';
 const CAUTION_BAND_OPACITY = 0.36;
 
+/**
+ * The zoom past which the safe-water wash gets out of the imagery's way
+ * (Shane 2026-08-23: "at about zoom 13.5 a very high quality image flashes on
+ * the screen and then it goes away").
+ *
+ * What he is watching is the Maxar tile landing crisp and the glaze painting
+ * over it. That is the glaze doing its job — but at this range he is close
+ * enough to read individual coral heads out of the imagery, and the imagery is
+ * the better information at that point.
+ *
+ * WARNINGS DO NOT FADE. Only the "you have enough water" wash does.
+ *
+ * That distinction is the whole design here. The glaze's verdict is binary and
+ * safety-bearing: drying at 0.55, charted-shallow and the router-hazard
+ * caution band each with their own wash, and bright paper for water you can
+ * sail. Fading the lot would strip the shoal warnings at exactly the zoom
+ * where the boat is closest to them — the wrong information to remove at the
+ * wrong moment. So the caution bands hold full strength at every zoom, and
+ * only the safe-water stops thin out.
+ */
+const GLAZE_IMAGERY_FADE_START = 13;
+const GLAZE_IMAGERY_FADE_END = 15;
+/**
+ * Floor, and it is bounded from BELOW by a chart-safety invariant, not by
+ * taste: safe water must stay brighter than every caution wash.
+ *
+ * The glaze reads amber → light amber → white as the water deepens
+ * (SHALLOW_CAUTION_OPACITY 0.3, CAUTION_BAND_OPACITY 0.36, then 0.62+). Fade
+ * the safe stops past 0.36 and a known shoal becomes MORE painted than water
+ * you can sail — the grammar inverts at exactly the zoom where the boat is
+ * closest to the shoal. tests/enc/encDepthStyle.test.ts has guarded that
+ * ordering since round 1, when opacity 0 made a charted shoal pixel-identical
+ * to uncharted no-data.
+ *
+ * The binding stop is the shallowest safe one: 0.62 x floor > 0.36 requires
+ * floor > 0.581. 0.65 clears it with margin (0.403 vs 0.36) and still takes
+ * 35% off the wash, which is what lets the imagery through.
+ *
+ * Going further means fading the caution bands too, so the ordering survives.
+ * That is a real option — everything dims together, hue still separates the
+ * bands — but it is a decision about how loud a shoal warning should be at
+ * close range, and not one to make quietly inside a rendering tweak.
+ */
+const GLAZE_IMAGERY_FADE_FLOOR = 0.65;
+
+/** Multiplier applied ONLY to the safe-water stops of the satellite glaze. */
+function glazeImageryFade(): ExpressionSpecification {
+    return [
+        'interpolate',
+        ['linear'],
+        ['zoom'],
+        GLAZE_IMAGERY_FADE_START,
+        1,
+        GLAZE_IMAGERY_FADE_END,
+        GLAZE_IMAGERY_FADE_FLOOR,
+    ] as ExpressionSpecification;
+}
+
 export function buildDepareSatelliteOpacity(safetyDepthM: number, hazardDepthM?: number): ExpressionSpecification {
     const s = Math.max(safetyDepthM, 0.1);
     // Router-hazard caution band [s, h): present only when a valid deeper hazard
@@ -270,11 +328,15 @@ export function buildDepareSatelliteOpacity(safetyDepthM: number, hazardDepthM?:
             SHALLOW_CAUTION_OPACITY, // charted-shallow — distinct caution wash (was 0 = identical to uncharted)
             ...(hasCaution ? [s, CAUTION_BAND_OPACITY] : []), // [s,h) router-hazard caution
             h,
-            0.62, // enough water — bright paper, sail here (white begins at the HAZARD depth, not s)
+            // enough water — bright paper, sail here (white begins at the
+            // HAZARD depth, not s). These three, and ONLY these three, thin
+            // out past z13 so the imagery reads through; every caution band
+            // above holds full strength at every zoom.
+            ['*', 0.62, glazeImageryFade()],
             Math.max(h + 0.01, 20),
-            0.68,
+            ['*', 0.68, glazeImageryFade()],
             Math.max(h + 0.02, 50),
-            0.72, // open water — mostly paper
+            ['*', 0.72, glazeImageryFade()], // open water — mostly paper
         ],
         0,
     ]);

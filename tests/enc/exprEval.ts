@@ -80,6 +80,29 @@ export function evalExpr(expr: unknown, ctx: ExprCtx = {}): unknown {
             }
             return ev(args[args.length - 1]);
         }
+        case 'interpolate': {
+            // Linear only — that is all the style expressions use, and a
+            // silently-wrong exponential would be worse than an error.
+            const [curve, input, ...stops] = args as [unknown[], unknown, ...unknown[]];
+            if (!Array.isArray(curve) || curve[0] !== 'linear') {
+                throw new ExprError(`unsupported interpolate curve: ${JSON.stringify(curve)}`);
+            }
+            const x = num(ev(input));
+            const pts: { at: number; v: number }[] = [];
+            for (let i = 0; i + 1 < stops.length; i += 2) pts.push({ at: num(stops[i]), v: num(ev(stops[i + 1])) });
+            if (pts.length === 0) throw new ExprError('interpolate with no stops');
+            if (x <= pts[0].at) return pts[0].v;
+            if (x >= pts[pts.length - 1].at) return pts[pts.length - 1].v;
+            for (let i = 1; i < pts.length; i++) {
+                if (x <= pts[i].at) {
+                    const a = pts[i - 1];
+                    const b = pts[i];
+                    const t = b.at === a.at ? 0 : (x - a.at) / (b.at - a.at);
+                    return a.v + t * (b.v - a.v);
+                }
+            }
+            return pts[pts.length - 1].v;
+        }
         case 'step': {
             const input = num(args[0]);
             let out = args[1];

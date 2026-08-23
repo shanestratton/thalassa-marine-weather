@@ -31,6 +31,7 @@ vi.stubGlobal('Worker', FakeWorker);
 import {
     dispatchGeometryWork,
     geoDispatchGateState,
+    setGlazeClipExperimentOff,
     GLAZE_CLONE_HARD_CAP,
     type GlazeUpgradeItem,
 } from '../../services/enc/geometryUpgrades';
@@ -78,6 +79,11 @@ const lastMsg = (): { jobId: number; glazeCells: Array<Record<string, unknown>> 
 
 describe('geometry-worker lifecycle', () => {
     beforeEach(() => {
+        // The z14 experiment suppresses the true-coverage clip in shipped
+        // builds. These specs test the real dispatch path — parked majorities,
+        // clone caps, the wire payload — so they turn it off explicitly rather
+        // than passing green against a disabled subsystem.
+        setGlazeClipExperimentOff(false);
         clearMergedData();
         clearGlazeCell();
         clearAllGlazeAssemblies();
