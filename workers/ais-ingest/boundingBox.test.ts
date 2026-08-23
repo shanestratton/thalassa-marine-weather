@@ -16,13 +16,13 @@
  */
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
+import { DEFAULT_BOUNDING_BOXES, parseBoundingBoxes, resolveBoundingBoxes } from './boundingBox.js';
 
-const src = readFileSync('index.ts', 'utf8');
-const DEFAULT = JSON.parse(
-    /const DEFAULT_BOUNDING_BOXES = '(.+?)';/.exec(src)?.[1] ?? 'null',
-) as number[][][];
+const src = readFileSync('boundingBox.ts', 'utf8');
+const indexSrc = readFileSync('index.ts', 'utf8');
+const DEFAULT = JSON.parse(DEFAULT_BOUNDING_BOXES) as number[][][];
 
-const box = DEFAULT?.[0];
+const box = DEFAULT[0];
 const covers = (lat: number, lon: number): boolean =>
     lat >= box[0][0] && lat <= box[1][0] && lon >= box[0][1] && lon <= box[1][1];
 
@@ -59,6 +59,40 @@ describe('ingest bounding box', () => {
         expect(covers(-36.85, 174.76)).toBe(false); // Auckland, NZ
     });
 
+    it('survives a mistyped dashboard override instead of crash-looping', () => {
+        // This parse runs at module load. An unguarded JSON.parse on a
+        // fat-fingered Railway field would take the container down before it
+        // could log why, and a worker that will not boot is far worse than a
+        // box of the wrong shape.
+        expect(parseBoundingBoxes(undefined)).toEqual(DEFAULT);
+        expect(parseBoundingBoxes('')).toEqual(DEFAULT);
+        expect(parseBoundingBoxes('   ')).toEqual(DEFAULT);
+        expect(parseBoundingBoxes('[[[-44,140],[-9,172]')).toEqual(DEFAULT); // truncated
+        expect(parseBoundingBoxes('not json at all')).toEqual(DEFAULT);
+        expect(parseBoundingBoxes('[]')).toEqual(DEFAULT);
+        expect(parseBoundingBoxes('[[["a","b"],[1,2]]]')).toEqual(DEFAULT); // non-numeric
+    });
+
+    it('rejects the one-bracket-short typo that would parse but break the poller', () => {
+        // Valid JSON, wrong nesting. The AISHub poller indexes [0][0] and
+        // [1][1] directly, so this would sail through a bare JSON.parse and
+        // hand it undefined bounds at query time — a silent wrong answer
+        // rather than a loud failure.
+        expect(parseBoundingBoxes('[[-44,140],[-9,172]]')).toEqual(DEFAULT);
+    });
+
+    it('still honours a well-formed override', () => {
+        expect(parseBoundingBoxes('[[[-45,110],[-8,157]]]')).toEqual([[[-45, 110], [-8, 157]]]);
+    });
+
+    it('reports whether the box came from the dashboard or this repo', () => {
+        // Otherwise the only way to know an env override is beating the code
+        // default is to read the Railway variables tab and trust it.
+        expect(resolveBoundingBoxes(undefined).source).toBe('code default');
+        expect(resolveBoundingBoxes('  ').source).toBe('code default');
+        expect(resolveBoundingBoxes('[[[-45,110],[-8,157]]]').source).toBe('BOUNDING_BOXES env override');
+    });
+
     it('documents that the box is not aisstream-only', () => {
         // The comment is load-bearing: it is the only thing telling the next
         // person that trimming this also trims the AISHub aggregate.
@@ -66,5 +100,46 @@ describe('ingest bounding box', () => {
         expect(src).toContain('AISHub aggregate poller');
         // ...and that the crowd-feed is deliberately unbounded by it.
         expect(src).toContain('Contribution is global; aggregate fill is boxed');
+    });
+
+    it('logs which box won at boot', () => {
+        expect(indexSrc).toContain('Bounding box in force');
+        expect(indexSrc).toContain('resolveBoundingBoxes');
+    });
+});
+
+/**
+ * aisstream is dead service-wide (2026-08-05, their issue #269 and a dozen
+ * like it, zero maintainer replies). Its key must therefore be OPTIONAL: the
+ * worker used to `process.exit(1)` without it, so tidying a useless credential
+ * out of the Railway variables made the container exit on boot, left nothing
+ * serving /health, and failed the deploy (Shane, 2026-08-24).
+ *
+ * Everything else here — the punter crowd-feed, the AISHub poller, the DB
+ * flush loop, the health endpoint — is independent of aisstream.
+ */
+describe('aisstream is optional', () => {
+    const idx = readFileSync('index.ts', 'utf8');
+
+    it('never exits the process over a missing AISSTREAM_KEY', () => {
+        const guard = idx.slice(idx.indexOf('const AISSTREAM_ENABLED'), idx.indexOf('// ── State ──'));
+        expect(guard).not.toContain('process.exit');
+        expect(guard).toContain('aisstream feed disabled');
+    });
+
+    it('opens the socket and arms its watchdog only when enabled', () => {
+        // A dead-man switch for a socket that was never opened would reconnect
+        // forever against a service that is gone.
+        expect(idx).toContain('if (AISSTREAM_ENABLED) connect();');
+        expect(idx).toContain('if (AISSTREAM_ENABLED) setInterval(checkStaleConnection');
+    });
+
+    it('reports a deliberately-off feed as healthy, not degraded', () => {
+        // lastMessageAt never advances with the socket closed, so the
+        // staleness test would cry 'degraded-upstream' forever about a feed
+        // that is off on purpose — and a permanent alarm is one nobody reads.
+        const health = idx.slice(idx.indexOf('const dbWedged'), idx.indexOf('uptimeSeconds'));
+        expect(health).toContain('!AISSTREAM_ENABLED');
+        expect(health).toContain("aisstream: AISSTREAM_ENABLED ? 'enabled' : 'disabled'");
     });
 });
