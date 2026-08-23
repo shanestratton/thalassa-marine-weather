@@ -201,11 +201,39 @@ export function normaliseInternetAisFeature(value: unknown, now = Date.now()): G
             heading,
             updatedAt: timestamp.value,
             staleMinutes: timestamp.staleMinutes,
-            source: 'aisstream',
+            source: CLOUD_AIS_SOURCE_ID,
             statusColor: navStatusColor(navStatus),
         },
     };
 }
+
+/**
+ * Where a network-sourced target came from.
+ *
+ * Shane 2026-08-23: "if you drill down on a ship, it says AISStream, it should
+ * probably now say AIS HUB". He is right, and the reason it was wrong is worse
+ * than a stale string: THE APP NEVER KNEW.
+ *
+ * `vessels` has no provenance column — workers/ais-ingest/db.ts upsertBatch
+ * writes mmsi, position, kinematics and static data, and nothing else. The
+ * boat's own bridge, the AISHub poller and the (dead) aisstream socket all
+ * land in identical rows. So this label was never read from the data; it was
+ * hard-coded, and it kept asserting a provider long after that provider went
+ * silent.
+ *
+ * Naming the live feed is strictly more accurate than naming a dead one, so
+ * this now says AISHub. But it remains a statement about the CONFIGURED cloud
+ * feed, not a per-vessel fact, and one constant drives both the property and
+ * the popup so the two cannot drift apart again.
+ *
+ * The real fix is a `source` column on the row, set by whichever ingest path
+ * wrote it. Until then this is honest about being a build-time claim.
+ *
+ * 'local' is unaffected: that IS per-vessel truth — the boat's own receiver
+ * heard it, and AisGuardZone and anchorRadarTargets both branch on it.
+ */
+const CLOUD_AIS_SOURCE_ID = 'cloud';
+const CLOUD_AIS_SOURCE_LABEL = 'AISHub';
 
 interface AisTargetPopupHtmlInput {
     thumbnail: unknown;
@@ -1041,7 +1069,7 @@ export function useAisStreamLayer(map: mapboxgl.Map | null, enabled: boolean): v
             const headingValue = finiteAisDisplayNumber(p.heading);
             const hdg = headingValue != null && headingValue !== 511 ? `${headingValue.toFixed(0)}°` : '—';
             const destination = p.destination || '—';
-            const source = p.source === 'local' ? '📡 Local NMEA' : '🌐 AISStream';
+            const source = p.source === 'local' ? '📡 Local NMEA' : `🌐 ${CLOUD_AIS_SOURCE_LABEL}`;
 
             // ── Ship type — always fill from best source ──
             const vesselType = intel?.metadata?.vessel_type ?? null;

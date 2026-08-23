@@ -40,7 +40,7 @@ function makeFeature(
             name: opts.name || `Vessel ${mmsi}`,
             sog: opts.sog ?? 5,
             cog: opts.cog ?? 0,
-            source: opts.source ?? 'aisstream',
+            source: opts.source ?? 'cloud',
             staleMinutes: opts.staleMinutes ?? 0,
         },
     };

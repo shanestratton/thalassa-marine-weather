@@ -45,7 +45,11 @@ describe('internet AIS feature boundary', () => {
                 heading: 118,
                 updatedAt: '2026-07-24T00:50:00.000Z',
                 staleMinutes: 10,
-                source: 'aisstream',
+                // 'cloud', not a provider name: the vessels row carries no
+                // provenance, so the layer can only say "this came over the
+                // network, not off our own receiver". See
+                // tests/AisSourceAttribution.test.ts.
+                source: 'cloud',
                 statusColor: '#22c55e',
             },
         });
