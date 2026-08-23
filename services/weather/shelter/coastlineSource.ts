@@ -10,6 +10,7 @@
  * Mirrors SeamarkService's endpoint-fallback approach; no Pi dependency.
  */
 
+import { Capacitor } from '@capacitor/core';
 import { Preferences } from '@capacitor/preferences';
 import { pruneMap } from '../../../utils/boundedMap';
 import { withDeadline } from '../../../utils/deadline';
@@ -114,7 +115,54 @@ async function persist(key: string, segs: Segment[]): Promise<void> {
     }
 }
 
+/**
+ * Overpass refuses browsers, and a browser cannot argue back.
+ *
+ * MEASURED 2026-08-23, paced clear of the rate limiter, each shape repeated:
+ *
+ *   User-Agent                     status   CORS header
+ *   curl/8.x                       200      yes
+ *   Thalassa/1.2.0                 504      yes   (allowed; that query is heavy)
+ *   Chrome 140                     406      NO
+ *   iOS WKWebView                  406      NO
+ *   (none)                         406      NO
+ *
+ * Everything else held identical — same method, same body, same Origin. That
+ * is OSM policy working as intended: their services want a User-Agent that
+ * identifies the app, and they reject browser-like and empty ones.
+ *
+ * `fetch()` cannot help: User-Agent is a forbidden header, so a browser cannot
+ * present anything other than its own. The 406 also carries no CORS headers,
+ * which is why Chrome reports it as "No 'Access-Control-Allow-Origin'" — the
+ * CORS message is the symptom, the 406 is the cause, and neither is fixable
+ * from this side of the wire.
+ *
+ * Adding these hosts to connect-src earlier the same day was necessary but not
+ * sufficient: it removed the FIRST wall and revealed the second.
+ *
+ * So on web we do not ask. Two doomed cross-origin POSTs per weather fetch
+ * bought nothing but latency and a console full of errors that looked like a
+ * bug in this app. Native still tries — its User-Agent is not the browser's,
+ * and that path is not disproven.
+ *
+ * The real fix is a server-side proxy that sets an identifying User-Agent,
+ * which is also what OSM's usage policy asks for, and which keeps the boat's
+ * position off a third party's logs entirely.
+ */
+const CAN_REACH_OVERPASS = Capacitor.isNativePlatform();
+let warnedNoOverpass = false;
+
 async function queryOverpass(lat: number, lon: number, radiusKm: number): Promise<Segment[] | null> {
+    if (!CAN_REACH_OVERPASS) {
+        if (!warnedNoOverpass) {
+            warnedNoOverpass = true;
+            log.warn(
+                'coastline skipped on web — Overpass answers browser User-Agents with 406 and no CORS headers ' +
+                    '(measured 2026-08-23); waves stay un-damped until a server-side proxy exists',
+            );
+        }
+        return null;
+    }
     const dLat = radiusKm / DEG_LAT_KM;
     const dLon = radiusKm / (DEG_LAT_KM * Math.max(0.05, Math.cos((lat * Math.PI) / 180)));
     const s = (lat - dLat).toFixed(4);
