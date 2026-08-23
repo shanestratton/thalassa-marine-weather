@@ -66,6 +66,13 @@ interface FleetFeedStats {
     rejectedTooLong: number;
     rejectedNotAis: number;
     rejectedChecksum: number;
+    /** Watch check-ins seen, credited, and failed. A check-in with an EMPTY
+     *  body is the empty-bay punter and is the entire point of the mechanism —
+     *  `watchCheckins` climbing while `accepted` stays flat is a healthy
+     *  ocean, not a broken feed. */
+    watchCheckins: number;
+    watchCredited: number;
+    watchErrors: number;
 }
 
 const stats: FleetFeedStats = {
@@ -79,6 +86,9 @@ const stats: FleetFeedStats = {
     rejectedTooLong: 0,
     rejectedNotAis: 0,
     rejectedChecksum: 0,
+    watchCheckins: 0,
+    watchCredited: 0,
+    watchErrors: 0,
 };
 
 export function getFleetFeedStats(): FleetFeedStats {
@@ -154,8 +164,108 @@ function readBody(req: IncomingMessage): Promise<string | null> {
     });
 }
 
+/**
+ * CORS for the web build, which posts here cross-origin from a different
+ * host to the Railway worker.
+ *
+ * A preflight is unavoidable: `text/plain` is CORS-safelisted, but the
+ * `Authorization` bearer and the `X-Thalassa-*` watch envelope are not, so
+ * the browser always OPTIONS first — and an OPTIONS carries no credentials,
+ * which is why it must be answered before any auth or config check.
+ *
+ * Wide-open by default is the right call HERE, and only because the security
+ * boundary is the Supabase user JWT rather than the origin: there is no
+ * cookie, so a third-party page cannot obtain a token to spend, and every
+ * accepted request is quota'd per user. Set FLEET_FEED_ORIGINS (comma
+ * separated) to narrow it anyway if a domain is ever worth pinning.
+ */
+export function fleetFeedCorsHeaders(origin: string | undefined, allowList: string | undefined): Record<string, string> {
+    const allowed = (allowList ?? '')
+        .split(',')
+        .map((o) => o.trim())
+        .filter(Boolean);
+    let allowOrigin = '*';
+    if (allowed.length > 0) {
+        // Reflect only a known origin; otherwise name the first as the answer
+        // so the browser blocks it explicitly rather than ambiguously.
+        allowOrigin = origin && allowed.includes(origin) ? origin : allowed[0];
+    }
+    return {
+        'Access-Control-Allow-Origin': allowOrigin,
+        'Access-Control-Allow-Methods': 'POST, OPTIONS',
+        'Access-Control-Allow-Headers':
+            'authorization, content-type, x-thalassa-watch, x-thalassa-connected, x-thalassa-link, ' +
+            'x-thalassa-link-err, x-thalassa-reconnects, x-thalassa-heard, x-thalassa-rig, ' +
+            'x-thalassa-consent, x-thalassa-revoke, x-thalassa-client',
+        'Access-Control-Max-Age': '86400',
+        Vary: 'Origin',
+    };
+}
+
+let corsHeadersForResponses: Record<string, string> = fleetFeedCorsHeaders(undefined, undefined);
+
+/** Called per request so responses carry the same CORS answer the preflight
+ *  gave — a mismatch is a silent browser-side failure with a healthy server. */
+export function setFleetFeedCors(headers: Record<string, string>): void {
+    corsHeadersForResponses = headers;
+}
+
+/** One check-in's self-report. Every field is a CLAIM: record_ais_watch
+ *  bounds connected seconds against wall clock, so an inflated claim buys
+ *  nothing. Nothing here is trusted enough to need proving. */
+export interface WatchEnvelope {
+    connectedS: number;
+    sentences: number;
+    link: string | null;
+    linkError: string | null;
+    reconnects: number;
+    rig: string | null;
+    offlineMin: number;
+    consentVersion: string | null;
+    revoke: boolean;
+}
+
+function headerInt(req: IncomingMessage, name: string, max: number): number {
+    const raw = req.headers[name];
+    const n = Number(Array.isArray(raw) ? raw[0] : (raw ?? 0));
+    if (!Number.isFinite(n) || n < 0) return 0;
+    return Math.min(Math.floor(n), max);
+}
+
+function headerText(req: IncomingMessage, name: string, max = 200): string | null {
+    const raw = req.headers[name];
+    const v = Array.isArray(raw) ? raw[0] : raw;
+    return typeof v === 'string' && v.trim() ? v.trim().slice(0, max) : null;
+}
+
+/**
+ * Read the watch envelope. It rides in HEADERS rather than the request body
+ * for a specific reason: the sentence loop drops any line not starting
+ * `!AIVDM`/`!AIVDO`, so a JSON body would be silently binned by this very
+ * server — and headers leave the text/plain payload byte-identical, which
+ * keeps the strict checksum gate in aivdm.ts untouched. That gate is the only
+ * thing standing between a smuggled second NMEA line and AISHub under our
+ * station key, so nothing gets to reshape the payload for convenience.
+ */
+export function readWatchEnvelope(req: IncomingMessage): WatchEnvelope | null {
+    if (headerText(req, 'x-thalassa-watch') === null) return null;
+    const link = headerText(req, 'x-thalassa-link', 20);
+    return {
+        // One hour, matching the RPC's own hard cap.
+        connectedS: headerInt(req, 'x-thalassa-connected', 3600),
+        sentences: headerInt(req, 'x-thalassa-heard', 1_000_000),
+        link: link && ['connected', 'reconnecting', 'down'].includes(link) ? link : null,
+        linkError: headerText(req, 'x-thalassa-link-err', 200),
+        reconnects: headerInt(req, 'x-thalassa-reconnects', 10_000_000),
+        rig: headerText(req, 'x-thalassa-rig', 20),
+        offlineMin: headerInt(req, 'x-thalassa-offline-min', 1_000_000),
+        consentVersion: headerText(req, 'x-thalassa-consent', 40),
+        revoke: headerText(req, 'x-thalassa-revoke') !== null,
+    };
+}
+
 function json(res: ServerResponse, status: number, body: Record<string, unknown>): void {
-    res.writeHead(status, { 'Content-Type': 'application/json' });
+    res.writeHead(status, { 'Content-Type': 'application/json', ...corsHeadersForResponses });
     res.end(JSON.stringify(body));
 }
 
@@ -290,6 +400,43 @@ export async function handleFleetFeed(req: IncomingMessage, res: ServerResponse,
     stats.rejectedTooLong += tooLong;
     stats.rejectedNotAis += notAis;
     stats.rejectedChecksum += badChecksum;
+
+    // ── Credit the watch (INVARIANT 4: this must never break the feed) ──
+    // The sentences are already banked above; crediting is bookkeeping that
+    // happens afterwards on the SAME authenticated user client, because
+    // record_ais_watch keys on auth.uid() and would see null under the
+    // service role. Any failure is logged and swallowed: a ledger outage must
+    // not cost a skipper their contribution.
+    let standing: unknown = null;
+    const watch = readWatchEnvelope(req);
+    if (watch) {
+        stats.watchCheckins++;
+        try {
+            const { data, error } = await client.rpc('record_ais_watch', {
+                p_connected_s: watch.connectedS,
+                p_sentences: watch.sentences,
+                p_link: watch.link,
+                p_link_error: watch.linkError,
+                p_reconnects: watch.reconnects,
+                p_rig: watch.rig,
+                p_health: null,
+                p_heard: decodedCount > 0,
+                p_offline_min: watch.offlineMin,
+                p_consent_version: watch.consentVersion,
+                p_revoke: watch.revoke,
+            });
+            if (error) {
+                stats.watchErrors++;
+                console.error('[FLEET] watch credit failed:', error);
+            } else {
+                stats.watchCredited++;
+                standing = data;
+            }
+        } catch (e) {
+            stats.watchErrors++;
+            console.error('[FLEET] watch credit threw:', e);
+        }
+    }
     // Echoed per-batch so the app can say WHICH fault it is. The client reads
     // this; today it discards the body and shows five stats that die on every
     // app launch.
@@ -297,5 +444,8 @@ export async function handleFleetFeed(req: IncomingMessage, res: ServerResponse,
         accepted: acceptedCount,
         decoded: decodedCount,
         rejected: { tooLong, notAis, checksum: badChecksum },
+        // Echoed so the card can survive an app relaunch — today the client
+        // discards this body and every stat it shows dies on launch.
+        ...(standing !== null ? { watch: standing } : {}),
     });
 }

@@ -23,7 +23,7 @@ import { MAX_AIS_MESSAGE_CHARS, parseAisStreamMessage } from './parser.js';
 import { VesselDB } from './db.js';
 import { isGuardianWatchdogEnabled, startWatchdog } from './watchdog.js';
 import { getAishubStats, startAishubPoller } from './aishub.js';
-import { getFleetFeedStats, handleFleetFeed } from './fleetFeed.js';
+import { fleetFeedCorsHeaders, getFleetFeedStats, handleFleetFeed, setFleetFeedCors } from './fleetFeed.js';
 
 // ── Config ──
 const AISSTREAM_URL = 'wss://stream.aisstream.io/v0/stream';
@@ -281,23 +281,52 @@ function checkStaleConnection(): void {
 
 const FLEET_FEED_ANON_KEY = process.env.SUPABASE_ANON_KEY;
 
+/** The roaming-station leg. Punters are mobile by definition, so the crowd
+ *  feed goes to the ROAMING port — the fixed shore station keeps its own ID,
+ *  and mixing the two would blend a moving feed and a fixed one into one
+ *  station's position and uptime stats (Shane, 2026-08-23). */
+const AISHUB_FORWARD_HOST = process.env.AISHUB_HOST;
+const AISHUB_FORWARD_PORT = parseInt(process.env.AISHUB_PORT || '0', 10) || undefined;
+
 const healthServer = http.createServer((req, res) => {
     // ── Punter crowd-feed (authorized: AISHub 2026-03-18, port for all
     // feeds). Requires SUPABASE_ANON_KEY for user-token verification —
     // absent, the endpoint answers 503 and the rest of the worker is
     // unaffected. AISHub forward reuses the same env pair as the bridge.
     if (req.url === '/fleet-feed') {
+        // The preflight carries no Authorization and no config expectations,
+        // so it is answered before every other check.
+        const cors = fleetFeedCorsHeaders(req.headers.origin, process.env.FLEET_FEED_ORIGINS);
+        setFleetFeedCors(cors);
+        if (req.method === 'OPTIONS') {
+            res.writeHead(204, cors);
+            res.end();
+            return;
+        }
         if (!SUPABASE_URL || !FLEET_FEED_ANON_KEY) {
-            res.writeHead(503, { 'Content-Type': 'application/json' });
+            res.writeHead(503, { 'Content-Type': 'application/json', ...cors });
             res.end(JSON.stringify({ error: 'fleet feed not configured' }));
+            return;
+        }
+        // ASSERT THE AISHUB LEG RATHER THAN DROP IT SILENTLY.
+        // defaultUdpSend returns early when host/port are unset, so an
+        // unconfigured forward previously produced an identical 200, identical
+        // credit, and an identical "sharing live" card — while we told the
+        // skipper their own boat's position had gone to a public network and
+        // the socket was never created. Misrepresenting where someone's
+        // position went is a worse class of wrong than a broken feature, so
+        // the endpoint refuses work it cannot honour.
+        if (!AISHUB_FORWARD_HOST || !AISHUB_FORWARD_PORT) {
+            res.writeHead(503, { 'Content-Type': 'application/json', ...cors });
+            res.end(JSON.stringify({ error: 'ais forward not configured' }));
             return;
         }
         void handleFleetFeed(req, res, {
             db,
             supabaseUrl: SUPABASE_URL,
             supabaseAnonKey: FLEET_FEED_ANON_KEY,
-            aishubHost: process.env.AISHUB_HOST,
-            aishubPort: parseInt(process.env.AISHUB_PORT || '0', 10) || undefined,
+            aishubHost: AISHUB_FORWARD_HOST,
+            aishubPort: AISHUB_FORWARD_PORT,
         }).catch((e) => {
             console.error('[FLEET] handler error:', e);
             try {
@@ -345,6 +374,10 @@ const healthServer = http.createServer((req, res) => {
             guardianWatchdogEnabled: guardianWatchdogStarted,
             aishub: getAishubStats(),
             fleetFeed: getFleetFeedStats(),
+            // Ops alarm, not a user metric: if this reads false the crowd feed
+            // is refusing every batch, and the cause is env rather than code.
+            fleetFeedForwardConfigured: Boolean(AISHUB_FORWARD_HOST && AISHUB_FORWARD_PORT),
+            fleetFeedAuthConfigured: Boolean(SUPABASE_URL && FLEET_FEED_ANON_KEY),
         });
 
         res.writeHead(dbWedged ? 503 : 200, {
