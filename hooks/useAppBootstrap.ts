@@ -80,6 +80,22 @@ export function useAppBootstrap() {
         }
     }, [currentView, identityScope]);
 
+    // ── AIS crowd-feed: start the watch if consent is already stored ──
+    // Without this the check-in timer was reachable only from offer() or a
+    // fresh toggle, so a boat relaunching the app in an EMPTY anchorage
+    // scheduled nothing at all — silencing precisely the contributor the
+    // check-in exists to record. Re-runs on identity change because consent is
+    // scoped per identity.
+    useEffect(() => {
+        let disposed = false;
+        import('../services/AisShareService').then(({ startWatch }) => {
+            if (!disposed) startWatch();
+        });
+        return () => {
+            disposed = true;
+        };
+    }, [identityScope]);
+
     // ── Global keyboard scroll ─────────────────────────────────────
     useEffect(() => {
         let disposed = false;

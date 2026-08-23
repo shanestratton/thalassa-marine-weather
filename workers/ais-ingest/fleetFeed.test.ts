@@ -187,3 +187,137 @@ describe('injection hardening (review 2026-08-21)', () => {
         expect(client.auth.getUser).toHaveBeenCalledTimes(1);
     });
 });
+
+/**
+ * The watch check-in — the mechanism the whole reciprocity design rests on.
+ *
+ * Before this existed, AisShareService returned early on `buffer.length < 5`
+ * before it ever touched the network, so a receive-only rig with no ships in
+ * range made ZERO requests, forever. The empty-bay punter — the most valuable
+ * contributor in the fleet, and the only ear for hundreds of miles — was
+ * byte-for-byte indistinguishable from someone who flipped the toggle on and
+ * unplugged the aerial.
+ */
+describe('watch check-in', () => {
+    /** Route consume_edge_quota to `true` and capture record_ais_watch. */
+    function watchDeps(watchResult: { data: unknown; error: unknown | null } = { data: { ok: true, standing: 'on_watch' }, error: null }) {
+        const calls: { name: string; args: Record<string, unknown> }[] = [];
+        const base = makeDeps();
+        const client: UserClientLike = {
+            auth: base.deps.createUserClient
+                ? { getUser: vi.fn(async () => ({ data: { user: { id: 'user-1' } }, error: null })) }
+                : ({} as never),
+            rpc: vi.fn(async (name: string, args: Record<string, unknown>) => {
+                calls.push({ name, args });
+                if (name === 'consume_edge_quota') return { data: true, error: null };
+                return watchResult;
+            }),
+        };
+        const deps: FleetFeedDeps = { ...base.deps, createUserClient: () => client };
+        return { deps, calls, enqueued: base.enqueued, sent: base.sent };
+    }
+
+    const WATCH = {
+        'X-Thalassa-Watch': '1',
+        'X-Thalassa-Connected': '300',
+        'X-Thalassa-Link': 'connected',
+        'X-Thalassa-Rig': 'receive-only',
+    };
+
+    it('credits an EMPTY batch from a boat that heard nothing', async () => {
+        // Osprey Reef: receiver working, no ships for 200 miles, nothing to
+        // send. This must be a full, ordinary, credited check-in.
+        const { deps, calls } = watchDeps();
+        currentDeps = deps;
+        const res = await post('', WATCH);
+        expect(res.status).toBe(200);
+        const body = await res.json();
+        expect(body.accepted).toBe(0);
+        expect(body.decoded).toBe(0);
+
+        const credit = calls.find((c) => c.name === 'record_ais_watch');
+        expect(credit).toBeDefined();
+        expect(credit?.args.p_connected_s).toBe(300);
+        expect(credit?.args.p_heard).toBe(false);
+        // ...and the response carries the standing back, so the card survives
+        // an app relaunch rather than resetting to zero like today's stats.
+        expect(body.watch).toEqual({ ok: true, standing: 'on_watch' });
+    });
+
+    it('credits identical connected seconds regardless of yield', async () => {
+        // Constraint 1 at the wire: the busy harbour and the empty ocean send
+        // the same claim and must be charged the same way. p_sentences rides
+        // along for diagnostics and lands in a column no rule reads.
+        const quiet = watchDeps();
+        currentDeps = quiet.deps;
+        await post('', WATCH);
+
+        const busy = watchDeps();
+        currentDeps = busy.deps;
+        await post(T1, { ...WATCH, 'X-Thalassa-Heard': '4821' });
+
+        const a = quiet.calls.find((c) => c.name === 'record_ais_watch')?.args;
+        const b = busy.calls.find((c) => c.name === 'record_ais_watch')?.args;
+        expect(a?.p_connected_s).toBe(b?.p_connected_s);
+        expect(b?.p_sentences).toBe(4821);
+        expect(a?.p_sentences).toBe(0);
+    });
+
+    it('records a check-in whose gateway is DOWN', async () => {
+        // The fault the ledger most needs to hear about must not be the fault
+        // that silences the report. Zero connected seconds, still recorded,
+        // with the error carried so the card can name it.
+        const { deps, calls } = watchDeps();
+        currentDeps = deps;
+        const res = await post('', {
+            'X-Thalassa-Watch': '1',
+            'X-Thalassa-Connected': '0',
+            'X-Thalassa-Link': 'down',
+            'X-Thalassa-Link-Err': 'ECONNREFUSED 192.168.1.50:2000',
+            'X-Thalassa-Reconnects': '41',
+        });
+        expect(res.status).toBe(200);
+        const credit = calls.find((c) => c.name === 'record_ais_watch')?.args;
+        expect(credit?.p_link).toBe('down');
+        expect(credit?.p_connected_s).toBe(0);
+        expect(credit?.p_link_error).toBe('ECONNREFUSED 192.168.1.50:2000');
+        expect(credit?.p_reconnects).toBe(41);
+    });
+
+    it('never lets a ledger failure cost a skipper their sentences', async () => {
+        // Invariant 4. The sentences are banked before crediting is attempted,
+        // so a ledger outage degrades to "no credit this batch", never to a
+        // rejected contribution.
+        const { deps, calls, enqueued, sent } = watchDeps({ data: null, error: { message: 'ledger down' } });
+        currentDeps = deps;
+        const res = await post(T1, WATCH);
+        expect(res.status).toBe(200);
+        expect(enqueued).toHaveLength(1);
+        expect(sent).toHaveLength(1);
+        expect(calls.some((c) => c.name === 'record_ais_watch')).toBe(true);
+        // No standing echoed — the client shows its last known card instead.
+        expect(await res.json()).not.toHaveProperty('watch');
+    });
+
+    it('stays silent for a client that sends no envelope', async () => {
+        // Old builds keep working and simply earn nothing, rather than being
+        // credited a zero that would look like a broken gateway.
+        const { deps, calls } = watchDeps();
+        currentDeps = deps;
+        await post(T1);
+        expect(calls.some((c) => c.name === 'record_ais_watch')).toBe(false);
+    });
+
+    it('clamps an absurd claim rather than trusting it', async () => {
+        // A client claiming a day of connected time every five minutes buys
+        // nothing: the header is capped here and bounded against wall clock
+        // again in record_ais_watch. Belt and braces, because this is the one
+        // number that mints standing.
+        const { deps, calls } = watchDeps();
+        currentDeps = deps;
+        await post('', { ...WATCH, 'X-Thalassa-Connected': '999999', 'X-Thalassa-Reconnects': '-5' });
+        const credit = calls.find((c) => c.name === 'record_ais_watch')?.args;
+        expect(credit?.p_connected_s).toBe(3600);
+        expect(credit?.p_reconnects).toBe(0);
+    });
+});

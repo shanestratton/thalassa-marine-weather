@@ -13,7 +13,7 @@ import { Capacitor } from '@capacitor/core';
 import { processAisSentence } from './AisDecoder';
 import { AisStore } from './AisStore';
 import { AisHubService } from './AisHubService';
-import { offer as offerToFleetShare } from './AisShareService';
+import { offer as offerToFleetShare, reportLink as reportFleetShareLink } from './AisShareService';
 import { NmeaRateTracker } from './NmeaRateTracker';
 import { getNmeaDeviceLabel } from './NmeaDeviceProfiles';
 import { parseNmeaDepth, parseNmeaNumber, validateNmeaSentence, type ParsedNmeaDepth } from './nmea/nmeaSentence';
@@ -924,6 +924,25 @@ class NmeaListenerServiceClass {
     private setStatus(s: NmeaConnectionStatus) {
         this.status = s;
         for (const cb of this.statusListeners) cb(s);
+        // Tell the crowd-feed what the gateway is doing. The dependency points
+        // this way on purpose: AisShareService is already downstream of the
+        // hot path here, so having it ask US would be a circular import.
+        //
+        // Note 'connecting' maps to 'reconnecting' rather than 'down' — a
+        // socket that is mid-retry is a boat trying, not a boat absent, and
+        // the ledger holds standing through it. Neither state earns credit;
+        // only elapsed CONNECTED time does.
+        // Wrapped because this is the gateway's status path: crowd-feed
+        // bookkeeping is telemetry, and telemetry must never be able to break
+        // the link it is reporting on.
+        try {
+            reportFleetShareLink(
+                s === 'connected' ? 'connected' : s === 'connecting' ? 'reconnecting' : 'down',
+                s === 'error' ? (this.lastError ?? undefined) : undefined,
+            );
+        } catch {
+            /* never let share bookkeeping affect the connection */
+        }
     }
 
     // ── NMEA Parsing ──
