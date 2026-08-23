@@ -37,59 +37,57 @@ export const GLAZE_CLONE_HARD_CAP = 200_000;
  * ⚠️ TEMPORARY — SINGLE-VARIABLE EXPERIMENT (2026-08-23, Shane's call).
  * SET BACK TO `false` once the question below is answered, either way.
  *
- * THE QUESTION: the Plan page has killed the renderer 53 times at Lady
- * Musgrave. Two of the three suspects are now eliminated by measurement — the
- * JS heap sits at ~190 MB of a 4192 MB limit, and retained tiles came in at
- * ~810 for ~116 MB, in the GPU process, with the cache cap doing its job. The
- * martinez true-coverage clip is the last one standing, and it is the one
- * thing nothing could see: on Chrome a dedicated worker is a thread in the
- * SAME renderer process, and its heap is invisible to performance.memory in
- * both directions.
+ * THE QUESTION WAS: the Plan page had killed the renderer 53 times at Lady
+ * Musgrave. Two of the three suspects were eliminated by measurement — the JS
+ * heap sat at ~190 MB of a 4192 MB limit, and retained tiles came in at ~810
+ * for ~116 MB, in the GPU process, with the cache cap doing its job. The
+ * martinez true-coverage clip was the last one standing, and the one thing
+ * nothing could see: on Chrome a dedicated worker is a thread in the SAME
+ * renderer process, and its heap is invisible to performance.memory in both
+ * directions.
  *
- * It is also the only heavy thing that switches on between the zoom Shane
- * says is fine (z9) and the one that dies (z14) — glaze at z9.5, contours at
- * z12 — and his own observation fits: the crisp Maxar tile at z13.5 being
- * repainted is this subsystem finishing.
+ * THE ANSWER (2026-08-22, Shane's device): with the clip suppressed, Lady
+ * Musgrave stayed up past all three prior death times — ~50 s, ~2 min, ~30
+ * min — and kept going. Per the rule written here before the run, "stops
+ * dying → it is the clip, and the fix is a real bound on it rather than a
+ * flag." So the flag's job is done.
  *
- * WHY IT IS CLEAN NOW AND WAS NOT BEFORE: the dispatch gate landed earlier
- * today, so concurrency is no longer a free variable. This changes exactly
- * one thing: whether the clip runs. Contours still dispatch, so the worker is
- * not silenced — only its heavy half.
+ * WHAT REPLACED IT: clipDepareOverlap now bounds the clip's RESULT, which no
+ * cap in this codebase had ever measured — every one of them guarded an
+ * input. See GLAZE_RESULT_VERTEX_CAP there for why an unmeasured result
+ * compounds across the fines in a cell, accumulates into the returned
+ * feature, and then gets structured-cloned back to this thread. That is the
+ * suspect this file named on 2026-07-17 and never followed up.
+ *
+ * WHAT THIS FLAG IS NOW: a kill switch, not an experiment, and it defaults to
+ * OFF (clip running, bounded). If Lady Musgrave dies again at z14, flip the
+ * initialiser below to `true` — one line, no rebuild of reasoning required —
+ * and the page degrades to the strip-rect clip, which is cruder at the seams
+ * where two cells of different scale overlap and nothing worse. Cosmetic.
+ * The `enc:geo-dispatch` crumb reads `0glaze/...` while suppressed, so the
+ * flight trail always says which arm produced it.
  *
  * It reuses the clone hard-cap's drop path rather than a new branch, so the
  * parked assemblies are released the same way they already are when a payload
  * is too big. Nothing new can leak.
- *
- * HOW TO READ THE RESULT:
- *  · still dies at z14 → the clip is EXONERATED. Turn this off, stop chasing
- *    it, and the next suspect is Blink/DOM or the mapbox worker.
- *  · stops dying       → it is the clip, and the fix is a real bound on it
- *    rather than a flag.
- *
- * COST WHILE ON: the fast glaze stays up, so the chart still paints. Overlaps
- * between coarse and fine depth bands fall back to the strip-rect clip, which
- * is cruder at the seams. Cosmetic, and only where two cells of different
- * scale overlap. The `enc:geo-dispatch` crumb reads `0glaze/...` throughout,
- * so the flight trail says which build produced it.
  */
-let glazeClipExperimentOff = true;
+let glazeClipSuppressed = false;
 
-/** Is the true-coverage clip currently suppressed for the experiment? */
+/** Is the true-coverage clip currently suppressed? Normally false. */
 export function isGlazeClipExperimentOff(): boolean {
-    return glazeClipExperimentOff;
+    return glazeClipSuppressed;
 }
 
 /**
- * TEST SEAM, and it goes when the flag goes.
+ * TEST SEAM — and the reason it survives the experiment it was written for.
  *
- * The dispatch specs exercise the real glaze path — parked majorities, the
- * clone caps, the wire payload — and an experiment that silently disabled all
- * of that would leave the suite green while testing nothing. They turn it off
- * explicitly instead, which also documents at the call site that the flag is
- * an experiment rather than a setting.
+ * The dispatch specs exercise the real glaze path (parked majorities, clone
+ * caps, wire payload); a suppressed clip would leave that suite green while
+ * testing nothing. They set it explicitly at both ends, which also lets a
+ * spec prove the kill switch itself still works.
  */
 export function setGlazeClipExperimentOff(off: boolean): void {
-    glazeClipExperimentOff = off;
+    glazeClipSuppressed = off;
 }
 
 /** True once the worker has died/failed to spawn — the merge's queue
@@ -399,7 +397,8 @@ function getGeoWorker(): Worker | null {
             if (gs) {
                 log.warn(
                     `[glaze] true-coverage upgrade: exact=${gs.pairsExact} strip-capped=${gs.pairsStripped} ` +
-                        `rect-fallback=${gs.pairsRectFallback} maxPairVerts=${gs.maxPairVertices} in ${gs.ms}ms`,
+                        `rect-fallback=${gs.pairsRectFallback} result-capped=${gs.pairsResultCapped ?? 0} ` +
+                        `maxPairVerts=${gs.maxPairVertices} maxResultVerts=${gs.maxResultVertices ?? 0} in ${gs.ms}ms`,
                 );
             }
             return;
@@ -532,10 +531,10 @@ function dispatchGeometryWorkNow(
     const payloadWeight =
         glazeCells.reduce((n, c) => n + c.features.length, 0) +
         (coverageLib ? Object.values(coverageLib).reduce((n, c) => n + coverageVertexCount(c.coverage), 0) : 0);
-    if (payloadWeight > GLAZE_CLONE_HARD_CAP || glazeClipExperimentOff) {
+    if (payloadWeight > GLAZE_CLONE_HARD_CAP || glazeClipSuppressed) {
         log.warn(
-            glazeClipExperimentOff
-                ? '[glaze] true-coverage clip is OFF for the z14 experiment — instant grade stays'
+            glazeClipSuppressed
+                ? '[glaze] true-coverage clip SUPPRESSED by kill switch — instant grade stays'
                 : `[glaze] payload weight ${payloadWeight} > hard cap ${GLAZE_CLONE_HARD_CAP} — glaze job dropped, instant grade stays`,
         );
         releaseGlazeAssemblies(jobId, queuedGlazeKeys);

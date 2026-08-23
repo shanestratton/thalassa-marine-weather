@@ -56,6 +56,47 @@ export interface FineCoverage {
  *  maxPairVertices so a device profiling session can tune this. */
 export const GLAZE_MARTINEZ_VERTEX_CAP = 12_000;
 
+/**
+ * THE HOLE EVERY OTHER BOUND LEFT OPEN: the RESULT was never measured.
+ *
+ * Every cap in this file guards an INPUT. maxPairVertices is subject+clip
+ * before the call, and the per-job budget is charged the same number. But
+ * martinez can return far more geometry than it consumes — subtracting a
+ * fragmented reef coverage from a depth band shatters one polygon into
+ * hundreds of slivers — and nothing looked at what came back.
+ *
+ * Three ways that hurt, all of them at Lady Musgrave and none of them visible
+ * to an input bound:
+ *  · the result becomes the SUBJECT of the next fine in the loop, so growth
+ *    compounds across the cell;
+ *  · it accumulates into the feature the worker eventually returns;
+ *  · and it is structured-cloned back to the main thread. This file's own
+ *    2026-07-17 header named that as the next suspect if round 2 still
+ *    crashed: "next suspect is the RESULT clone (clipped MultiPolygons back
+ *    to main)". Round 2 did still crash — 53 times.
+ *
+ * A clip whose output blows past these is degraded to the strip-rect path,
+ * exactly like an over-cap input, and the PREVIOUS coords are kept. The job
+ * budget is charged what the pair actually cost rather than what it looked
+ * like it would cost, so a run of cheap-input/expensive-output pairs can no
+ * longer proceed for free.
+ *
+ * Two thresholds because they catch different pathologies: an absolute
+ * ceiling for "this is simply too much geometry", and an expansion ratio for
+ * "this shattered", which a small pair can hit while staying well under the
+ * ceiling. The expansion test has a floor so ordinary small clips — which
+ * legitimately add vertices — are not punished for it.
+ */
+export const GLAZE_RESULT_VERTEX_CAP = 24_000;
+export const GLAZE_RESULT_EXPANSION_LIMIT = 3;
+export const GLAZE_RESULT_EXPANSION_FLOOR = 2_000;
+
+/** Did this clip's OUTPUT blow past what we are willing to carry? */
+export function glazeResultOverBudget(outVerts: number, pairVerts: number): boolean {
+    if (outVerts > GLAZE_RESULT_VERTEX_CAP) return true;
+    return outVerts > GLAZE_RESULT_EXPANSION_FLOOR && outVerts > pairVerts * GLAZE_RESULT_EXPANSION_LIMIT;
+}
+
 /** Per-job telemetry the bounded clip accumulates — surfaced as the
  *  main-thread `[glaze]` warn line so the device session can see the
  *  exact/degraded split without a debugger. */
@@ -68,12 +109,19 @@ export interface CoverageClipStats {
     pairsRectFallback: number;
     /** Largest subject+clip vertex count seen (cap tuning signal). */
     maxPairVertices: number;
+    /** Pairs martinez clipped successfully, then discarded because the
+     *  RESULT was too big to carry → strip-rect fallback. */
+    pairsResultCapped: number;
+    /** Largest clip OUTPUT seen. The number no bound was watching. */
+    maxResultVertices: number;
 }
 
 export const emptyClipStats = (): CoverageClipStats => ({
     pairsExact: 0,
     pairsStripped: 0,
     pairsRectFallback: 0,
+    pairsResultCapped: 0,
+    maxResultVertices: 0,
     maxPairVertices: 0,
 });
 
@@ -548,12 +596,33 @@ export function clipFeatureOutsideCoverage(
                 coords as unknown as Parameters<typeof martinezDiff>[0],
                 fine.coverage as unknown as Parameters<typeof martinezDiff>[1],
             ) as unknown as CoverageGeom | null;
+            if (!out || out.length === 0) {
+                // The coverage swallowed the band whole — a real answer, and
+                // the cheapest possible one.
+                touched = true;
+                if (stats) stats.pairsExact++;
+                if (budget) budget.remaining -= pairVerts;
+                return null;
+            }
+            const outVerts = coverageVertexCount(out);
+            if (stats && outVerts > stats.maxResultVertices) stats.maxResultVertices = outVerts;
+            if (glazeResultOverBudget(outVerts, pairVerts)) {
+                // Exact, and unaffordable. Keep the PREVIOUS coords and take
+                // the bounded path for this pair — the same degrade an
+                // over-cap input gets, for the same reason.
+                if (stats) stats.pairsResultCapped++;
+                if (budget) budget.remaining -= outVerts; // charge what it really cost
+                const rects = fine.stripRects ?? [fine.bbox];
+                if (rects.length > 0) degradeRects.push(...rects);
+                continue;
+            }
             touched = true;
             if (stats) stats.pairsExact++;
-            if (budget) budget.remaining -= pairVerts;
-            if (!out || out.length === 0) return null;
+            // Charge the larger of in and out: a pair that expands is more
+            // expensive than it looked, and the job budget should feel it.
+            if (budget) budget.remaining -= Math.max(pairVerts, outVerts);
             coords = out;
-            subjectVerts = coverageVertexCount(coords);
+            subjectVerts = outVerts;
         } catch {
             if (stats) stats.pairsRectFallback++;
             degradeRects.push(fine.bbox);
