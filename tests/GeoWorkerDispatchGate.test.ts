@@ -59,6 +59,9 @@ async function loadModules() {
         },
     );
     const geo = await import('../services/enc/geometryUpgrades');
+    // Same reason as tests/enc/geometryUpgrades.test.ts: the gate is being
+    // tested, not the experiment that currently drops the glaze half.
+    geo.setGlazeClipExperimentOff(false);
     const cache = await import('../services/enc/mergedDataCache');
     return { geo, cache };
 }

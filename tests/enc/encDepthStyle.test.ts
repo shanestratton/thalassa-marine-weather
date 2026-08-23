@@ -35,7 +35,15 @@ import {
 import { evalExpr } from './exprEval';
 
 const fill = (props: Record<string, unknown>, tide = 0): unknown => evalExpr(buildDepareFillColor(tide), { props });
-const glaze = (props: Record<string, unknown>, S = 3): unknown => evalExpr(buildDepareSatelliteOpacity(S), { props });
+// zoom 12 by default: below GLAZE_IMAGERY_FADE_START, so every invariant
+// below is asserted against the unfaded wash exactly as it was before the
+// z13 imagery fade. The fade's own behaviour is covered in
+// tests/GlazeImageryFade.test.ts, and the ordering it must not break is
+// re-asserted at zoom 15 further down.
+const glaze = (props: Record<string, unknown>, S = 3, zoom = 12): unknown =>
+    evalExpr(buildDepareSatelliteOpacity(S), { props, zoom });
+const glazeH = (props: Record<string, unknown>, S: number, H: number, zoom = 12): unknown =>
+    evalExpr(buildDepareSatelliteOpacity(S, H), { props, zoom });
 const sounding = (props: Record<string, unknown>, tide = 0): unknown =>
     evalExpr(buildSoundingTextField(tide), { props });
 
@@ -256,7 +264,11 @@ describe('satellite shallow-water salience — a known shoal is NOT identical to
 describe('router-hazard caution band [S, hazard) — glaze agrees with the router (cycle-5 re-audit)', () => {
     const S = 2.9;
     const H = 4.1; // 2.4 m draft: safety 2.9, router hazard 4.1
-    const opa = (d: number): number => evalExpr(buildDepareSatelliteOpacity(S, H), { props: { DRVAL1: d } }) as number;
+    // zoom 12: below the z13 imagery fade, so these band relationships are
+    // asserted against the unfaded wash. The same ordering is re-checked
+    // ACROSS the fade in the final describe of this file.
+    const opa = (d: number): number =>
+        evalExpr(buildDepareSatelliteOpacity(S, H), { props: { DRVAL1: d }, zoom: 12 }) as number;
     const col = (d: number): unknown => evalExpr(buildDepareGlazeFillColor(S, H), { props: { DRVAL1: d } });
 
     it('the [S, hazard) band paints straw caution, NOT the GO-white it used to', () => {
@@ -278,5 +290,31 @@ describe('router-hazard caution band [S, hazard) — glaze agrees with the route
     it('graceful degrade: no hazard arg (or hazard <= S) reproduces the two-band look', () => {
         expect(evalExpr(buildDepareGlazeFillColor(S), { props: { DRVAL1: 3.5 } })).toBe('#f7f5f0');
         expect(evalExpr(buildDepareGlazeFillColor(S, 2.0), { props: { DRVAL1: 3.5 } })).toBe('#f7f5f0');
+    });
+});
+
+describe('the z13 imagery fade cannot invert the chart grammar', () => {
+    // Shane 2026-08-23 asked for the imagery to stay crisp past z13.5, so the
+    // safe-water wash thins out there. It must never thin PAST a caution wash:
+    // a known shoal painted more strongly than sailable water is the round-1
+    // bug in a new coat, and it would arrive at exactly the zoom where the
+    // boat is closest to the shoal.
+    it('safe water outranks both caution washes at the far end of the fade', () => {
+        for (const zoom of [12, 13, 14, 15, 18]) {
+            const safe = glazeH({ DRVAL1: 40 }, 3, 5, zoom) as number;
+            const cautionBand = glazeH({ DRVAL1: 4 }, 3, 5, zoom) as number;
+            const shallow = glazeH({ DRVAL1: 1 }, 3, 5, zoom) as number;
+            expect(shallow).toBeLessThan(cautionBand);
+            expect(cautionBand).toBeLessThan(safe);
+        }
+    });
+
+    it('actually fades — quieter at z15 than at z12', () => {
+        expect(glaze({ DRVAL1: 40 }, 3, 15) as number).toBeLessThan(glaze({ DRVAL1: 40 }, 3, 12) as number);
+    });
+
+    it('leaves the warnings untouched across the fade', () => {
+        expect(glazeH({ DRVAL1: 1 }, 3, 5, 15)).toBe(glazeH({ DRVAL1: 1 }, 3, 5, 12));
+        expect(glazeH({ DRVAL1: 4 }, 3, 5, 15)).toBe(glazeH({ DRVAL1: 4 }, 3, 5, 12));
     });
 });
