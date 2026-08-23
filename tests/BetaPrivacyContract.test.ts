@@ -34,7 +34,7 @@ describe('public-beta privacy contract', () => {
         const signIn = read('components/SignInScreen.tsx');
         const account = read('components/settings/AccountTab.tsx');
 
-        expect(terms).toContain('Version 2.1 · Public Beta');
+        expect(terms).toContain('Version 2.2 · Public Beta');
         expect(terms).toContain('supported account data syncs');
         expect(terms).toContain('may also be sent to');
         expect(terms).toContain('pseudonymous Thalassa account ID');
@@ -48,6 +48,46 @@ describe('public-beta privacy contract', () => {
         expect(signIn).toContain('https://www.thalassawx.app/terms.html');
         expect(account).toContain('Automatic private sync');
         expect(account).not.toContain('cloudSyncSettings !== false');
+    });
+
+    /**
+     * The consent sheet in NmeaPage makes promises the terms have to back. If
+     * the two ever drift, the disclosure a skipper agreed to and the document
+     * that governs it stop matching — and the promise that matters most here
+     * is the one that cannot be walked back: opting in publishes their own
+     * vessel's position irreversibly.
+     */
+    it('backs the AIS sharing consent sheet with matching terms', () => {
+        const terms = read('public/terms.html');
+        const normalized = terms.replace(/\s+/g, ' ');
+        const sheet = read('components/vessel/NmeaPage.tsx');
+
+        // AISHub must be named as a recipient, not left as "service providers".
+        expect(terms).toContain('AISHub');
+        expect(normalized).toContain('AISHub operates in the European Union');
+
+        // The irreversibility must be stated in BOTH places.
+        expect(normalized).toContain('makes your vessel publicly trackable');
+        expect(normalized).toContain('We cannot recall data that has already been redistributed');
+        expect(sheet).toContain('Your own boat becomes publicly trackable');
+
+        // Off by default, and separately consented — in both places.
+        expect(normalized).toContain('off by default');
+        expect(sheet).toContain('Off by default');
+
+        // The receive-only carve-out matters: those skippers publish nothing.
+        expect(normalized).toContain('only receives and never transmits');
+        expect(sheet).toContain('only receives and never transmits');
+
+        // What is retained, and what is NOT. The absence of a position store
+        // is the load-bearing privacy claim of the whole ledger.
+        expect(normalized).toContain('does not record your position or any history of it');
+        expect(normalized).toContain('deleted when your account is deleted');
+
+        // And the safety floor: contribution must never gate what a skipper
+        // can see. If a ration is ever added, this test is where it surfaces.
+        expect(normalized).toContain('never affects what AIS, collision warnings, or vessel information you can see');
+        expect(sheet).toContain('never rationed, for anyone');
     });
 
     it('keeps link-shared voyage logs out of search indexes', () => {

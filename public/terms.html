@@ -229,7 +229,7 @@
                 <img src="/thalassa-icon.png" alt="Thalassa" />
                 <h1>Terms & Privacy</h1>
                 <p class="subtitle">Thalassa Marine Weather</p>
-                <p class="effective">Effective Date: 4 August 2026 &nbsp;·&nbsp; Version 2.1 · Public Beta</p>
+                <p class="effective">Effective Date: 23 August 2026 &nbsp;·&nbsp; Version 2.2 · Public Beta</p>
             </div>
 
             <!-- Tabs -->
@@ -363,6 +363,12 @@
                         are disabled in this public-beta candidate
                     </li>
                     <li><strong>Spoonacular</strong> — optional recipe search</li>
+                    <li>
+                        <strong>AISHub</strong> — a public AIS data-sharing network. Thalassa receives vessel positions
+                        from it. If, and only if, you switch on "Share what you hear", Thalassa also forwards the AIS
+                        sentences your gateway receives to AISHub, which redistributes them to its member stations and
+                        to other public tracking sites. AISHub operates in the European Union.
+                    </li>
                 </ul>
                 <p>
                     Use of these services is subject to their respective terms and privacy policies. We are not
@@ -454,6 +460,31 @@
                     stream as a general analytics feed.
                 </p>
 
+                <h3>Shared AIS (off by default)</h3>
+                <p>
+                    Thalassa can contribute the AIS traffic your gateway hears to a shared fleet map and to AISHub. This
+                    is a separate, explicit opt-in, it is off unless you turn it on, and it is limited to AIS sentences
+                    — it does not change the statement above about your wider NMEA stream.
+                </p>
+                <p>
+                    <strong>If your vessel transmits AIS, switching this on makes your vessel publicly trackable.</strong>
+                    Your MMSI, vessel name if programmed, position, course, and speed are broadcast on the public AIS
+                    network. Once AISHub receives them they are redistributed to member stations and other tracking
+                    sites within seconds. <strong>We cannot recall data that has already been redistributed.</strong>
+                    Switching sharing off stops further reports; it does not remove what has already been published. If
+                    your equipment only receives and never transmits, no information about your own vessel is published
+                    by this feature.
+                </p>
+                <p>
+                    While sharing is on, Thalassa records a single contribution row for your account: total minutes your
+                    receiver was online, when we last heard from your device, a count of sentences sent, and your
+                    gateway's connection state. <strong>It does not record your position or any history of it</strong> —
+                    there is no location column and no per-check-in record, so your movements cannot be reconstructed
+                    from it. That row is deleted when your account is deleted, and is removed automatically after 400
+                    days of inactivity. Contribution never affects what AIS, collision warnings, or vessel information
+                    you can see in the App.
+                </p>
+
                 <h3>AI, Voice & Optional Integrations</h3>
                 <p>
                     When you invoke AI or voice features, your prompt, audio or transcribed text, and the selected
@@ -526,6 +557,13 @@
                     <li>
                         <strong>People you choose to share with:</strong> Crew, community members, rescue contacts, or
                         recipients of a float plan or message.
+                    </li>
+                    <li>
+                        <strong>Shared AIS, if you switch it on:</strong> With "Share what you hear" enabled, the AIS
+                        sentences your gateway receives — including your own vessel's transponder reports, if it
+                        transmits — are sent to Thalassa and forwarded to AISHub, a public network. This is off by
+                        default and is never enabled without an explicit, separate consent. See "Shared AIS" in section
+                        1 for what this means and why it cannot be undone.
                     </li>
                     <li>
                         <strong>Legal compliance:</strong> If required by law, court order, or governmental authority
