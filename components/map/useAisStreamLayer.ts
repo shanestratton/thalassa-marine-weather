@@ -470,6 +470,37 @@ function zoomToRadiusNm(zoom: number): number {
     return 200;
 }
 
+/**
+ * The server's hard ceiling on a pond query, and the reason the ladder above
+ * could never reach its own top step.
+ *
+ * `supabase/functions/vessels-nearby/index.ts` parses the radius with
+ * `parseBoundedNumber(v, 0.5, 100)`, and that helper returns **null** out of
+ * range rather than clamping — so the function answers 400 and
+ * `fetchAndMerge` swallows it as a `log.warn`. The ladder's own 200 NM step
+ * therefore meant that below zoom 6 the internet fill was empty every single
+ * time, silently, with nothing on screen to say so.
+ */
+export const POND_MAX_RADIUS_NM = 100;
+
+/**
+ * How wide the pond query has to be — which is NOT simply a function of what
+ * the chart happens to be showing.
+ *
+ * The collision guard's only internet input is
+ * `publishInternetAisFeatures(merged.features)` below, i.e. the result of this
+ * very query, and `AisGuardZone` permits guard rings out to 50 NM. Deriving
+ * the radius from chart zoom alone meant a skipper with a 40 NM ring who had
+ * zoomed in to their berth was running that guard off a 5 NM query. Browsing
+ * may shape what we ask for; it must never shrink the lookout, so the armed
+ * ring sets a floor under it.
+ */
+export function pondRequestRadiusNm(zoom: number, guardRadiusNm: number | null): number {
+    const browse = zoomToRadiusNm(zoom);
+    const guard = guardRadiusNm != null && Number.isFinite(guardRadiusNm) && guardRadiusNm > 0 ? guardRadiusNm : 0;
+    return Math.min(POND_MAX_RADIUS_NM, Math.max(browse, guard));
+}
+
 export function longitudeWithinPaddedBounds(
     longitude: number,
     west: number,
@@ -882,7 +913,9 @@ export function useAisStreamLayer(map: mapboxgl.Map | null, enabled: boolean): v
 
             const center = map.getCenter();
             const zoom = map.getZoom();
-            const radiusNm = zoomToRadiusNm(zoom);
+            // An armed guard ring sets the floor — see pondRequestRadiusNm.
+            const guard = AisGuardZone.getState();
+            const radiusNm = pondRequestRadiusNm(zoom, guard.enabled ? guard.radiusNm : null);
 
             try {
                 const geojson = await AisStreamService.fetchNearby({
