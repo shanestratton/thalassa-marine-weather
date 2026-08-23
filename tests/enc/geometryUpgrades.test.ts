@@ -28,10 +28,16 @@ class FakeWorker {
 }
 vi.stubGlobal('Worker', FakeWorker);
 
-import { dispatchGeometryWork, GLAZE_CLONE_HARD_CAP, type GlazeUpgradeItem } from '../../services/enc/geometryUpgrades';
+import {
+    dispatchGeometryWork,
+    geoDispatchGateState,
+    GLAZE_CLONE_HARD_CAP,
+    type GlazeUpgradeItem,
+} from '../../services/enc/geometryUpgrades';
 import type { EncMergedVectorData } from '../../services/enc/EncHazardService';
 import { putMergedData, clearMergedData } from '../../services/enc/mergedDataCache';
 import {
+    parkGlazeAssembly,
     clearAllGlazeAssemblies,
     clearGlazeCell,
     getGlazeCell,
@@ -158,23 +164,59 @@ describe('geometry-worker lifecycle', () => {
         expect(lastMsg().glazeCells).toHaveLength(1);
     });
 
-    it('OVERLAPPING JOBS on the same glaze key keep separate parked majorities', () => {
+    it('parked majorities are keyed per JOB, not per glaze key', () => {
+        // Audit #5: two jobs touching the same cell used to truncate each
+        // other's untouched majority, and the incomplete glaze was then cached
+        // as `upgraded: true` — permanently wrong until an eviction.
+        //
+        // This used to be driven through two back-to-back dispatchGeometryWork
+        // calls. It cannot be any more: the dispatch gate (2026-08-23) holds
+        // the second job until the first replies, so overlap is unreachable
+        // through the public entry point. The invariant it protects is still
+        // real — the isolation is what makes a straggler reply safe — so it is
+        // now asserted against the cache directly, where it actually lives.
+        parkGlazeAssembly(101, 'cellX@1@9:s', [feat('job1-u')]);
+        parkGlazeAssembly(202, 'cellX@1@9:s', [feat('job2-u')]);
+
+        expect(takeGlazeAssembly(101, 'cellX@1@9:s').map((f) => (f.properties as { id: string }).id)).toEqual([
+            'job1-u',
+        ]);
+        // Job 1 consumed ITS parked features; job 2's are intact.
+        expect(takeGlazeAssembly(202, 'cellX@1@9:s').map((f) => (f.properties as { id: string }).id)).toEqual([
+            'job2-u',
+        ]);
+    });
+
+    it('GATES the worker to one job at a time — the second dispatch is held', () => {
+        // The trail that produced this (Shane 2026-08-23):
+        //   enc:geo-dispatch(#1 2glaze/3178snd w10930 inflight1)
+        //   enc:geo-dispatch(#2 0glaze/3178snd w0    inflight2)
+        // Two payloads in the worker together, each cloning 3 178 soundings,
+        // and every bound in geometryUpgrades is a PER-JOB bound.
+        // Module state (the gate) survives between cases in this file, so
+        // open it explicitly rather than assuming a prior test left it open —
+        // otherwise this passes for the wrong reason.
+        if (geoDispatchGateState().busy) {
+            worker().onmessage!({ data: { jobId: lastMsg().jobId, type: 'done' } } as never);
+        }
+        expect(geoDispatchGateState()).toEqual({ busy: false, queued: 0 });
+
         const m1 = shell();
         const m2 = shell();
         putMergedData('k1', m1);
         putMergedData('k2', m2);
-        dispatchGeometryWork('k1', m1, false, [item('cellX@1@9:s', ['t'], ['job1-u'])], ['cellX@1@9:s'], lib);
-        const job1 = lastMsg().jobId;
-        dispatchGeometryWork('k2', m2, false, [item('cellX@1@9:s', ['t'], ['job2-u'])], ['cellX@1@9:s'], lib);
-        const job2 = lastMsg().jobId;
 
-        worker().onmessage!({
-            data: { jobId: job1, type: 'glaze-cell', cellId: 'cellX', glazeKey: 'cellX@1@9:s', features: [feat('c1')] },
-        });
-        // Job 1 consumed ITS parked features; job 2's are intact.
-        expect(takeGlazeAssembly(job2, 'cellX@1@9:s').map((f) => (f.properties as { id: string }).id)).toEqual([
-            'job2-u',
-        ]);
+        dispatchGeometryWork('k1', m1, false, [item('cellX@1@9:s', ['t'], ['job1-u'])], ['cellX@1@9:s'], lib);
+        const posted = worker().posted.length;
+        expect(geoDispatchGateState()).toEqual({ busy: true, queued: 0 });
+
+        dispatchGeometryWork('k2', m2, false, [item('cellY@1@9:s', ['t'], ['job2-u'])], ['cellY@1@9:s'], lib);
+        expect(worker().posted.length).toBe(posted); // held, not stacked
+        expect(geoDispatchGateState()).toEqual({ busy: true, queued: 1 });
+
+        // …and it is not lost: the reply releases it.
+        worker().onmessage!({ data: { jobId: lastMsg().jobId, type: 'done' } } as never);
+        expect(worker().posted.length).toBe(posted + 1);
     });
 
     it('EVICTION-ABANDON: done with a missing glaze-cell entry leaves the fast merge untouched', () => {

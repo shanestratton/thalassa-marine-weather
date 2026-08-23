@@ -39,6 +39,12 @@ export function isGeoWorkerBroken(): boolean {
     return geoWorkerBroken;
 }
 
+/** Gate state, for the contract test. `queued` is at most 1 by construction —
+ *  latest wins, so a third request replaces the second rather than stacking. */
+export function geoDispatchGateState(): { busy: boolean; queued: number } {
+    return { busy: workerBusy, queued: deferredDispatch ? 1 : 0 };
+}
+
 /** The heavy-geometry worker carries TWO independent jobs with OPPOSITE
  *  safety profiles, so as of 2026-07-15 they get separate flags — the
  *  single GEOMETRY_WORKER_ENABLED gate threw the safe job out with the
@@ -126,6 +132,53 @@ let geoWorker: Worker | null = null;
 let geoWorkerBroken = false;
 let geoJobSeq = 0;
 const pendingGeometryJobs = new Map<number, PendingGeometryJob>();
+
+/**
+ * ONE JOB IN THE WORKER AT A TIME, LATEST WINS.
+ *
+ * Shane's 2026-08-23 trail, the first with a crumb on this path:
+ *
+ *   enc:geo-dispatch(#1 2glaze/3178snd w10930 inflight1)
+ *   enc:geo-dispatch(#2 0glaze/3178snd w0    inflight2)
+ *
+ * Two jobs in the worker together, each structured-cloning 3 178 soundings.
+ * Nothing gated it: dispatchGeometryWork posted whenever a merge finished,
+ * and merges finish while the previous upgrade is still running. Every bound
+ * in this file — the per-pair vertex cap, the per-job budget, the 60k/200k
+ * clone caps — is a PER-JOB bound, so N concurrent jobs multiply all of them.
+ *
+ * That matters more here than it would elsewhere. On Chrome a dedicated
+ * worker is a thread in the SAME renderer process, and its heap is invisible
+ * to performance.memory in both directions — so a second concurrent payload
+ * is memory the crash census cannot see by construction. This file's own
+ * header records an "Aw, Snap" from exactly this subsystem in July.
+ *
+ * The deferral holds REFERENCES, not copies: `merged` is already retained by
+ * mergedDataCache under this cacheKey, the glaze queue's features are views
+ * into that merge's arrays, and the coverage library is shared per merge. The
+ * expensive thing is the structured clone into the worker, and that is
+ * precisely what deferring avoids doing twice at once.
+ *
+ * Latest wins because a superseded merge's upgrade is worthless — the window
+ * has moved on, and the newest request is the one the user is looking at.
+ */
+let workerBusy = false;
+let deferredDispatch: { cacheKey: string; run: () => void } | null = null;
+
+/** Run whatever was held back, if its merge is still worth upgrading. */
+function drainDeferredDispatch(): void {
+    workerBusy = false;
+    const next = deferredDispatch;
+    deferredDispatch = null;
+    if (!next) return;
+    // The merge it would upgrade may have been evicted while it waited. The
+    // upgrade would land on nothing, so skip the clone entirely.
+    if (!getMergedData(next.cacheKey)) {
+        crumb('enc:geo-drop', 'evicted');
+        return;
+    }
+    next.run();
+}
 const geometryUpgradeListeners = new Set<() => void>();
 // Parked untouched-feature assemblies + in-flight claims live in
 // glazeCellCache (job-scoped keys, owner-checked release — audit #5).
@@ -180,6 +233,10 @@ function getGeoWorker(): Worker | null {
         geoWorker = null;
         pendingGeometryJobs.clear();
         clearAllGlazeAssemblies();
+        // Nothing will ever reply, so the gate must not wait for one — and
+        // the held request must not be posted into a dead worker.
+        workerBusy = false;
+        deferredDispatch = null;
         crumb('enc:geo-died');
         log.warn('geometry worker died — staying on fast glaze/contours this session');
     };
@@ -187,6 +244,15 @@ function getGeoWorker(): Worker | null {
         const msg = ev.data;
         const { jobId } = msg;
         const job = pendingGeometryJobs.get(jobId);
+        if (!job && msg.type === 'done') {
+            // A 'done' for a job we already forgot — the queue was cleared
+            // under it, or a straggler arrived after a reset. There is nothing
+            // to apply, but the gate must not stay shut waiting for a reply
+            // that has just arrived. A stuck gate would silently disable every
+            // future glaze and contour upgrade for the session.
+            drainDeferredDispatch();
+            return;
+        }
         if (msg.type === 'glaze-cell' && job) {
             // Require a live job, like the 'contours'/'done' siblings (closing
             // audit 2026-07-18): after onerror cleared pendingGeometryJobs +
@@ -220,6 +286,7 @@ function getGeoWorker(): Worker | null {
         if (msg.type === 'done' && job) {
             pendingGeometryJobs.delete(jobId);
             crumb('enc:geo-done', `#${jobId} ${msg.glazeStats ? `${msg.glazeStats.ms}ms` : 'nostats'}`);
+            drainDeferredDispatch();
             // Defensive leftover sweep — glaze-cell answers should have
             // consumed every parked entry; job-scoped so other jobs'
             // state is untouched (audit #5).
@@ -239,6 +306,7 @@ function getGeoWorker(): Worker | null {
         if (msg.type === 'error') {
             pendingGeometryJobs.delete(jobId);
             crumb('enc:geo-fail', `#${jobId} worker`);
+            drainDeferredDispatch();
             if (job) releaseGlazeAssemblies(jobId, job.queuedGlazeKeys);
             log.warn(`geometry worker job failed (fast version stays): ${msg.message ?? 'unknown'}`);
         }
@@ -279,6 +347,31 @@ export type GlazeUpgradeItem = GlazeCellJob & { untouched: Feature[] };
  * No worker (old WebView / died) = the fast version stays up.
  */
 export function dispatchGeometryWork(
+    cacheKey: string,
+    merged: EncMergedVectorData,
+    densify: boolean,
+    glazeUpgradeQueue: GlazeUpgradeItem[],
+    mergeGlazeKeys: string[],
+    glazeCoverageLib?: ReadonlyMap<string, FineCoverage>,
+): void {
+    if (workerBusy) {
+        // Hold the WHOLE dispatch, not a half-built payload: jobId allocation,
+        // glaze parking and the clone-budget check all belong to the attempt
+        // that actually posts. Parking under a jobId that never ships would
+        // strand those assemblies until the worker died.
+        const superseded = deferredDispatch?.cacheKey;
+        deferredDispatch = {
+            cacheKey,
+            run: () =>
+                dispatchGeometryWorkNow(cacheKey, merged, densify, glazeUpgradeQueue, mergeGlazeKeys, glazeCoverageLib),
+        };
+        crumb('enc:geo-defer', superseded && superseded !== cacheKey ? 'replaced' : 'queued');
+        return;
+    }
+    dispatchGeometryWorkNow(cacheKey, merged, densify, glazeUpgradeQueue, mergeGlazeKeys, glazeCoverageLib);
+}
+
+function dispatchGeometryWorkNow(
     cacheKey: string,
     merged: EncMergedVectorData,
     densify: boolean,
@@ -374,11 +467,16 @@ export function dispatchGeometryWork(
         // z12 — between the zoom Shane says is fine and the one that dies.
         //
         // inflight so the trail shows overlapping jobs, which nothing gates.
+        // inflight is now a TRIPWIRE, not a statistic: with the gate it must
+        // read 1. Anything higher means a path posted around
+        // dispatchGeometryWork, which is how two 3 178-sounding payloads
+        // ended up in the worker together on 2026-08-23.
         crumb(
             'enc:geo-dispatch',
-            `#${jobId} ${glazeCells.length}glaze/${contourPoints?.length ?? 0}snd w${payloadWeight} inflight${pendingGeometryJobs.size}`,
+            `#${jobId} ${glazeCells.length}glaze/${contourPoints?.length ?? 0}snd w${payloadWeight} inflight${pendingGeometryJobs.size}${deferredDispatch ? '+1q' : ''}`,
         );
         worker.postMessage(wireMsg);
+        workerBusy = true;
     } catch (err) {
         // Symmetric cleanup (audit #6): a failed dispatch must release its
         // parked assemblies + in-flight claims or they leak until worker
@@ -387,6 +485,8 @@ export function dispatchGeometryWork(
         pendingGeometryJobs.delete(jobId);
         releaseGlazeAssemblies(jobId, queuedGlazeKeys);
         crumb('enc:geo-fail', `#${jobId} dispatch`);
+        // postMessage threw, so nothing is running — do not strand the gate.
+        drainDeferredDispatch();
         log.warn(`geometry worker dispatch failed: ${err instanceof Error ? err.message : String(err)}`);
     }
 }
