@@ -38,14 +38,34 @@ const API_KEY = process.env.AISSTREAM_KEY;
  * for vessels more than 100 NM from the boat (vessels-nearby caps radius at
  * 100), so ingesting the Pacific is pure cost.
  *
- * Default is now the Australian east coast and Coral Sea — Torres Strait to
- * Bass Strait, out past the reef and Lord Howe. Wide enough for any passage
- * Thalassa's users are on, and a tiny fraction of the globe. Override with
- * BOUNDING_BOXES for a different cruising ground; a deliberately global
- * subscription still works, it is just no longer what you get by accident.
- * Format is [[[latMin,lonMin],[latMax,lonMax]], ...] as aisstream expects.
+ * THIS BOX IS NOT AISSTREAM-ONLY — the thing that is easy to get wrong.
+ * Two consumers read it:
+ *   · the aisstream subscription below (BoundingBoxes), and
+ *   · the AISHub aggregate poller, which turns BOUNDING_BOXES[0] into the
+ *     latmin/lonmin/latmax/lonmax of its API query.
+ * So this rectangle decides what the shared pond CONTAINS, from whichever
+ * upstream is alive. Narrow it and you are not just trimming a dead feed.
+ *
+ * The punter crowd-feed (/fleet-feed) is deliberately NOT bounded by it: a
+ * contributor anywhere on earth is credited and their sentences land in the
+ * pond. Contribution is global; aggregate fill is boxed. A punter outside the
+ * box still sees their own receiver and any nearby punter — they just get no
+ * AISHub fill around them.
+ *
+ * Default is the Australian east coast and the Coral Sea out to the islands:
+ * Torres Strait to Bass Strait, past the reef and Lord Howe, and far enough
+ * east (172°) to cover a Brisbane–Noumea or Vanuatu passage. It was 162° until
+ * 2026-08-24, which stopped roughly halfway across the Coral Sea and dropped
+ * New Caledonia, Vanuatu and Norfolk Island outside AIS coverage mid-crossing.
+ *
+ * Still OUTSIDE by choice, because it is water we do not sail and the box's
+ * width is the cost driver: Western Australia, the NT coast, and New Zealand.
+ * Override with BOUNDING_BOXES for a different cruising ground; a deliberately
+ * global subscription still works, it is just no longer what you get by
+ * accident. Format is [[[latMin,lonMin],[latMax,lonMax]], ...] as aisstream
+ * expects.
  */
-const DEFAULT_BOUNDING_BOXES = '[[[-44,140],[-9,162]]]';
+const DEFAULT_BOUNDING_BOXES = '[[[-44,140],[-9,172]]]';
 const BOUNDING_BOXES = JSON.parse(process.env.BOUNDING_BOXES || DEFAULT_BOUNDING_BOXES);
 
 // Reconnect backoff
