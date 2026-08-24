@@ -78,6 +78,10 @@ const DeparturePrompts = lazyRetry(
     () => import('./components/vessel/DeparturePrompts').then((m) => ({ default: m.DeparturePrompts })),
     'DeparturePrompts',
 );
+const PassageKitPrompt = lazyRetry(
+    () => import('./components/vessel/PassageKitPrompt').then((m) => ({ default: m.PassageKitPrompt })),
+    'PassageKitPrompt',
+);
 // SignInScreen is no longer lazy-imported here — it's rendered by
 // the save-point sheets and the Settings → Account entry in their
 // own modules where each can lazy-load it on demand.
@@ -580,6 +584,7 @@ const App: React.FC = () => {
                 {/* Departure prompts — fire on cast-off from any view. */}
                 <Suspense fallback={null}>
                     <DeparturePrompts />
+                    <PassageKitPrompt />
                 </Suspense>
 
                 {/* Bosun voice console is now the 'voice' registered view —

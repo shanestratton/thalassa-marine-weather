@@ -456,12 +456,10 @@ function createTrackOverlay(map: mapboxgl.Map): {
             // longitude sanitizer as the GL geometry. map.project() of a raw
             // sign-flipped pair puts consecutive screen points a whole world
             // apart, and the SVG tube then spans the viewport.
-            const sanePast = respellTrackForProjection(
-                sanitizeTrackLongitudes(c.track.map((p) => [p.lon, p.lat] as [number, number])),
-                map.getCenter().lng,
-            );
-            const projected = sanePast.map((lonLat, i) => ({
-                px: map.project(lonLat),
+            const sanePast = sanitizeTrackLongitudes(c.track.map((p) => [p.lon, p.lat] as [number, number]));
+            const pastPx = projectTrackContinuously(map, sanePast);
+            const projected = pastPx.map((px, i) => ({
+                px,
                 // Index pairing is safe: the sanitizer only ever truncates the
                 // tail, so its output is a strict prefix of the input.
                 point: c.track[i],
@@ -529,12 +527,10 @@ function createTrackOverlay(map: mapboxgl.Map): {
                 // track": one Date-Line sign flip projected the next cone
                 // vertex a full world away, and the expanding error margins
                 // were drawn around that.
-                const saneFc = respellTrackForProjection(
-                    sanitizeTrackLongitudes(forecastAll.map((p) => [p.lon, p.lat] as [number, number])),
-                    map.getCenter().lng,
-                );
-                const fcProjected = saneFc.map((lonLat, i) => ({
-                    px: map.project(lonLat),
+                const saneFc = sanitizeTrackLongitudes(forecastAll.map((p) => [p.lon, p.lat] as [number, number]));
+                const fcPx = projectTrackContinuously(map, saneFc);
+                const fcProjected = fcPx.map((px, i) => ({
+                    px,
                     point: forecastAll[i],
                 }));
 
@@ -1116,30 +1112,40 @@ export function sanitizeTrackLongitudes(points: [number, number][]): [number, nu
 }
 
 /**
- * Respell a CONTINUOUS track onto the world copy nearest the camera, for
- * map.project().
+ * Project a CONTINUOUS track to screen pixels without letting Mapbox split it.
  *
- * THE SECOND HALF of the entire-planet bug, found by pixel arithmetic on the
- * live page (2026-08-24). sanitizeTrackLongitudes hands every renderer a
- * continuous spelling — LALA's Date-Line-crossing forecast becomes
- * -175 … -179, -180.5, -182.1 — and Mapbox's GEOJSON pipeline honours it, so
- * every GL source measured sane. But map.project() WRAPS out-of-range
- * longitudes back into [-180, 180]: the points beyond -180 came back as
- * +179.5-side screen positions while their neighbours stayed on the -179
- * side, splitting one continuous track across two world copies — and the SVG
- * cone faithfully drew the 4,700 px traverse between them. GL clean, SVG
- * torn, which is exactly what every probe showed.
+ * THE THIRD ROUND of the entire-planet bug, and the honest post-mortem of the
+ * second: map.project() wraps each longitude into [-180, 180] independently,
+ * so ANY spelling of a genuinely antimeridian-crossing track straddles the
+ * wrap boundary somewhere, and one uniform re-spell (the previous fix) merely
+ * moves WHERE it straddles — with the camera at -116 for ISELLE, the shift
+ * for LALA computed to zero and the split survived, which is exactly what
+ * Shane's screenshot showed. The previous fix's dev verification was
+ * measured while the overlay was not rendering, and is struck from the
+ * record.
  *
- * One UNIFORM shift, anchored on the first point, moves the whole track to
- * the copy nearest the camera. Uniform on purpose: a per-point nearest-copy
- * round could split a track whose points straddle the exact half-world
- * boundary from the camera; a single shift cannot split anything.
+ * So: project ONE anchor point through Mapbox (wrapped into range, so it
+ * lands on the camera-consistent world copy, same as the markers), then place
+ * every other point by MERCATOR DELTA from that anchor — x from the
+ * continuous longitude difference over the world's pixel width
+ * (512 · 2^zoom, Mapbox's mercator worldSize), y from project() at a wrapped
+ * longitude, safe because mercator y depends only on latitude. A continuous
+ * input cannot split, whatever the camera, because only one point ever
+ * touches project()'s x-wrap.
  */
-export function respellTrackForProjection(points: [number, number][], centerLng: number): [number, number][] {
-    if (points.length === 0) return points;
-    const shift = -360 * Math.round((points[0][0] - centerLng) / 360);
-    if (shift === 0) return points;
-    return points.map(([lon, lat]) => [lon + shift, lat]);
+export function projectTrackContinuously(
+    map: Pick<mapboxgl.Map, 'project' | 'getZoom'>,
+    points: readonly [number, number][],
+): mapboxgl.Point[] {
+    if (points.length === 0) return [];
+    const wrap = (lon: number) => ((((lon + 180) % 360) + 360) % 360) - 180;
+    const anchorLon = points[0][0];
+    const anchor = map.project([wrap(anchorLon), points[0][1]]);
+    const worldPx = 512 * Math.pow(2, map.getZoom());
+    return points.map(
+        ([lon, lat]) =>
+            new mapboxgl.Point(anchor.x + ((lon - anchorLon) / 360) * worldPx, map.project([wrap(lon), lat]).y),
+    );
 }
 
 /**

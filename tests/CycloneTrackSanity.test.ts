@@ -112,72 +112,86 @@ describe('every track geometry consumer goes through the sanitizer', () => {
     });
 });
 
-import { respellTrackForProjection } from '../components/map/useCycloneLayer';
+import { projectTrackContinuously } from '../components/map/useCycloneLayer';
 
 /**
- * THE SECOND HALF of the entire-planet bug, found by pixel arithmetic on the
- * live page after the first half shipped (2026-08-24 evening, Shane: "there
- * is still a storm track going across the entire globe").
+ * THE THIRD ROUND, and the post-mortem of the second. map.project() wraps
+ * each longitude into [-180, 180] independently — so ANY spelling of a
+ * genuinely antimeridian-crossing track straddles the wrap boundary
+ * somewhere, and round two's uniform re-spell merely moved WHERE. With the
+ * camera at -116 (ISELLE selected), LALA's shift computed to zero and the
+ * split survived, exactly as Shane's phone screenshot showed.
  *
- * sanitizeTrackLongitudes hands renderers a CONTINUOUS spelling, and Mapbox's
- * GeoJSON pipeline honours it — every GL source measured sane. But
- * map.project() WRAPS out-of-range longitudes into [-180, 180]: LALA's
- * -180.5 and -182.1 came back as +179.5-side screen positions while their
- * -179 neighbours stayed put, splitting one continuous track across two
- * world copies. The SVG cone drew the 4,708 px traverse between the halves.
+ * projectTrackContinuously projects ONE wrapped anchor through Mapbox and
+ * places every other point by mercator delta — only one point ever touches
+ * the x-wrap, so a continuous input cannot split, whatever the camera.
  */
-describe('respellTrackForProjection', () => {
-    /** mercator X for a longitude, world-copy aware — what project() computes
-     *  BEFORE wrapping. Screen continuity is continuity of this value. */
-    const mercX = (lon: number) => (180 + lon) / 360;
-
-    it('keeps LALA screen-continuous at the camera that showed the band', () => {
-        // The measured case: camera at 107.3°E, LALA sanitized to
-        // -175.5 … -182.1. Unrespelled, the wrap splits at -180 exactly.
-        const lala: [number, number][] = [
-            [-175.5, 33.9],
-            [-179.0, 36.6],
-            [-180.5, 38.2],
-            [-182.1, 39.8],
-        ];
-        const out = respellTrackForProjection(lala, 107.3);
-        // One world copy for every point: +184.5 … +177.9, continuous.
-        const xs = out.map(([lon]) => mercX(lon));
-        for (let i = 1; i < xs.length; i++) {
-            expect(Math.abs(xs[i] - xs[i - 1])).toBeLessThan(0.05);
-        }
-        // ...and near the camera's copy, so the cone draws beside the marker.
-        expect(Math.abs(mercX(out[0][0]) - mercX(107.3))).toBeLessThan(0.5);
+describe('projectTrackContinuously', () => {
+    /** A faithful stub of the mercator project() INCLUDING its wrap —
+     *  wrapping is the behaviour under test. */
+    const stubMap = (centerLng: number, zoom: number) => ({
+        getZoom: () => zoom,
+        project: ([lon, lat]: [number, number]) => {
+            const wrapped = ((((lon + 180) % 360) + 360) % 360) - 180;
+            const world = 512 * Math.pow(2, zoom);
+            return {
+                x: ((wrapped - centerLng) / 360) * world + 640,
+                y: 360 - (lat / 90) * 200, // shape irrelevant; lat-only
+            } as never;
+        },
     });
 
-    it('is a UNIFORM shift — respelling can never split what sanitize joined', () => {
+    const LALA_SANE: [number, number][] = [
+        [-175.5, 33.9],
+        [-179.0, 36.6],
+        [-180.5, 38.2],
+        [-182.1, 39.8],
+    ];
+
+    const maxStep = (pts: { x: number }[]) => {
+        let m = 0;
+        for (let i = 1; i < pts.length; i++) m = Math.max(m, Math.abs(pts[i].x - pts[i - 1].x));
+        return m;
+    };
+
+    it('holds LALA together at the ISELLE camera that defeated round two', () => {
+        // camera -116.9, z2.1 — the exact configuration in the screenshot.
+        const px = projectTrackContinuously(stubMap(-116.9, 2.1) as never, LALA_SANE);
+        expect(maxStep(px)).toBeLessThan(100); // a split is ~worldPx ≈ 2194
+    });
+
+    it('holds it together at the dev camera from round two’s false pass', () => {
+        const px = projectTrackContinuously(stubMap(107.3, 3) as never, LALA_SANE);
+        expect(maxStep(px)).toBeLessThan(150);
+    });
+
+    it('holds it together at a camera ON the antimeridian', () => {
+        const px = projectTrackContinuously(stubMap(180, 4) as never, LALA_SANE);
+        expect(maxStep(px)).toBeLessThan(300);
+    });
+
+    it('is exact for an ordinary in-range track', () => {
         const track: [number, number][] = [
-            [178, -16],
-            [180.4, -17],
-            [183.2, -18],
-        ];
-        const out = respellTrackForProjection(track, -170);
-        const d0 = out[0][0] - track[0][0];
-        for (let i = 0; i < track.length; i++) {
-            expect(out[i][0] - track[i][0]).toBe(d0);
-        }
-        expect(Math.abs(d0 % 360)).toBe(0);
-    });
-
-    it('leaves a same-copy track byte-identical', () => {
-        const t: [number, number][] = [
             [152, -27],
             [153, -26],
         ];
-        expect(respellTrackForProjection(t, 150)).toBe(t);
+        const m = stubMap(150, 5);
+        const px = projectTrackContinuously(m as never, track);
+        const direct = track.map((p) => (m.project as (q: [number, number]) => { x: number; y: number })(p));
+        expect(px[0].x).toBeCloseTo(direct[0].x, 6);
+        expect(px[1].x).toBeCloseTo(direct[1].x, 6);
+        expect(px[1].y).toBeCloseTo(direct[1].y, 6);
     });
 });
 
-describe('both SVG projection sites respell before projecting', () => {
-    it('past tube and forecast cone both go respell(sanitize(...)) → project', () => {
+describe('both SVG projection sites use the continuous projector', () => {
+    it('past tube and forecast cone both project through the continuous projector', () => {
         const srcNow = readFileSync('components/map/useCycloneLayer.ts', 'utf8');
-        const sites = [...srcNow.matchAll(/respellTrackForProjection\(\s*\n?\s*sanitizeTrackLongitudes\(/g)];
+        const sites = [...srcNow.matchAll(/projectTrackContinuously\(map, sane/g)];
         expect(sites.length).toBe(2);
+        // No SVG site may call map.project on track points directly any more —
+        // its per-point wrap is the whole bug.
+        expect(srcNow).not.toMatch(/px: map\.project\(lonLat\)/);
         // The GL sleeve stays UNRESPELLED on purpose: the GeoJSON pipeline
         // handles continuous spellings correctly, and respelling there would
         // couple stored geometry to a transient camera position.
