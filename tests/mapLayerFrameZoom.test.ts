@@ -8,16 +8,18 @@ import {
 import { RAINVIEWER_NATIVE_MAX_ZOOM } from '../services/weather/api/rainviewerTiles';
 
 describe('weather-layer framing zooms', () => {
-    it('opens wind at z9 local-first, rain at its regional z5 frame', () => {
-        expect(LAYER_FRAME_ZOOM.wind).toBe(9);
-        expect(LAYER_FRAME_ZOOM.velocity).toBe(9);
-        expect(LAYER_FRAME_ZOOM.rain).toBe(5);
-        // Local-first (Shane 2026-08-22), reversing the z3 synoptic frame.
-        // This also drives WindDataController onto the fine local grid, which
-        // is what makes wind paint quickly — see mapConstants for the why.
-        expect(getActiveLayerFrameZoom(new Set<WeatherLayer>(['wind']))).toBe(9);
-        expect(getActiveLayerFrameZoom(new Set<WeatherLayer>(['velocity']))).toBe(9);
-        expect(getActiveLayerFrameZoom(new Set<WeatherLayer>(['rain']))).toBe(5);
+    it('opens wind and rain at the same regional z7 frame', () => {
+        // Both moved to z7 on 2026-08-24. Wind was z9 — a harbour frame, too
+        // tight to watch a system move through; rain was z5, wide enough that
+        // the cell you care about is a smudge. They also now match
+        // MULTI_LAYER_FRAME_ZOOM, so stacking a second overlay on either one
+        // does not move the camera at all.
+        expect(LAYER_FRAME_ZOOM.wind).toBe(7);
+        expect(LAYER_FRAME_ZOOM.velocity).toBe(7);
+        expect(LAYER_FRAME_ZOOM.rain).toBe(7);
+        expect(getActiveLayerFrameZoom(new Set<WeatherLayer>(['wind']))).toBe(7);
+        expect(getActiveLayerFrameZoom(new Set<WeatherLayer>(['velocity']))).toBe(7);
+        expect(getActiveLayerFrameZoom(new Set<WeatherLayer>(['rain']))).toBe(7);
     });
 
     it('leaves the other weather-layer frames unchanged', () => {
@@ -33,9 +35,10 @@ describe('weather-layer framing zooms', () => {
     // They shared a number once: wind's floor was max(LAYER_FRAME_ZOOM.wind, 3),
     // which was right only because the frame also happened to be 3. Moving the
     // frame to z9 moved the floor with it and pinned the chart at one zoom
-    // level — the map would not zoom out at all.
-    it('lets wind open local at z9 while still pinching out to z3', () => {
-        expect(LAYER_FRAME_ZOOM.wind).toBe(9);
+    // level — the map would not zoom out at all. Still the invariant after the
+    // frame moved 9 → 7: what matters is that they are decided separately.
+    it('lets wind open regional at z7 while still pinching out to z3', () => {
+        expect(LAYER_FRAME_ZOOM.wind).toBe(7);
         expect(LAYER_MIN_ZOOM.wind).toBe(3);
         expect(LAYER_MIN_ZOOM.velocity).toBe(3);
         // The floor must be strictly below the frame, or there is no range to
@@ -51,8 +54,8 @@ describe('weather-layer framing zooms', () => {
     });
 
     it('keeps rain within one step of RainViewer native tiles', () => {
-        // Rain's frame is a dial Shane is still turning (z5 → z8 → z5 across
-        // 22-23 Aug). This is the constraint that does NOT move: past
+        // Rain's frame is a dial Shane keeps turning (z5 → z8 → z5 → z7 across
+        // 22-24 Aug). This is the constraint that does NOT move: past
         // RAINVIEWER_NATIVE_MAX_ZOOM (7) Mapbox overzooms the z7 image, so a
         // closer frame buys VIEW, not detail — and beyond z8 it is purely
         // magnifying the same pixels.

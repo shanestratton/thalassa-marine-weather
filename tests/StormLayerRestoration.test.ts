@@ -22,20 +22,28 @@ const squall = read('components/map/useSquallMap.ts');
 const cyclone = read('components/map/useCycloneLayer.ts');
 
 describe('squall keeps its satellite cloud half', () => {
-    it('mounts NASA GIBS Himawari IR alongside the precipitation cells', () => {
-        expect(squall).toContain('Himawari_AHI_Band13_Clean_Infrared');
-        expect(squall).toContain('gibs.earthdata.nasa.gov');
+    it('mounts the world cloud layer alongside the precipitation cells', () => {
+        // Was NASA GIBS Himawari Band 13 (2026-08-21 → 2026-08-24). Replaced
+        // by the SAME cloud layer the Sky menu serves, so the punter sees one
+        // cloud field with one appearance whichever page they are on — and it
+        // is a true overlay, which GIBS never was.
+        expect(squall).toContain("getTileUrl('clouds')");
+        expect(squall).not.toContain('Himawari_AHI_Band13_Clean_Infrared');
         expect(squall).toContain('squall-ir-layer');
         // The precip layer must still be there — this is a COMPOSITE, and
         // restoring one half by replacing the other would repeat the mistake.
         expect(squall).toContain('squall-rainbow-layer');
     });
 
-    it('caps the IR source at the zoom GIBS actually serves', () => {
-        // GoogleMapsCompatible_Level6 stops at z6 while the precip layer runs
-        // to z8; without the cap every tile past z6 would 404.
-        expect(squall).toContain('GIBS_MAX_ZOOM = 6');
-        expect(squall).toContain('maxzoom: GIBS_MAX_ZOOM');
+    it('caps the cloud source at the zoom its provider actually serves', () => {
+        // The cap itself is the invariant; the number moved with the source.
+        // GIBS stopped at z6 while the precip layer runs to z8, so cloud was
+        // the half that stopped sharpening first. OWM's rasters run to z9,
+        // which clears precip's ceiling — and the number is read from
+        // TILE_SOURCE_MAX_ZOOM rather than restated, so the Sky layer and the
+        // storm page cannot drift apart.
+        expect(squall).toContain("maxzoom: tileSourceMaxZoom('clouds')");
+        expect(squall).not.toContain('GIBS_MAX_ZOOM');
     });
 
     it('lets either half fail without taking the other down', () => {
@@ -46,7 +54,7 @@ describe('squall keeps its satellite cloud half', () => {
         // snapshot). Any Rainbow hiccup silently took the clouds with it —
         // which is exactly what Shane saw on 2026-08-21.
         //
-        // GIBS needs nothing from Rainbow: no key, no proxy, no snapshot.
+        // The cloud layer needs nothing from Rainbow: no snapshot, no proxy.
         // Self-contained BY SIGNATURE: it takes the map and nothing else, so
         // it cannot be made to depend on the Rainbow snapshot or the Supabase
         // URL without changing this line.
@@ -139,21 +147,28 @@ describe('the cyclone details card exists and is mounted', () => {
     // …and that whole line of reasoning was still wrong, twice over. The
     // assertions below replace it (Shane 2026-08-23, third report of "the
     // satellite imagery is still not showing").
-    it('gets the cloud\'s alpha from the pixels, because the tile is opaque', () => {
-        // MEASURED, not reasoned. The exact URL this builds was fetched on
-        // 2026-08-23: HTTP 200, 76 080 B, PNG colour type 6 (RGBA), and
-        // alpha == 255 on 100% of sampled pixels, with the clear-sky
-        // background sitting at luminance 96-160 of 255.
+    it('uses a tile that is genuinely an overlay, so no alpha is synthesised', () => {
+        // BOTH SIDES MEASURED, and that is the whole point of this test.
         //
-        // An opaque tile is not an overlay. Under the base imagery it is
-        // invisible and over it, it greys out the world — so NO anchor could
-        // ever have fixed this, which is why two anchor rounds did nothing.
+        // GIBS Himawari Band 13, fetched 2026-08-23: HTTP 200, 76 080 B, PNG
+        // colour type 6 (RGBA), alpha == 255 on 100% of sampled pixels, clear
+        // sky at luminance 96-160/255. An opaque tile is not an overlay —
+        // under the imagery it is invisible, over it it greys out the world —
+        // so no anchor could ever have fixed it, which is why two anchor
+        // rounds did nothing and the alpha had to be ramped from brightness.
+        //
+        // OWM clouds_new, fetched 2026-08-24: HTTP 200, 90 810 B, colour type
+        // 6, 35% of sampled pixels at alpha 0 and NOT ONE at 255. Real
+        // transparency, so the ramp comes off — keeping it would fight alpha
+        // that is already right.
         const src = readFileSync('components/map/useSquallMap.ts', 'utf8');
-        const mount = src.slice(src.indexOf('function mountSatelliteLayer'), src.indexOf('function mountSquallLayer'));
-        expect(mount).toContain("'raster-color'");
-        expect(mount).toContain("'raster-color-mix'");
-        // The precip half of this same file already proved the technique on
-        // Rainbow's grayscale dbz — it just was never applied to the cloud.
+        const mount = src
+            .slice(src.indexOf('function mountSatelliteLayer'), src.indexOf('function mountSquallLayer'))
+            .replace(/\/\/[^\n]*/g, '');
+        expect(mount).not.toContain("'raster-color'");
+        expect(mount).not.toContain("'raster-color-mix'");
+        // The PRECIP half still ramps, and must: Rainbow ships grayscale dbz
+        // with no meaningful alpha, which is the case the technique is for.
         expect(src).toContain("'raster-color': SQUALL_COLOR_RAMP");
     });
 

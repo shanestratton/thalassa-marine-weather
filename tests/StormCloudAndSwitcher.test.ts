@@ -29,23 +29,30 @@ import type { ActiveCyclone } from '../services/weather/CycloneTrackingService';
 const squall = readFileSync('components/map/useSquallMap.ts', 'utf8');
 const ir = squall.slice(squall.indexOf('function mountSatelliteLayer'), squall.indexOf('function mountSquallLayer'));
 
-describe('the IR cloud gets its alpha from the pixels', () => {
-    it('ramps brightness to colour+alpha instead of relying on the stack', () => {
-        expect(ir).toContain("'raster-color'");
-        expect(ir).toContain("'raster-color-range': [0, 1]");
-        // Luminance weights, not a single channel: the product is near-grey
-        // but measurably not R==G==B.
-        expect(ir).toContain("'raster-color-mix': [0.2126, 0.7152, 0.0722, 0]");
+describe('the storm cloud layer', () => {
+    it('takes the tile’s own alpha, because the tile finally has one', () => {
+        // SUPERSEDED 2026-08-24, and worth keeping the history: the GIBS build
+        // needed a raster-color luminance ramp because Himawari Band 13 is
+        // satellite IMAGERY, not an overlay — measured RGBA with alpha 255 on
+        // 100% of sampled pixels, clear sky a mid-grey at 96-160/255. No
+        // anchor could show it and keep the chart, so the alpha had to be
+        // synthesised from brightness.
+        //
+        // OpenWeatherMap clouds_new is a real overlay. Measured 2026-08-24,
+        // z3 Coral Sea tile, 90 810 B: colour type 6, 35% of sampled pixels at
+        // alpha 0 and NOT ONE at 255. Ramping it would fight alpha that is
+        // already correct.
+        const code = ir.replace(/\/\/[^\n]*/g, '');
+        expect(code).not.toContain("'raster-color'");
+        expect(code).not.toContain("'raster-color-mix'");
+        expect(code).toContain("'raster-opacity'");
     });
 
-    it('makes the measured clear-sky band fully transparent', () => {
-        // Warm background measured at 96-160/255 → 0.38-0.63 normalised. The
-        // ramp must still be at alpha 0 above that band, or clear sky paints
-        // grey over the chart.
-        const ramp = ir.slice(ir.indexOf("'raster-color': ["), ir.indexOf('},\n            },'));
-        expect(ramp).toContain('0.64,\n                        \'rgba(255,255,255,0)\'');
-        // …and cold tops must actually be visible.
-        expect(ramp).toMatch(/1\.0,\s*'rgba\(255,255,255,0\.9\d\)'/);
+    it('resamples smoothly, now that it is overzoomed rather than capped', () => {
+        // GIBS stopped at z6 and used 'nearest' — sharp edges on a product
+        // that could not sharpen further anyway. clouds_new runs to z9 and is
+        // a smooth field, so linear is the honest choice past native.
+        expect(ir).toContain("'raster-resampling': 'linear'");
     });
 
     it('anchors above the imagery and below the chart, not on a moving layer', () => {

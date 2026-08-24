@@ -23,11 +23,24 @@ describe('wind framing on toggle', () => {
         expect(effect).toContain('if (prev === null || prev === windOn || !windOn) return;');
     });
 
-    it('targets the shared wind frame and keeps the current centre', () => {
-        expect(effect).toContain('LAYER_FRAME_ZOOM.wind');
-        expect(effect).toContain('map.getCenter()');
-        expect(effect).toContain('center: [centre.lng, centre.lat]');
-        expect(LAYER_FRAME_ZOOM.wind).toBe(9);
+    it('resolves its zoom through the shared frame helper, not wind’s number', () => {
+        // Wind alone gets wind's frame; wind in a stack gets the stack's.
+        // Hard-coding wind's own number put the camera somewhere different
+        // depending on WHICH toggle you tapped to build the same two-layer
+        // view.
+        expect(effect).toContain('frameZoomForSelection(activeLayers');
+        expect(LAYER_FRAME_ZOOM.wind).toBe(7);
+    });
+
+    it('returns to the location box rather than holding the current centre', () => {
+        // Reversed 2026-08-24. It used to keep the centre deliberately, which
+        // meant framing wind zoomed you in on wherever you had panned to
+        // instead of the water you actually selected.
+        expect(effect).toContain('frameCenterRef.current');
+        expect(effect).toContain('center: box ? [box.lon, box.lat]');
+        // ...and the no-op test must consider the centre too, or the flight is
+        // skipped while the camera sits over the wrong water at the right zoom.
+        expect(effect).toContain('centreMoved');
     });
 
     it('stays out of Plan and embedded surfaces, and does not fire on mount', () => {

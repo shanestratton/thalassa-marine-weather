@@ -161,10 +161,15 @@ export const ATMOSPHERE_LAYERS: WeatherLayer[] = ['rain', 'wind', 'velocity', 't
  * disagreed, Mapbox clamped easeTo at call time and the tap looked ineffective.
  */
 export const LAYER_FRAME_ZOOM: Partial<Record<WeatherLayer, number>> = {
-    wind: 9,
-    velocity: 9,
+    // Wind and rain both open at z7 (Shane 2026-08-24). Wind was z9, which is
+    // a harbour frame — too tight to read a system moving through; rain was z5,
+    // wide enough that a cell you care about is a smudge. z7 is the regional
+    // read both actually want, and it matches the multi-layer frame below, so
+    // stacking a second overlay no longer moves the camera at all.
+    wind: 7,
+    velocity: 7,
     currents: 7.5,
-    rain: 5,
+    rain: 7,
     pressure: 2.0,
     // Temperature and cloud both open at z4 (Shane 2026-08-23). Broad
     // fields — a sea-surface temperature gradient or a cloud band is a
@@ -238,12 +243,40 @@ export const LAYER_MIN_ZOOM: Partial<Record<WeatherLayer, number>> = {
     pressure: LAYER_FRAME_ZOOM.pressure,
 };
 
+/**
+ * The frame for a STACK rather than a single overlay (Shane 2026-08-24).
+ *
+ * Per-layer frames are chosen for that layer read alone, and they disagree —
+ * pressure opens synoptic at z2, temperature and cloud at z4. Once the AIR
+ * layers can all be up together (they stopped being mutually exclusive on the
+ * same day) whichever one you happened to tap last would otherwise dictate the
+ * camera for the whole stack, so adding cloud to wind threw away the frame you
+ * were working in. One shared frame for any combination removes the question.
+ */
+export const MULTI_LAYER_FRAME_ZOOM = 7;
+
 /** Resolve the first active overlay's authoritative framing zoom. */
 export function getActiveLayerFrameZoom(activeLayers: ReadonlySet<WeatherLayer>): number | undefined {
+    if (activeLayers.size > 1) return MULTI_LAYER_FRAME_ZOOM;
     for (const layer of Object.keys(LAYER_FRAME_ZOOM) as WeatherLayer[]) {
         if (activeLayers.has(layer)) return LAYER_FRAME_ZOOM[layer];
     }
     return undefined;
+}
+
+/**
+ * What zoom should the camera take when `newlyOn` has just come up?
+ *
+ * More than one overlay active means the stack frame wins regardless of which
+ * layer was tapped — including combinations that have no frame of their own
+ * (cloud + temperature), which previously left the camera wherever it was.
+ */
+export function frameZoomForSelection(
+    activeLayers: ReadonlySet<WeatherLayer>,
+    newlyOn: WeatherLayer,
+): number | undefined {
+    if (activeLayers.size > 1) return MULTI_LAYER_FRAME_ZOOM;
+    return LAYER_FRAME_ZOOM[newlyOn];
 }
 
 // ── Tile sources ──
