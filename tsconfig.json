@@ -37,6 +37,7 @@
         "supabase/**/*",
         "pi-cache/**/*",
         "cloudflare-worker/**/*",
+        "workers/**/*",
         "**/scratch*.ts",
         "**/scratch*.tsx",
         "dist/**/*",
