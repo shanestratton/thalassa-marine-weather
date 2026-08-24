@@ -32,6 +32,7 @@ import {
     LAYER_FRAME_ZOOM,
     SEA_STATE_LAYERS,
 } from './mapConstants';
+import { CLOUD_DENSITY, CLOUD_OPACITY } from './cloudOverlay';
 import { createWindLabelMarker } from '../../utils/createMarkerEl';
 import {
     initIsobarLayers,
@@ -1627,8 +1628,7 @@ export function useWeatherLayers(
         const target = frameZoomForSelection(activeLayers, 'wind') ?? LAYER_FRAME_ZOOM.wind ?? 7;
         const box = frameCenterRef.current;
         const centre = map.getCenter();
-        const centreMoved =
-            !!box && (Math.abs(centre.lat - box.lat) > 1e-6 || Math.abs(centre.lng - box.lon) > 1e-6);
+        const centreMoved = !!box && (Math.abs(centre.lat - box.lat) > 1e-6 || Math.abs(centre.lng - box.lon) > 1e-6);
         // Nothing to do only when BOTH already match — the zoom test alone
         // used to skip the flight while the camera sat over the wrong water.
         if (Math.abs(map.getZoom() - target) < 0.05 && !centreMoved) return;
@@ -1811,6 +1811,9 @@ export function useWeatherLayers(
             const tileId = `tiles-${tl}`;
             if (!activeLayers.has(tl)) {
                 try {
+                    // The cloud doubling pass shares the source, so it must go
+                    // before the base layer or the source removal below throws.
+                    if (map.getLayer(`${tileId}-2`)) map.removeLayer(`${tileId}-2`);
                     if (map.getLayer(tileId)) map.removeLayer(tileId);
                 } catch (_) {
                     log.warn('[useWeatherLayers]', _);
@@ -2406,34 +2409,42 @@ export function useWeatherLayers(
                 const LAYER_OPACITY: Partial<Record<WeatherLayer, number>> = {
                     sea: 1.0,
                     temperature: 0.6,
-                    clouds: 0.6,
+                    // Clouds take the SHARED density knobs from cloudOverlay —
+                    // the storm page and the Sky menu must be one cloud, one
+                    // look, or they drift apart the way the two satellite
+                    // implementations did (Shane 2026-08-24: "a double layer
+                    // of the clouds under the SKY layer... super cool").
+                    clouds: CLOUD_OPACITY,
                     waves: 0.65,
                     currents: 0.65,
                     sst: 0.65,
                     // wind-gusts/visibility/cape opacities removed with Xweather decommission.
                 };
-                map.addLayer(
-                    {
-                        id: tileId,
-                        type: 'raster',
-                        source: tileId,
-                        paint: {
-                            'raster-opacity': LAYER_OPACITY[tl] ?? 0.65,
-                            // Kill Mapbox's default 300ms cross-fade — OWM
-                            // tiles for clouds/temperature are a single
-                            // static layer (no animation), so the fade is
-                            // pure visual fluff that costs a paint cycle
-                            // on every tile load. Match the satellite base
-                            // layer which already runs with fade-duration 0.
-                            'raster-fade-duration': 0,
-                            // Smooth resampling when Mapbox overzooms past
-                            // OWM's source maxzoom — looks better on a phone
-                            // pinch-in without costing extra bandwidth.
-                            'raster-resampling': 'linear',
-                        },
-                    },
-                    map.getLayer('route-line-layer') ? 'route-line-layer' : undefined,
-                );
+                const paint = {
+                    'raster-opacity': LAYER_OPACITY[tl] ?? 0.65,
+                    // Kill Mapbox's default 300ms cross-fade — OWM
+                    // tiles for clouds/temperature are a single
+                    // static layer (no animation), so the fade is
+                    // pure visual fluff that costs a paint cycle
+                    // on every tile load. Match the satellite base
+                    // layer which already runs with fade-duration 0.
+                    'raster-fade-duration': 0,
+                    // Smooth resampling when Mapbox overzooms past
+                    // OWM's source maxzoom — looks better on a phone
+                    // pinch-in without costing extra bandwidth.
+                    'raster-resampling': 'linear',
+                } as const;
+                const beforeId = map.getLayer('route-line-layer') ? 'route-line-layer' : undefined;
+                map.addLayer({ id: tileId, type: 'raster', source: tileId, paint }, beforeId);
+                if (tl === 'clouds' && CLOUD_DENSITY === 2) {
+                    // The doubling pass: SAME source, so Mapbox fetches zero
+                    // extra tiles — one more composite of tiles already in
+                    // memory. Alpha a over itself is 1-(1-a)², which lifts
+                    // thin cloud hard (0.30→0.51) while clear sky stays
+                    // exactly 0 — definition without fogging the chart. See
+                    // cloudOverlay.ts for the full arithmetic.
+                    map.addLayer({ id: `${tileId}-2`, type: 'raster', source: tileId, paint }, beforeId);
+                }
                 log.info(`Added tile layer: ${tileId}`);
             } catch (err) {
                 log.warn(`Failed to add tile layer ${tileId}:`, err);

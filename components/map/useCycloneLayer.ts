@@ -36,7 +36,6 @@ import { createLogger } from '../../utils/createLogger';
  */
 export const CYCLONE_OPEN_ZOOM = 2.1;
 
-
 // ── Lazy-loaded heavy services (split into separate chunks) ──
 // These are only fetched when the cyclone layer is activated.
 const getCycloneService = () => import('../../services/weather/CycloneTrackingService');
@@ -453,11 +452,16 @@ function createTrackOverlay(map: mapboxgl.Map): {
         for (const c of storedCyclones) {
             if (c.track.length < 2) continue;
 
-            // Project all track points to screen pixels
-            const projected = c.track.map((p) => ({
-                px: map.project([p.lon, p.lat]),
-                point: p,
+            // Project all track points to screen pixels — through the same
+            // longitude sanitizer as the GL geometry. map.project() of a raw
+            // sign-flipped pair puts consecutive screen points a whole world
+            // apart, and the SVG tube then spans the viewport.
+            const sanePast = sanitizeTrackLongitudes(c.track.map((p) => [p.lon, p.lat] as [number, number]));
+            const projected = sanePast.map((lonLat, i) => ({
+                px: map.project(lonLat),
+                point: c.track[i],
             }));
+            if (projected.length < 2) continue;
 
             // Smooth the past track with Catmull-Rom spline (same as forecast)
             const rawTrackPts = projected.map((p) => [p.px.x, p.px.y] as [number, number]);
@@ -515,9 +519,15 @@ function createTrackOverlay(map: mapboxgl.Map): {
             // ── "New Wave" Neon Tube + Forecast dots ──
             if (c.forecastTrack && c.forecastTrack.length > 0) {
                 const forecastAll = [c.currentPosition, ...c.forecastTrack];
-                const fcProjected = forecastAll.map((p) => ({
-                    px: map.project([p.lon, p.lat]),
-                    point: p,
+                // Same sanitizer as the GL sleeve — THIS screen-space cone is
+                // the shape that read as "the entire planet as its possible
+                // track": one Date-Line sign flip projected the next cone
+                // vertex a full world away, and the expanding error margins
+                // were drawn around that.
+                const saneFc = sanitizeTrackLongitudes(forecastAll.map((p) => [p.lon, p.lat] as [number, number]));
+                const fcProjected = saneFc.map((lonLat, i) => ({
+                    px: map.project(lonLat),
+                    point: forecastAll[i],
                 }));
 
                 // Project forecast points to screen space
@@ -1049,6 +1059,55 @@ function catmullRomSpline(points: [number, number][], segments: number = 8, _alp
 }
 
 /**
+ * Make a storm track's longitudes CONTINUOUS, and refuse the impossible.
+ *
+ * THE ENTIRE-PLANET CONE (Shane 2026-08-24: "a certain storm that has the
+ * entire planet as its possible track"). Track feeds hand back longitudes in
+ * [-180, 180], so a South Pacific storm crossing the Date Line steps from
+ * +179.5 to -179.8 — a 0.7° move spelled as -359.3°. Nothing in this pipeline
+ * unwrapped that: the Catmull-Rom spline interpolated THROUGH the wrong
+ * 359.3°, planting ten synthetic points across Africa and the Atlantic, and
+ * buildSleevePolygon then inflated its error margins around that world-tour
+ * centreline. One sign flip, one planet-wide "possible track".
+ *
+ * Unwrap: each point is shifted by whole turns until it sits within 180° of
+ * its predecessor — the same continuous-axis treatment the wind pipeline uses
+ * (windLongitude.ts). Mapbox renders longitudes beyond ±180 correctly on the
+ * adjacent world copy, so the unwrapped spelling is safe to hand straight to
+ * a GeoJSON source.
+ *
+ * Truncate: after unwrapping, a step of more than MAX_PLAUSIBLE_STEP_DEG is
+ * not a fast storm — the fastest recorded cyclones move ~1°/hour, and
+ * forecast points arrive at 6-24 h spacing — it is a corrupt fix (a null
+ * island 0/0, a broken advisory row). The track is CUT at the last sane
+ * point rather than repaired: drawing invented geometry on a safety display
+ * is worse than drawing a shorter, honest one.
+ */
+const MAX_PLAUSIBLE_STEP_DEG = 30;
+
+export function sanitizeTrackLongitudes(points: [number, number][]): [number, number][] {
+    if (points.length === 0) return points;
+    const out: [number, number][] = [];
+    for (const [lon, lat] of points) {
+        if (!Number.isFinite(lon) || !Number.isFinite(lat) || Math.abs(lat) > 90) break;
+        if (out.length === 0) {
+            out.push([lon, lat]);
+            continue;
+        }
+        const prev = out[out.length - 1];
+        let next = lon;
+        while (next - prev[0] > 180) next -= 360;
+        while (next - prev[0] < -180) next += 360;
+        // Still implausible once the spelling is fixed → corrupt fix; cut here.
+        if (Math.abs(next - prev[0]) > MAX_PLAUSIBLE_STEP_DEG || Math.abs(lat - prev[1]) > MAX_PLAUSIBLE_STEP_DEG) {
+            break;
+        }
+        out.push([next, lat]);
+    }
+    return out;
+}
+
+/**
  * Build the probability sleeve polygon using standard maritime forecast error margins.
  * Error radii (nautical miles):
  *   0h → 0nm, 12h → 30nm, 24h → 50nm, 48h → 90nm, 72h → 130nm, 120h → 200nm
@@ -1146,11 +1205,13 @@ function addProbabilitySleeve(map: mapboxgl.Map, cyclone: ActiveCyclone): void {
     const forecast = cyclone.forecastTrack;
     if (!forecast || forecast.length < 2) return;
 
-    // Build the track centerline from current position through forecast
-    const allPoints: [number, number][] = [
+    // Build the track centerline from current position through forecast —
+    // continuous longitudes, corrupt fixes cut (see sanitizeTrackLongitudes).
+    const allPoints: [number, number][] = sanitizeTrackLongitudes([
         [cyclone.currentPosition.lon, cyclone.currentPosition.lat],
         ...forecast.map((p) => [p.lon, p.lat] as [number, number]),
-    ];
+    ]);
+    if (allPoints.length < 2) return;
 
     // Calculate total forecast hours from timestamps
     let totalHours = 120;
@@ -1630,7 +1691,9 @@ export function useCycloneLayer(
                     if (map.getSource(srcId)) map.removeSource(srcId);
 
                     // Build coordinate array from track history + current position
-                    const trackCoords: [number, number][] = c.track.map((p) => [p.lon, p.lat] as [number, number]);
+                    const trackCoords: [number, number][] = sanitizeTrackLongitudes(
+                        c.track.map((p) => [p.lon, p.lat] as [number, number]),
+                    );
 
                     log.info(`[CYCLONE] 🛤️ ${c.name} past track: ${trackCoords.length} points`);
 
@@ -1918,10 +1981,8 @@ export function useCycloneLayer(
         // the other three are off-screen and there is nothing left to tap.
         // The only route back was the StormPicker modal, which is the menu he
         // is describing. A stepper on the card needs no camera and no modal.
-        const switcher = createStormSwitcher(
-            cyclonesRef.current,
-            selectedStorm,
-            (next) => onSelectStormRef.current?.(next),
+        const switcher = createStormSwitcher(cyclonesRef.current, selectedStorm, (next) =>
+            onSelectStormRef.current?.(next),
         );
         if (switcher) hud.appendChild(switcher);
         map.getContainer().appendChild(hud);
