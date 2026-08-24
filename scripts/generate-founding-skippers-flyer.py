@@ -145,33 +145,9 @@ def draw_background(pdf: canvas.Canvas) -> None:
     pdf.setFillColor(SLATE_950)
     pdf.rect(0, 0, PAGE_WIDTH, PAGE_HEIGHT, fill=1, stroke=0)
 
-    # A restrained chart-like horizon and current pattern keeps the page
-    # unmistakably marine without relying on a low-resolution photograph.
+    # A restrained navigation arc gives the page motion without placing
+    # decorative strokes through the recruitment copy.
     pdf.saveState()
-    _set_alpha(pdf, stroke=0.16)
-    pdf.setStrokeColor(TEAL)
-    pdf.setLineWidth(0.7)
-    for offset in (0, 7 * mm, 14 * mm):
-        path = pdf.beginPath()
-        path.moveTo(-8 * mm, PAGE_HEIGHT - 88 * mm - offset)
-        path.curveTo(
-            45 * mm,
-            PAGE_HEIGHT - 74 * mm - offset,
-            82 * mm,
-            PAGE_HEIGHT - 102 * mm - offset,
-            135 * mm,
-            PAGE_HEIGHT - 87 * mm - offset,
-        )
-        path.curveTo(
-            164 * mm,
-            PAGE_HEIGHT - 79 * mm - offset,
-            189 * mm,
-            PAGE_HEIGHT - 93 * mm - offset,
-            219 * mm,
-            PAGE_HEIGHT - 84 * mm - offset,
-        )
-        pdf.drawPath(path, fill=0, stroke=1)
-
     _set_alpha(pdf, stroke=0.22)
     pdf.setStrokeColor(ORANGE)
     pdf.setLineWidth(1.1)
@@ -244,16 +220,18 @@ def draw_header(pdf: canvas.Canvas) -> None:
         pdf.drawString(title_x, title_y, line)
         title_y -= 14.5 * mm
 
-    subhead = "Help shape an Australian-built marine companion for real boats, in real conditions."
+    subhead = "Help shape Thalassa - an Australian-built marine companion for real boats and real conditions."
     draw_wrapped_text(
         pdf,
         subhead,
         PAGE_MARGIN,
         PAGE_HEIGHT - 98 * mm,
-        max_width=CONTENT_WIDTH,
+        # Leave a deliberate right-side safety margin. Helvetica's visual
+        # overhang made the former full-width line look clipped in print.
+        max_width=150 * mm,
         font="Helvetica-Bold",
-        size=15,
-        leading=18,
+        size=14.3,
+        leading=17.2,
         color=SLATE_300,
         max_lines=2,
     )
@@ -370,7 +348,6 @@ def draw_qr(pdf: canvas.Canvas, x: float, y: float, size: float) -> None:
 
     widget = QrCodeWidget(QR_TARGET)
     widget.barFillColor = SLATE_950
-    widget.barStrokeColor = None
     left, bottom, right, top = widget.getBounds()
     widget_width = right - left
     widget_height = top - bottom
@@ -397,7 +374,9 @@ def draw_call_to_action(pdf: canvas.Canvas) -> None:
     pdf.roundRect(panel_x, panel_y, panel_width, panel_height, 5 * mm, fill=1, stroke=1)
 
     text_x = panel_x + 7 * mm
-    text_width = 111 * mm
+    # Stop every line well before the QR tile, even after printer scaling or
+    # PDF viewer font substitution.
+    text_width = 99 * mm
     pdf.setFillColor(white)
     pdf.setFont("Helvetica-Bold", 20)
     pdf.drawString(text_x, panel_y + panel_height - 15 * mm, "TAKE IT BOATING.")
@@ -416,10 +395,10 @@ def draw_call_to_action(pdf: canvas.Canvas) -> None:
         panel_y + panel_height - 37 * mm,
         max_width=text_width,
         font="Helvetica",
-        size=10.2,
-        leading=13.2,
+        size=9.8,
+        leading=12.4,
         color=SLATE_300,
-        max_lines=5,
+        max_lines=6,
     )
 
     draw_tracked_text(

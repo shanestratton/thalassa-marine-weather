@@ -44,9 +44,7 @@ export interface FoundingSkipperApplication {
 
 const SUPABASE_URL = (import.meta.env.VITE_SUPABASE_URL || '').replace(/\/$/, '');
 
-export async function submitFoundingSkipperApplication(
-    application: FoundingSkipperApplication,
-): Promise<void> {
+export async function submitFoundingSkipperApplication(application: FoundingSkipperApplication): Promise<void> {
     if (!SUPABASE_URL) throw new Error('Applications are not connected yet.');
 
     const controller = new AbortController();

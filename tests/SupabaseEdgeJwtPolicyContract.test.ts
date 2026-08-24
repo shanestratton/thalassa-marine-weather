@@ -32,6 +32,7 @@ const EXISTING_CREDENTIALLESS_ALLOWLIST = {
     'proxy-himawari-ir': 'map raster source that cannot attach Authorization',
     'proxy-rainbow': 'credentialless Pi passthrough with a per-client public quota',
     'voyage-log': 'public shore-contact link with a scoped published-data response',
+    'founding-skipper-application': 'public application form with HMAC per-client quota and service-role-only RPC',
 } as const;
 
 // These six match live gateway reality but are deliberately not persisted by

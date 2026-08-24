@@ -10,7 +10,12 @@ import {
 } from './foundingSkipperApplication';
 
 type SubmitApplication = (application: FoundingSkipperApplication) => Promise<void>;
-type FieldErrors = Partial<Record<'name' | 'email' | 'boatType' | 'homeWaters' | 'appleDevice' | 'boatingFrequency' | 'interests' | 'consent', string>>;
+type FieldErrors = Partial<
+    Record<
+        'name' | 'email' | 'boatType' | 'homeWaters' | 'appleDevice' | 'boatingFrequency' | 'interests' | 'consent',
+        string
+    >
+>;
 
 interface FoundingSkippersPageProps {
     submitApplication?: SubmitApplication;
@@ -37,7 +42,8 @@ function validate(values: {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(values.email.trim())) errors.email = 'Add a valid email address.';
     if (!BOAT_TYPES.some((option) => option.value === values.boatType)) errors.boatType = 'Choose your boat type.';
     if (values.homeWaters.trim().length < 2) errors.homeWaters = 'Add the region where you usually go boating.';
-    if (!APPLE_DEVICES.some((option) => option.value === values.appleDevice)) errors.appleDevice = 'Choose your Apple device.';
+    if (!APPLE_DEVICES.some((option) => option.value === values.appleDevice))
+        errors.appleDevice = 'Choose your Apple device.';
     if (!BOATING_FREQUENCIES.some((option) => option.value === values.boatingFrequency)) {
         errors.boatingFrequency = 'Tell us roughly how often you get on the water.';
     }
@@ -48,7 +54,11 @@ function validate(values: {
 
 function FieldError({ id, children }: { id: string; children?: string }) {
     if (!children) return null;
-    return <p id={id} className="beta-field-error">{children}</p>;
+    return (
+        <p id={id} className="beta-field-error">
+            {children}
+        </p>
+    );
 }
 
 export function FoundingSkippersPage({
@@ -71,7 +81,9 @@ export function FoundingSkippersPage({
     const [submitError, setSubmitError] = useState('');
 
     const toggleInterest = (value: string) => {
-        setInterests((current) => current.includes(value) ? current.filter((item) => item !== value) : [...current, value]);
+        setInterests((current) =>
+            current.includes(value) ? current.filter((item) => item !== value) : [...current, value],
+        );
         setErrors((current) => ({ ...current, interests: undefined }));
     };
 
@@ -79,7 +91,16 @@ export function FoundingSkippersPage({
         event.preventDefault();
         if (sendingRef.current) return;
 
-        const nextErrors = validate({ name, email, boatType, homeWaters, appleDevice, boatingFrequency, interests, consent });
+        const nextErrors = validate({
+            name,
+            email,
+            boatType,
+            homeWaters,
+            appleDevice,
+            boatingFrequency,
+            interests,
+            consent,
+        });
         setErrors(nextErrors);
         setSubmitError('');
         if (Object.keys(nextErrors).length > 0) {
@@ -107,7 +128,9 @@ export function FoundingSkippersPage({
             setStatus('success');
         } catch (error) {
             setStatus('error');
-            setSubmitError(error instanceof Error ? error.message : 'We could not send that application. Please try again.');
+            setSubmitError(
+                error instanceof Error ? error.message : 'We could not send that application. Please try again.',
+            );
         } finally {
             sendingRef.current = false;
         }
@@ -115,7 +138,9 @@ export function FoundingSkippersPage({
 
     return (
         <div className="beta-page">
-            <a href="#application" className="beta-skip-link">Skip to application</a>
+            <a href="#application" className="beta-skip-link">
+                Skip to application
+            </a>
             <div className="beta-orb beta-orb-one" aria-hidden="true" />
             <div className="beta-orb beta-orb-two" aria-hidden="true" />
 
@@ -127,23 +152,45 @@ export function FoundingSkippersPage({
                         <small>MARINE DATA &amp; NAVIGATION</small>
                     </span>
                 </a>
-                <span className="beta-status-pill"><i aria-hidden="true" /> Applications open</span>
+                <span className="beta-status-pill">
+                    <i aria-hidden="true" /> Applications open
+                </span>
             </header>
 
             <main className="beta-layout">
                 <section className="beta-intro" aria-labelledby="beta-heading">
                     <p className="beta-kicker">MORETON BAY · PUBLIC BETA</p>
-                    <h1 id="beta-heading">Built for the water.<br /><em>Tested by skippers.</em></h1>
+                    <h1 id="beta-heading">
+                        Built for the water.
+                        <br />
+                        <em>Tested by skippers.</em>
+                    </h1>
                     <p className="beta-lead">
                         Help shape Thalassa, an Australian-built marine companion for real boats in real conditions.
                         Take it boating, push it hard, and give us straight-up feedback.
                     </p>
 
                     <div className="beta-feature-grid" aria-label="Features to test">
-                        <article><span>01</span><strong>Marine weather</strong><small>Clear conditions and forecasts</small></article>
-                        <article><span>02</span><strong>Passage tools</strong><small>Planning and shareable float plans</small></article>
-                        <article><span>03</span><strong>Anchor Watch</strong><small>Practical awareness at rest</small></article>
-                        <article><span>04</span><strong>Voyage logging</strong><small>Your time on the water, captured</small></article>
+                        <article>
+                            <span>01</span>
+                            <strong>Marine weather</strong>
+                            <small>Clear conditions and forecasts</small>
+                        </article>
+                        <article>
+                            <span>02</span>
+                            <strong>Passage tools</strong>
+                            <small>Planning and shareable float plans</small>
+                        </article>
+                        <article>
+                            <span>03</span>
+                            <strong>Anchor Watch</strong>
+                            <small>Practical awareness at rest</small>
+                        </article>
+                        <article>
+                            <span>04</span>
+                            <strong>Voyage logging</strong>
+                            <small>Your time on the water, captured</small>
+                        </article>
                     </div>
 
                     <aside className="beta-fit-card">
@@ -159,11 +206,18 @@ export function FoundingSkippersPage({
                 <section className="beta-form-shell" id="application" aria-labelledby="application-heading">
                     {status === 'success' ? (
                         <div className="beta-success" role="status" aria-live="polite">
-                            <div className="beta-success-mark" aria-hidden="true">✓</div>
+                            <div className="beta-success-mark" aria-hidden="true">
+                                ✓
+                            </div>
                             <p className="beta-kicker">APPLICATION RECEIVED</p>
                             <h2>You're on the crew list.</h2>
-                            <p>Thanks, {name.trim().split(/\s+/)[0]}. We'll review your application and email you with the next step.</p>
-                            <p className="beta-success-note">In the meantime, keep an eye on your inbox and your spam folder.</p>
+                            <p>
+                                Thanks, {name.trim().split(/\s+/)[0]}. We'll review your application and email you with
+                                the next step.
+                            </p>
+                            <p className="beta-success-note">
+                                In the meantime, keep an eye on your inbox and your spam folder.
+                            </p>
                         </div>
                     ) : (
                         <>
@@ -187,7 +241,10 @@ export function FoundingSkippersPage({
                                             name="name"
                                             autoComplete="name"
                                             value={name}
-                                            onChange={(event) => { setName(event.target.value); setErrors((current) => ({ ...current, name: undefined })); }}
+                                            onChange={(event) => {
+                                                setName(event.target.value);
+                                                setErrors((current) => ({ ...current, name: undefined }));
+                                            }}
                                             required
                                             maxLength={80}
                                             aria-invalid={Boolean(errors.name)}
@@ -204,7 +261,10 @@ export function FoundingSkippersPage({
                                             inputMode="email"
                                             autoComplete="email"
                                             value={email}
-                                            onChange={(event) => { setEmail(event.target.value); setErrors((current) => ({ ...current, email: undefined })); }}
+                                            onChange={(event) => {
+                                                setEmail(event.target.value);
+                                                setErrors((current) => ({ ...current, email: undefined }));
+                                            }}
                                             required
                                             maxLength={254}
                                             aria-invalid={Boolean(errors.email)}
@@ -221,13 +281,20 @@ export function FoundingSkippersPage({
                                         <select
                                             name="boatType"
                                             value={boatType}
-                                            onChange={(event) => { setBoatType(event.target.value); setErrors((current) => ({ ...current, boatType: undefined })); }}
+                                            onChange={(event) => {
+                                                setBoatType(event.target.value);
+                                                setErrors((current) => ({ ...current, boatType: undefined }));
+                                            }}
                                             required
                                             aria-invalid={Boolean(errors.boatType)}
                                             aria-describedby={errors.boatType ? 'boat-type-error' : undefined}
                                         >
                                             <option value="">Choose one</option>
-                                            {BOAT_TYPES.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                                            {BOAT_TYPES.map((option) => (
+                                                <option key={option.value} value={option.value}>
+                                                    {option.label}
+                                                </option>
+                                            ))}
                                         </select>
                                         <FieldError id="boat-type-error">{errors.boatType}</FieldError>
                                     </label>
@@ -236,13 +303,20 @@ export function FoundingSkippersPage({
                                         <select
                                             name="appleDevice"
                                             value={appleDevice}
-                                            onChange={(event) => { setAppleDevice(event.target.value); setErrors((current) => ({ ...current, appleDevice: undefined })); }}
+                                            onChange={(event) => {
+                                                setAppleDevice(event.target.value);
+                                                setErrors((current) => ({ ...current, appleDevice: undefined }));
+                                            }}
                                             required
                                             aria-invalid={Boolean(errors.appleDevice)}
                                             aria-describedby={errors.appleDevice ? 'device-error' : undefined}
                                         >
                                             <option value="">Choose one</option>
-                                            {APPLE_DEVICES.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                                            {APPLE_DEVICES.map((option) => (
+                                                <option key={option.value} value={option.value}>
+                                                    {option.label}
+                                                </option>
+                                            ))}
                                         </select>
                                         <FieldError id="device-error">{errors.appleDevice}</FieldError>
                                     </label>
@@ -254,14 +328,19 @@ export function FoundingSkippersPage({
                                         name="homeWaters"
                                         autoComplete="off"
                                         value={homeWaters}
-                                        onChange={(event) => { setHomeWaters(event.target.value); setErrors((current) => ({ ...current, homeWaters: undefined })); }}
+                                        onChange={(event) => {
+                                            setHomeWaters(event.target.value);
+                                            setErrors((current) => ({ ...current, homeWaters: undefined }));
+                                        }}
                                         required
                                         maxLength={120}
                                         aria-invalid={Boolean(errors.homeWaters)}
                                         aria-describedby="home-waters-help home-waters-error"
                                         placeholder="Moreton Bay / Gold Coast"
                                     />
-                                    <small id="home-waters-help">Region only — don't enter a berth or home address.</small>
+                                    <small id="home-waters-help">
+                                        Region only — don't enter a berth or home address.
+                                    </small>
                                     <FieldError id="home-waters-error">{errors.homeWaters}</FieldError>
                                 </label>
 
@@ -270,18 +349,28 @@ export function FoundingSkippersPage({
                                     <select
                                         name="boatingFrequency"
                                         value={boatingFrequency}
-                                        onChange={(event) => { setBoatingFrequency(event.target.value); setErrors((current) => ({ ...current, boatingFrequency: undefined })); }}
+                                        onChange={(event) => {
+                                            setBoatingFrequency(event.target.value);
+                                            setErrors((current) => ({ ...current, boatingFrequency: undefined }));
+                                        }}
                                         required
                                         aria-invalid={Boolean(errors.boatingFrequency)}
                                         aria-describedby={errors.boatingFrequency ? 'frequency-error' : undefined}
                                     >
                                         <option value="">Choose one</option>
-                                        {BOATING_FREQUENCIES.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                                        {BOATING_FREQUENCIES.map((option) => (
+                                            <option key={option.value} value={option.value}>
+                                                {option.label}
+                                            </option>
+                                        ))}
                                     </select>
                                     <FieldError id="frequency-error">{errors.boatingFrequency}</FieldError>
                                 </label>
 
-                                <fieldset className="beta-interests" aria-describedby={errors.interests ? 'interests-error' : undefined}>
+                                <fieldset
+                                    className="beta-interests"
+                                    aria-describedby={errors.interests ? 'interests-error' : undefined}
+                                >
                                     <legend>What would you most like to test?</legend>
                                     <p>Pick one or more.</p>
                                     <div>
@@ -302,7 +391,9 @@ export function FoundingSkippersPage({
                                 </fieldset>
 
                                 <label className="beta-field">
-                                    <span>Anything we should know? <i>Optional</i></span>
+                                    <span>
+                                        Anything we should know? <i>Optional</i>
+                                    </span>
                                     <textarea
                                         name="notes"
                                         value={notes}
@@ -312,11 +403,23 @@ export function FoundingSkippersPage({
                                         aria-describedby="notes-help"
                                         placeholder="Your boating background, favourite waters, or the thing marine apps always get wrong…"
                                     />
-                                    <small id="notes-help">Don't include passwords, medical details, emergency information, or anyone else's personal information.</small>
+                                    <small id="notes-help">
+                                        Don't include passwords, medical details, emergency information, or anyone
+                                        else's personal information.
+                                    </small>
                                 </label>
 
                                 <div className="beta-honeypot" aria-hidden="true">
-                                    <label>Leave this empty<input name="website" value={website} onChange={(event) => setWebsite(event.target.value)} autoComplete="off" tabIndex={-1} /></label>
+                                    <label>
+                                        Leave this empty
+                                        <input
+                                            name="website"
+                                            value={website}
+                                            onChange={(event) => setWebsite(event.target.value)}
+                                            autoComplete="off"
+                                            tabIndex={-1}
+                                        />
+                                    </label>
                                 </div>
 
                                 <label className="beta-consent">
@@ -324,12 +427,18 @@ export function FoundingSkippersPage({
                                         type="checkbox"
                                         name="consent"
                                         checked={consent}
-                                        onChange={(event) => { setConsent(event.target.checked); setErrors((current) => ({ ...current, consent: undefined })); }}
+                                        onChange={(event) => {
+                                            setConsent(event.target.checked);
+                                            setErrors((current) => ({ ...current, consent: undefined }));
+                                        }}
                                         required
                                         aria-invalid={Boolean(errors.consent)}
                                         aria-describedby="consent-copy consent-error"
                                     />
-                                    <span id="consent-copy">I agree that Thalassa may use these details to assess my application and contact me about this beta.</span>
+                                    <span id="consent-copy">
+                                        I agree that Thalassa may use these details to assess my application and contact
+                                        me about this beta.
+                                    </span>
                                 </label>
                                 <FieldError id="consent-error">{errors.consent}</FieldError>
 
@@ -338,8 +447,12 @@ export function FoundingSkippersPage({
                                     <span aria-hidden="true">→</span>
                                 </button>
                                 <p className="beta-privacy">
-                                    Protected by a short-lived pseudonymous network limit. We don't store your raw IP. Read our{' '}
-                                    <a href="/terms" target="_blank" rel="noreferrer">privacy terms</a>.
+                                    Protected by a short-lived pseudonymous network limit. We don't store your raw IP.
+                                    Read our{' '}
+                                    <a href="/terms" target="_blank" rel="noreferrer">
+                                        privacy terms
+                                    </a>
+                                    .
                                 </p>
                             </form>
                         </>
@@ -349,7 +462,10 @@ export function FoundingSkippersPage({
 
             <footer className="beta-footer">
                 <span>AUSTRALIAN-BUILT · MADE FOR REAL BOATS</span>
-                <p>Beta software. Thalassa supplements — and never replaces — official charts, forecasts, seamanship, or independent safety equipment.</p>
+                <p>
+                    Beta software. Thalassa supplements — and never replaces — official charts, forecasts, seamanship,
+                    or independent safety equipment.
+                </p>
             </footer>
         </div>
     );

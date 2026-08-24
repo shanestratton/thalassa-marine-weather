@@ -131,3 +131,8 @@ verify_jwt = true
 [functions.route-weather]
 # Credentialed route caller supplies a user or anon JWT before route quota selection.
 verify_jwt = true
+
+[functions.founding-skipper-application]
+# Public application form. The function enforces exact-origin CORS, a bounded
+# body, strict validation, an HMAC-per-IP quota, and a service-role-only RPC.
+verify_jwt = false
