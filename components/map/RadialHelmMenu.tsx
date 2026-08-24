@@ -30,6 +30,16 @@ export interface HelmMenuItem {
     groupExclusive?: boolean;
     /** The group array for selectInGroup */
     group?: WeatherLayer[];
+    /**
+     * Roll the menu up as soon as this item is chosen.
+     *
+     * The default is to STAY OPEN so several layers can be stacked in one
+     * visit (Shane 2026-08-24). This opts a single item out, and it is for
+     * full-screen takeovers rather than overlays: the storm view locks the
+     * camera on a cyclone and fills the map, so leaving the layer menu floating
+     * over it is just something else to dismiss.
+     */
+    dismissOnSelect?: boolean;
 }
 
 export interface HelmCategory {
@@ -225,6 +235,9 @@ function buildCategories(
             label: 'Storms',
             icon: <CycloneIcon />,
             action: tacticalState.onToggleCyclones,
+            // A takeover, not an overlay — it locks the camera on the storm
+            // and fills the map, so the menu rolls up behind it.
+            dismissOnSelect: true,
         });
     }
     if (tacticalState?.onToggleAis) {
@@ -588,13 +601,14 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
                 // the Sky layers were mutually exclusive — one tap was the
                 // whole interaction. Now that they stack, building a
                 // wind + rain + pressure view meant reopening the menu and
-                // re-entering the category twice over.
+                // re-entering the category twice over. Takeover items opt out.
+                if (item?.dismissOnSelect) closeMenu();
             }
             setIsDragging(false);
         }
 
         dragStartPos.current = null;
-    }, [isDragging, hoveredItem, activeCategory, categories, selectInGroup, toggleLayer]);
+    }, [isDragging, hoveredItem, activeCategory, categories, selectInGroup, toggleLayer, closeMenu]);
 
     const handlePointerMove = useCallback(
         (e: React.PointerEvent) => {
@@ -659,11 +673,12 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
                 }
             }
             triggerHaptic('medium');
-            // Deliberately does NOT close — see handlePointerUp. The menu is
-            // dismissed by the scrim, the FAB, or Escape, never by choosing a
-            // layer.
+            // Stays open by default — the menu is dismissed by the scrim, the
+            // FAB, or Escape, never by choosing a layer. A takeover item opts
+            // out; see HelmMenuItem.dismissOnSelect.
+            if (item.dismissOnSelect) closeMenu();
         },
-        [selectInGroup, toggleLayer],
+        [selectInGroup, toggleLayer, closeMenu],
     );
 
     useEffect(() => {

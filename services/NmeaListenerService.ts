@@ -932,17 +932,28 @@ class NmeaListenerServiceClass {
         // socket that is mid-retry is a boat trying, not a boat absent, and
         // the ledger holds standing through it. Neither state earns credit;
         // only elapsed CONNECTED time does.
-        // Wrapped because this is the gateway's status path: crowd-feed
-        // bookkeeping is telemetry, and telemetry must never be able to break
-        // the link it is reporting on.
-        try {
-            reportFleetShareLink(
-                s === 'connected' ? 'connected' : s === 'connecting' ? 'reconnecting' : 'down',
-                s === 'error' ? (this.lastError ?? undefined) : undefined,
-            );
-        } catch {
-            /* never let share bookkeeping affect the connection */
-        }
+        // OFF THE CONNECT PATH, deliberately. This is the gateway's status
+        // setter and it runs inside the connect/retry sequence; crowd-feed
+        // bookkeeping is telemetry and has no business adding synchronous work
+        // there. Doing it inline was enough to perturb that sequence's timing —
+        // NmeaNetworkAwareness went from stable to failing a DIFFERENT test on
+        // roughly two runs in three, and passed cleanly the moment this call
+        // was taken out of the path (measured 2026-08-24).
+        //
+        // A microtask keeps the ordering (it runs before any I/O continuation)
+        // while leaving the setter itself synchronous and cheap. The link state
+        // is read at check-in time anyway, minutes later, so nothing here is
+        // latency-sensitive. Still wrapped: telemetry must never be able to
+        // break the link it reports on.
+        const linkState = s === 'connected' ? 'connected' : s === 'connecting' ? 'reconnecting' : 'down';
+        const linkError = s === 'error' ? (this.lastError ?? undefined) : undefined;
+        queueMicrotask(() => {
+            try {
+                reportFleetShareLink(linkState, linkError);
+            } catch {
+                /* never let share bookkeeping affect the connection */
+            }
+        });
     }
 
     // ── NMEA Parsing ──

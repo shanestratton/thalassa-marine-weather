@@ -16,6 +16,7 @@ import { useEffect, useRef } from 'react';
 import mapboxgl from 'mapbox-gl';
 import type { ActiveCyclone, CyclonePosition, GfsTrackerPosition } from '../../services/weather/CycloneTrackingService';
 import { cloudOverlayBeforeId } from './imageryOrder';
+import { mountCloudOverlay, removeCloudOverlay } from './cloudOverlay';
 import { WindStore } from '../../stores/WindStore';
 
 import { createLogger } from '../../utils/createLogger';
@@ -39,7 +40,6 @@ export const CYCLONE_OPEN_ZOOM = 2.1;
 // ── Lazy-loaded heavy services (split into separate chunks) ──
 // These are only fetched when the cyclone layer is activated.
 const getCycloneService = () => import('../../services/weather/CycloneTrackingService');
-const getSatelliteService = () => import('../../services/weather/SatelliteImageryService');
 
 const log = createLogger('useCycloneLayer');
 
@@ -1320,7 +1320,7 @@ export function useCycloneLayer(
             trackOverlayRef.current = null;
             cyclonesRef.current = [];
             hasFlown.current = false;
-            getSatelliteService().then(({ removeSatelliteLayer }) => removeSatelliteLayer(map));
+            removeCloudOverlay(map);
 
             // Release center lock + restore zoom limits
             stormCenterRef.current = null;
@@ -1430,7 +1430,6 @@ export function useCycloneLayer(
 
         // Cached service modules — populated in loadCyclones(), used by sync helpers
         let _cs: Awaited<ReturnType<typeof getCycloneService>> | null = null;
-        let _ss: Awaited<ReturnType<typeof getSatelliteService>> | null = null;
 
         // Fetch GFS tracker positions on mount — AWAIT before creating markers
         const tcvitalsPromise = getCycloneService()
@@ -1596,8 +1595,10 @@ export function useCycloneLayer(
             // CRITICAL: wait for tcvitals before creating markers
             await tcvitalsPromise;
 
-            // Eagerly load both services — cached for sync access in rebuildMarkers/cleanup
-            [_cs, _ss] = await Promise.all([getCycloneService(), getSatelliteService()]);
+            // Cached for sync access in rebuildMarkers/cleanup. The satellite
+            // service used to be loaded alongside it; the storm view now draws
+            // the shared world cloud overlay instead, so that import is gone.
+            _cs = await getCycloneService();
 
             log.info('[CYCLONE] 🌀 Fetching active cyclones (for discovery only)...');
             try {
@@ -1723,27 +1724,26 @@ export function useCycloneLayer(
                     );
                 }
 
-                // ── Satellite IR overlay — all 4 NOAA/SSEC geostationary satellites ──
-                // Uses RealEarth SSEC/CIMSS XYZ tile API (free, CORS-enabled, no API key)
-                // Auto-selects the best satellite for the storm's basin:
-                //   Global IR composite | GOES-East (Americas) | GOES-West (Pacific) | Meteosat (Europe/Africa/IO)
-                // Pick the satellite from the storm the user is LOOKING AT,
-                // falling back to the geo-closest. Himawari-9 sits at 140.7°E
-                // and cannot see the central Pacific, so a basin-C storm needs
-                // GOES — and now that the card carries a prev/next stepper,
-                // stepping to a storm in another basin has to bring its
-                // satellite with it. Keyed off basin, so it only re-mounts
-                // when the product actually changes.
-                const satStorm = selectedStormRef.current ?? closest;
-                const satProduct = satStorm ? _ss!.bestProductForBasin(satStorm.basin) : 'global-ir';
+                // ── World cloud overlay (Shane 2026-08-24) ──
+                // WAS a per-basin satellite IR product: RealEarth Himawari for
+                // the Australian region, IEM GOES-East/West for the Americas
+                // and Pacific, picked from the selected storm's basin because
+                // Himawari at 140.7°E cannot see the central Pacific.
+                //
+                // All of that machinery existed to make satellite IMAGERY act
+                // like an overlay, and it is gone: the storm view now shows the
+                // same world cloud layer the Sky menu serves, which is global
+                // by construction (so no basin selection), carries real alpha
+                // (so no luminance ramp), and looks identical to the cloud the
+                // punter already knows from the chart.
+                //
+                // Anchoring is unchanged — above the imagery, below the chart —
+                // and now comes from the one shared helper rather than being
+                // reimplemented per subsystem, which is precisely how the
+                // squall page and this page drifted apart in the first place.
                 const satLayers = map.getStyle()?.layers ?? [];
-                _ss!.addSatelliteLayer(map, satProduct, cloudOverlayBeforeId(satLayers));
-                log.info(`[CYCLONE] 🛰️ Satellite IR overlay activated: ${satProduct}`);
-
-                // Country borders removed — they were obstructing satellite imagery
-                // (showed as black horizontal lines at country boundary latitudes)
-
-                log.info('[CYCLONE] 🛰️ Activated satellite IR for storm view');
+                mountCloudOverlay(map, cloudOverlayBeforeId(satLayers));
+                log.info('[CYCLONE] ☁️ World cloud overlay activated for storm view');
 
                 // Fly to focused storm on first load & lock center
                 const focusTarget = selectedStormRef.current ?? closest;
@@ -1841,7 +1841,7 @@ export function useCycloneLayer(
             // Clean up HUD
             const hudEl = map.getContainer().querySelector(`#${HUD_CONTAINER_ID}`);
             if (hudEl) hudEl.remove();
-            if (_ss) _ss.removeSatelliteLayer(map);
+            removeCloudOverlay(map);
             if (refreshTimer.current) {
                 clearInterval(refreshTimer.current);
                 refreshTimer.current = null;
