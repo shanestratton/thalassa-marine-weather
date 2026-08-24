@@ -185,6 +185,31 @@ describe('projectTrackContinuously', () => {
 });
 
 describe('both SVG projection sites use the continuous projector', () => {
+    it('map.project has exactly ONE owner in this file — the tripwire', () => {
+        // ROUND FOUR's lesson: three rounds of fixes patched the projection
+        // sites they knew about while a fourth — the glow-tube's own private
+        // `map.project([p.lon, p.lat])`, six lines below a patched site —
+        // kept drawing the planet. Site-by-site auditing provably does not
+        // scale to this file, so the invariant is ownership: every projection
+        // of track geometry goes through projectTrackContinuously, and
+        // map.project appears in CODE exactly twice, both inside it.
+        const srcNow = readFileSync('components/map/useCycloneLayer.ts', 'utf8');
+        const code = srcNow.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+        const calls = [...code.matchAll(/map\.project\(/g)];
+        expect(calls).toHaveLength(2);
+        const fn = code.slice(
+            code.indexOf('function projectTrackContinuously'),
+            code.indexOf('function addProbabilitySleeve'),
+        );
+        expect([...fn.matchAll(/map\.project\(/g)]).toHaveLength(2);
+    });
+
+    it('the glow tube derives from the continuous projection, not its own', () => {
+        const srcNow = readFileSync('components/map/useCycloneLayer.ts', 'utf8');
+        expect(srcNow).toContain('catmullRomSpline(\n                    fcPx.map((p) => [p.x, p.y]');
+        expect(srcNow).not.toContain('rawScreenPts');
+    });
+
     it('past tube and forecast cone both project through the continuous projector', () => {
         const srcNow = readFileSync('components/map/useCycloneLayer.ts', 'utf8');
         const sites = [...srcNow.matchAll(/projectTrackContinuously\(map, sane/g)];

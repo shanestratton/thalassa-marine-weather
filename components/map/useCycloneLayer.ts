@@ -534,15 +534,22 @@ function createTrackOverlay(map: mapboxgl.Map): {
                     point: forecastAll[i],
                 }));
 
-                // Project forecast points to screen space
-                const rawScreenPts = forecastAll.map((p) => {
-                    const px = map.project([p.lon, p.lat]);
-                    return [px.x, px.y] as [number, number];
-                });
-
-                // Interpolate via catmull-rom for a genuinely smooth curve
-                // Raw API gives ~5-7 forecast points — we need ~50+ for smooth rendering
-                const smoothScreenPts = catmullRomSpline(rawScreenPts, 12);
+                // THE FOURTH RENDERER (round four, 2026-08-24 late). This
+                // glow-tube spline had its OWN raw projection of the same
+                // forecast — `map.project([p.lon, p.lat])` on the unsanitized
+                // points, six lines below the site three rounds of fixes kept
+                // patching. Every screenshot's travelling world-line was THIS
+                // path. It now derives from fcPx — the continuous projection
+                // of the sanitized forecast — and the tripwire test pins
+                // map.project() to exactly one owner in this file, so a fifth
+                // private projection cannot be added without failing it.
+                //
+                // Interpolate via catmull-rom for a genuinely smooth curve —
+                // raw API gives ~5-7 forecast points; we need ~50+.
+                const smoothScreenPts = catmullRomSpline(
+                    fcPx.map((p) => [p.x, p.y] as [number, number]),
+                    12,
+                );
                 const screenPts = smoothScreenPts.map(([x, y]) => ({ x, y }));
 
                 if (screenPts.length >= 2) {
