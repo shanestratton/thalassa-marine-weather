@@ -8,6 +8,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { CompassIcon, WindIcon } from '../../components/Icons';
 import { ShipLogEntry } from '../../types';
 import { isLandVoyage, type VoyageSummary } from '../../services/shiplog/VoyageSummary';
+import { classifyCompletedVoyage } from '../../utils/passageClass';
 import { useFollowRoute } from '../../context/FollowRouteContext';
 import { useEndpointNames } from './useEndpointNames';
 import { useToast } from '../../components/Toast';
@@ -389,6 +390,14 @@ export const VoyageCard: React.FC<{
         // Land voyages (car drives / walks) read green and are excluded
         // from the career tiles — flag them so the card matches.
         const isLand = isLandVoyage(summary);
+        // Passage vs day cruise, retroactively, from the summary alone —
+        // every voyage already in the book gets its honest badge with zero
+        // schema change. Memoized because the night-hours integration samples
+        // the sun every 30 simulated minutes: cheap once, not per render.
+        const isPassage = React.useMemo(
+            () => !isLand && classifyCompletedVoyage(summary).kind === 'passage',
+            [summary, isLand],
+        );
         const dist = summary.totalDistanceNM;
         const durationMs = Math.max(0, new Date(summary.endedAt).getTime() - new Date(summary.startedAt).getTime());
         const durationHrs = Math.floor(durationMs / 3600000);
@@ -577,6 +586,12 @@ export const VoyageCard: React.FC<{
                             the sky tint because it's the headline number
                             for a voyage log. */}
                         <div className="flex items-center gap-1.5 flex-wrap">
+                            {isPassage && (
+                                <span className="px-2 py-0.5 rounded-full bg-indigo-500/15 border border-indigo-400/30 text-[10px] font-bold text-indigo-300 inline-flex items-center gap-1 uppercase tracking-wider">
+                                    <span aria-hidden>🌙</span>
+                                    Passage
+                                </span>
+                            )}
                             {recordBadge && (
                                 <span className="px-2 py-0.5 rounded-full bg-gradient-to-r from-amber-400/25 to-yellow-500/20 border border-amber-400/40 text-[11px] font-black text-amber-300 inline-flex items-center gap-1 shadow-sm shadow-amber-500/10">
                                     <span aria-hidden>🏆</span>
