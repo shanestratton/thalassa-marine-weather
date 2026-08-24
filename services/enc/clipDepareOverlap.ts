@@ -694,8 +694,14 @@ export function clipFeatureOutsideCoverage(
             // Charge the larger of in and out: a pair that expands is more
             // expensive than it looked, and the job budget should feel it.
             if (budget) budget.remaining -= Math.max(pairVerts, outVerts);
-            coords = out;
-            subjectVerts = outVerts;
+            // Kill #29: sanitize BETWEEN pairs, not only at the tail —
+            // pair N's degenerate slivers used to become pair N+1's
+            // martinez SUBJECT, exactly the fragile-input feedback this
+            // file always warned about.
+            const cleanOut = sanitizeCoverageGeom(out);
+            if (!cleanOut) return null; // nothing paintable left — swallowed
+            coords = cleanOut;
+            subjectVerts = coverageVertexCount(cleanOut);
         } catch {
             if (stats) stats.pairsRectFallback++;
             degradeRects.push(fine.bbox);
@@ -733,15 +739,26 @@ export function clipFeatureOutsideCoverage(
  */
 export function clipFeatureOutsideBboxes(feature: Feature, bboxes: readonly Bbox[]): Feature | null {
     const first = clipBboxesOnce(feature, bboxes);
-    if (first === null || first === feature) return first;
+    if (first === null) return null;
+    if (first === feature) return feature;
     // KILL #28: the degrade path had NO output bound — the branch taken
     // precisely BECAUSE geometry was too big shipped its piece explosion
     // uncounted. If the strip-rect result is itself over the glaze result
     // budget, fall back to subtracting ONE union rect: cruder (under-glazes
     // near fine coverage — the accepted degrade direction: "a possible hole
     // beats a crashed merge"), but bounded by construction.
-    let out: Feature = first;
-    if (bboxes.length > 1 && glazeResultOverBudget(featureVertexCount(first), featureVertexCount(feature))) {
+    let out: Feature;
+    if (first === 'overflow') {
+        // The strip barrage blew the in-loop ceiling — one union rect,
+        // bounded by construction.
+        out = feature; // placeholder; replaced below
+    } else {
+        out = first;
+    }
+    if (
+        first === 'overflow' ||
+        (bboxes.length > 1 && glazeResultOverBudget(featureVertexCount(out), featureVertexCount(feature)))
+    ) {
         const union: Bbox = [
             Math.min(...bboxes.map((b) => b[0])),
             Math.min(...bboxes.map((b) => b[1])),
@@ -751,6 +768,7 @@ export function clipFeatureOutsideBboxes(feature: Feature, bboxes: readonly Bbox
         const crude = clipBboxesOnce(feature, [union]);
         if (crude === null) return null;
         if (crude === feature) return feature;
+        if (crude === 'overflow') return null; // one rect cannot overflow a sane subject; treat as swallowed
         out = crude;
     }
     // Every manufactured ring is validated before Mapbox sees it.
@@ -768,9 +786,17 @@ export function clipFeatureOutsideBboxes(feature: Feature, bboxes: readonly Bbox
     };
 }
 
+/** In-loop ceiling for one S–H pass. Kill #29: the piece explosion is
+ *  IN-MEMORY, mid-loop — a post-hoc bound never runs if the loop itself
+ *  exhausts the worker. Generous (4× the result cap) because tripping it
+ *  costs only precision, never correctness: the caller degrades to a
+ *  single union rect. */
+const SH_LOOP_VERTEX_BAIL = GLAZE_RESULT_VERTEX_CAP * 4;
+
 /** One raw S–H partition pass — output unvalidated; callers go through
- *  clipFeatureOutsideBboxes, which bounds and sanitizes. */
-function clipBboxesOnce(feature: Feature, bboxes: readonly Bbox[]): Feature | null {
+ *  clipFeatureOutsideBboxes, which bounds and sanitizes. Returns
+ *  'overflow' when the running piece list blows the in-loop ceiling. */
+function clipBboxesOnce(feature: Feature, bboxes: readonly Bbox[]): Feature | null | 'overflow' {
     const g = feature.geometry;
     if (!g || (g.type !== 'Polygon' && g.type !== 'MultiPolygon')) return feature;
     const inputPolys: PolyRings[] =
@@ -823,6 +849,11 @@ function clipBboxesOnce(feature: Feature, bboxes: readonly Bbox[]): Feature | nu
         }
         pieces = next;
         if (pieces.length === 0) return null;
+        // Kill #29: measure the working set NOW, not after the loop — the
+        // explosion this guards against never reaches "after the loop".
+        let liveVerts = 0;
+        for (const piece of pieces) for (const ring of piece.poly) liveVerts += ring.length;
+        if (liveVerts > SH_LOOP_VERTEX_BAIL) return 'overflow';
     }
     if (!touched) return feature;
 

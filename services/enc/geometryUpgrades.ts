@@ -264,8 +264,65 @@ const pendingGeometryJobs = new Map<number, PendingGeometryJob>();
 let workerBusy = false;
 let deferredDispatch: { cacheKey: string; run: () => void } | null = null;
 
+/**
+ * KILL #29 (2026-08-25, hours after kill #28's output sanitizer): the fatal
+ * pattern on BOTH platforms is a geo-dispatch with NO reply — job #1 on the
+ * desktop trail ran 100+ seconds without answering before the renderer
+ * died, and the phone died ~10 s after its dispatch. A worker that hangs
+ * (martinez has known pathological-input modes; the S–H piece explosion is
+ * in-memory before any output exists to sanitize) never fires onerror, so
+ * the 2026-07-13 "worker died → fast glaze for the session" response never
+ * engages — it just allocates invisibly until the process folds.
+ *
+ * The watchdog gives a hang the same funeral a crash gets, plus the one
+ * thing a hang uniquely needs: terminate(), which actually frees the
+ * runaway thread's heap. Fed on every reply (per-cell messages flow during
+ * a healthy job); measured healthy jobs complete in <1 s, the deadline is
+ * 20 s. The upgrade is optional polish — the chart already painted with
+ * the instant grade — so standing down for the session loses nothing a
+ * skipper can see from the helm.
+ */
+const GEO_JOB_DEADLINE_MS = 20_000;
+let jobWatchdog: ReturnType<typeof setTimeout> | null = null;
+
+function feedJobWatchdog(jobId: number): void {
+    if (jobWatchdog !== null) clearTimeout(jobWatchdog);
+    jobWatchdog = setTimeout(() => {
+        jobWatchdog = null;
+        crumb('enc:geo-timeout', `#${jobId}`);
+        log.warn(`geometry worker job #${jobId} exceeded ${GEO_JOB_DEADLINE_MS}ms — terminating worker`);
+        retireGeoWorker();
+    }, GEO_JOB_DEADLINE_MS);
+}
+
+function clearJobWatchdog(): void {
+    if (jobWatchdog !== null) clearTimeout(jobWatchdog);
+    jobWatchdog = null;
+}
+
+/** Shared funeral for a crashed OR hung worker: terminate the thread
+ *  (reclaims its heap — the hang's whole danger), stay on fast glaze for
+ *  the session, and leave nothing waiting on a reply that will never come. */
+function retireGeoWorker(): void {
+    clearJobWatchdog();
+    try {
+        geoWorker?.terminate();
+    } catch {
+        /* already dead */
+    }
+    geoWorkerBroken = true;
+    geoWorker = null;
+    pendingGeometryJobs.clear();
+    clearAllGlazeAssemblies();
+    workerBusy = false;
+    deferredDispatch = null;
+    crumb('enc:geo-died');
+    log.warn('geometry worker retired — staying on fast glaze/contours this session');
+}
+
 /** Run whatever was held back, if its merge is still worth upgrading. */
 function drainDeferredDispatch(): void {
+    clearJobWatchdog(); // every job-concluding path drains through here
     workerBusy = false;
     const next = deferredDispatch;
     deferredDispatch = null;
@@ -327,22 +384,17 @@ function getGeoWorker(): Worker | null {
     }
     geoWorker.onerror = () => {
         // Worker died (OOM/bug): the page is unaffected, the fast glaze
-        // stays up. Don't respawn — same input would kill it again.
-        geoWorkerBroken = true;
-        geoWorker = null;
-        pendingGeometryJobs.clear();
-        clearAllGlazeAssemblies();
-        // Nothing will ever reply, so the gate must not wait for one — and
-        // the held request must not be posted into a dead worker.
-        workerBusy = false;
-        deferredDispatch = null;
-        crumb('enc:geo-died');
-        log.warn('geometry worker died — staying on fast glaze/contours this session');
+        // stays up. Don't respawn — same input would kill it again. Same
+        // funeral as the watchdog's hang path (kill #29).
+        retireGeoWorker();
     };
     geoWorker.onmessage = (ev: MessageEvent<GeometryWorkerReply>) => {
         const msg = ev.data;
         const { jobId } = msg;
         const job = pendingGeometryJobs.get(jobId);
+        // Any reply for a live job is proof of life — reset its deadline.
+        // 'done'/'error' clear it below via drainDeferredDispatch's caller.
+        if (job) feedJobWatchdog(jobId);
         if (!job && msg.type === 'done') {
             // A 'done' for a job we already forgot — the queue was cleared
             // under it, or a straggler arrived after a reset. There is nothing
@@ -582,6 +634,7 @@ function dispatchGeometryWorkNow(
         );
         worker.postMessage(wireMsg);
         workerBusy = true;
+        feedJobWatchdog(jobId); // kill #29: no job runs unbounded
     } catch (err) {
         // Symmetric cleanup (audit #6): a failed dispatch must release its
         // parked assemblies + in-flight claims or they leak until worker
