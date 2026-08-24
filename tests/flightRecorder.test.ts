@@ -32,7 +32,7 @@ vi.mock('@capacitor/app', () => ({
     },
 }));
 
-import { crumb, startFlightRecorder } from '../utils/flightRecorder';
+import { crumb, getLastFlightReport, startFlightRecorder } from '../utils/flightRecorder';
 
 const TRAIL = 'thalassa_flight_trail';
 const CLEAN = 'thalassa_flight_clean_exit';
@@ -136,5 +136,34 @@ describe('crumbs', () => {
         const next = startFlightRecorder();
         expect(next.trail.map((c) => c.tag)).toEqual(['map:create', 'enc:merge-start']);
         expect(next.trail[0].info).toBe('#1 z5');
+    });
+});
+
+describe('getLastFlightReport', () => {
+    it('hands the boot verdict to the status modal, so a crash is a screenshot not a cable', () => {
+        // A prior trail with no clean-exit flag = the process died without
+        // running JS. The card in SystemStatusModal renders exactly this
+        // object — the couch-readable half the recorder always lacked: the
+        // crumbs survived every kill, but the verdict only ever printed to
+        // the Xcode console (Shane 2026-08-24, phone-only Musgrave crash).
+        localStorage.setItem(
+            'thalassa_flight_trail',
+            JSON.stringify([
+                { t: 1000, tag: 'boot' },
+                { t: 90_000, tag: 'enc:geo-dispatch', info: '3glaze' },
+            ]),
+        );
+        const report = startFlightRecorder();
+        expect(getLastFlightReport()).toBe(report);
+        expect(report.verdict).toBe('process-died');
+        expect(report.trail).toHaveLength(2);
+        expect(report.trail[1].tag).toBe('enc:geo-dispatch');
+    });
+
+    it('reports a clean start as nothing to confess', () => {
+        localStorage.clear();
+        const report = startFlightRecorder();
+        expect(report.verdict).toBe('clean-start');
+        expect(getLastFlightReport()?.verdict).toBe('clean-start');
     });
 });

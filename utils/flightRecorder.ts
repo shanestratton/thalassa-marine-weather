@@ -57,6 +57,22 @@ export interface Crumb {
 }
 
 let armed = false;
+let lastReport: FlightReport | null = null;
+
+/**
+ * The verdict on the PREVIOUS run, as classified at this boot.
+ *
+ * This is the couch-readable half of the recorder. The crumbs always survived
+ * a process kill; the verdict always printed to the Xcode console — a channel
+ * that requires a Mac, a cable, and sobriety, none of which are reliably
+ * aboard. The System Status modal renders this instead, so "the map died at
+ * Lady Musgrave" becomes a screenshot of the i-FAB rather than a boat-to-desk
+ * forensics session (Shane 2026-08-24, phone-only Musgrave crash, wine in
+ * hand).
+ */
+export function getLastFlightReport(): FlightReport | null {
+    return lastReport;
+}
 
 function read(key: string): Crumb[] {
     try {
@@ -170,7 +186,8 @@ export function startFlightRecorder(): FlightReport {
                 ? `previous run was terminated while BACKGROUNDED — routine iOS reaping, not a foreground crash. last crumb: ${last?.tag ?? 'n/a'} @${last?.t ?? '?'}ms`
                 : `previous run DIED IN THE FOREGROUND without running JS, last crumb: ${last?.tag ?? 'n/a'} @${last?.t ?? '?'}ms`;
 
-    return { verdict, trail: prior, summary };
+    lastReport = { verdict, trail: prior, summary };
+    return lastReport;
 }
 
 /** The previous run's trail, for surfacing in a debug view. */
