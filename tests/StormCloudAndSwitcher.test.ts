@@ -27,7 +27,14 @@ import { createStormSwitcher } from '../components/map/useCycloneLayer';
 import type { ActiveCyclone } from '../services/weather/CycloneTrackingService';
 
 const squall = readFileSync('components/map/useSquallMap.ts', 'utf8');
-const ir = squall.slice(squall.indexOf('function mountSatelliteLayer'), squall.indexOf('function mountSquallLayer'));
+/**
+ * The cloud mount moved out of useSquallMap on 2026-08-24. It lived in two
+ * places — here and in useCycloneLayer, via SatelliteImageryService — and
+ * converting only one of them left the storm page still showing satellite IR.
+ * There is now a single implementation, and these assertions follow it.
+ */
+const overlay = readFileSync('components/map/cloudOverlay.ts', 'utf8');
+const ir = overlay.slice(overlay.indexOf('export function mountCloudOverlay'), overlay.indexOf('Put the overlay back'));
 
 describe('the storm cloud layer', () => {
     it('takes the tile’s own alpha, because the tile finally has one', () => {
@@ -65,17 +72,25 @@ describe('the storm cloud layer', () => {
         // one of them ended up under an opaque satellite tile.
         const order = readFileSync('components/map/imageryOrder.ts', 'utf8');
         expect(order).toContain("['satellite-base-layer', 'hybrid-base-layer', 'maptiler-ocean-layer']");
-        const code = ir.slice(ir.indexOf('const imageryIdx ='), ir.indexOf('map.addLayer('));
-        expect(code).toContain('cloudOverlayBeforeId(styleLayers)');
-        expect(code).not.toContain("'settlement-major-label'");
+        // The anchor is now the CALLER's responsibility — both pages pass a
+        // beforeId from the shared helper, which is the point of the helper.
+        expect(squall).toContain('cloudOverlayBeforeId(styleLayers)');
+        const cyclone = readFileSync('components/map/useCycloneLayer.ts', 'utf8');
+        expect(cyclone).toContain('cloudOverlayBeforeId(satLayers)');
+        expect(ir).not.toContain("'settlement-major-label'");
         // If raster-color is ever not honoured, the chart still paints over
         // an opaque IR — a cosmetic failure rather than a blanked map.
         expect(order).toContain("l.id.startsWith('enc-vec-')");
     });
 
-    it('says where it landed, so a fourth report is one log line', () => {
-        expect(ir).toContain('at layer ${idx}/${styleLayers.length}');
-        expect(ir).toContain('imageryIdx=${imageryIdx}');
+    it('reports a failed mount rather than failing silently', () => {
+        // The old version logged its landing index because "the satellite
+        // isn't showing" had been reported three times and each round cost a
+        // fresh read of the source. With one implementation and a tile that
+        // carries real alpha, the remaining failure modes are a missing key
+        // and a throw — both of which say so.
+        expect(overlay).toContain('no OpenWeatherMap key');
+        expect(overlay).toContain('Cloud overlay mount failed');
     });
 });
 

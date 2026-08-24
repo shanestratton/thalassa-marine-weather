@@ -9,8 +9,11 @@
  * menu and re-entering the category for every single layer. The two changes
  * only make sense together.
  *
- * What may still close it: the FAB, the click-away scrim, Escape, and the MOB
- * button (which leaves for an emergency screen). Nothing else.
+ * What may still close it: the FAB, the click-away scrim, Escape, the MOB
+ * button (which leaves for an emergency screen), and any item that explicitly
+ * declares `dismissOnSelect`. That last one is for full-screen TAKEOVERS
+ * rather than overlays — the storm view locks the camera on a cyclone and
+ * fills the map, so the menu rolls up behind it (Shane 2026-08-24).
  */
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -24,18 +27,36 @@ function closeSites(): string[] {
 }
 
 describe('the helm menu dismissal contract', () => {
-    it('does not close when a layer is chosen by tap', () => {
-        const tap = src.slice(src.indexOf('const handleItemTap'), src.indexOf('useEffect(() => {', src.indexOf('const handleItemTap')));
+    it('closes on tap ONLY for an item that asks to dismiss', () => {
+        const tap = src
+            .slice(src.indexOf('const handleItemTap'), src.indexOf('useEffect(() => {', src.indexOf('const handleItemTap')))
+            .replace(/\/\/[^\n]*/g, '');
         expect(tap).toContain('toggleLayer(item.layerKey)');
-        expect(tap.replace(/\/\/[^\n]*/g, '')).not.toContain('closeMenu');
+        // Every close in this handler must be behind the opt-in flag.
+        for (const m of tap.matchAll(/closeMenu\(\)/g)) {
+            expect(tap.slice(Math.max(0, m.index! - 60), m.index!)).toContain('item.dismissOnSelect');
+        }
     });
 
-    it('does not close when a layer is chosen by drag-release', () => {
+    it('closes on drag-release ONLY for an item that asks to dismiss', () => {
         // The long-press + drag gesture selects on release. It used to close
-        // there too, which made the gesture single-shot.
-        const up = src.slice(src.indexOf('if (isDragging) {'), src.indexOf('dragStartPos.current = null;'));
+        // unconditionally, which made the gesture single-shot.
+        const up = src
+            .slice(src.indexOf('if (isDragging) {'), src.indexOf('dragStartPos.current = null;'))
+            .replace(/\/\/[^\n]*/g, '');
         expect(up).toContain('toggleLayer(item.layerKey)');
-        expect(up.replace(/\/\/[^\n]*/g, '')).not.toContain('closeMenu');
+        for (const m of up.matchAll(/closeMenu\(\)/g)) {
+            expect(up.slice(Math.max(0, m.index! - 60), m.index!)).toContain('dismissOnSelect');
+        }
+    });
+
+    it('reserves dismissOnSelect for takeovers — today, just Storms', () => {
+        // If this grows, it should grow deliberately: every entry here is a
+        // page that replaces the chart rather than drawing over it.
+        const declared = [...src.matchAll(/dismissOnSelect: true/g)];
+        expect(declared).toHaveLength(1);
+        const storms = src.slice(src.indexOf("id: 'cyclones'"), src.indexOf("id: 'ais'"));
+        expect(storms).toContain('dismissOnSelect: true');
     });
 
     it('does not close on Clear All — clearing is usually a prelude to picking', () => {
@@ -59,6 +80,7 @@ describe('the helm menu dismissal contract', () => {
                 before.includes('Man Overboard') ||
                 before.includes('onOpenMob') ||
                 before.includes('restoreFocus') ||
+                before.includes('dismissOnSelect') || // opted-in takeover item
                 before.includes('[activeCategory, closeMenu, isOpen]'); // keydown deps
             expect(legit, `unexpected closeMenu site: ...${before.slice(-140)}`).toBe(true);
         }

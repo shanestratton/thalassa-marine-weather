@@ -57,23 +57,28 @@ import { NmeaListenerService } from '../services/NmeaListenerService';
  * Drain the pending work, without making the answer depend on how busy the
  * machine is.
  *
- * The connect path awaits REAL promises (the plugin bridge, its retry chain),
- * which resolve on the real event loop no matter how the fake clock is
- * driven. Each `advanceTimersByTimeAsync` yields to that loop once, so a
- * fixed 40 turns gave a loaded machine exactly 40 chances — and under a full
- * parallel suite that was sometimes too few, which is why this file flaked
- * three times in one afternoon on a DIFFERENT test each time while passing
- * 3/3 in isolation (2026-08-24).
+ * The connect path awaits REAL promises (the plugin bridge and its retry
+ * chain), which resolve on the real event loop no matter how the fake clock is
+ * driven. Each `advanceTimersByTimeAsync` yields to that loop once, so a fixed
+ * budget of turns gave a loaded machine a fixed number of chances — and under
+ * a full parallel suite that was sometimes too few. The symptom was this file
+ * failing a DIFFERENT test on maybe one run in three while passing every time
+ * in isolation (2026-08-24).
  *
- * The extra yields advance the clock by ZERO. More chances for the real loop,
- * identical fake time, so nothing shifts for the tests that assert on the
- * grace window or the 5-minute give-up ladder.
+ * Two parts, deliberately:
+ *   1. `turns` iterations that advance the clock 1 ms each — the timer-driven
+ *      work (reconnect ladder, watchdog) needs real fake-time to pass.
+ *   2. a long tail of ZERO-advance yields. These add no fake time at all, so
+ *      nothing shifts for the tests that assert on the grace window or the
+ *      5-minute give-up ladder; they simply hand the real event loop many more
+ *      chances to settle promises that a busy machine resolves slowly.
  */
 const settle = async (turns = 40) => {
     for (let i = 0; i < turns; i++) {
         await Promise.resolve();
         await vi.advanceTimersByTimeAsync(1);
-        await vi.advanceTimersByTimeAsync(0);
+    }
+    for (let i = 0; i < 200; i++) {
         await vi.advanceTimersByTimeAsync(0);
     }
 };

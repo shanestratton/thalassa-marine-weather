@@ -1142,6 +1142,10 @@ const App: React.FC = () => {
                                 <SystemStatusButton
                                     currentView={currentView}
                                     onNavigateAnchor={() => setPage('compass')}
+                                    // Fixed landmark on the chart — the helm
+                                    // menu below positions relative to it, so
+                                    // it must not come and go.
+                                    alwaysShow
                                 />
                             </Suspense>
                         </div>

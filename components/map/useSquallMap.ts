@@ -28,7 +28,7 @@ import { useEffect, useRef } from 'react';
 import mapboxgl from 'mapbox-gl';
 import { createLogger } from '../../utils/createLogger';
 import { cloudOverlayBeforeId, imageryTopIndex } from './imageryOrder';
-import { getTileUrl, tileSourceMaxZoom } from './mapConstants';
+import { CLOUD_OVERLAY_LAYER, liftCloudOverlay, mountCloudOverlay, removeCloudOverlay } from './cloudOverlay';
 import type { ActiveCyclone } from '../../services/weather/CycloneTrackingService';
 import { piCache } from '../../services/PiCacheService';
 import { SQUALL_COLOR_RAMP } from './isobarLayerSetup';
@@ -38,8 +38,6 @@ const log = createLogger('SquallMap');
 // ── Layer/Source IDs ──
 const SQUALL_SOURCE = 'squall-rainbow-source';
 const SQUALL_LAYER = 'squall-rainbow-layer';
-const IR_SOURCE = 'squall-ir-source';
-const IR_LAYER = 'squall-ir-layer';
 const SQUALL_HUD_ID = 'squall-map-hud';
 
 /**
@@ -58,38 +56,11 @@ const SQUALL_HUD_ID = 'squall-map-hud';
  * itself replaced on 2026-08-24 by the Sky section's world cloud layer
  * (OpenWeatherMap clouds_new) at Shane's request. GIBS was a satellite
  * IMAGERY product being asked to behave like an overlay, and it never quite
- * did — see buildCloudTileUrl below for the measurements and for what the
- * swap deleted. The current layer is the same one the punter can already
+ * did — see components/map/cloudOverlay.ts for the measurements on both tiles
+ * and for what the swap deleted. The current layer is the same one the punter can already
  * turn on from the Sky menu, which is the real argument for it: one cloud
  * field, one appearance, whichever page you are looking at.
  */
-/**
- * REPLACED 2026-08-24: the storm view's cloud is now the SAME world cloud
- * layer the Sky section serves (Shane: "remove the satellite overlay and
- * replace with the world cloud layer that is found in the air layer").
- *
- * Beyond matching what the punter already recognises, it deletes a pile of
- * machinery this file carried purely because the GIBS product fought us:
- *
- *   · GIBS Himawari Band 13 is an IMAGERY product, not an overlay. Measured
- *     2026-08-23: RGBA but alpha 255 on 100% of sampled pixels — clear sky is
- *     mid-grey, not transparent — so it could only be shown through a
- *     raster-color luminance ramp that manufactured the alpha from
- *     brightness. Three rounds of "the satellite still isn't showing" came
- *     out of that.
- *   · It needed a date parameter, so the URL went stale at UTC midnight.
- *   · GoogleMapsCompatible_Level6 capped it at z6 while the precip layer runs
- *     to z8, so the cloud stopped sharpening halfway up the range.
- *
- * OpenWeatherMap clouds_new is a true overlay. Measured 2026-08-24, z3 tile
- * over the Coral Sea, 90 810 B PNG: colour type 6 (RGBA), 35% of sampled
- * pixels at alpha 0 and NOT ONE at alpha 255. Clear sky is genuinely
- * transparent, so it stacks with plain raster paint, no ramp, no date, and it
- * reaches z9 (TILE_SOURCE_MAX_ZOOM.clouds) — past the precip layer's own z8.
- */
-function buildCloudTileUrl(): string | undefined {
-    return getTileUrl('clouds');
-}
 
 /** LAN hop. Fast or not at all — falling through to the cloud beats waiting. */
 const PI_BUDGET_MS = 2_500;
@@ -478,7 +449,7 @@ function ensureSatelliteLayer(map: mapboxgl.Map, session: number, liveSession: (
         if (typeof map.isStyleLoaded === 'function' && !map.isStyleLoaded()) {
             map.once('idle', () => {
                 // Gate on the LIVE LOAD SESSION, not on the source's presence.
-                // The first version read `if (map.getSource(IR_SOURCE)) return`,
+                // The first version read `if (map.getSource(...)) return`,
                 // which is backwards: it bailed when the layer was already up
                 // and proceeded when cleanupLayers had torn it down. Tapping a
                 // storm spinner while this was armed switches to the cyclone
@@ -491,17 +462,17 @@ function ensureSatelliteLayer(map: mapboxgl.Map, session: number, liveSession: (
             });
             return;
         }
-        if (!map.getLayer(IR_LAYER)) {
+        if (!map.getLayer(CLOUD_OVERLAY_LAYER)) {
             mountSatelliteLayerNow(map);
             return;
         }
         // Present — but is it under the opaque imagery? An IR layer below the
         // satellite base is invisible, which reads to the user as "not there".
         const layers = map.getStyle()?.layers ?? [];
-        const irIdx = layers.findIndex((l) => l.id === IR_LAYER);
+        const irIdx = layers.findIndex((l) => l.id === CLOUD_OVERLAY_LAYER);
         const imageryIdx = imageryTopIndex(layers);
         if (irIdx >= 0 && imageryIdx > irIdx) {
-            map.moveLayer(IR_LAYER, cloudOverlayBeforeId(layers));
+            liftCloudOverlay(map, cloudOverlayBeforeId(layers));
             log.warn(`☁️ Cloud layer was buried under imagery — lifted above layer ${imageryIdx}`);
         }
     } catch (err) {
@@ -510,67 +481,14 @@ function ensureSatelliteLayer(map: mapboxgl.Map, session: number, liveSession: (
 }
 
 function mountSatelliteLayerNow(map: mapboxgl.Map): void {
-    try {
-        if (map.getLayer(IR_LAYER)) map.removeLayer(IR_LAYER);
-        if (map.getSource(IR_SOURCE)) map.removeSource(IR_SOURCE);
-    } catch (err) {
-        log.warn('Cloud layer pre-mount cleanup error', err);
-    }
-    const tiles = buildCloudTileUrl();
-    if (!tiles) {
-        // No OWM key in this build — the Sky section's cloud layer is equally
-        // dark, so this is a configuration state, not a fault. Precip still
-        // renders; say so once rather than mounting an empty source.
-        log.warn('Cloud layer unavailable — no OpenWeatherMap key in this build; precip only');
-        return;
-    }
-    try {
-        map.addSource(IR_SOURCE, {
-            type: 'raster',
-            tiles: [tiles],
-            tileSize: 256,
-            // z9 — OWM's documented ceiling for its weather rasters, and past
-            // the precip layer's own z8, so cloud is never the thing that
-            // stops sharpening first. (GIBS capped this at z6.)
-            maxzoom: tileSourceMaxZoom('clouds'),
-        });
-        const styleLayers = map.getStyle()?.layers ?? [];
-        // Anchor immediately ABOVE the base imagery and BELOW the ENC stack —
-        // unchanged from the GIBS build, and for the same reason: the chart
-        // still paints over the cloud, so a mis-anchor is cosmetic rather
-        // than a whited-out world.
-        const imageryIdx = imageryTopIndex(styleLayers);
-        const beforeId = cloudOverlayBeforeId(styleLayers);
-        map.addLayer(
-            {
-                id: IR_LAYER,
-                type: 'raster',
-                source: IR_SOURCE,
-                paint: {
-                    // NO raster-color ramp. The GIBS build had to synthesise
-                    // alpha from luminance because its tile was fully opaque;
-                    // clouds_new carries real transparency (measured: 35% of
-                    // pixels at alpha 0, none at 255), so ramping it would
-                    // only fight the alpha that is already correct.
-                    'raster-opacity': 0.9,
-                    'raster-fade-duration': 0,
-                    // 'linear', not 'nearest': this one is a smooth field and
-                    // it is now overzoomed past z9 rather than stopping at z6.
-                    'raster-resampling': 'linear',
-                },
-            },
-            beforeId,
-        );
-        // Says WHERE it landed, so a fourth "still not showing" is one log
-        // line to diagnose instead of another round of reasoning from source.
-        const idx = (map.getStyle()?.layers ?? []).findIndex((l) => l.id === IR_LAYER);
-        log.warn(
-            `☁️ World cloud layer mounted at layer ${idx}/${styleLayers.length}` +
-                `${beforeId ? ` before '${beforeId}'` : ' on top'}, imageryIdx=${imageryIdx}`,
-        );
-    } catch (err) {
-        log.warn('Cloud layer mount failed — continuing with precip only', err);
-    }
+    // Delegates to the ONE cloud implementation (components/map/cloudOverlay).
+    // This file used to own its own copy — NASA GIBS, with a raster-color ramp
+    // to manufacture alpha out of an opaque tile — while useCycloneLayer owned
+    // a second one built on satellite IR products. Converting only this half on
+    // 2026-08-24 left the storm page still showing satellite, which is the
+    // whole argument for there being one.
+    const styleLayers = map.getStyle()?.layers ?? [];
+    mountCloudOverlay(map, cloudOverlayBeforeId(styleLayers));
 }
 
 /**
@@ -635,8 +553,7 @@ function cleanupLayers(map: mapboxgl.Map): void {
     try {
         if (map.getLayer(SQUALL_LAYER)) map.removeLayer(SQUALL_LAYER);
         if (map.getSource(SQUALL_SOURCE)) map.removeSource(SQUALL_SOURCE);
-        if (map.getLayer(IR_LAYER)) map.removeLayer(IR_LAYER);
-        if (map.getSource(IR_SOURCE)) map.removeSource(IR_SOURCE);
+        removeCloudOverlay(map);
         const hud = map.getContainer().querySelector(`#${SQUALL_HUD_ID}`);
         if (hud) hud.remove();
     } catch (err) {

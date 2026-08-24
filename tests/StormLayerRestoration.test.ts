@@ -27,9 +27,10 @@ describe('squall keeps its satellite cloud half', () => {
         // by the SAME cloud layer the Sky menu serves, so the punter sees one
         // cloud field with one appearance whichever page they are on — and it
         // is a true overlay, which GIBS never was.
-        expect(squall).toContain("getTileUrl('clouds')");
+        expect(read('components/map/cloudOverlay.ts')).toContain("getTileUrl('clouds')");
         expect(squall).not.toContain('Himawari_AHI_Band13_Clean_Infrared');
-        expect(squall).toContain('squall-ir-layer');
+        // The cloud half is the shared overlay's layer now, not a squall-owned id.
+        expect(squall).toContain('mountCloudOverlay');
         // The precip layer must still be there — this is a COMPOSITE, and
         // restoring one half by replacing the other would repeat the mistake.
         expect(squall).toContain('squall-rainbow-layer');
@@ -42,7 +43,7 @@ describe('squall keeps its satellite cloud half', () => {
         // which clears precip's ceiling — and the number is read from
         // TILE_SOURCE_MAX_ZOOM rather than restated, so the Sky layer and the
         // storm page cannot drift apart.
-        expect(squall).toContain("maxzoom: tileSourceMaxZoom('clouds')");
+        expect(read('components/map/cloudOverlay.ts')).toContain("maxzoom: tileSourceMaxZoom('clouds')");
         expect(squall).not.toContain('GIBS_MAX_ZOOM');
     });
 
@@ -61,12 +62,12 @@ describe('squall keeps its satellite cloud half', () => {
         expect(squall).toContain('function mountSatelliteLayerNow(map: mapboxgl.Map): void {');
         // And its own failure degrades to precip-only rather than throwing
         // out of the mount path.
-        const irFn = squall.slice(
-            squall.indexOf('function mountSatelliteLayerNow(map'),
-            squall.indexOf('/**\n * Add (or replace) the Mapbox raster source'),
-        );
-        expect(irFn).toContain('catch');
-        expect(irFn).toContain('continuing with precip only');
+        // Its failure degrades to precip-only rather than throwing out of the
+        // mount path. The mount itself now lives in the shared cloudOverlay
+        // module, which swallows and reports rather than rethrowing.
+        const overlay = read('components/map/cloudOverlay.ts');
+        expect(overlay).toContain('Cloud overlay mount failed');
+        expect(overlay.slice(overlay.indexOf('export function mountCloudOverlay'))).toContain('catch');
         // …and so does the guarded ENTRY POINT, which is what startLoad calls.
         // The first cut of ensureSatelliteLayer called map.isStyleLoaded()
         // bare as the first statement of startLoad, so a TypeError escaped the
@@ -85,9 +86,12 @@ describe('squall keeps its satellite cloud half', () => {
     });
 
     it('tears both layers down together', () => {
+        // Still the invariant — precip and cloud go together — but the cloud
+        // half is removed through the shared helper now, which also knows to
+        // drop the doubling pass before the source they share.
         const cleanup = squall.slice(squall.indexOf('function cleanupLayers'));
-        expect(cleanup).toContain('IR_LAYER');
-        expect(cleanup).toContain('IR_SOURCE');
+        expect(cleanup).toContain('SQUALL_LAYER');
+        expect(cleanup).toContain('removeCloudOverlay(map)');
     });
 });
 
@@ -161,32 +165,40 @@ describe('the cyclone details card exists and is mounted', () => {
         // 6, 35% of sampled pixels at alpha 0 and NOT ONE at 255. Real
         // transparency, so the ramp comes off — keeping it would fight alpha
         // that is already right.
-        const src = readFileSync('components/map/useSquallMap.ts', 'utf8');
+        const src = readFileSync('components/map/cloudOverlay.ts', 'utf8');
         const mount = src
-            .slice(src.indexOf('function mountSatelliteLayer'), src.indexOf('function mountSquallLayer'))
+            .slice(src.indexOf('export function mountCloudOverlay'), src.indexOf('Put the overlay back'))
             .replace(/\/\/[^\n]*/g, '');
         expect(mount).not.toContain("'raster-color'");
         expect(mount).not.toContain("'raster-color-mix'");
         // The PRECIP half still ramps, and must: Rainbow ships grayscale dbz
         // with no meaningful alpha, which is the case the technique is for.
-        expect(src).toContain("'raster-color': SQUALL_COLOR_RAMP");
+        // The PRECIP half still ramps, and must: Rainbow ships grayscale dbz
+        // with no meaningful alpha, which is the case the technique is for.
+        expect(readFileSync('components/map/useSquallMap.ts', 'utf8')).toContain(
+            "'raster-color': SQUALL_COLOR_RAMP",
+        );
     });
 
     it('anchors the cloud above the imagery, and not to a layer that moves', () => {
-        const src = readFileSync('components/map/useSquallMap.ts', 'utf8');
-        const mount = src.slice(src.indexOf('function mountSatelliteLayer'), src.indexOf('function mountSquallLayer'));
-        // The anchor list moved into components/map/imageryOrder.ts so BOTH
-        // cloud implementations resolve it identically — assert there, and
-        // assert this file defers to it rather than re-deriving one.
+        // The anchor list lives in components/map/imageryOrder.ts, and the
+        // anchor is now the CALLER's argument — which is the stronger version
+        // of this guarantee. There used to be two cloud implementations each
+        // deriving their own; there is one mount, and every caller has to hand
+        // it a beforeId from the shared helper.
         const order = readFileSync('components/map/imageryOrder.ts', 'utf8');
         expect(order).toContain("'satellite-base-layer'");
         expect(order).toContain("'hybrid-base-layer'");
-        const anchor = mount.slice(mount.indexOf('const imageryIdx ='), mount.indexOf('map.addLayer('));
-        expect(anchor).toContain('cloudOverlayBeforeId(styleLayers)');
+        expect(readFileSync('components/map/useSquallMap.ts', 'utf8')).toContain(
+            'mountCloudOverlay(map, cloudOverlayBeforeId(styleLayers))',
+        );
+        expect(readFileSync('components/map/useCycloneLayer.ts', 'utf8')).toContain(
+            'mountCloudOverlay(map, cloudOverlayBeforeId(satLayers))',
+        );
         // 'settlement-major-label' looks like a stable high-water mark and is
         // not one: MapHub's ordering pass RELOCATES it to encBottom whenever
         // imagery is lit — which is exactly the configuration Shane runs.
-        expect(anchor).not.toContain("'settlement-major-label'");
+        expect(readFileSync('components/map/cloudOverlay.ts', 'utf8')).not.toContain("'settlement-major-label'");
     });
 
     it('does NOT keep the IR anchor coupled to the rain layer', () => {

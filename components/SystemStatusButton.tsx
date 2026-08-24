@@ -472,9 +472,22 @@ const SystemRow: React.FC<{
 interface SystemStatusButtonProps {
     currentView: string;
     onNavigateAnchor: () => void;
+    /**
+     * Keep the FAB mounted even with nothing active (Shane 2026-08-24: "can we
+     * ensure that the 'i' fab is always showing in this page").
+     *
+     * Everywhere else it hides at zero, which is right for a header that has
+     * other content — an info button reporting nothing is clutter. On the
+     * CHART it is not clutter: it is a fixed landmark in a column of FABs, and
+     * the radial helm menu below it positions itself relative to where this
+     * sits. A control that vanishes when the boat happens to be alongside
+     * moves everything under it, and the punter loses the route into system
+     * status exactly when they are setting the boat up.
+     */
+    alwaysShow?: boolean;
 }
 
-export const SystemStatusButton: React.FC<SystemStatusButtonProps> = ({ currentView, onNavigateAnchor }) => {
+export const SystemStatusButton: React.FC<SystemStatusButtonProps> = ({ currentView, onNavigateAnchor, alwaysShow = false }) => {
     const [showModal, setShowModal] = useState(false);
     // Stop-follow confirmation modal removed 2026-05-19 — the action
     // is reversible (just re-tap Follow on the voyage card) so a
@@ -744,8 +757,10 @@ export const SystemStatusButton: React.FC<SystemStatusButtonProps> = ({ currentV
         systemState.n2k.active && systemState.n2k.health === 'green',
     ].filter(Boolean).length;
 
-    // Don't show if nothing is active
-    if (activeCount === 0) return null;
+    // Don't show if nothing is active — unless this surface asked for a
+    // permanent landmark. The button reads fine at zero: the count badge only
+    // appears above one, so it is just the circle-i with no numeral.
+    if (activeCount === 0 && !alwaysShow) return null;
 
     // Has urgent status (anchor alarm, route changed)?
     const hasUrgent =
