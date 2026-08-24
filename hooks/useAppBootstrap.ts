@@ -296,6 +296,12 @@ export function useAppBootstrap() {
                 // large at the time, which is the part every previous fix had
                 // to guess at.
                 if (lastCensus) console.warn(`[WebContentKill] ${census.describeCensus(lastCensus)}`);
+                if (lastCensus?.sinceBootMs != null) {
+                    // Bound the time of death on the Last Flight card too —
+                    // the crumb trail alone hid 91 s of life in kill #28.
+                    const { attachLastAliveInfo } = await import('../utils/flightRecorder');
+                    attachLastAliveInfo(Math.round(lastCensus.sinceBootMs / 1000));
+                }
 
                 // No restore navigation. This block used to put the skipper
                 // back on the screen the process died on — written mid-hunt

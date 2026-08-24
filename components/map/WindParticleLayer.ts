@@ -371,6 +371,13 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
     private trailData: Float32Array;
     private _debugFrame = 0;
     private _lastRenderTime = 0;
+    /** The single pending repaint keepalive. Kill #28 audit: both render
+     *  paths used to fire handle-less setTimeouts, so a camera animation
+     *  could seed up to ~4 parallel 66 ms chains that each re-armed forever,
+     *  floating the idle repaint duty cycle above the intended 15 fps.
+     *  Current/Wave/Sst layers already cancel-and-reschedule; now this one
+     *  does too. */
+    private _repaintTimer: ReturnType<typeof setTimeout> | null = null;
     private particleAges: Int32Array;
     /** Particles simulated and drawn right now — never above NUM_PARTICLES,
      *  which is what the buffer is sized for. Zoom moves this, not the
@@ -1326,7 +1333,7 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
         if (!mapAnimating && elapsed < 66) {
             if (!document.hidden) {
                 const remaining = 66 - elapsed;
-                setTimeout(() => this.map?.triggerRepaint(), remaining);
+                this._scheduleRepaint(remaining);
             }
             return;
         }
@@ -1567,12 +1574,25 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
         // deadline so Mapbox pauses its loop until we're ready.
         if (document.hidden) return;
         if (mapAnimating) return; // Mapbox will RAF us anyway during animation
-        setTimeout(() => this.map?.triggerRepaint(), 66);
+        this._scheduleRepaint(66);
+    }
+
+    /** One keepalive at a time — a new schedule replaces the pending one. */
+    private _scheduleRepaint(ms: number): void {
+        if (this._repaintTimer !== null) clearTimeout(this._repaintTimer);
+        this._repaintTimer = setTimeout(() => {
+            this._repaintTimer = null;
+            this.map?.triggerRepaint();
+        }, ms);
     }
 
     // ── Cleanup ────────────────────────────────────────────────
 
     onRemove(_map: mapboxgl.Map, gl: WebGLRenderingContext): void {
+        if (this._repaintTimer !== null) {
+            clearTimeout(this._repaintTimer);
+            this._repaintTimer = null;
+        }
         if (this._onVisibilityChange) {
             document.removeEventListener('visibilitychange', this._onVisibilityChange);
             this._onVisibilityChange = null;

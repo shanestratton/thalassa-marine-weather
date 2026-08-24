@@ -296,19 +296,6 @@ const GLAZE_IMAGERY_FADE_END = 15;
  */
 const GLAZE_IMAGERY_FADE_FLOOR = 0.65;
 
-/** Multiplier applied ONLY to the safe-water stops of the satellite glaze. */
-function glazeImageryFade(): ExpressionSpecification {
-    return [
-        'interpolate',
-        ['linear'],
-        ['zoom'],
-        GLAZE_IMAGERY_FADE_START,
-        1,
-        GLAZE_IMAGERY_FADE_END,
-        GLAZE_IMAGERY_FADE_FLOOR,
-    ] as ExpressionSpecification;
-}
-
 export function buildDepareSatelliteOpacity(safetyDepthM: number, hazardDepthM?: number): ExpressionSpecification {
     const s = Math.max(safetyDepthM, 0.1);
     // Router-hazard caution band [s, h): present only when a valid deeper hazard
@@ -317,7 +304,20 @@ export function buildDepareSatelliteOpacity(safetyDepthM: number, hazardDepthM?:
     // callers + the pathological deep-draft case where hazard clamps below s).
     const h = hazardDepthM != null && hazardDepthM > s ? hazardDepthM : s;
     const hasCaution = h > s;
-    return mapExpr([
+    // TOP-LEVEL zoom interpolate, data expression at each stop. Mapbox only
+    // permits ['zoom'] as the input of a TOP-LEVEL 'step'/'interpolate' —
+    // the previous shape nested a zoom interpolate inside the step outputs,
+    // Style.setPaintProperty rejected the whole property on validation, and
+    // the glaze painted NOTHING over imagery from 2026-08-23 until this fix
+    // (the only valid value ever applied was the mount placeholder 0). The
+    // repo's own test evaluator has no such rule, so CI stayed green; see
+    // assertZoomTopLevelOnly in tests/enc/exprEval.ts, born of this bug.
+    //
+    // The caution stops are IDENTICAL at both zoom stops, so they hold
+    // constant through the fade; the three safe-water stops, and ONLY
+    // those, carry the fade multiplier baked in — same numbers the nested
+    // form intended (0.62→0.403, 0.68→0.442, 0.72→0.468 across z13→z15).
+    const bands = (fade: number): unknown => [
         'case',
         attrValid(DRVAL1_ATTR),
         [
@@ -332,13 +332,22 @@ export function buildDepareSatelliteOpacity(safetyDepthM: number, hazardDepthM?:
             // HAZARD depth, not s). These three, and ONLY these three, thin
             // out past z13 so the imagery reads through; every caution band
             // above holds full strength at every zoom.
-            ['*', 0.62, glazeImageryFade()],
+            0.62 * fade,
             Math.max(h + 0.01, 20),
-            ['*', 0.68, glazeImageryFade()],
+            0.68 * fade,
             Math.max(h + 0.02, 50),
-            ['*', 0.72, glazeImageryFade()], // open water — mostly paper
+            0.72 * fade, // open water — mostly paper
         ],
         0,
+    ];
+    return mapExpr([
+        'interpolate',
+        ['linear'],
+        ['zoom'],
+        GLAZE_IMAGERY_FADE_START,
+        bands(1),
+        GLAZE_IMAGERY_FADE_END,
+        bands(GLAZE_IMAGERY_FADE_FLOOR),
     ]);
 }
 

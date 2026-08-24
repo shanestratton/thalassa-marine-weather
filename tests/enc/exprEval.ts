@@ -176,3 +176,44 @@ export function evalExpr(expr: unknown, ctx: ExprCtx = {}): unknown {
             throw new ExprError(`unsupported op: ${String(op)}`);
     }
 }
+
+/**
+ * Mapbox's paint/layout rule this homemade evaluator cannot feel: ['zoom']
+ * may appear ONLY as the direct input of a TOP-LEVEL 'step' or
+ * 'interpolate'. b3b065ed (2026-08-23) nested a zoom interpolate inside
+ * step outputs; the real Style.setPaintProperty rejected the property at
+ * runtime, the glaze painted nothing for two days, and CI stayed green
+ * because evalExpr happily evaluates the illegal shape. Paint-expression
+ * tests call this alongside evalExpr so the class cannot ship again.
+ * (Filters are exempt in Mapbox — do not apply this to filter builders.)
+ */
+export function assertZoomTopLevelOnly(expr: unknown): void {
+    const usesZoom = (e: unknown): boolean =>
+        Array.isArray(e) && ((e as unknown[])[0] === 'zoom' || (e as unknown[]).some(usesZoom));
+    if (!Array.isArray(expr)) return;
+    const [op, ...rest] = expr as [string, ...unknown[]];
+    let input: unknown;
+    let others: unknown[];
+    if (op === 'interpolate') {
+        input = rest[1];
+        others = [rest[0], ...rest.slice(2)];
+    } else if (op === 'step') {
+        input = rest[0];
+        others = rest.slice(1);
+    } else {
+        input = undefined;
+        others = rest;
+    }
+    const inputIsBareZoom =
+        Array.isArray(input) && (input as unknown[]).length === 1 && (input as unknown[])[0] === 'zoom';
+    if (!inputIsBareZoom && usesZoom(input)) {
+        throw new ExprError("['zoom'] must BE the input of the top-level step/interpolate, not nested inside it");
+    }
+    for (const o of others) {
+        if (usesZoom(o)) {
+            throw new ExprError(
+                "['zoom'] outside a top-level step/interpolate input — Mapbox rejects this paint expression",
+            );
+        }
+    }
+}

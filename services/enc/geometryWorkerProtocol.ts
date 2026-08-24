@@ -31,6 +31,6 @@ export interface GeometryJobMsg {
  *  'error'. */
 export type GeometryWorkerReply =
     | { jobId: number; type: 'glaze-cell'; cellId: string; glazeKey: string; features: Feature[] }
-    | { jobId: number; type: 'contours'; features: Feature[] }
+    | { jobId: number; type: 'contours'; features: Feature[]; truncated?: boolean }
     | { jobId: number; type: 'done'; glazeStats?: CoverageClipStats & { ms: number } }
     | { jobId: number; type: 'error'; message: string };

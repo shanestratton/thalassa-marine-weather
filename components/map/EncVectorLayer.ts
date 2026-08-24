@@ -45,6 +45,7 @@ import { chartAgeYears as computeChartAgeYears } from '../../services/enc/chartC
 import type { FeatureCollection } from 'geojson';
 
 import { createLogger } from '../../utils/createLogger';
+import { crumb } from '../../utils/flightRecorder';
 import type { EncMergedVectorData } from '../../services/enc/EncHazardService';
 import { registerSeamarkIcons, UWTROC_ROCK_GLYPH, UWTROC_ROCK_GLYPH_DEFAULT } from './seamarkIcons';
 import {
@@ -1455,10 +1456,15 @@ export function refreshEncAsyncLayers(map: mapboxgl.Map, data: EncMergedVectorDa
     // contours-only upgrade must not re-serialize the multi-thousand-feature
     // DEPARE_GLAZE, the heaviest ENC source (cycle-4 audit, red-team missed).
     if (data.DEPARE_GLAZE.features !== lastPushedGlazeFeats) {
+        // Kill #28: this push lands during quiet plotting (minutes after
+        // merge-done) and hands Mapbox's geojson worker the heaviest ENC
+        // source for a z18 re-tile — crumb it, or the trail shows silence.
+        crumb('enc:upgrade-push', `glaze ${data.DEPARE_GLAZE.features.length}f`);
         setData(ENC_VEC_SRC.DEPARE_GLAZE, data.DEPARE_GLAZE);
         lastPushedGlazeFeats = data.DEPARE_GLAZE.features;
     }
     if (data.DEPCNT_DERIVED.features !== lastPushedContourFeats) {
+        crumb('enc:upgrade-push', `contours ${data.DEPCNT_DERIVED.features.length}f`);
         setData(ENC_VEC_SRC.DEPCNT_DERIVED, data.DEPCNT_DERIVED);
         lastPushedContourFeats = data.DEPCNT_DERIVED.features;
     }

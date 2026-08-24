@@ -1145,9 +1145,15 @@ export async function getMergedVectorData(
         // mislead: a trail of ≤14-cell merges looked bounded at 44.5 MB.
         // heapTag (",h412" = real JS heap MB) because kill #23 died with every
         // CACHE reading healthy — the trail must show what the PROCESS holds.
+        // Cell IDs so a fatal merge names its own cells (kill #28: the
+        // Musgrave window was identifiable only as "3cells,8.1MB").
+        const cellTag = cells
+            .slice(0, 3)
+            .map((c) => c.id)
+            .join('+');
         crumb(
             'enc:merge-start',
-            `${cells.length}cells,${(cells.reduce((s, c) => s + (c.sizeBytes ?? 0), 0) / 1024 / 1024).toFixed(1)}MB${heapTag()}`,
+            `${cells.length}cells,${(cells.reduce((s, c) => s + (c.sizeBytes ?? 0), 0) / 1024 / 1024).toFixed(1)}MB${heapTag()},${cellTag}${cells.length > 3 ? '+' : ''}`,
         );
         return buildMergedVectorData(cells, cacheKey, densify, buildGlaze, zoom, enqueueGen);
     });

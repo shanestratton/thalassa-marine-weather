@@ -371,6 +371,9 @@ function getGeoWorker(): Worker | null {
         }
         if (msg.type === 'contours' && job) {
             const { features } = msg;
+            // The quiet window between merge-done and a death used to be
+            // crumb-less (kill #28) — every worker reply now marks the trail.
+            crumb('enc:geo-contours', `#${msg.jobId} ${features.length}f${msg.truncated ? ',trunc' : ''}`);
             // Memoize under the merge key so a later re-merge of the SAME
             // selection reuses these synchronously instead of blanking +
             // recomputing (the DEPCNT_DERIVED analogue of the glaze memo).

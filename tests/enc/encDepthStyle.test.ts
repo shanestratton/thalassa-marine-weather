@@ -213,12 +213,20 @@ describe('expression structural invariants', () => {
     });
 
     it('glaze step stops stay strictly ascending for shallow AND deep keels', () => {
+        // Since the 2026-08-25 legality fix the glaze opacity is a TOP-LEVEL
+        // zoom interpolate with one case/step tree per zoom stop — check the
+        // depth-stop ordering inside BOTH.
         for (const S of [0.5, 3, 19.99, 20, 25, 49.99, 60]) {
             const expr = buildDepareSatelliteOpacity(S) as unknown as unknown[];
-            const step = (expr as unknown[])[2] as unknown[];
-            const stops: number[] = [];
-            for (let i = 3; i < step.length; i += 2) stops.push(step[i] as number);
-            for (let i = 1; i < stops.length; i++) expect(stops[i]).toBeGreaterThan(stops[i - 1]);
+            expect(expr[0]).toBe('interpolate');
+            expect(expr[2]).toEqual(['zoom']);
+            for (const bandsAt of [4, 6]) {
+                const step = ((expr[bandsAt] as unknown[])[2] as unknown[]) ?? [];
+                expect(step[0]).toBe('step');
+                const stops: number[] = [];
+                for (let i = 3; i < step.length; i += 2) stops.push(step[i] as number);
+                for (let i = 1; i < stops.length; i++) expect(stops[i]).toBeGreaterThan(stops[i - 1]);
+            }
         }
     });
 
