@@ -40,6 +40,11 @@ import {
 import type { GeometryJobMsg, GeometryWorkerReply } from './geometryWorkerProtocol';
 import { buildDerivedContours } from './derivedContours';
 
+/** Most derived-contour features one job may return. Far above every
+ *  healthy reading; the theoretical worst case (~480k segments) is a
+ *  renderer-killer twice over — once in the clone, once in geojson-vt. */
+const CONTOUR_RESULT_FEATURE_CAP = 40_000;
+
 /** Aggregate martinez input budget per JOB (sum of subject+clip vertices
  *  across every exact pair). The per-pair cap bounds one spike; this
  *  bounds how many spikes one job may stack before GC gets a look-in.
@@ -90,7 +95,20 @@ ctx.onmessage = (ev: MessageEvent<GeometryJobMsg>) => {
                 await breathe();
             }
             if (contourPoints && contourPoints.length > 0) {
-                ctx.postMessage({ jobId, type: 'contours', features: buildDerivedContours(contourPoints) });
+                // KILL #28 hygiene: the glaze path got a result cap on
+                // 2026-08-23; the contour path never did — its worst case is
+                // ~480k two-point segments from the 30k-sounding input cap,
+                // structured-cloned back and serialized AGAIN into Mapbox.
+                // Truncation is safe: derived contours are dashed
+                // advisory-only interpolations, never the charted data.
+                const contours = buildDerivedContours(contourPoints);
+                const truncated = contours.length > CONTOUR_RESULT_FEATURE_CAP;
+                ctx.postMessage({
+                    jobId,
+                    type: 'contours',
+                    features: truncated ? contours.slice(0, CONTOUR_RESULT_FEATURE_CAP) : contours,
+                    ...(truncated ? { truncated } : {}),
+                });
             }
             ctx.postMessage({
                 jobId,

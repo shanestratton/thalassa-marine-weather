@@ -190,6 +190,22 @@ export function startFlightRecorder(): FlightReport {
     return lastReport;
 }
 
+/**
+ * Append the census's last-alive bound to the previous-run report. The trail
+ * is event-driven — kill #28's fatal web trail ended at 29.6 s while the
+ * timer-driven census kept ticking to 121 s, so the death hid behind 91 s of
+ * apparent silence. useAppBootstrap reads the dead session's census (before
+ * startCensus overwrites it) and hands the bound here; the Last Flight card
+ * then shows how long the process REALLY lived past its last crumb.
+ */
+export function attachLastAliveInfo(sinceBootSecs: number): void {
+    if (!lastReport || lastReport.verdict === 'clean-start') return;
+    lastReport = {
+        ...lastReport,
+        summary: `${lastReport.summary} — last census tick ~${sinceBootSecs}s into that run (death after this point)`,
+    };
+}
+
 /** The previous run's trail, for surfacing in a debug view. */
 export function lastFlightTrail(): Crumb[] {
     return read(PREV_KEY);

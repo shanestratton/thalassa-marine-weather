@@ -125,6 +125,79 @@ export const emptyClipStats = (): CoverageClipStats => ({
     maxPairVertices: 0,
 });
 
+/**
+ * KILL #28 (Lady Musgrave, 2026-08-25 — the quiet-after-merge-done class).
+ *
+ * The S–H degrade clips outer and hole rings INDEPENDENTLY against each
+ * rect, so an atoll (drying-reef ring around a lagoon hole — exactly Lady
+ * Musgrave) yields coincident outer/hole closure seams for every rect that
+ * crosses the annulus, and in the limiting case a polygon whose hole ring
+ * EQUALS its outer ring: exact zero area. This file always knew boolean-ops
+ * libraries are "most fragile" on that class — and protected martinez from
+ * it while shipping it, unvalidated and unmeasured, to Mapbox's
+ * geojson-vt/earcut in the SAME renderer process. Both fatal 2026-08-25
+ * trails (phone a3339, desktop h135/4192) end at merge-done with a glaze
+ * job in flight and every gauge healthy: the explosion happens in threads
+ * no gauge can see. So: every ring the clip MANUFACTURES is validated
+ * before it ships, and the degrade's own output is bounded (it was the one
+ * branch the 2026-08-23 result cap did not cover).
+ */
+/** Smallest ring area worth shipping, in deg² (~1.2 m² at the equator).
+ *  Below this a ring is a seam sliver or an exact-zero degenerate —
+ *  invisible at any chart zoom, pure triangulator poison. */
+const MIN_RING_AREA_DEG2 = 1e-10;
+
+/** Signed shoelace area of a ring in deg². NaN (from any non-finite
+ *  coordinate) propagates, and NaN fails every area threshold below. */
+function ringArea(ring: Ring): number {
+    let a = 0;
+    for (let i = 0, n = ring.length - 1; i < n; i++) {
+        a += ring[i][0] * ring[i + 1][1] - ring[i + 1][0] * ring[i][1];
+    }
+    return a / 2;
+}
+
+/**
+ * Drop the rings no triangulator should ever see: short rings, non-finite
+ * or (near-)zero-area rings, and the degenerate annulus whose hole covers
+ * (essentially) its whole outer ring — that polygon has no paintable area,
+ * so the honest output is nothing. Returns null when no polygon survives
+ * (same "swallowed whole" contract as the clips). Pure; exported for tests.
+ */
+export function sanitizeCoverageGeom(geom: CoverageGeom): CoverageGeom | null {
+    const out: CoverageGeom = [];
+    for (const poly of geom) {
+        const outer = poly[0];
+        if (!outer || outer.length < 4) continue;
+        const oa = Math.abs(ringArea(outer));
+        if (!(oa > MIN_RING_AREA_DEG2)) continue; // NaN lands here too
+        const keep: PolyRings = [outer];
+        let degenerateAnnulus = false;
+        for (let h = 1; h < poly.length; h++) {
+            const hole = poly[h];
+            if (!hole || hole.length < 4) continue;
+            const ha = Math.abs(ringArea(hole));
+            if (!(ha > MIN_RING_AREA_DEG2)) continue;
+            if (ha >= oa * 0.999) {
+                degenerateAnnulus = true; // hole ≈ outer: zero net area
+                break;
+            }
+            keep.push(hole);
+        }
+        if (degenerateAnnulus) continue;
+        out.push(keep);
+    }
+    return out.length > 0 ? out : null;
+}
+
+/** Vertex count of a clipped feature's polygons (Polygon or MultiPolygon). */
+function featureVertexCount(f: Feature): number {
+    const g = f.geometry;
+    if (!g || (g.type !== 'Polygon' && g.type !== 'MultiPolygon')) return 0;
+    const polys: CoverageGeom = g.type === 'Polygon' ? [g.coordinates as PolyRings] : (g.coordinates as CoverageGeom);
+    return coverageVertexCount(polys);
+}
+
 /** Total ring vertices in a multipolygon coordinate array. */
 export function coverageVertexCount(geom: CoverageGeom): number {
     let n = 0;
@@ -642,6 +715,12 @@ export function clipFeatureOutsideCoverage(
         }
     }
     if (!touched) return feature;
+    // KILL #28: martinez output was trusted wholesale ("coords = out").
+    // Validate whatever this function manufactured — martinez result or
+    // degrade output — before it ships to the structured clone and Mapbox.
+    const clean = sanitizeCoverageGeom(coords);
+    if (!clean) return null; // nothing paintable survived — honest null
+    coords = clean;
     return coordsAsFeature();
 }
 
@@ -653,6 +732,45 @@ export function clipFeatureOutsideCoverage(
  *    MultiPolygon pieces are pairwise disjoint outside the bboxes.
  */
 export function clipFeatureOutsideBboxes(feature: Feature, bboxes: readonly Bbox[]): Feature | null {
+    const first = clipBboxesOnce(feature, bboxes);
+    if (first === null || first === feature) return first;
+    // KILL #28: the degrade path had NO output bound — the branch taken
+    // precisely BECAUSE geometry was too big shipped its piece explosion
+    // uncounted. If the strip-rect result is itself over the glaze result
+    // budget, fall back to subtracting ONE union rect: cruder (under-glazes
+    // near fine coverage — the accepted degrade direction: "a possible hole
+    // beats a crashed merge"), but bounded by construction.
+    let out: Feature = first;
+    if (bboxes.length > 1 && glazeResultOverBudget(featureVertexCount(first), featureVertexCount(feature))) {
+        const union: Bbox = [
+            Math.min(...bboxes.map((b) => b[0])),
+            Math.min(...bboxes.map((b) => b[1])),
+            Math.max(...bboxes.map((b) => b[2])),
+            Math.max(...bboxes.map((b) => b[3])),
+        ];
+        const crude = clipBboxesOnce(feature, [union]);
+        if (crude === null) return null;
+        if (crude === feature) return feature;
+        out = crude;
+    }
+    // Every manufactured ring is validated before Mapbox sees it.
+    const og = out.geometry as Polygon | MultiPolygon;
+    const polys: CoverageGeom =
+        og.type === 'Polygon' ? [og.coordinates as PolyRings] : (og.coordinates as CoverageGeom);
+    const clean = sanitizeCoverageGeom(polys);
+    if (!clean) return null;
+    return {
+        ...out,
+        geometry:
+            clean.length === 1
+                ? { type: 'Polygon', coordinates: clean[0] }
+                : { type: 'MultiPolygon', coordinates: clean as MultiPolygon['coordinates'] },
+    };
+}
+
+/** One raw S–H partition pass — output unvalidated; callers go through
+ *  clipFeatureOutsideBboxes, which bounds and sanitizes. */
+function clipBboxesOnce(feature: Feature, bboxes: readonly Bbox[]): Feature | null {
     const g = feature.geometry;
     if (!g || (g.type !== 'Polygon' && g.type !== 'MultiPolygon')) return feature;
     const inputPolys: PolyRings[] =

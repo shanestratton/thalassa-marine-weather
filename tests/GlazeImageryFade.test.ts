@@ -14,72 +14,82 @@
  * own wash, and bright paper means water you can sail. Fading the lot would
  * strip the shoal warnings at exactly the zoom where the boat is closest to
  * them. These tests exist to stop someone "simplifying" this into one fade.
+ *
+ * HISTORY (2026-08-25): the first shipped shape nested the zoom interpolate
+ * inside the step outputs — a position Mapbox forbids for ['zoom'] — so the
+ * real Style.setPaintProperty rejected the whole property and the glaze
+ * painted NOTHING over imagery for two days while this file, asserting the
+ * malformed structure, stayed green. The tests are now SEMANTIC (evaluated
+ * through evalExpr), plus one legality assertion that would have caught it.
  */
 import { describe, expect, it } from 'vitest';
 import { buildDepareSatelliteOpacity } from '../components/map/encDepthStyle';
+import { assertZoomTopLevelOnly, evalExpr } from './enc/exprEval';
 
-type Expr = unknown;
-const isFaded = (v: Expr): boolean => Array.isArray(v) && v[0] === '*';
-
-/** The `step` output list: [stopValue, output, stopValue, output, …] after the
- *  leading default. Returns { belowHazard, atOrAboveHazard } outputs. */
-function stopOutputs(safety: number, hazard: number) {
-    const expr = buildDepareSatelliteOpacity(safety, hazard) as unknown[];
-    const step = expr[2] as unknown[];
-    expect(step[0]).toBe('step');
-    const dryingDefault = step[2]; // output before the first stop
-    const rest = step.slice(3);
-    const pairs: { at: number; out: Expr }[] = [];
-    for (let i = 0; i + 1 < rest.length; i += 2) pairs.push({ at: rest[i] as number, out: rest[i + 1] });
-    return { dryingDefault, pairs, hazard };
-}
+const opacity = (drval1: number, zoom: number, S = 3, H?: number): number =>
+    evalExpr(buildDepareSatelliteOpacity(S, H), { props: { DRVAL1: drval1 }, zoom }) as number;
 
 describe('glaze fade past z13', () => {
-    it('leaves every WARNING band at full strength', () => {
-        // Drying, charted-shallow, and the router-hazard caution band. If any
-        // of these ever becomes a '*' expression, a shoal warning has been
+    it('is a paint expression Mapbox will actually accept', () => {
+        // The bug this file failed to catch: ['zoom'] anywhere but the input
+        // of the TOP-LEVEL step/interpolate makes setPaintProperty reject the
+        // property, leaving the mount placeholder 0 — an invisible glaze.
+        assertZoomTopLevelOnly(buildDepareSatelliteOpacity(3, 5));
+        assertZoomTopLevelOnly(buildDepareSatelliteOpacity(3));
+        // And the guard itself has teeth: the old malformed nesting throws.
+        expect(() =>
+            assertZoomTopLevelOnly([
+                'case',
+                true,
+                [
+                    'step',
+                    ['get', 'DRVAL1'],
+                    0.55,
+                    3,
+                    ['*', 0.62, ['interpolate', ['linear'], ['zoom'], 13, 1, 15, 0.65]],
+                ],
+                0,
+            ]),
+        ).toThrow();
+    });
+
+    it('leaves every WARNING band at full strength across the fade', () => {
+        // Drying (DRVAL1 < 0), charted-shallow, and the router-hazard caution
+        // band. If any of these ever thins with zoom, a shoal warning has been
         // made to fade out as the boat approaches it.
-        const { dryingDefault, pairs, hazard } = stopOutputs(3, 5);
-        expect(isFaded(dryingDefault)).toBe(false);
-        expect(dryingDefault).toBe(0.55);
-        for (const p of pairs.filter((x) => x.at < hazard)) {
-            expect(isFaded(p.out)).toBe(false);
-            expect(typeof p.out).toBe('number');
+        for (const zoom of [12, 13, 14, 15, 18]) {
+            expect(opacity(-1, zoom, 3, 5)).toBe(0.55); // drying
+            expect(opacity(1, zoom, 3, 5)).toBe(opacity(1, 12, 3, 5)); // charted-shallow
+            expect(opacity(4, zoom, 3, 5)).toBe(opacity(4, 12, 3, 5)); // router-hazard caution
         }
     });
 
-    it('fades every SAFE-WATER band, and only those', () => {
-        const { pairs, hazard } = stopOutputs(3, 5);
-        const safe = pairs.filter((x) => x.at >= hazard);
-        expect(safe.length).toBeGreaterThanOrEqual(3);
-        for (const p of safe) expect(isFaded(p.out)).toBe(true);
+    it('fades every SAFE-WATER band, and only those, from z13 to z15', () => {
+        for (const drval1 of [6, 25, 60]) {
+            const atStart = opacity(drval1, 13, 3, 5);
+            const atEnd = opacity(drval1, 15, 3, 5);
+            const midway = opacity(drval1, 14, 3, 5);
+            expect(atEnd).toBeLessThan(atStart);
+            expect(midway).toBeLessThan(atStart);
+            expect(midway).toBeGreaterThan(atEnd);
+            // Floor 0.65: the z15 wash is exactly the z13 wash thinned 35%.
+            expect(atEnd).toBeCloseTo(atStart * 0.65, 10);
+        }
     });
 
-    it('fades on ZOOM, from 13 to 15', () => {
-        const { pairs, hazard } = stopOutputs(3, 5);
-        const [, fade] = pairs.find((p) => p.at >= hazard)!.out as [string, number, unknown[]];
-        const f = (pairs.find((p) => p.at >= hazard)!.out as unknown[])[2] as unknown[];
-        expect(f[0]).toBe('interpolate');
-        expect(f[2]).toEqual(['zoom']);
-        // Floor is bounded from below by the brightness invariant: safe water
-        // must outrank every caution wash, so 0.62 x floor > 0.36.
-        expect(f.slice(3)).toEqual([13, 1, 15, 0.65]);
-        expect(typeof fade).toBe('number');
+    it('holds steady outside the fade window', () => {
+        expect(opacity(25, 10, 3, 5)).toBe(opacity(25, 13, 3, 5)); // below start: full
+        expect(opacity(25, 18, 3, 5)).toBe(opacity(25, 15, 3, 5)); // past end: floor
     });
 
     it('never reaches zero — the wash still says "sailable"', () => {
-        // A floor, not an off switch. At z15+ the glaze is quiet, not absent;
-        // losing the GO verdict entirely inside a reef lagoon is not an
-        // improvement over losing the imagery.
-        const { pairs, hazard } = stopOutputs(3, 5);
-        for (const p of pairs.filter((x) => x.at >= hazard)) {
-            const [, base, fadeExpr] = p.out as [string, number, unknown[]];
-            const floor = (fadeExpr as unknown[]).at(-1) as number;
-            expect(floor).toBeGreaterThan(0);
-            // Above the loudest caution wash (CAUTION_BAND_OPACITY 0.36), not
-            // merely above zero — see the ordering test in
-            // tests/enc/encDepthStyle.test.ts.
-            expect(base * floor).toBeGreaterThan(0.36);
+        // A floor, not an off switch — and above the loudest caution wash
+        // (CAUTION_BAND_OPACITY 0.36) so safe water outranks every warning
+        // even at the quiet end. Losing the GO verdict entirely inside a reef
+        // lagoon is not an improvement over losing the imagery.
+        for (const drval1 of [6, 25, 60]) {
+            const faded = opacity(drval1, 18, 3, 5);
+            expect(faded).toBeGreaterThan(0.36);
         }
     });
 
@@ -87,9 +97,8 @@ describe('glaze fade past z13', () => {
         // One-arg callers and the deep-draft case where hazard clamps to
         // safety: the caution band collapses, and the safe stops must still
         // fade while nothing below them does.
-        const { dryingDefault, pairs, hazard } = stopOutputs(3, 3);
-        expect(isFaded(dryingDefault)).toBe(false);
-        expect(pairs.filter((x) => x.at >= hazard).every((p) => isFaded(p.out))).toBe(true);
-        expect(pairs.filter((x) => x.at < hazard).every((p) => !isFaded(p.out))).toBe(true);
+        expect(opacity(-1, 15, 3)).toBe(0.55);
+        expect(opacity(1, 15, 3)).toBe(opacity(1, 12, 3));
+        expect(opacity(25, 15, 3)).toBeCloseTo(opacity(25, 13, 3) * 0.65, 10);
     });
 });
