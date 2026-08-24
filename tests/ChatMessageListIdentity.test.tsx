@@ -108,6 +108,17 @@ describe('ChatMessageList pin navigation identity fence', () => {
     it('synchronously clears A global state and physically cancels its timer for B', () => {
         const dispatch = vi.spyOn(window, 'dispatchEvent');
         renderList();
+        // FLUSH SCHEDULER TICKS BEFORE COUNTING (Node-24 lesson, 2026-08-24).
+        // vi.getTimerCount() is a census of EVERY pending fake timer, and under
+        // Node 24 React's scheduler work arrives as setTimeout(0) — so render
+        // work the identity flip legitimately queues shows up in the count, while
+        // under Node 26 the same work rides a channel the census cannot see. CI
+        // runs 24; dev machines run 26; the same tree passed one and failed the
+        // other with nothing wrong. Advancing the clock by ZERO fires only
+        // due-now ticks: scheduler work drains, while a genuinely leaked app
+        // timer (they are all >=500 ms here) survives to fail the assertion —
+        // the guard is unchanged, only the environment noise is gone.
+        act(() => vi.advanceTimersByTime(0));
         const baselineTimers = vi.getTimerCount();
         fireEvent.click(screen.getByRole('button', { name: 'Open Account A anchorage on chart' }));
         expect(vi.getTimerCount()).toBe(baselineTimers + 1);
@@ -117,6 +128,7 @@ describe('ChatMessageList pin navigation identity fence', () => {
         });
 
         expect(window.__thalassaPinView).toBeUndefined();
+        act(() => vi.advanceTimersByTime(0));
         expect(vi.getTimerCount()).toBe(baselineTimers);
         act(() => vi.advanceTimersByTime(500));
         expect(dispatch.mock.calls.some(([event]) => event.type === 'map-recenter')).toBe(false);
@@ -128,11 +140,13 @@ describe('ChatMessageList pin navigation identity fence', () => {
             setAuthIdentityScope('account-b');
         });
         renderList();
+        act(() => vi.advanceTimersByTime(0));
         const baselineTimers = vi.getTimerCount();
 
         fireEvent.click(screen.getByRole('button', { name: 'Open Account A anchorage on chart' }));
 
         expect(window.__thalassaPinView).toBeUndefined();
+        act(() => vi.advanceTimersByTime(0));
         expect(vi.getTimerCount()).toBe(baselineTimers);
         act(() => vi.advanceTimersByTime(500));
         expect(dispatch.mock.calls.some(([event]) => event.type === 'map-recenter')).toBe(false);
