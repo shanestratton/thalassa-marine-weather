@@ -582,14 +582,19 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
                     }
                     triggerHaptic('medium');
                 }
-                // Close after selection
-                closeMenu();
+                // STAYS OPEN (Shane 2026-08-24: "leave the layer fab open
+                // until the punter clicks away from the menu or clicks the
+                // layer fab itself"). Closing on selection made sense while
+                // the Sky layers were mutually exclusive — one tap was the
+                // whole interaction. Now that they stack, building a
+                // wind + rain + pressure view meant reopening the menu and
+                // re-entering the category twice over.
             }
             setIsDragging(false);
         }
 
         dragStartPos.current = null;
-    }, [isDragging, hoveredItem, activeCategory, categories, selectInGroup, toggleLayer, closeMenu]);
+    }, [isDragging, hoveredItem, activeCategory, categories, selectInGroup, toggleLayer]);
 
     const handlePointerMove = useCallback(
         (e: React.PointerEvent) => {
@@ -654,11 +659,11 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
                 }
             }
             triggerHaptic('medium');
-
-            // Close on selection
-            closeMenu();
+            // Deliberately does NOT close — see handlePointerUp. The menu is
+            // dismissed by the scrim, the FAB, or Escape, never by choosing a
+            // layer.
         },
-        [selectInGroup, toggleLayer, closeMenu],
+        [selectInGroup, toggleLayer],
     );
 
     useEffect(() => {
@@ -1003,7 +1008,10 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
                                                 if (s.enabled) s.onToggle();
                                             });
                                             triggerHaptic('medium');
-                                            closeMenu();
+                                            // Stays open: clearing is a menu
+                                            // action like any other, and the
+                                            // punter usually clears in order
+                                            // to pick something else.
                                         }}
                                         className="mt-1 min-h-[44px] w-full rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-red-400 transition-colors hover:bg-red-500/20"
                                     >
@@ -1143,7 +1151,8 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
                                 if (s.enabled) s.onToggle();
                             });
                             triggerHaptic('medium');
-                            closeMenu();
+                            // Stays open — same reasoning as the panel's own
+                            // Clear All.
                         }}
                         className="fixed right-[16px] min-h-[44px] whitespace-nowrap rounded-xl border border-red-500/30 bg-red-500/15 px-4 py-2 text-[10px] font-black uppercase tracking-widest text-red-400 backdrop-blur-md shadow-lg transition-colors hover:bg-red-500/25"
                         style={{ top: 384 }}
