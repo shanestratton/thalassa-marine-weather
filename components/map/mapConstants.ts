@@ -168,7 +168,11 @@ export const LAYER_FRAME_ZOOM: Partial<Record<WeatherLayer, number>> = {
     // stacking a second overlay no longer moves the camera at all.
     wind: 7,
     velocity: 7,
-    currents: 7.5,
+    // 7, was 7.5 (Shane 2026-08-24 late): currents joins wind and rain on
+    // the shared regional frame, and matches MULTI_LAYER_FRAME_ZOOM — so
+    // stacking currents with either of them no longer nudges the camera half
+    // a zoom level.
+    currents: 7,
     rain: 7,
     pressure: 2.0,
     // Temperature and cloud both open at z4 (Shane 2026-08-23). Broad
