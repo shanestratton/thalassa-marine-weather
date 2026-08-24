@@ -14,7 +14,9 @@ const src = readFileSync('components/map/useCycloneLayer.ts', 'utf8');
 
 describe('storm view opening zoom', () => {
     it('is the frame Shane asked for by name', () => {
-        expect(CYCLONE_OPEN_ZOOM).toBe(2.1);
+        // 2, was 2.1 (2026-08-24, the skipper's final answer): the widest
+        // whole-world open, every basin visible, the stepper for the rest.
+        expect(CYCLONE_OPEN_ZOOM).toBe(2);
     });
 
     it('is used by every opening flight, not hard-coded three times', () => {
