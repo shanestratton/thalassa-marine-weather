@@ -144,7 +144,17 @@ describe('RadialHelmMenu accessibility', () => {
         expect(trigger).toHaveFocus();
     });
 
-    it('closes and restores focus after a keyboard user selects a layer', async () => {
+    it('stays open and holds focus so a keyboard user can select several layers', async () => {
+        // CHANGED 2026-08-24. It used to close and restore focus to the FAB on
+        // every selection, which was right while the Sky layers were mutually
+        // exclusive — one choice was the whole interaction. Now that layers
+        // stack, closing meant a keyboard user re-opened the menu and
+        // re-entered the category for each layer they wanted.
+        //
+        // The accessibility guarantee is unchanged in substance: focus must
+        // never be dropped to the body. It now stays on the item just chosen,
+        // which is also where a keyboard user wants it — the next arrow key
+        // moves to the next layer rather than back out to the FAB.
         const selectInGroup = vi.fn();
         render(
             <RadialHelmMenu
@@ -166,9 +176,18 @@ describe('RadialHelmMenu accessibility', () => {
         fireEvent.click(firstLayer);
 
         expect(selectInGroup).toHaveBeenCalledOnce();
-        await waitFor(() => expect(screen.queryByRole('menu')).not.toBeInTheDocument());
-        expect(trigger).toHaveFocus();
+        // Still open on the SAME category, and focus still inside the menu
+        // rather than dropped to the body.
+        expect(screen.getByRole('menu', { name: 'Sea layers' })).toBeInTheDocument();
+        expect(firstLayer).toHaveFocus();
+
+        // A second choice without reopening anything — the point of the change.
+        const secondLayer = screen.getAllByRole('menuitemcheckbox')[1];
+        fireEvent.click(secondLayer);
+        expect(selectInGroup).toHaveBeenCalledTimes(2);
+        expect(screen.getByRole('menu', { name: 'Sea layers' })).toBeInTheDocument();
     });
+
 
     it('names a routes-and-tracks-only category honestly', async () => {
         render(
