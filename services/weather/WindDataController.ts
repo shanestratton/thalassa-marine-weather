@@ -82,6 +82,72 @@ const FINE_PREFETCH_MIN_ZOOM = 5;
 const CHART_HOURS = 48;
 const MAX_CACHED_GRIDS = 4;
 
+/**
+ * THE WORLD FLOOR — the tier the punter cannot fall off (Shane 2026-08-24:
+ * "when a punter wants to move the world around, it is ready to go").
+ *
+ * The fine and synoptic warms both anchor on the PUNTER, so a pan to the far
+ * side of the world falls off both, the disjoint-view safety below rightly
+ * refuses to paint Brisbane's wind over Indonesia, and the punter stares at a
+ * blank field while a viewport fetch runs — the "blocky, nineties" feel. A
+ * grid whose bounds are the whole world cannot be panned off: bestCoveringGrid
+ * finds it for ANY viewport by construction, publishes it instantly, and the
+ * ordinary viewport fetch refines behind it exactly as fine-over-synoptic
+ * already does. The fix is not fetching faster; it is never having nothing.
+ *
+ * Two kinds, priced very differently:
+ *  · GFS sustained: global mode already downloads the full-earth 1° GRIB —
+ *    the floor is the SAME WindGrid object stored under a world key, so it
+ *    costs zero extra bytes and simply stops being thrown away on a model
+ *    switch. (~19 MB resident incl. u/v/speed Float32s — the identical
+ *    working set global mode holds today while painting.)
+ *  · Point-batch models (ICON, ECMWF, … and anything serving gust): a 6°
+ *    world sweep, ~29×61 = 1,769 points × 24 h ≈ 0.5 MB resident. For scale:
+ *    a world-span viewport fetch today resolves max(tier, span/24) = 15°, so
+ *    the floor is FINER than what a world pan currently buys, for one fetch
+ *    per model per staleness window instead of one per pan.
+ *
+ * Floors are capped (MAX_WORLD_FLOORS), exempt from LRU eviction like the
+ * synoptic warm, never persisted (a multi-MB JSON.stringify on the main
+ * thread is exactly what the 512 KB persist entry cap exists to prevent), and
+ * refused when stale by bestCoveringGrid like every other entry. They survive
+ * layer toggle-off on purpose: staleness deletes data, not the toggle — a
+ * punter who flicks wind off and back on 30 s later should not re-download
+ * the planet.
+ */
+const WORLD_FLOOR_RES_DEG = 6;
+const WORLD_FLOOR_HOURS = 24;
+const MAX_WORLD_FLOORS = 2;
+const WORLD_KEY_PREFIX = 'world:';
+const WORLD_FLOOR_BOUNDS = { north: 85, south: -85, west: -180, east: 180 } as const;
+let worldFloorInflight = false;
+
+function isWorldKey(key: string): boolean {
+    return key.startsWith(WORLD_KEY_PREFIX);
+}
+
+/**
+ * Is this link one we may speculatively spend megabytes on?
+ *
+ * Mirrors the adaptive-poll heuristic in MapHub (10 s wifi / 60 s cellular):
+ * navigator.connection is absent in WKWebView, and there — like MapHub — we
+ * assume fast, because a native app on a phone hotspot is indistinguishable
+ * from wifi anyway and the floor fetch is one bounded download, not a stream.
+ * Cellular and 2g/3g effective types are the honest "metered offshore" signal
+ * the browser can actually give us, and on those the floor waits: the punter
+ * tiers still warm (they are what the boat actually needs), and a world pan
+ * falls back to today's fetch-on-demand behaviour rather than silently
+ * spending an Iridium-class link's whole day.
+ */
+export function isFastLink(): boolean {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const conn = (navigator as any)?.connection;
+    if (!conn) return true;
+    if (conn.type === 'cellular') return false;
+    const ect: string = conn.effectiveType ?? '4g';
+    return ect !== '2g' && ect !== 'slow-2g' && ect !== '3g';
+}
+
 interface CachedWindGrid {
     /** Raw sustained+gust grid as fetched — field transform applied at publish. */
     grid: WindGrid;
@@ -153,13 +219,17 @@ function schedulePersist(): void {
     persistTimer = setTimeout(() => {
         persistTimer = null;
         saveWindGrids(
-            [...windGridCache.values()].map((c) => ({
+            // Floors excluded BEFORE serialization — see storeWorldFloor.
+            [...windGridCache.entries()]
+                .filter(([key]) => !isWorldKey(key))
+                .map(([, c]) => c)
+                .map((c) => ({
                 grid: c.grid,
                 bounds: c.bounds,
                 res: c.res,
                 model: String(c.model),
-                fetchedAt: c.fetchedAt,
-            })),
+                    fetchedAt: c.fetchedAt,
+                })),
         );
     }, 3_000);
 }
@@ -173,11 +243,17 @@ function storeCachedGrid(entry: CachedWindGrid): void {
     // grid in the cache (~24×24) and bestCoveringGrid already refuses stale
     // entries, so keeping it cannot serve old wind, only save a fetch.
     const synopticKey = cacheKeyForRes(SYNOPTIC_GRID_RES_DEG);
-    while (windGridCache.size > MAX_CACHED_GRIDS) {
+    // World floors are exempt for the same reason the synoptic warm is — they
+    // exist precisely for the moment the punter leaves everything else — and
+    // they carry their own cap instead (MAX_WORLD_FLOORS, in storeWorldFloor),
+    // so the exemption cannot become unbounded.
+    const worldKeys = [...windGridCache.keys()].filter(isWorldKey).length;
+    while (windGridCache.size - worldKeys > MAX_CACHED_GRIDS) {
         let oldestKey: string | null = null;
         let oldestAt = Infinity;
         for (const [key, cached] of windGridCache) {
             if (key === synopticKey && windGridCache.size > 1) continue;
+            if (isWorldKey(key)) continue;
             if (cached.fetchedAt < oldestAt) {
                 oldestAt = cached.fetchedAt;
                 oldestKey = key;
@@ -189,12 +265,41 @@ function storeCachedGrid(entry: CachedWindGrid): void {
     schedulePersist();
 }
 
+/**
+ * Store a world floor under its own key namespace.
+ *
+ * NOT keyed by bare resolution like the punter tiers: the viewport fetch's
+ * resolution ladder bottoms out at 1.0°, which is exactly the GFS floor's
+ * resolution — under one namespace a low-zoom viewport grid would silently
+ * clobber the floor it is supposed to refine.
+ */
+function storeWorldFloor(entry: CachedWindGrid): void {
+    windGridCache.set(`${WORLD_KEY_PREFIX}${String(entry.model)}`, entry);
+    // Oldest-floor eviction, bounded separately from the punter tiers.
+    let floors = [...windGridCache.entries()].filter(([k]) => isWorldKey(k));
+    while (floors.length > MAX_WORLD_FLOORS) {
+        floors.sort((a, b) => a[1].fetchedAt - b[1].fetchedAt);
+        windGridCache.delete(floors[0][0]);
+        floors = floors.slice(1);
+    }
+    // Deliberately no schedulePersist(): floors are memory-only. The GFS
+    // floor is ~19 MB of Float32 — serializing it just to have the 512 KB
+    // entry cap discard the result would burn the main thread for nothing.
+}
+
 /** Does `outer` fully cover this (unpadded) viewport? Date-Line safe. */
 function boundsCover(
     outer: { north: number; south: number; west: number; east: number },
     viewport: { north: number; south: number; west: number; east: number },
 ): boolean {
     const oEast = continuousEastForLongitudeRange(outer.west, outer.east);
+    // A grid spanning the full 360° wraps — every longitude is inside it, and
+    // the shift arithmetic below cannot express that. Without this a Fiji
+    // viewport straddling the Date Line tests as "not covered" by a WORLD
+    // grid, which is exactly the viewport the world floor exists for.
+    if (oEast - outer.west >= 360 - 1e-9) {
+        return viewport.north <= outer.north && viewport.south >= outer.south;
+    }
     const oCenter = (outer.west + oEast) / 2;
     const vEast = continuousEastForLongitudeRange(viewport.west, viewport.east);
     const shift = Math.round((oCenter - (viewport.west + vEast) / 2) / 360) * 360;
@@ -239,7 +344,11 @@ function bestCoveringGrid(
         if (entry.model !== model) continue;
         if (Date.now() - entry.fetchedAt > WIND_GRID_MAX_AGE_MS) continue;
         if (!boundsCover(entry.bounds, viewport)) continue;
-        if (!best || entry.res < best.res) best = entry;
+        // Finest wins; equal resolution goes to the fresher fetch (a viewport
+        // grid and the GFS world floor can both sit at 1.0°).
+        if (!best || entry.res < best.res || (entry.res === best.res && entry.fetchedAt > best.fetchedAt)) {
+            best = entry;
+        }
     }
     return best;
 }
@@ -362,6 +471,43 @@ async function prefetchSynopticGrid(model: CachedWindGrid['model']): Promise<voi
 }
 
 /**
+ * Warm the world floor for a point-batch model, so a pan to anywhere on earth
+ * publishes SOMETHING real instantly. See the WORLD FLOOR note at the top.
+ *
+ * Fire-and-forget like the other warms, with the same shape of dedupe. Runs
+ * only on a fast link — on metered/slow links the punter tiers still warm and
+ * a world pan simply pays today's fetch-on-demand price. GFS needs no warm
+ * here: its floor is stored organically by the global-mode fetch itself.
+ */
+async function prefetchWorldFloor(model: CachedWindGrid['model']): Promise<void> {
+    if (worldFloorInflight) return;
+    if (!isFastLink()) return;
+    const existing = windGridCache.get(`${WORLD_KEY_PREFIX}${String(model)}`);
+    if (existing && Date.now() - existing.fetchedAt < WIND_GRID_MAX_AGE_MS) return;
+    worldFloorInflight = true;
+    try {
+        const { fetchModelWindGrid } = await import('./OpenMeteoWindFetcher');
+        const grid = await withDeadline(
+            fetchModelWindGrid(model, { ...WORLD_FLOOR_BOUNDS }, WORLD_FLOOR_HOURS, WORLD_FLOOR_RES_DEG),
+            60_000,
+            'om-world-floor',
+        );
+        if (grid) {
+            storeWorldFloor({ grid, bounds: { ...WORLD_FLOOR_BOUNDS }, res: WORLD_FLOOR_RES_DEG, model, fetchedAt: Date.now() });
+            // warn, not info — same reasoning as the synoptic warm: a device
+            // log must be able to say whether the floor that prevents the
+            // world-pan blank had actually landed.
+            log.warn(`[perf] wind world floor ready ${grid.width}×${grid.height} @ ${WORLD_FLOOR_RES_DEG}° (${String(model)})`);
+            crumb('wind:world-floor', `${grid.width}x${grid.height}`);
+        }
+    } catch (e) {
+        log.warn('[WindController] World floor prefetch failed', e);
+    } finally {
+        worldFloorInflight = false;
+    }
+}
+
+/**
  * Monotonic fence for every asynchronous wind load.
  *
  * Model/field changes clear WindStore.grid immediately, but the request they
@@ -452,6 +598,23 @@ function boundsChangedSignificantly(a: CachedBounds, b: CachedBounds): boolean {
 function isCacheStale(cached: CachedBounds): boolean {
     return Date.now() - cached.fetchedAt > WIND_GRID_MAX_AGE_MS;
 }
+
+/** Test seam — the grid cache is module-private on purpose; this lets the
+ *  world floor's coverage, tie-break and eviction contracts be pinned without
+ *  standing up a live map and a mocked fetch stack. */
+export const __windCacheForTest = {
+    clear(): void {
+        windGridCache.clear();
+    },
+    seed(entry: CachedWindGrid, asWorldFloor = false): void {
+        if (asWorldFloor) storeWorldFloor(entry);
+        else storeCachedGrid(entry);
+    },
+    keys(): string[] {
+        return [...windGridCache.keys()];
+    },
+    bestCovering: bestCoveringGrid,
+};
 
 // ── Moveend listener management ──
 
@@ -546,6 +709,21 @@ export const WindDataController = {
             west = -180;
             east = 180;
             visibleBounds = { north, south, west, east };
+            // A fresh world floor answers global mode outright — the re-toggle
+            // and the model-switch-back used to re-download the whole planet
+            // the cache was already holding.
+            const floor = bestCoveringGrid(model, WORLD_FLOOR_BOUNDS);
+            if (floor && floor.res <= 1.0 + 1e-6) {
+                const publishKey = publishKeyFor(floor.res, floor.fetchedAt, field);
+                if (!(lastPublishedCacheKey === publishKey && WindStore.getState().grid)) {
+                    if (!isCurrentWindRequest(request)) return false;
+                    WindStore.setGrid(floor.grid);
+                    lastPublishedCacheKey = publishKey;
+                    lastFetchedBounds = { ...floor.bounds, zoom: currentZoom, fetchedAt: floor.fetchedAt };
+                    log.warn('[perf] wind published world floor instantly (global mode)');
+                }
+                return isCurrentWindRequest(request);
+            }
         } else {
             // Passage mode: visible viewport with padding
             const currentBounds: CachedBounds = {
@@ -578,7 +756,15 @@ export const WindDataController = {
 
             // A fresh cached grid that fully covers the viewport publishes
             // instantly — no network, no blank, no stale rectangle.
-            const covering = useOpenMeteoGridded ? bestCoveringGrid(model, currentBounds) : null;
+            //
+            // ALL models now, not just the point-batch ones (2026-08-24). The
+            // GFS path never consulted the cache, so GFS passage mode paid a
+            // full GRIB fetch for water a cached grid already described — and
+            // with the world floor in the cache, this line is precisely what
+            // turns a trans-Pacific pan from a blank into instant coarse wind
+            // refined behind. The GFS refine still goes through the GRIB edge
+            // path below; only the FIRST PAINT comes from memory.
+            const covering = bestCoveringGrid(model, currentBounds);
             if (covering) {
                 const publishKey = publishKeyFor(covering.res, covering.fetchedAt, field);
                 const alreadyPublished = lastPublishedCacheKey === publishKey && WindStore.getState().grid;
@@ -754,14 +940,29 @@ export const WindDataController = {
                     const grid = decodeGrib2WindMultiHour(buffer);
                     if (!isCurrentWindRequest(request)) return false;
 
+                    const fetchedAt = Date.now();
                     lastFetchedBounds = {
                         north,
                         south,
                         west,
                         east,
                         zoom: currentZoom,
-                        fetchedAt: Date.now(),
+                        fetchedAt,
                     };
+                    // A full-earth GRIB is the world floor — store the SAME
+                    // object under the world key (zero extra bytes; a JS
+                    // reference) so a model switch no longer throws the whole
+                    // planet away, and a switch BACK republishes from memory.
+                    if (isGlobalMode && !useOpenMeteoGridded) {
+                        storeWorldFloor({
+                            grid,
+                            bounds: { north: 90, south: -90, west: -180, east: 180 },
+                            res: 1.0,
+                            model,
+                            fetchedAt,
+                        });
+                        lastPublishedCacheKey = publishKeyFor(1.0, fetchedAt, field);
+                    }
                     WindStore.setGrid(grid);
                     log.info(
                         `[WindController] GFS GRIB loaded: ${grid.width}×${grid.height}, ${grid.totalHours} forecast hours, refTime=${grid.refTime || 'n/a'}`,
@@ -852,6 +1053,14 @@ export const WindDataController = {
                     // field the punter is waiting on. Wind boots by flying to
                     // its z9 frame, so this still lands moments after startup.
                     void prefetchSynopticGrid(model);
+                    // ...and the tier the punter cannot fall off. Fast links
+                    // only; dedupes and staleness-checks itself. moveend is
+                    // the ONLY trigger on purpose: it fires when the camera
+                    // has settled, so this download can never compete with a
+                    // field the punter is actively waiting on — and toggling
+                    // wind on always produces one, because MapHub's framing
+                    // flight eases the camera to the layer's frame.
+                    void prefetchWorldFloor(model);
                 }
                 this.fetchOnline(map);
             }, 800);
