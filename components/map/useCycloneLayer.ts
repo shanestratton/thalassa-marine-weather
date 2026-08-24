@@ -456,9 +456,14 @@ function createTrackOverlay(map: mapboxgl.Map): {
             // longitude sanitizer as the GL geometry. map.project() of a raw
             // sign-flipped pair puts consecutive screen points a whole world
             // apart, and the SVG tube then spans the viewport.
-            const sanePast = sanitizeTrackLongitudes(c.track.map((p) => [p.lon, p.lat] as [number, number]));
+            const sanePast = respellTrackForProjection(
+                sanitizeTrackLongitudes(c.track.map((p) => [p.lon, p.lat] as [number, number])),
+                map.getCenter().lng,
+            );
             const projected = sanePast.map((lonLat, i) => ({
                 px: map.project(lonLat),
+                // Index pairing is safe: the sanitizer only ever truncates the
+                // tail, so its output is a strict prefix of the input.
                 point: c.track[i],
             }));
             if (projected.length < 2) continue;
@@ -524,7 +529,10 @@ function createTrackOverlay(map: mapboxgl.Map): {
                 // track": one Date-Line sign flip projected the next cone
                 // vertex a full world away, and the expanding error margins
                 // were drawn around that.
-                const saneFc = sanitizeTrackLongitudes(forecastAll.map((p) => [p.lon, p.lat] as [number, number]));
+                const saneFc = respellTrackForProjection(
+                    sanitizeTrackLongitudes(forecastAll.map((p) => [p.lon, p.lat] as [number, number])),
+                    map.getCenter().lng,
+                );
                 const fcProjected = saneFc.map((lonLat, i) => ({
                     px: map.project(lonLat),
                     point: forecastAll[i],
@@ -1105,6 +1113,33 @@ export function sanitizeTrackLongitudes(points: [number, number][]): [number, nu
         out.push([next, lat]);
     }
     return out;
+}
+
+/**
+ * Respell a CONTINUOUS track onto the world copy nearest the camera, for
+ * map.project().
+ *
+ * THE SECOND HALF of the entire-planet bug, found by pixel arithmetic on the
+ * live page (2026-08-24). sanitizeTrackLongitudes hands every renderer a
+ * continuous spelling — LALA's Date-Line-crossing forecast becomes
+ * -175 … -179, -180.5, -182.1 — and Mapbox's GEOJSON pipeline honours it, so
+ * every GL source measured sane. But map.project() WRAPS out-of-range
+ * longitudes back into [-180, 180]: the points beyond -180 came back as
+ * +179.5-side screen positions while their neighbours stayed on the -179
+ * side, splitting one continuous track across two world copies — and the SVG
+ * cone faithfully drew the 4,700 px traverse between them. GL clean, SVG
+ * torn, which is exactly what every probe showed.
+ *
+ * One UNIFORM shift, anchored on the first point, moves the whole track to
+ * the copy nearest the camera. Uniform on purpose: a per-point nearest-copy
+ * round could split a track whose points straddle the exact half-world
+ * boundary from the camera; a single shift cannot split anything.
+ */
+export function respellTrackForProjection(points: [number, number][], centerLng: number): [number, number][] {
+    if (points.length === 0) return points;
+    const shift = -360 * Math.round((points[0][0] - centerLng) / 360);
+    if (shift === 0) return points;
+    return points.map(([lon, lat]) => [lon + shift, lat]);
 }
 
 /**
@@ -1751,11 +1786,6 @@ export function useCycloneLayer(
                     });
                 }
 
-                // ── Render Mapbox GL probability polygon (geographic cone) ──
-                for (const c of cyclones) {
-                    addProbabilitySleeve(map, c);
-                }
-
                 // ── DOT POSITIONED AT ATCF SATELLITE-ANALYZED POSITION ──
                 // The ATCF position is determined by JTWC/NHC from actual satellite imagery
                 // analysis (Dvorak technique). This IS the most accurate eye position available.
@@ -1769,6 +1799,18 @@ export function useCycloneLayer(
                     // No manual selection — use geo-closest
                     onClosestStormRef.current?.(closest);
                 }
+
+                // ── Render Mapbox GL probability polygon (geographic cone) ──
+                // ONE storm, the one the punter is looking at. This was a loop
+                // over every storm writing into the SAME source, so each call
+                // overwrote the last and the sleeve always showed whichever
+                // storm the array happened to end with — NARRA's cone under
+                // LALA's card, measured live on 2026-08-24. Selection-aware
+                // now, and the selection effect below re-draws it on a step.
+                const sleeveStorm = selectedStormRef.current
+                    ? (cyclones.find((c) => c.sid === selectedStormRef.current?.sid) ?? closest)
+                    : closest;
+                if (sleeveStorm) addProbabilitySleeve(map, sleeveStorm);
 
                 rebuildMarkers();
 
@@ -1972,6 +2014,10 @@ export function useCycloneLayer(
         // name rather than erroring.
         injectCycloneCSS();
         hud.appendChild(createStormBadgeStatic(selectedStorm));
+        // The sleeve follows the selection: stepping storms must swap the GL
+        // cone with the card, or the punter reads one storm's numbers over
+        // another storm's probability envelope.
+        addProbabilitySleeve(map, selectedStorm);
         // STEP BETWEEN STORMS WITHOUT THE MENU (Shane 2026-08-23: "we need a
         // way to select a different storm without having to go back through
         // the menu").

@@ -78,7 +78,12 @@ export const CLOUD_OVERLAY_LAYER_2 = 'world-cloud-layer-2';
  * Opacity scales the whole curve; density changes its SHAPE. For "darker but
  * still readable" reach for opacity; for "more defined" reach for density.
  */
-export const CLOUD_DENSITY: 1 | 2 = 2;
+// 1, was 2 — the double pass looked "super cool" for about four hours and
+// then read as too dark over the chart (Shane 2026-08-24: "can we go back to
+// just one cloud layer, it is a bit dark"). The doubling machinery stays: it
+// costs nothing while off, and the dial exists precisely so this is a
+// one-character opinion rather than a re-plumb.
+export const CLOUD_DENSITY: 1 | 2 = 1;
 /** Per-pass opacity. Two passes at 0.85 sit a little under one at 1.0 for
  *  solid tops, while pulling thin cloud up hard — the point of the exercise. */
 export const CLOUD_OPACITY = 0.85;
