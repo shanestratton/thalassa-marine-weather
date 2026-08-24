@@ -21,7 +21,18 @@ const MIB = 1024 * 1024;
 const KIB = 1024;
 const BUDGETS = {
     total: 18 * MIB,
-    javascript: 9 * MIB,
+    // 9.5, was 9.0 (2026-08-24). The 9.0 line was set while the CMEMS layers
+    // (currents, SST, chlorophyll) were feature-flagged OFF — build-time
+    // flags, so their renderers were tree-shaken out entirely — and before
+    // MusicKit's hold was released. Both shipped deliberately in the
+    // 2026-08-08..20 window while CI was blind behind the audit failure, and
+    // measured JS landed at 9.19 MB. The budget is a tripwire against an
+    // ACCIDENTAL 300 KB dependency, not a wall against shipped features, so
+    // it moves the way the publisher test-count pin moves: deliberately,
+    // recorded, and only as far as the features actually reach — 9.5 leaves
+    // ~3% headroom, small enough that the next accidental lodger still
+    // trips it.
+    javascript: 9.5 * MIB,
     mainRaw: 800 * KIB,
     mainGzip: 250 * KIB,
 };
