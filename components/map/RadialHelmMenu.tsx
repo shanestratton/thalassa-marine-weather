@@ -100,6 +100,18 @@ export interface RadialHelmMenuProps {
             iconKind: 'avnav' | 'noaa' | 'ecdis' | 'linz' | 'local' | 'generic';
             enabled: boolean;
             onToggle: () => void;
+            /**
+             * This source's onToggle opens a SHEET rather than flipping a
+             * layer. Sheet-openers must roll the menu up (dismissOnSelect):
+             * the stay-open menu's click-away scrim sits at z-700 over a
+             * picker that renders with no z-index, so with the menu still up
+             * every tap meant for the sheet hit the scrim instead — closing
+             * the menu AND (via the picker's own outside-click handler) the
+             * sheet, on the same tap. A route once drawn could not be exited
+             * (Shane 2026-08-24: "the tracks and routes can not be exited
+             * from").
+             */
+            opensSheet?: boolean;
         }>;
     };
     /** If true, hide the menu entirely */
@@ -458,6 +470,9 @@ function buildChartsCategory(chartsState: RadialHelmMenuProps['chartsState']): H
         label: src.label,
         icon: chartSourceIcon(src.iconKind),
         action: src.onToggle,
+        // Sheet-openers are takeovers — same rule as Storms. Plain layer
+        // toggles (MPAs, parked chart sources) keep the stay-open behaviour.
+        dismissOnSelect: src.opensSheet === true,
     }));
 
     return [

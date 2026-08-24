@@ -3874,6 +3874,10 @@ export const MapHub: React.FC<MapHubProps> = ({
                                     iconKind: 'generic' as const,
                                     enabled: activeChartRoute !== null,
                                     onToggle: () => setRoutePickerOpen((v) => !v),
+                                    // Opens the picker sheet — the menu must
+                                    // roll up or its scrim eats the sheet's
+                                    // taps (see RadialHelmMenuProps).
+                                    opensSheet: true,
                                 },
                                 // Tracks — picker for actually-sailed passages.
                                 // Same UX as Routes; renders amber solid line so
@@ -3885,6 +3889,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                     iconKind: 'generic' as const,
                                     enabled: activeChartTrack !== null,
                                     onToggle: () => setTrackPickerOpen((v) => !v),
+                                    opensSheet: true,
                                 },
                                 ...(!CHARTS_FAB_CATEGORY_VISIBLE
                                     ? []

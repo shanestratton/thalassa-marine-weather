@@ -120,7 +120,12 @@ export const RouteTrackPicker: React.FC<RouteTrackPickerProps> = ({
         <OverlayPortal className="pointer-events-auto" role="presentation">
             <div
                 ref={wrapRef}
-                className="absolute left-1/2 chart-chip-centered pointer-events-auto chart-chip-in flex flex-col"
+                // z-[710]: above the radial helm menu (z-700). The menu now rolls up
+                // when this sheet opens (dismissOnSelect), so the scrim is gone —
+                // this is the second line of defence, because a sheet that loses a
+                // stacking fight is invisible-but-modal: taps close things the
+                // punter cannot see, which reads as "routes cannot be exited".
+                className="absolute left-1/2 z-[710] chart-chip-centered pointer-events-auto chart-chip-in flex flex-col"
                 style={{
                     top: 'max(56px, calc(env(safe-area-inset-top) + 56px))',
                     background: 'rgba(15, 23, 42, 0.94)',

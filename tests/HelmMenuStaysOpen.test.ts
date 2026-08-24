@@ -53,13 +53,32 @@ describe('the helm menu dismissal contract', () => {
         }
     });
 
-    it('reserves dismissOnSelect for takeovers — today, just Storms', () => {
-        // If this grows, it should grow deliberately: every entry here is a
-        // page that replaces the chart rather than drawing over it.
-        const declared = [...src.matchAll(/dismissOnSelect: true/g)];
-        expect(declared).toHaveLength(1);
+    it('reserves dismissOnSelect for takeovers: Storms, and declared sheet-openers', () => {
+        // Two kinds of takeover, each declared where it is known:
+        //  · Storms — hard-coded in the menu, it replaces the chart.
+        //  · Sheet-openers — chart sources whose onToggle opens a picker
+        //    sheet declare opensSheet at the SOURCE (MapHub), because with
+        //    the menu still up its scrim ate the sheet's taps: one tap closed
+        //    the menu AND the sheet, and a drawn route could not be exited
+        //    (Shane 2026-08-24).
+        const literal = [...src.matchAll(/dismissOnSelect: true/g)];
+        expect(literal).toHaveLength(1);
         const storms = src.slice(src.indexOf("id: 'cyclones'"), src.indexOf("id: 'ais'"));
         expect(storms).toContain('dismissOnSelect: true');
+        // The mapped form exists exactly once, in the charts-category builder.
+        expect([...src.matchAll(/dismissOnSelect: src\.opensSheet === true/g)]).toHaveLength(1);
+
+        // And the sources that open sheets say so: Routes and Tracks. MPAs is
+        // a plain toggle and must NOT dismiss — clearing-and-repicking layers
+        // is the stay-open menu's whole purpose.
+        const hub = readFileSync('components/map/MapHub.tsx', 'utf8');
+        const routes = hub.slice(hub.indexOf("id: 'routes'"), hub.indexOf("id: 'tracks'"));
+        const tracksAt = hub.indexOf("id: 'tracks'");
+        const tracks = hub.slice(tracksAt, hub.indexOf('CHARTS_FAB_CATEGORY_VISIBLE', tracksAt));
+        const mpa = hub.slice(hub.indexOf("id: 'mpa'"), hub.indexOf("id: 'routes'"));
+        expect(routes).toContain('opensSheet: true');
+        expect(tracks).toContain('opensSheet: true');
+        expect(mpa).not.toContain('opensSheet');
     });
 
     it('does not close on Clear All — clearing is usually a prelude to picking', () => {
