@@ -965,6 +965,7 @@ function bboxIntersects(a: [number, number, number, number], b: [number, number,
 // Re-exported because the bound is part of this service's public story
 // (tests and callers alike found it here first).
 import { capCellsForMerge } from './mergeCap';
+import { claimMergeGen, isMergeGenStale, awaitMergeGenSettle } from './mergeSettle';
 export { capCellsForMerge };
 
 function bboxDiag(b: [number, number, number, number]): number {
@@ -1115,12 +1116,31 @@ export async function getMergedVectorData(
     // WKWebView on a phone. Claiming the slot here means every merge that is
     // stale by the time it reaches the front of the queue aborts at its
     // first slice boundary instead of building a chart nobody will paint.
-    const enqueueGen = zoom != null ? claimWindowedMergeGen() : null;
+    const enqueueGen = zoom != null ? claimMergeGen() : null;
     const build = mergeBuildQueue(async () => {
+        // PRE-START DISCIPLINE (kill #27, Lady Musgrave 2026-08-25 — see
+        // mergeSettle.ts for the trail): supersede-at-enqueue made stale
+        // merges abortable, but a stale job still STARTED — brake, crumb and
+        // at least one multi-MB parse ran before the first slice boundary
+        // could kill it, six times in five seconds. Skip it here for free,
+        // and hold the live one until the camera has been quiet — a zoom
+        // flight across bucket edges becomes N-1 skips and ONE still-camera
+        // build instead of N aborted parses stacking transients.
+        if (enqueueGen != null) {
+            if (isMergeGenStale(enqueueGen) || !(await awaitMergeGenSettle(enqueueGen))) {
+                crumb('enc:merge-skip', `${cells.length}cells`);
+                return null;
+            }
+        }
         // Kill #26: deaths happen when a fresh ~200 MB build transient lands
         // on an already-high heap before the GC does. Wait for headroom
         // first — one collection returns the heap to ~400 MB (measured).
         await awaitHeapHeadroom();
+        // The brake can park for seconds — re-check before paying for a parse.
+        if (enqueueGen != null && isMergeGenStale(enqueueGen)) {
+            crumb('enc:merge-skip', `${cells.length}cells,postbrake`);
+            return null;
+        }
         // MB in the info because the 2026-08-10 death proved cells alone
         // mislead: a trail of ≤14-cell merges looked bounded at 44.5 MB.
         // heapTag (",h412" = real JS heap MB) because kill #23 died with every
@@ -1134,6 +1154,10 @@ export async function getMergedVectorData(
     setInflightMerge(cacheKey, build);
     try {
         const merged = await build;
+        // null = skipped before it started — 'enc:merge-skip' is already on
+        // the trail, and a done crumb here would invent a build that never
+        // ran (the same lie the join crumb note below guards against).
+        if (!merged) return null;
         crumb('enc:merge-done', `${cells.length}cells`);
         return merged;
     } catch (e) {
@@ -1159,16 +1183,8 @@ class MergeSupersededError extends Error {
         super('merge superseded');
     }
 }
-/** Monotonic id of the newest WINDOWED merge (full/seaway merges — zoom
- *  null — never participate: they serve a different consumer). */
-let windowedMergeGen = 0;
-
-/** Claim the newest-windowed-merge slot. Exported for the enqueue site so a
- *  merge is stale-checkable from the moment it QUEUES, not the moment the
- *  serial queue finally runs it. */
-function claimWindowedMergeGen(): number {
-    return ++windowedMergeGen;
-}
+// The windowed-merge generation slot lives in mergeSettle.ts (extracted pure
+// 2026-08-25, kill #27) — claimMergeGen / isMergeGenStale / awaitMergeGenSettle.
 
 /** Sounding-derived contours run in encGeometryWorker (2026-07-13) —
  *  the Delaunay + isoline march hung the main thread when it ran here
@@ -1466,13 +1482,13 @@ async function buildMergedVectorData(
     // The slot is claimed at ENQUEUE time by getMergedVectorData and handed
     // in; claiming here (the pre-2026-08-21 behaviour) made queued merges
     // unsupersedable. The fallback claim covers direct callers, if any.
-    const myWindowGen = enqueueGen !== undefined ? enqueueGen : zoom != null ? claimWindowedMergeGen() : null;
+    const myWindowGen = enqueueGen !== undefined ? enqueueGen : zoom != null ? claimMergeGen() : null;
     /** Cheap, un-gated supersede check — an integer compare, safe to call in
      *  a tight loop. yieldIfNeeded only reaches its own check once a slice has
      *  run 12 ms, which is far too late when the expensive step is a single
      *  multi-MB parse. */
     const throwIfSuperseded = (): void => {
-        if (myWindowGen != null && myWindowGen !== windowedMergeGen) throw new MergeSupersededError();
+        if (myWindowGen != null && isMergeGenStale(myWindowGen)) throw new MergeSupersededError();
     };
     let sliceStart = performance.now();
     const yieldIfNeeded = async (): Promise<void> => {
@@ -1488,7 +1504,7 @@ async function buildMergedVectorData(
             await new Promise<void>((resolve) => setTimeout(resolve, 80));
             parkedMs += 80;
         }
-        if (myWindowGen != null && myWindowGen !== windowedMergeGen) throw new MergeSupersededError();
+        if (myWindowGen != null && isMergeGenStale(myWindowGen)) throw new MergeSupersededError();
         sliceStart = performance.now();
     };
 

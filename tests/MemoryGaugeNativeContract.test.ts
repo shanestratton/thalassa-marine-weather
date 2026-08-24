@@ -72,7 +72,7 @@ describe('supersede-at-enqueue (the merge-stack killer)', () => {
         // The queue serializes merges; claiming inside the job made queued
         // stale merges unsupersedable, so a stepped zoom across the bucket
         // edges ran 3-4 full builds back-to-back — the jetsam transient.
-        const enqueueAt = hazard.indexOf('const enqueueGen = zoom != null ? claimWindowedMergeGen() : null;');
+        const enqueueAt = hazard.indexOf('const enqueueGen = zoom != null ? claimMergeGen() : null;');
         const queueAt = hazard.indexOf('const build = mergeBuildQueue(');
         expect(enqueueAt).toBeGreaterThan(-1);
         expect(queueAt).toBeGreaterThan(-1);
