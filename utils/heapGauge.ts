@@ -115,6 +115,15 @@ export async function awaitHeapHeadroom(ceilingMB = HEAP_SOFT_CEILING_MB, maxWai
     // where the WebContent process actually gets jetsammed. Parking a merge
     // for up to maxWaitMs lets the GC and Mapbox's tile evictor reclaim,
     // which is exactly what the process needed in every recorded death.
+    //
+    // NECESSARY, NOT SUFFICIENT (kill #27, Lady Musgrave 2026-08-25):
+    // os_proc_available_memory answers for the HOST APP process — the page
+    // runs in WKWebView's separate WebContent process, whose own smaller
+    // ceiling this gauge cannot see. Kill #27 died mid-merge with the gauge
+    // reading a3339 (3.3 GB "available"), thirteen times this floor. The
+    // floor still brakes for genuine device-wide pressure and the warning
+    // flag; the real protection against the merge death class is
+    // services/enc/mergeSettle.ts — discipline by construction, not gauge.
     const native = await refreshAvailableMemory();
     if (!native) return; // no gauge anywhere — historical behaviour
     if (native.availableMB >= NATIVE_AVAILABLE_FLOOR_MB && !native.warning) return;

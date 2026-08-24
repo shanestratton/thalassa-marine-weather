@@ -10,6 +10,14 @@
  * Why (Lady Musgrave kill, 2026-08-21): the ENC merge brake was a documented
  * no-op on iOS — the one platform where the WebContent process actually gets
  * jetsammed. This is the gauge that makes it real there.
+ *
+ * KNOW WHAT IT MEASURES (kill #27, 2026-08-25): os_proc_available_memory
+ * answers for the HOST APP process. The page runs in WKWebView's separate
+ * WebContent process with its own smaller ceiling, invisible from either
+ * side of the bridge — kill #27 died mid-merge with this gauge reading
+ * 3,339 MB available. Treat readings as a device-pressure signal, never as
+ * proof the page has room; see services/enc/mergeSettle.ts for the death
+ * class this cannot brake.
  */
 import { Capacitor, registerPlugin } from '@capacitor/core';
 import type { PluginListenerHandle } from '@capacitor/core';
