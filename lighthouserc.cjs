@@ -79,8 +79,15 @@ module.exports = {
                 'total-blocking-time': ['error', { maxNumericValue: 10000 }],
                 // STRICT: the app measures 0.
                 'cumulative-layout-shift': ['error', { maxNumericValue: 0.05 }],
-                // Observed ~597KB, rock steady. TARGET 524288.
-                'total-byte-weight': ['error', { maxNumericValue: 700000 }],
+                // Observed ~597KB rock steady at 2026-07-30; re-measured
+                // 2026-08-24 at 753,508 local / 771,115 CI after the CMEMS
+                // layers (currents/SST/chl) went from tree-shaken-out to
+                // shipped and MusicKit's hold lifted — the same deliberate
+                // growth the bundle-size budget moved for on the same day.
+                // 850000 is ~10% over the CI observation, so the next
+                // ACCIDENTAL 100 KB in the shell path still fails loudly.
+                // TARGET 524288 stands as the aspiration.
+                'total-byte-weight': ['error', { maxNumericValue: 850000 }],
             },
         },
     },
