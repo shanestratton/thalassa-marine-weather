@@ -24,44 +24,48 @@ mkdirSync(OUT, { recursive: true });
 const BBOX = { s: -20.6, w: 148.4, n: -19.9, e: 149.15 }; // Whitsundays
 const UA = { headers: { 'User-Agent': 'thalassa-anchorages-build' } };
 const getJSON = async (url, opts) => {
-  const r = await fetch(url, { ...UA, ...opts });
-  if (!r.ok) throw new Error(`HTTP ${r.status} for ${url.slice(0, 80)}`);
-  return r.json();
+    const r = await fetch(url, { ...UA, ...opts });
+    if (!r.ok) throw new Error(`HTTP ${r.status} for ${url.slice(0, 80)}`);
+    return r.json();
 };
 
 // ─── ray-casting point-in-polygon (lon/lat), handles Polygon + MultiPolygon ───
 function pointInRing(pt, ring) {
-  let inside = false;
-  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
-    const [xi, yi] = ring[i];
-    const [xj, yj] = ring[j];
-    const intersect = yi > pt[1] !== yj > pt[1] && pt[0] < ((xj - xi) * (pt[1] - yi)) / (yj - yi) + xi;
-    if (intersect) inside = !inside;
-  }
-  return inside;
+    let inside = false;
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+        const [xi, yi] = ring[i];
+        const [xj, yj] = ring[j];
+        const intersect = yi > pt[1] !== yj > pt[1] && pt[0] < ((xj - xi) * (pt[1] - yi)) / (yj - yi) + xi;
+        if (intersect) inside = !inside;
+    }
+    return inside;
 }
 function pointInGeom(pt, geom) {
-  const polys = geom.type === 'MultiPolygon' ? geom.coordinates : geom.type === 'Polygon' ? [geom.coordinates] : [];
-  for (const poly of polys) {
-    if (!poly.length) continue;
-    if (pointInRing(pt, poly[0])) {
-      // outer ring hit; ensure not in a hole
-      const inHole = poly.slice(1).some((h) => pointInRing(pt, h));
-      if (!inHole) return true;
+    const polys = geom.type === 'MultiPolygon' ? geom.coordinates : geom.type === 'Polygon' ? [geom.coordinates] : [];
+    for (const poly of polys) {
+        if (!poly.length) continue;
+        if (pointInRing(pt, poly[0])) {
+            // outer ring hit; ensure not in a hole
+            const inHole = poly.slice(1).some((h) => pointInRing(pt, h));
+            if (!inHole) return true;
+        }
     }
-  }
-  return false;
+    return false;
 }
 function representativePoint(geom) {
-  const ring = geom.type === 'MultiPolygon' ? geom.coordinates[0][0] : geom.coordinates[0];
-  let x = 0, y = 0;
-  for (const [lx, ly] of ring) { x += lx; y += ly; }
-  return [+(x / ring.length).toFixed(5), +(y / ring.length).toFixed(5)];
+    const ring = geom.type === 'MultiPolygon' ? geom.coordinates[0][0] : geom.coordinates[0];
+    let x = 0,
+        y = 0;
+    for (const [lx, ly] of ring) {
+        x += lx;
+        y += ly;
+    }
+    return [+(x / ring.length).toFixed(5), +(y / ring.length).toFixed(5)];
 }
 
 // ─── 1. OSM named anchorages + marinas via Overpass ───
 async function fetchOSM() {
-  const q = `[out:json][timeout:120];
+    const q = `[out:json][timeout:120];
 (
   node["natural"="bay"](${BBOX.s},${BBOX.w},${BBOX.n},${BBOX.e});
   way["natural"="bay"](${BBOX.s},${BBOX.w},${BBOX.n},${BBOX.e});
@@ -69,74 +73,76 @@ async function fetchOSM() {
   way["leisure"="marina"](${BBOX.s},${BBOX.w},${BBOX.n},${BBOX.e});
 );
 out center tags;`;
-  const d = await getJSON('https://overpass-api.de/api/interpreter', {
-    method: 'POST',
-    body: 'data=' + encodeURIComponent(q),
-    headers: { ...UA.headers, 'Content-Type': 'application/x-www-form-urlencoded' },
-  });
-  const navRe = /passage|channel|sound|\bpass\b|flats/i;
-  const seen = new Set();
-  const out = [];
-  for (const e of d.elements || []) {
-    const t = e.tags || {};
-    if (!t.name) continue;
-    const key = e.type + e.id;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    const lat = e.lat ?? e.center?.lat;
-    const lon = e.lon ?? e.center?.lon;
-    if (lat == null || lon == null) continue;
-    out.push({
-      lon: +lon.toFixed(5),
-      lat: +lat.toFixed(5),
-      name: t.name,
-      kind: t.leisure === 'marina' ? 'marina' : 'anchorage',
-      source: 'OpenStreetMap',
-      sourceRef: `${e.type}/${e.id}`,
-      likelyAnchorage: !navRe.test(t.name),
+    const d = await getJSON('https://overpass-api.de/api/interpreter', {
+        method: 'POST',
+        body: 'data=' + encodeURIComponent(q),
+        headers: { ...UA.headers, 'Content-Type': 'application/x-www-form-urlencoded' },
     });
-  }
-  return out;
+    const navRe = /passage|channel|sound|\bpass\b|flats/i;
+    const seen = new Set();
+    const out = [];
+    for (const e of d.elements || []) {
+        const t = e.tags || {};
+        if (!t.name) continue;
+        const key = e.type + e.id;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const lat = e.lat ?? e.center?.lat;
+        const lon = e.lon ?? e.center?.lon;
+        if (lat == null || lon == null) continue;
+        out.push({
+            lon: +lon.toFixed(5),
+            lat: +lat.toFixed(5),
+            name: t.name,
+            kind: t.leisure === 'marina' ? 'marina' : 'anchorage',
+            source: 'OpenStreetMap',
+            sourceRef: `${e.type}/${e.id}`,
+            likelyAnchorage: !navRe.test(t.name),
+        });
+    }
+    return out;
 }
 
 // ─── 2. GBRMPA layers ───
 const GB = 'https://services-ap1.arcgis.com/8gXWSCxaJlFIfiTr/arcgis/rest/services';
 const arcQuery = (layer, bbox) => {
-  let u = `${GB}/${layer}/query?where=1%3D1&outFields=*&outSR=4326&f=geojson`;
-  if (bbox) u += `&geometryType=esriGeometryEnvelope&inSR=4326&spatialRel=esriSpatialRelIntersects&geometry=${BBOX.w},${BBOX.s},${BBOX.e},${BBOX.n}`;
-  return u;
+    let u = `${GB}/${layer}/query?where=1%3D1&outFields=*&outSR=4326&f=geojson`;
+    if (bbox)
+        u += `&geometryType=esriGeometryEnvelope&inSR=4326&spatialRel=esriSpatialRelIntersects&geometry=${BBOX.w},${BBOX.s},${BBOX.e},${BBOX.n}`;
+    return u;
 };
 
 async function fetchNoAnchoring() {
-  const g = await getJSON(arcQuery('Whitsundays_Plan_of_Management_no_anchoring_areas/FeatureServer/0', false));
-  return (g.features || []).map((f, i) => ({
-    type: 'Feature',
-    geometry: f.geometry,
-    properties: {
-      id: `gbrmpa-noanchor-${f.properties.OBJECTID ?? i}`,
-      name: f.properties.LOC_NAME_S || 'No-anchoring area',
-      type: f.properties.LOC_TYPE_S || 'No-anchoring area',
-      source: 'GBRMPA',
-      legal: `Whitsundays Plan of Management — Schedule ${f.properties.SCHEDULE_NO}, clause ${f.properties.CLAUSE_NO}`,
-    },
-  }));
+    const g = await getJSON(arcQuery('Whitsundays_Plan_of_Management_no_anchoring_areas/FeatureServer/0', false));
+    return (g.features || []).map((f, i) => ({
+        type: 'Feature',
+        geometry: f.geometry,
+        properties: {
+            id: `gbrmpa-noanchor-${f.properties.OBJECTID ?? i}`,
+            name: f.properties.LOC_NAME_S || 'No-anchoring area',
+            type: f.properties.LOC_TYPE_S || 'No-anchoring area',
+            source: 'GBRMPA',
+            legal: `Whitsundays Plan of Management — Schedule ${f.properties.SCHEDULE_NO}, clause ${f.properties.CLAUSE_NO}`,
+        },
+    }));
 }
 
 async function fetchDesignated() {
-  const g = await getJSON(arcQuery('Great_Barrier_Reef_Marine_Park_Designated_Anchorages_20/FeatureServer/60', true));
-  return (g.features || []).map((f) => {
-    const p = f.properties;
-    const [lon, lat] = representativePoint(f.geometry);
-    return {
-      lon, lat,
-      name: p.AREA_DESCR || 'Designated anchorage',
-      kind: 'designated_anchorage',
-      source: 'GBRMPA',
-      sourceRef: p.UNIQUE_ID || String(p.OBJECTID),
-      notes: [p.COMMENT_, p.MANAREA && `Management area: ${p.MANAREA}`, p.LEG_NAME].filter(Boolean).join(' · '),
-      likelyAnchorage: true,
-    };
-  });
+    const g = await getJSON(arcQuery('Great_Barrier_Reef_Marine_Park_Designated_Anchorages_20/FeatureServer/60', true));
+    return (g.features || []).map((f) => {
+        const p = f.properties;
+        const [lon, lat] = representativePoint(f.geometry);
+        return {
+            lon,
+            lat,
+            name: p.AREA_DESCR || 'Designated anchorage',
+            kind: 'designated_anchorage',
+            source: 'GBRMPA',
+            sourceRef: p.UNIQUE_ID || String(p.OBJECTID),
+            notes: [p.COMMENT_, p.MANAREA && `Management area: ${p.MANAREA}`, p.LEG_NAME].filter(Boolean).join(' · '),
+            likelyAnchorage: true,
+        };
+    });
 }
 
 // GBR Marine Park Zoning — official zone colours (Zoning Plan 2003).
@@ -158,7 +164,9 @@ async function fetchZoning() {
     // Layer 53 = "Great Barrier Reef Marine Park Zoning". maxAllowableOffset
     // generalises the polygons server-side (~55 m) — the raw geometry is ~4 MB,
     // far too heavy to bundle; an overlay fill doesn't need vertex-perfect edges.
-    const g = await getJSON(arcQuery('Great_Barrier_Reef_Marine_Park_Zoning_20/FeatureServer/53', true) + '&maxAllowableOffset=0.0005');
+    const g = await getJSON(
+        arcQuery('Great_Barrier_Reef_Marine_Park_Zoning_20/FeatureServer/53', true) + '&maxAllowableOffset=0.0005',
+    );
     return (g.features || []).map((f, i) => {
         const p = f.properties;
         return {
@@ -180,7 +188,9 @@ async function fetchZoning() {
 // ─── build ───
 console.log('Fetching OSM (Overpass)…');
 const osm = await fetchOSM();
-console.log(`  ${osm.length} OSM features (${osm.filter((o) => o.kind === 'anchorage').length} anchorages, ${osm.filter((o) => o.kind === 'marina').length} marinas)`);
+console.log(
+    `  ${osm.length} OSM features (${osm.filter((o) => o.kind === 'anchorage').length} anchorages, ${osm.filter((o) => o.kind === 'marina').length} marinas)`,
+);
 
 console.log('Fetching GBRMPA no-anchoring areas…');
 const noAnchor = await fetchNoAnchoring();
@@ -200,9 +210,12 @@ console.log(`  ${zoning.length} zoning polygons —`, JSON.stringify(zoneCounts)
 const points = [...osm, ...designated];
 let flagged = 0;
 for (const p of points) {
-  const hit = noAnchor.find((na) => pointInGeom([p.lon, p.lat], na.geometry));
-  p.noAnchoring = !!hit;
-  if (hit) { p.noAnchoringName = hit.properties.name; flagged += 1; }
+    const hit = noAnchor.find((na) => pointInGeom([p.lon, p.lat], na.geometry));
+    p.noAnchoring = !!hit;
+    if (hit) {
+        p.noAnchoringName = hit.properties.name;
+        flagged += 1;
+    }
 }
 console.log(`  flagged ${flagged} point(s) inside a GBRMPA no-anchoring area:`);
 for (const p of points.filter((x) => x.noAnchoring)) console.log(`    ⚠ ${p.name}  → ${p.noAnchoringName}`);
@@ -210,29 +223,39 @@ for (const p of points.filter((x) => x.noAnchoring)) console.log(`    ⚠ ${p.na
 const today = new Date().toISOString().slice(0, 10);
 
 const pointFC = {
-  type: 'FeatureCollection',
-  meta: { region: 'Whitsundays', built: today, sources: ['OpenStreetMap (ODbL)', 'GBRMPA (CC BY)'] },
-  features: points
-    .sort((a, b) => a.name.localeCompare(b.name))
-    .map((p, i) => ({
-      type: 'Feature',
-      geometry: { type: 'Point', coordinates: [p.lon, p.lat] },
-      properties: {
-        id: p.sourceRef ? `${p.source === 'GBRMPA' ? 'gbrmpa' : 'osm'}-${p.sourceRef.replace(/[^a-z0-9]/gi, '')}` : `pt-${i}`,
-        name: p.name,
-        kind: p.kind,
-        source: p.source,
-        sourceRef: p.sourceRef,
-        likelyAnchorage: p.likelyAnchorage,
-        noAnchoring: p.noAnchoring,
-        noAnchoringName: p.noAnchoringName || null,
-        notes: p.notes || null,
-      },
-    })),
+    type: 'FeatureCollection',
+    meta: { region: 'Whitsundays', built: today, sources: ['OpenStreetMap (ODbL)', 'GBRMPA (CC BY)'] },
+    features: points
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .map((p, i) => ({
+            type: 'Feature',
+            geometry: { type: 'Point', coordinates: [p.lon, p.lat] },
+            properties: {
+                id: p.sourceRef
+                    ? `${p.source === 'GBRMPA' ? 'gbrmpa' : 'osm'}-${p.sourceRef.replace(/[^a-z0-9]/gi, '')}`
+                    : `pt-${i}`,
+                name: p.name,
+                kind: p.kind,
+                source: p.source,
+                sourceRef: p.sourceRef,
+                likelyAnchorage: p.likelyAnchorage,
+                noAnchoring: p.noAnchoring,
+                noAnchoringName: p.noAnchoringName || null,
+                notes: p.notes || null,
+            },
+        })),
 };
 
-const noAnchorFC = { type: 'FeatureCollection', meta: { region: 'Whitsundays', built: today, source: 'GBRMPA (CC BY)' }, features: noAnchor };
-const zoningFC = { type: 'FeatureCollection', meta: { region: 'Whitsundays', built: today, source: 'GBRMPA (CC BY)' }, features: zoning };
+const noAnchorFC = {
+    type: 'FeatureCollection',
+    meta: { region: 'Whitsundays', built: today, source: 'GBRMPA (CC BY)' },
+    features: noAnchor,
+};
+const zoningFC = {
+    type: 'FeatureCollection',
+    meta: { region: 'Whitsundays', built: today, source: 'GBRMPA (CC BY)' },
+    features: zoning,
+};
 
 writeFileSync(join(OUT, 'whitsundays.geojson'), JSON.stringify(pointFC));
 writeFileSync(join(OUT, 'whitsundays-no-anchoring.geojson'), JSON.stringify(noAnchorFC));
@@ -256,4 +279,6 @@ This is a **planning reference built from open data**, NOT a navigational chart 
 `;
 writeFileSync(join(OUT, 'SOURCES.md'), sources);
 
-console.log(`\nWrote ${pointFC.features.length} points + ${noAnchor.length} no-anchoring + ${zoning.length} zoning polygons to public/anchorages/`);
+console.log(
+    `\nWrote ${pointFC.features.length} points + ${noAnchor.length} no-anchoring + ${zoning.length} zoning polygons to public/anchorages/`,
+);

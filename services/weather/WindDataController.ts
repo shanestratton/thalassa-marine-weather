@@ -224,10 +224,10 @@ function schedulePersist(): void {
                 .filter(([key]) => !isWorldKey(key))
                 .map(([, c]) => c)
                 .map((c) => ({
-                grid: c.grid,
-                bounds: c.bounds,
-                res: c.res,
-                model: String(c.model),
+                    grid: c.grid,
+                    bounds: c.bounds,
+                    res: c.res,
+                    model: String(c.model),
                     fetchedAt: c.fetchedAt,
                 })),
         );
@@ -493,11 +493,19 @@ async function prefetchWorldFloor(model: CachedWindGrid['model']): Promise<void>
             'om-world-floor',
         );
         if (grid) {
-            storeWorldFloor({ grid, bounds: { ...WORLD_FLOOR_BOUNDS }, res: WORLD_FLOOR_RES_DEG, model, fetchedAt: Date.now() });
+            storeWorldFloor({
+                grid,
+                bounds: { ...WORLD_FLOOR_BOUNDS },
+                res: WORLD_FLOOR_RES_DEG,
+                model,
+                fetchedAt: Date.now(),
+            });
             // warn, not info — same reasoning as the synoptic warm: a device
             // log must be able to say whether the floor that prevents the
             // world-pan blank had actually landed.
-            log.warn(`[perf] wind world floor ready ${grid.width}×${grid.height} @ ${WORLD_FLOOR_RES_DEG}° (${String(model)})`);
+            log.warn(
+                `[perf] wind world floor ready ${grid.width}×${grid.height} @ ${WORLD_FLOOR_RES_DEG}° (${String(model)})`,
+            );
             crumb('wind:world-floor', `${grid.width}x${grid.height}`);
         }
     } catch (e) {

@@ -16,7 +16,7 @@ describe('sessionInitialLayers', () => {
         expect([...layers]).toEqual(DEFAULT_LAYERS);
     });
 
-    it('a same-session remount restores the punter\'s selection', () => {
+    it("a same-session remount restores the punter's selection", () => {
         const layers = sessionInitialLayers(() => JSON.stringify(['rain', 'pressure']));
         expect(layers.has('rain' as never)).toBe(true);
         expect(layers.has('pressure' as never)).toBe(true);

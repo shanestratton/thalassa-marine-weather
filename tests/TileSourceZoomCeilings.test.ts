@@ -41,7 +41,10 @@ describe('raster tile source ceilings', () => {
 
     it('is actually applied to the source, not just declared', () => {
         const src = readFileSync('components/map/useWeatherLayers.ts', 'utf8');
-        const addSource = src.slice(src.indexOf('map.addSource(tileId, {'), src.indexOf('map.addSource(tileId, {') + 500);
+        const addSource = src.slice(
+            src.indexOf('map.addSource(tileId, {'),
+            src.indexOf('map.addSource(tileId, {') + 500,
+        );
         expect(addSource).toContain('maxzoom: tileSourceMaxZoom(tl)');
         expect(addSource).not.toContain('maxzoom: 18');
     });

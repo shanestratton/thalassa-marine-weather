@@ -98,7 +98,9 @@ describe('RainViewer attribution', () => {
         const block = src.slice(src.indexOf('{showRainViewerAttribution && ('), src.indexOf('{controlsHidden ? ('));
         // The words themselves must not be clickable, or the accident just
         // recurs against a wider target.
-        expect(block).toContain('<span className="text-[10px] font-semibold text-slate-300/80">Radar by RainViewer</span>');
+        expect(block).toContain(
+            '<span className="text-[10px] font-semibold text-slate-300/80">Radar by RainViewer</span>',
+        );
         // target="_blank" is what navigated the WebView away in the first place.
         expect(block).not.toContain('target="_blank"');
         expect(block).toContain('e.preventDefault()');

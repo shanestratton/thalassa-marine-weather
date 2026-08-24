@@ -963,9 +963,7 @@ export function generateIsobarsFromGrid(grid: PressureGrid, hour: number, skipHe
  * (`_rangeMin`/`_rangeMax`, deleted 2026-08-21) — dropped so the intent is
  * unambiguous.
  */
-function generatePressureHeatmap(
-    grid: HourGrid,
-): { dataUrl: string; bounds: [number, number, number, number] } | null {
+function generatePressureHeatmap(grid: HourGrid): { dataUrl: string; bounds: [number, number, number, number] } | null {
     if (typeof document === 'undefined') return null; // SSR guard
     if (grid.rows < 3 || grid.cols < 3) return null;
 

@@ -37,6 +37,10 @@
             "destination": "/voyage-log-api.html"
         },
         {
+            "source": "/beta",
+            "destination": "/beta.html"
+        },
+        {
             "source": "/((?!.*\\..*).*)",
             "destination": "/index.html"
         }
@@ -98,6 +102,15 @@
         },
         {
             "source": "/voyage-log-api.html",
+            "headers": [
+                {
+                    "key": "Cache-Control",
+                    "value": "public, max-age=0, must-revalidate"
+                }
+            ]
+        },
+        {
+            "source": "/beta.html",
             "headers": [
                 {
                     "key": "Cache-Control",

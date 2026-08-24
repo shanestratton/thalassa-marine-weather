@@ -90,7 +90,10 @@ describe('the wire carries time, not yield', () => {
     it('sends connected seconds independently of anything heard', () => {
         // The client's claim is built from banked link time. If this ever
         // consulted heardSinceCheckin, the empty bay would claim zero.
-        const fn = CLIENT.slice(CLIENT.indexOf('function pendingConnectedSeconds'), CLIENT.indexOf('function loadCard'));
+        const fn = CLIENT.slice(
+            CLIENT.indexOf('function pendingConnectedSeconds'),
+            CLIENT.indexOf('function loadCard'),
+        );
         expect(fn).toContain('connectedPendingMs');
         expect(fn).not.toContain('heardSinceCheckin');
         expect(fn).not.toContain('buffer');

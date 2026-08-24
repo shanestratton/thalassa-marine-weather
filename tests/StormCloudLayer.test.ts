@@ -85,7 +85,6 @@ describe('storm switcher first-run race', () => {
     });
 });
 
-
 /**
  * ONE cloud implementation, not two.
  *
@@ -140,7 +139,10 @@ describe('one shared cloud overlay', () => {
         // Mapbox refuses to remove a source that still has layers on it, so a
         // teardown that forgot the doubling pass would leak the source and
         // make the next mount throw.
-        const rm = overlay.slice(overlay.indexOf('export function removeCloudOverlay'), overlay.indexOf('Mount the world cloud'));
+        const rm = overlay.slice(
+            overlay.indexOf('export function removeCloudOverlay'),
+            overlay.indexOf('Mount the world cloud'),
+        );
         expect(rm.indexOf('CLOUD_OVERLAY_LAYER_2')).toBeLessThan(rm.indexOf('removeSource'));
         expect(rm).toContain('removeSource');
     });

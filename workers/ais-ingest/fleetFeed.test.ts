@@ -85,7 +85,10 @@ describe('fleet-feed gate order', () => {
         currentDeps = deps;
         const res = await post(T1);
         expect(res.status).toBe(429);
-        expect(client.rpc).toHaveBeenCalledWith('consume_edge_quota', expect.objectContaining({ p_bucket: 'fleet-feed' }));
+        expect(client.rpc).toHaveBeenCalledWith(
+            'consume_edge_quota',
+            expect.objectContaining({ p_bucket: 'fleet-feed' }),
+        );
     });
 });
 
@@ -200,7 +203,12 @@ describe('injection hardening (review 2026-08-21)', () => {
  */
 describe('watch check-in', () => {
     /** Route consume_edge_quota to `true` and capture record_ais_watch. */
-    function watchDeps(watchResult: { data: unknown; error: unknown | null } = { data: { ok: true, standing: 'on_watch' }, error: null }) {
+    function watchDeps(
+        watchResult: { data: unknown; error: unknown | null } = {
+            data: { ok: true, standing: 'on_watch' },
+            error: null,
+        },
+    ) {
         const calls: { name: string; args: Record<string, unknown> }[] = [];
         const base = makeDeps();
         const client: UserClientLike = {

@@ -82,7 +82,10 @@ export async function fetchPublishedForecast(
                 .eq('cell_id', cellIdFor(lat, lon))
                 .eq('model', model)
                 .maybeSingle()
-                .then((r) => r) as Promise<{ data: { payload: unknown; run_at: string } | null; error: unknown } | null>,
+                .then((r) => r) as Promise<{
+                data: { payload: unknown; run_at: string } | null;
+                error: unknown;
+            } | null>,
             null,
             READ_BUDGET_MS,
         );

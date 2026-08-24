@@ -123,7 +123,6 @@ async function fetchSpread(
     lon: number,
     hours: number,
 ): Promise<{ data: ModelSpreadResult; complete: boolean }> {
-
     const common = {
         latitude: lat.toFixed(4),
         longitude: lon.toFixed(4),
@@ -143,12 +142,12 @@ async function fetchSpread(
         models: WAVE_SPREAD_MODELS.map((m) => m.id).join(','),
     });
     const [atmosRaw, marineRaw] = await Promise.all([
-              fetchOpenMeteoProxy<Record<string, unknown>>('forecast', Object.fromEntries(atmosParams.entries())).catch(
-                  () => null,
-              ),
-              fetchOpenMeteoProxy<Record<string, unknown>>('marine', Object.fromEntries(marineParams.entries())).catch(
-                  () => null,
-              ),
+        fetchOpenMeteoProxy<Record<string, unknown>>('forecast', Object.fromEntries(atmosParams.entries())).catch(
+            () => null,
+        ),
+        fetchOpenMeteoProxy<Record<string, unknown>>('marine', Object.fromEntries(marineParams.entries())).catch(
+            () => null,
+        ),
     ]);
 
     return {

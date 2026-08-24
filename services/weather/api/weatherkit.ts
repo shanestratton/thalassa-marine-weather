@@ -382,6 +382,10 @@ export const fetchWeatherKitFull = async (lat: number, lon: number): Promise<Wea
                 // passthroughJson carries the pinned transport. CapacitorHttp
                 // cannot present the Pi's self-signed cert either, so the old
                 // form threw on iOS and this shortcut never fired.
+                // The payload feeds the same mapCurrentWeather/mapHourly…
+                // mappers as the direct WeatherKit response, which are typed
+                // loosely end to end — containment, not a retype.
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 const piData = await piCache.passthroughJson<any>(
                     `${url}?lat=${lat}&lon=${lon}&dataSets=currentWeather,forecastHourly,forecastDaily,forecastNextHour`,
                     15 * 60 * 1000,

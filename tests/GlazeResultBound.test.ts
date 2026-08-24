@@ -55,7 +55,10 @@ describe('glaze result bound', () => {
         // returned null instead, an expanding pair would erase a depth band
         // from the chart — a safety regression dressed as a memory fix.
         const src = readSrc();
-        const branch = src.slice(src.indexOf('if (glazeResultOverBudget('), src.indexOf('touched = true;', src.indexOf('if (glazeResultOverBudget(')));
+        const branch = src.slice(
+            src.indexOf('if (glazeResultOverBudget('),
+            src.indexOf('touched = true;', src.indexOf('if (glazeResultOverBudget(')),
+        );
         expect(branch).toContain('pairsResultCapped++');
         expect(branch).toContain('degradeRects.push(...rects)');
         expect(branch).toContain('continue;');

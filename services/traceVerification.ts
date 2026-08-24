@@ -362,10 +362,7 @@ export function traceFollowBlockReason(
     const verification = normaliseTraceVerification(value, points);
     if (!verification)
         return 'This traced route has no valid check for its current waypoints. Open Route Tracer and check it again.';
-    if (
-        verification.draftAssumed !== context.draftAssumed ||
-        Math.abs(verification.draftM - context.draftM) > 0.01
-    ) {
+    if (verification.draftAssumed !== context.draftAssumed || Math.abs(verification.draftM - context.draftM) > 0.01) {
         return 'Your vessel draft has changed since this route was checked. Recheck it in Route Tracer.';
     }
     const checkedMs = Date.parse(verification.checkedAt);

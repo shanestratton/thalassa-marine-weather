@@ -22,10 +22,7 @@ export const PUBLIC_BETA_FEATURE_FLAG_KEYS = Object.freeze([
     'VITE_ENABLE_ENC_DEMO_SAMPLES',
 ]);
 
-export const PUBLIC_BETA_ENDPOINT_KEYS = Object.freeze([
-    'VITE_DEEPGRAM_PROXY_URL',
-    'VITE_NATIVE_API_BASE',
-]);
+export const PUBLIC_BETA_ENDPOINT_KEYS = Object.freeze(['VITE_DEEPGRAM_PROXY_URL', 'VITE_NATIVE_API_BASE']);
 
 export const PUBLIC_BETA_HELD_CAPABILITIES = Object.freeze([
     'apple-sign-in',

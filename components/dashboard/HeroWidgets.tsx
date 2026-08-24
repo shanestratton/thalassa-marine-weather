@@ -631,14 +631,13 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
 
     // Offshore → entire grid is tappable to open the model matrix.
     // Previously only the Wind cell was — user had to hunt for it.
-    const gridOnClick =
-        isOffshore
-            ? () => {
-                  if (Date.now() < suppressTapUntilRef.current) return;
-                  setMatrixParam(undefined);
-                  setShowMatrix(true);
-              }
-            : undefined;
+    const gridOnClick = isOffshore
+        ? () => {
+              if (Date.now() < suppressTapUntilRef.current) return;
+              setMatrixParam(undefined);
+              setShowMatrix(true);
+          }
+        : undefined;
 
     return (
         <MetricTapContext.Provider

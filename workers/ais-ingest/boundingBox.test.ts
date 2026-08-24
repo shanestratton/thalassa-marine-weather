@@ -82,7 +82,12 @@ describe('ingest bounding box', () => {
     });
 
     it('still honours a well-formed override', () => {
-        expect(parseBoundingBoxes('[[[-45,110],[-8,157]]]')).toEqual([[[-45, 110], [-8, 157]]]);
+        expect(parseBoundingBoxes('[[[-45,110],[-8,157]]]')).toEqual([
+            [
+                [-45, 110],
+                [-8, 157],
+            ],
+        ]);
     });
 
     it('reports whether the box came from the dashboard or this repo', () => {

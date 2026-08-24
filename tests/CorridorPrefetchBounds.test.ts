@@ -33,7 +33,9 @@ function cell(id: string, lat: number, lon: number, half = 0.25): Cell {
 /** Trivial cellsForBBox: every cell whose bbox intersects the query box. */
 function inBBox(cells: Cell[]) {
     return (bbox: [number, number, number, number]): Cell[] =>
-        cells.filter((c) => c.bbox[0] <= bbox[2] && c.bbox[2] >= bbox[0] && c.bbox[1] <= bbox[3] && c.bbox[3] >= bbox[1]);
+        cells.filter(
+            (c) => c.bbox[0] <= bbox[2] && c.bbox[2] >= bbox[0] && c.bbox[1] <= bbox[3] && c.bbox[3] >= bbox[1],
+        );
 }
 
 describe('selectCorridorCells', () => {

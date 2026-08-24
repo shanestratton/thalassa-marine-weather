@@ -150,7 +150,6 @@ describe('unconfigured build', () => {
     });
 });
 
-
 /**
  * THE EMPTY BAY — the reason this service was rebuilt.
  *
@@ -164,7 +163,7 @@ describe('unconfigured build', () => {
  */
 describe('the watch check-in', () => {
     const headersOf = (call: unknown): Record<string, string> =>
-        ((call as [string, { headers: Record<string, string> }])[1].headers ?? {});
+        (call as [string, { headers: Record<string, string> }])[1].headers ?? {};
 
     it('checks in with an EMPTY buffer and nothing heard', async () => {
         setShareEnabled(true);

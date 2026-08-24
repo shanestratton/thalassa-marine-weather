@@ -221,9 +221,9 @@ const Explainer: React.FC = () => (
             rise is usually a cold front already gone through — squally, clearing, less dangerous.
         </p>
         <p>
-            <strong className="text-white">Where the low is:</strong> in the Southern Hemisphere, stand with the wind
-            at your back and the low pressure is on your <em>right</em>. (Buys Ballot&apos;s law — reverse it north of
-            the equator.)
+            <strong className="text-white">Where the low is:</strong> in the Southern Hemisphere, stand with the wind at
+            your back and the low pressure is on your <em>right</em>. (Buys Ballot&apos;s law — reverse it north of the
+            equator.)
         </p>
         <p>
             <strong className="text-white">Why STATION and not MSL:</strong> your iPhone&apos;s barometer measures the
@@ -448,7 +448,9 @@ export const BarometerModal: React.FC<BarometerModalProps> = ({ isOpen, onClose,
                 <div className="flex gap-2">
                     {hasSensor && reference != null && (
                         <ControlButton
-                            onClick={() => (calibrated ? barometer.clearCalibration() : barometer.calibrateTo(reference))}
+                            onClick={() =>
+                                calibrated ? barometer.clearCalibration() : barometer.calibrateTo(reference)
+                            }
                             label={calibrated ? 'RESET' : 'SET'}
                             sub={calibrated ? 'to station' : 'anchor to MSL'}
                             active={calibrated}

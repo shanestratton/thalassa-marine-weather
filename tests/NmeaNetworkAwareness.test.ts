@@ -220,9 +220,9 @@ describe('NMEA network awareness', () => {
     it('does not churn a healthy socket when the network merely reports itself', async () => {
         // The false positive that would cost slots: a live, streaming socket
         // torn down because the OS emitted a status event.
-        socket.read.mockResolvedValueOnce({ result: SENTENCE }).mockImplementation(
-            () => new Promise((resolve) => setTimeout(() => resolve({ result: SENTENCE }), 2000)),
-        );
+        socket.read
+            .mockResolvedValueOnce({ result: SENTENCE })
+            .mockImplementation(() => new Promise((resolve) => setTimeout(() => resolve({ result: SENTENCE }), 2000)));
         NmeaListenerService.configure('192.168.1.151', 1456);
         NmeaListenerService.start();
         await settle();

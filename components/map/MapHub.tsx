@@ -1069,7 +1069,9 @@ export const MapHub: React.FC<MapHubProps> = ({
         const stored = savedTraces.find((t) => traceGeometryKey(t.points) === key);
         if (!stored) return; // an edit in progress, or never saved — leave it alone
         // One write per (route, acknowledgement set), not one per render.
-        const signature = `${stored.id}|${Array.from(ackedLegs).sort((a, b) => a - b).join(',')}`;
+        const signature = `${stored.id}|${Array.from(ackedLegs)
+            .sort((a, b) => a - b)
+            .join(',')}`;
         if (ackPersistRef.current === signature) return;
         ackPersistRef.current = signature;
         saveTrace(stored.name, stored.points, {

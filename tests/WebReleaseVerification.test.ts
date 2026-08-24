@@ -341,6 +341,11 @@ describe('web release verification', () => {
             file: 'logs.html',
             surface: 'logs',
         });
+        expect(localRouteExpectation('/beta?source=moreton-bay-club')).toEqual({
+            kind: 'document',
+            file: 'beta.html',
+            surface: 'beta',
+        });
         expect(localRouteExpectation('/float/legacy-plan')).toEqual({ kind: 'redirect', destination: '/logs' });
         expect(localRouteExpectation('/assets/main-hash.js')).toEqual({ kind: 'asset' });
     });
@@ -353,6 +358,12 @@ describe('web release verification', () => {
         `;
 
         expect(validateHtmlSurface(realShell, 'main')).toEqual([]);
+        expect(
+            validateHtmlSurface(
+                '<title>Founding Skippers — Thalassa</title><div id="root"></div><script type="module" src="/assets/beta-release123.js"></script>',
+                'beta',
+            ),
+        ).toEqual([]);
         expect(validateHtmlSurface('<html><body>Deployment ready</body></html>', 'main')).toEqual(
             expect.arrayContaining([
                 expect.stringContaining('root'),

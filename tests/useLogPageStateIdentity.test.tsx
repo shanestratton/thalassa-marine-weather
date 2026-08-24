@@ -402,9 +402,7 @@ describe('useLogPageState view memo — a tab-bounce keeps what the skipper had 
         // Hold the network open indefinitely. If the gate depended on it, the
         // assertion below would never pass.
         let releaseSummaries!: (v: unknown[]) => void;
-        mocks.getSummaries.mockImplementation(
-            () => new Promise<unknown[]>((resolve) => (releaseSummaries = resolve)),
-        );
+        mocks.getSummaries.mockImplementation(() => new Promise<unknown[]>((resolve) => (releaseSummaries = resolve)));
         mocks.getVoyageEntries.mockImplementation(() => new Promise<unknown[]>(() => {}));
         // What is on the DEVICE: a voyage persisted as running. This is what
         // the seed reads — not the service, which is still initialising.

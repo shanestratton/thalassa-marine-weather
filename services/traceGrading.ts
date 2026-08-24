@@ -100,10 +100,7 @@ const cautionVerdict = (message: string): TraceLegVerdict => ({
  *
  * `pending` must already exclude legs the caller considers decided.
  */
-export async function gradeLegs(
-    pending: ReadonlyArray<GradeLeg>,
-    opts: GradeLegsOptions,
-): Promise<GradeLegsResult> {
+export async function gradeLegs(pending: ReadonlyArray<GradeLeg>, opts: GradeLegsOptions): Promise<GradeLegsResult> {
     const superseded = () => opts.superseded?.() === true;
     const isDecided = (key: string) => opts.isDecided?.(key) === true;
 
@@ -220,7 +217,11 @@ export async function gradeLegs(
                     : mergeSubLegVerdicts(keys.map((k) => pieceVerdicts.get(k) ?? null));
             if (!merged) continue;
             folded.add(leg.key);
-            opts.onLeg(leg.key, merged, keys.some((k) => volatilePieces.has(k)));
+            opts.onLeg(
+                leg.key,
+                merged,
+                keys.some((k) => volatilePieces.has(k)),
+            );
         }
     };
 

@@ -134,7 +134,7 @@ describe('the census can actually see tiles', () => {
         expect(out.textureMB).toBe(11);
     });
 
-    it('uses the tile\'s real dimensions, not a per-tile guess', () => {
+    it("uses the tile's real dimensions, not a per-tile guess", () => {
         // The 4 MB-per-retina-tile heuristic assumed mapbox.satellite @2x
         // decodes to 1024×1024. It serves 512×512, so the guess was ~3x high.
         const map = fakeMap({ 'other:s': { _tiles: { a: tex(512, 512, false), b: tex(512, 512, false) } } });
@@ -145,7 +145,10 @@ describe('the census can actually see tiles', () => {
 
     it('names the heaviest source, split live vs cached', () => {
         const map = fakeMap({
-            'other:satellite-base': { _tiles: { a: tex(512, 512), b: tex(512, 512) }, _cache: { data: { k: [{ value: tex(512, 512) }] } } },
+            'other:satellite-base': {
+                _tiles: { a: tex(512, 512), b: tex(512, 512) },
+                _cache: { data: { k: [{ value: tex(512, 512) }] } },
+            },
             'other:openseamap': { _tiles: { c: tex(256, 256) } },
         });
         registerCensusMap(map);
@@ -192,7 +195,7 @@ describe('the census can actually see tiles', () => {
         const src = readFileSync('services/memoryCensus.ts', 'utf8');
         expect(src).toContain('function censusPlatform()');
         expect(src).toContain('platform: censusPlatform()');
-        expect(src).toContain('[${c.platform ?? \'?\'}]');
+        expect(src).toContain("[${c.platform ?? '?'}]");
     });
 });
 

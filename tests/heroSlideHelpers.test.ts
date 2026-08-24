@@ -260,7 +260,9 @@ describe('reconcileDayCondition — the day overview must not contradict its own
             temperature: 20,
         }) as HourlyForecast;
 
-    const sunnyDay = Array.from({ length: 24 }, (_, i) => hour(String(i).padStart(2, '0'), i >= 6 && i <= 17 ? 'Sunny' : 'Clear'));
+    const sunnyDay = Array.from({ length: 24 }, (_, i) =>
+        hour(String(i).padStart(2, '0'), i >= 6 && i <= 17 ? 'Sunny' : 'Clear'),
+    );
 
     it("drops a wet daily word when every hour is dry and the day's precip rounds to nothing (Shane 2026-08-10)", () => {
         // Open-Meteo daily weather_code = severest hour of the day: one model

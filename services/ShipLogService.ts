@@ -165,9 +165,7 @@ function readDeviceStops(): Record<string, number> {
         const raw = localStorage.getItem(DEVICE_STOPS_KEY);
         const parsed = raw ? (JSON.parse(raw) as Record<string, number>) : {};
         const cutoff = Date.now() - DEVICE_STOPS_MAX_AGE_MS;
-        return Object.fromEntries(
-            Object.entries(parsed).filter(([, at]) => typeof at === 'number' && at >= cutoff),
-        );
+        return Object.fromEntries(Object.entries(parsed).filter(([, at]) => typeof at === 'number' && at >= cutoff));
     } catch {
         return {};
     }

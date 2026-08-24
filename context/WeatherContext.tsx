@@ -28,7 +28,11 @@ import {
     weatherCacheKeysForScope,
     type OrchestratorCallbacks,
 } from '../services/WeatherOrchestrator';
-import { findWeatherHistoryReport, weatherReportMatchesRequest, weatherCoordinatesNearby } from '../services/weather/cache';
+import {
+    findWeatherHistoryReport,
+    weatherReportMatchesRequest,
+    weatherCoordinatesNearby,
+} from '../services/weather/cache';
 
 import { createLogger } from '../utils/createLogger';
 import { decideFollowAction, haversineNM, GPS_FOLLOW_POLL_MS } from '../utils/gpsFollow';

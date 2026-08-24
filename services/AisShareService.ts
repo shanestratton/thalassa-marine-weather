@@ -429,12 +429,28 @@ async function postRevoke(): Promise<void> {
         const headers = await getAuthenticatedFunctionHeaders();
         await withTimeout(
             (async () => {
-                const h = { ...headers, 'Content-Type': 'text/plain', 'X-Thalassa-Watch': '1', 'X-Thalassa-Revoke': '1' };
+                const h = {
+                    ...headers,
+                    'Content-Type': 'text/plain',
+                    'X-Thalassa-Watch': '1',
+                    'X-Thalassa-Revoke': '1',
+                };
                 if (Capacitor.isNativePlatform()) {
-                    await CapacitorHttp.post({ url, headers: h, data: '', readTimeout: FLUSH_DEADLINE_MS, connectTimeout: FLUSH_DEADLINE_MS });
+                    await CapacitorHttp.post({
+                        url,
+                        headers: h,
+                        data: '',
+                        readTimeout: FLUSH_DEADLINE_MS,
+                        connectTimeout: FLUSH_DEADLINE_MS,
+                    });
                     return true;
                 }
-                await fetch(url, { method: 'POST', headers: h, body: '', signal: AbortSignal.timeout(FLUSH_DEADLINE_MS) });
+                await fetch(url, {
+                    method: 'POST',
+                    headers: h,
+                    body: '',
+                    signal: AbortSignal.timeout(FLUSH_DEADLINE_MS),
+                });
                 return true;
             })(),
             false,

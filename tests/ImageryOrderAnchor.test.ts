@@ -20,8 +20,7 @@ import { IMAGERY_LAYER_IDS, cloudOverlayBeforeId, imageryTopIndex } from '../com
 // Style-layer fixtures. 'place-*' / '*-label' are the style's symbol layers;
 // everything else here is a raster or fill, which is what the fallback ladder
 // distinguishes.
-const L = (...ids: string[]) =>
-    ids.map((id) => ({ id, type: /label|^place-/.test(id) ? 'symbol' : 'raster' }));
+const L = (...ids: string[]) => ids.map((id) => ({ id, type: /label|^place-/.test(id) ? 'symbol' : 'raster' }));
 
 describe('imageryTopIndex', () => {
     it('finds the HIGHEST imagery layer, not the first named one', () => {

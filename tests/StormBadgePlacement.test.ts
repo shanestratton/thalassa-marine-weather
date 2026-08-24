@@ -9,7 +9,10 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 
 const src = readFileSync('components/map/useCycloneLayer.ts', 'utf8');
-const hud = src.slice(src.indexOf('const hud = document.createElement'), src.indexOf('map.getContainer().appendChild(hud)'));
+const hud = src.slice(
+    src.indexOf('const hud = document.createElement'),
+    src.indexOf('map.getContainer().appendChild(hud)'),
+);
 const card = src.slice(src.indexOf('function buildStormBadgeDOM'), src.indexOf('// ── Header: Storm name'));
 
 describe('storm badge placement', () => {

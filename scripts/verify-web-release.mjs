@@ -128,6 +128,7 @@ const DOCUMENT_HEADER_SOURCES = Object.freeze([
     '/((?!.*\\..*).*)',
     '/index.html',
     '/logs.html',
+    '/beta.html',
     '/terms.html',
     '/voyage-log-api.html',
 ]);
@@ -139,6 +140,7 @@ const REQUIRED_REWRITES = Object.freeze([
     ['/plan', '/index.html'],
     ['/plan/:path*', '/index.html'],
     ['/voyage-log-api', '/voyage-log-api.html'],
+    ['/beta', '/beta.html'],
     ['/((?!.*\\..*).*)', '/index.html'],
 ]);
 
@@ -150,6 +152,7 @@ const REQUIRED_REDIRECTS = Object.freeze([
 const SURFACE_MARKERS = Object.freeze({
     main: ['<div id="root"></div>', '<title>Thalassa — Marine Weather & Passage Planning</title>'],
     logs: ['<div id="root"></div>', '<title>Voyage Log — Thalassa</title>'],
+    beta: ['<div id="root"></div>', '<title>Founding Skippers — Thalassa</title>'],
     terms: ['<title>Thalassa Marine Weather — Terms & Privacy</title>'],
     api: ['<title>Voyage Log API — Thalassa</title>', '<h1>Voyage Log API</h1>'],
 });
@@ -267,7 +270,7 @@ export function validateHtmlSurface(html, surface) {
     for (const marker of markers) {
         if (!html.includes(marker)) failures.push(`${surface} document is missing ${marker}`);
     }
-    if ((surface === 'main' || surface === 'logs') && !/\bsrc=["']\/assets\/[^"']+\.js["']/.test(html)) {
+    if ((surface === 'main' || surface === 'logs' || surface === 'beta') && !/\bsrc=["']\/assets\/[^"']+\.js["']/.test(html)) {
         failures.push(`${surface} document does not boot a hashed production JavaScript asset`);
     }
     if (/\bsrc=["']\/src\//.test(html)) failures.push(`${surface} document still references a source module`);
@@ -283,6 +286,7 @@ export function localRouteExpectation(pathname) {
     if (normalized === '/voyage-log-api') {
         return { kind: 'document', file: 'voyage-log-api.html', surface: 'api' };
     }
+    if (normalized === '/beta') return { kind: 'document', file: 'beta.html', surface: 'beta' };
     if (normalized === '/logs' || normalized.startsWith('/logs/')) {
         return { kind: 'document', file: 'logs.html', surface: 'logs' };
     }
@@ -324,6 +328,7 @@ function validateBuiltArtifacts() {
     const specs = [
         ['index.html', 'main'],
         ['logs.html', 'logs'],
+        ['beta.html', 'beta'],
         ['terms.html', 'terms'],
         ['voyage-log-api.html', 'api'],
     ];
@@ -569,6 +574,7 @@ async function verifyLocalPreview(artifacts) {
             '/plan/release-verification',
             '/release-verification/deep-route',
             '/logs/release-verification',
+            '/beta',
             '/terms',
             '/voyage-log-api',
         ];
@@ -919,6 +925,7 @@ async function verifyHostedDeployment(rawOrigin) {
         ['/plan/release-verification', 'main'],
         ['/release-verification/deep-route', 'main'],
         ['/logs/release-verification', 'logs'],
+        ['/beta', 'beta'],
         ['/terms', 'terms'],
         ['/voyage-log-api', 'api'],
     ];

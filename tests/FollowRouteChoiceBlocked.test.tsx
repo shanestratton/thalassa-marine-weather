@@ -48,12 +48,7 @@ describe('FollowRouteChoice with a follow-gate refusal', () => {
         const onPick = vi.fn();
         const onCheckRoute = vi.fn();
         render(
-            <FollowRouteChoice
-                summary={summary}
-                blockReason={REASON}
-                onCheckRoute={onCheckRoute}
-                onPick={onPick}
-            />,
+            <FollowRouteChoice summary={summary} blockReason={REASON} onCheckRoute={onCheckRoute} onPick={onPick} />,
         );
         const row = screen.getByRole('button');
         expect(row).not.toBeDisabled();

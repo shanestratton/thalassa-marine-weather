@@ -663,14 +663,14 @@ const ConsentSheet: React.FC<{ onAccept: () => void; onDismiss: () => void }> = 
 
             <h3 className="mt-5 text-[15px] font-bold text-amber-300">Your own boat becomes publicly trackable.</h3>
             <p className="mt-2 text-[13px] leading-relaxed text-gray-300">
-                If your setup transmits &mdash; any Class A or Class B transponder &mdash; your boat&rsquo;s own position
-                reports go out with everything else. Your MMSI, your boat&rsquo;s name if it&rsquo;s programmed in, your
-                position, course and speed, live, on public tracking websites, to anyone who cares to look.
+                If your setup transmits &mdash; any Class A or Class B transponder &mdash; your boat&rsquo;s own
+                position reports go out with everything else. Your MMSI, your boat&rsquo;s name if it&rsquo;s programmed
+                in, your position, course and speed, live, on public tracking websites, to anyone who cares to look.
             </p>
             <p className="mt-2 text-[13px] leading-relaxed text-gray-300">
-                We can&rsquo;t take that back. Once it reaches AISHub it&rsquo;s copied onward within seconds and we have
-                no way to reach the sites that copied it. Turning sharing off later stops new reports. It does not remove
-                what&rsquo;s already out there.
+                We can&rsquo;t take that back. Once it reaches AISHub it&rsquo;s copied onward within seconds and we
+                have no way to reach the sites that copied it. Turning sharing off later stops new reports. It does not
+                remove what&rsquo;s already out there.
             </p>
             <p className="mt-2 text-[13px] leading-relaxed text-gray-300">
                 Don&rsquo;t turn this on if there&rsquo;s any reason you&rsquo;d rather your boat wasn&rsquo;t findable
@@ -678,7 +678,8 @@ const ConsentSheet: React.FC<{ onAccept: () => void; onDismiss: () => void }> = 
                 tracked is a risk.
             </p>
             <p className="mt-2 text-[12px] leading-relaxed text-gray-400">
-                If your gear only receives and never transmits, nothing about your boat goes out. Only the ships you hear.
+                If your gear only receives and never transmits, nothing about your boat goes out. Only the ships you
+                hear.
             </p>
 
             <h3 className="mt-5 text-[15px] font-bold text-gray-100">Being heard by nobody still counts.</h3>
@@ -690,9 +691,9 @@ const ConsentSheet: React.FC<{ onAccept: () => void; onDismiss: () => void }> = 
 
             <h3 className="mt-5 text-[15px] font-bold text-gray-100">What we keep about you.</h3>
             <p className="mt-2 text-[13px] leading-relaxed text-gray-300">
-                One row: how many minutes you&rsquo;ve been on watch, when we last heard from you, and how many sentences
-                you&rsquo;ve sent. Not where you were, not where you went, no history. It&rsquo;s deleted when your
-                account is.
+                One row: how many minutes you&rsquo;ve been on watch, when we last heard from you, and how many
+                sentences you&rsquo;ve sent. Not where you were, not where you went, no history. It&rsquo;s deleted when
+                your account is.
             </p>
 
             <h3 className="mt-5 text-[15px] font-bold text-gray-100">What this never affects.</h3>

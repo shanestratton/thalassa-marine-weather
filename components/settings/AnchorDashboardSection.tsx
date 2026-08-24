@@ -112,8 +112,8 @@ export const AnchorDashboardSection: React.FC = () => {
         <Section title="Anchor Dashboard">
             <div className="space-y-3 p-4">
                 <p className="text-[11px] leading-snug text-gray-400">
-                    Send anchor state to the boat&rsquo;s cabin screen — where the hook went down, the alarm circle,
-                    and whether it is holding. Sent only when something changes, never on a timer. You must be on the
+                    Send anchor state to the boat&rsquo;s cabin screen — where the hook went down, the alarm circle, and
+                    whether it is holding. Sent only when something changes, never on a timer. You must be on the
                     tailnet.
                 </p>
 

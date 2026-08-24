@@ -48,7 +48,7 @@ describe('windZoomFactor', () => {
         expect(windZoomFactor(18)).toBe(0.5);
     });
 
-    it('survives a nonsense zoom by falling back to today\'s behaviour', () => {
+    it("survives a nonsense zoom by falling back to today's behaviour", () => {
         // 1.0 is the pre-change behaviour, so a bad reading degrades to "as
         // it always was" rather than to an empty or frozen field.
         expect(windZoomFactor(Number.NaN)).toBe(1);

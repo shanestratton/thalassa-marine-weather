@@ -129,7 +129,7 @@ describe('startAishubPoller', () => {
             text: async () => JSON.stringify([{ ERROR: false, RECORDS: 1 }, [row({ TIME: new Date().toISOString() })]]),
         }) as unknown as Response;
 
-    it('floors the cadence at AISHub\'s one-per-minute limit', async () => {
+    it("floors the cadence at AISHub's one-per-minute limit", async () => {
         vi.useFakeTimers();
         const { db } = fakeDb();
         const fetchImpl = vi.fn(async () => okResponse());
@@ -147,7 +147,7 @@ describe('startAishubPoller', () => {
         vi.useRealTimers();
     });
 
-    it('requests the worker\'s bounding box and enqueues accepted rows', async () => {
+    it("requests the worker's bounding box and enqueues accepted rows", async () => {
         const { db, enqueued } = fakeDb();
         let requested = '';
         const fetchImpl = vi.fn(async (url: string) => {

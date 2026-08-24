@@ -239,10 +239,7 @@ describe('offline tile download lanes', () => {
             vi.fn(async () => new Response(new Uint8Array([1, 2, 3]))),
         );
 
-        const result = await downloadArea(
-            { bounds: oneTileBounds, minZoom: 0, maxZoom: 0, concurrency: 1 },
-            vi.fn(),
-        );
+        const result = await downloadArea({ bounds: oneTileBounds, minZoom: 0, maxZoom: 0, concurrency: 1 }, vi.fn());
 
         // The Pi is an optimisation. A dead Pi must cost speed, not the tile.
         expect(result.failed).toBe(0);

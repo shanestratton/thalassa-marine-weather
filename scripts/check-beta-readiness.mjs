@@ -1351,7 +1351,10 @@ check(
             'upload_manifest_slot(discovery_tag, repo, slot,',
             'Published verified generation %s to discovery slot(s)',
         ]) &&
-        marinePublisherTestCount === 53 &&
+        // 56, was 53: c6c4f438 (2026-08-08) added three regression tests to
+        // test_publish_flow.py with the gh missing-asset fix. The pin is a
+        // no-tests-deleted tripwire, so a deliberate ADDITION moves it up.
+        marinePublisherTestCount === 56 &&
         includesAll(marinePublisherContractTest, [
             'test_weekly_shard_derivation_and_iso_year_boundary',
             'test_shard_capacity_and_collision_guard_runs_before_mutation',
@@ -1399,6 +1402,9 @@ check(
             'test_release_lookup_failure_does_not_mutate_remote_state',
             'test_legacy_mpa_bootstrap_accepts_feature_count_within_review_bound',
             'test_legacy_mpa_bootstrap_rejects_feature_count_outside_review_bound_before_mutation',
+            'test_absent_asset_reports_false_rather_than_raising',
+            'test_real_failures_still_raise',
+            'test_first_v2_publish_can_bootstrap_with_neither_slot_present',
         ]) &&
         includesAll(currentsPipelineReadme, [
             'exactly 13 hourly snapshots',
@@ -1521,21 +1527,20 @@ check(
         ]),
 );
 const intendedPublicBetaFeatureFlags = {
-    VITE_CMEMS_CURRENTS_ENABLED: false,
+    VITE_CMEMS_CURRENTS_ENABLED: true,
     VITE_CMEMS_WAVES_ENABLED: false,
-    VITE_CMEMS_SST_ENABLED: false,
-    VITE_CMEMS_CHL_ENABLED: false,
+    VITE_CMEMS_SST_ENABLED: true,
+    VITE_CMEMS_CHL_ENABLED: true,
     VITE_CMEMS_SEAICE_ENABLED: false,
     VITE_CMEMS_MLD_ENABLED: false,
     VITE_MPA_ENABLED: false,
     VITE_APPLE_SIGN_IN_ENABLED: false,
-    VITE_APPLE_MUSIC_ENABLED: false,
+    VITE_APPLE_MUSIC_ENABLED: true,
     VITE_APPLE_WATCH_ENABLED: false,
     VITE_GOOGLE_SIGN_IN_ENABLED: false,
     VITE_ACCOUNT_DELETION_ENABLED: false,
     VITE_GRANT_ALL_FEATURES: false,
     VITE_ENABLE_ENC_DEMO_SAMPLES: false,
-    VITE_WX_SERVER_ENABLED: false,
 };
 const releaseOwnedEnvironmentKeys = [
     ...PUBLIC_BETA_FEATURE_FLAG_KEYS,
@@ -1555,7 +1560,6 @@ check(
             "connect-src 'self' data: http: https://thalassawx.vercel.app",
             "const DEFAULT_NATIVE_BASE = 'https://thalassawx.vercel.app/api'",
         ]) &&
-        publicBetaFeatureProfile.publicEndpoints.VITE_WX_SERVER_BASE === '' &&
         includesAll(publicBetaFeatureProfile.heldCapabilities.join('\n'), [
             'apple-sign-in',
             'apple-watch-bridge',
@@ -1600,7 +1604,7 @@ check(
         !read('services/weather/ModelSpreadService.ts').includes('wxServer') &&
         !JSON.stringify(publicBetaFeatureProfile).includes('WX_SERVER') &&
         !read('services/weather/api/openmeteo.ts').includes('100.76.191.119'),
-)
+);
 check(
     'Lighthouse uses the lockfile-pinned direct runner and proves it audited the application shell',
     Object.hasOwn(pkg.devDependencies ?? {}, 'lighthouse') &&
@@ -2690,7 +2694,14 @@ check(
         !podfile.includes('@frontall/capacitor-udp') &&
         !podLock.includes('FrontallCapacitorUdp') &&
         !podLock.includes('@frontall/capacitor-udp') &&
-        read('components/vessel/NmeaPage.tsx').includes('AISHub contribution unavailable in beta'),
+        // The old amber "AISHub contribution unavailable in beta" banner was
+        // deliberately replaced on 2026-08-24 by the crowd-feed consent card
+        // (On Watch): contribution now exists, but over an authenticated
+        // HTTPS relay — never the Capacitor-3 UDP path this gate exists to
+        // keep dead, which every assertion above still enforces. The card's
+        // own fail-closed state is the new pinned copy: with no relay
+        // configured it says so and sends nothing.
+        read('components/vessel/NmeaPage.tsx').includes('This build has no share relay configured'),
 );
 check(
     'Vite client Supabase key has no generic server-key fallback',
@@ -2782,7 +2793,14 @@ check(
         read('pi-cache/src/identity.ts').includes('export function readIdentityPrivateKeyPem') &&
         !read('pi-cache/src/routes/pair.ts').includes('privateKey') &&
         // Client: https only, every call through the pinning transport.
-        piCacheClient.includes('return `https://${this.config.host}:${this.config.port}`') &&
+        // 17a26f62 (2026-08-11) gave baseUrl a Tailscale host ladder. The pin
+        // follows the new spelling AND pins the ladder line itself, so the
+        // only alternative host is the pinned-transport remoteHost — the pin
+        // is key-equality, not hostname, so the trust model is unchanged.
+        piCacheClient.includes('return `https://${host}:${this.config.port}`') &&
+        piCacheClient.includes(
+            'const host = this._useRemote && this.remoteHost ? this.remoteHost : this.config.host;',
+        ) &&
         !/`http:\/\/\$\{/.test(piCacheClient) &&
         !/`http:\/\/\$\{/.test(piPairingClient) &&
         // Strip comments: this file now EXPLAINS why it does not use
@@ -2914,8 +2932,12 @@ const floatPlanTombstone = read('supabase/functions/float-plan/index.ts');
 check(
     'live beta privacy/terms copy covers deletion, telemetry, sync, and location',
     includesAll(normalizedTerms, [
-        'Version 2.1',
-        '4 August 2026',
+        // v2.2 (23 Aug 2026) is the AIS-sharing revision: it ADDED the AISHub
+        // recipient disclosure, the Shared AIS retention paragraph and the
+        // safety floor. The version pin exists so the terms cannot drift
+        // silently — a deliberate, tested revision moves it forward.
+        'Version 2.2',
+        '23 August 2026',
         'destructive in-app deletion flow is temporarily unavailable during this beta',
         'mailto:privacy@thalassa.app',
         'Sentry',
@@ -2998,6 +3020,17 @@ const heldCapabilitySourceContracts = {
         read('services/AisHubService.ts').includes('Intentionally inert'),
     'retired-public-float-plan':
         floatPlanTombstone.includes('Retired public float-plan endpoint') && floatPlanTombstone.includes('status: 410'),
+    // 8a4360eb (2026-08-09) parked the console and declared the hold in the
+    // manifest, but never wrote its source contract here. Same boundary
+    // tests/CalypsoParked.test.ts pins: flag off, route closed via the parked
+    // page, mic entry gated. Deliberately silent on safetyTts — the
+    // MAYDAY/DSC read-out keeps Calypso's voice and is NOT held.
+    'calypso-voice-console':
+        /\bcalypsoConsole:\s*false\b/.test(featureVisibility) &&
+        viewRegistry.includes(
+            'const BosunConsolePage = FEATURE_VISIBILITY.calypsoConsole ? LiveBosunConsolePage : CalypsoParkedPage;',
+        ) &&
+        appShell.includes('FEATURE_VISIBILITY.calypsoConsole && canAccess('),
     'calypso-proactive-alerts':
         /\bcalypsoAlerts:\s*false\b/.test(featureVisibility) &&
         alertMonitor.includes("FEATURE_VISIBILITY.calypsoAlerts || import.meta.env.MODE === 'test'"),

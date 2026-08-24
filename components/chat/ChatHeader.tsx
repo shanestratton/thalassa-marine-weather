@@ -8,14 +8,7 @@ import { ChatChannel } from '../../services/ChatService';
 import { useTheme } from '../../context/ThemeContext';
 import { SafeImage } from '../ui/SafeImage';
 
-type ChatView =
-    | 'channels'
-    | 'messages'
-    | 'dm_inbox'
-    | 'dm_thread'
-    | 'profile'
-    | 'find_crew'
-    | 'admin_panel';
+type ChatView = 'channels' | 'messages' | 'dm_inbox' | 'dm_thread' | 'profile' | 'find_crew' | 'admin_panel';
 
 export interface ChatHeaderProps {
     view: ChatView;

@@ -67,7 +67,7 @@ Then `sudo systemctl enable --now ais-bridge` and watch
   AISHUB_HOST/PORT, restart, then EMAIL AISHub that streaming has begun —
   the account is not issued until you do.
 - **An assigned AISHub port can be taken back, and nothing tells you.** UDP
-  never answers, so a reassigned port looks *exactly* like a healthy one from
+  never answers, so a reassigned port looks _exactly_ like a healthy one from
   here: sentences leave, `AISHub fwd` keeps climbing, zero send errors. The
   port issued in March 2026 was given to another user because too long passed
   before the boat went live, and the bridge then spent a day forwarding 161k

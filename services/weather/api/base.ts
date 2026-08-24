@@ -54,8 +54,8 @@ export const fetchSG = async <T>(
     try {
         // 1. Try CapacitorHttp (native iOS/Android — bypasses CORS)
         const res = await CapacitorHttp.post({
-                connectTimeout: 5000, // native bound — AbortSignal is a no-op under the CapacitorHttp patch
-                readTimeout: 10000,
+            connectTimeout: 5000, // native bound — AbortSignal is a no-op under the CapacitorHttp patch
+            readTimeout: 10000,
             url: PROXY_URL,
             headers: authHeaders,
             data: body,

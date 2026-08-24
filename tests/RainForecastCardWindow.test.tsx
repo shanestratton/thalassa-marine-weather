@@ -45,7 +45,11 @@ describe('RainForecastCard — the no-rain verdict names the window it checked',
         // Worded at fetch time, a summary's window ages just like the frame.
         // The live computed label always wins in the dry branch.
         render(
-            <RainForecastCard data={dryFeed(60)} source="rainbow" rainSummary="No precipitation expected next 4 hours" />,
+            <RainForecastCard
+                data={dryFeed(60)}
+                source="rainbow"
+                rainSummary="No precipitation expected next 4 hours"
+            />,
         );
         expect(screen.getByText(/No rain expected next (58|59|60) min/)).toBeInTheDocument();
         expect(screen.queryByText('No precipitation expected next 4 hours')).not.toBeInTheDocument();

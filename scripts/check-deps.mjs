@@ -145,9 +145,7 @@ for (const file of files) {
             seenPackages.add(name);
             // Type-only packages resolve bare names via DefinitelyTyped:
             // 'geojson' → '@types/geojson'; '@scope/pkg' → '@types/scope__pkg'.
-            const typesName = name.startsWith('@')
-                ? `@types/${name.slice(1).replace('/', '__')}`
-                : `@types/${name}`;
+            const typesName = name.startsWith('@') ? `@types/${name.slice(1).replace('/', '__')}` : `@types/${name}`;
             const declared = allDeclared.has(name) || allDeclared.has(typesName) || PHANTOM_ALLOWLIST.has(name);
             if (!declared && !phantoms.has(name)) {
                 phantoms.set(name, `${file.replace(ROOT, '')} → '${spec}'`);
