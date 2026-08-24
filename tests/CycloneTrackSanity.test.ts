@@ -111,3 +111,94 @@ describe('every track geometry consumer goes through the sanitizer', () => {
         expect(src).not.toMatch(/const projected = c\.track\.map/);
     });
 });
+
+import { respellTrackForProjection } from '../components/map/useCycloneLayer';
+
+/**
+ * THE SECOND HALF of the entire-planet bug, found by pixel arithmetic on the
+ * live page after the first half shipped (2026-08-24 evening, Shane: "there
+ * is still a storm track going across the entire globe").
+ *
+ * sanitizeTrackLongitudes hands renderers a CONTINUOUS spelling, and Mapbox's
+ * GeoJSON pipeline honours it — every GL source measured sane. But
+ * map.project() WRAPS out-of-range longitudes into [-180, 180]: LALA's
+ * -180.5 and -182.1 came back as +179.5-side screen positions while their
+ * -179 neighbours stayed put, splitting one continuous track across two
+ * world copies. The SVG cone drew the 4,708 px traverse between the halves.
+ */
+describe('respellTrackForProjection', () => {
+    /** mercator X for a longitude, world-copy aware — what project() computes
+     *  BEFORE wrapping. Screen continuity is continuity of this value. */
+    const mercX = (lon: number) => (180 + lon) / 360;
+
+    it('keeps LALA screen-continuous at the camera that showed the band', () => {
+        // The measured case: camera at 107.3°E, LALA sanitized to
+        // -175.5 … -182.1. Unrespelled, the wrap splits at -180 exactly.
+        const lala: [number, number][] = [
+            [-175.5, 33.9],
+            [-179.0, 36.6],
+            [-180.5, 38.2],
+            [-182.1, 39.8],
+        ];
+        const out = respellTrackForProjection(lala, 107.3);
+        // One world copy for every point: +184.5 … +177.9, continuous.
+        const xs = out.map(([lon]) => mercX(lon));
+        for (let i = 1; i < xs.length; i++) {
+            expect(Math.abs(xs[i] - xs[i - 1])).toBeLessThan(0.05);
+        }
+        // ...and near the camera's copy, so the cone draws beside the marker.
+        expect(Math.abs(mercX(out[0][0]) - mercX(107.3))).toBeLessThan(0.5);
+    });
+
+    it('is a UNIFORM shift — respelling can never split what sanitize joined', () => {
+        const track: [number, number][] = [
+            [178, -16],
+            [180.4, -17],
+            [183.2, -18],
+        ];
+        const out = respellTrackForProjection(track, -170);
+        const d0 = out[0][0] - track[0][0];
+        for (let i = 0; i < track.length; i++) {
+            expect(out[i][0] - track[i][0]).toBe(d0);
+        }
+        expect(Math.abs(d0 % 360)).toBe(0);
+    });
+
+    it('leaves a same-copy track byte-identical', () => {
+        const t: [number, number][] = [
+            [152, -27],
+            [153, -26],
+        ];
+        expect(respellTrackForProjection(t, 150)).toBe(t);
+    });
+});
+
+describe('both SVG projection sites respell before projecting', () => {
+    it('past tube and forecast cone both go respell(sanitize(...)) → project', () => {
+        const srcNow = readFileSync('components/map/useCycloneLayer.ts', 'utf8');
+        const sites = [...srcNow.matchAll(/respellTrackForProjection\(\s*\n?\s*sanitizeTrackLongitudes\(/g)];
+        expect(sites.length).toBe(2);
+        // The GL sleeve stays UNRESPELLED on purpose: the GeoJSON pipeline
+        // handles continuous spellings correctly, and respelling there would
+        // couple stored geometry to a transient camera position.
+        const sleeve = srcNow.slice(
+            srcNow.indexOf('function addProbabilitySleeve'),
+            srcNow.indexOf('const SLEEVE_SOURCE') + 400,
+        );
+        expect(sleeve).not.toContain('respellTrackForProjection');
+    });
+});
+
+describe('the probability sleeve follows the SELECTION', () => {
+    it('draws one storm — selected first, geo-closest fallback — never a loop', () => {
+        const srcNow = readFileSync('components/map/useCycloneLayer.ts', 'utf8');
+        // The old shape: a loop writing every storm into ONE shared source, so
+        // the last array member always won — NARRA's cone under LALA's card,
+        // measured live. The loop must not come back.
+        expect(srcNow).not.toMatch(/for \(const c of cyclones\) \{\s*\n\s*addProbabilitySleeve/);
+        expect(srcNow).toContain('const sleeveStorm = selectedStormRef.current');
+        // ...and stepping storms re-draws it with the card.
+        const sel = srcNow.slice(srcNow.indexOf('hud.appendChild(createStormBadgeStatic(selectedStorm));'));
+        expect(sel.slice(0, 400)).toContain('addProbabilitySleeve(map, selectedStorm);');
+    });
+});
