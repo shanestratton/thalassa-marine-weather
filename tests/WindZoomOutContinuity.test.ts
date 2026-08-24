@@ -42,13 +42,16 @@ describe('zoom-out continuity', () => {
     it('still refuses STALE wind — incomplete is tolerable, out-of-date is not', () => {
         const decl = ctrl.slice(ctrl.indexOf('const keepRenderedGrid'), ctrl.indexOf('if (!beginWindGridLoad'));
         expect(decl).toContain('isCacheStale');
-        expect(decl).toContain("WindStore.getState().grid");
+        expect(decl).toContain('WindStore.getState().grid');
     });
 
     it('leaves boundsCover doing its real job in the cache lookup', () => {
         // Relaxing the RENDER rule must not relax which cached grid may be
         // published as covering the viewport.
-        const lookup = ctrl.slice(ctrl.indexOf('function bestCoveringGrid'), ctrl.indexOf('function bestCoveringGrid') + 600);
+        const lookup = ctrl.slice(
+            ctrl.indexOf('function bestCoveringGrid'),
+            ctrl.indexOf('function bestCoveringGrid') + 600,
+        );
         expect(lookup).toContain('boundsCover(entry.bounds, viewport)');
     });
 

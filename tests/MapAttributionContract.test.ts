@@ -59,8 +59,7 @@ describe('map provider attribution contract', () => {
         // ONLY as a toggle. Hiding vocabulary is blessed solely inside the
         // `:not(.is-open)` collapsed rule, and the blessing is conditional
         // on the expanded state actually existing and being reachable.
-        const isCollapsedCompactRule = (block: string) =>
-            block.includes('.thalassa-attribution-compact:not(.is-open)');
+        const isCollapsedCompactRule = (block: string) => block.includes('.thalassa-attribution-compact:not(.is-open)');
         const attributionBlocks = css.split('}').filter((block) => block.includes('.leaflet-control-attribution'));
         for (const block of attributionBlocks) {
             if (isCollapsedCompactRule(block)) continue;

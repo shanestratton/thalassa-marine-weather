@@ -87,7 +87,13 @@ describe('bounds: exempt from LRU, capped on its own terms', () => {
     it('survives cache pressure that evicts punter-tier grids', () => {
         cache.seed(entry({}), true);
         for (let i = 0; i < 8; i++) {
-            cache.seed(entry({ res: 0.25 + i, bounds: { north: i + 1, south: i, west: i, east: i + 1 }, fetchedAt: Date.now() + i }));
+            cache.seed(
+                entry({
+                    res: 0.25 + i,
+                    bounds: { north: i + 1, south: i, west: i, east: i + 1 },
+                    fetchedAt: Date.now() + i,
+                }),
+            );
         }
         expect(cache.keys().some((k) => k.startsWith('world:'))).toBe(true);
         // ...and the LRU still did its job on the rest.
@@ -133,7 +139,10 @@ describe('link gating: speculation is for links that can afford it', () => {
         // The floor is speculation about the rest of the planet.
         const floorFn = src.slice(src.indexOf('async function prefetchWorldFloor'), src.indexOf('* Monotonic fence'));
         expect(floorFn).toContain('if (!isFastLink()) return;');
-        const fineFn = src.slice(src.indexOf('async function prefetchLocalFineGrid'), src.indexOf('async function prefetchSynopticGrid'));
+        const fineFn = src.slice(
+            src.indexOf('async function prefetchLocalFineGrid'),
+            src.indexOf('async function prefetchSynopticGrid'),
+        );
         expect(fineFn).not.toContain('isFastLink');
     });
 });

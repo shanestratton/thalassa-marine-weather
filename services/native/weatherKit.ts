@@ -53,7 +53,11 @@ const NATIVE_DEADLINE_MS = 3_000;
 export async function fetchWeatherKitNative(lat: number, lon: number): Promise<unknown | null> {
     if (!Capacitor.isNativePlatform()) return null;
     try {
-        const result = await withTimeout<unknown | null>(WeatherKitNative.fetch({ lat, lon }), null, NATIVE_DEADLINE_MS);
+        const result = await withTimeout<unknown | null>(
+            WeatherKitNative.fetch({ lat, lon }),
+            null,
+            NATIVE_DEADLINE_MS,
+        );
         if (result === null) {
             log.warn(`native fetch exceeded ${NATIVE_DEADLINE_MS}ms — falling back to Supabase`);
             return null;

@@ -487,7 +487,11 @@ interface SystemStatusButtonProps {
     alwaysShow?: boolean;
 }
 
-export const SystemStatusButton: React.FC<SystemStatusButtonProps> = ({ currentView, onNavigateAnchor, alwaysShow = false }) => {
+export const SystemStatusButton: React.FC<SystemStatusButtonProps> = ({
+    currentView,
+    onNavigateAnchor,
+    alwaysShow = false,
+}) => {
     const [showModal, setShowModal] = useState(false);
     // Stop-follow confirmation modal removed 2026-05-19 — the action
     // is reversible (just re-tap Follow on the voyage card) so a

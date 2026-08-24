@@ -31,9 +31,25 @@ import type { TraceLegVerdict } from '../services/routeTracer';
 import type { TraceVerification } from '../services/traceVerification';
 
 const clear = (): TraceLegVerdict =>
-    ({ grade: 'clear', issues: [], minDepthM: 10, minAt: null, needsTide: false, nudge: null, nudgeTo: null }) as TraceLegVerdict;
+    ({
+        grade: 'clear',
+        issues: [],
+        minDepthM: 10,
+        minAt: null,
+        needsTide: false,
+        nudge: null,
+        nudgeTo: null,
+    }) as TraceLegVerdict;
 const danger = (): TraceLegVerdict =>
-    ({ grade: 'danger', issues: [], minDepthM: 0.5, minAt: null, needsTide: false, nudge: null, nudgeTo: null }) as TraceLegVerdict;
+    ({
+        grade: 'danger',
+        issues: [],
+        minDepthM: 0.5,
+        minAt: null,
+        needsTide: false,
+        nudge: null,
+        nudgeTo: null,
+    }) as TraceLegVerdict;
 
 const POINTS = [
     { lat: -27.2, lon: 153.1 },

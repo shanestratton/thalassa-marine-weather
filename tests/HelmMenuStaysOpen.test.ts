@@ -29,7 +29,10 @@ function closeSites(): string[] {
 describe('the helm menu dismissal contract', () => {
     it('closes on tap ONLY for an item that asks to dismiss', () => {
         const tap = src
-            .slice(src.indexOf('const handleItemTap'), src.indexOf('useEffect(() => {', src.indexOf('const handleItemTap')))
+            .slice(
+                src.indexOf('const handleItemTap'),
+                src.indexOf('useEffect(() => {', src.indexOf('const handleItemTap')),
+            )
             .replace(/\/\/[^\n]*/g, '');
         expect(tap).toContain('toggleLayer(item.layerKey)');
         // Every close in this handler must be behind the opt-in flag.

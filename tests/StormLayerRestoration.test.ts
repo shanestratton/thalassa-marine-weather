@@ -114,7 +114,7 @@ describe('the cyclone details card exists and is mounted', () => {
         // called them. A definition with no call site is how this feature
         // died the first time.
         expect(cyclone).toContain('hud.appendChild(createStormBadgeStatic(selectedStorm))');
-        expect(cyclone).toContain("hud.id = HUD_ID");
+        expect(cyclone).toContain('hud.id = HUD_ID');
     });
 
     it('carries the fields a skipper reads off a storm card', () => {
@@ -175,9 +175,7 @@ describe('the cyclone details card exists and is mounted', () => {
         // with no meaningful alpha, which is the case the technique is for.
         // The PRECIP half still ramps, and must: Rainbow ships grayscale dbz
         // with no meaningful alpha, which is the case the technique is for.
-        expect(readFileSync('components/map/useSquallMap.ts', 'utf8')).toContain(
-            "'raster-color': SQUALL_COLOR_RAMP",
-        );
+        expect(readFileSync('components/map/useSquallMap.ts', 'utf8')).toContain("'raster-color': SQUALL_COLOR_RAMP");
     });
 
     it('anchors the cloud above the imagery, and not to a layer that moves', () => {
@@ -233,7 +231,10 @@ describe('the precip half actually gets time to load', () => {
 
         // The timer must be INSIDE the direct-fetch branch, not above the Pi
         // attempt — that placement is the entire bug.
-        const load = src.slice(src.indexOf('async function loadSquallTiles'), src.indexOf('mountSquallLayer(map, supabaseUrl'));
+        const load = src.slice(
+            src.indexOf('async function loadSquallTiles'),
+            src.indexOf('mountSquallLayer(map, supabaseUrl'),
+        );
         // Match the CODE form, not the prose: the comment above it quotes the
         // old `setTimeout(() => controller.abort(), 3000)` to explain the bug.
         const armAt = load.indexOf('setTimeout(() => controller.abort(), DIRECT_BUDGET_MS)');

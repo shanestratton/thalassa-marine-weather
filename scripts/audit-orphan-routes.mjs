@@ -223,10 +223,7 @@ function walkRepo(dir, hits, routeSet) {
         //   navigateFromBinder('key')
         for (const route of routeSet) {
             const escaped = route.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-            const re = new RegExp(
-                `(?:${NAVIGATION_CALLEE_PATTERN})\\s*\\(\\s*['"]${escaped}['"]\\s*[,)]`,
-                'g',
-            );
+            const re = new RegExp(`(?:${NAVIGATION_CALLEE_PATTERN})\\s*\\(\\s*['"]${escaped}['"]\\s*[,)]`, 'g');
             const matches = src.matchAll(re);
             for (const m of matches) {
                 // Find line number from match index.

@@ -317,9 +317,9 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
      *  shown disabled with that reason. */
     const [followPromptChoices, setFollowPromptChoices] = React.useState<
         (ReturnType<typeof collapseReversedRoutes<VoyageSummary>>[number] & {
-        savedRouteId: string | null;
-        blockReason: string | null;
-    })[]
+            savedRouteId: string | null;
+            blockReason: string | null;
+        })[]
     >([]);
     const followSelectionGenerationRef = React.useRef(0);
     /** One-shot guard for the pre-open "is this voyage already linked?"
@@ -533,11 +533,9 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
             setRecheckingRouteId(savedRouteId);
             setRecheckProgress(null);
             try {
-                const [{ loadSavedTraces, adoptServerRoute, saveTrace }, { fetchSavedRoutePoints }] =
-                    await Promise.all([
-                        import('../services/routeTracer'),
-                        import('../services/savedRoutePoints'),
-                    ]);
+                const [{ loadSavedTraces, adoptServerRoute, saveTrace }, { fetchSavedRoutePoints }] = await Promise.all(
+                    [import('../services/routeTracer'), import('../services/savedRoutePoints')],
+                );
                 if (!isAuthIdentityScopeCurrent(actionScope)) return;
 
                 // The waypoints may only exist in the account — a second

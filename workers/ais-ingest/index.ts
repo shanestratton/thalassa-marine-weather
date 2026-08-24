@@ -29,9 +29,7 @@ import { fleetFeedCorsHeaders, getFleetFeedStats, handleFleetFeed, setFleetFeedC
 // ── Config ──
 const AISSTREAM_URL = 'wss://stream.aisstream.io/v0/stream';
 const API_KEY = process.env.AISSTREAM_KEY;
-const { boxes: BOUNDING_BOXES, source: BOUNDING_BOXES_SOURCE } = resolveBoundingBoxes(
-    process.env.BOUNDING_BOXES,
-);
+const { boxes: BOUNDING_BOXES, source: BOUNDING_BOXES_SOURCE } = resolveBoundingBoxes(process.env.BOUNDING_BOXES);
 // Say which box is actually in force, and whether it came from the dashboard
 // or from this repo. Without this line the only way to know an override is
 // winning is to read the Railway variables tab and trust it — which is how a
@@ -371,13 +369,7 @@ const healthServer = http.createServer((req, res) => {
             // staleness test would report 'degraded-upstream' forever for a
             // feed that is off ON PURPOSE. A permanent false alarm is one
             // nobody reads.
-            status: dbWedged
-                ? 'db-wedged'
-                : !AISSTREAM_ENABLED
-                  ? 'healthy'
-                  : isStale
-                    ? 'degraded-upstream'
-                    : 'healthy',
+            status: dbWedged ? 'db-wedged' : !AISSTREAM_ENABLED ? 'healthy' : isStale ? 'degraded-upstream' : 'healthy',
             aisstream: AISSTREAM_ENABLED ? 'enabled' : 'disabled',
             uptimeSeconds: uptimeS,
             lastMessageAgoMs: staleDuration,

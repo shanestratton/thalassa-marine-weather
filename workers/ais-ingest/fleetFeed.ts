@@ -179,7 +179,10 @@ function readBody(req: IncomingMessage): Promise<string | null> {
  * accepted request is quota'd per user. Set FLEET_FEED_ORIGINS (comma
  * separated) to narrow it anyway if a domain is ever worth pinning.
  */
-export function fleetFeedCorsHeaders(origin: string | undefined, allowList: string | undefined): Record<string, string> {
+export function fleetFeedCorsHeaders(
+    origin: string | undefined,
+    allowList: string | undefined,
+): Record<string, string> {
     const allowed = (allowList ?? '')
         .split(',')
         .map((o) => o.trim())

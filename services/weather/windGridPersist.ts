@@ -201,9 +201,7 @@ export function deserializeEntry(json: string): PersistableEntry | null {
 function selectForPersist(entries: readonly PersistableEntry[]): PersistableEntry[] {
     const byRes = [...entries].sort((a, b) => b.res - a.res);
     const coarsest = byRes[0];
-    const rest = entries
-        .filter((e) => e !== coarsest)
-        .sort((a, b) => b.fetchedAt - a.fetchedAt);
+    const rest = entries.filter((e) => e !== coarsest).sort((a, b) => b.fetchedAt - a.fetchedAt);
     return coarsest ? [coarsest, ...rest].slice(0, MAX_ENTRIES) : rest.slice(0, MAX_ENTRIES);
 }
 

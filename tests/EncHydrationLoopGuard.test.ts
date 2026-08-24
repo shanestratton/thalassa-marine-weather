@@ -64,13 +64,19 @@ describe('hydration fruitless-success latch', () => {
 
         // The walk builder must convert last-walk-success + still-missing
         // into an armed, escalating cooldown before the cooldown filter runs.
-        const walkGuard = src.slice(src.indexOf('for (const id of cellIds)'), src.indexOf('const walk = cellIds.filter'));
+        const walkGuard = src.slice(
+            src.indexOf('for (const id of cellIds)'),
+            src.indexOf('const walk = cellIds.filter'),
+        );
         expect(walkGuard).toContain('fruitlessWalkCooldownMs');
         expect(walkGuard).toContain('hydrationCooldownUntil.set(id');
         expect(walkGuard).toContain("crumb('enc:walk-loop'");
 
         // A good read-back retires the latch so a healthy cell never trips it.
-        const readBack = src.slice(src.indexOf('// A good read-back retires'), src.indexOf('loadedBlobs.set(cell.id, blob);'));
+        const readBack = src.slice(
+            src.indexOf('// A good read-back retires'),
+            src.indexOf('loadedBlobs.set(cell.id, blob);'),
+        );
         expect(readBack).toContain('lastWalkOkCells.delete(cell.id)');
         expect(readBack).toContain('fruitlessOkWalks.delete(cell.id)');
     });

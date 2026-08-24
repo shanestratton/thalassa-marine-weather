@@ -1314,7 +1314,9 @@ async function loadCellBlobsAndExtents(
                 // the next device log needs. Ordinary not-yet-hydrated cells
                 // stay quiet as before — a cold coast lists dozens.
                 if (lastWalkOkCells.has(cell.id)) {
-                    log.warn(`cell ${cell.id}: downloaded ok last walk, yet no readable blob at merge (read=${raw0.kind})`);
+                    log.warn(
+                        `cell ${cell.id}: downloaded ok last walk, yet no readable blob at merge (read=${raw0.kind})`,
+                    );
                 }
                 missingBlobs.push(cell.id);
                 continue;

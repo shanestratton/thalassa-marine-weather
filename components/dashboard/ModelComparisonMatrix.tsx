@@ -534,7 +534,7 @@ export const ModelComparisonMatrix: React.FC<Props> = React.memo(
                                 {isLoading && (
                                     <span className="w-3 h-3 rounded-full border-2 border-sky-400 border-t-transparent animate-spin" />
                                 )}
-                                                            </h2>
+                            </h2>
                             <p className="text-[11px] text-gray-400 mt-0.5">
                                 72-hour outlook ·{' '}
                                 {spec.block === 'marine' ? 'wave models side-by-side' : 'global models side-by-side'}

@@ -61,7 +61,9 @@ export function parseBoundingBoxes(raw: string | undefined): number[][][] {
                 (box) =>
                     Array.isArray(box) &&
                     box.length === 2 &&
-                    box.every((corner) => Array.isArray(corner) && corner.length === 2 && corner.every(Number.isFinite)),
+                    box.every(
+                        (corner) => Array.isArray(corner) && corner.length === 2 && corner.every(Number.isFinite),
+                    ),
             );
         if (!ok) {
             console.error(

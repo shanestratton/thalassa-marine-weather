@@ -143,6 +143,7 @@ function releasePreviewDocumentRoutes() {
                 if (pathname === '/terms') destination = '/terms.html';
                 else if (pathname === '/voyage-log-api') destination = '/voyage-log-api.html';
                 else if (pathname === '/logs' || pathname.startsWith('/logs/')) destination = '/logs.html';
+                else if (pathname === '/beta') destination = '/beta.html';
                 else if (pathname === '/plan' || pathname.startsWith('/plan/')) destination = '/index.html';
                 else if (pathname !== '/' && !pathname.split('/').pop()?.includes('.')) destination = '/index.html';
 
@@ -417,9 +418,9 @@ export default defineConfig(({ mode }) => {
             cssMinify: true,
             chunkSizeWarningLimit: 750,
             rollupOptions: {
-                // Two entry points: the main Thalassa SPA (which also serves
-                // <handle>.thalassawx.app/plan) and the standalone public
-                // Voyage Log renderer (logs.html → /logs/<handle>).
+                // Standalone public surfaces stay independent from the main
+                // app's legal/auth/provider boot path: Voyage Log renders at
+                // /logs/<handle>, and the Founding Skippers form at /beta.
                 //
                 // plan.html carried the shore-crew float plan and is gone with
                 // it — a float plan on a public URL announces an unattended
@@ -428,6 +429,7 @@ export default defineConfig(({ mode }) => {
                 input: {
                     main: path.resolve(__dirname, 'index.html'),
                     logs: path.resolve(__dirname, 'logs.html'),
+                    beta: path.resolve(__dirname, 'beta.html'),
                 },
                 onwarn(warning, warn) {
                     // Suppress "is dynamically imported by X but also statically imported by Y"

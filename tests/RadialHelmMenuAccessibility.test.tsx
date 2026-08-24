@@ -188,7 +188,6 @@ describe('RadialHelmMenu accessibility', () => {
         expect(screen.getByRole('menu', { name: 'Sea layers' })).toBeInTheDocument();
     });
 
-
     it('names a routes-and-tracks-only category honestly', async () => {
         render(
             <RadialHelmMenu

@@ -131,7 +131,10 @@ describe('storm switcher', () => {
         expect(bar.textContent).toContain('Moke');
         // The card behind this bar toggles expand on click.
         const src = readFileSync('components/map/useCycloneLayer.ts', 'utf8');
-        const fn = src.slice(src.indexOf('export function createStormSwitcher'), src.indexOf("bar.appendChild(arrow('‹'"));
+        const fn = src.slice(
+            src.indexOf('export function createStormSwitcher'),
+            src.indexOf("bar.appendChild(arrow('‹'"),
+        );
         expect(fn).toContain('e.stopPropagation();');
         // Helm control on a moving boat.
         expect(fn).toContain('min-width:44px;min-height:36px');

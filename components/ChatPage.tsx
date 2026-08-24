@@ -69,14 +69,7 @@ import { CREW_RANKS as _CREW_RANKS } from './chat/chatUtils';
 import { authScopedStorageKey, getAuthIdentityScope, isAuthIdentityScopeCurrent } from '../services/authIdentityScope';
 
 // --- TYPES ---
-type ChatView =
-    | 'channels'
-    | 'messages'
-    | 'dm_inbox'
-    | 'dm_thread'
-    | 'profile'
-    | 'find_crew'
-    | 'admin_panel';
+type ChatView = 'channels' | 'messages' | 'dm_inbox' | 'dm_thread' | 'profile' | 'find_crew' | 'admin_panel';
 
 // --- CSS KEYFRAMES (injected once) ---
 const STYLE_ID = 'crew-talk-animations';

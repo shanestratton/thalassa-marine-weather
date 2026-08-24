@@ -125,7 +125,9 @@ export function useAnchorRadarTargets(anchor: AnchorPoint | null, enabled: boole
         const recompute = () => {
             const at = anchorRef.current;
             if (cancelled || !at) return;
-            setDots(mergeAnchorRadarTargets(at, AisStore.getTargets(), internetRef.current, Date.now(), ownVesselMmsi()));
+            setDots(
+                mergeAnchorRadarTargets(at, AisStore.getTargets(), internetRef.current, Date.now(), ownVesselMmsi()),
+            );
         };
 
         const fetchInternet = async () => {

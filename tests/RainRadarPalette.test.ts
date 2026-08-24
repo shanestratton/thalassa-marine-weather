@@ -37,10 +37,7 @@ describe('one palette, past and future', () => {
     it('every surface builds its tiles through the one authority', () => {
         // Obs map, Glass hero radar and the chart page must not hand-roll a
         // URL with their own scheme digit.
-        for (const file of [
-            'components/map/useWeatherLayers.ts',
-            'components/dashboard/hero/radarGlassEngine.ts',
-        ]) {
+        for (const file of ['components/map/useWeatherLayers.ts', 'components/dashboard/hero/radarGlassEngine.ts']) {
             const source = read(file);
             expect(source).toContain('buildRainViewerTileUrl');
             // No literal RainViewer tile path with an inline scheme.

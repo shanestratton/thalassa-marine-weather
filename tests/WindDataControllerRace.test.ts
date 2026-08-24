@@ -551,7 +551,10 @@ describe('WindDataController request generation', () => {
         await vi.waitFor(() =>
             expect(
                 mocks.fetchModelWindGrid.mock.calls.some(
-                    (c: unknown[]) => (c[1] as { north: number; south: number }).north - (c[1] as { north: number; south: number }).south >= 49,
+                    (c: unknown[]) =>
+                        (c[1] as { north: number; south: number }).north -
+                            (c[1] as { north: number; south: number }).south >=
+                        49,
                 ),
             ).toBe(true),
         );
@@ -579,7 +582,10 @@ describe('WindDataController request generation', () => {
         await vi.waitFor(() =>
             expect(
                 mocks.fetchModelWindGrid.mock.calls.some(
-                    (c: unknown[]) => (c[1] as { north: number; south: number }).north - (c[1] as { north: number; south: number }).south >= 49,
+                    (c: unknown[]) =>
+                        (c[1] as { north: number; south: number }).north -
+                            (c[1] as { north: number; south: number }).south >=
+                        49,
                 ),
             ).toBe(true),
         );

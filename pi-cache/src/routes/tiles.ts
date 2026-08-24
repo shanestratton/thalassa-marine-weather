@@ -185,7 +185,7 @@ export function createTileRoutes(cache: Cache, _config: ProxyConfig): Router {
                 return;
             }
 
-// Palette 4 (Weather Channel) — the ONE colour language the app speaks
+            // Palette 4 (Weather Channel) — the ONE colour language the app speaks
             // for rain since 2026-08-21. The digit is part of the tile URL and
             // therefore part of the cache key, so a Pi baking a different scheme
             // than the app requests would both miss cache AND serve a different

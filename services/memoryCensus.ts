@@ -198,8 +198,16 @@ let timer: ReturnType<typeof setTimeout> | null = null;
 let plotting = false;
 const bootAt = Date.now();
 let glContextLost = false;
-const peaks = { encTextMB: 0, pinnedCells: 0, domNodes: 0, canvases: 0, glLive: 0, heapUsedMB: 0, tiles: 0, tileTextureMB: 0 };
-
+const peaks = {
+    encTextMB: 0,
+    pinnedCells: 0,
+    domNodes: 0,
+    canvases: 0,
+    glLive: 0,
+    heapUsedMB: 0,
+    tiles: 0,
+    tileTextureMB: 0,
+};
 
 /** Told by the tracer, so a census line says whether a leg was being drawn. */
 export function setCensusPlotting(active: boolean): void {
@@ -418,8 +426,7 @@ export function countMapTiles(): {
     top: string | null;
 } {
     const out = { live: 0, cached: 0, sources: 0, textureMB: 0, top: null as string | null };
-    const map = (censusMapRef?.deref() ??
-        (globalThis as unknown as Record<string, unknown>).__thalassaMap) as
+    const map = (censusMapRef?.deref() ?? (globalThis as unknown as Record<string, unknown>).__thalassaMap) as
         | { style?: Record<string, unknown> }
         | undefined;
     const style = map?.style;

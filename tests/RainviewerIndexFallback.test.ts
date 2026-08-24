@@ -111,7 +111,10 @@ describe('fetchRainviewerIndex', () => {
         pi.json.mockResolvedValue({ ...INDEX, radar: { past: [] } });
         vi.stubGlobal(
             'fetch',
-            vi.fn(async () => ({ ok: true, json: async () => ({ ...INDEX, radar: { past: [] } }) }) as unknown as Response),
+            vi.fn(
+                async () =>
+                    ({ ok: true, json: async () => ({ ...INDEX, radar: { past: [] } }) }) as unknown as Response,
+            ),
         );
 
         const { fetchRainviewerIndex } = await freshModule();
@@ -125,7 +128,10 @@ describe('fetchRainviewerIndex', () => {
         // contract is ever broken, radar must still fall through rather than
         // vanish, which is the exact regression that shipped once already.
         pi.json.mockRejectedValue(new TypeError('Load failed'));
-        vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => INDEX }) as unknown as Response));
+        vi.stubGlobal(
+            'fetch',
+            vi.fn(async () => ({ ok: true, json: async () => INDEX }) as unknown as Response),
+        );
 
         const { fetchRainviewerIndex } = await freshModule();
         expect(await fetchRainviewerIndex()).toBeNull();

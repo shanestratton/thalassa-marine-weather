@@ -87,14 +87,20 @@ describe('keyboard-safe bottom sheets', () => {
     it('Drop a Pin uses it; Share my location deliberately does not', () => {
         const sheets = read('components/chat/ChatAttachmentSheets.tsx');
 
-        const poi = sheets.slice(sheets.indexOf('export const PoiPickerSheet'), sheets.indexOf('PoiPickerSheet.displayName'));
+        const poi = sheets.slice(
+            sheets.indexOf('export const PoiPickerSheet'),
+            sheets.indexOf('PoiPickerSheet.displayName'),
+        );
         expect(poi).toContain('thalassa-keyboard-safe-sheet');
         // The hard-coded cap must be gone — the utility owns max-height now,
         // and a leftover Tailwind max-h would win the cascade by specificity
         // order and reinstate the bug.
         expect(poi).not.toMatch(/max-h-\[\d+vh\]/);
 
-        const pin = sheets.slice(sheets.indexOf('export const PinDropSheet'), sheets.indexOf('PinDropSheet.displayName'));
+        const pin = sheets.slice(
+            sheets.indexOf('export const PinDropSheet'),
+            sheets.indexOf('PinDropSheet.displayName'),
+        );
         expect(pin).not.toContain('overflow-y-auto');
     });
 
@@ -107,9 +113,9 @@ describe('keyboard-safe bottom sheets', () => {
             for (const line of src.split('\n')) {
                 if (!/overflow-y-auto/.test(line)) continue;
                 if (!/max-h-\[\d+vh\]/.test(line)) continue;
-                expect.soft(line, `${file}: internally-scrolling vh-capped sheet without the keyboard utility`).toContain(
-                    'thalassa-keyboard-safe-sheet',
-                );
+                expect
+                    .soft(line, `${file}: internally-scrolling vh-capped sheet without the keyboard utility`)
+                    .toContain('thalassa-keyboard-safe-sheet');
             }
         }
     });

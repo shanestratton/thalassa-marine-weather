@@ -1571,11 +1571,7 @@ export function refreshEncVectorData(map: mapboxgl.Map, data: EncMergedVectorDat
         // worker re-tilings ON TOP of fresh @2x tile decode — the exact
         // coincident spike that jetsammed the WKWebView over reef water
         // (Lady Musgrave kill, 2026-08-21).
-        if (
-            typeof map.areTilesLoaded === 'function' &&
-            !map.areTilesLoaded() &&
-            Date.now() - deferStart < 3000
-        ) {
+        if (typeof map.areTilesLoaded === 'function' && !map.areTilesLoaded() && Date.now() - deferStart < 3000) {
             schedule(step);
             return;
         }

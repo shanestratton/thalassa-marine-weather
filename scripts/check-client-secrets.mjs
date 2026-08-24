@@ -47,7 +47,9 @@ const violations = [];
 const CLIENT_SUPABASE_KEY_NAMES = new Set(['VITE_SUPABASE_ANON_KEY', 'VITE_SUPABASE_KEY']);
 
 function isPublishableSupabaseClientKey(value) {
-    const key = String(value ?? '').trim().replace(/^(['"])(.*)\1$/, '$2');
+    const key = String(value ?? '')
+        .trim()
+        .replace(/^(['"])(.*)\1$/, '$2');
     if (/^sb_publishable_[A-Za-z0-9_-]{20,}$/.test(key)) return true;
     const parts = key.split('.');
     if (parts.length !== 3) return false;

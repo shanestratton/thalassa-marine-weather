@@ -59,7 +59,10 @@ describe('the lightning layer uses it', () => {
 
 describe('the bolt is drawn, not typed', () => {
     it('renders a registered icon rather than a text glyph', () => {
-        const bolt = src.slice(src.indexOf('id: LIGHTNING_LAYER_BOLT'), src.indexOf('beforeId,', src.indexOf('id: LIGHTNING_LAYER_BOLT')));
+        const bolt = src.slice(
+            src.indexOf('id: LIGHTNING_LAYER_BOLT'),
+            src.indexOf('beforeId,', src.indexOf('id: LIGHTNING_LAYER_BOLT')),
+        );
         expect(bolt).toContain("'icon-image': BOLT_ICON");
         expect(bolt).toContain("'icon-opacity': ['get', 'alpha']");
         // The glyph path must be gone entirely — a stray text-field would
@@ -118,9 +121,13 @@ describe('the crater', () => {
     it('sits under the bolt and over the halo', () => {
         // Later addLayer with the same beforeId lands on top, so source order
         // IS paint order here: halo → crater → rim → core → bolt.
-        const order = ['LIGHTNING_LAYER_HALO', 'LIGHTNING_LAYER_CRATER', 'LIGHTNING_LAYER_RIM', 'LIGHTNING_LAYER_HIT', 'LIGHTNING_LAYER_BOLT'].map(
-            (id) => src.indexOf(`id: ${id},`),
-        );
+        const order = [
+            'LIGHTNING_LAYER_HALO',
+            'LIGHTNING_LAYER_CRATER',
+            'LIGHTNING_LAYER_RIM',
+            'LIGHTNING_LAYER_HIT',
+            'LIGHTNING_LAYER_BOLT',
+        ].map((id) => src.indexOf(`id: ${id},`));
         expect(order.every((n) => n > 0)).toBe(true);
         expect([...order].sort((a, b) => a - b)).toEqual(order);
     });
@@ -183,7 +190,10 @@ describe('the lightning layer opens on a readable frame', () => {
     });
 
     it('leaves the centre alone', () => {
-        const open = src.slice(src.indexOf('if (map.getZoom() > LIGHTNING_OPEN_ZOOM)'), src.indexOf('isSetUp.current = true;'));
+        const open = src.slice(
+            src.indexOf('if (map.getZoom() > LIGHTNING_OPEN_ZOOM)'),
+            src.indexOf('isSetUp.current = true;'),
+        );
         expect(open).not.toContain('center:');
     });
 });

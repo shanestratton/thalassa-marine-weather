@@ -54,7 +54,6 @@ import { vesselDraftMetres, vesselDraftIsAssumed } from '../../services/units';
 import { getVersion as getEncRegistryVersion, getRegistryFingerprint } from '../../services/enc/EncCellMetadata';
 import type { TraceCheckStatus } from '../../services/traceVerification';
 
-
 /**
  * Volatile-failure retry ledger — MODULE scope on purpose (a ref dies with
  * the hook instance; the session-guard lesson). Keyed by leg key. Attempts

@@ -240,10 +240,12 @@ async function fetchBOMAWS(stationId: string): Promise<NDBCRawData | null> {
             data = response.data;
         }
 
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- BOM's
-        // observation records carry dozens of loosely-typed fields; this was
-        // implicitly `any` before the transport change and retyping it is a
-        // separate job.
+        // BOM's observation records carry dozens of loosely-typed fields;
+        // this was implicitly `any` before the transport change and retyping
+        // it is a separate job. NOTE the disable must be the LINE DIRECTLY
+        // above the code — the original had three lines of prose between
+        // them, so the suppression landed on a comment and the error stood.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const parsed = data as { observations?: { data?: Array<Record<string, any>> } };
 
         // BOM JSON structure: { observations: { data: [...] } }

@@ -95,8 +95,7 @@ function bboxNearPolyline(
     // A segment intersects the padded bbox iff either endpoint is inside, or
     // the segment crosses it. Endpoint-inside covers the overwhelmingly common
     // case; the crossing test catches a long leg that vaults a small cell.
-    const inside = (p: { lat: number; lon: number }): boolean =>
-        p.lon >= w && p.lon <= e && p.lat >= s && p.lat <= n;
+    const inside = (p: { lat: number; lon: number }): boolean => p.lon >= w && p.lon <= e && p.lat >= s && p.lat <= n;
     for (let i = 0; i + 1 < pins.length; i++) {
         const a = pins[i];
         const b = pins[i + 1];

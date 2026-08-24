@@ -37,9 +37,7 @@ test.describe('Settings & Preferences', () => {
         // instrument panel, which embeds these pages so a fullscreen touch
         // kiosk with no back button never has to navigate away. That host
         // only resolves on a private Tailscale network.
-        expect(deploymentCsp?.value).toContain(
-            "frame-ancestors 'self' https://pi5.tail65c605.ts.net",
-        );
+        expect(deploymentCsp?.value).toContain("frame-ancestors 'self' https://pi5.tail65c605.ts.net");
         expect(deploymentCsp?.value).not.toContain("frame-ancestors 'none'");
     });
 
