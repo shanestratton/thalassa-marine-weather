@@ -78,7 +78,12 @@ const settle = async (turns = 40) => {
         await Promise.resolve();
         await vi.advanceTimersByTimeAsync(1);
     }
-    for (let i = 0; i < 200; i++) {
+    // 1000, was 200: the 200-yield tail survived three plain full-suite runs
+    // and then failed under COVERAGE (2026-08-24) — V8 instrumentation
+    // stretches the real-promise chain further than plain load does. Zero
+    // fake-time cost either way; the only spend is wall-clock microseconds,
+    // and only when the machine is actually slow.
+    for (let i = 0; i < 1000; i++) {
         await vi.advanceTimersByTimeAsync(0);
     }
 };

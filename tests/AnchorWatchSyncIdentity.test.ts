@@ -229,6 +229,17 @@ describe('AnchorWatchSyncService identity isolation', () => {
         expect(await pending).toBeNull();
         expect(oldChannel.track).not.toHaveBeenCalled();
         expect(AnchorWatchSyncService.getState().sessionCode).toBeNull();
+        // FLUSH SCHEDULER TICKS BEFORE COUNTING (Node-24 lesson, 2026-08-24).
+        // vi.getTimerCount() is a census of EVERY pending fake timer, and under
+        // Node 24 React's scheduler work arrives as setTimeout(0) — so render
+        // work the identity flip legitimately queues shows up in the count, while
+        // under Node 26 the same work rides a channel the census cannot see. CI
+        // runs 24; dev machines run 26; the same tree passed one and failed the
+        // other with nothing wrong. Advancing the clock by ZERO fires only
+        // due-now ticks: scheduler work drains, while a genuinely leaked app
+        // timer (they are all >=500 ms here) survives to fail the assertion —
+        // the guard is unchanged, only the environment noise is gone.
+        vi.advanceTimersByTime(0);
         expect(vi.getTimerCount()).toBe(0);
         expect(localStorage.getItem(authScopedStorageKey(SESSION_KEY, accountAScope))).not.toBeNull();
         expect(localStorage.getItem(authScopedStorageKey(SESSION_KEY, accountBScope))).toBeNull();
