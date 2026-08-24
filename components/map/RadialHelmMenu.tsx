@@ -12,7 +12,7 @@
 
 import React, { useState, useCallback, useEffect, useId, useRef, useMemo } from 'react';
 import { motion, AnimatePresence, type Variants } from 'framer-motion';
-import { type WeatherLayer, SEA_STATE_LAYERS, ATMOSPHERE_LAYERS } from './mapConstants';
+import { type WeatherLayer, SEA_STATE_LAYERS } from './mapConstants';
 import { triggerHaptic } from '../../utils/system';
 import { isCmemsLayerAvailable, isCmemsProductLayer } from './cmemsFeatureAvailability';
 
@@ -361,6 +361,14 @@ function buildCategories(
             ).filter((it) => !it.layerKey || !isCmemsProductLayer(it.layerKey) || isCmemsLayerAvailable(it.layerKey)),
         },
         {
+            // EVERY SKY LAYER IS AN INDEPENDENT TOGGLE (Shane 2026-08-24).
+            // These were groupExclusive against the atmosphere group, so reading
+            // wind and rain together — the single most obvious thing to want
+            // in a squally forecast — was impossible: the second tap switched
+            // the first off. Pressure had already been let out of the group on
+            // 2026-08-02 for the same reason. The stack is bounded by
+            // MAX_LAYERS in useWeatherLayers, not by mutual exclusion, and the
+            // camera takes MULTI_LAYER_FRAME_ZOOM once more than one is up.
             id: 'atmosphere',
             label: 'Sky', // Short — "Atmosphere" overflowed the 60px bubble
             icon: <AtmosphereCategoryIcon />,
@@ -372,8 +380,6 @@ function buildCategories(
                     label: 'Wind',
                     icon: <WindIcon />,
                     layerKey: 'wind',
-                    groupExclusive: true,
-                    group: ATMOSPHERE_LAYERS,
                 },
                 // The old "Flow" entry (layerKey: 'velocity') was a duplicate —
                 // both it and 'wind' pointed at the same particle engine +
@@ -386,14 +392,11 @@ function buildCategories(
                     label: 'Rain',
                     icon: <RainIcon />,
                     layerKey: 'rain',
-                    groupExclusive: true,
-                    group: ATMOSPHERE_LAYERS,
                 },
                 {
-                    // Plain toggle, NOT groupExclusive: isobars are a line
-                    // overlay that stacks on wind/rain (pressure is no longer
-                    // in ATMOSPHERE_LAYERS either — both halves matter, or
-                    // selecting wind would still switch the isobars off).
+                    // Pressure led the way out of the exclusion group on
+                    // 2026-08-02 — isobars are a line overlay meant to stack.
+                    // The rest of the section followed on 2026-08-24.
                     id: 'pressure',
                     label: 'Pressure',
                     icon: <PressureIcon />,
@@ -404,16 +407,12 @@ function buildCategories(
                     label: 'Clouds',
                     icon: <CloudsIcon />,
                     layerKey: 'clouds',
-                    groupExclusive: true,
-                    group: ATMOSPHERE_LAYERS,
                 },
                 {
                     id: 'temperature',
                     label: 'Temp',
                     icon: <TempIcon />,
                     layerKey: 'temperature',
-                    groupExclusive: true,
-                    group: ATMOSPHERE_LAYERS,
                 },
                 // Wind-gusts / Visibility / CAPE removed 2026-04-22 with
                 // the Xweather decommission — they were Xweather-raster-only

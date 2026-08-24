@@ -25,6 +25,7 @@ import {
     getActiveLayerFrameZoom,
     LAYER_MIN_ZOOM,
     tileSourceMaxZoom,
+    frameZoomForSelection,
     getTileUrl,
     getWindColor,
     isParkedLayer,
@@ -271,14 +272,33 @@ export function useWeatherLayers(
      * need our layer to show through").
      */
     planMode = false,
+    /**
+     * THE LOCATION BOX (Shane 2026-08-24: "always ensure that the centre of
+     * the map is the location set in the location box"). Distinct from
+     * `location` above, which is the GPS/pin store — this is the weather
+     * location the punter actually chose, and it is what a framing flight
+     * should return them to rather than wherever the chart last drifted.
+     * Optional: absent, framing keeps the current centre, which is the old
+     * behaviour.
+     */
+    frameCenter?: { lat: number; lon: number } | null,
 ) {
     const windState = useWindStore();
     const windForecastHours = useMemo(() => windForecastHoursForGrid(windState.grid), [windState.grid]);
 
     // Multi-layer support — users can toggle multiple layers simultaneously.
-    // Max 3 active layers for mobile performance.
-    // Persisted to localStorage so selection survives app restart.
-    const MAX_LAYERS = 4;
+    //
+    // FIVE, because the AIR section has exactly five entries (wind, rain,
+    // pressure, clouds, temperature) and they all became independently
+    // toggleable on 2026-08-24 at Shane's request. A cap of 4 would have made
+    // "turn them all on" quietly impossible — the fifth tap silently evicts one
+    // of the others through EVICTION_ORDER below, which reads as the toggle
+    // being broken rather than as a limit.
+    //
+    // It stays a cap: the eviction order still stops an unbounded stack once
+    // sea-state layers join in, and it evicts static rasters before the
+    // interactive engines.
+    const MAX_LAYERS = 5;
     const STORAGE_KEY = 'thalassa_active_layers';
     /**
      * THE PUNTER'S SELECTION — persisted, and the only thing the toggles write.
@@ -1568,9 +1588,14 @@ export function useWeatherLayers(
     // wind on a synoptic view with another layer already up did nothing, and
     // pressing it from a harbour left the camera where it was. Both read as
     // wind being unpredictable. This fires on every off→on transition of the
-    // wind layer, keeps the current centre (never yank the skipper to a
-    // different place, only to the right scale), and targets
-    // LAYER_FRAME_ZOOM.wind so the number lives in one place.
+    // wind layer and resolves its zoom through frameZoomForSelection so a
+    // stack gets the stack frame.
+    //
+    // It used to hold the current centre deliberately ("never yank the skipper
+    // to a different place, only to the right scale"). That reversed on
+    // 2026-08-24: it now returns to the LOCATION BOX, because holding the
+    // centre meant framing a layer zoomed you in on wherever you had panned to
+    // rather than on the water you actually selected.
     //
     // Not on mount: the boot path frames z9 via MapHub's jumpTo, and a second
     // flyTo on top of it would fight the landing. The ref starts as the
@@ -1582,6 +1607,11 @@ export function useWeatherLayers(
     // punter-centred fine grid covers the viewport — so framing local is what
     // makes the first paint come from memory instead of a wide fetch.
     const prevWindOnRef = useRef<boolean | null>(null);
+    // The effect below depends only on the layer transition, so it must read
+    // the centre through a ref — a captured one goes stale the moment the
+    // location box moves without the layer set changing.
+    const frameCenterRef = useRef<{ lat: number; lon: number } | null>(null);
+    frameCenterRef.current = frameCenter ?? null;
     useEffect(() => {
         const map = mapRef.current;
         if (!map || !mapReady) return;
@@ -1590,10 +1620,23 @@ export function useWeatherLayers(
         prevWindOnRef.current = windOn;
         if (prev === null || prev === windOn || !windOn) return;
         if (planMode || embedded) return;
-        const target = LAYER_FRAME_ZOOM.wind ?? 9;
-        if (Math.abs(map.getZoom() - target) < 0.05) return;
+        // Shared with every other framing path: wind alone gets wind's frame,
+        // wind in a stack gets the stack's. Hard-coding wind's own number here
+        // would put the camera somewhere different depending on WHICH toggle
+        // you tapped to build the same two-layer view.
+        const target = frameZoomForSelection(activeLayers, 'wind') ?? LAYER_FRAME_ZOOM.wind ?? 7;
+        const box = frameCenterRef.current;
         const centre = map.getCenter();
-        map.flyTo({ center: [centre.lng, centre.lat], zoom: target, duration: 700 });
+        const centreMoved =
+            !!box && (Math.abs(centre.lat - box.lat) > 1e-6 || Math.abs(centre.lng - box.lon) > 1e-6);
+        // Nothing to do only when BOTH already match — the zoom test alone
+        // used to skip the flight while the camera sat over the wrong water.
+        if (Math.abs(map.getZoom() - target) < 0.05 && !centreMoved) return;
+        map.flyTo({
+            center: box ? [box.lon, box.lat] : [centre.lng, centre.lat],
+            zoom: target,
+            duration: 700,
+        });
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [activeKey, mapReady, planMode, embedded]);
 

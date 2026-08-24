@@ -1713,7 +1713,15 @@ export function useCycloneLayer(
                 // because the sid has not changed. In place, no camera move.
                 const sel = selectedStormRef.current;
                 const freshSel = sel ? cyclones.find((c) => c.sid === sel.sid) : undefined;
-                if (freshSel) refreshStormCardInPlace(map.getContainer(), freshSel);
+                if (freshSel) {
+                    refreshStormCardInPlace(map.getContainer(), freshSel);
+                    // The card's badge and its stepper are separate nodes, and
+                    // only this pass can add a stepper that was impossible at
+                    // mount time because the storm list had not arrived yet.
+                    ensureStormSwitcher(map.getContainer(), cyclonesRef.current, freshSel, (next) =>
+                        onSelectStormRef.current?.(next),
+                    );
+                }
 
                 // ── Satellite IR overlay — all 4 NOAA/SSEC geostationary satellites ──
                 // Uses RealEarth SSEC/CIMSS XYZ tile API (free, CORS-enabled, no API key)
@@ -2103,6 +2111,53 @@ function buildBadgeData(cyclone: ActiveCyclone, onClose?: () => void): StormBadg
  * Alphabetical is arbitrary but STABLE, which is the property that matters
  * when the control is a pair of arrows.
  */
+/** Which storms this bar was built for, and which one it thinks is current. */
+function stormSwitcherSignature(storms: readonly ActiveCyclone[], current: ActiveCyclone): string {
+    return `${storms.map((c) => c.sid).join(',')}|${current.sid}`;
+}
+
+/**
+ * Put the stepper back when it could not exist at mount time.
+ *
+ * THE FIRST-RUN BUG (Shane 2026-08-24: "the switch between storms button is
+ * not showing on the first run, sometimes"). createStormSwitcher returns null
+ * below 2 storms, and the card is built the moment a storm is SELECTED —
+ * which on a cold open beats the cyclone list finishing its load. Whether you
+ * got a stepper came down to which of those won the race, hence "sometimes":
+ * warm cache, list already there, bar appears; cold fetch, one storm known,
+ * no bar, and nothing afterwards ever reconsidered.
+ *
+ * Nothing did because the two halves are separate DOM nodes:
+ * refreshStormCardInPlace only rebuilds the BADGE wrapper (hud's first child)
+ * and returns early when the badge signature is unchanged, while the stepper
+ * is a sibling appended after it. A storm list arriving late moved neither.
+ *
+ * So this runs on every cyclone refresh and is idempotent: it rebuilds only
+ * when the storm set or the selection actually changed, and removes the bar
+ * again if the fleet drops back to a single storm.
+ */
+export function ensureStormSwitcher(
+    container: HTMLElement,
+    all: readonly ActiveCyclone[],
+    current: ActiveCyclone,
+    onPick: (storm: ActiveCyclone) => void,
+): void {
+    const hud = container.querySelector('#cyclone-hud-badges');
+    if (!hud) return;
+    const existing = hud.querySelector('[data-storm-switcher]') as HTMLElement | null;
+    const sorted = [...all].sort((a, b) => resolveStormName(a).localeCompare(resolveStormName(b)));
+    if (sorted.length < 2) {
+        // Down to one storm — a stepper with nowhere to step is a dead control.
+        existing?.remove();
+        return;
+    }
+    if (existing && existing.dataset.stormSwitcher === stormSwitcherSignature(sorted, current)) return;
+    const fresh = createStormSwitcher(all, current, onPick);
+    if (!fresh) return;
+    if (existing) existing.replaceWith(fresh);
+    else hud.appendChild(fresh);
+}
+
 export function createStormSwitcher(
     all: readonly ActiveCyclone[],
     current: ActiveCyclone,
@@ -2116,6 +2171,7 @@ export function createStormSwitcher(
     );
 
     const bar = document.createElement('div');
+    bar.dataset.stormSwitcher = stormSwitcherSignature(storms, current);
     bar.style.cssText = `
         display:flex;align-items:center;justify-content:space-between;gap:6px;
         background:rgba(10,15,30,0.92);backdrop-filter:blur(20px);

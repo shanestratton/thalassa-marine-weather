@@ -44,6 +44,7 @@ import { GpsService } from '../../services/GpsService';
 import {
     type MapHubProps,
     type WeatherLayer,
+    frameZoomForSelection,
     getActiveLayerFrameZoom,
     LAYER_FRAME_ZOOM,
     shouldShowPlanChartKey,
@@ -2950,8 +2951,21 @@ export const MapHub: React.FC<MapHubProps> = ({
     // Route Nudge removed — see import note above.
 
     // ── Weather Layers ──
-    const weather = useWeatherLayers(mapRef, mapReady, embedded, location, planningSurface);
+    const weather = useWeatherLayers(
+        mapRef,
+        mapReady,
+        embedded,
+        location,
+        planningSurface,
+        weatherCoords ? { lat: weatherCoords.lat, lon: weatherCoords.lon } : null,
+    );
     activeWeatherLayersRef.current = weather.userLayers;
+    // Read by the layer-framing effect below, which deliberately depends only
+    // on the layer set — so it must not close over a location from whenever it
+    // last re-ran. A ref keeps the centre current without making a location
+    // change re-trigger a framing snap.
+    const weatherCoordsRef = useRef<{ lat: number; lon: number } | null>(null);
+    weatherCoordsRef.current = weatherCoords ? { lat: weatherCoords.lat, lon: weatherCoords.lon } : null;
     weatherRef.current = weather;
 
     // ── Clear Follow Route when passage mode activates ──
@@ -3165,30 +3179,34 @@ export const MapHub: React.FC<MapHubProps> = ({
         // decision, not a continuation, and selectInGroup makes that one tap.
         const newlyOn = [...on].find((k) => !prev.has(k)) as WeatherLayer | undefined;
         if (!newlyOn) return;
-        // EXCEPT when a pressure overlay pair is forming. Since pressure
-        // left the atmosphere exclusion group (2026-08-02), isobars STACK on
-        // ANY host layer — wind, rain, clouds, temperature — and
-        // useWeatherLayers renders the clean contour overlay whenever
-        // pressure shares the map. Adding isobars on top of a layer the
-        // skipper is already reading enriches that view; yanking the camera
-        // to pressure's z2 synoptic frame would throw it away. The host test
-        // reads the FULL selection (userLayers), not `on` — `on` is filtered
-        // to framed layers and clouds/temperature aren't framed, so a
-        // clouds-hosted overlay looked like pressure-solo through it
-        // (audit 2026-08-02).
-        const pairForming =
-            (newlyOn === 'pressure' && weather.userLayers.size > 1) ||
-            ((newlyOn === 'wind' || newlyOn === 'velocity') && on.has('pressure'));
-        if (pairForming) return;
-        const zoom = LAYER_FRAME_ZOOM[newlyOn];
+        // The pressure-pair exception is gone (2026-08-24). It existed because
+        // a forming stack had no frame of its own, so the camera fell to
+        // whichever layer was tapped last — and pressure's z2 synoptic frame
+        // would throw away the harbour view a skipper was reading. Now any
+        // stack of two or more resolves to ONE shared frame
+        // (MULTI_LAYER_FRAME_ZOOM), so there is no violent answer left to
+        // guard against: adding isobars to wind holds the same z7 the wind
+        // frame already put you in.
+        const zoom = frameZoomForSelection(weather.userLayers, newlyOn);
         if (zoom === undefined) return;
         const m = mapRef.current;
         if (!m) return;
         try {
             // A SNAP, not a floor. Switching one of these on is a deliberate
-            // change of task, so it gets the layer's known frame every time
-            // rather than one that depends on where you happened to be.
-            m.easeTo({ zoom, duration: 600 });
+            // change of task, so it gets the known frame every time rather
+            // than one that depends on where you happened to be.
+            //
+            // CENTRE ON THE LOCATION BOX, not on wherever the map drifted to
+            // (Shane 2026-08-24: "always ensure that the centre of the map is
+            // the location set in the location box"). weatherCoords is the
+            // selected weather location — the same value the Glass page's
+            // location box writes and the boot centre already prefers — so
+            // framing a layer now returns you to the water you chose rather
+            // than zooming in on a pan you made ten minutes ago. Falls back to
+            // a zoom-only ease when no location is resolved yet, which is the
+            // old behaviour.
+            const centre = weatherCoordsRef.current;
+            m.easeTo(centre ? { center: [centre.lon, centre.lat], zoom, duration: 600 } : { zoom, duration: 600 });
         } catch {
             /* map mid-teardown */
         }

@@ -28,6 +28,7 @@ import { useEffect, useRef } from 'react';
 import mapboxgl from 'mapbox-gl';
 import { createLogger } from '../../utils/createLogger';
 import { cloudOverlayBeforeId, imageryTopIndex } from './imageryOrder';
+import { getTileUrl, tileSourceMaxZoom } from './mapConstants';
 import type { ActiveCyclone } from '../../services/weather/CycloneTrackingService';
 import { piCache } from '../../services/PiCacheService';
 import { SQUALL_COLOR_RAMP } from './isobarLayerSetup';
@@ -53,32 +54,41 @@ const SQUALL_HUD_ID = 'squall-map-hud';
  * days later and stayed that way for four months (Shane, 2026-08-21: "our
  * storm layer used to have a satellite cloud layer").
  *
- * NASA GIBS Himawari-9 Band 13 Clean IR is the right restoration: Himawari
- * is the satellite that actually looks at Australia, the tiles are free with
- * no key, CORS-enabled so no proxy is needed, and gibs.earthdata.nasa.gov is
- * already in the CSP. Verified serving 2026-08-21. (RainViewer's satellite
- * IR array is still empty, as it has been since April; Xweather is a
- * non-starter — its proxies are deleted and its credentials burned.)
+ * NASA GIBS Himawari-9 Band 13 Clean IR restored it on 2026-08-21, and was
+ * itself replaced on 2026-08-24 by the Sky section's world cloud layer
+ * (OpenWeatherMap clouds_new) at Shane's request. GIBS was a satellite
+ * IMAGERY product being asked to behave like an overlay, and it never quite
+ * did — see buildCloudTileUrl below for the measurements and for what the
+ * swap deleted. The current layer is the same one the punter can already
+ * turn on from the Sky menu, which is the real argument for it: one cloud
+ * field, one appearance, whichever page you are looking at.
  */
-const GIBS_MAX_ZOOM = 6;
-
-/** GIBS WMTS, with Mapbox substituting {z}/{x}/{y} at request time. */
-function buildGibsTileUrl(dateStr: string): string {
-    const base = 'https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/wmts.cgi';
-    return (
-        `${base}?Service=WMTS&Request=GetTile&Version=1.0.0` +
-        `&Layer=Himawari_AHI_Band13_Clean_Infrared` +
-        `&Style=default` +
-        `&TileMatrixSet=GoogleMapsCompatible_Level6` +
-        `&TileMatrix={z}&TileRow={y}&TileCol={x}` +
-        `&Format=image/png` +
-        `&Time=${dateStr}`
-    );
-}
-
-/** GIBS wants the imagery date as YYYY-MM-DD. */
-function todayDateStr(): string {
-    return new Date().toISOString().split('T')[0];
+/**
+ * REPLACED 2026-08-24: the storm view's cloud is now the SAME world cloud
+ * layer the Sky section serves (Shane: "remove the satellite overlay and
+ * replace with the world cloud layer that is found in the air layer").
+ *
+ * Beyond matching what the punter already recognises, it deletes a pile of
+ * machinery this file carried purely because the GIBS product fought us:
+ *
+ *   · GIBS Himawari Band 13 is an IMAGERY product, not an overlay. Measured
+ *     2026-08-23: RGBA but alpha 255 on 100% of sampled pixels — clear sky is
+ *     mid-grey, not transparent — so it could only be shown through a
+ *     raster-color luminance ramp that manufactured the alpha from
+ *     brightness. Three rounds of "the satellite still isn't showing" came
+ *     out of that.
+ *   · It needed a date parameter, so the URL went stale at UTC midnight.
+ *   · GoogleMapsCompatible_Level6 capped it at z6 while the precip layer runs
+ *     to z8, so the cloud stopped sharpening halfway up the range.
+ *
+ * OpenWeatherMap clouds_new is a true overlay. Measured 2026-08-24, z3 tile
+ * over the Coral Sea, 90 810 B PNG: colour type 6 (RGBA), 35% of sampled
+ * pixels at alpha 0 and NOT ONE at alpha 255. Clear sky is genuinely
+ * transparent, so it stacks with plain raster paint, no ramp, no date, and it
+ * reaches z9 (TILE_SOURCE_MAX_ZOOM.clouds) — past the precip layer's own z8.
+ */
+function buildCloudTileUrl(): string | undefined {
+    return getTileUrl('clouds');
 }
 
 /** LAN hop. Fast or not at all — falling through to the cloud beats waiting. */
@@ -492,10 +502,10 @@ function ensureSatelliteLayer(map: mapboxgl.Map, session: number, liveSession: (
         const imageryIdx = imageryTopIndex(layers);
         if (irIdx >= 0 && imageryIdx > irIdx) {
             map.moveLayer(IR_LAYER, cloudOverlayBeforeId(layers));
-            log.warn(`📡 GIBS IR was buried under imagery — lifted above layer ${imageryIdx}`);
+            log.warn(`☁️ Cloud layer was buried under imagery — lifted above layer ${imageryIdx}`);
         }
     } catch (err) {
-        log.warn('Squall IR ensure failed — continuing with precip only', err);
+        log.warn('Cloud layer ensure failed — continuing with precip only', err);
     }
 }
 
@@ -504,47 +514,31 @@ function mountSatelliteLayerNow(map: mapboxgl.Map): void {
         if (map.getLayer(IR_LAYER)) map.removeLayer(IR_LAYER);
         if (map.getSource(IR_SOURCE)) map.removeSource(IR_SOURCE);
     } catch (err) {
-        log.warn('Squall IR pre-mount cleanup error', err);
+        log.warn('Cloud layer pre-mount cleanup error', err);
+    }
+    const tiles = buildCloudTileUrl();
+    if (!tiles) {
+        // No OWM key in this build — the Sky section's cloud layer is equally
+        // dark, so this is a configuration state, not a fault. Precip still
+        // renders; say so once rather than mounting an empty source.
+        log.warn('Cloud layer unavailable — no OpenWeatherMap key in this build; precip only');
+        return;
     }
     try {
         map.addSource(IR_SOURCE, {
             type: 'raster',
-            tiles: [buildGibsTileUrl(todayDateStr())],
+            tiles: [tiles],
             tileSize: 256,
-            // GoogleMapsCompatible_Level6 is GIBS's ceiling for this product.
-            // The precip layer runs to z8; past z6 the cloud simply stops
-            // sharpening rather than 404-ing every tile.
-            maxzoom: GIBS_MAX_ZOOM,
+            // z9 — OWM's documented ceiling for its weather rasters, and past
+            // the precip layer's own z8, so cloud is never the thing that
+            // stops sharpening first. (GIBS capped this at z6.)
+            maxzoom: tileSourceMaxZoom('clouds'),
         });
-        // THE CLOUD IS OPAQUE — STACKING ALONE CAN NEVER SHOW IT.
-        //
-        // Third report of "the satellite imagery is still not showing"
-        // (Shane 2026-08-23). The first two rounds moved the layer's ANCHOR,
-        // which could not have worked, because the tile is not an overlay:
-        //
-        //   measured 2026-08-23, z3 tile over the Coral Sea, 76 080 B PNG:
-        //   colour type 6 (RGBA), and alpha == 255 on 100% of sampled
-        //   pixels. Clear sky is not transparent — it is mid-grey
-        //   (luminance clusters at 96-160 of 255; only the cold cloud tops
-        //   run above ~192).
-        //
-        // So below the base imagery it is hidden, and above it, it would
-        // grey out the entire world. There is no anchor that shows cloud and
-        // keeps the chart. The alpha has to come from the PIXELS.
-        //
-        // raster-color does exactly that, and this file already proves the
-        // technique works — mountSquallLayer ramps Rainbow's grayscale dbz
-        // the same way. Map brightness → colour+alpha: warm background
-        // (dark/mid) to fully transparent, cold tops (bright) to white.
-        // Thresholds come from the measured histogram above, not taste.
         const styleLayers = map.getStyle()?.layers ?? [];
-        // Anchor immediately ABOVE the base imagery and BELOW the ENC stack.
-        // Deliberately not the top of the stack: if raster-color is ever not
-        // honoured, an opaque IR on top would hide the whole chart, while
-        // here the chart still paints over it and the failure is cosmetic.
-        // Deliberately not 'settlement-major-label' either — MapHub's
-        // ordering pass RELOCATES that layer to encBottom whenever imagery
-        // is lit, so it is not the stable high-water mark it looks like.
+        // Anchor immediately ABOVE the base imagery and BELOW the ENC stack —
+        // unchanged from the GIBS build, and for the same reason: the chart
+        // still paints over the cloud, so a mis-anchor is cosmetic rather
+        // than a whited-out world.
         const imageryIdx = imageryTopIndex(styleLayers);
         const beforeId = cloudOverlayBeforeId(styleLayers);
         map.addLayer(
@@ -553,32 +547,16 @@ function mountSatelliteLayerNow(map: mapboxgl.Map): void {
                 type: 'raster',
                 source: IR_SOURCE,
                 paint: {
+                    // NO raster-color ramp. The GIBS build had to synthesise
+                    // alpha from luminance because its tile was fully opaque;
+                    // clouds_new carries real transparency (measured: 35% of
+                    // pixels at alpha 0, none at 255), so ramping it would
+                    // only fight the alpha that is already correct.
                     'raster-opacity': 0.9,
                     'raster-fade-duration': 0,
-                    'raster-resampling': 'nearest',
-                    // Luminance of the RGB channels (the product is near-grey
-                    // but not exactly R==G==B, so weight rather than take one
-                    // channel), looked up over the full 0-1 range.
-                    'raster-color-mix': [0.2126, 0.7152, 0.0722, 0],
-                    'raster-color-range': [0, 1],
-                    'raster-color': [
-                        'interpolate',
-                        ['linear'],
-                        ['raster-value'],
-                        // Everything at or below the warm-background band is sky.
-                        0.0,
-                        'rgba(255,255,255,0)',
-                        0.64,
-                        'rgba(255,255,255,0)',
-                        // Mid cloud feathers in…
-                        0.72,
-                        'rgba(235,245,255,0.35)',
-                        0.82,
-                        'rgba(248,251,255,0.72)',
-                        // …cold tops (deep convection) paint solid.
-                        1.0,
-                        'rgba(255,255,255,0.95)',
-                    ],
+                    // 'linear', not 'nearest': this one is a smooth field and
+                    // it is now overzoomed past z9 rather than stopping at z6.
+                    'raster-resampling': 'linear',
                 },
             },
             beforeId,
@@ -587,11 +565,11 @@ function mountSatelliteLayerNow(map: mapboxgl.Map): void {
         // line to diagnose instead of another round of reasoning from source.
         const idx = (map.getStyle()?.layers ?? []).findIndex((l) => l.id === IR_LAYER);
         log.warn(
-            `📡 GIBS Himawari IR mounted (${todayDateStr()}) at layer ${idx}/${styleLayers.length}` +
+            `☁️ World cloud layer mounted at layer ${idx}/${styleLayers.length}` +
                 `${beforeId ? ` before '${beforeId}'` : ' on top'}, imageryIdx=${imageryIdx}`,
         );
     } catch (err) {
-        log.warn('Squall IR mount failed — continuing with precip only', err);
+        log.warn('Cloud layer mount failed — continuing with precip only', err);
     }
 }
 
