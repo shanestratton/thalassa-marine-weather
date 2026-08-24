@@ -2936,8 +2936,11 @@ check(
         // recipient disclosure, the Shared AIS retention paragraph and the
         // safety floor. The version pin exists so the terms cannot drift
         // silently — a deliberate, tested revision moves it forward.
-        'Version 2.2',
-        '23 August 2026',
+        // v2.3 (24 Aug 2026) added the Founding Skipper application privacy
+        // section — what the form collects, why, and that raw IPs are not
+        // stored with applications.
+        'Version 2.3',
+        '24 August 2026',
         'destructive in-app deletion flow is temporarily unavailable during this beta',
         'mailto:privacy@thalassa.app',
         'Sentry',
