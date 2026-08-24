@@ -34,7 +34,10 @@ import { createLogger } from '../../utils/createLogger';
  * Not a floor: minZoom stays 1, so pulling further out still works. This is
  * only where the view LANDS.
  */
-export const CYCLONE_OPEN_ZOOM = 2.1;
+// 2, was 2.1 (Shane 2026-08-24, confirmed in septuplicate — "Choo Choo Two
+// Two"). A nudge wider than the old hemisphere frame: every basin's storms on
+// screen at once, and the card's stepper carries you into each one.
+export const CYCLONE_OPEN_ZOOM = 2;
 
 // ── Lazy-loaded heavy services (split into separate chunks) ──
 // These are only fetched when the cyclone layer is activated.
