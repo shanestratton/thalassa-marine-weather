@@ -23,7 +23,9 @@ describe('weather-layer framing zooms', () => {
     });
 
     it('leaves the other weather-layer frames unchanged', () => {
-        expect(LAYER_FRAME_ZOOM.currents).toBe(7.5);
+        // Currents joined the shared z7 frame on 2026-08-24, same session as
+        // wind and rain — three regional reads, one camera answer.
+        expect(LAYER_FRAME_ZOOM.currents).toBe(7);
         expect(LAYER_FRAME_ZOOM.pressure).toBe(2);
     });
 
