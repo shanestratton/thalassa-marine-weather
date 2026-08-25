@@ -1,7 +1,12 @@
 /**
- * useAnchorageLayer — Whitsundays anchorage reference overlay for Mapbox GL.
+ * useAnchorageLayer — the Anchorages reference overlay for Mapbox GL.
  *
- * Renders, from bundled open data (offline-capable), bottom-to-top:
+ * v1 QLD coast (2026-08-25): data arrives in 2° tiles loaded around the
+ * dynamic CENTRE (the location box — which is the boat whenever it is set
+ * to Current Location) within 50 NM, per Shane's spec. Visited tiles stay
+ * in the SW data cache, so the reference works offline where you have been.
+ *
+ * Renders, from tiled open data, bottom-to-top:
  *   - GBRMPA marine-park ZONING as faint colour-coded fill (green/yellow/blue…) —
  *     tells you what you may legally DO at an anchorage (fishing/collecting).
  *   - GBRMPA NO-ANCHORING areas as red fill + outline (you must not anchor here).
@@ -15,7 +20,9 @@
  */
 import { useEffect, useRef, type MutableRefObject } from 'react';
 import mapboxgl from 'mapbox-gl';
-import { AnchorageService, type AnchorageProps } from '../../services/anchorages/AnchorageService';
+import { AnchorageService, type AnchorageData, type AnchorageProps } from '../../services/anchorages/AnchorageService';
+import { scoreAnchorage, type AnchorageForVerdict } from '../../services/anchorages/anchorageVerdict';
+import { getStayWindowCached } from '../../services/anchorages/anchorageForecast';
 import { createLogger } from '../../utils/createLogger';
 
 const log = createLogger('AnchorageLayer');
@@ -29,6 +36,11 @@ const L_NA_FILL = 'anchorage-noanchor-fill';
 const L_NA_LINE = 'anchorage-noanchor-line';
 const L_PTS = 'anchorage-points-circle';
 const MIN_ZOOM = 7;
+/** Everything within this of the centre loads; matches the spec ("within
+ *  say 50NM of somewhere, show all of the anchorages around that area"). */
+const LOAD_RADIUS_NM = 50;
+/** Centre movement below this reuses the loaded set — no refetch churn. */
+const RELOAD_DRIFT_NM = 10;
 
 const ALL_LAYERS = [L_PTS, L_NA_LINE, L_NA_FILL, L_ZONE_LINE, L_ZONE_FILL];
 const ALL_SOURCES = [SRC_PTS, SRC_NA, SRC_ZONE];
@@ -98,8 +110,20 @@ function zonePopupHtml(props: Record<string, unknown>): string {
         </div>`);
 }
 
-export function useAnchorageLayer(mapRef: MutableRefObject<mapboxgl.Map | null>, mapReady: boolean, visible: boolean) {
+export function useAnchorageLayer(
+    mapRef: MutableRefObject<mapboxgl.Map | null>,
+    mapReady: boolean,
+    visible: boolean,
+    centre: { lat: number; lon: number } | null,
+) {
     const popupRef = useRef<mapboxgl.Popup | null>(null);
+    /** The merged tile data currently on the map — the popup verdict reads
+     *  fetch tables from HERE by id, because Mapbox stringifies nested
+     *  arrays in queryRenderedFeatures properties. */
+    const dataRef = useRef<AnchorageData | null>(null);
+    const centreRef = useRef(centre);
+    centreRef.current = centre;
+    const loadedAtRef = useRef<{ lat: number; lon: number } | null>(null);
     const handlersRef = useRef<
         Array<{
             event: 'click' | 'mouseenter' | 'mouseleave';
@@ -107,7 +131,6 @@ export function useAnchorageLayer(mapRef: MutableRefObject<mapboxgl.Map | null>,
             fn: (e: mapboxgl.MapLayerMouseEvent) => void;
         }>
     >([]);
-    const wasVisibleRef = useRef(false);
 
     useEffect(() => {
         const map = mapRef.current;
@@ -127,7 +150,6 @@ export function useAnchorageLayer(mapRef: MutableRefObject<mapboxgl.Map | null>,
         };
 
         if (!visible) {
-            wasVisibleRef.current = false;
             removeAll();
             return;
         }
@@ -211,7 +233,10 @@ export function useAnchorageLayer(mapRef: MutableRefObject<mapboxgl.Map | null>,
 
         const onPointClick = (e: mapboxgl.MapLayerMouseEvent) => {
             const f = e.features?.[0];
-            if (f) popupAt(e.lngLat, pointPopupHtml(f.properties as unknown as AnchorageProps), 10);
+            if (!f) return;
+            const p = f.properties as unknown as AnchorageProps;
+            popupAt(e.lngLat, pointPopupHtml(p) + verdictShellHtml(), 10);
+            void fillVerdict(popupRef, p.id, dataRef.current, centreRef.current);
         };
         const onAreaClick = (e: mapboxgl.MapLayerMouseEvent) => {
             if (hitElsewhere(e, [L_PTS])) return;
@@ -244,45 +269,101 @@ export function useAnchorageLayer(mapRef: MutableRefObject<mapboxgl.Map | null>,
         reg('mouseenter', L_PTS, enter as (e: mapboxgl.MapLayerMouseEvent) => void);
         reg('mouseleave', L_PTS, leave as (e: mapboxgl.MapLayerMouseEvent) => void);
 
-        // First time the overlay is switched on, bring the map to the data so the
-        // toggle visibly DOES something even if the skipper was looking elsewhere —
-        // the dataset is Whitsundays-only in v1. fitBounds covers the island group.
-        if (!wasVisibleRef.current) {
-            wasVisibleRef.current = true;
-            try {
-                map.fitBounds(
-                    [
-                        [148.4, -20.6],
-                        [149.15, -19.9],
-                    ],
-                    { padding: 48, maxZoom: 11, duration: 900 },
-                );
-            } catch (err) {
-                log.warn('fitBounds to Whitsundays failed', err);
-            }
-        }
-
-        // ── Load data ──
-        let cancelled = false;
-        AnchorageService.load()
-            .then(({ points, noAnchor, zoning }) => {
-                if (cancelled) return;
-                (map.getSource(SRC_ZONE) as mapboxgl.GeoJSONSource | undefined)?.setData(
-                    zoning as GeoJSON.FeatureCollection,
-                );
-                (map.getSource(SRC_NA) as mapboxgl.GeoJSONSource | undefined)?.setData(
-                    noAnchor as GeoJSON.FeatureCollection,
-                );
-                (map.getSource(SRC_PTS) as mapboxgl.GeoJSONSource | undefined)?.setData(
-                    points as GeoJSON.FeatureCollection,
-                );
-                log.info('anchorage overlay populated');
-            })
-            .catch((err) => log.warn('anchorage data load failed', err));
+        // Data arrives from the tile effect below (tiles follow the centre,
+        // not the layer lifecycle). Re-showing the layer repaints whatever
+        // that effect last held.
+        if (dataRef.current) applyData(map, dataRef.current);
 
         return () => {
-            cancelled = true;
             removeAll();
         };
     }, [mapRef, mapReady, visible]);
+
+    // ── Tile loading follows the CENTRE (50 NM), with 10 NM hysteresis ──
+    useEffect(() => {
+        const map = mapRef.current;
+        if (!map || !mapReady || !visible || !centre) return;
+        const last = loadedAtRef.current;
+        if (last) {
+            const dNM = Math.hypot(
+                (centre.lat - last.lat) * 60,
+                (centre.lon - last.lon) * 60 * Math.cos((centre.lat * Math.PI) / 180),
+            );
+            if (dNM < RELOAD_DRIFT_NM && dataRef.current) return;
+        }
+        let cancelled = false;
+        AnchorageService.loadNear(centre.lat, centre.lon, LOAD_RADIUS_NM)
+            .then((data) => {
+                if (cancelled) return;
+                dataRef.current = data;
+                loadedAtRef.current = { lat: centre.lat, lon: centre.lon };
+                const m = mapRef.current;
+                if (m && m.getSource(SRC_PTS)) applyData(m, data);
+            })
+            .catch((err) => log.warn('anchorage tile load failed', err));
+        return () => {
+            cancelled = true;
+        };
+    }, [mapRef, mapReady, visible, centre]);
+}
+
+function applyData(map: mapboxgl.Map, data: AnchorageData): void {
+    (map.getSource(SRC_ZONE) as mapboxgl.GeoJSONSource | undefined)?.setData(data.zoning as GeoJSON.FeatureCollection);
+    (map.getSource(SRC_NA) as mapboxgl.GeoJSONSource | undefined)?.setData(data.noAnchor as GeoJSON.FeatureCollection);
+    (map.getSource(SRC_PTS) as mapboxgl.GeoJSONSource | undefined)?.setData(data.points as GeoJSON.FeatureCollection);
+    log.info(`anchorage overlay populated (${data.tiles.join('+') || 'no tiles'})`);
+}
+
+// ── The popup verdict: shelter tables × tonight's forecast ──
+
+const GRADE_STYLE: Record<string, { label: string; color: string }> = {
+    bombproof: { label: 'BOMBPROOF TONIGHT', color: '#1d7a46' },
+    good: { label: 'GOOD TONIGHT', color: '#2a9d8f' },
+    tenable: { label: 'TENABLE — WATCH IT', color: '#c98a1b' },
+    poor: { label: 'POOR TONIGHT', color: '#c0392b' },
+    'no-anchoring': { label: 'NO ANCHORING', color: '#c0392b' },
+};
+
+function verdictShellHtml(): string {
+    return `<div class="anch-verdict" style="margin-top:8px;padding-top:7px;border-top:1px solid #d5dde2;font-size:11px;color:#5a6a73">Reading tonight's conditions…</div>`;
+}
+
+/** Fill the verdict block of the OPEN popup once forecast + tables agree.
+ *  The popup may close or be replaced while we fetch — check before writing. */
+async function fillVerdict(
+    popupRef: MutableRefObject<mapboxgl.Popup | null>,
+    id: string,
+    data: AnchorageData | null,
+    centre: { lat: number; lon: number } | null,
+): Promise<void> {
+    const el = () => popupRef.current?.getElement()?.querySelector('.anch-verdict') as HTMLElement | null | undefined;
+    const feature = data?.points.features.find((f) => f.properties?.id === id);
+    const p = feature?.properties;
+    if (!feature || !p?.fetchLandNM || !p.fetchReefNM) {
+        const node = el();
+        if (node) node.innerHTML = `<span style="color:#8a969d">No shelter data for this point.</span>`;
+        return;
+    }
+    const hours = centre ? await getStayWindowCached(centre.lat, centre.lon) : null;
+    const node = el();
+    if (!node) return; // popup gone — nobody is reading
+    const anchorage: AnchorageForVerdict = {
+        id: p.id,
+        name: p.name,
+        kind: p.kind,
+        lat: feature.geometry.coordinates[1],
+        lon: feature.geometry.coordinates[0],
+        fetchLandNM: p.fetchLandNM,
+        fetchReefNM: p.fetchReefNM,
+        noAnchoring: p.noAnchoring,
+        noAnchoringName: p.noAnchoringName,
+    };
+    const v = scoreAnchorage({ anchorage, hours: hours ?? [] });
+    const g = GRADE_STYLE[v.grade];
+    node.innerHTML =
+        `<div style="font-weight:800;font-size:10.5px;letter-spacing:0.06em;color:${g.color}">${g.label}` +
+        (hours ? ` · ${v.score}/100` : '') +
+        `</div>` +
+        v.reasons.map((r) => `<div style="margin-top:3px;line-height:1.35">${esc(r)}</div>`).join('') +
+        `<div style="margin-top:5px;font-size:9px;color:#8a969d">Advisory only — verify against charts and your own eyes. Forecast: Open-Meteo · Shelter: OSM/GBRMPA open data.</div>`;
 }

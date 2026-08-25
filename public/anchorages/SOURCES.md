@@ -1,18 +1,18 @@
-# Whitsundays anchorage data — sources & provenance
+# QLD anchorage data — sources & provenance
 
-Built 2026-06-20 by `scripts/anchorages/build-whitsundays.mjs` (re-run to refresh).
+Built 2026-08-25 by `scripts/anchorages/build-qld.mjs` (re-run to refresh).
+Layout: 2°x2° tiles under `qld/`, directory in `qld/index.json`.
 
 ## Data sources
 
-- **Anchorage positions & names** — © OpenStreetMap contributors, licensed **ODbL**. Named bays, coves, inlets and marinas in the Whitsundays bounding box. Attribution required.
-- **No-anchoring areas, designated anchorages, marine-park zoning** — © Great Barrier Reef Marine Park Authority (GBRMPA), `gbrmpa_open_data` ArcGIS org, licensed **CC BY**. From the Whitsundays Plan of Management + GBR Marine Park Zoning Plan 2003. Attribution required.
+- **Anchorage positions & names, coastline, reefs** — © OpenStreetMap contributors, licensed **ODbL**. Named bays/coves/inlets, charted seamark anchorages and marinas along the QLD coast. Attribution required.
+- **No-anchoring areas, designated anchorages, marine-park zoning** — © Great Barrier Reef Marine Park Authority (GBRMPA), `gbrmpa_open_data` ArcGIS org, licensed **CC BY**. Attribution required.
+- **Forecasts consumed at verdict time** (not stored here) — Open-Meteo via the app's proxy; the verdict UI attributes them.
 
-## Files
+## Fetch tables
 
-- `whitsundays.geojson` — point features: anchorages (OSM), marinas (OSM), official designated anchorages (GBRMPA). Each carries `noAnchoring` = true if it falls inside a GBRMPA no-anchoring polygon.
-- `whitsundays-no-anchoring.geojson` — GBRMPA no-anchoring area polygons.
-- `whitsundays-zoning.geojson` — GBRMPA marine-park zoning polygons (zone type + official colour + permitted-use description). Determines what you may legally do at an anchorage (fishing/collecting), not just whether you can anchor.
+Every point carries `fetchLandNM` and `fetchReefNM`: 36 sectors x 10° true, distance (NM, capped 15) to the first OSM coastline / coastline-or-reef crossing, ray-cast at build time. They encode SHELTER GEOMETRY only — no depth, no holding, no weather.
 
 ## ⚓ Safety note (surface this in-app)
 
-This is a **planning reference built from open data**, NOT a navigational chart and NOT a substitute for official charts, the GBRMPA zoning maps, or the skipper's judgement. OSM bay positions are approximate and carry **no depth, holding or protection data**. Always verify against official sources (GBRMPA zoning, AHO charts, Beacon to Beacon) and your own eyes before anchoring. No-anchoring areas change — confirm current GBRMPA data before relying on it.
+This is a **planning reference built from open data**, NOT a navigational chart and NOT a substitute for official charts, GBRMPA zoning maps, or the skipper's judgement. OSM positions are approximate and carry **no depth or holding data**; fetch tables inherit every gap in OSM coastline/reef mapping. Verdicts are advisory reads of this geometry plus a forecast — verify against official sources and your own eyes before anchoring.
