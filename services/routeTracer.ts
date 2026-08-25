@@ -42,6 +42,7 @@ import type { VoyagePlan } from '../types/navigation';
 import { createLogger } from '../utils/createLogger';
 import { crumb } from '../utils/flightRecorder';
 import { awaitHeapHeadroom, heapTag } from '../utils/heapGauge';
+import { awaitMergeAbortCooldown } from './enc/mergeSettle';
 import { createSerialQueue } from '../utils/serialQueue';
 import {
     authScopedStorageKey,
@@ -638,6 +639,11 @@ async function buildTracerContextInner(
     // an already-high heap is the measured death pattern. Wait for the GC
     // that reclaims it (h1135 → h388 in the fatal trail) before starting.
     await awaitHeapHeadroom();
+    // Kill #30 (Mackay, 2026-08-25): the headroom brake is gauge-blind on
+    // iOS, and this build was the last straw on a heap fattened by nine
+    // aborted merge parses. Wait out the merge abort cooldown too —
+    // discipline by construction where the gauge cannot see.
+    await awaitMergeAbortCooldown();
     // heapTag: real JS heap MB in the crumb (2026-08-10, kill #23 — every
     // cache reading was healthy at death; only the process total can say
     // whether these builds ride a climbing heap).

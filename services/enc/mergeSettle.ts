@@ -38,6 +38,24 @@
  * and ONE build that starts on a still camera, instead of N aborted parses.
  * This protects Chrome the same way — the 2026-08-09 "Aw, Snap" desktop
  * death was the identical pattern against a ~2.1 GB tab heap limit.
+ *
+ * ABORT COOLDOWN — kill #30 (Mackay harbour, 2026-08-25, same day):
+ *
+ *   merge-start(28.0MB)@42s→fail → start(31.3)@43s→fail → start(28.9)@43s
+ *   → …nine starts, nine aborts, 13→5 cells, @42s–@50s… → merge-done@51s
+ *   → geo-dispatch(w38619)@51s → tracer:ctx-start(8km,a3339)@56s
+ *   → PROCESS DIED (foreground, no JS)
+ *
+ * The settle quiet coalesces claims within ONE continuous gesture. Kill #30
+ * is the browse pattern it cannot see: pause, study the approach, nudge the
+ * camera, pause — every pause is 350 ms quiet, so every pause legitimately
+ * starts a ~30 MB parse that the next nudge aborts mid-build. Nine paid
+ * aborts in ten seconds fattened the heap the gauge cannot read, and the
+ * tracer context build was the last straw. So every mid-parse abort now arms
+ * a COOLDOWN: the next build must additionally wait out the cooldown before
+ * it may start, doubling per consecutive abort (1.5 s → 3 s, capped). Under
+ * churn, builds degrade into free skips instead of paid parses; a completed
+ * merge clears the state. The camera-quiet rule is unchanged.
  */
 
 /**
@@ -50,6 +68,34 @@ export const MERGE_SETTLE_MS = 350;
 
 /** Poll floor — never busy-wait tighter than this while settling. */
 const SETTLE_POLL_FLOOR_MS = 50;
+
+/** First-abort cooldown; doubles per consecutive abort up to the cap. */
+export const MERGE_ABORT_COOLDOWN_MS = 1500;
+export const MERGE_ABORT_COOLDOWN_MAX_MS = 3000;
+
+let lastAbortAt = -Infinity;
+let consecutiveAborts = 0;
+
+/** A build was superseded MID-PARSE — it paid allocation before dying.
+ *  Called from EncHazardService's MergeSupersededError branch. */
+export function noteMergeAborted(now: number = performance.now()): void {
+    consecutiveAborts = Math.min(consecutiveAborts + 1, 8);
+    lastAbortAt = now;
+}
+
+/** A merge ran to completion — the churn is over, drop the cooldown. */
+export function noteMergeCompleted(): void {
+    consecutiveAborts = 0;
+    lastAbortAt = -Infinity;
+}
+
+/** Milliseconds the NEXT heavy build must still wait out after recent
+ *  mid-parse aborts. Zero once the cooldown has aged off. */
+export function abortCooldownRemainingMs(now: number = performance.now()): number {
+    if (consecutiveAborts === 0) return 0;
+    const cooldown = Math.min(MERGE_ABORT_COOLDOWN_MS * 2 ** (consecutiveAborts - 1), MERGE_ABORT_COOLDOWN_MAX_MS);
+    return Math.max(0, lastAbortAt + cooldown - now);
+}
 
 /** Monotonic id of the newest WINDOWED merge (full/seaway merges — zoom
  *  null — never participate: they serve a different consumer). */
@@ -86,14 +132,36 @@ export async function awaitMergeGenSettle(
 ): Promise<boolean> {
     while (!isMergeGenStale(myGen)) {
         const age = now() - mergeGenClaimedAt;
-        if (age >= MERGE_SETTLE_MS) return true;
-        await sleep(Math.max(SETTLE_POLL_FLOOR_MS, MERGE_SETTLE_MS - age));
+        const cooldown = abortCooldownRemainingMs(now());
+        if (age >= MERGE_SETTLE_MS && cooldown <= 0) return true;
+        await sleep(Math.max(SETTLE_POLL_FLOOR_MS, Math.max(MERGE_SETTLE_MS - age, cooldown)));
     }
     return false;
+}
+
+/**
+ * Hold a NON-merge heavy build (the tracer's grading-context build) until
+ * any active abort cooldown has aged off. A no-op in the common case;
+ * under live churn it keeps the tracer from stacking its allocation on a
+ * heap already fattened by aborted parses. Bounded by construction: the
+ * cooldown only shrinks with time and is capped at
+ * MERGE_ABORT_COOLDOWN_MAX_MS.
+ */
+export async function awaitMergeAbortCooldown(
+    now: () => number = () => performance.now(),
+    sleep: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms)),
+): Promise<void> {
+    for (;;) {
+        const remaining = abortCooldownRemainingMs(now());
+        if (remaining <= 0) return;
+        await sleep(Math.max(SETTLE_POLL_FLOOR_MS, remaining));
+    }
 }
 
 /** Test-only: reset the slot so cases don't order-couple. */
 export function __resetMergeGenForTest(): void {
     mergeGen = 0;
     mergeGenClaimedAt = -Infinity;
+    lastAbortAt = -Infinity;
+    consecutiveAborts = 0;
 }

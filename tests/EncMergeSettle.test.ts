@@ -15,11 +15,17 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
+    MERGE_ABORT_COOLDOWN_MAX_MS,
+    MERGE_ABORT_COOLDOWN_MS,
     MERGE_SETTLE_MS,
     __resetMergeGenForTest,
+    abortCooldownRemainingMs,
+    awaitMergeAbortCooldown,
     awaitMergeGenSettle,
     claimMergeGen,
     isMergeGenStale,
+    noteMergeAborted,
+    noteMergeCompleted,
 } from '../services/enc/mergeSettle';
 
 /** Manual clock + instant sleep so settle loops run without real timers. */
@@ -139,5 +145,101 @@ describe('EncHazardService wields the discipline (source tripwires)', () => {
     it('full/seaway merges (zoom null) bypass the discipline entirely', () => {
         // Their gen is null: the skip/settle block is gated on enqueueGen.
         expect(job).toContain('if (enqueueGen != null) {');
+    });
+});
+
+describe('abort cooldown — kill #30 (Mackay harbour browse churn)', () => {
+    beforeEach(() => __resetMergeGenForTest());
+
+    it('no aborts → no cooldown, settle behaves exactly as before', async () => {
+        const c = makeClock();
+        const gen = claimMergeGen(c.now());
+        expect(abortCooldownRemainingMs(c.now())).toBe(0);
+        await expect(awaitMergeGenSettle(gen, c.now, c.sleep)).resolves.toBe(true);
+    });
+
+    it('a mid-parse abort makes the NEXT build wait out the cooldown, not just the quiet', async () => {
+        const c = makeClock();
+        noteMergeAborted(c.now());
+        const gen = claimMergeGen(c.now());
+        const before = c.now();
+        await expect(awaitMergeGenSettle(gen, c.now, c.sleep)).resolves.toBe(true);
+        // The wait covered the full cooldown, not merely MERGE_SETTLE_MS.
+        expect(c.now() - before).toBeGreaterThanOrEqual(MERGE_ABORT_COOLDOWN_MS);
+    });
+
+    it('consecutive aborts double the cooldown up to the cap', () => {
+        const c = makeClock();
+        noteMergeAborted(c.now());
+        expect(abortCooldownRemainingMs(c.now())).toBe(MERGE_ABORT_COOLDOWN_MS);
+        noteMergeAborted(c.now());
+        expect(abortCooldownRemainingMs(c.now())).toBe(MERGE_ABORT_COOLDOWN_MAX_MS);
+        // Nine aborts (the kill #30 trail) still cap — never an unbounded park.
+        for (let i = 0; i < 7; i++) noteMergeAborted(c.now());
+        expect(abortCooldownRemainingMs(c.now())).toBe(MERGE_ABORT_COOLDOWN_MAX_MS);
+    });
+
+    it('a completed merge clears the cooldown — churn over, full speed back', () => {
+        const c = makeClock();
+        noteMergeAborted(c.now());
+        noteMergeAborted(c.now());
+        noteMergeCompleted();
+        expect(abortCooldownRemainingMs(c.now())).toBe(0);
+    });
+
+    it('the cooldown ages off by itself', () => {
+        const c = makeClock();
+        noteMergeAborted(c.now());
+        c.advance(MERGE_ABORT_COOLDOWN_MS + 1);
+        expect(abortCooldownRemainingMs(c.now())).toBe(0);
+    });
+
+    it('a newer claim during a cooldown wait still exits false immediately-free', async () => {
+        const c = makeClock();
+        noteMergeAborted(c.now());
+        const gen = claimMergeGen(c.now());
+        const wait = awaitMergeGenSettle(gen, c.now, c.sleep);
+        claimMergeGen(c.now()); // the skipper nudges the camera again
+        await expect(wait).resolves.toBe(false);
+    });
+
+    it('awaitMergeAbortCooldown parks a non-merge heavy build for the same window', async () => {
+        const c = makeClock();
+        noteMergeAborted(c.now());
+        const before = c.now();
+        await awaitMergeAbortCooldown(c.now, c.sleep);
+        expect(c.now() - before).toBeGreaterThanOrEqual(MERGE_ABORT_COOLDOWN_MS);
+        // And is a no-op once quiet.
+        const t2 = c.now();
+        await awaitMergeAbortCooldown(c.now, c.sleep);
+        expect(c.now()).toBe(t2);
+    });
+});
+
+describe('kill #30 wiring (source tripwires)', () => {
+    const hazard = readFileSync(resolve(process.cwd(), 'services/enc/EncHazardService.ts'), 'utf8');
+    const tracer = readFileSync(resolve(process.cwd(), 'services/routeTracer.ts'), 'utf8');
+
+    it('a superseded abort arms the cooldown', () => {
+        const failAt = hazard.indexOf("crumb('enc:merge-fail'");
+        const noteAt = hazard.indexOf('noteMergeAborted()', failAt);
+        expect(failAt).toBeGreaterThan(-1);
+        expect(noteAt).toBeGreaterThan(-1);
+    });
+
+    it('a completed merge clears it', () => {
+        const doneAt = hazard.indexOf("crumb('enc:merge-done'");
+        const clearAt = hazard.indexOf('noteMergeCompleted()', doneAt);
+        expect(doneAt).toBeGreaterThan(-1);
+        expect(clearAt).toBeGreaterThan(-1);
+    });
+
+    it('the tracer context build waits out the cooldown before its start crumb', () => {
+        const brakeAt = tracer.indexOf('await awaitHeapHeadroom();');
+        const coolAt = tracer.indexOf('await awaitMergeAbortCooldown();');
+        const startCrumbAt = tracer.indexOf("crumb('tracer:ctx-start'");
+        expect(brakeAt).toBeGreaterThan(-1);
+        expect(coolAt).toBeGreaterThan(brakeAt);
+        expect(coolAt).toBeLessThan(startCrumbAt);
     });
 });
