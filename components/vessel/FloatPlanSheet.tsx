@@ -24,6 +24,11 @@ import type { Voyage } from '../../services/VoyageService';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { triggerHaptic } from '../../utils/system';
 import { createLogger } from '../../utils/createLogger';
+import {
+    collapseGeneratedTraceEndpointPair,
+    formatStoredPlannedRouteName,
+} from '../../services/shiplog/plannedRouteNaming';
+import { destNameFromRouteName, stripLegBadge } from '../../services/routeTracer';
 import { vesselCrewAboard } from '../../services/units';
 
 const log = createLogger('FloatPlanSheet');
@@ -229,10 +234,21 @@ export const FloatPlanSheet: React.FC<FloatPlanSheetProps> = ({ voyage, preset, 
 
     const route = useMemo<FloatPlanRoute>(() => {
         if (preset) return { ...preset.route, waypoints: preset.route.waypoints ?? savedWaypoints };
+        // Legacy voyage rows can carry the generated "<title> — start/end"
+        // pair in name and both ports (Shane 2026-08-26: the float plan
+        // repeated the artefact). Collapse at display time; real endpoints
+        // pass through untouched.
+        const collapsed = collapseGeneratedTraceEndpointPair(voyage?.departure_port, voyage?.destination_port);
+        const collapsedBase = collapsed ? stripLegBadge(collapsed) : null;
+        const collapsedDest = collapsed ? destNameFromRouteName(collapsed) : null;
         return {
-            name: voyage?.voyage_name,
-            from: voyage?.departure_port ?? undefined,
-            to: voyage?.destination_port ?? undefined,
+            name: formatStoredPlannedRouteName(voyage?.voyage_name) ?? voyage?.voyage_name,
+            from: collapsed
+                ? collapsedDest && collapsedBase
+                    ? collapsedBase.slice(0, collapsedBase.length - collapsedDest.length).replace(/[\s—–-]+$/, '')
+                    : collapsed
+                : (voyage?.departure_port ?? undefined),
+            to: collapsed ? (collapsedDest ?? undefined) : (voyage?.destination_port ?? undefined),
             distanceNM: savedWaypoints && savedWaypoints.length >= 2 ? trackDistanceNM(savedWaypoints) : undefined,
             waypoints: savedWaypoints,
         };
