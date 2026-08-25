@@ -1,23 +1,20 @@
 /**
  * PassageKitPrompt — the nudge that is never a gate.
  *
- * Two moments, one component, both one-shot per voyage:
+ * ONE moment, one-shot per voyage: DEPARTURE. Tracking starts, a plan is at
+ * hand (PassageStore's computed route, or the followed route's polyline),
+ * and the classifier calls it a passage — a card offers the passage kit.
+ * "Not now" is a first-class answer: a forced flow teaches skippers to
+ * misclassify the fifty-time delivery as a day cruise, poisoning both the
+ * data and the intent. A casual start with NO plan gets no card at all —
+ * there is nothing to classify.
  *
- *  1. DEPARTURE. Tracking starts, a plan is at hand (PassageStore's computed
- *     route, or the followed route's polyline), and the classifier calls it a
- *     passage — a card offers the passage kit. "Not now" is a first-class
- *     answer: a forced flow teaches skippers to misclassify the fifty-time
- *     delivery as a day cruise, poisoning both the data and the intent. A
- *     casual start with NO plan gets no card at all — there is nothing to
- *     classify, and the escalation path below covers the trip that turns
- *     into something bigger.
- *
- *  2. ESCALATION. The porous boundary: a day sail running long. While
- *     tracking, every ten minutes, the honest condition (2+ hours underway
- *     AND darkness within the hour at the CURRENT position — see
- *     escalationDue) is checked; when it first holds, a toast offers the
- *     night kit. Statistically this trip — the one nobody planned — is the
- *     one the ceremony exists for.
+ * MID-TRIP ESCALATION WAS CUT (Shane, 2026-08-25): "the punter will avoid
+ * it like the plague; also, things like provisioning, medications etc —
+ * it's too late." The kit's whole value is before the lines come off; a
+ * toast at dusk can't buy tinned food or fill a prescription. If the
+ * passage nudge earns a second surface it will be BEFORE departure (the
+ * planning banner), never during.
  *
  * "The kit" is not a new surface: accepting navigates to the existing
  * Passage Planning page ('crew'), where readiness, crew, watches and the
@@ -26,15 +23,11 @@
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ShipLogService } from '../../services/ShipLogService';
-import { LocationStore } from '../../stores/LocationStore';
 import { useUIStore } from '../../stores/uiStore';
 import { PassageStore } from '../../stores/PassageStore';
 import { useFollowRouteStore } from '../../stores/followRouteStore';
-import { classifyPlannedRoute, escalationDue, type PassageVerdict } from '../../utils/passageClass';
-import { toast } from '../Toast';
+import { classifyPlannedRoute, type PassageVerdict } from '../../utils/passageClass';
 import { triggerHaptic } from '../../utils/system';
-
-const ESCALATION_POLL_MS = 10 * 60 * 1000;
 
 /** Best available plan for the voyage just started, or null for a casual
  *  no-plan start. Reads only stores that are already resident. */
@@ -97,37 +90,6 @@ export const PassageKitPrompt: React.FC = () => {
         setPrompt(null);
         setPage('crew');
     }, [setPage]);
-
-    // ── Mid-trip escalation, one-shot per voyage ──
-    const escalatedFor = useRef<string | null>(null);
-    useEffect(() => {
-        if (!isTracking || !voyageId) return;
-        const vid = voyageId;
-        const check = () => {
-            if (escalatedFor.current === vid) return;
-            // voyageStartTime is an ISO string in TrackingState — parse it,
-            // and refuse to escalate on an unparseable one rather than
-            // comparing a NaN.
-            const startIso = ShipLogService.getTrackingStatus().voyageStartTime;
-            const startMs = startIso ? Date.parse(startIso) : NaN;
-            const { lat, lon } = LocationStore.getState();
-            if (!Number.isFinite(startMs) || !Number.isFinite(lat) || !Number.isFinite(lon)) return;
-            if (!escalationDue(Date.now(), startMs, lat, lon)) return;
-            escalatedFor.current = vid;
-            toast.success('Running into night — this is becoming a passage', {
-                label: 'Night kit',
-                onClick: () => setPage('crew'),
-            });
-        };
-        // First check shortly after start (a trip resumed at dusk should hear
-        // about it now, not in ten minutes), then on the slow poll.
-        const first = setTimeout(check, 30_000);
-        const id = setInterval(check, ESCALATION_POLL_MS);
-        return () => {
-            clearTimeout(first);
-            clearInterval(id);
-        };
-    }, [isTracking, voyageId, setPage]);
 
     if (!isTracking || !prompt || prompt.voyageId !== voyageId) return null;
 
