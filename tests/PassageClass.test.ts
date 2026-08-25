@@ -10,7 +10,6 @@ import { describe, expect, it } from 'vitest';
 import {
     classifyCompletedVoyage,
     classifyPlannedRoute,
-    escalationDue,
     isNightAt,
     PASSAGE_DISTANCE_NM,
     PASSAGE_NIGHT_HOURS,
@@ -140,28 +139,5 @@ describe('classifyCompletedVoyage — the retroactive badge', () => {
         });
         expect(v.kind).toBe('passage');
         expect(v.nightHours).toBe(0);
-    });
-});
-
-describe('escalationDue — the porous boundary', () => {
-    it('stays quiet for a boat two hours out in full daylight', () => {
-        const now = AUG_NOON_UTC;
-        expect(escalationDue(now, now - 3 * 3_600_000, BRISBANE.lat, BRISBANE.lon)).toBe(false);
-    });
-
-    it('stays quiet for a sunset harbour lap — under two hours underway', () => {
-        const eveningNow = Date.parse('2026-08-24T08:30:00Z'); // 18:30 AEST, past dusk
-        expect(escalationDue(eveningNow, eveningNow - 1 * 3_600_000, BRISBANE.lat, BRISBANE.lon)).toBe(false);
-    });
-
-    it('fires for a long day sail within an hour of dusk', () => {
-        // ~17:10 AEST in August Brisbane — dusk ~17:45. Five hours underway.
-        const now = Date.parse('2026-08-24T07:10:00Z');
-        expect(escalationDue(now, now - 5 * 3_600_000, BRISBANE.lat, BRISBANE.lon)).toBe(true);
-    });
-
-    it('fires for a boat already in the dark', () => {
-        const now = Date.parse('2026-08-24T10:00:00Z'); // 20:00 AEST
-        expect(escalationDue(now, now - 4 * 3_600_000, BRISBANE.lat, BRISBANE.lon)).toBe(true);
     });
 });

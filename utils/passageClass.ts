@@ -210,24 +210,3 @@ export function classifyCompletedVoyage(summary: {
         reasons,
     };
 }
-
-/**
- * Should the escalation ping fire, mid-trip?
- *
- * The porous-boundary case: a day sail running long. Fires when the boat has
- * genuinely been out a while (not a sunset harbour lap) AND darkness is close
- * or already here at the CURRENT position. One-shot handling is the caller's
- * job; this is just the honest condition.
- */
-export function escalationDue(nowMs: number, voyageStartMs: number, lat: number, lon: number): boolean {
-    const underwayHours = (nowMs - voyageStartMs) / 3_600_000;
-    if (!Number.isFinite(underwayHours) || underwayHours < 2) return false;
-    if (isNightAt(nowMs, lat, lon)) return true;
-    // Within an hour of dusk: the moment worth reefing for, not after.
-    const dusk = SunCalc.getTimes(new Date(nowMs), lat, lon).dusk;
-    if (dusk instanceof Date && !Number.isNaN(dusk.getTime())) {
-        const untilDusk = dusk.getTime() - nowMs;
-        return untilDusk >= 0 && untilDusk <= 60 * 60 * 1000;
-    }
-    return false;
-}
