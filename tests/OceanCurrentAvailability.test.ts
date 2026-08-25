@@ -1,5 +1,10 @@
 import { Capacitor } from '@capacitor/core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+// The CMEMS primary is unit-tested in CmemsPassageCurrents.test.ts; here it
+// declines so every NOAA-chain contract below stays exact.
+const { sampleCmemsPassageCurrents } = vi.hoisted(() => ({ sampleCmemsPassageCurrents: vi.fn() }));
+vi.mock('../services/weather/api/cmemsPassageCurrents', () => ({ sampleCmemsPassageCurrents }));
+
 import { OceanCurrentService } from '../services/OceanCurrentService';
 
 const BBOX = { north: -19, south: -21, east: 149, west: 147 };
@@ -19,6 +24,7 @@ describe('OceanCurrentService provider authority', () => {
     beforeEach(() => {
         localStorage.clear();
         vi.restoreAllMocks();
+        sampleCmemsPassageCurrents.mockResolvedValue(null);
         vi.mocked(Capacitor.getPlatform).mockReturnValue('web');
         vi.mocked(Capacitor.isNativePlatform).mockReturnValue(false);
     });
@@ -151,5 +157,46 @@ describe('OceanCurrentService provider authority', () => {
             expect(result.vectors).toHaveLength(1);
         }
         expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('CMEMS answers first — the briefing carries its provider and the ERDDAP chain never runs', async () => {
+        const fetchMock = vi.spyOn(globalThis, 'fetch');
+        sampleCmemsPassageCurrents.mockResolvedValue({
+            vectors: [
+                { lat: -20, lon: 148, u: 0.3, v: -0.1 },
+                { lat: -20.25, lon: 148.25, u: 0.4, v: 0.0 },
+            ],
+            dataTime: '2026-08-25T12:00:00Z',
+            datasetId: 'cmems_mod_glo_phy_anfc_merged-uv_PT1H-i',
+            generation: 'g-test',
+        });
+
+        const live = await OceanCurrentService.fetchCurrents(BBOX, 90, 120, 6);
+
+        expect(live).toMatchObject({
+            availability: 'available',
+            provider: 'E.U. Copernicus Marine Service',
+            providerDataset: 'cmems_mod_glo_phy_anfc_merged-uv_PT1H-i',
+            dataTime: '2026-08-25T12:00:00Z',
+            retrieval: 'live',
+        });
+        if (live.availability === 'available') {
+            expect(live.vectors).toHaveLength(2);
+            expect(live.avgSpeedKts).toBeGreaterThan(0);
+        }
+        expect(fetchMock).not.toHaveBeenCalled();
+
+        const cached = await OceanCurrentService.fetchCurrents(BBOX, 90, 120, 6);
+        expect(cached).toMatchObject({ retrieval: 'cached', provider: 'E.U. Copernicus Marine Service' });
+    });
+
+    it('a declined CMEMS primary falls through to the NOAA chain', async () => {
+        sampleCmemsPassageCurrents.mockResolvedValue(null);
+        const freshIso = new Date(Date.now() - 2 * 86_400_000).toISOString();
+        vi.spyOn(globalThis, 'fetch').mockResolvedValue(currentResponse([[freshIso, -20, 148, 0.3, 0.1]]));
+
+        const result = await OceanCurrentService.fetchCurrents(BBOX, 90, 120, 6);
+
+        expect(result).toMatchObject({ availability: 'available', provider: 'NOAA CoastWatch ERDDAP' });
     });
 });
