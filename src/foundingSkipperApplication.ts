@@ -28,6 +28,8 @@ export const TESTING_INTERESTS = [
     { value: 'onboard_data', label: 'Onboard data' },
 ] as const;
 
+export const FOUNDING_SKIPPER_CONSENT_VERSION = 'founding-skippers-v2' as const;
+
 export interface FoundingSkipperApplication {
     name: string;
     email: string;
@@ -38,6 +40,7 @@ export interface FoundingSkipperApplication {
     interests: Array<(typeof TESTING_INTERESTS)[number]['value']>;
     notes?: string;
     consent: true;
+    consentVersion: typeof FOUNDING_SKIPPER_CONSENT_VERSION;
     source: string;
     website?: string;
 }

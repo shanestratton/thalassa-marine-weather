@@ -2,7 +2,7 @@ import { Browser } from '@capacitor/browser';
 import { Capacitor } from '@capacitor/core';
 
 export const THALASSA_TERMS_URL = 'https://www.thalassawx.app/terms.html';
-export const THALASSA_SUPPORT_EMAIL = 'privacy@thalassa.app';
+export const THALASSA_SUPPORT_EMAIL = 'privacy@thalassawx.com';
 
 export async function openExternalUrl(url: string): Promise<void> {
     if (/^mailto:/i.test(url)) {

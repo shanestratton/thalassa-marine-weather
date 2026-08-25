@@ -135,7 +135,10 @@ function contactHref(application: FoundingSkipperApplicationRecord): string {
 
 function statusConfirmation(application: FoundingSkipperApplicationRecord, status: FoundingSkipperStatus): string {
     if (status === 'accepted') {
-        return `${application.name} will be marked accepted. This does not send an email or a TestFlight invitation.`;
+        if (application.consent_version !== 'founding-skippers-v2') {
+            return `${application.name} will be marked accepted. This legacy application did not consent to automatic applicant email, so no welcome email will be sent automatically. Contact them manually. This does not send a TestFlight invitation.`;
+        }
+        return `${application.name} will be marked accepted and a welcome email will be queued if one has not already been sent. This does not send a TestFlight invitation.`;
     }
     if (status === 'declined') {
         return `${application.name} will be marked declined. No email will be sent automatically.`;
@@ -284,7 +287,12 @@ export const FoundingSkipperInbox: React.FC<FoundingSkipperInboxProps> = ({
                         : entry,
                 );
             });
-            const message = `${application.name} marked ${STATUS_LABELS[status].toLowerCase()}.`;
+            const message =
+                status === 'accepted'
+                    ? application.consent_version === 'founding-skippers-v2'
+                        ? `${application.name} marked accepted. Welcome email queued if one has not already been sent; no TestFlight invitation has been sent.`
+                        : `${application.name} marked accepted. Legacy consent: no automatic welcome email; contact them manually. No TestFlight invitation has been sent.`
+                    : `${application.name} marked ${STATUS_LABELS[status].toLowerCase()}.`;
             setAnnouncement(message);
             toast.success(message);
         } catch (reviewError) {

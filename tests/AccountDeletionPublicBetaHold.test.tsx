@@ -10,11 +10,11 @@ const harness = vi.hoisted(() => ({
 
 vi.mock('../services/accountDeletionPublicBetaBoundary', () => ({
     ACCOUNT_DELETION_PUBLIC_BETA_ENABLED: false,
-    ACCOUNT_DELETION_PRIVACY_EMAIL: 'privacy@thalassa.app',
+    ACCOUNT_DELETION_PRIVACY_EMAIL: 'privacy@thalassawx.com',
     ACCOUNT_DELETION_PRIVACY_MAILTO:
-        'mailto:privacy@thalassa.app?subject=Thalassa%20public%20beta%20account%20deletion%20request',
+        'mailto:privacy@thalassawx.com?subject=Thalassa%20public%20beta%20account%20deletion%20request',
     ACCOUNT_DELETION_PUBLIC_BETA_UNAVAILABLE_MESSAGE:
-        'Account deletion is temporarily unavailable while its deletion safety controls are completed and verified. To request deletion during this beta, email privacy@thalassa.app.',
+        'Account deletion is temporarily unavailable while its deletion safety controls are completed and verified. To request deletion during this beta, email privacy@thalassawx.com.',
 }));
 
 vi.mock('../context/ThalassaContext', () => ({
@@ -69,9 +69,9 @@ describe('account deletion public-beta hold', () => {
         expect(screen.getByText('Account deletion temporarily unavailable')).toBeInTheDocument();
         expect(screen.getByText(/destructive in-app flow is paused/i)).toBeInTheDocument();
         expect(screen.queryByRole('button', { name: 'Permanently delete account' })).not.toBeInTheDocument();
-        expect(screen.getByRole('link', { name: 'privacy@thalassa.app' })).toHaveAttribute(
+        expect(screen.getByRole('link', { name: 'privacy@thalassawx.com' })).toHaveAttribute(
             'href',
-            expect.stringMatching(/^mailto:privacy@thalassa\.app\?/),
+            expect.stringMatching(/^mailto:privacy@thalassawx\.com\?/),
         );
         expect(harness.deleteDialogRender).not.toHaveBeenCalled();
     });

@@ -34,6 +34,10 @@ describe('ErrorBoundary', () => {
         );
         expect(screen.getByText('Something went wrong')).toBeInTheDocument();
         expect(screen.getByText(/Error in TestBoundary/)).toBeInTheDocument();
+        expect(screen.getByRole('link', { name: 'Report this beta problem' })).toHaveAttribute(
+            'href',
+            'mailto:privacy@thalassawx.com?subject=Thalassa%20Public%20Beta%20Crash',
+        );
     });
 
     it('displays error message in fallback', () => {

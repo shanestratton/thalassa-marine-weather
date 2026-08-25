@@ -9,6 +9,7 @@ export const INTERESTS = [
     'voyage_logging',
     'onboard_data',
 ] as const;
+export const CONSENT_VERSIONS = ['founding-skippers-v1', 'founding-skippers-v2'] as const;
 
 const ALLOWED_KEYS = new Set([
     'name',
@@ -20,6 +21,7 @@ const ALLOWED_KEYS = new Set([
     'interests',
     'notes',
     'consent',
+    'consentVersion',
     'source',
     'website',
 ]);
@@ -37,6 +39,7 @@ export interface ValidatedFoundingSkipperApplication {
     boatingFrequency: (typeof BOATING_FREQUENCIES)[number];
     interests: Array<(typeof INTERESTS)[number]>;
     notes: string | null;
+    consentVersion: (typeof CONSENT_VERSIONS)[number];
     source: string;
     honeypotTriggered: boolean;
 }
@@ -103,6 +106,14 @@ export function validateFoundingSkipperApplication(body: Record<string, unknown>
 
     if (body.consent !== true) fields.push('consent');
 
+    // Cached v1 forms did not send a version marker. Keeping that legacy
+    // default lets a migration-first/Edge-first rollout record exactly the
+    // disclosure the applicant actually saw. The current form sends v2.
+    const consentVersion = body.consentVersion === undefined
+        ? 'founding-skippers-v1'
+        : member(body.consentVersion, CONSENT_VERSIONS);
+    if (!consentVersion) fields.push('consent');
+
     const website = typeof body.website === 'string' ? body.website.trim() : '';
     const uniqueFields = [...new Set(fields)];
     if (
@@ -114,6 +125,7 @@ export function validateFoundingSkipperApplication(body: Record<string, unknown>
         !appleDevice ||
         !boatingFrequency ||
         notes === null ||
+        !consentVersion ||
         !source
     ) {
         return { value: null, fields: uniqueFields };
@@ -129,6 +141,7 @@ export function validateFoundingSkipperApplication(body: Record<string, unknown>
             boatingFrequency,
             interests,
             notes: notes || null,
+            consentVersion,
             source,
             honeypotTriggered: website.length > 0,
         },

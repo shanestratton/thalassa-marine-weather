@@ -168,7 +168,8 @@ describe('public-beta account deletion contract', () => {
         expect(profile.featureFlags.VITE_ACCOUNT_DELETION_ENABLED).toBe(false);
         expect(profile.heldCapabilities).toContain('account-deletion');
         expect(boundary).toContain("import.meta.env.VITE_ACCOUNT_DELETION_ENABLED === 'true'");
-        expect(boundary).toContain("ACCOUNT_DELETION_PRIVACY_EMAIL = 'privacy@thalassa.app'");
+        expect(boundary).toContain("ACCOUNT_DELETION_PRIVACY_EMAIL = 'privacy@thalassawx.com'");
+        expect(boundary).not.toContain('privacy@thalassa.app');
         expect(hold).toBeGreaterThan(-1);
         expect(hold).toBeLessThan(confirmation);
         expect(hold).toBeLessThan(invocation);
