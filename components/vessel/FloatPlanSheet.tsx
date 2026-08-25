@@ -213,8 +213,12 @@ export const FloatPlanSheet: React.FC<FloatPlanSheetProps> = ({ voyage, preset, 
     const [overdueMs, setOverdueMs] = useState<number>(() => (etaMs ?? departureMs) + overdueBufferMs);
     const [whoToCall, setWhoToCall] = useState('');
     const [contactAboard, setContactAboard] = useState(() => vessel?.contactPhone?.trim() || '');
+    // Souls seed from the VESSEL PROFILE, not the voyage row (Shane
+    // 2026-08-26: 'only showing one punter, not getting it from the vessel
+    // profile') — legacy rows carry bug-era crew snapshots, and the stepper
+    // is right here for a passage that genuinely differs.
     const [personsOnBoard, setPersonsOnBoard] = useState<number>(
-        () => preset?.personsOnBoard || voyage?.crew_count || vesselCrewAboard(vessel),
+        () => preset?.personsOnBoard || vesselCrewAboard(vessel),
     );
     // USCG-style persons roster (2026-08-26): names beat a bare count when a
     // coordinator decides what to send. Optional — empty rows are dropped.
@@ -236,6 +240,17 @@ export const FloatPlanSheet: React.FC<FloatPlanSheetProps> = ({ voyage, preset, 
         }
     }, [preset, voyage?.saved_route_id]);
 
+    // The trace knows its punter-named destination even when the voyage row
+    // holds only a generated label — the last honest source for To.
+    const traceDestName = useMemo<string | undefined>(() => {
+        if (preset || !voyage?.saved_route_id) return undefined;
+        try {
+            return loadSavedTraces().find((item) => item.id === voyage.saved_route_id)?.destName || undefined;
+        } catch {
+            return undefined;
+        }
+    }, [preset, voyage?.saved_route_id]);
+
     const route = useMemo<FloatPlanRoute>(() => {
         if (preset) return { ...preset.route, waypoints: preset.route.waypoints ?? savedWaypoints };
         // Legacy voyage rows can carry the generated "<title> — start/end"
@@ -243,14 +258,14 @@ export const FloatPlanSheet: React.FC<FloatPlanSheetProps> = ({ voyage, preset, 
         // repeated the artefact). Collapse at display time; real endpoints
         // pass through untouched.
         const collapsed = collapseGeneratedTraceEndpointPair(voyage?.departure_port, voyage?.destination_port);
-        const collapsedBase = collapsed ? stripLegBadge(collapsed) : null;
-        const collapsedDest = collapsed ? destNameFromRouteName(collapsed) : null;
+        const collapsedBase = collapsed ? stripLegBadge(collapsed).replace(/[\s—–-]+$/, '') : null;
+        const collapsedDest = collapsed ? (destNameFromRouteName(collapsed) ?? traceDestName ?? null) : null;
         return {
             name: formatStoredPlannedRouteName(voyage?.voyage_name) ?? voyage?.voyage_name,
             from: collapsed
-                ? collapsedDest && collapsedBase
+                ? collapsedDest && collapsedBase && collapsedBase.endsWith(collapsedDest)
                     ? collapsedBase.slice(0, collapsedBase.length - collapsedDest.length).replace(/[\s—–-]+$/, '')
-                    : collapsed
+                    : (collapsedBase ?? collapsed)
                 : (voyage?.departure_port ?? undefined),
             to: collapsed ? (collapsedDest ?? undefined) : (voyage?.destination_port ?? undefined),
             distanceNM: savedWaypoints && savedWaypoints.length >= 2 ? trackDistanceNM(savedWaypoints) : undefined,

@@ -10,6 +10,7 @@
  */
 import { Haptics, ImpactStyle } from '@capacitor/haptics';
 import { KeepAwake } from '@capacitor-community/keep-awake';
+import { releaseScreenDim, suppressScreenDim } from './screenDim';
 import { Preferences } from '@capacitor/preferences';
 import { GpsService, type GpsPosition } from './GpsService';
 import { createLogger } from '../utils/createLogger';
@@ -330,6 +331,8 @@ class MobServiceClass {
 
         const wakePromise = (async () => {
             if (this.snapshot?.activatedAt !== activationId) return;
+            // A live MOB must NEVER be dimmed by the app-wide battery dim.
+            suppressScreenDim('mob-active');
             try {
                 await KeepAwake.keepAwake();
             } catch {
@@ -371,6 +374,7 @@ class MobServiceClass {
         this.stopLiveTracking();
         this.emit();
 
+        releaseScreenDim('mob-active');
         try {
             await KeepAwake.allowSleep();
         } catch {

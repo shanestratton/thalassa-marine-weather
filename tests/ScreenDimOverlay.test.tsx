@@ -1,5 +1,6 @@
 /**
- * WatchDimOverlay — anchor-watch screen dimming (Shane 2026-08-26).
+ * ScreenDimOverlay — app-wide screen dimming (Shane 2026-08-26; generalised
+ * from anchor-watch-only the same day).
  *
  * The contract that matters at 0300 on the hook: the screen dims only
  * after idle, the FIRST touch wakes it and is swallowed, and any anomaly
@@ -9,7 +10,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import React from 'react';
-import { WATCH_DIM_IDLE_MS, WatchDimOverlay } from '../components/anchor/WatchDimOverlay';
+import { WATCH_DIM_IDLE_MS, ScreenDimOverlay as WatchDimOverlay } from '../components/ScreenDimOverlay';
 
 beforeEach(() => {
     vi.useFakeTimers();
@@ -69,5 +70,45 @@ describe('WatchDimOverlay', () => {
         act(() => vi.advanceTimersByTime(WATCH_DIM_IDLE_MS + 100));
         expect(Number(overlay().style.opacity)).toBeLessThanOrEqual(0.98);
         expect(overlay().textContent).toContain('tap to wake');
+    });
+});
+
+describe('app-wide wiring (source tripwires)', () => {
+    const read = (rel: string) => {
+        const { readFileSync } = require('node:fs') as typeof import('node:fs');
+        const { resolve } = require('node:path') as typeof import('node:path');
+        return readFileSync(resolve(process.cwd(), rel), 'utf8');
+    };
+
+    it('the host mounts ONCE at the app root, beside the night scrim', () => {
+        const app = read('App.tsx');
+        expect(app).toContain('<ScreenDimHost />');
+        const anchorPage = read('components/AnchorWatchPage.tsx');
+        expect(anchorPage).not.toContain('WatchDimOverlay');
+        expect(anchorPage).not.toContain('ScreenDimOverlay');
+    });
+
+    it('sits below the critical alarm tier — alarms outrank it in z', () => {
+        const overlay = read('components/ScreenDimOverlay.tsx');
+        expect(overlay).toContain('SCREEN_DIM_Z_INDEX = NIGHT_SCRIM_Z_INDEX - 1');
+    });
+
+    it('an anchor-drag alarm and a live MOB suppress dimming for their whole lifetime', () => {
+        const anchor = read('services/AnchorWatchService.ts');
+        expect(anchor).toContain("suppressScreenDim('anchor-alarm')");
+        expect(anchor).toContain("releaseScreenDim('anchor-alarm')");
+        const mob = read('services/MobService.ts');
+        expect(mob).toContain("suppressScreenDim('mob-active')");
+        expect(mob).toContain("releaseScreenDim('mob-active')");
+    });
+
+    it('the preference lives in Aesthetics and arms only via a real keep-awake probe', () => {
+        const aesthetics = read('components/settings/AestheticsTab.tsx');
+        expect(aesthetics).toContain('Dim While Always On');
+        expect(aesthetics).toContain('writeScreenDimSettings');
+        const overlay = read('components/ScreenDimOverlay.tsx');
+        expect(overlay).toContain('KeepAwake.isKeptAwake()');
+        // Web/plugin-missing must never arm on a guess.
+        expect(overlay).toContain('setKeptAwake(false)');
     });
 });

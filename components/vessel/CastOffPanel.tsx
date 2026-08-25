@@ -23,7 +23,7 @@ import {
     collapseGeneratedTraceEndpointPair,
     formatStoredPlannedRouteName,
 } from '../../services/shiplog/plannedRouteNaming';
-import { destNameFromRouteName, stripLegBadge } from '../../services/routeTracer';
+import { destNameFromRouteName, loadSavedTraces, stripLegBadge } from '../../services/routeTracer';
 import { vesselCrewAboard } from '../../services/units';
 import { getActiveLeg, getLegsForVoyage, closeLeg, startLeg, getLegSummary } from '../../services/VoyageLegService';
 import type { PassageLeg } from '../../types/navigation';
@@ -422,10 +422,25 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
         if (collapsed) {
             // Slice the badge-STRIPPED base: destNameFromRouteName strips
             // "(2nd Leg)" internally, so slicing the raw name would chop the
-            // badge mid-word for "A - B (2nd Leg)" titles.
-            const base = stripLegBadge(collapsed);
-            const dest = destNameFromRouteName(collapsed);
-            setEditFrom(dest ? base.slice(0, base.length - dest.length).replace(/[\s—–-]+$/, '') : collapsed);
+            // badge mid-word for "A - B (2nd Leg)" titles. When the name
+            // carries no "A - B" form at all, the saved trace's punter-named
+            // destination is the last honest source (Shane 2026-08-26: 'i
+            // still have the wrong info for the From and To').
+            const base = stripLegBadge(collapsed).replace(/[\s—–-]+$/, '');
+            let dest = destNameFromRouteName(collapsed);
+            if (!dest && activeVoyage?.saved_route_id) {
+                try {
+                    dest =
+                        loadSavedTraces().find((trace) => trace.id === activeVoyage.saved_route_id)?.destName || null;
+                } catch {
+                    dest = null;
+                }
+            }
+            setEditFrom(
+                dest && base.endsWith(dest)
+                    ? base.slice(0, base.length - dest.length).replace(/[\s—–-]+$/, '')
+                    : base || collapsed,
+            );
             setEditTo(dest ?? '');
         } else {
             setEditFrom(activeVoyage?.departure_port ?? '');
