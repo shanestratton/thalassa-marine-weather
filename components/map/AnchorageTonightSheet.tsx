@@ -52,7 +52,10 @@ function rowsFor(
 export const AnchorageTonightSheet: React.FC<{
     visible: boolean;
     centre: { lat: number; lon: number } | null;
-}> = ({ visible, centre }) => {
+    /** Fly the chart to an anchorage and open its verdict popup (the layer's
+     *  imperative handle). Returns false when the layer can't show it. */
+    onShow?: (id: string) => boolean;
+}> = ({ visible, centre, onShow }) => {
     const [open, setOpen] = useState(false);
     const [rows, setRows] = useState<RankedRow[] | null>(null);
     const [state, setState] = useState<'idle' | 'loading' | 'empty' | 'error'>('idle');
@@ -178,7 +181,17 @@ export const AnchorageTonightSheet: React.FC<{
                             {rows?.map((r, i) => {
                                 const chip = GRADE_CHIP[r.grade];
                                 return (
-                                    <div key={r.id} className="py-2.5 border-b border-white/5 last:border-b-0">
+                                    <button
+                                        key={r.id}
+                                        onClick={() => {
+                                            triggerHaptic('light');
+                                            // Put the pick on the chart; the sheet
+                                            // yields the screen to the bay itself.
+                                            if (onShow?.(r.id)) setOpen(false);
+                                        }}
+                                        className="block w-full text-left py-2.5 border-b border-white/5 last:border-b-0 active:bg-white/5 transition-colors"
+                                        aria-label={`Show ${r.name} on the chart`}
+                                    >
                                         <div className="flex items-center gap-2">
                                             <span className="text-gray-500 text-xs font-black w-4">{i + 1}</span>
                                             <span className="text-white text-sm font-bold flex-1 truncate">
@@ -189,12 +202,15 @@ export const AnchorageTonightSheet: React.FC<{
                                             >
                                                 {chip.label}
                                             </span>
+                                            <span className="text-gray-600 text-base leading-none" aria-hidden>
+                                                ›
+                                            </span>
                                         </div>
                                         <div className="pl-6 mt-1 text-[11px] text-gray-400 leading-snug">
                                             <span className="text-gray-500">{r.distanceNM.toFixed(1)} NM · </span>
                                             {r.reasons.slice(0, 2).join(' · ')}
                                         </div>
-                                    </div>
+                                    </button>
                                 );
                             })}
                             {rows && (

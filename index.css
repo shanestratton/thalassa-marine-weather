@@ -2817,6 +2817,16 @@ body,
 
 /* CAPAD popup HTML uses a light-on-dark palette; Mapbox's default popup
    surface is white, so the content must own an explicit dark surface. */
+/* Popups always ride ABOVE the overlay canvases — Shane 2026-08-25: wind
+   streaks were painting straight over the anchorage verdict card. The
+   velocity overlay div sits at z-index 400 inside the map container (its
+   internal Leaflet panes are scoped by its own stacking context), the
+   Leaflet wind canvas at 5; a popup the punter opened is the top of the
+   map's information order, full stop. */
+.mapboxgl-popup {
+    z-index: 500;
+}
+
 .mpa-popup .mapboxgl-popup-content {
     padding: 16px !important;
     color: #f3f4f6;

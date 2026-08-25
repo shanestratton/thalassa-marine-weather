@@ -3117,7 +3117,7 @@ export const MapHub: React.FC<MapHubProps> = ({
         () => (weatherCoords ? { lat: weatherCoords.lat, lon: weatherCoords.lon } : null),
         [weatherCoords?.lat, weatherCoords?.lon],
     );
-    useAnchorageLayer(mapRef, mapReady, browseAnchorageVisible, anchorageCentre);
+    const anchorageLayer = useAnchorageLayer(mapRef, mapReady, browseAnchorageVisible, anchorageCentre);
     // Armed anchor watch — anchor point + swing-radius ring (self-subscribes).
     useAnchorSwingLayer(mapRef, mapReady);
 
@@ -5057,6 +5057,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                 <AnchorageTonightSheet
                     visible={browseAnchorageVisible && !planningSurface && !embedded && !pickerMode && !isPinView}
                     centre={anchorageCentre}
+                    onShow={anchorageLayer.showAnchorage}
                 />
 
                 {/* Bottom-left legend stack. flex-col-reverse → first child
