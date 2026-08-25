@@ -949,93 +949,109 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                         </div>
                         {/* USCG-style SAR identification (2026-08-26): what a
                             search aircraft LOOKS for and how the boat can be
-                            raised. Float-plan only; never public. */}
-                        <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-4">
-                            <div>
-                                <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5">
-                                    Hailing Port
-                                </label>
-                                <input
-                                    type="text"
-                                    value={vessel?.hailingPort || ''}
-                                    onChange={(e) => updateVessel('hailingPort', e.target.value)}
-                                    placeholder="Newport, QLD"
-                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-2.5 py-2.5 text-white text-sm font-medium outline-none transition-colors focus:border-rose-500"
-                                />
+                            raised. Float-plan only; never public. COLLAPSED by
+                            default (Shane: 'not compulsory... so as not to
+                            overwhelm the punters') — the float plan simply
+                            prefills from whatever is here. */}
+                        <details className="mt-4 group">
+                            <summary className="flex cursor-pointer list-none items-center justify-between rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2.5 [&::-webkit-details-marker]:hidden">
+                                <span className="text-xs font-bold text-gray-300 uppercase tracking-widest">
+                                    Advanced Boat Details
+                                </span>
+                                <span className="text-[11px] text-gray-500">
+                                    Optional · prefills your float plan
+                                    <span className="ml-2 inline-block transition-transform group-open:rotate-180">
+                                        ⌄
+                                    </span>
+                                </span>
+                            </summary>
+                            <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-4">
+                                <div>
+                                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5">
+                                        Hailing Port
+                                    </label>
+                                    <input
+                                        type="text"
+                                        value={vessel?.hailingPort || ''}
+                                        onChange={(e) => updateVessel('hailingPort', e.target.value)}
+                                        placeholder="Newport, QLD"
+                                        className="w-full bg-white/5 border border-white/10 rounded-xl px-2.5 py-2.5 text-white text-sm font-medium outline-none transition-colors focus:border-rose-500"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5">
+                                        Hull Material
+                                    </label>
+                                    <input
+                                        type="text"
+                                        value={vessel?.hullMaterial || ''}
+                                        onChange={(e) => updateVessel('hullMaterial', e.target.value)}
+                                        placeholder="fibreglass / steel / aluminium"
+                                        className="w-full bg-white/5 border border-white/10 rounded-xl px-2.5 py-2.5 text-white text-sm font-medium outline-none transition-colors focus:border-rose-500"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5">
+                                        Trim / Deck Colour
+                                    </label>
+                                    <input
+                                        type="text"
+                                        value={vessel?.trimColor || ''}
+                                        onChange={(e) => updateVessel('trimColor', e.target.value)}
+                                        placeholder="e.g. blue trim, teak decks"
+                                        className="w-full bg-white/5 border border-white/10 rounded-xl px-2.5 py-2.5 text-white text-sm font-medium outline-none transition-colors focus:border-rose-500"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5">
+                                        Radios Monitored
+                                    </label>
+                                    <input
+                                        type="text"
+                                        value={vessel?.radiosMonitored || ''}
+                                        onChange={(e) => updateVessel('radiosMonitored', e.target.value)}
+                                        placeholder="VHF 16 + 67; HF 8291"
+                                        className="w-full bg-white/5 border border-white/10 rounded-xl px-2.5 py-2.5 text-white text-sm font-medium outline-none transition-colors focus:border-rose-500"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5">
+                                        Sat Phone
+                                    </label>
+                                    <input
+                                        type="text"
+                                        value={vessel?.satPhone || ''}
+                                        onChange={(e) => updateVessel('satPhone', e.target.value)}
+                                        placeholder="+870 …"
+                                        className="w-full bg-white/5 border border-white/10 rounded-xl px-2.5 py-2.5 text-white text-sm font-medium outline-none transition-colors focus:border-rose-500"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5">
+                                        Tender / Dinghy
+                                    </label>
+                                    <input
+                                        type="text"
+                                        value={vessel?.tenderDescription || ''}
+                                        onChange={(e) => updateVessel('tenderDescription', e.target.value)}
+                                        placeholder="grey 2.6 m RIB, 5 hp outboard"
+                                        className="w-full bg-white/5 border border-white/10 rounded-xl px-2.5 py-2.5 text-white text-sm font-medium outline-none transition-colors focus:border-rose-500"
+                                    />
+                                </div>
+                                <div className="sm:col-span-2">
+                                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5">
+                                        Prominent Features
+                                    </label>
+                                    <input
+                                        type="text"
+                                        value={vessel?.prominentFeatures || ''}
+                                        onChange={(e) => updateVessel('prominentFeatures', e.target.value)}
+                                        placeholder="hard dodger, wind generator, tan sail covers"
+                                        className="w-full bg-white/5 border border-white/10 rounded-xl px-2.5 py-2.5 text-white text-sm font-medium outline-none transition-colors focus:border-rose-500"
+                                    />
+                                </div>
                             </div>
-                            <div>
-                                <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5">
-                                    Hull Material
-                                </label>
-                                <input
-                                    type="text"
-                                    value={vessel?.hullMaterial || ''}
-                                    onChange={(e) => updateVessel('hullMaterial', e.target.value)}
-                                    placeholder="fibreglass / steel / aluminium"
-                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-2.5 py-2.5 text-white text-sm font-medium outline-none transition-colors focus:border-rose-500"
-                                />
-                            </div>
-                            <div>
-                                <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5">
-                                    Trim / Deck Colour
-                                </label>
-                                <input
-                                    type="text"
-                                    value={vessel?.trimColor || ''}
-                                    onChange={(e) => updateVessel('trimColor', e.target.value)}
-                                    placeholder="e.g. blue trim, teak decks"
-                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-2.5 py-2.5 text-white text-sm font-medium outline-none transition-colors focus:border-rose-500"
-                                />
-                            </div>
-                            <div>
-                                <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5">
-                                    Radios Monitored
-                                </label>
-                                <input
-                                    type="text"
-                                    value={vessel?.radiosMonitored || ''}
-                                    onChange={(e) => updateVessel('radiosMonitored', e.target.value)}
-                                    placeholder="VHF 16 + 67; HF 8291"
-                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-2.5 py-2.5 text-white text-sm font-medium outline-none transition-colors focus:border-rose-500"
-                                />
-                            </div>
-                            <div>
-                                <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5">
-                                    Sat Phone
-                                </label>
-                                <input
-                                    type="text"
-                                    value={vessel?.satPhone || ''}
-                                    onChange={(e) => updateVessel('satPhone', e.target.value)}
-                                    placeholder="+870 …"
-                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-2.5 py-2.5 text-white text-sm font-medium outline-none transition-colors focus:border-rose-500"
-                                />
-                            </div>
-                            <div>
-                                <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5">
-                                    Tender / Dinghy
-                                </label>
-                                <input
-                                    type="text"
-                                    value={vessel?.tenderDescription || ''}
-                                    onChange={(e) => updateVessel('tenderDescription', e.target.value)}
-                                    placeholder="grey 2.6 m RIB, 5 hp outboard"
-                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-2.5 py-2.5 text-white text-sm font-medium outline-none transition-colors focus:border-rose-500"
-                                />
-                            </div>
-                            <div className="sm:col-span-2">
-                                <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5">
-                                    Prominent Features
-                                </label>
-                                <input
-                                    type="text"
-                                    value={vessel?.prominentFeatures || ''}
-                                    onChange={(e) => updateVessel('prominentFeatures', e.target.value)}
-                                    placeholder="hard dodger, wind generator, tan sail covers"
-                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-2.5 py-2.5 text-white text-sm font-medium outline-none transition-colors focus:border-rose-500"
-                                />
-                            </div>
-                        </div>
+                        </details>
                         <div className="mt-3">
                             <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5">
                                 Skipper Mobile
