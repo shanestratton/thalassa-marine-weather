@@ -725,6 +725,41 @@ const SAFE_VEC: Record<CardinalDisc['dir'], readonly [number, number]> = {
 };
 const DIR_WORD: Record<CardinalDisc['dir'], string> = { n: 'north', e: 'east', s: 'south', w: 'west' };
 
+/**
+ * True when the leg, AT point p, is riding a charted lead: on the transit
+ * (within LEAD_OFF_CAUTION_M — the grader's own "on the lead" threshold) and
+ * roughly parallel to it. A transit that holds authority here overrules the
+ * cardinal side rule (Shane 2026-08-25, Mackay southern approach: the leads
+ * pass the "wrong" side of the east cardinal off Slade Island — the buoy
+ * guards the island's dangers, not the lead line, and the side rule was a
+ * false red on surveyed water). Beyond 40 m the #5 lead check is already
+ * saying "steer to the transit", so the buoy rule reasserts — one threshold,
+ * one story.
+ */
+function ridingLeadAt(p: TracePoint, legBrgRad: number, leads: LeadingLine[]): boolean {
+    for (const lead of leads) {
+        if (lead.pts.length < 2) continue;
+        const proj = projectToLine(p, lead.pts);
+        if (proj.dist > LEAD_OFF_CAUTION_M) continue;
+        let bestSeg = 1;
+        let bestD = Infinity;
+        for (let i = 1; i < lead.pts.length; i++) {
+            const d = closestOnLeg(p, lead.pts[i - 1], lead.pts[i]).distM;
+            if (d < bestD) {
+                bestD = d;
+                bestSeg = i;
+            }
+        }
+        const p0 = lead.pts[bestSeg - 1];
+        const p1 = lead.pts[bestSeg];
+        const leadBrgRad = Math.atan2((p1.lon - p0.lon) * mPerLon(p0.lat), (p1.lat - p0.lat) * M_PER_DEG_LAT);
+        let dDeg = Math.abs(((legBrgRad - leadBrgRad) * 180) / Math.PI) % 180;
+        if (dDeg > 90) dDeg = 180 - dDeg;
+        if (dDeg <= LEAD_MAX_ANGLE_DEG) return true;
+    }
+    return false;
+}
+
 // ── Grid sampling ──────────────────────────────────────────────────────────
 
 type CellRead =
@@ -1058,6 +1093,8 @@ export function validateTraceLeg(
         issues.push({ severity: 'caution', message: 'no charted depth for part of this leg' });
     }
 
+    const legBrgRad = Math.atan2((b.lon - a.lon) * mPerLon(a.lat), (b.lat - a.lat) * M_PER_DEG_LAT);
+
     // 2 — cardinals: the leg must stay on the safe quadrant side.
     for (const c of ctx.cardinals) {
         const near = closestOnLeg(c, a, b);
@@ -1066,13 +1103,31 @@ export function validateTraceLeg(
         const kx = mPerLon(c.lat);
         const sideM = (near.point.lon - c.lon) * kx * safe[0] + (near.point.lat - c.lat) * M_PER_DEG_LAT * safe[1];
         if (sideM < 0) {
-            issues.push({
-                severity: 'danger',
-                message: `wrong side of the ${DIR_WORD[c.dir]} cardinal — pass ${DIR_WORD[c.dir]} of it`,
-                at: near.point,
-                mark: { lat: c.lat, lon: c.lon },
-            });
+            if (ridingLeadAt(near.point, legBrgRad, ctx.leads)) {
+                // Transit authority — same philosophy as the lateral rule's
+                // "chart confirms the side → silent": the harbour authority
+                // surveyed the lead PAST this buoy, so its side rule does not
+                // apply to the lead line. Green info, not silence, so the
+                // skipper sees the mark was considered, not missed.
+                issues.push({
+                    severity: 'info',
+                    message: `on the charted lead — ${DIR_WORD[c.dir]} cardinal ${Math.round(near.distM)} m off marks a danger the transit clears`,
+                    at: near.point,
+                    mark: { lat: c.lat, lon: c.lon },
+                });
+            } else {
+                issues.push({
+                    severity: 'danger',
+                    message: `wrong side of the ${DIR_WORD[c.dir]} cardinal — pass ${DIR_WORD[c.dir]} of it`,
+                    at: near.point,
+                    mark: { lat: c.lat, lon: c.lon },
+                });
+            }
         } else if (sideM < CARDINAL_CLEAR_M) {
+            // Leads routinely run close past cardinals by design — on the
+            // transit the shave is the surveyed geometry, and #5 already owns
+            // off-lead drift. Skip, don't nag.
+            if (ridingLeadAt(near.point, legBrgRad, ctx.leads)) continue;
             // NO ownership dedupe here (unlike solo laterals): the shave is
             // judged at each leg's own closest point, so the next leg's
             // check can land on a different, healthier spot — suppressing
@@ -1149,7 +1204,6 @@ export function validateTraceLeg(
     }
 
     // 5 — leads: riding a transit? report drift off the line.
-    const legBrgRad = Math.atan2((b.lon - a.lon) * mPerLon(a.lat), (b.lat - a.lat) * M_PER_DEG_LAT);
     const mid = { lat: (a.lat + b.lat) / 2, lon: (a.lon + b.lon) / 2 };
     for (const lead of ctx.leads) {
         if (lead.pts.length < 2) continue;

@@ -577,6 +577,93 @@ describe('routeTracer — marker discipline (P2)', () => {
     });
 });
 
+describe('routeTracer — cardinal vs lead (Mackay 2026-08-25)', () => {
+    // Shane, southern approach to Mackay on the leads: "it is telling me to
+    // pass east of the cardinal marker. however, i am coming in on the lead
+    // line, i am not passing north of the island that that marker is for."
+    // A charted transit overrules the cardinal's side rule — the buoy guards
+    // a danger OFF the lead, and the lead is the surveyed line past it.
+    const cardinal = { lat: -27.005, lon: 153.005, dir: 'n' as const, radiusM: 100 };
+
+    it('wrong-side cardinal while ON a parallel lead is a green info, not a danger', () => {
+        const ctx = {
+            ...baseCtx,
+            cardinals: [cardinal],
+            leads: [
+                {
+                    pts: [
+                        { lat: -27.006, lon: 153.002 },
+                        { lat: -27.006, lon: 153.008 },
+                    ],
+                },
+            ],
+        };
+        const v = validateTraceLeg({ lat: -27.006, lon: 153.003 }, { lat: -27.006, lon: 153.007 }, ctx);
+        expect(v.grade).not.toBe('danger');
+        const card = v.issues.filter((i) => i.message.includes('cardinal'));
+        expect(card).toHaveLength(1);
+        expect(card[0].severity).toBe('info');
+        expect(card[0].message).toContain('on the charted lead');
+        expect(v.issues.some((i) => i.message.includes('wrong side'))).toBe(false);
+    });
+
+    it('a lead the leg merely CROSSES (perpendicular) does not waive the cardinal', () => {
+        const ctx = {
+            ...baseCtx,
+            cardinals: [cardinal],
+            leads: [
+                {
+                    pts: [
+                        { lat: -27.007, lon: 153.005 },
+                        { lat: -27.003, lon: 153.005 },
+                    ],
+                },
+            ],
+        };
+        const v = validateTraceLeg({ lat: -27.006, lon: 153.003 }, { lat: -27.006, lon: 153.007 }, ctx);
+        expect(v.grade).toBe('danger');
+        expect(v.issues.some((i) => i.message.includes('wrong side of the north cardinal'))).toBe(true);
+    });
+
+    it('a parallel lead the leg is well OFF (>40 m) does not waive the cardinal', () => {
+        // Lead ~111 m south of the track: #5 is already saying "steer to the
+        // transit", so the buoy rule stands — off the lead you are just a
+        // boat on the wrong side of a cardinal.
+        const ctx = {
+            ...baseCtx,
+            cardinals: [cardinal],
+            leads: [
+                {
+                    pts: [
+                        { lat: -27.007, lon: 153.002 },
+                        { lat: -27.007, lon: 153.008 },
+                    ],
+                },
+            ],
+        };
+        const v = validateTraceLeg({ lat: -27.006, lon: 153.003 }, { lat: -27.006, lon: 153.007 }, ctx);
+        expect(v.grade).toBe('danger');
+        expect(v.issues.some((i) => i.message.includes('wrong side of the north cardinal'))).toBe(true);
+    });
+
+    it('shaving a cardinal on the safe side while on the lead is silent — the shave is the surveyed geometry', () => {
+        const ctx = {
+            ...baseCtx,
+            cardinals: [cardinal],
+            leads: [
+                {
+                    pts: [
+                        { lat: -27.0045, lon: 153.002 },
+                        { lat: -27.0045, lon: 153.008 },
+                    ],
+                },
+            ],
+        };
+        const v = validateTraceLeg({ lat: -27.0045, lon: 153.003 }, { lat: -27.0045, lon: 153.007 }, ctx);
+        expect(v.issues.filter((i) => i.message.includes('cardinal'))).toHaveLength(0);
+    });
+});
+
 describe('routeTracer — leads (P3)', () => {
     it('riding ~50 m off a parallel lead is a caution with the offset', () => {
         const ctx = {
