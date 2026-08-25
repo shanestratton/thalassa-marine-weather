@@ -29,7 +29,7 @@ describe('wind framing on toggle', () => {
         // depending on WHICH toggle you tapped to build the same two-layer
         // view.
         expect(effect).toContain('frameZoomForSelection(activeLayers');
-        expect(LAYER_FRAME_ZOOM.wind).toBe(7);
+        expect(LAYER_FRAME_ZOOM.wind).toBe(9); // back to the harbour frame 2026-08-25
     });
 
     it('returns to the location box rather than holding the current centre', () => {
