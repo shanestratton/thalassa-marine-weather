@@ -158,8 +158,8 @@ describe('ChartDepthControls', () => {
 
         const key = screen.getByRole('button', { name: /chart colours/ });
         expect(key).toHaveClass('left-3', 'w-72', 'z-[9996]');
-        // 9.8rem since 2026-08-25 — the key was grazing the scrubber's top edge.
-        expect(key).toHaveStyle({ bottom: 'calc(9.8rem + env(safe-area-inset-bottom))' });
+        // 9.2rem since 2026-08-25 — centred between the tracer card and scrubber.
+        expect(key).toHaveStyle({ bottom: 'calc(9.2rem + env(safe-area-inset-bottom))' });
     });
 
     it('hides the chart key on the browsing chart while leaving chart controls intact', () => {
