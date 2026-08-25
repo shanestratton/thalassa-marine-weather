@@ -393,24 +393,40 @@ export const WeatherWindowService = {
             // Providers should return aligned hourly series, but treat a
             // truncated/mismatched response as only as complete as its shortest
             // required series. This avoids scoring a window with Infinity/NaN.
-            const forecastLength = Math.min(
+            const alignedLength = Math.min(
                 times.length,
                 windSpeed.length,
                 windDir.length,
                 waveHeight.length,
                 precip.length,
             );
-            for (let index = 0; index < forecastLength; index += 1) {
-                if (
-                    typeof times[index] !== 'string' ||
-                    !Number.isFinite(Date.parse(times[index])) ||
-                    ![windSpeed[index], windDir[index], waveHeight[index], precip[index]].every(
+            // The scoreable horizon is the longest VALID PREFIX, not the
+            // aligned length. Open-Meteo answers a 16-day request with
+            // 16-day series for every model, and any model whose real
+            // horizon is shorter pads its tail with nulls — the marine
+            // waves run ~10 days against the forecast's 16 (measured
+            // 2026-08-25: wave_height 384 rows, 226 non-null, at Shane's
+            // Newport departure). Treating that tail as corruption made
+            // every 16-day analysis throw at the marine horizon, and the
+            // card read 'unavailable' on a perfectly healthy provider —
+            // deterministically, so Retry could never succeed.
+            let forecastLength = 0;
+            while (forecastLength < alignedLength) {
+                const index = forecastLength;
+                const valid =
+                    typeof times[index] === 'string' &&
+                    Number.isFinite(Date.parse(times[index])) &&
+                    [windSpeed[index], windDir[index], waveHeight[index], precip[index]].every(
                         (value) => typeof value === 'number' && Number.isFinite(value),
-                    )
-                ) {
-                    throw new Error(`Forecast response has invalid hourly data at index ${index}`);
-                }
+                    );
+                if (!valid) break;
+                forecastLength += 1;
             }
+            // A prefix too short to fill one window step yields ZERO windows
+            // below — deliberately still 'available': the provider ANSWERED,
+            // and the house contract reserves 'unavailable' for provider
+            // failure (see weatherWindowDirection.test.ts — empty series =
+            // available with no windows).
 
             // Build 6-hour windows
             const windows: DepartureWindow[] = [];
