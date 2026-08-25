@@ -142,8 +142,13 @@ export function ChartDepthControls({
                     // position rather than floating in the map centre.
                     className="absolute left-3 z-[9996] flex min-h-[44px] w-72 items-center justify-center whitespace-nowrap rounded-xl border border-white/10 bg-slate-900/85 px-3 py-1 text-[11px] font-semibold tracking-wide text-gray-300 shadow-lg backdrop-blur-sm active:scale-95"
                     style={{
+                        // 9.8rem (was 8.8) while plotting — the key was grazing
+                        // the detail scrubber's top edge (Shane 2026-08-25:
+                        // "hanging over the scrubber a bit, and there is room
+                        // above it"). The scrubber tops out ~8.1rem; a full rem
+                        // of daylight keeps them reading as separate controls.
                         bottom: plotting
-                            ? 'calc(8.8rem + env(safe-area-inset-bottom))'
+                            ? 'calc(9.8rem + env(safe-area-inset-bottom))'
                             : 'calc(5.4rem + env(safe-area-inset-bottom))',
                     }}
                 >

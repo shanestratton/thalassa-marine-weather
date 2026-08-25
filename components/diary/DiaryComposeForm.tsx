@@ -1,7 +1,11 @@
 /**
  * DiaryComposeForm — New entry / edit entry form for the diary.
  *
- * Extracted from DiaryPage to reduce component size.
+ * TEXT-FIRST since 2026-08-25 (Shane: "get rid of the microphone, and just
+ * have texting"): the body is a plain editable textarea that rides above
+ * the keyboard, mood defaults to EPIC, and the entry's GPS coords are shown
+ * (and always saved) by default. The ✨ polish pass stays — it just works
+ * on typed words now. Legacy voice entries keep playback in the entry view.
  */
 
 import React, { useRef } from 'react';
@@ -11,13 +15,6 @@ import { triggerHaptic } from '../../utils/system';
 import { DiaryPhoto } from './DiaryPhoto';
 import { OfflineBadge } from '../ui/OfflineBadge';
 import { POLISH_LABEL, type PolishStyle } from '../../types/settings';
-
-// ── Helpers ──
-const formatDuration = (seconds: number): string => {
-    const m = Math.floor(seconds / 60);
-    const s = seconds % 60;
-    return `${m}:${s.toString().padStart(2, '0')}`;
-};
 
 interface DiaryComposeFormProps {
     // State
@@ -32,20 +29,20 @@ interface DiaryComposeFormProps {
     saving: boolean;
     uploading: boolean;
     polishing: boolean;
-    isRecording: boolean;
-    recordingTime: number;
-    transcribing: boolean;
+    /** Device fix still being acquired — the coords line says so. */
+    gpsLoading: boolean;
+    /** Formatted "27.1234°S, 153.1234°E" once a fix (or photo EXIF) landed. */
+    coordsLabel: string | null;
     polishStyle: PolishStyle;
     // Setters
     onSetTitle: (v: string) => void;
+    onSetBody: (v: string) => void;
     onSetMood: (v: DiaryMood) => void;
     onSetLocationName: (v: string) => void;
     onSetPolishStyle: (v: PolishStyle) => void;
     // Actions
     onSave: () => void;
     onCancel: () => void;
-    onStartRecording: () => void;
-    onStopRecording: () => void;
     onPolish: () => void;
     onPhotoSelect: (e: React.ChangeEvent<HTMLInputElement>) => void;
     onPhotoRemove: (idx: number) => void;
@@ -64,18 +61,16 @@ export const DiaryComposeForm: React.FC<DiaryComposeFormProps> = React.memo(
         saving,
         uploading,
         polishing,
-        isRecording,
-        recordingTime,
-        transcribing,
+        gpsLoading,
+        coordsLabel,
         polishStyle,
         onSetTitle,
+        onSetBody,
         onSetMood,
         onSetLocationName,
         onSetPolishStyle,
         onSave,
         onCancel,
-        onStartRecording,
-        onStopRecording,
         onPolish,
         onPhotoSelect,
         onPhotoRemove,
@@ -157,47 +152,9 @@ export const DiaryComposeForm: React.FC<DiaryComposeFormProps> = React.memo(
                         })}
                     </div>
 
-                    {/* ═══ VOICE · POLISH · STYLE — single 44px row ═══
-                        Was three lines of UI (voice/polish row + label + dropdown
-                        row + filler); now one row of two icon-only buttons plus
-                        the style picker. Position auto-acquires silently; the
-                        editable "Location" input below handles back-dated
-                        overrides. */}
+                    {/* ═══ POLISH · STYLE — single 44px row ═══ */}
                     <div className="shrink-0 space-y-2">
                         <div className="flex gap-2 items-stretch">
-                            {/* Voice — icon-only, mic turns red + pulses while
-                                recording so the label is redundant. */}
-                            <button
-                                aria-label={isRecording ? 'Stop recording' : 'Start voice recording'}
-                                type="button"
-                                onClick={isRecording ? onStopRecording : onStartRecording}
-                                disabled={!isRecording && (transcribing || polishing)}
-                                className={`w-11 h-11 shrink-0 flex items-center justify-center rounded-xl border transition-all active:scale-[0.95] ${
-                                    isRecording
-                                        ? 'bg-red-500/20 border-red-500/30 animate-pulse'
-                                        : 'bg-emerald-500/10 border-emerald-500/20 hover:bg-emerald-500/20'
-                                } disabled:cursor-not-allowed disabled:opacity-40`}
-                            >
-                                <svg
-                                    className={`w-5 h-5 ${isRecording ? 'text-red-400' : 'text-emerald-400'}`}
-                                    fill={isRecording ? 'currentColor' : 'none'}
-                                    viewBox="0 0 24 24"
-                                    stroke="currentColor"
-                                    strokeWidth={1.7}
-                                    aria-hidden="true"
-                                >
-                                    {isRecording ? (
-                                        <rect x="6" y="6" width="12" height="12" rx="2" />
-                                    ) : (
-                                        <path
-                                            strokeLinecap="round"
-                                            strokeLinejoin="round"
-                                            d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z"
-                                        />
-                                    )}
-                                </svg>
-                            </button>
-
                             {/* Polish — icon-only, dimmed until body has enough
                                 text to polish. The style chip on the right tells
                                 the user what style this button will apply. */}
@@ -205,7 +162,7 @@ export const DiaryComposeForm: React.FC<DiaryComposeFormProps> = React.memo(
                                 aria-label="Polish entry text"
                                 type="button"
                                 onClick={onPolish}
-                                disabled={polishing || isRecording || transcribing || body.trim().length < 10}
+                                disabled={polishing || body.trim().length < 10}
                                 className={`w-11 h-11 shrink-0 flex items-center justify-center rounded-xl border transition-all active:scale-[0.95] text-lg ${
                                     polishing
                                         ? 'bg-purple-500/30 border-purple-500/30 animate-pulse'
@@ -260,69 +217,39 @@ export const DiaryComposeForm: React.FC<DiaryComposeFormProps> = React.memo(
                             className="w-full bg-white/5 border border-white/5 rounded-lg px-3 py-1.5 text-[11px] text-gray-300 placeholder-gray-500 outline-none focus:border-sky-500/30 transition-colors"
                         />
 
-                        {/* Recording indicator */}
-                        {isRecording && (
-                            <div className="flex items-center gap-3 px-3 py-2 bg-gradient-to-r from-red-500/15 to-amber-500/15 border border-red-500/20 rounded-xl">
-                                <p className="text-xs font-bold text-red-400 animate-pulse">● Recording</p>
-                                <p className="text-sm font-mono font-bold text-white">
-                                    {formatDuration(recordingTime)}
-                                </p>
-                                <div className="flex-1 flex items-center justify-end gap-0.5">
-                                    {Array.from({ length: 8 }).map((_, i) => (
-                                        <div
-                                            key={i}
-                                            className="w-1 bg-red-400 rounded-full animate-pulse"
-                                            style={{
-                                                height: `${6 + Math.random() * 12}px`,
-                                                animationDelay: `${i * 0.08}s`,
-                                                animationDuration: '0.5s',
-                                            }}
-                                        />
-                                    ))}
-                                </div>
-                            </div>
-                        )}
-                    </div>
-
-                    {/* Body text */}
-                    <div className="flex-1 min-h-0">
-                        <textarea
-                            aria-label="Voice transcript"
-                            aria-readonly="true"
-                            aria-describedby="diary-voice-transcript-help"
-                            placeholder={
-                                isRecording
-                                    ? 'Listening… your words will appear here.'
-                                    : transcribing || polishing
-                                      ? 'Finishing your voice entry…'
-                                      : 'Use the microphone to dictate your entry.'
-                            }
-                            value={body}
-                            readOnly
-                            inputMode="none"
-                            tabIndex={-1}
-                            className="w-full h-full min-h-0 bg-slate-900 border border-white/[0.08] rounded-2xl p-4 text-sm text-gray-200 placeholder-gray-500 leading-relaxed resize-none outline-none cursor-default"
-                        />
-                        <p id="diary-voice-transcript-help" className="sr-only">
-                            Voice-only diary entry. Start recording to dictate the text shown here.
+                        {/* GPS coords — always on the entry by default (Shane
+                            2026-08-25). Shown so the punter can SEE what will
+                            be saved; honesty when there is no fix yet. */}
+                        <p className="px-1 text-[10px] font-mono text-gray-500">
+                            <span aria-hidden>📍 </span>
+                            {coordsLabel ??
+                                (gpsLoading ? 'Acquiring GPS fix…' : 'No GPS fix — will retry when you save')}
                         </p>
                     </div>
 
-                    {/* Transcribing indicator */}
-                    {(transcribing || polishing) && (
-                        <div className="shrink-0 flex items-center justify-center gap-2 px-3 py-2 bg-emerald-500/10 border border-emerald-500/15 rounded-xl">
-                            <span className="text-sm animate-pulse">🎙️</span>
-                            <span className="text-xs font-bold text-emerald-400">
-                                {polishing ? 'Styling your entry…' : 'Finishing your voice entry…'}
-                            </span>
+                    {/* Body text — the big box. Editable, and it rides above
+                        the keyboard: the form's paddingBottom tracks the shared
+                        keyboard measurement and the focus handler scrolls the
+                        caret clear (the KeyboardResize.None trap). */}
+                    <div className="flex-1 min-h-0">
+                        <textarea
+                            aria-label="Diary entry text"
+                            placeholder={polishing ? 'Styling your entry…' : 'What happened out there?'}
+                            value={body}
+                            onChange={(e) => onSetBody(e.target.value)}
+                            onFocus={scrollInputAboveKeyboard}
+                            disabled={polishing}
+                            className="w-full h-full min-h-[10rem] bg-slate-900 border border-white/[0.08] rounded-2xl p-4 text-sm text-gray-200 placeholder-gray-500 leading-relaxed resize-none outline-none focus:border-sky-500/30 transition-colors disabled:opacity-60"
+                        />
+                    </div>
+
+                    {/* Polishing indicator */}
+                    {polishing && (
+                        <div className="shrink-0 flex items-center justify-center gap-2 px-3 py-2 bg-purple-500/10 border border-purple-500/15 rounded-xl">
+                            <span className="text-sm animate-pulse">✨</span>
+                            <span className="text-xs font-bold text-purple-300">Styling your entry…</span>
                         </div>
                     )}
-
-                    {/* Voice memo preview deliberately omitted — recording auto-
-                        transcribes on stop (DiaryPage onstop handler), so all
-                        the punter ever sees is the transient transcribing pill
-                        above. audioUrl still rides along on the saved entry
-                        for playback in the entry-detail view. */}
 
                     {/* Photos */}
                     <div className="shrink-0">
@@ -386,13 +313,7 @@ export const DiaryComposeForm: React.FC<DiaryComposeFormProps> = React.memo(
                         <button
                             aria-label="Save changes"
                             onClick={onSave}
-                            disabled={
-                                saving ||
-                                isRecording ||
-                                transcribing ||
-                                polishing ||
-                                (!body.trim() && !title.trim() && !audioUrl)
-                            }
+                            disabled={saving || polishing || (!body.trim() && !title.trim() && !audioUrl)}
                             className="flex-[2] py-3 rounded-xl bg-sky-600 hover:bg-sky-500 disabled:bg-gray-700 disabled:text-gray-400 text-white font-bold text-sm transition-colors active:scale-[0.98]"
                         >
                             {saving ? 'Saving…' : isEditing ? 'Update Entry' : 'Save Entry'}

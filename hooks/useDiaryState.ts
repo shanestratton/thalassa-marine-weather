@@ -53,8 +53,6 @@ export interface DiaryState {
     exportProgress: string | null;
 
     // Audio recording
-    isRecording: boolean;
-    recordingTime: number;
     transcribing: boolean;
 
     // Playback
@@ -67,7 +65,7 @@ export interface DiaryState {
     deletedItem: DiaryEntry | null;
 }
 
-const initialState: DiaryState = {
+export const initialDiaryState: DiaryState = {
     entries: [],
     loading: true,
     showCompose: false,
@@ -76,7 +74,9 @@ const initialState: DiaryState = {
     editingId: null,
     title: '',
     body: '',
-    mood: 'good',
+    // 'epic' by default (Shane 2026-08-25): the diary assumes the day was
+    // worth writing about; the punter downgrades only when the sea disagreed.
+    mood: 'epic',
     photos: [],
     audioUrl: null,
     uploading: false,
@@ -94,8 +94,6 @@ const initialState: DiaryState = {
     menuOpen: false,
     exportProgress: null,
 
-    isRecording: false,
-    recordingTime: 0,
     transcribing: false,
 
     isPlaying: false,
@@ -147,11 +145,7 @@ export type DiaryAction =
     | { type: 'SET_EXPORT_PROGRESS'; progress: string | null }
 
     // Audio recording
-    | { type: 'START_RECORDING' }
-    | { type: 'STOP_RECORDING' }
-    | { type: 'TICK_RECORDING' }
     | { type: 'SET_TRANSCRIBING'; transcribing: boolean }
-    | { type: 'SET_RECORDING_TIME'; time: number }
 
     // Playback
     | { type: 'SET_PLAYING'; playing: boolean }
@@ -165,7 +159,7 @@ export type DiaryAction =
 
 // ── Reducer ────────────────────────────────────────────────────
 
-function diaryReducer(state: DiaryState, action: DiaryAction): DiaryState {
+export function diaryReducer(state: DiaryState, action: DiaryAction): DiaryState {
     switch (action.type) {
         // ── Page ──
         case 'SET_ENTRIES':
@@ -200,7 +194,7 @@ function diaryReducer(state: DiaryState, action: DiaryAction): DiaryState {
                 editingId: null,
                 title: formatEntryTitleDefault(new Date()),
                 body: '',
-                mood: 'good',
+                mood: 'epic',
                 photos: [],
                 audioUrl: null,
                 lat: null,
@@ -208,7 +202,6 @@ function diaryReducer(state: DiaryState, action: DiaryAction): DiaryState {
                 locationName: '',
                 weatherSummary: action.weatherSummary,
                 weatherDataObj: null,
-                recordingTime: 0,
             };
         case 'OPEN_EDIT':
             return {
@@ -277,16 +270,8 @@ function diaryReducer(state: DiaryState, action: DiaryAction): DiaryState {
             return { ...state, exportProgress: action.progress };
 
         // ── Audio recording ──
-        case 'START_RECORDING':
-            return { ...state, isRecording: true, recordingTime: 0 };
-        case 'STOP_RECORDING':
-            return { ...state, isRecording: false };
-        case 'TICK_RECORDING':
-            return { ...state, recordingTime: state.recordingTime + 1 };
         case 'SET_TRANSCRIBING':
             return { ...state, transcribing: action.transcribing };
-        case 'SET_RECORDING_TIME':
-            return { ...state, recordingTime: action.time };
 
         // ── Playback ──
         case 'SET_PLAYING':
@@ -317,6 +302,6 @@ function diaryReducer(state: DiaryState, action: DiaryAction): DiaryState {
 // ── Hook ───────────────────────────────────────────────────────
 
 export function useDiaryState() {
-    const [state, dispatch] = useReducer(diaryReducer, initialState);
+    const [state, dispatch] = useReducer(diaryReducer, initialDiaryState);
     return { state, dispatch };
 }
