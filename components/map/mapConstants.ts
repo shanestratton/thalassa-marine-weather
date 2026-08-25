@@ -161,13 +161,14 @@ export const ATMOSPHERE_LAYERS: WeatherLayer[] = ['rain', 'wind', 'velocity', 't
  * disagreed, Mapbox clamped easeTo at call time and the tap looked ineffective.
  */
 export const LAYER_FRAME_ZOOM: Partial<Record<WeatherLayer, number>> = {
-    // Wind and rain both open at z7 (Shane 2026-08-24). Wind was z9, which is
-    // a harbour frame — too tight to read a system moving through; rain was z5,
-    // wide enough that a cell you care about is a smudge. z7 is the regional
-    // read both actually want, and it matches the multi-layer frame below, so
-    // stacking a second overlay no longer moves the camera at all.
-    wind: 7,
-    velocity: 7,
+    // Wind is BACK at z9 (Shane 2026-08-25, "change the wind default zoom
+    // back to 9" — one day at the z7 regional frame proved the harbour read
+    // is the one he actually reaches for). Rain stays z7: its 2026-08-24
+    // reasoning (z5 made the cell you care about a smudge) still stands.
+    // Stacking wind with another layer still snaps to the shared
+    // MULTI_LAYER_FRAME_ZOOM below, so only the solo open changed.
+    wind: 9,
+    velocity: 9,
     // 7, was 7.5 (Shane 2026-08-24 late): currents joins wind and rain on
     // the shared regional frame, and matches MULTI_LAYER_FRAME_ZOOM — so
     // stacking currents with either of them no longer nudges the camera half

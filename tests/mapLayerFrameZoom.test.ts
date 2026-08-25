@@ -8,17 +8,16 @@ import {
 import { RAINVIEWER_NATIVE_MAX_ZOOM } from '../services/weather/api/rainviewerTiles';
 
 describe('weather-layer framing zooms', () => {
-    it('opens wind and rain at the same regional z7 frame', () => {
-        // Both moved to z7 on 2026-08-24. Wind was z9 — a harbour frame, too
-        // tight to watch a system move through; rain was z5, wide enough that
-        // the cell you care about is a smudge. They also now match
-        // MULTI_LAYER_FRAME_ZOOM, so stacking a second overlay on either one
-        // does not move the camera at all.
-        expect(LAYER_FRAME_ZOOM.wind).toBe(7);
-        expect(LAYER_FRAME_ZOOM.velocity).toBe(7);
+    it('opens wind at the z9 harbour frame and rain at the z7 regional one', () => {
+        // Wind went z9 → z7 on 2026-08-24 and BACK to z9 on 2026-08-25
+        // ("change the wind default zoom back to 9") — the harbour read won.
+        // Rain stays z7: z5 made the cell you care about a smudge. The
+        // legacy 'velocity' alias must always match wind.
+        expect(LAYER_FRAME_ZOOM.wind).toBe(9);
+        expect(LAYER_FRAME_ZOOM.velocity).toBe(LAYER_FRAME_ZOOM.wind);
         expect(LAYER_FRAME_ZOOM.rain).toBe(7);
-        expect(getActiveLayerFrameZoom(new Set<WeatherLayer>(['wind']))).toBe(7);
-        expect(getActiveLayerFrameZoom(new Set<WeatherLayer>(['velocity']))).toBe(7);
+        expect(getActiveLayerFrameZoom(new Set<WeatherLayer>(['wind']))).toBe(9);
+        expect(getActiveLayerFrameZoom(new Set<WeatherLayer>(['velocity']))).toBe(9);
         expect(getActiveLayerFrameZoom(new Set<WeatherLayer>(['rain']))).toBe(7);
     });
 
@@ -39,8 +38,8 @@ describe('weather-layer framing zooms', () => {
     // frame to z9 moved the floor with it and pinned the chart at one zoom
     // level — the map would not zoom out at all. Still the invariant after the
     // frame moved 9 → 7: what matters is that they are decided separately.
-    it('lets wind open regional at z7 while still pinching out to z3', () => {
-        expect(LAYER_FRAME_ZOOM.wind).toBe(7);
+    it('lets wind open at z9 while still pinching out to z3', () => {
+        expect(LAYER_FRAME_ZOOM.wind).toBe(9);
         expect(LAYER_MIN_ZOOM.wind).toBe(3);
         expect(LAYER_MIN_ZOOM.velocity).toBe(3);
         // The floor must be strictly below the frame, or there is no range to

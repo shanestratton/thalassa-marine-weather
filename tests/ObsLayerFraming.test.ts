@@ -28,9 +28,10 @@ import {
 const set = (...layers: WeatherLayer[]): ReadonlySet<WeatherLayer> => new Set(layers);
 
 describe('single-layer framing', () => {
-    it('opens rain and wind at z7', () => {
+    it('opens rain at z7 and wind at z9', () => {
+        // Wind returned to its z9 harbour frame 2026-08-25 ("back to 9").
         expect(LAYER_FRAME_ZOOM.rain).toBe(7);
-        expect(LAYER_FRAME_ZOOM.wind).toBe(7);
+        expect(LAYER_FRAME_ZOOM.wind).toBe(9);
         // 'velocity' is the legacy alias for the same particle engine; a save
         // stored under the old key must frame identically or the layer opens
         // at a different zoom depending on when the user first enabled it.
