@@ -43,7 +43,13 @@ describe('OceanCurrentService provider authority', () => {
             dataFingerprint: null,
         });
         expect(result.vectors).toEqual([]);
-        expect(fetchMock).toHaveBeenCalledTimes(3);
+        // One call per dataset descriptor in the fallback chain.
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+        const urls = fetchMock.mock.calls.map((call) => String(call[0]));
+        expect(urls[0]).toContain('coastwatch.noaa.gov/erddap/griddap/noaacwBLENDEDNRTcurrentsDaily.json');
+        expect(urls[0]).toContain('u_current[(last)]');
+        expect(urls[1]).toContain('coastwatch.pfeg.noaa.gov/erddap/griddap/nesdisSSH1day.json');
+        expect(urls[1]).toContain('ugos[(last)]');
         expect(currentCacheKeys()).toEqual([]);
     });
 
@@ -101,7 +107,11 @@ describe('OceanCurrentService provider authority', () => {
     it('binds cached route-effect calculations to speed, distance and bearing inputs', async () => {
         const fetchMock = vi
             .spyOn(globalThis, 'fetch')
-            .mockImplementation(async () => currentResponse([['2026-08-05T00:00:00Z', -20, 148, 0.5, 0.1]]));
+            // Fresh relative to the wall clock — a fixed date would age past
+            // the freshness guard and turn this into an unavailability test.
+            .mockImplementation(async () =>
+                currentResponse([[new Date(Date.now() - 86_400_000).toISOString(), -20, 148, 0.5, 0.1]]),
+            );
 
         await OceanCurrentService.fetchCurrents(BBOX, 90, 120, 6);
         await OceanCurrentService.fetchCurrents(BBOX, 91, 120, 6);
@@ -109,5 +119,37 @@ describe('OceanCurrentService provider authority', () => {
 
         expect(fetchMock).toHaveBeenCalledTimes(3);
         expect(currentCacheKeys()).toHaveLength(3);
+    });
+
+    it('rejects a stale field — [(last)] on a frozen dataset is a failure, not a briefing', async () => {
+        // NOAA retired the whole 2025 dataset chain on 2026-08-25 and the
+        // survivors freeze in place (jplOscar died at 2014, nesdisSSH1day at
+        // 2026-03). A months-old row must fall through to the next dataset
+        // and, with none fresh, come back unavailable.
+        const staleRow = ['2026-03-25T00:00:00Z', -20, 148, 0.3, 0.1];
+        const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(currentResponse([staleRow]));
+
+        const result = await OceanCurrentService.fetchCurrents(BBOX, 90, 120, 6);
+
+        expect(result.availability).toBe('unavailable');
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+        expect(currentCacheKeys()).toEqual([]);
+    });
+
+    it('accepts a fresh field and records its dataset id and data time', async () => {
+        const freshIso = new Date(Date.now() - 2 * 86_400_000).toISOString();
+        const fetchMock = vi
+            .spyOn(globalThis, 'fetch')
+            .mockResolvedValue(currentResponse([[freshIso, -20, 148, 0.3, 0.1]]));
+
+        const result = await OceanCurrentService.fetchCurrents(BBOX, 90, 120, 6);
+
+        expect(result.availability).toBe('available');
+        if (result.availability === 'available') {
+            expect(result.providerDataset).toBe('noaacwBLENDEDNRTcurrentsDaily');
+            expect(result.dataTime).toBe(freshIso);
+            expect(result.vectors).toHaveLength(1);
+        }
+        expect(fetchMock).toHaveBeenCalledTimes(1);
     });
 });
