@@ -227,30 +227,6 @@ export const DiaryComposeForm: React.FC<DiaryComposeFormProps> = React.memo(
                         </p>
                     </div>
 
-                    {/* Body text — the big box. Editable, and it rides above
-                        the keyboard: the form's paddingBottom tracks the shared
-                        keyboard measurement and the focus handler scrolls the
-                        caret clear (the KeyboardResize.None trap). */}
-                    <div className="flex-1 min-h-0">
-                        <textarea
-                            aria-label="Diary entry text"
-                            placeholder={polishing ? 'Styling your entry…' : 'What happened out there?'}
-                            value={body}
-                            onChange={(e) => onSetBody(e.target.value)}
-                            onFocus={scrollInputAboveKeyboard}
-                            disabled={polishing}
-                            className="w-full h-full min-h-[10rem] bg-slate-900 border border-white/[0.08] rounded-2xl p-4 text-sm text-gray-200 placeholder-gray-500 leading-relaxed resize-none outline-none focus:border-sky-500/30 transition-colors disabled:opacity-60"
-                        />
-                    </div>
-
-                    {/* Polishing indicator */}
-                    {polishing && (
-                        <div className="shrink-0 flex items-center justify-center gap-2 px-3 py-2 bg-purple-500/10 border border-purple-500/15 rounded-xl">
-                            <span className="text-sm animate-pulse">✨</span>
-                            <span className="text-xs font-bold text-purple-300">Styling your entry…</span>
-                        </div>
-                    )}
-
                     {/* Photos */}
                     <div className="shrink-0">
                         <div
@@ -296,6 +272,39 @@ export const DiaryComposeForm: React.FC<DiaryComposeFormProps> = React.memo(
                                 </button>
                             ))}
                         </div>
+                    </div>
+                    {/* Polishing indicator */}
+                    {polishing && (
+                        <div className="shrink-0 flex items-center justify-center gap-2 px-3 py-2 bg-purple-500/10 border border-purple-500/15 rounded-xl">
+                            <span className="text-sm animate-pulse">✨</span>
+                            <span className="text-xs font-bold text-purple-300">Styling your entry…</span>
+                        </div>
+                    )}
+
+                    {/* Body text — the big box. Editable, and it rides above
+                        the keyboard: the form's paddingBottom tracks the shared
+                        keyboard measurement and the focus handler scrolls the
+                        caret clear (the KeyboardResize.None trap). LAST in
+                        the column on purpose (Shane 2026-08-25 screenshot: the
+                        box scrolled to the top and left a void above the
+                        buttons): it must sit JUST ABOVE Cancel/Save, so focus
+                        scrolls the column to its tail — never to a void. */}
+                    <div className="flex-1 min-h-0">
+                        <textarea
+                            aria-label="Diary entry text"
+                            placeholder={polishing ? 'Styling your entry…' : 'What happened out there?'}
+                            value={body}
+                            onChange={(e) => onSetBody(e.target.value)}
+                            onFocus={(e) => {
+                                scrollInputAboveKeyboard(e);
+                                const scroller = e.currentTarget.closest('.overflow-auto');
+                                requestAnimationFrame(() => {
+                                    if (scroller) scroller.scrollTop = scroller.scrollHeight;
+                                });
+                            }}
+                            disabled={polishing}
+                            className="w-full h-full min-h-[10rem] bg-slate-900 border border-white/[0.08] rounded-2xl p-4 text-sm text-gray-200 placeholder-gray-500 leading-relaxed resize-none outline-none focus:border-sky-500/30 transition-colors disabled:opacity-60"
+                        />
                     </div>
                 </div>
 
