@@ -1537,7 +1537,9 @@ const intendedPublicBetaFeatureFlags = {
     VITE_APPLE_SIGN_IN_ENABLED: false,
     VITE_APPLE_MUSIC_ENABLED: true,
     VITE_APPLE_WATCH_ENABLED: false,
-    VITE_GOOGLE_SIGN_IN_ENABLED: false,
+    // true since 2026-08-25 (Shane: 'put it back') — provider config verified
+    // end to end before the flip; see public-beta-feature-profile.mjs.
+    VITE_GOOGLE_SIGN_IN_ENABLED: true,
     VITE_ACCOUNT_DELETION_ENABLED: false,
     VITE_GRANT_ALL_FEATURES: false,
     VITE_ENABLE_ENC_DEMO_SAMPLES: false,
@@ -1577,10 +1579,9 @@ check(
             'spoonacular-online-catalogue',
         ]) &&
         JSON.stringify(publicBetaFeatureProfile.heldCapabilities) === JSON.stringify(PUBLIC_BETA_HELD_CAPABILITIES) &&
-        JSON.stringify(publicBetaFeatureProfile.requiredAbsentClientConfig) ===
-            JSON.stringify(['VITE_GOOGLE_OAUTH_CLIENT_ID']) &&
+        JSON.stringify(publicBetaFeatureProfile.requiredAbsentClientConfig) === JSON.stringify([]) &&
         JSON.stringify(publicBetaFeatureProfile.requiredCredentialPresence) ===
-            JSON.stringify(['VITE_OWM_API_KEY', 'VITE_SENTRY_DSN']),
+            JSON.stringify(['VITE_OWM_API_KEY', 'VITE_SENTRY_DSN', 'VITE_GOOGLE_OAUTH_CLIENT_ID']),
 );
 check(
     'production builds inject and emit the committed public-beta profile without workflow duplication',

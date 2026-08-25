@@ -29,8 +29,11 @@ describe('Google sign-in boundary', () => {
         // than no button — the whole reason the default is off.
         expect(service).toContain("import.meta.env.VITE_GOOGLE_SIGN_IN_ENABLED === 'true'");
         expect(service).toContain("GOOGLE_OAUTH_CLIENT_ID !== ''");
+        // ON since 2026-08-25 (Shane: "put it back") — flipped only after the
+        // Supabase provider, Google Cloud redirect and both build
+        // environments were verified configured, honouring the rule above.
         expect(JSON.parse(read('config/public-beta-features.json')).featureFlags.VITE_GOOGLE_SIGN_IN_ENABLED).toBe(
-            false,
+            true,
         );
         expect(signInUi).toContain('{googleEnabled && (');
     });
