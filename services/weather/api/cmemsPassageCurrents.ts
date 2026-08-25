@@ -44,9 +44,10 @@ export interface CmemsPassageSample {
  *  the NOAA path returned ~150-250 cells for a 240 NM passage; parity. */
 export const CMEMS_PASSAGE_MAX_VECTORS = 300;
 
-/** A pipeline whose nearest frame is further than this from "now" is dead
- *  or wedged — fall back rather than brief on old water. The publisher
- *  cuts 13 hourly frames several times a day; healthy skew is minutes. */
+/** A pipeline whose nearest frame lies more than this off the wall clock
+ *  is dead or wedged — fall back rather than brief on old water. The
+ *  publisher cuts 13 hourly frames several times a day; healthy skew is
+ *  minutes. */
 export const CMEMS_PASSAGE_MAX_FRAME_SKEW_MS = 48 * 3_600_000;
 
 interface Bbox {
