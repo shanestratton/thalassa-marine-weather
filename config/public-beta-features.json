@@ -12,7 +12,7 @@
         "VITE_APPLE_SIGN_IN_ENABLED": false,
         "VITE_APPLE_MUSIC_ENABLED": true,
         "VITE_APPLE_WATCH_ENABLED": false,
-        "VITE_GOOGLE_SIGN_IN_ENABLED": false,
+        "VITE_GOOGLE_SIGN_IN_ENABLED": true,
         "VITE_ACCOUNT_DELETION_ENABLED": false,
         "VITE_GRANT_ALL_FEATURES": false,
         "VITE_ENABLE_ENC_DEMO_SAMPLES": false
@@ -38,6 +38,6 @@
         "unverified-commercial-chart-packages",
         "spoonacular-online-catalogue"
     ],
-    "requiredAbsentClientConfig": ["VITE_GOOGLE_OAUTH_CLIENT_ID"],
-    "requiredCredentialPresence": ["VITE_OWM_API_KEY", "VITE_SENTRY_DSN"]
+    "requiredAbsentClientConfig": [],
+    "requiredCredentialPresence": ["VITE_OWM_API_KEY", "VITE_SENTRY_DSN", "VITE_GOOGLE_OAUTH_CLIENT_ID"]
 }

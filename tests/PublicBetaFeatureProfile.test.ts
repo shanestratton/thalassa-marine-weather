@@ -44,7 +44,7 @@ describe('committed public-beta feature profile', () => {
             // usage description shipped, native plugin restored to Sources.
             VITE_APPLE_MUSIC_ENABLED: true,
             VITE_APPLE_WATCH_ENABLED: false,
-            VITE_GOOGLE_SIGN_IN_ENABLED: false,
+            VITE_GOOGLE_SIGN_IN_ENABLED: true,
             VITE_ACCOUNT_DELETION_ENABLED: false,
             VITE_GRANT_ALL_FEATURES: false,
             VITE_ENABLE_ENC_DEMO_SAMPLES: false,
@@ -74,8 +74,12 @@ describe('committed public-beta feature profile', () => {
             'unverified-commercial-chart-packages',
             'spoonacular-online-catalogue',
         ]);
-        expect(profile.requiredAbsentClientConfig).toEqual(['VITE_GOOGLE_OAUTH_CLIENT_ID']);
-        expect(profile.requiredCredentialPresence).toEqual(['VITE_OWM_API_KEY', 'VITE_SENTRY_DSN']);
+        expect(profile.requiredAbsentClientConfig).toEqual([]);
+        expect(profile.requiredCredentialPresence).toEqual([
+            'VITE_OWM_API_KEY',
+            'VITE_SENTRY_DSN',
+            'VITE_GOOGLE_OAUTH_CLIENT_ID',
+        ]);
     });
 
     it('turns the committed profile into exact Vite defines, including held empty config', () => {
@@ -87,7 +91,9 @@ describe('committed public-beta feature profile', () => {
         for (const [key, endpoint] of Object.entries(profile.publicEndpoints)) {
             expect(define[`import.meta.env.${key}`]).toBe(JSON.stringify(endpoint));
         }
-        expect(define['import.meta.env.VITE_GOOGLE_OAUTH_CLIENT_ID']).toBe(JSON.stringify(''));
+        // The client ID left required-absent on 2026-08-25: the build no longer
+        // blanks it, the environment supplies it (presence-asserted).
+        expect(define['import.meta.env.VITE_GOOGLE_OAUTH_CLIENT_ID']).toBeUndefined();
     });
 
     it('fails production when a supplied feature or endpoint override disagrees', () => {
@@ -110,6 +116,7 @@ describe('committed public-beta feature profile', () => {
         const credentialValues = {
             VITE_OWM_API_KEY: 'test-only-owm-value',
             VITE_SENTRY_DSN: 'https://test-only-sentry-value.invalid/1',
+            VITE_GOOGLE_OAUTH_CLIENT_ID: 'test-only-client-id.apps.googleusercontent.com',
         };
         const presence = publicBetaCredentialPresenceFromEnvironment(profile, credentialValues);
         const first = createPublicBetaFeatureArtifact(profile, presence);

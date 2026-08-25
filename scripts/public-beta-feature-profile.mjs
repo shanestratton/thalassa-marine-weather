@@ -49,8 +49,16 @@ export const PUBLIC_BETA_HELD_CAPABILITIES = Object.freeze([
     'spoonacular-online-catalogue',
 ]);
 
-export const PUBLIC_BETA_REQUIRED_ABSENT_CLIENT_CONFIG = Object.freeze(['VITE_GOOGLE_OAUTH_CLIENT_ID']);
-export const PUBLIC_BETA_REQUIRED_CREDENTIAL_PRESENCE = Object.freeze(['VITE_OWM_API_KEY', 'VITE_SENTRY_DSN']);
+// Google sign-in re-enabled 2026-08-25 (Shane): the client ID moved from
+// required-absent to required-present — the Supabase provider, Google Cloud
+// redirect and both build environments were verified configured first, so
+// the button can no longer ship pointing at an unconfigured provider.
+export const PUBLIC_BETA_REQUIRED_ABSENT_CLIENT_CONFIG = Object.freeze([]);
+export const PUBLIC_BETA_REQUIRED_CREDENTIAL_PRESENCE = Object.freeze([
+    'VITE_OWM_API_KEY',
+    'VITE_SENTRY_DSN',
+    'VITE_GOOGLE_OAUTH_CLIENT_ID',
+]);
 
 const PROFILE_KEYS = Object.freeze([
     'featureFlags',
