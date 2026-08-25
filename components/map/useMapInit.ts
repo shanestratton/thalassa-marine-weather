@@ -10,6 +10,7 @@ import { useRef, useEffect, useCallback, type MutableRefObject } from 'react';
 import { registerCensusMap } from '../../services/memoryCensus';
 import { Capacitor } from '@capacitor/core';
 import mapboxgl from 'mapbox-gl';
+import { armZombieMapGuards } from './zombieMapGuard';
 import { LocationStore } from '../../stores/LocationStore';
 import { triggerHaptic } from '../../utils/system';
 import { GpsService as _GpsService } from '../../services/GpsService';
@@ -1505,6 +1506,9 @@ export function useMapInit(opts: UseMapInitOptions) {
             wasDragged = false;
         });
 
+        // A removed map answers null instead of crashing the page (the
+        // second-leg routing kill, 2026-08-25) — and crumbs its caller.
+        armZombieMapGuards(map);
         mapRef.current = map;
         // Hand the map to the crash census. NOT via a global: the DEV-only
         // window.__thalassaMap below is eliminated from production builds, so
