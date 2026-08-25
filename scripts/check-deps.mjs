@@ -13,6 +13,10 @@
  *   PHANTOM: a bare import specifier that resolves to no declared
  *            dependency (prod or dev).
  *
+ * Comments are stripped before the import regexes run — a doc comment
+ * whose prose contained `from "now"` scanned as a phantom import of the
+ * npm package 'now' and failed CI (2026-08-25, cmemsPassageCurrents.ts).
+ *
  * Scope: the ROOT package only. workers/ and supabase/functions/ have
  * their own dependency worlds (separate package.json / Deno) and are
  * excluded from both directions.
@@ -20,6 +24,7 @@
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, extname } from 'node:path';
 import { builtinModules } from 'node:module';
+import { pathToFileURL } from 'node:url';
 
 const ROOT = new URL('..', import.meta.url).pathname;
 
@@ -96,27 +101,14 @@ function toPackageName(spec) {
     return spec.startsWith('@') ? parts.slice(0, 2).join('/') : parts[0];
 }
 
-const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'));
-const prodDeps = Object.keys(pkg.dependencies ?? {});
-const allDeclared = new Set([...prodDeps, ...Object.keys(pkg.devDependencies ?? {})]);
-const builtins = new Set(builtinModules);
-
-const files = [];
-for (const d of SCAN_DIRS) files.push(...walk(join(ROOT, d)));
-for (const f of SCAN_ROOT_FILES) {
-    try {
-        statSync(join(ROOT, f));
-        files.push(join(ROOT, f));
-    } catch {
-        /* absent root file — fine */
-    }
-}
-
+// Run against COMMENT-STRIPPED text only (stripComments below) — the
+// multi-line reach of [^'"]{0,600}? otherwise walks from an export line
+// into a following comment's prose and reads `from "now"` as an import.
 // Statement-anchored forms only — a plain /from '...'/ scoop drags in
-// prose from comments ("...read from 'weather.current'"). Line-anchored
-// import/export cover static forms incl. side-effect imports
-// (import 'leaflet.markercluster'); dynamic import()/require() are
-// matched unanchored but validated by the npm-name shape below.
+// prose from string literals ("...read from 'weather.current'").
+// Line-anchored import/export cover static forms incl. side-effect
+// imports (import 'leaflet.markercluster'); dynamic import()/require()
+// are matched unanchored but validated by the npm-name shape below.
 const IMPORT_RES = [
     // [^'"]{0,600}? spans multi-line import blocks (import X, { a,\n b }
     // from 'pkg') but cannot jump PAST a specifier — the exclusion of
@@ -129,14 +121,134 @@ const IMPORT_RES = [
 /** Valid npm specifier shape — kills residual prose matches. */
 const NPM_NAME_RE = /^(@[a-z0-9-~][a-z0-9-._~]*\/)?[a-z0-9-~][a-z0-9-._~]*(\/[\w.-]+)*$/;
 
-const seenPackages = new Set();
-const phantoms = new Map(); // pkgName → first file:specifier
+/**
+ * Replace // and slash-star comments with whitespace, preserving newlines so
+ * the line anchors above still see the same line structure. String and
+ * template-literal contents pass through untouched — URLs carry '//' and
+ * must survive. Character-level state machine; regex literals are the one
+ * known approximation (the tail of /\/\// reads as a line comment), which
+ * at worst blanks the remainder of that single line.
+ *
+ * @param {string} source raw file text
+ * @returns {string} same-shape text with comment bodies blanked
+ */
+export function stripComments(source) {
+    let out = '';
+    let i = 0;
+    /** 'code' | 'line' | 'block' | "'" | '"' | '`' */
+    let state = 'code';
+    // Brace depth at each open template interpolation — `${`…`}` nests.
+    const interpolations = [];
+    let braceDepth = 0;
+    while (i < source.length) {
+        const c = source[i];
+        const next = source[i + 1];
+        if (state === 'code') {
+            if (c === '/' && next === '/') {
+                state = 'line';
+                out += '  ';
+                i += 2;
+            } else if (c === '/' && next === '*') {
+                state = 'block';
+                out += '  ';
+                i += 2;
+            } else if (c === "'" || c === '"' || c === '`') {
+                state = c;
+                out += c;
+                i += 1;
+            } else if (c === '{') {
+                braceDepth += 1;
+                out += c;
+                i += 1;
+            } else if (c === '}' && braceDepth === interpolations[interpolations.length - 1]) {
+                interpolations.pop();
+                state = '`';
+                out += c;
+                i += 1;
+            } else {
+                if (c === '}') braceDepth -= 1;
+                out += c;
+                i += 1;
+            }
+        } else if (state === 'line') {
+            if (c === '\n') {
+                state = 'code';
+                out += '\n';
+            } else {
+                out += ' ';
+            }
+            i += 1;
+        } else if (state === 'block') {
+            if (c === '*' && next === '/') {
+                state = 'code';
+                out += '  ';
+                i += 2;
+            } else {
+                out += c === '\n' ? '\n' : ' ';
+                i += 1;
+            }
+        } else if (c === '\\') {
+            // Escaped char inside a string/template — never a delimiter.
+            out += c + (next ?? '');
+            i += 2;
+        } else if (state === '`' && c === '$' && next === '{') {
+            interpolations.push(braceDepth);
+            state = 'code';
+            out += '${';
+            i += 2;
+        } else if (c === state || (state !== '`' && c === '\n')) {
+            // Closing quote — or a raw newline, which no legal quote string
+            // crosses; bail out so an unpaired quote inside a regex literal
+            // can't swallow the rest of the file.
+            state = 'code';
+            out += c;
+            i += 1;
+        } else {
+            out += c;
+            i += 1;
+        }
+    }
+    return out;
+}
 
-for (const file of files) {
-    const text = readFileSync(file, 'utf8');
+/**
+ * Every import/export-from/require specifier the scanner recognises.
+ * Feed this comment-stripped text — see stripComments.
+ *
+ * @param {string} text comment-stripped source text
+ * @returns {string[]} raw specifiers, unfiltered
+ */
+export function findImportSpecifiers(text) {
+    const specs = [];
     for (const re of IMPORT_RES) {
-        for (const m of text.matchAll(re)) {
-            const spec = m[1];
+        for (const m of text.matchAll(re)) specs.push(m[1]);
+    }
+    return specs;
+}
+
+function main() {
+    const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'));
+    const prodDeps = Object.keys(pkg.dependencies ?? {});
+    const allDeclared = new Set([...prodDeps, ...Object.keys(pkg.devDependencies ?? {})]);
+    const builtins = new Set(builtinModules);
+
+    const files = [];
+    for (const d of SCAN_DIRS) files.push(...walk(join(ROOT, d)));
+    for (const f of SCAN_ROOT_FILES) {
+        try {
+            statSync(join(ROOT, f));
+            files.push(join(ROOT, f));
+        } catch {
+            /* absent root file — fine */
+        }
+    }
+
+    const seenPackages = new Set();
+    const phantoms = new Map(); // pkgName → first file:specifier
+
+    for (const file of files) {
+        const text = stripComments(readFileSync(file, 'utf8'));
+        for (const spec of findImportSpecifiers(text)) {
             if (spec.startsWith('.') || spec.startsWith('/')) continue;
             if (VIRTUAL_PREFIXES.some((p) => spec.startsWith(p))) continue;
             if (!NPM_NAME_RE.test(spec)) continue;
@@ -152,26 +264,30 @@ for (const file of files) {
             }
         }
     }
+
+    const dead = prodDeps.filter((d) => !seenPackages.has(d) && !DEAD_ALLOWLIST.has(d) && !d.startsWith('@types/'));
+    const typesInProd = prodDeps.filter((d) => d.startsWith('@types/'));
+
+    let failed = false;
+    if (dead.length > 0) {
+        failed = true;
+        console.error(`❌ DEAD prod dependencies (no source import; allowlist in scripts/check-deps.mjs):`);
+        for (const d of dead) console.error(`   - ${d}`);
+    }
+    if (phantoms.size > 0) {
+        failed = true;
+        console.error(`❌ PHANTOM imports (bare specifier with no declared dependency — hoisting roulette):`);
+        for (const [name, where] of phantoms) console.error(`   - ${name} (${where})`);
+    }
+    if (typesInProd.length > 0) {
+        failed = true;
+        console.error(`❌ @types/* in prod dependencies (belong in devDependencies): ${typesInProd.join(', ')}`);
+    }
+
+    if (failed) process.exit(1);
+    console.log(`✅ Dependency hygiene: ${prodDeps.length} prod deps all referenced; no phantom imports.`);
 }
 
-const dead = prodDeps.filter((d) => !seenPackages.has(d) && !DEAD_ALLOWLIST.has(d) && !d.startsWith('@types/'));
-const typesInProd = prodDeps.filter((d) => d.startsWith('@types/'));
-
-let failed = false;
-if (dead.length > 0) {
-    failed = true;
-    console.error(`❌ DEAD prod dependencies (no source import; allowlist in scripts/check-deps.mjs):`);
-    for (const d of dead) console.error(`   - ${d}`);
-}
-if (phantoms.size > 0) {
-    failed = true;
-    console.error(`❌ PHANTOM imports (bare specifier with no declared dependency — hoisting roulette):`);
-    for (const [name, where] of phantoms) console.error(`   - ${name} (${where})`);
-}
-if (typesInProd.length > 0) {
-    failed = true;
-    console.error(`❌ @types/* in prod dependencies (belong in devDependencies): ${typesInProd.join(', ')}`);
-}
-
-if (failed) process.exit(1);
-console.log(`✅ Dependency hygiene: ${prodDeps.length} prod deps all referenced; no phantom imports.`);
+// Importable for tests (tests/CheckDepsCommentStripping.test.ts) without
+// side effects; scanning runs only when executed as a script.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) main();
