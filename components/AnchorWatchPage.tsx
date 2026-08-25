@@ -18,6 +18,7 @@ import { useWeather } from '../context/WeatherContext';
 import { t } from '../theme';
 import { useKeyboardScroll } from '../hooks/useKeyboardScroll';
 import { AnchorWatchService, type AnchorWatchSnapshot, type AnchorWatchConfig } from '../services/AnchorWatchService';
+import { WatchDimOverlay } from './anchor/WatchDimOverlay';
 import {
     AnchorWatchSyncService,
     type SyncState,
@@ -68,6 +69,31 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
     const [shoreAlarmMutedLocally, setShoreAlarmMutedLocally] = useState(false);
 
     // Setup form state
+    // Screen-dim preference — a device display setting (like theme), not
+    // identity data, so plain localStorage is the right home.
+    const [dimEnabled, setDimEnabled] = useState<boolean>(() => {
+        try {
+            return localStorage.getItem('thalassa_watch_dim_enabled') === '1';
+        } catch {
+            return false;
+        }
+    });
+    const [dimLevel, setDimLevel] = useState<number>(() => {
+        try {
+            const stored = Number(localStorage.getItem('thalassa_watch_dim_level'));
+            return Number.isFinite(stored) && stored >= 50 && stored <= 95 ? stored : 80;
+        } catch {
+            return 80;
+        }
+    });
+    useEffect(() => {
+        try {
+            localStorage.setItem('thalassa_watch_dim_enabled', dimEnabled ? '1' : '0');
+            localStorage.setItem('thalassa_watch_dim_level', String(dimLevel));
+        } catch {
+            /* display preference only — losing it is harmless */
+        }
+    }, [dimEnabled, dimLevel]);
     const [rodeLength, setRodeLength] = useState(30);
     const [waterDepth, setWaterDepth] = useState(5);
     const [rodeType, setRodeType] = useState<'chain' | 'rope' | 'mixed'>('chain');
@@ -710,6 +736,61 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                                     style={{ touchAction: 'none' }}
                                 />
                             </div>
+
+                            {/* ── Screen dim while watching (battery) ── */}
+                            <div>
+                                <div className="flex justify-between items-center mb-1">
+                                    <label
+                                        htmlFor="watch-dim-toggle"
+                                        className="text-xs text-slate-400 uppercase tracking-wider font-bold"
+                                    >
+                                        Dim Screen While Watching
+                                    </label>
+                                    <button
+                                        id="watch-dim-toggle"
+                                        type="button"
+                                        role="switch"
+                                        aria-checked={dimEnabled}
+                                        onClick={() => setDimEnabled((value) => !value)}
+                                        className={`relative h-6 w-11 rounded-full transition-colors ${
+                                            dimEnabled ? 'bg-emerald-500' : 'bg-slate-700'
+                                        }`}
+                                    >
+                                        <span
+                                            className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${
+                                                dimEnabled ? 'translate-x-5' : 'translate-x-0.5'
+                                            }`}
+                                        />
+                                    </button>
+                                </div>
+                                {dimEnabled && (
+                                    <>
+                                        <div className="flex justify-between items-center mb-1">
+                                            <span className="text-[11px] text-slate-500">
+                                                Dims after 20 s idle · any touch wakes it
+                                            </span>
+                                            <span className="text-sm font-black text-emerald-400 font-mono tabular-nums">
+                                                {dimLevel}%
+                                            </span>
+                                        </div>
+                                        <input
+                                            aria-label="Screen dim strength"
+                                            type="range"
+                                            min={50}
+                                            max={95}
+                                            step={5}
+                                            value={dimLevel}
+                                            onChange={(e) => setDimLevel(Number(e.target.value))}
+                                            className="w-full h-2 bg-slate-800/60 rounded-full accent-emerald-500 appearance-none cursor-pointer"
+                                            style={{ touchAction: 'none' }}
+                                        />
+                                        <p className="mt-1 text-[11px] text-slate-500">
+                                            Saves real battery on OLED screens overnight. Alarms always light up at full
+                                            brightness.
+                                        </p>
+                                    </>
+                                )}
+                            </div>
                         </div>
 
                         {/* ── Context Strip — weather + safety ── */}
@@ -1202,6 +1283,12 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
 
     return (
         <div className={`h-full ${t.colors.bg.base} flex flex-col overflow-hidden pb-[98px]`}>
+            {/* Battery dim — HOLDING only. Any anomaly (alarm, drifting,
+                blocked monitoring) gets full brightness immediately. */}
+            <WatchDimOverlay
+                active={dimEnabled && !monitoringBlocked && snapshot?.state === 'watching' && isHolding}
+                opacityPercent={dimLevel}
+            />
             <PageHeader
                 title={monitoringBlocked ? 'Anchor Watch Blocked' : 'Anchor Deployed'}
                 subtitle={
