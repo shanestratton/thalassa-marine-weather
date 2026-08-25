@@ -965,7 +965,13 @@ function bboxIntersects(a: [number, number, number, number], b: [number, number,
 // Re-exported because the bound is part of this service's public story
 // (tests and callers alike found it here first).
 import { capCellsForMerge } from './mergeCap';
-import { claimMergeGen, isMergeGenStale, awaitMergeGenSettle } from './mergeSettle';
+import {
+    claimMergeGen,
+    isMergeGenStale,
+    awaitMergeGenSettle,
+    noteMergeAborted,
+    noteMergeCompleted,
+} from './mergeSettle';
 export { capCellsForMerge };
 
 function bboxDiag(b: [number, number, number, number]): number {
@@ -1165,10 +1171,14 @@ export async function getMergedVectorData(
         // ran (the same lie the join crumb note below guards against).
         if (!merged) return null;
         crumb('enc:merge-done', `${cells.length}cells`);
+        noteMergeCompleted();
         return merged;
     } catch (e) {
         crumb('enc:merge-fail', `${cells.length}cells`);
         if (e instanceof MergeSupersededError) {
+            // Kill #30: this abort PAID for parse transients before dying —
+            // arm the cooldown so the next build waits them out.
+            noteMergeAborted();
             // Cooperative abort (2026-07-17 audit): fast panning used to
             // stack concurrent full merges whose outputs were evicted
             // almost immediately — a superseded WINDOWED merge now bails
