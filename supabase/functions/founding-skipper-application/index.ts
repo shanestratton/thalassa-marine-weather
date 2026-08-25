@@ -1,6 +1,7 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { requireAuthenticatedOrPublicQuota, withCors } from '../_shared/auth-rate-limit.ts';
 import { jsonResponse, readJsonObject } from '../_shared/http-security.ts';
+import { readFoundingSkipperAlertConfig, sendFoundingSkipperAlert } from './alert.ts';
 import { validateFoundingSkipperApplication } from './validation.ts';
 
 const ALLOWED_ORIGINS = new Set([
@@ -22,6 +23,14 @@ function corsHeaders(req: Request): Record<string, string> {
 
 function respond(req: Request, body: unknown, status = 200, extraHeaders: Record<string, string> = {}): Response {
     return withCors(jsonResponse(body, status, extraHeaders), corsHeaders(req));
+}
+
+function runInBackground(task: Promise<void>): void {
+    const runtime = (globalThis as typeof globalThis & {
+        EdgeRuntime?: { waitUntil(promise: Promise<unknown>): void };
+    }).EdgeRuntime;
+    if (runtime) runtime.waitUntil(task);
+    else void task;
 }
 
 Deno.serve(async (req: Request) => {
@@ -59,7 +68,7 @@ Deno.serve(async (req: Request) => {
         auth: { persistSession: false, autoRefreshToken: false },
     });
     const application = validated.value;
-    const { error } = await admin.rpc('submit_founding_skipper_application', {
+    const { data: insertedApplicationId, error } = await admin.rpc('submit_founding_skipper_application_v2', {
         p_name: application.name,
         p_email: application.email,
         p_boat_type: application.boatType,
@@ -73,6 +82,37 @@ Deno.serve(async (req: Request) => {
     if (error) {
         console.error('[founding-skipper-application] storage failed');
         return respond(req, { error: 'Applications are temporarily unavailable. Please try again.' }, 503);
+    }
+
+    if (typeof insertedApplicationId === 'string') {
+        const alertTask = sendFoundingSkipperAlert(
+            {
+                id: insertedApplicationId,
+                name: application.name,
+                email: application.email,
+                boatType: application.boatType,
+                homeWaters: application.homeWaters,
+                appleDevice: application.appleDevice,
+                boatingFrequency: application.boatingFrequency,
+                interests: application.interests,
+                notes: application.notes,
+                source: application.source,
+            },
+            readFoundingSkipperAlertConfig(),
+        )
+            .then((result) => {
+                if (result.status === 'sent') return;
+                if (result.status === 'skipped') {
+                    console.warn(`[founding-skipper-application] alert skipped: ${result.reason}`);
+                    return;
+                }
+                const providerStatus = result.providerStatus ? ` (${result.providerStatus})` : '';
+                console.error(
+                    `[founding-skipper-application] alert delivery failed: ${result.reason}${providerStatus}`,
+                );
+            })
+            .catch(() => console.error('[founding-skipper-application] alert delivery failed unexpectedly'));
+        runInBackground(alertTask);
     }
 
     // New and duplicate emails receive the same response to prevent address

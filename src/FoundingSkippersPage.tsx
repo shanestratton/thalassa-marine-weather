@@ -441,18 +441,20 @@ export function FoundingSkippersPage({
                                 </label>
                                 <FieldError id="consent-error">{errors.consent}</FieldError>
 
-                                <button type="submit" className="beta-submit" disabled={status === 'sending'}>
-                                    {status === 'sending' ? 'Sending application…' : 'Apply to join the crew'}
-                                    <span aria-hidden="true">→</span>
-                                </button>
                                 <p className="beta-privacy">
-                                    Protected by a short-lived pseudonymous network limit. We don't store your raw IP.
-                                    Read our{' '}
+                                    Application details may be processed by Resend, our transactional email provider,
+                                    solely to notify the operator and may arrive in the operator's private email inbox.
+                                    We don't sell application data or use it for advertising. Protected by a short-lived
+                                    pseudonymous network limit; we don't store your raw IP. Read our{' '}
                                     <a href="/terms" target="_blank" rel="noreferrer">
                                         privacy terms
                                     </a>
                                     .
                                 </p>
+                                <button type="submit" className="beta-submit" disabled={status === 'sending'}>
+                                    {status === 'sending' ? 'Sending application…' : 'Apply to join the crew'}
+                                    <span aria-hidden="true">→</span>
+                                </button>
                             </form>
                         </>
                     )}
