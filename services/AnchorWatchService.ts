@@ -21,6 +21,7 @@
 
 import { Haptics, ImpactStyle } from '@capacitor/haptics';
 import { KeepAwake } from '@capacitor-community/keep-awake';
+import { releaseScreenDim, suppressScreenDim } from './screenDim';
 import { LocalNotifications } from '@capacitor/local-notifications';
 import { Capacitor } from '@capacitor/core';
 import { BgGeoManager } from './BgGeoManager';
@@ -2162,6 +2163,11 @@ class AnchorWatchServiceClass {
 
     private notify(): void {
         setLiveAnchorSafetyState(this.state !== 'idle');
+        // A drag alarm must NEVER be dimmed — reconciled here because every
+        // state transition already funnels through notify(), same as the
+        // live-safety flag above.
+        if (this.state === 'alarm') suppressScreenDim('anchor-alarm');
+        else releaseScreenDim('anchor-alarm');
         const snapshot = this.getSnapshot();
         this.listeners.forEach((listener) => {
             try {

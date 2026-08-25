@@ -2,7 +2,8 @@
  * AestheticsTab — Display mode, orientation lock, always-on.
  * Extracted from SettingsModal monolith.
  */
-import React from 'react';
+import React, { useState } from 'react';
+import { readScreenDimSettings, writeScreenDimSettings, type ScreenDimSettings } from '../../services/screenDim';
 import { Section, Row, Toggle, type SettingsTabProps } from './SettingsPrimitives';
 import { DisplayMode, ScreenOrientationType } from '../../types';
 import { SunIcon, MoonIcon, RefreshIcon, PhoneIcon } from '../Icons';
@@ -88,6 +89,13 @@ const ORIENTATION_OPTIONS: {
 export const AestheticsTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
     const currentOrientation = settings.screenOrientation || 'auto';
     const currentMode = settings.displayMode || 'auto';
+    // Device display preference (like theme) — localStorage via screenDim,
+    // announced with an event so the app-root ScreenDimHost reacts live.
+    const [dim, setDim] = useState(readScreenDimSettings);
+    const updateDim = (next: ScreenDimSettings) => {
+        setDim(next);
+        writeScreenDimSettings(next);
+    };
 
     return (
         <div className="max-w-2xl mx-auto animate-in fade-in slide-in-from-right-4 duration-300">
@@ -139,6 +147,37 @@ export const AestheticsTab: React.FC<SettingsTabProps> = ({ settings, onSave }) 
                     </div>
                     <Toggle checked={settings.alwaysOn || false} onChange={(v) => onSave({ alwaysOn: v })} />
                 </Row>
+                <Row>
+                    <div className="flex-1">
+                        <label className="text-sm text-white font-medium block">Dim While Always On</label>
+                        <p className="text-xs text-gray-400">
+                            Dims after 20 s idle to save battery — any touch wakes it. Alarms and MOB always show at
+                            full brightness.
+                        </p>
+                    </div>
+                    <Toggle checked={dim.enabled} onChange={(v) => updateDim({ ...dim, enabled: v })} />
+                </Row>
+                {dim.enabled && (
+                    <div className="px-4 pb-4">
+                        <div className="flex justify-between items-center mb-1">
+                            <span className="text-xs text-gray-400">Dim strength</span>
+                            <span className="text-sm font-black text-emerald-400 font-mono tabular-nums">
+                                {dim.level}%
+                            </span>
+                        </div>
+                        <input
+                            aria-label="Screen dim strength"
+                            type="range"
+                            min={50}
+                            max={95}
+                            step={5}
+                            value={dim.level}
+                            onChange={(e) => updateDim({ ...dim, level: Number(e.target.value) })}
+                            className="w-full h-2 bg-slate-800/60 rounded-full accent-emerald-500 appearance-none cursor-pointer"
+                            style={{ touchAction: 'none' }}
+                        />
+                    </div>
+                )}
             </Section>
 
             <Section title="Display Orientation">

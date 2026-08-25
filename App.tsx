@@ -21,6 +21,7 @@ import { NavButton } from './components/NavButton';
 import { isBuilderDeepLink } from './services/deepLink';
 import { StormGlassNavIcon } from './components/icons/StormGlassNavIcon';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { ScreenDimHost } from './components/ScreenDimOverlay';
 import { canAccess, PUBLIC_BETA_ACCESS, TIER_INFO } from './services/SubscriptionService';
 import { AlertMonitorService } from './services/AlertMonitorService';
 import { ToastPortal, toast } from './components/Toast';
@@ -1396,6 +1397,10 @@ const App: React.FC = () => {
                 other surface, because a drag alarm at 3am should punch through a
                 night scrim. tests/NightVisionScrimCeiling.test.ts enforces that
                 nothing else creeps above it. */}
+            {/* App-wide screen dim — arms only while KeepAwake is held and the
+                Aesthetics preference is on; MOB and anchor alarms suppress it.
+                Sits one layer under the night scrim, below `critical`. */}
+            <ScreenDimHost />
             {effectiveMode === 'night' && (
                 <div
                     className="fixed inset-0 pointer-events-none touch-none"
