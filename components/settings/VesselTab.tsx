@@ -11,7 +11,7 @@ import { YachtDatabaseSearch } from './YachtDatabaseSearch';
 import type { PolarDatabaseEntry } from '../../data/polarDatabase';
 import { saveIdentity } from '../../services/VesselIdentityService';
 import { getAuthIdentityScope } from '../../services/authIdentityScope';
-import { vesselCruisingSpeedKts, vesselMaxWaveHeightFt } from '../../services/units';
+import { vesselCrewAboard, vesselCruisingSpeedKts, vesselMaxWaveHeightFt } from '../../services/units';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { EyeIcon, CheckIcon, PlusSquareIcon, RefreshIcon, TrashIcon } from '../Icons';
 import { triggerHaptic } from '../../utils/system';
@@ -1396,7 +1396,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                 type="number"
                                 min="1"
                                 max="99"
-                                value={vessel?.crewCount || 2}
+                                value={vesselCrewAboard(vessel)}
                                 onChange={(e) => updateVessel('crewCount', parseInt(e.target.value) || 2)}
                                 placeholder="2"
                                 className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-white text-sm font-medium outline-none transition-colors focus:border-sky-500"

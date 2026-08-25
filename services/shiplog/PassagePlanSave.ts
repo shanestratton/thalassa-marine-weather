@@ -12,6 +12,7 @@ import { addVoyageTombstone, queueOfflineEntry } from './OfflineQueue';
 import { fetchRoutesAndTracks, invalidateRoutesAndTracks } from './RoutesAndTracks';
 import { collapseGeneratedTraceEndpointPair, formatPlannedRouteLabel } from './plannedRouteNaming';
 import { createLogger } from '../../utils/createLogger';
+import { vesselCrewAboard } from '../units';
 import { getAuthIdentityScope, isAuthIdentityScopeCurrent, type AuthIdentityScope } from '../authIdentityScope';
 import {
     normaliseTraceVerification,
@@ -533,11 +534,17 @@ export async function savePassagePlanToLogbookWithLinks(
                             departureTimeIso && lastTs && Date.parse(lastTs) > Date.parse(departureTimeIso)
                                 ? lastTs
                                 : null;
+                        // Standing complement from the vessel profile, not a
+                        // hardcoded 1 — this row feeds float plans and shared
+                        // passage views. Dynamic import mirrors
+                        // BoatNetworkService: the store must not become a
+                        // static dependency of the shiplog graph.
+                        const { useSettingsStore } = await import('../../stores/settingsStore');
                         const { voyage: draft, error: draftError } = await createVoyage({
                             voyage_name: draftVoyageName,
                             departure_port: departureName,
                             destination_port: destinationName,
-                            crew_count: 1,
+                            crew_count: vesselCrewAboard(useSettingsStore.getState().settings.vessel),
                             departure_time: departureTimeIso,
                             eta: etaIso,
                             ...(boundBoatId ? { boat_id: boundBoatId } : {}),

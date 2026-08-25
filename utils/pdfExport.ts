@@ -3,6 +3,7 @@ import { VoyagePlan, VesselProfile } from '../types';
 import { fmtCoord } from './coords';
 
 import { createLogger } from './createLogger';
+import { vesselCrewAboard } from '../services/units';
 
 const log = createLogger('pdfExport');
 
@@ -158,7 +159,7 @@ async function generatePassageBriefPDF({ voyagePlan, vessel }: PDFExportOptions)
     const motorFrac = isSail ? 0.15 : 1.0;
     const fuelReq = fuelBurnRate * durationHours * motorFrac;
     const fuelRes = fuelReq * 1.3;
-    const crew = vessel.crewCount || 2;
+    const crew = vesselCrewAboard(vessel);
 
     const currentDate = new Date().toLocaleDateString('en-AU', {
         year: 'numeric',

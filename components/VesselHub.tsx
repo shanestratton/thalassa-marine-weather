@@ -48,6 +48,7 @@ import {
 import { ConfirmDialog } from './ui/ConfirmDialog';
 import { PUBLIC_BETA_ACCESS } from '../services/SubscriptionService';
 import { FEATURE_VISIBILITY } from '../utils/featureVisibility';
+import { vesselCrewAboard } from '../services/units';
 const AdminPanel = lazyRetry(
     () => import('./AdminPanel').then((m) => ({ default: m.AdminPanel })),
     'AdminPanel_Vessel',
@@ -474,10 +475,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
     // trigger, so the "{n} crew" planning hint could go stale while
     // the Nav Station stayed open. useRealtimeSync mirrors the
     // pattern the Documents / Equipment tiles already use.
-    const configuredPassageCrewCount =
-        Number((ctx as { vessel?: { crewCount?: number } }).vessel?.crewCount) > 0
-            ? Number((ctx as { vessel?: { crewCount?: number } }).vessel?.crewCount)
-            : 2;
+    const configuredPassageCrewCount = vesselCrewAboard((ctx as { vessel?: { crewCount?: number } }).vessel);
     const loadPassageCrew = useCallback(async () => {
         const scope = getAuthIdentityScope();
         if (scope.userId !== authenticatedUserId) return;

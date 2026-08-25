@@ -164,3 +164,25 @@ export function vesselCruisingSpeedKts(
 
     return Math.sqrt(lengthFt) * (vessel?.type === 'sail' ? 1.2 : 3);
 }
+
+/**
+ * The vessel's standing complement — souls aboard INCLUDING the skipper.
+ *
+ * The Settings vessel tab has always DISPLAYED an unset "Crew Aboard (incl.
+ * Skipper)" as 2, so 2 is the number the skipper believes they saved — while
+ * passage planning read the raw field with `?? 1` and briefed a two-up boat
+ * as single-handed (Shane 2026-08-04 and again 2026-08-25: "the vessel
+ * profile shows two crew... it only ever shows one"). A profile from before
+ * the field existed has `crewCount === undefined` forever, so the mismatch
+ * never heals by itself. One default, defined once: every consumer must read
+ * the complement through this helper, never `vessel.crewCount` directly —
+ * the same rule units.ts already enforces for draft and cruising speed.
+ *
+ * An explicit value is respected (clamped to onboarding's 1–99 range); only
+ * a missing/invalid one falls back to 2.
+ */
+export function vesselCrewAboard(vessel: { crewCount?: number } | undefined | null): number {
+    const stored = vessel?.crewCount;
+    if (typeof stored !== 'number' || !Number.isFinite(stored)) return 2;
+    return Math.max(1, Math.min(99, Math.round(stored)));
+}

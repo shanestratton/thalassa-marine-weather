@@ -3,6 +3,7 @@ import { t } from '../../theme';
 import { VoyagePlan, VesselProfile } from '../../types';
 import { MapPinIcon, PhoneIcon, RadioTowerIcon, AlertTriangleIcon, WindIcon } from '../Icons';
 import { fmtCoord } from '../../utils/coords';
+import { vesselCrewAboard } from '../../services/units';
 
 interface EmergencyPlanProps {
     voyagePlan: VoyagePlan;
@@ -116,7 +117,7 @@ const diversionScenarios = [
 ];
 
 export const EmergencyPlan: React.FC<EmergencyPlanProps> = ({ voyagePlan, vessel }) => {
-    const crewCount = vessel.crewCount || 2;
+    const crewCount = vesselCrewAboard(vessel);
 
     // Get region-specific contacts for both ends of the voyage
     const departCountry = voyagePlan.customs?.departingCountry || voyagePlan.customs?.destinationCountry;
