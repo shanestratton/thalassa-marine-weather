@@ -1,5 +1,6 @@
 /**
- * AdminPanel — Full-page admin view with tabs: Users, Channels, Audit Log.
+ * AdminPanel — Full-page admin view for people, channels, beta applications,
+ * safety reviews and the audit trail.
  *
  * UX Polish:
  * - ConfirmDialog on all destructive actions (delete, block, reject)
@@ -19,6 +20,10 @@ import { toast } from './Toast';
 import { SafeImage } from './ui/SafeImage';
 import { LonelyHeartsService, type CrewListReport, type CrewProfile } from '../services/LonelyHeartsService';
 
+const FoundingSkipperInbox = React.lazy(() =>
+    import('./admin/FoundingSkipperInbox').then((module) => ({ default: module.FoundingSkipperInbox })),
+);
+
 // ── Types ──
 
 interface AdminPanelProps {
@@ -28,7 +33,15 @@ interface AdminPanelProps {
     onChannelApproved?: () => void;
 }
 
-type AdminTab = 'users' | 'channels' | 'crew' | 'audit';
+type AdminTab = 'users' | 'applications' | 'channels' | 'crew' | 'audit';
+
+const ADMIN_TABS: ReadonlyArray<readonly [AdminTab, string]> = [
+    ['users', '👥 Users'],
+    ['applications', '🧭 Applications'],
+    ['channels', '📡 Channels'],
+    ['crew', '⚓ Crew List'],
+    ['audit', '📋 Audit'],
+];
 
 const ROLE_STYLES: Record<ChatRole, { bg: string; text: string; label: string }> = {
     admin: { bg: 'bg-amber-500/20 border-amber-500/40', text: 'text-amber-400', label: '👑 Admin' },
@@ -410,6 +423,21 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onChann
     const blockedCount = users.filter((u) => u.is_blocked).length;
     const pendingCrewReports = crewReports.filter((report) => report.status === 'pending');
 
+    const handleTabKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>, currentTab: AdminTab) => {
+        const index = ADMIN_TABS.findIndex(([candidate]) => candidate === currentTab);
+        let nextIndex = index;
+        if (event.key === 'ArrowRight') nextIndex = (index + 1) % ADMIN_TABS.length;
+        else if (event.key === 'ArrowLeft') nextIndex = (index - 1 + ADMIN_TABS.length) % ADMIN_TABS.length;
+        else if (event.key === 'Home') nextIndex = 0;
+        else if (event.key === 'End') nextIndex = ADMIN_TABS.length - 1;
+        else return;
+
+        event.preventDefault();
+        const nextTab = ADMIN_TABS[nextIndex][0];
+        setTab(nextTab);
+        document.getElementById(`admin-tab-${nextTab}`)?.focus();
+    };
+
     return (
         <div className="flex flex-col h-full" role="region" aria-label="Admin Panel">
             {/* Confirm Dialog */}
@@ -448,22 +476,19 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onChann
                 </div>
 
                 {/* Tab bar — 44px touch targets */}
-                <div className="flex gap-1 px-4 pb-2">
-                    {(
-                        [
-                            ['users', '👥 Users'],
-                            ['channels', '📡 Channels'],
-                            ['crew', '⚓ Crew List'],
-                            ['audit', '📋 Audit'],
-                        ] as [AdminTab, string][]
-                    ).map(([t, label]) => (
+                <div className="flex gap-1 px-4 pb-2 overflow-x-auto" role="tablist" aria-label="Admin sections">
+                    {ADMIN_TABS.map(([t, label]) => (
                         <button
                             key={t}
+                            id={`admin-tab-${t}`}
                             onClick={() => setTab(t)}
+                            onKeyDown={(event) => handleTabKeyDown(event, t)}
                             aria-label={`${label} tab`}
                             aria-selected={tab === t}
+                            aria-controls={`admin-panel-${t}`}
+                            tabIndex={tab === t ? 0 : -1}
                             role="tab"
-                            className={`flex-1 py-2.5 rounded-xl text-[11px] font-bold uppercase tracking-wider transition-all min-h-[44px] ${
+                            className={`shrink-0 min-w-[96px] flex-1 py-2.5 rounded-xl text-[11px] font-bold uppercase tracking-wider transition-all min-h-[44px] ${
                                 tab === t
                                     ? 'bg-white/[0.08] border border-white/[0.12] text-white'
                                     : 'bg-white/[0.02] border border-white/[0.04] text-white/40'
@@ -476,7 +501,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onChann
             </div>
 
             {/* ── Content ── */}
-            <div className="flex-1 overflow-y-auto pb-24" role="tabpanel">
+            <div
+                className="flex-1 overflow-y-auto pb-24"
+                role="tabpanel"
+                id={`admin-panel-${tab}`}
+                aria-labelledby={`admin-tab-${tab}`}
+            >
                 {/* ════════ USERS TAB ════════ */}
                 {tab === 'users' && (
                     <>
@@ -728,6 +758,19 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onChann
                             )}
                         </div>
                     </>
+                )}
+
+                {/* ════════ FOUNDING SKIPPERS TAB ════════ */}
+                {tab === 'applications' && (
+                    <React.Suspense
+                        fallback={
+                            <div className="px-4 py-12">
+                                <ShimmerBlock variant="list" rows={5} />
+                            </div>
+                        }
+                    >
+                        <FoundingSkipperInbox />
+                    </React.Suspense>
                 )}
 
                 {/* ════════ CHANNELS TAB ════════ */}

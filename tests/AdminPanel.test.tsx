@@ -2,7 +2,7 @@
  * AdminPanel — smoke tests (816 LOC component)
  */
 import React from 'react';
-import { render, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('../services/ChatService', () => ({
@@ -35,6 +35,10 @@ vi.mock('../components/ui/ConfirmDialog', () => ({
 
 vi.mock('../components/Toast', () => ({
     toast: { success: vi.fn(), error: vi.fn() },
+}));
+
+vi.mock('../components/admin/FoundingSkipperInbox', () => ({
+    FoundingSkipperInbox: () => <div>Private Founding Skipper inbox</div>,
 }));
 
 import { AdminPanel } from '../components/AdminPanel';
@@ -76,5 +80,26 @@ describe('AdminPanel', () => {
             render(<AdminPanel {...defaultProps} onChannelDeleted={vi.fn()} onChannelApproved={vi.fn()} />);
         expect(renderPanel).not.toThrow();
         await waitForAdminData();
+    });
+
+    it('lazy-mounts the private applications inbox only after its admin tab is selected', async () => {
+        render(<AdminPanel {...defaultProps} />);
+        await waitForAdminData();
+        expect(screen.queryByText('Private Founding Skipper inbox')).not.toBeInTheDocument();
+
+        fireEvent.click(screen.getByRole('tab', { name: /Applications tab/i }));
+
+        expect(await screen.findByText('Private Founding Skipper inbox')).toBeInTheDocument();
+    });
+
+    it('supports keyboard navigation across the admin tablist', async () => {
+        render(<AdminPanel {...defaultProps} />);
+        await waitForAdminData();
+        const usersTab = screen.getByRole('tab', { name: /Users tab/i });
+
+        fireEvent.keyDown(usersTab, { key: 'ArrowRight' });
+
+        expect(screen.getByRole('tab', { name: /Applications tab/i })).toHaveAttribute('aria-selected', 'true');
+        expect(await screen.findByText('Private Founding Skipper inbox')).toBeInTheDocument();
     });
 });
