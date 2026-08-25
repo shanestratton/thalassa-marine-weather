@@ -8,7 +8,7 @@
  * on typed words now. Legacy voice entries keep playback in the entry view.
  */
 
-import React, { useRef } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { DiaryMood, MOOD_CONFIG } from '../../services/DiaryService';
 import { scrollInputAboveKeyboard } from '../../utils/keyboardScroll';
 import { triggerHaptic } from '../../utils/system';
@@ -76,6 +76,26 @@ export const DiaryComposeForm: React.FC<DiaryComposeFormProps> = React.memo(
         onPhotoRemove,
     }) => {
         const fileRef = useRef<HTMLInputElement>(null);
+        const bodyRef = useRef<HTMLTextAreaElement>(null);
+
+        // FIRST-TAP RACE (Shane 2026-08-25: "still doing the scroll up thing,
+        // however, once you click into the box a second time. it comes
+        // good"): the focus handler's tail-scroll fired before the keyboard
+        // height published, so it scrolled pre-keyboard geometry; the bottom
+        // padding then grew underneath it and left the void. The tail-scroll
+        // must chase the KEYBOARD, not the tap — whenever the measured height
+        // changes while the body is focused, re-pin the column to its tail
+        // (one rAF after the padding paints).
+        useEffect(() => {
+            const body = bodyRef.current;
+            if (!body || document.activeElement !== body) return;
+            const scroller = body.closest('.overflow-auto');
+            if (!scroller) return;
+            const raf = requestAnimationFrame(() => {
+                scroller.scrollTop = scroller.scrollHeight;
+            });
+            return () => cancelAnimationFrame(raf);
+        }, [keyboardHeight]);
 
         const bottomPad = keyboardHeight > 0 ? `${keyboardHeight}px` : 'calc(4rem + env(safe-area-inset-bottom) + 8px)';
 
@@ -291,6 +311,7 @@ export const DiaryComposeForm: React.FC<DiaryComposeFormProps> = React.memo(
                         scrolls the column to its tail — never to a void. */}
                     <div className="flex-1 min-h-0">
                         <textarea
+                            ref={bodyRef}
                             aria-label="Diary entry text"
                             placeholder={polishing ? 'Styling your entry…' : 'What happened out there?'}
                             value={body}
