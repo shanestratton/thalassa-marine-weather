@@ -282,7 +282,7 @@ function buildCategories(
     if (tacticalState?.onToggleAnchorage) {
         tactical.push({
             id: 'anchorages',
-            label: 'Anchor',
+            label: 'Anchorages',
             icon: <AnchorageIcon />,
             action: tacticalState.onToggleAnchorage,
         });

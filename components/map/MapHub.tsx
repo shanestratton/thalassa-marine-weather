@@ -76,6 +76,7 @@ import { useTraceHistory } from './useTraceHistory';
 import { useTraceDraft } from './useTraceDraft';
 import { useMapHubLayerVisibility } from './useMapHubLayerVisibility';
 import { useAnchorageLayer } from './useAnchorageLayer';
+import { AnchorageTonightSheet } from './AnchorageTonightSheet';
 import { useNoticeLayer } from './useNoticeLayer';
 import { useLightningLayer } from './useLightningLayer';
 import { useOceanCurrentParticleLayer } from './useOceanCurrentParticleLayer';
@@ -3111,7 +3112,12 @@ export const MapHub: React.FC<MapHubProps> = ({
 
     // ── Tide Station Markers ──
     useTideStationLayer(mapRef, mapReady, browseTideStationsVisible);
-    useAnchorageLayer(mapRef, mapReady, browseAnchorageVisible);
+    // Stable identity so the tile effect keys on actual movement, not renders.
+    const anchorageCentre = useMemo(
+        () => (weatherCoords ? { lat: weatherCoords.lat, lon: weatherCoords.lon } : null),
+        [weatherCoords?.lat, weatherCoords?.lon],
+    );
+    useAnchorageLayer(mapRef, mapReady, browseAnchorageVisible, anchorageCentre);
     // Armed anchor watch — anchor point + swing-radius ring (self-subscribes).
     useAnchorSwingLayer(mapRef, mapReady);
 
@@ -5048,6 +5054,10 @@ export const MapHub: React.FC<MapHubProps> = ({
                     marine users who need to know what their data costs
                     them and whether live feeds will update. */}
                 <ConnectivityChip visible={!planningSurface && !embedded && !pickerMode && !isPinView} />
+                <AnchorageTonightSheet
+                    visible={browseAnchorageVisible && !planningSurface && !embedded && !pickerMode && !isPinView}
+                    centre={anchorageCentre}
+                />
 
                 {/* Bottom-left legend stack. flex-col-reverse → first child
                     sits at the bottom of the column.
