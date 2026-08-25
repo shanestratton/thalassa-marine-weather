@@ -24,6 +24,7 @@ import type { Voyage } from '../../services/VoyageService';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { triggerHaptic } from '../../utils/system';
 import { createLogger } from '../../utils/createLogger';
+import { vesselCrewAboard } from '../../services/units';
 
 const log = createLogger('FloatPlanSheet');
 
@@ -208,7 +209,7 @@ export const FloatPlanSheet: React.FC<FloatPlanSheetProps> = ({ voyage, preset, 
     const [whoToCall, setWhoToCall] = useState('');
     const [contactAboard, setContactAboard] = useState(() => vessel?.contactPhone?.trim() || '');
     const [personsOnBoard, setPersonsOnBoard] = useState<number>(
-        () => preset?.personsOnBoard || voyage?.crew_count || vessel?.crewCount || 1,
+        () => preset?.personsOnBoard || voyage?.crew_count || vesselCrewAboard(vessel),
     );
     const [channel, setChannel] = useState<FloatPlanChannel>('whatsapp');
     const [sharedChannel, setSharedChannel] = useState<FloatPlanChannel | null>(null);

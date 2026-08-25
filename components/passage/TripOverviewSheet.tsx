@@ -30,6 +30,7 @@ import { resolveCountrySnippets, type ResolvedCountrySnippet } from '../../servi
 import { useSettings } from '../../context/SettingsContext';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { OverlayPortal } from '../ui/OverlayPortal';
+import { vesselCrewAboard } from '../../services/units';
 
 interface TripOverviewSheetProps {
     isOpen: boolean;
@@ -84,7 +85,7 @@ export const TripOverviewSheet: React.FC<TripOverviewSheetProps> = ({ isOpen, on
         if (legs.length === 0) return null;
         return buildTripOverview(legs, {
             tripName,
-            crewCount: settings.vessel?.crewCount,
+            crewCount: vesselCrewAboard(settings.vessel),
         });
     }, [legs, tripName, settings.vessel?.crewCount]);
 

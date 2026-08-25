@@ -11,7 +11,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { FEET_PER_METRE, vesselDraftMetres } from '../services/units';
+import { FEET_PER_METRE, vesselCrewAboard, vesselDraftMetres } from '../services/units';
 import { GebcoDepthService } from '../services/GebcoDepthService';
 
 describe('vesselDraftMetres', () => {
@@ -71,5 +71,33 @@ describe('regression — depth classification with converted vs raw-feet draft',
         // field turns safe water near-impassable (10× cost penalty).
         expect(GebcoDepthService.classifyDepth(-10, TAYANA_FT)).toBe('danger');
         expect(GebcoDepthService.depthCostPenalty(-10, TAYANA_FT)).toBe(10.0);
+    });
+});
+
+describe('vesselCrewAboard', () => {
+    // The Settings vessel tab has always DISPLAYED an unset "Crew Aboard" as
+    // 2, so 2 is the number the skipper believes they saved. Passage planning
+    // reading the raw field with `?? 1` briefed a two-up boat as
+    // single-handed (Shane 2026-08-04 and 2026-08-25 — same bug twice).
+    // Fleet-added vessels and pre-Feb-2026 profiles have crewCount undefined
+    // FOREVER, so this default is load-bearing, not a rare edge.
+    it('an unset profile reads as the 2 the Settings UI has always shown', () => {
+        expect(vesselCrewAboard(undefined)).toBe(2);
+        expect(vesselCrewAboard(null)).toBe(2);
+        expect(vesselCrewAboard({})).toBe(2);
+    });
+
+    it('an explicit value is respected — solo skippers stay solo', () => {
+        // WatchScheduleCard's history records a forced 2 once broke solo
+        // passages; an explicit 1 must never be inflated.
+        expect(vesselCrewAboard({ crewCount: 1 })).toBe(1);
+        expect(vesselCrewAboard({ crewCount: 4 })).toBe(4);
+    });
+
+    it('clamps to the onboarding range and rejects junk', () => {
+        expect(vesselCrewAboard({ crewCount: 0 })).toBe(1);
+        expect(vesselCrewAboard({ crewCount: 150 })).toBe(99);
+        expect(vesselCrewAboard({ crewCount: 2.6 })).toBe(3);
+        expect(vesselCrewAboard({ crewCount: NaN })).toBe(2);
     });
 });

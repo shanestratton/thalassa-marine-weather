@@ -36,6 +36,7 @@ import {
 } from '../services/CrewService';
 import { supabase } from '../services/supabase';
 import { loadOwnedVesselFleet } from '../services/VesselFleetService';
+import { vesselCrewAboard } from '../services/units';
 import { triggerHaptic } from '../utils/system';
 import { useUIStore } from '../stores/uiStore';
 import { followCastOffRoute } from '../services/shiplog/followCastOffRoute';
@@ -1071,7 +1072,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                 // this row becomes the voyage Cast Off and the float plan
                 // read souls-on-board from (Shane 2026-08-04: "the vessel
                 // profile shows two crew... that is not flowing through").
-                crew_count: Math.max(settings.vessel?.crewCount ?? 1, 1),
+                crew_count: vesselCrewAboard(settings.vessel),
                 status: 'planning',
                 weather_master_id: null,
                 notes: null,
@@ -1157,7 +1158,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                 destination_port: rollup.destName,
                 departure_time: newestIso,
                 eta,
-                crew_count: Math.max(settings.vessel?.crewCount ?? 1, 1),
+                crew_count: vesselCrewAboard(settings.vessel),
                 status: 'planning',
                 weather_master_id: null,
                 notes: null,
@@ -1803,7 +1804,10 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                     // Standing complement from the vessel profile — the stub
                     // row already carries it, but never trust a stale stub
                     // over live settings at materialisation time.
-                    crew_count: Math.max(settings.vessel?.crewCount ?? row.crew_count ?? 1, 1),
+                    crew_count:
+                        settings.vessel?.crewCount != null
+                            ? vesselCrewAboard(settings.vessel)
+                            : Math.max(row.crew_count ?? vesselCrewAboard(settings.vessel), 1),
                     departure_time: row.departure_time,
                     eta: row.eta,
                     // Passage rollup rows carry the trip's first-leg trace id;
@@ -1898,7 +1902,11 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
     // adding to it: 2 aboard with 2 invited is 4 (Shane 2026-07-29), not 5.
     // Invitees are additive because they are people joining the boat, not a
     // restatement of who is already on it.
-    const standingCrewAboard = Math.max(settings.vessel?.crewCount ?? 1, 1);
+    // Read through vesselCrewAboard, never the raw field: an unset
+    // crewCount DISPLAYS as 2 in Settings, so 2 is what the skipper
+    // believes they set — `?? 1` here briefed a two-up boat as
+    // single-handed (Shane 2026-08-04 and again 2026-08-25).
+    const standingCrewAboard = vesselCrewAboard(settings.vessel);
     const selectedPassageCrewCount = isSelectedPassageOwner
         ? standingCrewAboard + selectedPassageCrew.length
         : Math.max(selectedVoyage?.crew_count ?? 1, 1);
