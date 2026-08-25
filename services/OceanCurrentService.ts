@@ -12,6 +12,7 @@
  */
 
 import { createLogger } from '../utils/createLogger';
+import { sampleCmemsPassageCurrents } from './weather/api/cmemsPassageCurrents';
 import { withDeadline } from '../utils/deadline';
 import { passageDataFingerprint } from './passageEnvironmentReadiness';
 import {
@@ -37,12 +38,20 @@ export interface CurrentSegment {
     label: string;
 }
 
+/** Passage-current providers, in the order the chain tries them. The
+ *  combined label appears only on an unavailable briefing — by then BOTH
+ *  have declined to answer. */
+export type CurrentProvider =
+    | 'E.U. Copernicus Marine Service'
+    | 'NOAA CoastWatch ERDDAP'
+    | 'E.U. Copernicus Marine Service / NOAA CoastWatch ERDDAP';
+
 interface CurrentBriefingBase {
     vectors: CurrentVector[];
     /** Requested briefing mode: standard or near-real-time enhancement. */
     source: 'climatology' | 'nrt';
     fetchedAt: string;
-    provider: 'NOAA CoastWatch ERDDAP';
+    provider: CurrentProvider;
     providerDataset: string | null;
     /** Timestamp carried by the provider's current field, when supplied. */
     dataTime: string | null;
@@ -91,7 +100,7 @@ function unavailableBriefing(source: 'climatology' | 'nrt', message: string): Un
         netEffectHours: null,
         source,
         fetchedAt: new Date().toISOString(),
-        provider: 'NOAA CoastWatch ERDDAP',
+        provider: 'E.U. Copernicus Marine Service / NOAA CoastWatch ERDDAP',
         providerDataset: null,
         dataTime: null,
         retrieval: 'live',
@@ -218,133 +227,168 @@ export const OceanCurrentService = {
                 east: bbox.east + 1,
             };
 
-            const latRange = `[(${paddedBbox.south.toFixed(1)}):(${paddedBbox.north.toFixed(1)})]`;
-            const lonRange = `[(${paddedBbox.west.toFixed(1)}):(${paddedBbox.east.toFixed(1)})]`;
-
-            // Datasets to try in order. The first FRESH hit wins. All are
-            // [time][lat][lon] grids on ±180 longitude, answering
-            // [time, lat, lon, u, v] rows.
-            const datasets: Array<{ id: string; base: string; uVar: string; vVar: string }> = [
-                {
-                    // Primary: NOAA blended NRT geostrophic currents from
-                    // altimetry — global, daily, ~2-day latency (verified
-                    // 2026-08-25: real EAC field off Fraser Island).
-                    id: 'noaacwBLENDEDNRTcurrentsDaily',
-                    base: 'https://coastwatch.noaa.gov/erddap',
-                    uVar: 'u_current',
-                    vVar: 'v_current',
-                },
-                {
-                    // Fallback: SSH-anomaly geostrophic currents on the pfeg
-                    // node. Stale to 2026-03 when last checked — kept in the
-                    // chain because the freshness guard rejects it while
-                    // frozen and it self-heals if NOAA resumes it.
-                    id: 'nesdisSSH1day',
-                    base: 'https://coastwatch.pfeg.noaa.gov/erddap',
-                    uVar: 'ugos',
-                    vVar: 'vgos',
-                },
-            ];
-
-            log.info(
-                `Fetching ${source} currents: ${paddedBbox.south}–${paddedBbox.north}°N, ${paddedBbox.west}–${paddedBbox.east}°E`,
-            );
-
-            let data: ErddapPayload | null = null;
-            let providerDataset: string | null = null;
-            const providerFailures: string[] = [];
-            const fetchDeadlineAt = Date.now() + CURRENT_FETCH_BUDGET_MS;
-            for (const ds of datasets) {
-                const remainingMs = fetchDeadlineAt - Date.now();
-                if (remainingMs <= 0) break;
-                const query = `?${ds.uVar}[(last)]${latRange}${lonRange},${ds.vVar}[(last)]${latRange}${lonRange}`;
-                const url = `${ds.base}/griddap/${ds.id}.json${query}`;
-                try {
-                    // AbortSignal is ignored by Capacitor's native fetch
-                    // bridge, so the JS deadline is the real on-device bound.
-                    const hopTimeoutMs = Math.min(CURRENT_HOP_TIMEOUT_MS, remainingMs);
-                    const res = await withDeadline(
-                        fetch(url, { signal: AbortSignal.timeout(hopTimeoutMs) }),
-                        hopTimeoutMs,
-                        `ocean-current dataset ${ds.id}`,
-                    );
-                    if (res.ok) {
-                        const candidate = (await withDeadline(
-                            res.json(),
-                            Math.max(1, fetchDeadlineAt - Date.now()),
-                            `ocean-current response ${ds.id}`,
-                        )) as ErddapPayload;
-                        if (candidate.table && Array.isArray(candidate.table.rows)) {
-                            // Freshness guard: [(last)] on a frozen dataset
-                            // answers happily with years-old water. A surface
-                            // current field older than the guard is a provider
-                            // failure, not a briefing — EAC eddies move
-                            // weekly, and dataTime in the card cannot rescue a
-                            // number the skipper reads as "now".
-                            const rowTime = candidate.table.rows.find(
-                                (row): row is [string, ...unknown[]] =>
-                                    Array.isArray(row) && typeof row[0] === 'string' && row[0].length > 0,
-                            )?.[0];
-                            const ageMs = rowTime ? Date.now() - Date.parse(rowTime) : NaN;
-                            if (Number.isFinite(ageMs) && ageMs > CURRENT_FIELD_MAX_AGE_MS) {
-                                providerFailures.push(
-                                    `${ds.id}: field stale (${Math.round(ageMs / 86_400_000)} d old)`,
-                                );
-                            } else {
-                                data = candidate;
-                                providerDataset = ds.id;
-                                log.info(`Ocean currents fetched from dataset "${ds.id}"`);
-                                break;
-                            }
-                        } else {
-                            providerFailures.push(`${ds.id}: malformed response`);
-                        }
-                    } else {
-                        providerFailures.push(`${ds.id}: HTTP ${res.status}`);
-                    }
-                } catch (error) {
-                    providerFailures.push(`${ds.id}: ${error instanceof Error ? error.message : 'request failed'}`);
-                }
-            }
-            if (!data) {
-                const detail = providerFailures.length ? ` (${providerFailures.join('; ')})` : '';
-                log.warn(`Ocean-current provider unavailable${detail}`);
-                return unavailableBriefing(
-                    source,
-                    'NOAA CoastWatch could not provide a current field for this route. Retry when connected.',
-                );
-            }
-
-            // ERDDAP rows come back typed as `unknown[]` because the
-            // surrounding response is loose — typed-narrow them locally
-            // so the destructure + arithmetic compiles under strict TS.
-            const rows = (data.table?.rows ?? []) as Array<[string, number, number, number, number]>;
-
-            // Parse rows into vectors — ERDDAP returns [time, lat, lon, u, v]
             const vectors: CurrentVector[] = [];
+            let provider: CurrentProvider = 'NOAA CoastWatch ERDDAP';
+            let providerDataset: string | null = null;
+            let dataTime: string | null = null;
 
-            for (const row of rows) {
-                const [, lat, lon, u, v] = row;
-                if ([lat, lon, u, v].every((value) => typeof value === 'number' && Number.isFinite(value))) {
-                    const speed = Math.sqrt(u * u + v * v);
+            // PRIMARY: Thalassa's own CMEMS pipeline — the same verified
+            // hourly TOTAL-current frames the Obs particle layer paints
+            // (tides included), against NOAA's daily geostrophic-only
+            // blend. Null on any doubt → the NOAA chain below answers.
+            const cmems = await sampleCmemsPassageCurrents(paddedBbox);
+            if (cmems) {
+                provider = 'E.U. Copernicus Marine Service';
+                providerDataset = cmems.datasetId;
+                dataTime = cmems.dataTime;
+                for (const sample of cmems.vectors) {
+                    const speed = Math.sqrt(sample.u * sample.u + sample.v * sample.v);
                     vectors.push({
-                        lat,
-                        lon,
-                        u,
-                        v,
+                        lat: sample.lat,
+                        lon: sample.lon,
+                        u: sample.u,
+                        v: sample.v,
                         speedKts: msToKts(speed),
-                        directionDeg: uvToDirection(u, v),
+                        directionDeg: uvToDirection(sample.u, sample.v),
                     });
                 }
-            }
-
-            if (rows.length > 0 && vectors.length === 0) {
-                log.warn(`Ocean-current dataset "${providerDataset}" returned rows without valid vectors`);
-                return unavailableBriefing(
-                    source,
-                    'NOAA CoastWatch returned an unreadable current field. No zero-current assumption was made.',
+                log.info(
+                    `Passage currents from CMEMS ${cmems.generation} @ ${cmems.dataTime} (${vectors.length} cells)`,
                 );
             }
+
+            if (!cmems) {
+                const latRange = `[(${paddedBbox.south.toFixed(1)}):(${paddedBbox.north.toFixed(1)})]`;
+                const lonRange = `[(${paddedBbox.west.toFixed(1)}):(${paddedBbox.east.toFixed(1)})]`;
+
+                // Datasets to try in order. The first FRESH hit wins. All are
+                // [time][lat][lon] grids on ±180 longitude, answering
+                // [time, lat, lon, u, v] rows.
+                const datasets: Array<{ id: string; base: string; uVar: string; vVar: string }> = [
+                    {
+                        // Primary: NOAA blended NRT geostrophic currents from
+                        // altimetry — global, daily, ~2-day latency (verified
+                        // 2026-08-25: real EAC field off Fraser Island).
+                        id: 'noaacwBLENDEDNRTcurrentsDaily',
+                        base: 'https://coastwatch.noaa.gov/erddap',
+                        uVar: 'u_current',
+                        vVar: 'v_current',
+                    },
+                    {
+                        // Fallback: SSH-anomaly geostrophic currents on the pfeg
+                        // node. Stale to 2026-03 when last checked — kept in the
+                        // chain because the freshness guard rejects it while
+                        // frozen and it self-heals if NOAA resumes it.
+                        id: 'nesdisSSH1day',
+                        base: 'https://coastwatch.pfeg.noaa.gov/erddap',
+                        uVar: 'ugos',
+                        vVar: 'vgos',
+                    },
+                ];
+
+                log.info(
+                    `Fetching ${source} currents: ${paddedBbox.south}–${paddedBbox.north}°N, ${paddedBbox.west}–${paddedBbox.east}°E`,
+                );
+
+                let data: ErddapPayload | null = null;
+                const providerFailures: string[] = [];
+                const fetchDeadlineAt = Date.now() + CURRENT_FETCH_BUDGET_MS;
+                for (const ds of datasets) {
+                    const remainingMs = fetchDeadlineAt - Date.now();
+                    if (remainingMs <= 0) break;
+                    const query = `?${ds.uVar}[(last)]${latRange}${lonRange},${ds.vVar}[(last)]${latRange}${lonRange}`;
+                    const url = `${ds.base}/griddap/${ds.id}.json${query}`;
+                    try {
+                        // AbortSignal is ignored by Capacitor's native fetch
+                        // bridge, so the JS deadline is the real on-device bound.
+                        const hopTimeoutMs = Math.min(CURRENT_HOP_TIMEOUT_MS, remainingMs);
+                        const res = await withDeadline(
+                            fetch(url, { signal: AbortSignal.timeout(hopTimeoutMs) }),
+                            hopTimeoutMs,
+                            `ocean-current dataset ${ds.id}`,
+                        );
+                        if (res.ok) {
+                            const candidate = (await withDeadline(
+                                res.json(),
+                                Math.max(1, fetchDeadlineAt - Date.now()),
+                                `ocean-current response ${ds.id}`,
+                            )) as ErddapPayload;
+                            if (candidate.table && Array.isArray(candidate.table.rows)) {
+                                // Freshness guard: [(last)] on a frozen dataset
+                                // answers happily with years-old water. A surface
+                                // current field older than the guard is a provider
+                                // failure, not a briefing — EAC eddies move
+                                // weekly, and dataTime in the card cannot rescue a
+                                // number the skipper reads as "now".
+                                const rowTime = candidate.table.rows.find(
+                                    (row): row is [string, ...unknown[]] =>
+                                        Array.isArray(row) && typeof row[0] === 'string' && row[0].length > 0,
+                                )?.[0];
+                                const ageMs = rowTime ? Date.now() - Date.parse(rowTime) : NaN;
+                                if (Number.isFinite(ageMs) && ageMs > CURRENT_FIELD_MAX_AGE_MS) {
+                                    providerFailures.push(
+                                        `${ds.id}: field stale (${Math.round(ageMs / 86_400_000)} d old)`,
+                                    );
+                                } else {
+                                    data = candidate;
+                                    providerDataset = ds.id;
+                                    log.info(`Ocean currents fetched from dataset "${ds.id}"`);
+                                    break;
+                                }
+                            } else {
+                                providerFailures.push(`${ds.id}: malformed response`);
+                            }
+                        } else {
+                            providerFailures.push(`${ds.id}: HTTP ${res.status}`);
+                        }
+                    } catch (error) {
+                        providerFailures.push(`${ds.id}: ${error instanceof Error ? error.message : 'request failed'}`);
+                    }
+                }
+                if (!data) {
+                    const detail = providerFailures.length ? ` (${providerFailures.join('; ')})` : '';
+                    log.warn(`Ocean-current provider unavailable${detail}`);
+                    return unavailableBriefing(
+                        source,
+                        'NOAA CoastWatch could not provide a current field for this route. Retry when connected.',
+                    );
+                }
+
+                // ERDDAP rows come back typed as `unknown[]` because the
+                // surrounding response is loose — typed-narrow them locally
+                // so the destructure + arithmetic compiles under strict TS.
+                const rows = (data.table?.rows ?? []) as Array<[string, number, number, number, number]>;
+
+                // Parse rows into vectors — ERDDAP returns [time, lat, lon, u, v]
+
+                for (const row of rows) {
+                    const [, lat, lon, u, v] = row;
+                    if ([lat, lon, u, v].every((value) => typeof value === 'number' && Number.isFinite(value))) {
+                        const speed = Math.sqrt(u * u + v * v);
+                        vectors.push({
+                            lat,
+                            lon,
+                            u,
+                            v,
+                            speedKts: msToKts(speed),
+                            directionDeg: uvToDirection(u, v),
+                        });
+                    }
+                }
+
+                if (rows.length > 0 && vectors.length === 0) {
+                    log.warn(`Ocean-current dataset "${providerDataset}" returned rows without valid vectors`);
+                    return unavailableBriefing(
+                        source,
+                        'NOAA CoastWatch returned an unreadable current field. No zero-current assumption was made.',
+                    );
+                }
+
+                dataTime =
+                    rows
+                        .map((row) => row[0])
+                        .find((value): value is string => typeof value === 'string' && value.length > 0) ?? null;
+            } // end NOAA fallback chain
 
             // Analyse segments relative to course bearing
             const segments: CurrentSegment[] = [];
@@ -389,10 +433,6 @@ export const OceanCurrentService = {
             const netFactor = (favourableCount - adverseCount) / Math.max(1, segments.length);
             const netEffectHours = -Math.round(((passageHours * avgCurrentSpeed * netFactor) / safeSpeedKts) * 10) / 10;
 
-            const dataTime =
-                rows
-                    .map((row) => row[0])
-                    .find((value): value is string => typeof value === 'string' && value.length > 0) ?? null;
             const dataFingerprint = passageDataFingerprint('ocean-current-field', {
                 providerDataset,
                 dataTime,
@@ -408,7 +448,7 @@ export const OceanCurrentService = {
                 netEffectHours,
                 source,
                 fetchedAt: new Date().toISOString(),
-                provider: 'NOAA CoastWatch ERDDAP',
+                provider,
                 providerDataset,
                 dataTime,
                 retrieval: 'live',
