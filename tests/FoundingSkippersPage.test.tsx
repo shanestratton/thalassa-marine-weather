@@ -24,6 +24,8 @@ describe('FoundingSkippersPage', () => {
         const submit = vi.fn();
         render(<FoundingSkippersPage submitApplication={submit} />);
 
+        expect(screen.getByLabelText('Your name')).not.toHaveAttribute('placeholder');
+
         fireEvent.click(screen.getByRole('button', { name: 'Apply to join the crew' }));
 
         expect(screen.getByRole('alert')).toHaveTextContent('Check the highlighted fields');

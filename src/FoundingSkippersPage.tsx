@@ -249,7 +249,6 @@ export function FoundingSkippersPage({
                                             maxLength={80}
                                             aria-invalid={Boolean(errors.name)}
                                             aria-describedby={errors.name ? 'name-error' : undefined}
-                                            placeholder="Shane Stratton"
                                         />
                                         <FieldError id="name-error">{errors.name}</FieldError>
                                     </label>
