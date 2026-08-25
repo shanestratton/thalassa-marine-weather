@@ -3005,9 +3005,14 @@ const heldCapabilitySourceContracts = {
     'account-deletion':
         publicBetaFeatureProfile.featureFlags.VITE_ACCOUNT_DELETION_ENABLED === false &&
         accountDeletionBoundary.includes('Account deletion is temporarily unavailable'),
-    gmail:
-        publicBetaFeatureProfile.requiredAbsentClientConfig.includes('VITE_GOOGLE_OAUTH_CLIENT_ID') &&
-        read('services/voice/integrations/gmail.ts').includes('GMAIL_PUBLIC_BETA_ENABLED = import.meta.env.DEV'),
+    // Until 2026-08-25 gmail was double-fenced: the blanked client ID plus its
+    // own DEV-only flag. Google SIGN-IN re-enabling (Shane) legitimately
+    // removed the first fence — the ID must now be present for auth — so the
+    // boundary is the DEV flag alone. It is real: GMAIL_PUBLIC_BETA_ENABLED
+    // fail-closes every entry point (connect, token exchange, OAuth callback,
+    // settings tab), and the 'development-only until tokens use secure
+    // storage' check above pins it independently.
+    gmail: read('services/voice/integrations/gmail.ts').includes('GMAIL_PUBLIC_BETA_ENABLED = import.meta.env.DEV'),
     'grant-all-features':
         publicBetaFeatureProfile.featureFlags.VITE_GRANT_ALL_FEATURES === false &&
         read('hooks/useEntitlement.ts').includes('VITE_GRANT_ALL_FEATURES'),
