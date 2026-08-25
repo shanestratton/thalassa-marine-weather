@@ -378,3 +378,22 @@ describe('USCG-style restructure (2026-08-26)', () => {
         expect(plan).not.toContain('undefined');
     });
 });
+
+describe('advanced boat details stay optional (source tripwires)', () => {
+    it('the SAR fields live in a COLLAPSED details group — punters are never confronted with them', () => {
+        const { readFileSync } = require('node:fs') as typeof import('node:fs');
+        const { resolve } = require('node:path') as typeof import('node:path');
+        const tab = readFileSync(resolve(process.cwd(), 'components/settings/VesselTab.tsx'), 'utf8');
+        const detailsAt = tab.indexOf('Advanced Boat Details');
+        expect(detailsAt).toBeGreaterThan(-1);
+        // Inside a <details> WITHOUT an `open` attribute, and labelled optional.
+        const block = tab.slice(tab.lastIndexOf('<details', detailsAt), detailsAt);
+        expect(block).toContain('<details');
+        expect(block).not.toContain('open');
+        expect(tab).toContain('Optional · prefills your float plan');
+        // Every SAR field sits inside the collapsed group.
+        for (const field of ['hailingPort', 'hullMaterial', 'trimColor', 'prominentFeatures', 'radiosMonitored']) {
+            expect(tab.indexOf(field)).toBeGreaterThan(detailsAt);
+        }
+    });
+});
