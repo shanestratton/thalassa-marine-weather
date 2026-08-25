@@ -110,19 +110,32 @@ function zonePopupHtml(props: Record<string, unknown>): string {
         </div>`);
 }
 
+/** Imperative surface for the Tonight? sheet: put a chosen anchorage on
+ *  the chart — fly to it and open its verdict popup, exactly as a pin tap
+ *  would. Returns false when the layer is down or the id unknown. */
+export interface AnchorageLayerHandle {
+    showAnchorage(id: string): boolean;
+}
+
 export function useAnchorageLayer(
     mapRef: MutableRefObject<mapboxgl.Map | null>,
     mapReady: boolean,
     visible: boolean,
     centre: { lat: number; lon: number } | null,
-) {
+): AnchorageLayerHandle {
     const popupRef = useRef<mapboxgl.Popup | null>(null);
+    /** Set inside the layer effect (needs its popup helpers); null while
+     *  the layer is unmounted. */
+    const showImplRef = useRef<((id: string) => boolean) | null>(null);
     /** The merged tile data currently on the map — the popup verdict reads
      *  fetch tables from HERE by id, because Mapbox stringifies nested
      *  arrays in queryRenderedFeatures properties. */
     const dataRef = useRef<AnchorageData | null>(null);
     const centreRef = useRef(centre);
     centreRef.current = centre;
+    const handleRef = useRef<AnchorageLayerHandle>({
+        showAnchorage: (id) => showImplRef.current?.(id) ?? false,
+    });
     const loadedAtRef = useRef<{ lat: number; lon: number } | null>(null);
     const handlersRef = useRef<
         Array<{
@@ -269,12 +282,26 @@ export function useAnchorageLayer(
         reg('mouseenter', L_PTS, enter as (e: mapboxgl.MapLayerMouseEvent) => void);
         reg('mouseleave', L_PTS, leave as (e: mapboxgl.MapLayerMouseEvent) => void);
 
+        // The Tonight? sheet's "show me" — same popup a pin tap opens, with
+        // a flight so the bay fills the screen instead of being a dot at z9.
+        showImplRef.current = (id: string): boolean => {
+            const data = dataRef.current;
+            const f = data?.points.features.find((x) => x.properties?.id === id);
+            if (!f) return false;
+            const [lon, lat] = f.geometry.coordinates;
+            map.flyTo({ center: [lon, lat], zoom: Math.max(map.getZoom(), 12.2), duration: 1200 });
+            popupAt(new mapboxgl.LngLat(lon, lat), pointPopupHtml(f.properties) + verdictShellHtml(), 10);
+            void fillVerdict(popupRef, id, data, centreRef.current);
+            return true;
+        };
+
         // Data arrives from the tile effect below (tiles follow the centre,
         // not the layer lifecycle). Re-showing the layer repaints whatever
         // that effect last held.
         if (dataRef.current) applyData(map, dataRef.current);
 
         return () => {
+            showImplRef.current = null;
             removeAll();
         };
     }, [mapRef, mapReady, visible]);
@@ -305,6 +332,8 @@ export function useAnchorageLayer(
             cancelled = true;
         };
     }, [mapRef, mapReady, visible, centre]);
+
+    return handleRef.current;
 }
 
 function applyData(map: mapboxgl.Map, data: AnchorageData): void {
