@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Iterable
 
 from reportlab.graphics import renderPDF
 from reportlab.graphics.barcode.qr import QrCodeWidget
@@ -29,6 +28,10 @@ TMP_DIR = REPO_ROOT / "tmp" / "pdfs"
 OUTPUT_PDF = OUTPUT_DIR / "thalassa-founding-skippers-flyer.pdf"
 BUILD_PDF = TMP_DIR / "thalassa-founding-skippers-flyer.build.pdf"
 LOGO_PATH = REPO_ROOT / "assets" / "brand" / "app-icon-1024.png"
+MARKETING_ASSET_DIR = REPO_ROOT / "assets" / "marketing" / "founding-skippers"
+WATER_CROWN_PATH = MARKETING_ASSET_DIR / "water-crown.png"
+GLASS_SCREEN_PATH = MARKETING_ASSET_DIR / "glass.png"
+OBS_SCREEN_PATH = MARKETING_ASSET_DIR / "obs-wind.png"
 
 QR_TARGET = "https://www.thalassawx.app/beta?source=moreton-bay-club"
 DISPLAY_URL = "www.thalassawx.app/beta"
@@ -40,7 +43,6 @@ SLATE_700 = HexColor("#334155")
 SLATE_400 = HexColor("#94A3B8")
 SLATE_300 = HexColor("#CBD5E1")
 TEAL = HexColor("#5EEAD4")
-DEEP_TEAL = HexColor("#0F766E")
 ORANGE = HexColor("#FB923C")
 
 PAGE_WIDTH, PAGE_HEIGHT = A4
@@ -145,15 +147,6 @@ def draw_background(pdf: canvas.Canvas) -> None:
     pdf.setFillColor(SLATE_950)
     pdf.rect(0, 0, PAGE_WIDTH, PAGE_HEIGHT, fill=1, stroke=0)
 
-    # A restrained navigation arc gives the page motion without placing
-    # decorative strokes through the recruitment copy.
-    pdf.saveState()
-    _set_alpha(pdf, stroke=0.22)
-    pdf.setStrokeColor(ORANGE)
-    pdf.setLineWidth(1.1)
-    pdf.arc(PAGE_WIDTH - 73 * mm, PAGE_HEIGHT - 77 * mm, PAGE_WIDTH - 7 * mm, PAGE_HEIGHT - 11 * mm, 18, 95)
-    pdf.restoreState()
-
     pdf.setStrokeColor(SLATE_800)
     pdf.setLineWidth(0.8)
     pdf.roundRect(8 * mm, 8 * mm, PAGE_WIDTH - 16 * mm, PAGE_HEIGHT - 16 * mm, 5 * mm, fill=0, stroke=1)
@@ -163,9 +156,9 @@ def draw_brand(pdf: canvas.Canvas) -> None:
     if not LOGO_PATH.is_file():
         raise FileNotFoundError(f"Brand asset not found: {LOGO_PATH}")
 
-    logo_size = 47 * mm
-    logo_x = PAGE_WIDTH - PAGE_MARGIN - logo_size
-    logo_y = PAGE_HEIGHT - 81 * mm
+    logo_size = 12.5 * mm
+    logo_x = PAGE_MARGIN
+    logo_y = PAGE_HEIGHT - 27 * mm
     pdf.drawImage(
         ImageReader(str(LOGO_PATH)),
         logo_x,
@@ -176,27 +169,25 @@ def draw_brand(pdf: canvas.Canvas) -> None:
         mask="auto",
     )
 
-    centre_x = logo_x + logo_size / 2
+    text_x = logo_x + logo_size + 4 * mm
     draw_tracked_text(
         pdf,
         "THALASSA",
-        centre_x,
-        logo_y - 1.5 * mm,
+        text_x,
+        logo_y + 7.2 * mm,
         font="Helvetica-Bold",
-        size=12,
-        tracking=2.0,
-        align="center",
+        size=12.5,
+        tracking=1.9,
     )
     draw_tracked_text(
         pdf,
-        "MARINE DATA & NAVIGATION",
-        centre_x,
-        logo_y - 7 * mm,
+        "THE SAILOR'S ASSISTANT",
+        text_x,
+        logo_y + 2.4 * mm,
         font="Helvetica-Bold",
-        size=5.7,
-        tracking=1.0,
-        color=SLATE_400,
-        align="center",
+        size=5.8,
+        tracking=1.15,
+        color=SLATE_300,
     )
 
 
@@ -205,95 +196,38 @@ def draw_header(pdf: canvas.Canvas) -> None:
         pdf,
         "MORETON BAY | PUBLIC BETA",
         PAGE_MARGIN,
-        PAGE_HEIGHT - 20 * mm,
+        PAGE_HEIGHT - 43 * mm,
         font="Helvetica-Bold",
-        size=9.5,
-        tracking=1.6,
+        size=8.5,
+        tracking=1.25,
         color=TEAL,
     )
 
     title_x = PAGE_MARGIN
-    title_y = PAGE_HEIGHT - 39 * mm
+    title_y = PAGE_HEIGHT - 61 * mm
     for line in ("FOUNDING", "SKIPPERS", "WANTED"):
-        pdf.setFont("Helvetica-Bold", 40)
+        pdf.setFont("Helvetica-Bold", 31.5)
         pdf.setFillColor(white if line != "WANTED" else ORANGE)
         pdf.drawString(title_x, title_y, line)
-        title_y -= 14.5 * mm
+        title_y -= 11.7 * mm
 
-    subhead = "Help shape Thalassa - an Australian-built marine companion for real boats and real conditions."
+    subhead = "Help shape an Australian-built marine companion on real boats, in real conditions."
     draw_wrapped_text(
         pdf,
         subhead,
         PAGE_MARGIN,
-        PAGE_HEIGHT - 98 * mm,
-        # Leave a deliberate right-side safety margin. Helvetica's visual
-        # overhang made the former full-width line look clipped in print.
-        max_width=150 * mm,
+        PAGE_HEIGHT - 105 * mm,
+        max_width=78 * mm,
         font="Helvetica-Bold",
-        size=14.3,
-        leading=17.2,
+        size=11.4,
+        leading=13.8,
         color=SLATE_300,
-        max_lines=2,
+        max_lines=4,
     )
 
     pdf.setStrokeColor(ORANGE)
     pdf.setLineWidth(2.2)
-    pdf.line(PAGE_MARGIN, PAGE_HEIGHT - 107 * mm, PAGE_MARGIN + 27 * mm, PAGE_HEIGHT - 107 * mm)
-
-
-def draw_feature_card(
-    pdf: canvas.Canvas,
-    x: float,
-    y: float,
-    width: float,
-    height: float,
-    number: str,
-    title: str,
-    body: str,
-) -> None:
-    pdf.setFillColor(NAVY)
-    pdf.setStrokeColor(SLATE_700)
-    pdf.setLineWidth(0.7)
-    pdf.roundRect(x, y, width, height, 4 * mm, fill=1, stroke=1)
-
-    badge_size = 9 * mm
-    badge_x = x + 5 * mm
-    badge_y = y + height - 13 * mm
-    pdf.setFillColor(DEEP_TEAL)
-    pdf.circle(badge_x + badge_size / 2, badge_y + badge_size / 2, badge_size / 2, fill=1, stroke=0)
-    draw_tracked_text(
-        pdf,
-        number,
-        badge_x + badge_size / 2,
-        badge_y + 2.7 * mm,
-        font="Helvetica-Bold",
-        size=8.4,
-        tracking=0.4,
-        align="center",
-    )
-
-    draw_tracked_text(
-        pdf,
-        title,
-        x + 5 * mm,
-        y + height - 20 * mm,
-        font="Helvetica-Bold",
-        size=9,
-        tracking=0.5,
-        color=TEAL,
-    )
-    draw_wrapped_text(
-        pdf,
-        body,
-        x + 5 * mm,
-        y + height - 27 * mm,
-        max_width=width - 10 * mm,
-        font="Helvetica",
-        size=9.3,
-        leading=11.8,
-        color=SLATE_300,
-        max_lines=3,
-    )
+    pdf.line(PAGE_MARGIN, PAGE_HEIGHT - 128 * mm, PAGE_MARGIN + 22 * mm, PAGE_HEIGHT - 128 * mm)
 
 
 def draw_features(pdf: canvas.Canvas) -> None:
@@ -301,32 +235,200 @@ def draw_features(pdf: canvas.Canvas) -> None:
         pdf,
         "ONE APP. THREE JOBS THAT MATTER.",
         PAGE_MARGIN,
-        PAGE_HEIGHT - 118 * mm,
+        157 * mm,
         font="Helvetica-Bold",
-        size=9,
-        tracking=1.2,
-        color=SLATE_400,
+        size=7.5,
+        tracking=0.8,
+        color=SLATE_300,
     )
 
-    gap = 4 * mm
-    card_width = (CONTENT_WIDTH - (2 * gap)) / 3
-    card_height = 41 * mm
-    card_y = PAGE_HEIGHT - 165 * mm
-    cards: Iterable[tuple[str, str, str]] = (
-        ("01", "PLAN", "Marine weather and practical passage planning."),
-        ("02", "WATCH", "Anchor Watch and clear, shareable float plans."),
-        ("03", "LOG", "Voyage logging and useful vessel tools."),
-    )
-    for index, (number, title, body) in enumerate(cards):
-        draw_feature_card(
+    chip_y = 140 * mm
+    chip_width = 23 * mm
+    chip_height = 10.5 * mm
+    gap = 3 * mm
+    for index, label in enumerate(("PLAN", "WATCH", "LOG")):
+        x = PAGE_MARGIN + index * (chip_width + gap)
+        pdf.saveState()
+        _set_alpha(pdf, fill=0.86, stroke=0.9)
+        pdf.setFillColor(NAVY)
+        pdf.setStrokeColor(TEAL if index == 1 else SLATE_700)
+        pdf.setLineWidth(0.75)
+        pdf.roundRect(x, chip_y, chip_width, chip_height, 3.5 * mm, fill=1, stroke=1)
+        pdf.restoreState()
+        draw_tracked_text(
             pdf,
-            PAGE_MARGIN + index * (card_width + gap),
-            card_y,
-            card_width,
-            card_height,
-            number,
-            title,
-            body,
+            label,
+            x + chip_width / 2,
+            chip_y + 3.5 * mm,
+            font="Helvetica-Bold",
+            size=7.3,
+            tracking=0.75,
+            color=TEAL if index == 1 else white,
+            align="center",
+        )
+
+    draw_wrapped_text(
+        pdf,
+        "Weather. Passages. Anchor Watch. Voyage logging.",
+        PAGE_MARGIN,
+        133.5 * mm,
+        max_width=77 * mm,
+        font="Helvetica",
+        size=7.7,
+        leading=9.2,
+        color=SLATE_300,
+        max_lines=2,
+    )
+
+
+def draw_phone(
+    pdf: canvas.Canvas,
+    screenshot_path: Path,
+    *,
+    x: float,
+    y: float,
+    screen_width: float,
+    angle: float,
+    accent,
+) -> None:
+    """Place an untouched app screenshot inside a print-ready phone shell."""
+
+    if not screenshot_path.is_file():
+        raise FileNotFoundError(f"App screenshot not found: {screenshot_path}")
+
+    image = ImageReader(str(screenshot_path))
+    image_width, image_height = image.getSize()
+    screen_height = screen_width * image_height / image_width
+    bezel = 1.55 * mm
+    outer_width = screen_width + 2 * bezel
+    outer_height = screen_height + 2 * bezel
+    radius = 5.3 * mm
+
+    pdf.saveState()
+    pdf.translate(x, y)
+    pdf.rotate(angle)
+
+    pdf.saveState()
+    _set_alpha(pdf, fill=0.5)
+    pdf.setFillColor(SLATE_950)
+    pdf.roundRect(2.4 * mm, -2.8 * mm, outer_width, outer_height, radius + bezel, fill=1, stroke=0)
+    pdf.restoreState()
+
+    pdf.setFillColor(HexColor("#05080D"))
+    pdf.setStrokeColor(accent)
+    pdf.setLineWidth(0.8)
+    pdf.roundRect(0, 0, outer_width, outer_height, radius + bezel, fill=1, stroke=1)
+
+    # Clip only the screenshot corners; the pixels themselves remain exactly
+    # as supplied, including the real iOS chrome and Thalassa navigation.
+    pdf.saveState()
+    clip = pdf.beginPath()
+    clip.roundRect(bezel, bezel, screen_width, screen_height, radius)
+    pdf.clipPath(clip, stroke=0, fill=0)
+    pdf.drawImage(
+        image,
+        bezel,
+        bezel,
+        width=screen_width,
+        height=screen_height,
+        preserveAspectRatio=False,
+        mask="auto",
+    )
+    pdf.restoreState()
+
+    pdf.setStrokeColor(HexColor("#334155"))
+    pdf.setLineWidth(0.45)
+    pdf.roundRect(bezel, bezel, screen_width, screen_height, radius, fill=0, stroke=1)
+
+    # A restrained hardware cue turns the screenshot into a device without
+    # covering the supplied interface or pretending to be a specific model.
+    pdf.saveState()
+    _set_alpha(pdf, fill=0.94)
+    pdf.setFillColor(HexColor("#020407"))
+    island_width = min(13 * mm, screen_width * 0.32)
+    pdf.roundRect(
+        bezel + (screen_width - island_width) / 2,
+        bezel + screen_height - 5.3 * mm,
+        island_width,
+        2.9 * mm,
+        1.45 * mm,
+        fill=1,
+        stroke=0,
+    )
+    pdf.restoreState()
+
+    pdf.setStrokeColor(HexColor("#64748B"))
+    pdf.setLineWidth(0.8)
+    pdf.line(-0.45 * mm, outer_height - 36 * mm, -0.45 * mm, outer_height - 22 * mm)
+    pdf.line(outer_width + 0.45 * mm, outer_height - 35 * mm, outer_width + 0.45 * mm, outer_height - 18 * mm)
+    pdf.restoreState()
+
+
+def draw_product_visual(pdf: canvas.Canvas) -> None:
+    if not WATER_CROWN_PATH.is_file():
+        raise FileNotFoundError(f"Water framing asset not found: {WATER_CROWN_PATH}")
+
+    # The transparent crown is intentionally a little larger than the phone
+    # cluster: its side curls and lower rim remain visible after the screens
+    # are placed, creating the promised water-wrapped device treatment.
+    crown_width = 111 * mm
+    crown_reader = ImageReader(str(WATER_CROWN_PATH))
+    crown_source_width, crown_source_height = crown_reader.getSize()
+    crown_height = crown_width * crown_source_height / crown_source_width
+    pdf.drawImage(
+        crown_reader,
+        99 * mm,
+        124 * mm,
+        width=crown_width,
+        height=crown_height,
+        preserveAspectRatio=False,
+        mask="auto",
+    )
+
+    # OBS supplies the movement and colour; The Glass leads with the app's
+    # clearest value proposition. Both remain large enough to read in print.
+    draw_phone(
+        pdf,
+        OBS_SCREEN_PATH,
+        x=102 * mm,
+        y=136 * mm,
+        screen_width=46 * mm,
+        angle=-7.0,
+        accent=HexColor("#38BDF8"),
+    )
+    draw_phone(
+        pdf,
+        GLASS_SCREEN_PATH,
+        x=143 * mm,
+        y=137 * mm,
+        screen_width=52 * mm,
+        angle=3.4,
+        accent=TEAL,
+    )
+
+    # Small captions stay outside the screens, so the authentic UI remains
+    # untouched while a quick glance still explains the two views.
+    for label, x, width, color in (
+        ("OBS · LIVE WEATHER", 99 * mm, 48 * mm, HexColor("#38BDF8")),
+        ("THE GLASS", 151 * mm, 42 * mm, TEAL),
+    ):
+        pdf.saveState()
+        _set_alpha(pdf, fill=0.9)
+        pdf.setFillColor(SLATE_950)
+        pdf.setStrokeColor(color)
+        pdf.setLineWidth(0.55)
+        pdf.roundRect(x, 126 * mm, width, 7.5 * mm, 3.5 * mm, fill=1, stroke=1)
+        pdf.restoreState()
+        draw_tracked_text(
+            pdf,
+            label,
+            x + width / 2,
+            128.3 * mm,
+            font="Helvetica-Bold",
+            size=5.8,
+            tracking=0.55,
+            color=color,
+            align="center",
         )
 
 
@@ -491,6 +593,7 @@ def generate_flyer() -> Path:
     draw_brand(pdf)
     draw_header(pdf)
     draw_features(pdf)
+    draw_product_visual(pdf)
     draw_call_to_action(pdf)
     draw_footer(pdf)
     pdf.showPage()
