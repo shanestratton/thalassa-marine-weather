@@ -15,9 +15,12 @@ describe('Founding Skipper application privacy disclosure', () => {
             expect(surface).toContain('Resend');
             expect(surface).toContain('transactional email provider');
             expect(surface).toContain('solely to notify the operator');
+            expect(surface).toContain('transactional application receipt and acceptance emails');
             expect(surface).toContain("operator's private email inbox");
             expect(surface).toMatch(/(?:does not|don't) sell application data/);
             expect(surface).toContain('use it for advertising');
         }
+
+        expect(terms).toContain('<strong>Resend</strong>');
     });
 });

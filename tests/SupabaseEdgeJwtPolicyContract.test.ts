@@ -23,6 +23,8 @@ const RECONCILED_PROTECTED_FUNCTIONS = {
 
 const EXISTING_PROTECTED_FUNCTIONS = {
     'delete-account': 'irreversible signed-in mutation with a second identity check',
+    'founding-skipper-email-worker':
+        'gateway-verified JWT plus a worker-level service_role claim or bounded exact internal worker secret',
     'register-apple-token': 'signed-in Apple code exchange with a second identity check',
 } as const;
 

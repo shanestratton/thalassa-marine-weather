@@ -57,12 +57,16 @@ describe('FoundingSkippersPage', () => {
                 source: 'moreton-bay-club',
                 interests: ['marine_weather'],
                 consent: true,
+                consentVersion: 'founding-skippers-v2',
             }),
         );
         expect(button).toBeDisabled();
 
         resolveSubmission?.();
-        expect(await screen.findByText("You're on the crew list.")).toBeInTheDocument();
+        expect(await screen.findByText("We've got your application.")).toBeInTheDocument();
+        expect(screen.getByText(/A confirmation email is on its way/i)).toBeInTheDocument();
+        expect(screen.getByText(/if you're accepted, email you with the next steps/i)).toBeInTheDocument();
+        expect(screen.getByText(/isn't acceptance into the beta yet/i)).toBeInTheDocument();
     });
 
     it('keeps the form and announces a retryable server failure', async () => {

@@ -44,7 +44,7 @@ const application: FoundingSkipperApplicationRecord = {
     interests: ['marine_weather', 'anchor_watch'],
     notes: 'Straight-up feedback only.',
     source: 'personal-email',
-    consent_version: 'founding-skippers-v1',
+    consent_version: 'founding-skippers-v2',
     consented_at: '2026-08-25T10:37:11.807Z',
     status: 'new',
     status_updated_at: null,
@@ -84,18 +84,46 @@ describe('FoundingSkipperInbox', () => {
         expect(inbox.list).toHaveBeenCalledWith({ status: null, cursor: null, limit: 50 });
     });
 
-    it('makes accepted an explicit status-only action and tells the reviewer what it does not send', async () => {
+    it('queues the accepted welcome email while making the TestFlight boundary explicit', async () => {
         const inbox = service();
         render(<FoundingSkipperInbox service={inbox} />);
         await screen.findAllByText('Shane Stratton');
 
         fireEvent.click(screen.getByRole('button', { name: 'Mark Accepted' }));
         const dialog = screen.getByRole('dialog', { name: 'Mark Accepted' });
-        expect(dialog).toHaveTextContent('does not send an email or a TestFlight invitation');
+        expect(dialog).toHaveTextContent('a welcome email will be queued if one has not already been sent');
+        expect(dialog).toHaveTextContent('does not send a TestFlight invitation');
         fireEvent.click(within(dialog).getByRole('button', { name: 'Mark Accepted' }));
 
         await waitFor(() => expect(inbox.review).toHaveBeenCalledWith(application.id, 'new', 'accepted'));
         expect((await screen.findAllByText('Accepted')).length).toBeGreaterThan(0);
+        expect(
+            screen.getByText(
+                /Welcome email queued if one has not already been sent; no TestFlight invitation has been sent/i,
+            ),
+        ).toBeInTheDocument();
+    });
+
+    it('keeps legacy-consent acceptance manual and sends neither welcome nor TestFlight mail', async () => {
+        const legacyApplication = { ...application, consent_version: 'founding-skippers-v1' };
+        const inbox = service({
+            list: vi.fn().mockResolvedValue({ applications: [legacyApplication], nextCursor: null }),
+        });
+        render(<FoundingSkipperInbox service={inbox} />);
+        await screen.findAllByText('Shane Stratton');
+
+        fireEvent.click(screen.getByRole('button', { name: 'Mark Accepted' }));
+        const dialog = screen.getByRole('dialog', { name: 'Mark Accepted' });
+        expect(dialog).toHaveTextContent('did not consent to automatic applicant email');
+        expect(dialog).toHaveTextContent('no welcome email will be sent automatically');
+        expect(dialog).toHaveTextContent('Contact them manually');
+        expect(dialog).toHaveTextContent('does not send a TestFlight invitation');
+        fireEvent.click(within(dialog).getByRole('button', { name: 'Mark Accepted' }));
+
+        await waitFor(() => expect(inbox.review).toHaveBeenCalledWith(application.id, 'new', 'accepted'));
+        expect(
+            screen.getByText(/Legacy consent: no automatic welcome email; contact them manually/i),
+        ).toBeInTheDocument();
     });
 
     it('removes an application from a filtered queue after its status changes', async () => {

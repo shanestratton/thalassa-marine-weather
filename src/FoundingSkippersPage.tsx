@@ -4,6 +4,7 @@ import {
     APPLE_DEVICES,
     BOAT_TYPES,
     BOATING_FREQUENCIES,
+    FOUNDING_SKIPPER_CONSENT_VERSION,
     TESTING_INTERESTS,
     type FoundingSkipperApplication,
     submitFoundingSkipperApplication,
@@ -122,6 +123,7 @@ export function FoundingSkippersPage({
                 interests: interests as FoundingSkipperApplication['interests'],
                 notes: notes.trim() || undefined,
                 consent: true,
+                consentVersion: FOUNDING_SKIPPER_CONSENT_VERSION,
                 source,
                 website: website.trim() || undefined,
             });
@@ -210,13 +212,14 @@ export function FoundingSkippersPage({
                                 ✓
                             </div>
                             <p className="beta-kicker">APPLICATION RECEIVED</p>
-                            <h2>You're on the crew list.</h2>
+                            <h2>We've got your application.</h2>
                             <p>
-                                Thanks, {name.trim().split(/\s+/)[0]}. We'll review your application and email you with
-                                the next step.
+                                Thanks, {name.trim().split(/\s+/)[0]}. A confirmation email is on its way. We'll review
+                                your application and, if you're accepted, email you with the next steps.
                             </p>
                             <p className="beta-success-note">
-                                In the meantime, keep an eye on your inbox and your spam folder.
+                                That confirmation means we received your application — it isn't acceptance into the beta
+                                yet. Keep an eye on your inbox and spam folder.
                             </p>
                         </div>
                     ) : (
@@ -436,16 +439,18 @@ export function FoundingSkippersPage({
                                     />
                                     <span id="consent-copy">
                                         I agree that Thalassa may use these details to assess my application and contact
-                                        me about this beta.
+                                        me about this beta, including transactional application receipt and acceptance
+                                        emails.
                                     </span>
                                 </label>
                                 <FieldError id="consent-error">{errors.consent}</FieldError>
 
                                 <p className="beta-privacy">
                                     Application details may be processed by Resend, our transactional email provider,
-                                    solely to notify the operator and may arrive in the operator's private email inbox.
-                                    We don't sell application data or use it for advertising. Protected by a short-lived
-                                    pseudonymous network limit; we don't store your raw IP. Read our{' '}
+                                    solely to notify the operator and send you transactional application receipt and
+                                    acceptance emails. Operator notifications may arrive in the operator's private email
+                                    inbox. We don't sell application data or use it for advertising. Protected by a
+                                    short-lived pseudonymous network limit; we don't store your raw IP. Read our{' '}
                                     <a href="/terms" target="_blank" rel="noreferrer">
                                         privacy terms
                                     </a>

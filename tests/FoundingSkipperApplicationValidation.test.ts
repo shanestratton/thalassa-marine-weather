@@ -11,12 +11,13 @@ const valid = {
     interests: ['marine_weather', 'anchor_watch'],
     notes: 'Straight-up feedback.',
     consent: true,
+    consentVersion: 'founding-skippers-v2',
     source: 'moreton-bay-club',
     website: '',
 };
 
 describe('founding skipper application validation', () => {
-    it('normalizes a complete application and does not retain consent metadata from the browser', () => {
+    it('normalizes a complete application and retains its bounded consent text version', () => {
         const result = validateFoundingSkipperApplication(valid);
         expect(result.fields).toEqual([]);
         expect(result.value).toEqual(
@@ -24,11 +25,16 @@ describe('founding skipper application validation', () => {
                 name: 'Shane Stratton',
                 email: 'skipper@example.com',
                 source: 'moreton-bay-club',
+                consentVersion: 'founding-skippers-v2',
                 honeypotTriggered: false,
             }),
         );
         expect(result.value).not.toHaveProperty('consentedAt');
-        expect(result.value).not.toHaveProperty('consentVersion');
+    });
+
+    it('records a cached pre-versioned form as legacy v1 consent', () => {
+        const { consentVersion: _consentVersion, ...legacy } = valid;
+        expect(validateFoundingSkipperApplication(legacy).value?.consentVersion).toBe('founding-skippers-v1');
     });
 
     it('rejects unknown keys, bad enums, duplicate interests, controls, and missing consent', () => {
@@ -38,6 +44,7 @@ describe('founding skipper application validation', () => {
             boatType: 'submarine',
             interests: ['anchor_watch', 'anchor_watch'],
             consent: false,
+            consentVersion: 'founding-skippers-v999',
             isAdmin: true,
         });
         expect(result.value).toBeNull();

@@ -1,7 +1,6 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { requireAuthenticatedOrPublicQuota, withCors } from '../_shared/auth-rate-limit.ts';
 import { jsonResponse, readJsonObject } from '../_shared/http-security.ts';
-import { readFoundingSkipperAlertConfig, sendFoundingSkipperAlert } from './alert.ts';
 import { validateFoundingSkipperApplication } from './validation.ts';
 
 const ALLOWED_ORIGINS = new Set([
@@ -33,6 +32,37 @@ function runInBackground(task: Promise<void>): void {
     else void task;
 }
 
+async function wakeEmailWorker(supabaseUrl: string, anonKey: string, workerKey: string): Promise<void> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5_000);
+    try {
+        const response = await fetch(
+            `${supabaseUrl.replace(/\/$/u, '')}/functions/v1/founding-skipper-email-worker`,
+            {
+                method: 'POST',
+                headers: {
+                    apikey: anonKey,
+                    Authorization: `Bearer ${anonKey}`,
+                    'Content-Type': 'application/json',
+                    'X-Thalassa-Worker-Key': workerKey,
+                },
+                body: '{}',
+                signal: controller.signal,
+            },
+        );
+        if (!response.ok) {
+            console.warn(`[founding-skipper-application] email worker wake failed (${response.status})`);
+        }
+    } catch {
+        // The database outbox and scheduled worker are the durable recovery
+        // path. A failed fast wake must never make a stored application look
+        // unsuccessful to the applicant.
+        console.warn('[founding-skipper-application] email worker wake failed');
+    } finally {
+        clearTimeout(timeout);
+    }
+}
+
 Deno.serve(async (req: Request) => {
     const origin = req.headers.get('origin');
     if (origin && !ALLOWED_ORIGINS.has(origin)) return respond(req, { error: 'Origin not allowed' }, 403);
@@ -59,8 +89,9 @@ Deno.serve(async (req: Request) => {
     if (validated.value.honeypotTriggered) return respond(req, { ok: true }, 202);
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL');
+    const anonKey = Deno.env.get('SUPABASE_ANON_KEY');
     const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
-    if (!supabaseUrl || !serviceRoleKey) {
+    if (!supabaseUrl || !anonKey || !serviceRoleKey) {
         return respond(req, { error: 'Applications are temporarily unavailable. Please try again.' }, 503);
     }
 
@@ -68,7 +99,7 @@ Deno.serve(async (req: Request) => {
         auth: { persistSession: false, autoRefreshToken: false },
     });
     const application = validated.value;
-    const { data: insertedApplicationId, error } = await admin.rpc('submit_founding_skipper_application_v2', {
+    const { data: insertedApplicationId, error } = await admin.rpc('submit_founding_skipper_application_v3', {
         p_name: application.name,
         p_email: application.email,
         p_boat_type: application.boatType,
@@ -78,6 +109,7 @@ Deno.serve(async (req: Request) => {
         p_interests: application.interests,
         p_notes: application.notes,
         p_source: application.source,
+        p_consent_version: application.consentVersion,
     });
     if (error) {
         console.error('[founding-skipper-application] storage failed');
@@ -85,34 +117,7 @@ Deno.serve(async (req: Request) => {
     }
 
     if (typeof insertedApplicationId === 'string') {
-        const alertTask = sendFoundingSkipperAlert(
-            {
-                id: insertedApplicationId,
-                name: application.name,
-                email: application.email,
-                boatType: application.boatType,
-                homeWaters: application.homeWaters,
-                appleDevice: application.appleDevice,
-                boatingFrequency: application.boatingFrequency,
-                interests: application.interests,
-                notes: application.notes,
-                source: application.source,
-            },
-            readFoundingSkipperAlertConfig(),
-        )
-            .then((result) => {
-                if (result.status === 'sent') return;
-                if (result.status === 'skipped') {
-                    console.warn(`[founding-skipper-application] alert skipped: ${result.reason}`);
-                    return;
-                }
-                const providerStatus = result.providerStatus ? ` (${result.providerStatus})` : '';
-                console.error(
-                    `[founding-skipper-application] alert delivery failed: ${result.reason}${providerStatus}`,
-                );
-            })
-            .catch(() => console.error('[founding-skipper-application] alert delivery failed unexpectedly'));
-        runInBackground(alertTask);
+        runInBackground(wakeEmailWorker(supabaseUrl, anonKey, serviceRoleKey));
     }
 
     // New and duplicate emails receive the same response to prevent address

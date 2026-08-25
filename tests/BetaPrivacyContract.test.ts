@@ -34,13 +34,14 @@ describe('public-beta privacy contract', () => {
         const signIn = read('components/SignInScreen.tsx');
         const account = read('components/settings/AccountTab.tsx');
 
-        expect(terms).toContain('Version 2.3 · Public Beta');
+        expect(terms).toContain('Version 2.4 · Public Beta');
         expect(terms).toContain('supported account data syncs');
         expect(terms).toContain('may also be sent to');
         expect(terms).toContain('pseudonymous Thalassa account ID');
         expect(terms).toContain('destructive in-app deletion flow is');
         expect(normalizedTerms).toContain('temporarily unavailable during this beta');
-        expect(terms).toContain('mailto:privacy@thalassa.app');
+        expect(terms).toContain('mailto:privacy@thalassawx.com');
+        expect(terms).not.toContain('privacy@thalassa.app');
         expect(normalizedTerms).toContain('must be verified before account-creating App Store beta distribution');
         expect(terms).toContain('www.thalassawx.app');
         expect(terms).not.toContain('This data cannot be used to identify individual users.');

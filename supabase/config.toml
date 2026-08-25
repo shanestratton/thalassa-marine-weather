@@ -136,3 +136,9 @@ verify_jwt = true
 # Public application form. The function enforces exact-origin CORS, a bounded
 # body, strict validation, an HMAC-per-IP quota, and a service-role-only RPC.
 verify_jwt = false
+
+[functions.founding-skipper-email-worker]
+# Privileged queue worker. The gateway verifies the fast wake's public anon JWT
+# or cron's legacy service-role JWT; the function then requires either its
+# bounded internal worker secret or the verified service_role claim.
+verify_jwt = true

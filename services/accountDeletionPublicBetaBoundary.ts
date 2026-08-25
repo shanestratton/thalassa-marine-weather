@@ -9,7 +9,7 @@
  */
 export const ACCOUNT_DELETION_PUBLIC_BETA_ENABLED = import.meta.env.VITE_ACCOUNT_DELETION_ENABLED === 'true';
 
-export const ACCOUNT_DELETION_PRIVACY_EMAIL = 'privacy@thalassa.app';
+export const ACCOUNT_DELETION_PRIVACY_EMAIL = 'privacy@thalassawx.com';
 
 export const ACCOUNT_DELETION_PUBLIC_BETA_UNAVAILABLE_MESSAGE =
     'Account deletion is temporarily unavailable while its deletion safety controls are completed and verified. ' +

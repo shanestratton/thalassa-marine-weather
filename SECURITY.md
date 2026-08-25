@@ -157,9 +157,9 @@ the deletion hold is active. See
 [Offering account deletion in your app](https://developer.apple.com/support/offering-account-deletion-in-your-app/).
 
 The candidate privacy-policy URL returned HTTP 200 in the 2026-08-05 read-only check, but the hosted bytes did not
-match the revised local terms. The `thalassa.app` domain had MX records, which proves only that a mail route exists—not
-that `privacy@thalassa.app` is provisioned or monitored. Exact candidate deployment, byte verification, mailbox
-confirmation, and owner/legal approval remain required.
+match the revised local terms. On 2026-08-26, Google Admin confirmed `privacy@thalassawx.com` as an alternate address
+on the monitored `captain@serene-summer.com` mailbox. Exact candidate deployment, byte verification, and owner/legal
+approval remain required.
 
 Do not call this candidate shippable, or describe these controls as live, until the deployment and smoke evidence is
 recorded for the frozen commit.
