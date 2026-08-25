@@ -77,7 +77,7 @@ describe('FloatPlanSheet', () => {
         expect(screen.getByTestId('float-plan-preview')).toHaveTextContent(
             'Float plan | Serene Summer | Newport to Lady Musgrave',
         );
-        expect(screen.getByTestId('float-plan-preview')).toHaveTextContent('PEOPLE & CONTACT');
+        expect(screen.getByTestId('float-plan-preview')).toHaveTextContent('PERSONS ONBOARD');
     });
 
     it('shares the selected neutral format through the native share sheet', async () => {

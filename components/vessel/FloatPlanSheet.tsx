@@ -216,6 +216,10 @@ export const FloatPlanSheet: React.FC<FloatPlanSheetProps> = ({ voyage, preset, 
     const [personsOnBoard, setPersonsOnBoard] = useState<number>(
         () => preset?.personsOnBoard || voyage?.crew_count || vesselCrewAboard(vessel),
     );
+    // USCG-style persons roster (2026-08-26): names beat a bare count when a
+    // coordinator decides what to send. Optional — empty rows are dropped.
+    const [personsRoster, setPersonsRoster] = useState<Array<{ name: string; note: string }>>([]);
+    const [provisionsDays, setProvisionsDays] = useState<number>(0);
     const [channel, setChannel] = useState<FloatPlanChannel>('whatsapp');
     const [sharedChannel, setSharedChannel] = useState<FloatPlanChannel | null>(null);
     const [copied, setCopied] = useState(false);
@@ -262,11 +266,25 @@ export const FloatPlanSheet: React.FC<FloatPlanSheetProps> = ({ voyage, preset, 
             etaMs,
             overdueMs,
             personsOnBoard,
+            personsRoster: personsRoster.filter((person) => person.name.trim().length > 0),
+            provisionsDays: provisionsDays > 0 ? provisionsDays : undefined,
             whoToCall: whoToCall.trim() || undefined,
             contactAboard: contactAboard.trim() || undefined,
             timeZone,
         }),
-        [vessel, route, departureMs, etaMs, overdueMs, personsOnBoard, whoToCall, contactAboard, timeZone],
+        [
+            vessel,
+            route,
+            departureMs,
+            etaMs,
+            overdueMs,
+            personsOnBoard,
+            personsRoster,
+            provisionsDays,
+            whoToCall,
+            contactAboard,
+            timeZone,
+        ],
     );
 
     const payload = useMemo(() => createFloatPlanSharePayload(input, channel), [input, channel]);
@@ -511,6 +529,79 @@ export const FloatPlanSheet: React.FC<FloatPlanSheetProps> = ({ voyage, preset, 
                             +
                         </button>
                     </div>
+                </div>
+            </div>
+
+            <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4" data-testid="float-plan-roster">
+                <div className="mb-2 flex items-center justify-between gap-2">
+                    <p className="text-xs font-black uppercase tracking-[0.14em] text-slate-300">Persons onboard</p>
+                    <span className="text-[11px] font-semibold text-slate-500">Names help a coordinator</span>
+                </div>
+                <div className="space-y-2">
+                    {personsRoster.map((person, index) => (
+                        <div key={index} className="flex items-center gap-2">
+                            <input
+                                type="text"
+                                aria-label={`Person ${index + 1} name`}
+                                value={person.name}
+                                onChange={(event) =>
+                                    setPersonsRoster((rows) =>
+                                        rows.map((row, i) =>
+                                            i === index ? { ...row, name: event.target.value } : row,
+                                        ),
+                                    )
+                                }
+                                placeholder="Name"
+                                className="min-h-11 w-1/2 rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white outline-none placeholder:text-slate-500 focus:border-sky-400"
+                            />
+                            <input
+                                type="text"
+                                aria-label={`Person ${index + 1} note`}
+                                value={person.note}
+                                onChange={(event) =>
+                                    setPersonsRoster((rows) =>
+                                        rows.map((row, i) =>
+                                            i === index ? { ...row, note: event.target.value } : row,
+                                        ),
+                                    )
+                                }
+                                placeholder="Role · age · medical"
+                                className="min-h-11 flex-1 rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white outline-none placeholder:text-slate-500 focus:border-sky-400"
+                            />
+                            <button
+                                type="button"
+                                aria-label={`Remove person ${index + 1}`}
+                                onClick={() => setPersonsRoster((rows) => rows.filter((_, i) => i !== index))}
+                                className="flex h-11 w-9 items-center justify-center rounded-xl text-slate-400 hover:bg-white/5"
+                            >
+                                ×
+                            </button>
+                        </div>
+                    ))}
+                    <button
+                        type="button"
+                        onClick={() => setPersonsRoster((rows) => [...rows, { name: '', note: '' }])}
+                        className="min-h-11 w-full rounded-xl border border-dashed border-white/15 text-sm font-semibold text-slate-300 hover:bg-white/5"
+                    >
+                        + Add person
+                    </button>
+                </div>
+                <div className="mt-3 flex items-center justify-between gap-3">
+                    <label htmlFor="float-provisions-days" className="text-xs font-bold text-slate-300">
+                        Food &amp; water aboard (days)
+                    </label>
+                    <input
+                        id="float-provisions-days"
+                        type="text"
+                        inputMode="numeric"
+                        value={provisionsDays > 0 ? String(provisionsDays) : ''}
+                        onChange={(event) => {
+                            const parsed = parseInt(event.target.value.replace(/\D/g, ''), 10);
+                            setProvisionsDays(Number.isFinite(parsed) ? Math.min(365, parsed) : 0);
+                        }}
+                        placeholder="—"
+                        className="min-h-11 w-20 rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-center text-sm text-white outline-none placeholder:text-slate-500 focus:border-sky-400"
+                    />
                 </div>
             </div>
 
