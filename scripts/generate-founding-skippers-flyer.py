@@ -233,7 +233,7 @@ def draw_header(pdf: canvas.Canvas) -> None:
 def draw_features(pdf: canvas.Canvas) -> None:
     draw_tracked_text(
         pdf,
-        "ONE APP. THREE JOBS THAT MATTER.",
+        "ONE APP. FOUR JOBS THAT MATTER.",
         PAGE_MARGIN,
         157 * mm,
         font="Helvetica-Bold",
@@ -243,15 +243,16 @@ def draw_features(pdf: canvas.Canvas) -> None:
     )
 
     chip_y = 140 * mm
-    chip_width = 23 * mm
+    chip_width = 17.5 * mm
     chip_height = 10.5 * mm
-    gap = 3 * mm
-    for index, label in enumerate(("PLAN", "WATCH", "LOG")):
+    gap = 2 * mm
+    for index, label in enumerate(("WEATHER", "PLAN", "WATCH", "LOG")):
         x = PAGE_MARGIN + index * (chip_width + gap)
+        is_weather = index == 0
         pdf.saveState()
         _set_alpha(pdf, fill=0.86, stroke=0.9)
         pdf.setFillColor(NAVY)
-        pdf.setStrokeColor(TEAL if index == 1 else SLATE_700)
+        pdf.setStrokeColor(TEAL if is_weather else SLATE_700)
         pdf.setLineWidth(0.75)
         pdf.roundRect(x, chip_y, chip_width, chip_height, 3.5 * mm, fill=1, stroke=1)
         pdf.restoreState()
@@ -261,9 +262,9 @@ def draw_features(pdf: canvas.Canvas) -> None:
             x + chip_width / 2,
             chip_y + 3.5 * mm,
             font="Helvetica-Bold",
-            size=7.3,
-            tracking=0.75,
-            color=TEAL if index == 1 else white,
+            size=6.2 if is_weather else 6.8,
+            tracking=0.3 if is_weather else 0.55,
+            color=TEAL if is_weather else white,
             align="center",
         )
 
