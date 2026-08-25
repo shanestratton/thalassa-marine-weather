@@ -37,6 +37,8 @@ import {
 import { supabase } from '../services/supabase';
 import { loadOwnedVesselFleet } from '../services/VesselFleetService';
 import { triggerHaptic } from '../utils/system';
+import { useUIStore } from '../stores/uiStore';
+import { followCastOffRoute } from '../services/shiplog/followCastOffRoute';
 import { toast } from './Toast';
 import {
     createVoyage,
@@ -304,6 +306,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
     // leave authChecked=false forever, which rendered the page as just
     // a header with an empty body (the "blank Passage Planning" bug).
     const authedUser = useAuthStore((s) => s.user);
+    const setPage = useUIStore((st) => st.setPage);
     const authChecked = useAuthStore((s) => s.authChecked);
     const authUserId = authedUser?.id ?? null;
     const isAuthed = !!authedUser;
@@ -2513,6 +2516,17 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                         if (!scopeStillOwnsPage(renderScope)) return;
                         setActiveVoyageName(savedRouteDisplayName(voyage));
                         setShowCastOff(false);
+                        // Cast Off ends where the Log page's slide-to-start
+                        // ends (Shane 2026-08-25: "they end up in the same
+                        // place, but just took a detour through the passage
+                        // planning page"). Tracking is already verified live
+                        // by the panel. The passage IS its route, so follow
+                        // it and put the line on the public page without
+                        // asking a one-answer question — the verification
+                        // gate inside refuses anything unproven, and the Log
+                        // page's own follow sheet stays as the fallback ask.
+                        void followCastOffRoute(voyage.id);
+                        setPage('log');
                     }}
                 />
             )}
