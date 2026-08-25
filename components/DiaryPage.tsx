@@ -28,9 +28,6 @@ import {
     isAuthIdentityScopeCurrent,
     subscribeAuthIdentityScope,
 } from '../services/authIdentityScope';
-import { startRecording as startAudioRecording, type AudioRecorderHandle } from '../services/voice/audioRecorder';
-import { startDeepgramRecognizer, type DeepgramRecognizerHandle } from '../services/voice/deepgramRecognizer';
-import { combineDiaryVoiceTranscript } from '../utils/diaryVoiceTranscript';
 interface DiaryPageProps {
     onBack: () => void;
 }
@@ -68,28 +65,6 @@ const groupByDate = (entries: DiaryEntry[]): Map<string, DiaryEntry[]> => {
     return map;
 };
 
-/**
- * A native voice task can occasionally stall. Never let that hold the Stop
- * action hostage: late handles see the invalidated session and clean
- * themselves up instead.
- */
-const settleVoiceTask = async <T,>(promise: Promise<T | null> | null, timeoutMs = 1500): Promise<T | null> => {
-    if (!promise) return null;
-    return new Promise((resolve) => {
-        const timeout = setTimeout(() => resolve(null), timeoutMs);
-        void promise.then(
-            (value) => {
-                clearTimeout(timeout);
-                resolve(value);
-            },
-            () => {
-                clearTimeout(timeout);
-                resolve(null);
-            },
-        );
-    });
-};
-
 // ── Component ──────────────────────────────────────────────────
 export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
     // ── Consolidated state (replaces 29 individual useState calls) ──
@@ -119,8 +94,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
         selectedIds,
         menuOpen,
         exportProgress,
-        isRecording,
-        recordingTime,
+        gpsLoading,
         transcribing,
         isPlaying,
         keyboardHeight,
@@ -216,17 +190,6 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
         (v: string | null) => dispatch({ type: 'SET_EXPORT_PROGRESS', progress: v }),
         [dispatch],
     );
-    const setIsRecording = useCallback(
-        (v: boolean) => (v ? dispatch({ type: 'START_RECORDING' }) : dispatch({ type: 'STOP_RECORDING' })),
-        [dispatch],
-    );
-    const setRecordingTime = useCallback(
-        (v: number | ((prev: number) => number)) => {
-            if (typeof v === 'function') dispatch({ type: 'TICK_RECORDING' });
-            else dispatch({ type: 'SET_RECORDING_TIME', time: v });
-        },
-        [dispatch],
-    );
     const setTranscribing = useCallback(
         (v: boolean) => dispatch({ type: 'SET_TRANSCRIBING', transcribing: v }),
         [dispatch],
@@ -260,37 +223,11 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
         triggerRef: pageActionsTriggerRef,
         onClose: closePageActions,
     });
-    const audioRecorderRef = useRef<AudioRecorderHandle | null>(null);
-    const audioRecorderStartRef = useRef<Promise<AudioRecorderHandle | null> | null>(null);
-    const liveRecognizerRef = useRef<DeepgramRecognizerHandle | null>(null);
-    const liveRecognizerStartRef = useRef<Promise<DeepgramRecognizerHandle | null> | null>(null);
-    const liveStopRef = useRef<Promise<string | null> | null>(null);
-    // Once Stop has been pressed the active handles move here. Keeping them
-    // reachable means Cancel/sign-out can still release WebKit's microphone
-    // rather than waiting for a network final-flush to finish.
-    const stoppingAudioRecorderRef = useRef<AudioRecorderHandle | null>(null);
-    const stoppingLiveRecognizerRef = useRef<DeepgramRecognizerHandle | null>(null);
-    const voiceSessionRef = useRef(0);
+    // The microphone left the diary on 2026-08-25 (Shane: "get rid of the
+    // microphone, and just have texting") — ~600 lines of WebKit capture,
+    // Deepgram streaming and iOS mic-lifecycle guards went with it. Legacy
+    // entries keep their voice memos: playback and transcribe-on-view stay.
     const composeSessionRef = useRef(0);
-    const voiceListeningRef = useRef(false);
-    const voiceFinalizingSessionRef = useRef<number | null>(null);
-    const voiceSessionScopeRef = useRef(getAuthIdentityScope());
-    const voiceBaselineRef = useRef('');
-    const voiceTranscriptRef = useRef('');
-    const speechHasTranscriptRef = useRef(false);
-    // Startup can outlive a fast tap on Stop (especially while iOS is
-    // presenting the microphone prompt). Keep accepting handles until the
-    // stop path has either claimed or explicitly timed them out, rather than
-    // cancelling a perfectly good capture session mid-startup.
-    const voiceAcceptingStartHandlesRef = useRef<number | null>(null);
-    const liveDictationUnavailableRef = useRef(false);
-    // A memo is not owned by a diary entry until Save completes. Keep its IDB
-    // ref here so Cancel, retry, and unmount can discard it without leaks.
-    const unsavedVoiceAudioRef = useRef<string | null>(null);
-    // A save may have already loaded this IDB blob for upload when the skipper
-    // Cancels. Defer deletion until that operation settles so it cannot race
-    // its own read/upload pipeline.
-    const savingVoiceAudioRef = useRef<string | null>(null);
     // Photos returned by uploadPhoto are still compose-owned until a confirmed
     // create/update adopts them. Existing edit photos never enter this set.
     const unsavedPhotoRefs = useRef<Set<string>>(new Set());
@@ -299,70 +236,29 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
     const savingPhotoRefsRef = useRef<Set<string> | null>(null);
     const abandonedComposeSessionsRef = useRef<Set<number>>(new Set());
     const composeSaveInFlightRef = useRef(false);
-    const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
     const fileRef = useRef<HTMLInputElement>(null);
     const pageScopeRef = useRef(getAuthIdentityScope());
     const entriesLoadRequestRef = useRef(0);
     const pageActiveRef = useRef(true);
-    const voicePolishContextRef = useRef({ mood, locationName, polishStyle });
-    voicePolishContextRef.current = { mood, locationName, polishStyle };
 
     /**
-     * Invalidate the current microphone cycle before changing compose state.
-     * Late native/STT callbacks must never write into a cancelled or newly
-     * opened diary entry.
+     * Invalidate the current compose screen before changing state. Late async
+     * callbacks (GPS, photo EXIF, an in-flight Save) must never write into a
+     * cancelled or newly opened diary entry.
      */
-    const abortVoiceSession = useCallback(
+    const invalidateComposeSession = useCallback(
         (resetUi = true) => {
-            voiceSessionRef.current += 1;
             // Any in-flight Save belongs to the abandoned compose screen. Its
             // eventual completion must never close or overwrite a new one.
             composeSessionRef.current += 1;
-            voiceListeningRef.current = false;
-            voiceFinalizingSessionRef.current = null;
-            speechHasTranscriptRef.current = false;
-            voiceAcceptingStartHandlesRef.current = null;
-            liveDictationUnavailableRef.current = false;
-            liveStopRef.current = null;
-            liveRecognizerStartRef.current = null;
-            audioRecorderStartRef.current = null;
-
-            if (recordingTimerRef.current) {
-                clearInterval(recordingTimerRef.current);
-                recordingTimerRef.current = null;
-            }
-
-            const recorder = audioRecorderRef.current;
-            audioRecorderRef.current = null;
-            recorder?.cancel();
-
-            const recognizer = liveRecognizerRef.current;
-            liveRecognizerRef.current = null;
-            if (recognizer) void recognizer.cancel();
-
-            const stoppingRecorder = stoppingAudioRecorderRef.current;
-            stoppingAudioRecorderRef.current = null;
-            stoppingRecorder?.cancel();
-
-            const stoppingRecognizer = stoppingLiveRecognizerRef.current;
-            stoppingLiveRecognizerRef.current = null;
-            if (stoppingRecognizer) void stoppingRecognizer.cancel();
-
-            const unsavedAudio = unsavedVoiceAudioRef.current;
-            unsavedVoiceAudioRef.current = null;
-            if (unsavedAudio && savingVoiceAudioRef.current !== unsavedAudio) {
-                void DiaryService.discardUnsavedAudio(unsavedAudio);
-            }
-
             if (resetUi) {
-                setIsRecording(false);
                 setTranscribing(false);
                 setPolishing(false);
                 if (!composeSaveInFlightRef.current) setSaving(false);
             }
         },
-        [setIsRecording, setPolishing, setSaving, setTranscribing],
+        [setPolishing, setSaving, setTranscribing],
     );
 
     const discardNewPhoto = useCallback((ref: string): void => {
@@ -453,13 +349,13 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                 abandonedComposeSessions.add(composeSessionRef.current);
             }
             abandonComposePhotos();
-            abortVoiceSession(false);
+            invalidateComposeSession(false);
             if (audioPlayerRef.current) {
                 audioPlayerRef.current.pause();
                 audioPlayerRef.current = null;
             }
         };
-    }, [abandonComposePhotos, abortVoiceSession]);
+    }, [abandonComposePhotos, invalidateComposeSession]);
     // The mounted page is an auth boundary too: hide A synchronously, abandon
     // A's compose ownership, then load only B's namespace. Request ids prevent
     // a late A read from repainting the timeline.
@@ -485,7 +381,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
             setMenuOpen(false);
             setLoading(true);
             abandonComposePhotos();
-            abortVoiceSession();
+            invalidateComposeSession();
             if (audioPlayerRef.current) {
                 audioPlayerRef.current.pause();
                 audioPlayerRef.current = null;
@@ -495,7 +391,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
         });
     }, [
         abandonComposePhotos,
-        abortVoiceSession,
+        invalidateComposeSession,
         dispatch,
         loadEntriesForScope,
         setDeletedItem,
@@ -581,11 +477,11 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
         };
     }, [weatherData]);
     const openCompose = useCallback(async () => {
-        abortVoiceSession();
+        invalidateComposeSession();
         setEditingId(null);
         setTitle('');
         setBody('');
-        setMood('good');
+        setMood('epic');
         setPhotos([]);
         setAudioUrl(null);
         setLat(null);
@@ -593,17 +489,16 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
         setLocationName('');
         setWeatherSummary(buildWeatherSnapshot());
         dispatch({ type: 'SET_WEATHER_DATA', data: buildWeatherData() });
-        setRecordingTime(0);
         setShowCompose(true);
         triggerHaptic('light');
         locationFromPhotoRef.current = false;
         grabGps();
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [abortVoiceSession, grabGps, buildWeatherSnapshot, buildWeatherData, dispatch]);
+    }, [invalidateComposeSession, grabGps, buildWeatherSnapshot, buildWeatherData, dispatch]);
     // ── Edit (existing) ────────────────────────────────────────
     const openEdit = useCallback(
         (entry: DiaryEntry) => {
-            abortVoiceSession();
+            invalidateComposeSession();
             // Fresh edit session: a photo attached DURING this edit may
             // re-pin the entry from its EXIF (the repair path for entries
             // pinned at the berth — re-attach the original photo and the
@@ -615,380 +510,8 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
             dispatch({ type: 'OPEN_EDIT', entry, locationDisplay });
             triggerHaptic('light');
         },
-        [abortVoiceSession, dispatch],
+        [invalidateComposeSession, dispatch],
     );
-    // ── Voice diary ─────────────────────────────────────────────
-    // Streaming dictation writes partial words into the voice-only body field.
-    // The same WebKit microphone stream is recorded as a robust fallback when
-    // the live network transcription path is unavailable.
-    const finaliseVoiceEntry = useCallback(
-        async (
-            sessionId: number,
-            operationScope: ReturnType<typeof getAuthIdentityScope>,
-            baseline: string,
-            audio?: { blob: Blob; mimeType: string },
-        ) => {
-            const operationIsCurrent = () =>
-                pageActiveRef.current &&
-                isAuthIdentityScopeCurrent(operationScope) &&
-                voiceSessionRef.current === sessionId;
-
-            if (!operationIsCurrent() || voiceFinalizingSessionRef.current !== sessionId) return;
-
-            setTranscribing(true);
-            try {
-                // Keep the raw memo in IndexedDB until the skipper saves the
-                // entry. That makes Cancel genuinely discard it and avoids
-                // putting base64 audio into the localStorage pending queue.
-                let attachedAudio = false;
-                let localAudioUrl: string | null = null;
-                const attachLocalAudio = async (): Promise<string | null> => {
-                    if (!audio?.blob.size || attachedAudio) return localAudioUrl;
-                    attachedAudio = true;
-                    // Delay the IDB write until it is genuinely needed. If
-                    // the skipper Cancels while the live text is being styled,
-                    // there is no memo blob to clean up afterwards.
-                    const refPromise = DiaryService.saveAudioForEntry(audio.blob);
-                    localAudioUrl = await settleVoiceTask(refPromise, 5000);
-                    if (!localAudioUrl) {
-                        // A very slow IDB write must not keep the form locked;
-                        // if it completes late, discard its otherwise-orphaned
-                        // blob rather than retaining private audio indefinitely.
-                        void refPromise.then((lateRef) => {
-                            if (lateRef) void DiaryService.discardUnsavedAudio(lateRef);
-                        });
-                    }
-                    if (!operationIsCurrent()) {
-                        if (localAudioUrl) void DiaryService.discardUnsavedAudio(localAudioUrl);
-                        return null;
-                    }
-                    if (localAudioUrl) {
-                        unsavedVoiceAudioRef.current = localAudioUrl;
-                        setAudioUrl(localAudioUrl);
-                    } else log.warn('[Diary] Voice memo could not be saved');
-                    return localAudioUrl;
-                };
-
-                let transcript = '';
-                let fallbackTranscriptionFailed = false;
-                try {
-                    const speechResult = await liveStopRef.current;
-                    transcript = (speechResult || voiceTranscriptRef.current).trim();
-                } catch (err) {
-                    log.warn('[Diary] Live dictation did not finish cleanly:', err);
-                }
-                if (!operationIsCurrent()) return;
-
-                // Replace the interim live text with the recognizer's final
-                // result as soon as Stop is pressed — never append duplicate
-                // partial words to the diary.
-                if (transcript) setBody(combineDiaryVoiceTranscript(baseline, transcript));
-
-                // A recorded-audio transcription is the fallback only. This
-                // keeps the primary path responsive while still covering an
-                // unavailable streaming connection and offline-capable web.
-                if (!transcript && audio) {
-                    localAudioUrl = await attachLocalAudio();
-                    if (!operationIsCurrent()) return;
-                }
-                if (!transcript && localAudioUrl && audio) {
-                    const fallbackTranscript = await DiaryService.transcribeAudio(localAudioUrl, audio.mimeType);
-                    if (!operationIsCurrent()) return;
-                    // null means the transcription service failed or could
-                    // not be reached; an empty string is its explicit result
-                    // for a recording that genuinely contains no speech.
-                    fallbackTranscriptionFailed = fallbackTranscript === null;
-                    transcript = fallbackTranscript?.trim() || '';
-                    if (transcript) setBody(combineDiaryVoiceTranscript(baseline, transcript));
-                }
-
-                if (!transcript) {
-                    toast.error(
-                        fallbackTranscriptionFailed && localAudioUrl
-                            ? 'Your voice memo was saved, but transcription is unavailable right now. You can save it and try again when online.'
-                            : localAudioUrl
-                              ? 'We could not hear any speech. Your voice memo was kept so you can try again.'
-                              : speechHasTranscriptRef.current
-                                ? 'Speech was detected, but the final transcript could not complete. Please try again.'
-                                : liveDictationUnavailableRef.current
-                                  ? 'Live dictation could not connect, and no voice memo was captured. Check microphone access and try again.'
-                                  : 'We could not hear any speech. Check microphone access, then try again.',
-                    );
-                    return;
-                }
-
-                // Do the requested styling pass only after the skipper presses
-                // Stop, preserving the raw spoken text if the AI is offline or
-                // temporarily unavailable.
-                if (transcript.length >= 5) {
-                    setPolishing(true);
-                    const polishContext = voicePolishContextRef.current;
-                    const enhanced = await DiaryService.enhanceWithGemini(transcript, {
-                        mood: polishContext.mood,
-                        location: polishContext.locationName,
-                        intensity: POLISH_INTENSITY[polishContext.polishStyle],
-                    });
-                    if (!operationIsCurrent()) return;
-
-                    if (enhanced) {
-                        setBody(combineDiaryVoiceTranscript(baseline, enhanced));
-                    } else {
-                        toast.info('Voice captured. The original wording was kept because styling is unavailable.');
-                    }
-                    setPolishing(false);
-                }
-
-                // Keep Save locked until the raw memo is represented locally
-                // in the entry, without waiting for a remote storage upload.
-                await attachLocalAudio();
-            } catch (err) {
-                log.error('[Diary] Voice entry finalisation failed:', err);
-                if (operationIsCurrent()) {
-                    toast.error('Your voice entry could not be finished. Please try recording it again.');
-                }
-            } finally {
-                if (voiceFinalizingSessionRef.current === sessionId) {
-                    voiceFinalizingSessionRef.current = null;
-                    if (operationIsCurrent()) {
-                        setTranscribing(false);
-                        setPolishing(false);
-                    }
-                }
-            }
-        },
-        [setAudioUrl, setBody, setPolishing, setTranscribing],
-    );
-
-    const startRecording = () => {
-        if (voiceListeningRef.current || voiceFinalizingSessionRef.current !== null) return;
-
-        const previousUnsavedAudio = unsavedVoiceAudioRef.current;
-        if (previousUnsavedAudio) {
-            unsavedVoiceAudioRef.current = null;
-            void DiaryService.discardUnsavedAudio(previousUnsavedAudio);
-            setAudioUrl(null);
-        }
-
-        const operationScope = getAuthIdentityScope();
-        const sessionId = voiceSessionRef.current + 1;
-        voiceSessionRef.current = sessionId;
-        voiceSessionScopeRef.current = operationScope;
-        voiceBaselineRef.current = body.trimEnd();
-        voiceTranscriptRef.current = '';
-        speechHasTranscriptRef.current = false;
-        voiceAcceptingStartHandlesRef.current = sessionId;
-        liveDictationUnavailableRef.current = false;
-        liveStopRef.current = null;
-        voiceListeningRef.current = true;
-
-        const operationIsCurrent = () =>
-            pageActiveRef.current &&
-            isAuthIdentityScopeCurrent(operationScope) &&
-            voiceSessionRef.current === sessionId;
-        const isListeningSession = () => operationIsCurrent() && voiceListeningRef.current;
-        const canAcceptStartingHandle = () =>
-            operationIsCurrent() && voiceAcceptingStartHandlesRef.current === sessionId;
-
-        // Show the active state immediately, including while iOS asks for
-        // microphone access, so a second tap correctly means Stop.
-        setIsRecording(true);
-        setRecordingTime(0);
-        triggerHaptic('medium');
-        recordingTimerRef.current = setInterval(() => {
-            if (!isListeningSession()) {
-                if (recordingTimerRef.current) {
-                    clearInterval(recordingTimerRef.current);
-                    recordingTimerRef.current = null;
-                }
-                return;
-            }
-            setRecordingTime((prev) => prev + 1);
-        }, 1000);
-
-        // One WebKit capture stream powers both the raw memo and the live
-        // recognizer. Do not pair SFSpeechRecognizer's AVAudioEngine with a
-        // separate getUserMedia session: on iOS they compete for the mic and
-        // produce the exact silent-dictation failure this diary is avoiding.
-        const audioStart = startAudioRecording()
-            .then((recorder) => {
-                if (!canAcceptStartingHandle()) {
-                    recorder.cancel();
-                    return null;
-                }
-                audioRecorderRef.current = recorder;
-
-                // Stop may have landed while iOS was presenting the mic
-                // permission prompt. In that case the stop path has already
-                // captured `audioStart` and will stop this recorder to keep
-                // the raw memo; it cannot also see a recognizer that begins
-                // only now. Do not start a fresh Deepgram session after Stop
-                // or it can remain open without a matching stop()/cancel().
-                if (!isListeningSession()) return recorder;
-
-                const liveStart = startDeepgramRecognizer({
-                    stream: recorder.mediaStream(),
-                    onPartial: (text) => {
-                        if (!isListeningSession()) return;
-                        const partial = text.trim();
-                        if (!partial) return;
-                        speechHasTranscriptRef.current = true;
-                        voiceTranscriptRef.current = partial;
-                        setBody(combineDiaryVoiceTranscript(voiceBaselineRef.current, partial));
-                    },
-                })
-                    .then(async (handle) => {
-                        if (!canAcceptStartingHandle()) {
-                            await handle.cancel();
-                            return null;
-                        }
-                        liveRecognizerRef.current = handle;
-                        return handle;
-                    })
-                    .catch((err) => {
-                        // The raw recording keeps running, so an unavailable
-                        // network/STT connection still has a post-Stop Gemini
-                        // transcription path instead of losing the entry.
-                        if (isListeningSession()) {
-                            log.info('[Diary] Live dictation unavailable; using audio transcription fallback:', err);
-                            liveDictationUnavailableRef.current = true;
-                        }
-                        return null;
-                    });
-                liveRecognizerStartRef.current = liveStart;
-                void liveStart.then((handle) => {
-                    if (!isListeningSession() || handle) return;
-                    toast.info('Live dictation is unavailable. We will convert this recording when you press Stop.');
-                });
-                return recorder;
-            })
-            .catch((err) => {
-                log.warn('[Diary] Audio-recording fallback unavailable:', err);
-                if (!isListeningSession()) return null;
-                voiceListeningRef.current = false;
-                setIsRecording(false);
-                if (recordingTimerRef.current) {
-                    clearInterval(recordingTimerRef.current);
-                    recordingTimerRef.current = null;
-                }
-                toast.error('Microphone access is unavailable. Enable Microphone access in Settings.');
-                if (voiceAcceptingStartHandlesRef.current === sessionId) {
-                    voiceAcceptingStartHandlesRef.current = null;
-                }
-                return null;
-            });
-        audioRecorderStartRef.current = audioStart;
-    };
-
-    const stopRecording = () => {
-        if (!voiceListeningRef.current) return;
-
-        const sessionId = voiceSessionRef.current;
-        const operationScope = voiceSessionScopeRef.current;
-        const baseline = voiceBaselineRef.current;
-        const isStopSessionCurrent = () =>
-            pageActiveRef.current &&
-            isAuthIdentityScopeCurrent(operationScope) &&
-            voiceSessionRef.current === sessionId &&
-            voiceFinalizingSessionRef.current === sessionId;
-        voiceListeningRef.current = false;
-        voiceFinalizingSessionRef.current = sessionId;
-        setIsRecording(false);
-        // Set this synchronously, before MediaRecorder's asynchronous stop
-        // event, so Save can never win the race and discard the final words.
-        setTranscribing(true);
-        if (recordingTimerRef.current) {
-            clearInterval(recordingTimerRef.current);
-            recordingTimerRef.current = null;
-        }
-        triggerHaptic('light');
-
-        const activeLiveRecognizer = liveRecognizerRef.current;
-        liveRecognizerRef.current = null;
-        const pendingLiveRecognizer = liveRecognizerStartRef.current;
-        const beginLiveStop = (recognizer: DeepgramRecognizerHandle): Promise<string | null> => {
-            stoppingLiveRecognizerRef.current = recognizer;
-            // Calling stop() immediately sends the final PCM batch and
-            // CloseStream synchronously, before it awaits Deepgram's final
-            // response. The recorder can therefore release the mic right
-            // away without clipping the skipper's last words.
-            return recognizer
-                .stop()
-                .then((result) => result.text)
-                .catch((err) => {
-                    log.warn('[Diary] Could not stop live dictation:', err);
-                    return null;
-                })
-                .finally(() => {
-                    if (stoppingLiveRecognizerRef.current === recognizer) {
-                        stoppingLiveRecognizerRef.current = null;
-                    }
-                });
-        };
-        liveStopRef.current = activeLiveRecognizer
-            ? beginLiveStop(activeLiveRecognizer)
-            : (async () => {
-                  // A just-tapped Stop may race the network handshake. This
-                  // is a bounded post-permission wait only — startup itself
-                  // never has a permission timeout.
-                  const recognizer = await settleVoiceTask(pendingLiveRecognizer);
-                  if (!recognizer) return null;
-                  if (!isStopSessionCurrent()) {
-                      await recognizer.cancel();
-                      return null;
-                  }
-                  return beginLiveStop(recognizer);
-              })();
-
-        const activeRecorder = audioRecorderRef.current;
-        audioRecorderRef.current = null;
-        const pendingRecorder = audioRecorderStartRef.current;
-        const beginRecorderStop = (recorder: AudioRecorderHandle): Promise<Blob | null> => {
-            stoppingAudioRecorderRef.current = recorder;
-            // Do not await the live recognizer here. Its stop call above has
-            // already flushed/sent the tail audio; stopping MediaRecorder now
-            // releases the iOS microphone as soon as the skipper taps Stop.
-            return recorder
-                .stop()
-                .catch((err) => {
-                    log.warn('[Diary] Audio recorder did not finish cleanly:', err);
-                    return null;
-                })
-                .finally(() => {
-                    if (stoppingAudioRecorderRef.current === recorder) {
-                        stoppingAudioRecorderRef.current = null;
-                    }
-                });
-        };
-        const recorderStop = activeRecorder
-            ? beginRecorderStop(activeRecorder)
-            : (async () => {
-                  const recorder = await settleVoiceTask(pendingRecorder);
-                  if (!recorder) return null;
-                  if (!isStopSessionCurrent()) {
-                      recorder.cancel();
-                      return null;
-                  }
-                  return beginRecorderStop(recorder);
-              })();
-        void (async () => {
-            const [, audio] = await Promise.all([liveStopRef.current, recorderStop]);
-            // Both bounded startup waits have now completed (or timed out).
-            // Any handle arriving after this point belongs to an abandoned
-            // session and will cancel itself in the adoption guard above.
-            if (voiceAcceptingStartHandlesRef.current === sessionId) {
-                voiceAcceptingStartHandlesRef.current = null;
-            }
-            if (!isStopSessionCurrent()) return;
-            if (audio) {
-                await finaliseVoiceEntry(sessionId, operationScope, baseline, {
-                    blob: audio,
-                    mimeType: activeRecorder?.mimeType() || audio.type || 'audio/mp4',
-                });
-            } else {
-                await finaliseVoiceEntry(sessionId, operationScope, baseline);
-            }
-        })();
-    };
     // ── Audio Playback ─────────────────────────────────────────
     const togglePlayback = async (url: string) => {
         if (isPlaying && audioPlayerRef.current) {
@@ -1142,13 +665,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
     };
     // ── Save (create or update) ────────────────────────────────
     const handleSave = async () => {
-        if (
-            composeSaveInFlightRef.current ||
-            uploading ||
-            voiceListeningRef.current ||
-            voiceFinalizingSessionRef.current !== null
-        )
-            return;
+        if (composeSaveInFlightRef.current || uploading) return;
         if (!body.trim() && !title.trim() && !audioUrl) return;
         const operationScope = getAuthIdentityScope();
         const composeSession = composeSessionRef.current;
@@ -1158,8 +675,6 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
             composeSessionRef.current === composeSession;
         let mediaAdopted = false;
         const savePhotoRefs = new Set([...unsavedPhotoRefs.current].filter((ref) => photos.includes(ref)));
-        const saveAudioRef = audioUrl?.startsWith('idb-audio:') ? audioUrl : null;
-        if (saveAudioRef) savingVoiceAudioRef.current = saveAudioRef;
         savingPhotoRefsRef.current = savePhotoRefs;
         composeSaveInFlightRef.current = true;
         setSaving(true);
@@ -1215,10 +730,6 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                 if (updateResult.ok) {
                     mediaAdopted = true;
                     for (const ref of savePhotoRefs) unsavedPhotoRefs.current.delete(ref);
-                    if (unsavedVoiceAudioRef.current === audioUrl) unsavedVoiceAudioRef.current = null;
-                    if (saveAudioRef && savingVoiceAudioRef.current === saveAudioRef) {
-                        savingVoiceAudioRef.current = null;
-                    }
                 }
                 if (!operationIsCurrent()) return;
                 if (updateResult.ok) {
@@ -1275,10 +786,6 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                 if (entry) {
                     mediaAdopted = true;
                     for (const ref of savePhotoRefs) unsavedPhotoRefs.current.delete(ref);
-                    if (unsavedVoiceAudioRef.current === audioUrl) unsavedVoiceAudioRef.current = null;
-                    if (saveAudioRef && savingVoiceAudioRef.current === saveAudioRef) {
-                        savingVoiceAudioRef.current = null;
-                    }
                 }
                 if (!operationIsCurrent()) return;
                 if (entry) {
@@ -1289,10 +796,6 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                 }
             }
         } finally {
-            if (saveAudioRef && savingVoiceAudioRef.current === saveAudioRef) {
-                savingVoiceAudioRef.current = null;
-                if (!operationIsCurrent()) void DiaryService.discardUnsavedAudio(saveAudioRef);
-            }
             const abandoned = abandonedComposeSessionsRef.current.delete(composeSession);
             if (!mediaAdopted && (abandoned || !pageActiveRef.current)) {
                 for (const ref of savePhotoRefs) void DiaryService.discardUnsavedPhoto(ref);
@@ -1467,11 +970,11 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                 saving={saving}
                 uploading={uploading}
                 polishing={polishing}
-                isRecording={isRecording}
-                recordingTime={recordingTime}
-                transcribing={transcribing}
+                gpsLoading={gpsLoading}
+                coordsLabel={lat != null && lon != null ? formatCoord(lat, lon) : null}
                 polishStyle={polishStyle}
                 onSetTitle={setTitle}
+                onSetBody={setBody}
                 onSetMood={setMood}
                 onSetLocationName={setLocationName}
                 onSetPolishStyle={setPolishStyle}
@@ -1479,13 +982,11 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                 onCancel={() => {
                     if (saving || composeSaveInFlightRef.current) return;
                     discardAllNewPhotos();
-                    abortVoiceSession();
+                    invalidateComposeSession();
                     setUploading(false);
                     setShowCompose(false);
                     setEditingId(null);
                 }}
-                onStartRecording={startRecording}
-                onStopRecording={stopRecording}
                 onPolish={handlePolish}
                 onPhotoSelect={handlePhotoSelect}
                 onPhotoRemove={removePhoto}

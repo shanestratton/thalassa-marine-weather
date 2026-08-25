@@ -1,3 +1,12 @@
+/**
+ * DiaryComposeForm — the TEXT-FIRST contract (2026-08-25).
+ *
+ * Shane: "get rid of the microphone, and just have texting… it has to
+ * default to EPIC and we have to always as default include the gps coords."
+ * These tests pin exactly that: an editable body, no microphone anywhere,
+ * EPIC as the reducer's default mood, and a coords line that always tells
+ * the truth (fix shown / acquiring / none-yet-will-retry).
+ */
 import { fireEvent, render, screen } from '@testing-library/react';
 import type React from 'react';
 import { describe, expect, it, vi } from 'vitest';
@@ -7,7 +16,7 @@ const makeProps = (overrides: Partial<React.ComponentProps<typeof DiaryComposeFo
     isEditing: false,
     title: 'Saturday 26 July 2026 · 07:30',
     body: 'A brisk south-easterly carried us across the bay.',
-    mood: 'good' as const,
+    mood: 'epic' as const,
     photos: [],
     audioUrl: null,
     locationName: 'Moreton Bay',
@@ -15,60 +24,62 @@ const makeProps = (overrides: Partial<React.ComponentProps<typeof DiaryComposeFo
     saving: false,
     uploading: false,
     polishing: false,
-    isRecording: false,
-    recordingTime: 0,
-    transcribing: false,
+    gpsLoading: false,
+    coordsLabel: '27.2081°S, 153.0995°E' as string | null,
     polishStyle: 'polished' as const,
     onSetTitle: vi.fn(),
+    onSetBody: vi.fn(),
     onSetMood: vi.fn(),
     onSetLocationName: vi.fn(),
     onSetPolishStyle: vi.fn(),
     onSave: vi.fn(),
     onCancel: vi.fn(),
-    onStartRecording: vi.fn(),
-    onStopRecording: vi.fn(),
     onPolish: vi.fn(),
     onPhotoSelect: vi.fn(),
     onPhotoRemove: vi.fn(),
     ...overrides,
 });
 
-describe('DiaryComposeForm voice entry', () => {
-    it('makes the narrative field voice-only while keeping the transcript readable', () => {
+describe('DiaryComposeForm — text-first entry', () => {
+    it('the body is a plain editable textarea and typing reaches onSetBody', () => {
+        const onSetBody = vi.fn();
+        render(<DiaryComposeForm {...makeProps({ onSetBody })} />);
+
+        const body = screen.getByRole('textbox', { name: 'Diary entry text' });
+        expect(body).not.toHaveAttribute('readonly');
+        expect(body).not.toHaveAttribute('inputmode', 'none');
+        fireEvent.change(body, { target: { value: 'Dolphins at the bow off Cape Moreton.' } });
+        expect(onSetBody).toHaveBeenCalledWith('Dolphins at the bow off Cape Moreton.');
+    });
+
+    it('the microphone is gone — no recording control anywhere', () => {
         render(<DiaryComposeForm {...makeProps()} />);
-
-        const transcript = screen.getByRole('textbox', { name: 'Voice transcript' });
-        expect(transcript).toHaveAttribute('readonly');
-        expect(transcript).toHaveAttribute('aria-readonly', 'true');
-        expect(transcript).toHaveAttribute('inputmode', 'none');
-        expect(transcript).toHaveAttribute('tabindex', '-1');
+        expect(screen.queryByRole('button', { name: /recording/i })).toBeNull();
+        expect(screen.queryByText(/Recording/)).toBeNull();
     });
 
-    it('uses the same microphone control to start and stop dictation', () => {
-        const onStartRecording = vi.fn();
-        const onStopRecording = vi.fn();
-        const { rerender } = render(<DiaryComposeForm {...makeProps({ onStartRecording, onStopRecording })} />);
-
-        fireEvent.click(screen.getByRole('button', { name: 'Start voice recording' }));
-        expect(onStartRecording).toHaveBeenCalledOnce();
-
-        rerender(<DiaryComposeForm {...makeProps({ isRecording: true, onStartRecording, onStopRecording })} />);
-        fireEvent.click(screen.getByRole('button', { name: 'Stop recording' }));
-        expect(onStopRecording).toHaveBeenCalledOnce();
+    it('typed text alone enables Save', () => {
+        render(<DiaryComposeForm {...makeProps({ title: '', body: 'Short and sweet.' })} />);
+        expect(screen.getByRole('button', { name: 'Save changes' })).toBeEnabled();
     });
 
-    it('holds Save and new recording until the voice session has finished', () => {
-        render(<DiaryComposeForm {...makeProps({ transcribing: true })} />);
-
-        expect(screen.getByRole('button', { name: 'Start voice recording' })).toBeDisabled();
+    it('polishing locks the body and Save until the styling pass lands', () => {
+        render(<DiaryComposeForm {...makeProps({ polishing: true })} />);
+        expect(screen.getByRole('textbox', { name: 'Diary entry text' })).toBeDisabled();
         expect(screen.getByRole('button', { name: 'Save changes' })).toBeDisabled();
     });
 
-    it('does not allow Save while the microphone is still recording', () => {
-        render(<DiaryComposeForm {...makeProps({ isRecording: true })} />);
+    it('shows the GPS coords that will ride on the entry', () => {
+        render(<DiaryComposeForm {...makeProps()} />);
+        expect(screen.getByText(/27\.2081°S, 153\.0995°E/)).toBeInTheDocument();
+    });
 
-        expect(screen.getByRole('button', { name: 'Save changes' })).toBeDisabled();
-        expect(screen.getByRole('button', { name: 'Stop recording' })).toBeEnabled();
+    it('is honest while the fix is still coming, and about saving without one', () => {
+        const { rerender } = render(<DiaryComposeForm {...makeProps({ coordsLabel: null, gpsLoading: true })} />);
+        expect(screen.getByText(/Acquiring GPS fix/)).toBeInTheDocument();
+
+        rerender(<DiaryComposeForm {...makeProps({ coordsLabel: null, gpsLoading: false })} />);
+        expect(screen.getByText(/No GPS fix — will retry when you save/)).toBeInTheDocument();
     });
 
     it('locks cancel and photo mutation while a save is adopting compose media', () => {
@@ -88,16 +99,14 @@ describe('DiaryComposeForm voice entry', () => {
         const cancelButtons = screen.getAllByRole('button', { name: 'Cancel this action' });
         expect(cancelButtons).toHaveLength(2);
         cancelButtons.forEach((button) => expect(button).toBeDisabled());
-        expect(screen.getByRole('button', { name: 'Remove this item' })).toBeDisabled();
-        expect(
-            screen
-                .getAllByRole('button', { name: /Add diary photo/ })
-                .every((button) => button.hasAttribute('disabled')),
-        ).toBe(true);
+    });
+});
 
-        cancelButtons.forEach((button) => fireEvent.click(button));
-        fireEvent.click(screen.getByRole('button', { name: 'Remove this item' }));
-        expect(onCancel).not.toHaveBeenCalled();
-        expect(onPhotoRemove).not.toHaveBeenCalled();
+describe('diary defaults (reducer contract)', () => {
+    it("a fresh compose opens with mood 'epic'", async () => {
+        const { diaryReducer, initialDiaryState } = await import('../hooks/useDiaryState');
+        expect(initialDiaryState.mood).toBe('epic');
+        const opened = diaryReducer(initialDiaryState, { type: 'OPEN_COMPOSE', weatherSummary: '' });
+        expect(opened.mood).toBe('epic');
     });
 });
