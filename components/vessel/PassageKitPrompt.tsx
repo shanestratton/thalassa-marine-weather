@@ -1,13 +1,24 @@
 /**
  * PassageKitPrompt — the nudge that is never a gate.
  *
- * ONE moment, one-shot per voyage: DEPARTURE. Tracking starts, a plan is at
- * hand (PassageStore's computed route, or the followed route's polyline),
- * and the classifier calls it a passage — a card offers the passage kit.
+ * TWO deterministic moments, one amber card, each one-shot per key:
+ *
+ *  1. ROUTE COMMITTED. A saved route is picked to follow (the Log page's
+ *     "follow this route" — Shane 2026-08-25: "i selected the newport, to
+ *     coral sea route, but no message about it being a passage??"). The
+ *     classifier reads the committed polyline; a passage shows the warning
+ *     right there, before a single line is cast off — while provisioning
+ *     and medications can still happen.
+ *
+ *  2. DEPARTURE. Tracking starts with a plan at hand (PassageStore's
+ *     computed route, or the followed route's polyline) that was not
+ *     already warned about at commit time.
+ *
  * "Not now" is a first-class answer: a forced flow teaches skippers to
  * misclassify the fifty-time delivery as a day cruise, poisoning both the
  * data and the intent. A casual start with NO plan gets no card at all —
- * there is nothing to classify.
+ * there is nothing to classify. NEVER a toast (Shane: "i hate toast
+ * messages") and never compulsory.
  *
  * MID-TRIP ESCALATION WAS CUT (Shane, 2026-08-25): "the punter will avoid
  * it like the plague; also, things like provisioning, medications etc —
@@ -67,23 +78,43 @@ export const PassageKitPrompt: React.FC = () => {
         return unsub;
     }, []);
 
-    // ── Departure verdict, one-shot per voyage ──
-    const [prompt, setPrompt] = useState<{ voyageId: string; verdict: PassageVerdict } | null>(null);
-    const checkedFor = useRef<string | null>(null);
+    // ── The card, one-shot per route GEOMETRY ──
+    // Keyed on the polyline itself (ends + length), not on which trigger saw
+    // it: a route warned about when it was picked must not warn again when
+    // tracking starts on it — same water, same warning, once.
+    const [prompt, setPrompt] = useState<{ key: string; verdict: PassageVerdict } | null>(null);
+    const promptedKeys = useRef<Set<string>>(new Set());
+    const offer = useCallback((points: { lat: number; lon: number }[], speedKts?: number) => {
+        if (points.length < 2) return;
+        const a = points[0];
+        const b = points[points.length - 1];
+        const key = `${points.length}:${a.lat.toFixed(3)},${a.lon.toFixed(3)}:${b.lat.toFixed(3)},${b.lon.toFixed(3)}`;
+        if (promptedKeys.current.has(key)) return;
+        const verdict = classifyPlannedRoute(points, Date.now(), speedKts);
+        if (verdict.kind !== 'passage') return;
+        promptedKeys.current.add(key);
+        setPrompt({ key, verdict });
+    }, []);
+
+    // Trigger 1 — ROUTE COMMITTED: the followed route's polyline, the moment
+    // it is picked. Fires on the Log page before any tracking exists.
+    const followStartedAt = useFollowRouteStore((st) => st.startedAt);
+    const followIsFollowing = useFollowRouteStore((st) => st.isFollowing);
+    useEffect(() => {
+        if (!followIsFollowing) return;
+        const fr = useFollowRouteStore.getState();
+        if (!fr.routeCoords || fr.routeCoords.length < 2) return;
+        offer(fr.routeCoords);
+    }, [followIsFollowing, followStartedAt, offer]);
+
+    // Trigger 2 — DEPARTURE: tracking starts with a plan at hand that was
+    // not already warned about when it was committed.
     useEffect(() => {
         if (!isTracking || !voyageId) return;
-        if (checkedFor.current === voyageId) return;
-        checkedFor.current = voyageId;
         const plan = planAtHand();
         if (!plan) return; // casual start — nothing to classify, no card
-        const verdict = classifyPlannedRoute(plan.points, Date.now(), plan.speedKts);
-        if (verdict.kind === 'passage') setPrompt({ voyageId, verdict });
-    }, [isTracking, voyageId]);
-
-    // Clear the card the moment tracking stops.
-    useEffect(() => {
-        if (!isTracking) setPrompt(null);
-    }, [isTracking]);
+        offer(plan.points, plan.speedKts);
+    }, [isTracking, voyageId, offer]);
 
     const openKit = useCallback(() => {
         triggerHaptic('medium');
@@ -91,27 +122,27 @@ export const PassageKitPrompt: React.FC = () => {
         setPage('crew');
     }, [setPage]);
 
-    if (!isTracking || !prompt || prompt.voyageId !== voyageId) return null;
+    if (!prompt) return null;
 
     return (
         <div
             className="fixed left-4 right-4 z-[9991] animate-slide-up"
             style={{ bottom: 'calc(9rem + env(safe-area-inset-bottom))' }}
         >
-            <div className="bg-slate-800 border border-indigo-500/30 rounded-2xl px-4 py-3 shadow-2xl shadow-black/50">
-                <div className="text-sm font-bold text-white">
-                    <span aria-hidden>🌙 </span>This looks like a passage
+            <div className="bg-slate-900 border border-amber-500/40 rounded-2xl px-4 py-3 shadow-2xl shadow-black/50">
+                <div className="text-sm font-bold text-amber-300">
+                    <span aria-hidden>⚠️ </span>This is a passage
                 </div>
-                <div className="text-xs text-gray-400 mt-1">
-                    {prompt.verdict.reasons.join(' · ')}. The passage kit lines up readiness, crew, watches and your
-                    float plan — or just sail.
+                <div className="text-xs text-gray-300 mt-1">
+                    {prompt.verdict.reasons.join(' · ')}. Passage planning lines up readiness, provisioning, crew,
+                    watches and your float plan — or just sail.
                 </div>
                 <div className="flex gap-2 mt-3">
                     <button
                         onClick={openKit}
-                        className="flex-1 py-2 bg-indigo-500/20 text-indigo-300 rounded-xl text-xs font-black uppercase tracking-widest active:scale-95 transition-all"
+                        className="flex-1 py-2 bg-amber-500/20 text-amber-300 rounded-xl text-xs font-black uppercase tracking-widest active:scale-95 transition-all"
                     >
-                        Passage kit
+                        Passage planning
                     </button>
                     <button
                         onClick={() => {
