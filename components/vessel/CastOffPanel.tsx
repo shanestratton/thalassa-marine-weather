@@ -15,9 +15,16 @@ import {
     castOff,
     endVoyage,
     createVoyage,
+    updateActiveVoyageDetails,
     updateVoyage,
     type Voyage,
 } from '../../services/VoyageService';
+import {
+    collapseGeneratedTraceEndpointPair,
+    formatStoredPlannedRouteName,
+} from '../../services/shiplog/plannedRouteNaming';
+import { destNameFromRouteName, stripLegBadge } from '../../services/routeTracer';
+import { vesselCrewAboard } from '../../services/units';
 import { getActiveLeg, getLegsForVoyage, closeLeg, startLeg, getLegSummary } from '../../services/VoyageLegService';
 import type { PassageLeg } from '../../types/navigation';
 import { triggerHaptic } from '../../utils/system';
@@ -272,8 +279,14 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
             onCastOff?.(activeVoyage);
         } catch (cause) {
             if (!operationIsCurrent()) return;
-            const detail = cause instanceof Error && cause.message.trim() ? ` ${cause.message.trim()}` : '';
-            setTrackingWarning(`GPS voyage logging is still off.${detail} Fix location access, then retry.`);
+            // Surface the REAL reason. The old unconditional "Fix location
+            // access" tail sent the skipper to iOS Settings when the actual
+            // blocker was another voyage holding the tracker.
+            const detail =
+                cause instanceof Error && cause.message.trim()
+                    ? ` ${cause.message.trim()}`
+                    : ' Fix location access, then retry.';
+            setTrackingWarning(`GPS voyage logging is still off.${detail}`);
         } finally {
             trackingRetryRef.current = false;
             if (operationIsCurrent()) setTrackingRetrying(false);
@@ -397,11 +410,50 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
     const [editFrom, setEditFrom] = useState('');
     const [editTo, setEditTo] = useState('');
     useEffect(() => {
-        setEditFrom(activeVoyage?.departure_port ?? '');
-        setEditTo(activeVoyage?.destination_port ?? '');
+        // Legacy rows (pre-2026-08 writers) hold the generated "<title> —
+        // start"/"<title> — end" pair in BOTH ports. Seed the inputs with the
+        // collapsed truth so the skipper sees a route name, not the artefact
+        // (Shane 2026-08-26: From and To both read "Newport - (2nd Leg…");
+        // the blur persist then heals the stored row on first touch.
+        const collapsed = collapseGeneratedTraceEndpointPair(
+            activeVoyage?.departure_port,
+            activeVoyage?.destination_port,
+        );
+        if (collapsed) {
+            // Slice the badge-STRIPPED base: destNameFromRouteName strips
+            // "(2nd Leg)" internally, so slicing the raw name would chop the
+            // badge mid-word for "A - B (2nd Leg)" titles.
+            const base = stripLegBadge(collapsed);
+            const dest = destNameFromRouteName(collapsed);
+            setEditFrom(dest ? base.slice(0, base.length - dest.length).replace(/[\s—–-]+$/, '') : collapsed);
+            setEditTo(dest ?? '');
+        } else {
+            setEditFrom(activeVoyage?.departure_port ?? '');
+            setEditTo(activeVoyage?.destination_port ?? '');
+        }
         // Reseed only when the voyage itself changes — not on every row update.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [activeVoyage?.id]);
+    const settingsVessel = useSettingsStore((s) => s.settings.vessel);
+    const displayedCrewCount =
+        activeVoyage && Number.isFinite(activeVoyage.crew_count) && activeVoyage.crew_count >= 1
+            ? Math.round(activeVoyage.crew_count)
+            : vesselCrewAboard(settingsVessel);
+
+    const persistCrew = useCallback(
+        async (next: number) => {
+            if (!activeVoyage) return;
+            const clamped = Math.max(1, Math.min(99, Math.round(next)));
+            if (clamped === activeVoyage.crew_count) return;
+            const { voyage, error: crewError } = await updateActiveVoyageDetails(activeVoyage.id, {
+                crew_count: clamped,
+            });
+            if (voyage) setActiveVoyage(voyage);
+            else if (crewError) setError(`Crew count was not saved: ${crewError}`);
+        },
+        [activeVoyage],
+    );
+
     const persistPorts = useCallback(async () => {
         if (!activeVoyage) return;
         const departure_port = editFrom.trim() || null;
@@ -412,8 +464,15 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
         ) {
             return;
         }
-        const { voyage } = await updateVoyage(activeVoyage.id, { departure_port, destination_port });
+        // updateVoyage is planning-gated; this card shows ACTIVE voyages, so
+        // edits used to be silently discarded (Shane 2026-08-26). The narrow
+        // writer accepts both, and a failure is said out loud.
+        const { voyage, error: portError } = await updateActiveVoyageDetails(activeVoyage.id, {
+            departure_port,
+            destination_port,
+        });
         if (voyage) setActiveVoyage(voyage);
+        else if (portError) setError(`Voyage endpoints were not saved: ${portError}`);
     }, [activeVoyage, editFrom, editTo]);
 
     return (
@@ -524,7 +583,9 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                                     </span>
                                 )}
                             </div>
-                            <h3 className="text-lg font-black text-white">{activeVoyage.voyage_name}</h3>
+                            <h3 className="text-lg font-black text-white">
+                                {formatStoredPlannedRouteName(activeVoyage.voyage_name) ?? activeVoyage.voyage_name}
+                            </h3>
                             <div className="grid grid-cols-2 gap-2 text-[11px]">
                                 {/* Voyage endpoints — editable in place, and always
                                     rendered so an empty destination can be filled
@@ -563,13 +624,40 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                                 </div>
                                 <div className="p-2 rounded-lg bg-white/[0.03] border border-white/[0.06]">
                                     <span className="text-gray-500">Crew</span>
-                                    <p className="text-white font-bold">{activeVoyage.crew_count}</p>
+                                    {/* Editable like From/To: legacy rows carry a
+                                        creation-time crew snapshot (often the old
+                                        hardcoded 1) that the float plan then
+                                        repeats. An invalid stored value reads as
+                                        the vessel's standing complement. */}
+                                    <div className="mt-0.5 flex items-center gap-3">
+                                        <button
+                                            type="button"
+                                            aria-label="Decrease crew"
+                                            onClick={() => void persistCrew(displayedCrewCount - 1)}
+                                            className="w-6 h-6 rounded-md bg-white/[0.06] text-white font-bold leading-none"
+                                        >
+                                            −
+                                        </button>
+                                        <p className="text-white font-bold tabular-nums">{displayedCrewCount}</p>
+                                        <button
+                                            type="button"
+                                            aria-label="Increase crew"
+                                            onClick={() => void persistCrew(displayedCrewCount + 1)}
+                                            className="w-6 h-6 rounded-md bg-white/[0.06] text-white font-bold leading-none"
+                                        >
+                                            +
+                                        </button>
+                                    </div>
                                 </div>
                                 {activeVoyage.departure_time && (
                                     <div className="p-2 rounded-lg bg-white/[0.03] border border-white/[0.06]">
                                         <span className="text-gray-500">Departed</span>
                                         <p className="text-white font-bold">
                                             {new Date(activeVoyage.departure_time).toLocaleString([], {
+                                                ...(new Date(activeVoyage.departure_time).getFullYear() !==
+                                                new Date().getFullYear()
+                                                    ? { year: 'numeric' }
+                                                    : {}),
                                                 month: 'short',
                                                 day: 'numeric',
                                                 hour: '2-digit',
@@ -651,6 +739,21 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                                 className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-400/25 space-y-3"
                             >
                                 <p className="text-sm font-semibold text-amber-100">{trackingWarning}</p>
+                                {/* A zombie row looks identical to a fresh passage
+                                    except for this pill — say the age out loud so a
+                                    month-old active row is recognisable at a glance
+                                    (Shane 2026-08-26: a 26-July voyage presented as
+                                    the live passage). */}
+                                {activeVoyage?.departure_time &&
+                                    Date.now() - Date.parse(activeVoyage.departure_time) > 48 * 3_600_000 && (
+                                        <p className="text-xs text-amber-200/80">
+                                            This passage departed{' '}
+                                            {Math.round(
+                                                (Date.now() - Date.parse(activeVoyage.departure_time)) / 86_400_000,
+                                            )}{' '}
+                                            days ago. If it is over, End Voyage &amp; Archive stands it down.
+                                        </p>
+                                    )}
                                 <button
                                     onClick={handleRetryTracking}
                                     disabled={casting || ending || trackingRetrying}

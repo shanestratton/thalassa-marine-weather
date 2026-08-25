@@ -458,6 +458,65 @@ export async function updateVoyage(
 }
 
 /**
+ * Narrow writer for the Cast Off panel's ACTIVE-voyage card: ports and crew
+ * only. updateVoyage is deliberately planning-gated, which made the active
+ * card's editable From/To silently discard every edit (Shane 2026-08-26 —
+ * the blur handler ignored the error and the UI kept the typed text). This
+ * writer accepts planning AND active rows but nothing else, and only these
+ * three columns — status, timing, routes and verification stay untouchable
+ * from a live passage.
+ */
+export async function updateActiveVoyageDetails(
+    voyageId: string,
+    data: { departure_port?: string | null; destination_port?: string | null; crew_count?: number },
+): Promise<{ voyage: Voyage | null; error?: string }> {
+    if (!supabase) return { voyage: null, error: 'Offline — no Supabase connection' };
+    const identity = getAuthIdentityScope();
+
+    const {
+        data: { user },
+        error: authError,
+    } = await supabase.auth.getUser();
+    if (authError || !user || !identityStillOwns(identity, user.id)) {
+        return { voyage: null, error: 'Sign in required' };
+    }
+
+    const update: Record<string, string | number | null> = {};
+    if ('departure_port' in data) update.departure_port = data.departure_port ?? null;
+    if ('destination_port' in data) update.destination_port = data.destination_port ?? null;
+    if (typeof data.crew_count === 'number' && Number.isFinite(data.crew_count)) {
+        update.crew_count = Math.max(1, Math.min(99, Math.round(data.crew_count)));
+    }
+    if (Object.keys(update).length === 0) return { voyage: null, error: 'Nothing to update' };
+
+    const { data: voyage, error } = await supabase
+        .from('voyages')
+        .update({ ...update, updated_at: new Date().toISOString() })
+        .eq('id', voyageId)
+        .eq('user_id', user.id)
+        .in('status', ['planning', 'active'])
+        .select()
+        .maybeSingle();
+
+    if (error) {
+        console.error('[VoyageService] updateActiveVoyageDetails failed:', error.message);
+        return { voyage: null, error: error.message };
+    }
+    if (!isOwnedVoyage(voyage, user.id, { id: voyageId }) || !(await revalidateAuth(identity, user.id))) {
+        return { voyage: null, error: 'Account changed while updating the voyage' };
+    }
+    if (voyage.status !== 'planning' && voyage.status !== 'active') {
+        return { voyage: null, error: 'This voyage is no longer editable' };
+    }
+
+    const updated = cloneVoyage(voyage);
+    if (updated.status === 'active') cacheVoyage(updated, identity);
+    const drafts = readDraftVoyageCache(identity);
+    writeDraftVoyageCache([updated, ...drafts.filter((draft) => draft.id !== updated.id)], identity);
+    return { voyage: updated };
+}
+
+/**
  * Refresh the machine verification on the exact planning row owned by a
  * canonical saved route. This is intentionally narrower than updateVoyage:
  * a stale/corrupt local graph link can never stamp proof onto another one of
@@ -921,12 +980,27 @@ export async function endVoyage(voyageId: string, status: 'completed' | 'aborted
     // voyage id, and that work belongs to a passage that is still open.
     try {
         const { ShipLogService } = await import('./ShipLogService');
-        // Always cross the exact-voyage boundary. Cast Off can have activated
-        // the remote row while its local GPS start is still pending (including
-        // across a panel close/reopen), before getTrackingStatus() exposes an
-        // owner. This joins that matching start, then verifies/cleans its lease
-        // before the active row can be archived.
-        await ShipLogService.stopTracking(voyageId);
+        try {
+            // Always cross the exact-voyage boundary. Cast Off can have activated
+            // the remote row while its local GPS start is still pending (including
+            // across a panel close/reopen), before getTrackingStatus() exposes an
+            // owner. This joins that matching start, then verifies/cleans its lease
+            // before the active row can be archived.
+            await ShipLogService.stopTracking(voyageId);
+        } catch (error) {
+            // Name-based (not instanceof): test harnesses mock the ShipLog
+            // module, and a second module instance must not defeat the match.
+            if (error instanceof Error && error.name === 'DifferentVoyageTrackingError') {
+                // The tracker belongs to ANOTHER voyage, so THIS one has no
+                // GPS to tear down — archiving it is safe and is the only
+                // exit from the zombie-active trap (Shane 2026-08-26: a
+                // 26-July row blocked every Cast Off for a month because
+                // this mismatch used to abort End Voyage).
+                console.warn('[VoyageService] endVoyage: no tracking held by this voyage — archiving anyway:', error);
+            } else {
+                throw error;
+            }
+        }
     } catch (error) {
         // The shared GPS manager retains ownership when native teardown is not
         // verified. Archiving now would claim the passage ended while iOS is

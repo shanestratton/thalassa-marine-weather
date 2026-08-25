@@ -207,6 +207,20 @@ class StartTrackingCancelledError extends Error {
 
 // --- MAIN SERVICE CLASS ---
 
+/**
+ * The requested voyage does not hold GPS logging — a DIFFERENT voyage does.
+ * Exported so endVoyage can archive a voyage that has no tracking to tear
+ * down (the Cast Off zombie trap, Shane 2026-08-26: a 26-July row stayed
+ * active for a month because stopTracking threw on the id mismatch and
+ * Retry GPS silently no-opped, dead-ending BOTH buttons).
+ */
+export class DifferentVoyageTrackingError extends Error {
+    constructor(message: string) {
+        super(message);
+        this.name = 'DifferentVoyageTrackingError';
+    }
+}
+
 class ShipLogServiceClass {
     // Platform detection: native (iOS/Android) uses Transistorsoft BgGeo;
     // web uses navigator.geolocation + setInterval fallbacks.
@@ -1270,7 +1284,19 @@ class ShipLogServiceClass {
     ): Promise<void> {
         if (!isAuthIdentityScopeCurrent(scope)) return;
         const stateBeforeStart = this.trackingState;
-        if (stateBeforeStart.isTracking) return;
+        if (stateBeforeStart.isTracking) {
+            // Id-aware (Shane 2026-08-26): a silent return here while a
+            // DIFFERENT voyage holds GPS made the Cast Off panel's Retry
+            // unwinnable — the retry "succeeded", the post-check saw the
+            // other voyage id, and the skipper was told to fix location
+            // access. Same-voyage (or untargeted) start stays an idempotent
+            // success; a targeted mismatch is now an honest error.
+            const requestedVoyageId = continueVoyageId ?? (resume ? stateBeforeStart.currentVoyageId : undefined);
+            if (!requestedVoyageId || stateBeforeStart.currentVoyageId === requestedVoyageId) return;
+            throw new DifferentVoyageTrackingError(
+                'GPS logging is already recording a different voyage. End that voyage, or stop its track on the Log page, before retrying this one.',
+            );
+        }
         const pendingStop = this.pendingStop;
         if (pendingStop && this.sameScope(pendingStop.scope, scope)) {
             throw new Error('Finish the pending End Voyage GPS teardown before starting or resuming a voyage.');
@@ -1896,7 +1922,9 @@ class ShipLogServiceClass {
         const starting = this.startOperation;
         if (starting && isAuthIdentityScopeCurrent(starting.scope)) {
             if (expectedVoyageId && starting.voyageId !== expectedVoyageId) {
-                throw new Error('A different voyage GPS start is still pending. Retry End Voyage when it settles.');
+                throw new DifferentVoyageTrackingError(
+                    'A different voyage GPS start is still pending. Retry End Voyage when it settles.',
+                );
             }
             try {
                 await starting.promise;
@@ -1965,7 +1993,9 @@ class ShipLogServiceClass {
             return;
         }
         if (expectedVoyageId && this.trackingState.currentVoyageId !== expectedVoyageId) {
-            throw new Error('A different voyage is currently using GPS logging. End Voyage was not applied.');
+            throw new DifferentVoyageTrackingError(
+                'A different voyage is currently using GPS logging for this device.',
+            );
         }
         const retainedLeaseScope = this.nativeLeaseScope;
         if (
