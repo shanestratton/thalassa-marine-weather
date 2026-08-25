@@ -43,6 +43,12 @@ export interface FloatPlanInput {
     whoToCall?: string;
     /** Optional: how to reach the skipper (sat phone, VHF watch, etc). */
     contactAboard?: string;
+    /** Optional per-person roster — the USCG persons-onboard table. Names
+     * (and a short note each: role, age, medical) beat a bare count when a
+     * coordinator is deciding what to send. */
+    personsRoster?: Array<{ name: string; note?: string }>;
+    /** Days of food and water aboard for the persons listed. */
+    provisionsDays?: number;
     /** IANA zone used for every displayed time, e.g. Australia/Brisbane.
      * Defaults to the device zone, but callers may pin it for a passage. */
     timeZone?: string;
@@ -198,6 +204,10 @@ interface FloatPlanDocument {
     trackWasThinned: boolean;
     plottedPointCount: number;
     distanceNM: number | null;
+    features: string;
+    comms: string;
+    propulsion: string;
+    rosterLines: string[];
     departure: string;
     eta: string | null;
     overdue: string;
@@ -231,6 +241,7 @@ function prepareFloatPlan(input: FloatPlanInput): FloatPlanDocument {
     const { vessel, route } = input;
     const vesselName = oneLine(vessel?.name) || 'Unnamed vessel';
     const identity = joinParts([
+        vessel?.hailingPort ? `Hailing port ${oneLine(vessel.hailingPort)}` : null,
         vessel?.registration ? `Rego ${oneLine(vessel.registration)}` : null,
         vessel?.mmsi ? `MMSI ${oneLine(vessel.mmsi)}` : null,
         vessel?.callSign ? `Call sign ${oneLine(vessel.callSign)}` : null,
@@ -239,9 +250,37 @@ function prepareFloatPlan(input: FloatPlanInput): FloatPlanDocument {
         oneLine(vessel?.model),
         vessel?.type === 'sail' ? 'sail' : vessel?.type === 'power' ? 'power' : null,
         vessel?.hullType,
+        vessel?.hullMaterial ? oneLine(vessel.hullMaterial) : null,
         typeof vessel?.length === 'number' && vessel.length > 0 ? `${Math.round(vessel.length)} ft` : null,
+        // Draft is stored in FEET (see services/units.ts vesselDraftMetres).
+        typeof vessel?.draft === 'number' && vessel.draft > 0 ? `${vessel.draft.toFixed(1)} ft draft` : null,
         vessel?.hullColor ? `${oneLine(vessel.hullColor)} hull` : null,
+        vessel?.trimColor ? `${oneLine(vessel.trimColor)} trim` : null,
     ]);
+    // What a search aircraft should LOOK for — USCG 'prominent features'.
+    const features = vessel?.prominentFeatures ? `Look for: ${oneLine(vessel.prominentFeatures)}` : '';
+    const comms = joinParts(
+        [
+            vessel?.radiosMonitored ? `Radios: ${oneLine(vessel.radiosMonitored)}` : null,
+            vessel?.satPhone ? `Sat phone ${oneLine(vessel.satPhone)}` : null,
+        ],
+        '; ',
+    );
+    const propulsion = joinParts([
+        typeof vessel?.fuelCapacity === 'number' && vessel.fuelCapacity > 0
+            ? `Fuel ${Math.round(vessel.fuelCapacity)} L`
+            : null,
+        typeof vessel?.waterCapacity === 'number' && vessel.waterCapacity > 0
+            ? `water ${Math.round(vessel.waterCapacity)} L`
+            : null,
+        typeof vessel?.cruisingSpeed === 'number' && vessel.cruisingSpeed > 0
+            ? `cruise ${Math.round(vessel.cruisingSpeed)} kn`
+            : null,
+    ]);
+    const rosterLines = (input.personsRoster ?? [])
+        .map((person) => ({ name: oneLine(person.name), note: oneLine(person.note) }))
+        .filter((person) => person.name.length > 0)
+        .map((person, index) => `${index + 1}. ${person.name}${person.note ? ` — ${person.note}` : ''}`);
     const liferaft = joinParts(
         [
             typeof vessel?.liferaftCapacity === 'number' && vessel.liferaftCapacity > 0
@@ -270,6 +309,10 @@ function prepareFloatPlan(input: FloatPlanInput): FloatPlanDocument {
         trackWasThinned: thinned,
         plottedPointCount: allWaypoints.length,
         distanceNM,
+        features,
+        comms,
+        propulsion,
+        rosterLines,
         departure: when(input.departureMs, input.timeZone) ?? 'not set',
         eta: when(input.etaMs, input.timeZone),
         overdue: when(input.overdueMs, input.timeZone) ?? 'not set',
@@ -361,7 +404,7 @@ export function estimateSmsSegments(text: string): number {
 
 export function composeFloatPlan(input: FloatPlanInput): string {
     const document = prepareFloatPlan(input);
-    const { vessel, route, personsOnBoard, contactAboard } = input;
+    const { route } = input;
     const intendedTrack = trackLines(document);
 
     const blocks: (string | null)[] = [
@@ -381,17 +424,12 @@ export function composeFloatPlan(input: FloatPlanInput): string {
             document.eta ? `ETA: ${document.eta}` : null,
             document.distanceNM ? `Distance: ${document.distanceNM.toFixed(0)} NM` : null,
         ]),
-        section('PEOPLE', [
-            typeof personsOnBoard === 'number' && personsOnBoard > 0 ? `${personsOnBoard} on board` : null,
-            contactAboard ? `Contact aboard: ${oneLine(contactAboard)}` : null,
-        ]),
-        section('VESSEL', [document.description || null, document.identity || null]),
-        section('SAFETY', [
-            vessel?.epirbHexId ? `EPIRB hex ${oneLine(vessel.epirbHexId)}` : null,
-            document.liferaft || null,
-            vessel?.flaresExpiry ? `Flares expire ${oneLine(vessel.flaresExpiry)}` : null,
-            oneLine(vessel?.safetyNotes) || null,
-        ]),
+        // USCG float-plan section taxonomy (v10.2) without the branding:
+        // VESSEL / SAFETY & SURVIVAL / PERSONS ONBOARD — but the alarm block
+        // stays FIRST; a message is read top-down, unlike a wall form.
+        section('VESSEL', vesselLines(document)),
+        section('SAFETY & SURVIVAL', safetyLines(document)),
+        section('PERSONS ONBOARD', personsLines(document)),
         intendedTrack.length > 0 ? section('INTENDED TRACK', intendedTrack) : null,
         `Please reply RECEIVED. Keep this plan until we send a safe-arrival message.\nPrepared in Thalassa. Thalassa does not upload this plan. Verify the recipients and audience in the destination app before sending. All times ${document.timeZoneLabel}.`,
     ];
@@ -399,13 +437,43 @@ export function composeFloatPlan(input: FloatPlanInput): string {
     return blocks.filter((b): b is string => Boolean(b)).join('\n\n');
 }
 
-function safetyLines(document: FloatPlanDocument): string[] {
+function safetyLines(document: FloatPlanDocument, options: { compact?: boolean } = {}): string[] {
     const vessel = document.input.vessel;
+    const provisionsDays = document.input.provisionsDays;
+    // compact = the SMS set. A USCG-scale field list explodes GSM segment
+    // count, so SMS keeps the pre-restructure essentials only.
+    const extended = options.compact
+        ? []
+        : [
+              vessel?.tenderDescription ? `Tender: ${oneLine(vessel.tenderDescription)}` : '',
+              typeof provisionsDays === 'number' && provisionsDays > 0
+                  ? `Provisions ~${Math.round(provisionsDays)} days`
+                  : '',
+          ];
     return [
         vessel?.epirbHexId ? `EPIRB hex ${oneLine(vessel.epirbHexId)}` : '',
         document.liferaft,
         vessel?.flaresExpiry ? `Flares expire ${oneLine(vessel.flaresExpiry)}` : '',
+        ...extended,
         oneLine(vessel?.safetyNotes),
+    ].filter(Boolean);
+}
+
+/** The VESSEL block, USCG-shaped: description, identity, what to look for,
+ *  communication fit, propulsion/endurance. One line each, empties dropped. */
+function vesselLines(document: FloatPlanDocument): string[] {
+    return [document.description, document.identity, document.features, document.comms, document.propulsion].filter(
+        Boolean,
+    );
+}
+
+/** PERSONS ONBOARD, USCG-shaped: count, roster, how to reach the boat. */
+function personsLines(document: FloatPlanDocument): string[] {
+    const { personsOnBoard, contactAboard } = document.input;
+    return [
+        typeof personsOnBoard === 'number' && personsOnBoard > 0 ? `${personsOnBoard} on board` : '',
+        ...document.rosterLines,
+        contactAboard ? `Contact aboard: ${oneLine(contactAboard)}` : '',
     ].filter(Boolean);
 }
 
@@ -430,15 +498,16 @@ function formatEmail(document: FloatPlanDocument): string {
         ]
             .filter(Boolean)
             .join('\n'),
+        ['VESSEL', ...vesselLines(document)].filter(Boolean).join('\n'),
+        ['SAFETY & SURVIVAL', ...safetyLines(document)].filter(Boolean).join('\n'),
         [
-            'PEOPLE & CONTACT',
+            'PERSONS ONBOARD',
             `People aboard: ${input.personsOnBoard && input.personsOnBoard > 0 ? input.personsOnBoard : 'not set'}`,
+            ...document.rosterLines,
             input.contactAboard ? `Contact aboard: ${oneLine(input.contactAboard)}` : '',
         ]
             .filter(Boolean)
             .join('\n'),
-        ['VESSEL', document.description, document.identity].filter(Boolean).join('\n'),
-        ['SAFETY EQUIPMENT', ...safetyLines(document)].filter(Boolean).join('\n'),
         document.trackPoints.length > 0 ? ['INTENDED TRACK', ...trackLines(document)].join('\n') : '',
         `Please reply RECEIVED so we know you have this plan.\nKeep it until we send a safe-arrival message.\n\nPrepared in Thalassa. Thalassa does not upload this plan. Verify the recipient before sending. All times ${document.timeZoneLabel}.`,
     ];
@@ -470,16 +539,16 @@ function formatWhatsApp(document: FloatPlanDocument): string {
         document.eta ? line('ETA', document.eta) : '',
         document.distanceNM ? line('Distance', `${document.distanceNM.toFixed(0)} NM`) : '',
         '',
-        '👥 *PEOPLE & CONTACT*',
-        line('Aboard', people),
-        input.contactAboard ? line('Reach us', oneLine(input.contactAboard)) : '',
-        '',
         '⛵ *VESSEL*',
-        document.description ? `• ${whatsappSafe(document.description)}` : '',
-        document.identity ? `• ${whatsappSafe(document.identity)}` : '',
+        ...vesselLines(document).map((item) => `• ${whatsappSafe(item)}`),
         '',
-        safety.length > 0 ? '🛟 *SAFETY EQUIPMENT*' : '',
+        safety.length > 0 ? '🛟 *SAFETY & SURVIVAL*' : '',
         ...safety,
+        safety.length > 0 ? '' : '',
+        '👥 *PERSONS ONBOARD*',
+        line('Aboard', people),
+        ...document.rosterLines.map((item) => `• ${whatsappSafe(item)}`),
+        input.contactAboard ? line('Reach us', oneLine(input.contactAboard)) : '',
         safety.length > 0 ? '' : '',
         track.length > 0 ? '📍 *INTENDED TRACK*' : '',
         ...track,
@@ -504,7 +573,7 @@ function formatSms(document: FloatPlanDocument): string {
         document.distanceNM ? `${document.distanceNM.toFixed(0)} NM` : '',
     ].filter(Boolean);
     const vessel = [document.description, document.identity].filter(Boolean).join(' | ');
-    const safety = safetyLines(document).join('; ');
+    const safety = safetyLines(document, { compact: true }).join('; ');
     const track = trackLines(document, { maximum: 4, coordinate: smsCoordinate });
 
     return smsAscii(
@@ -601,6 +670,12 @@ export function validateFloatPlan(input: FloatPlanInput, nowMs = Date.now()): Fl
     }
     if (!oneLine(input.contactAboard)) warnings.push('Add a phone, VHF watch, or satellite contact if available.');
     if (!oneLine(input.vessel?.epirbHexId)) warnings.push('No EPIRB hex ID is recorded.');
+    const rosterNames = (input.personsRoster ?? []).filter((person) => oneLine(person.name).length > 0).length;
+    if (rosterNames > 0 && typeof input.personsOnBoard === 'number' && rosterNames !== input.personsOnBoard) {
+        warnings.push(
+            `The roster lists ${rosterNames} name${rosterNames === 1 ? '' : 's'} but persons on board is ${input.personsOnBoard}.`,
+        );
+    }
 
     return { errors: [...new Set(errors)], warnings };
 }

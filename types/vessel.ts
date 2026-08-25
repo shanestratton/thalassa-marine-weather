@@ -66,6 +66,28 @@ export interface VesselProfile {
     /** Skipper's mobile — seeds the float plan's "how to reach you" so it
      *  isn't retyped every voyage. Never rendered on the public page. */
     contactPhone?: string;
+    /**
+     * USCG-style search-and-rescue identification (2026-08-26, float plan
+     * restructure). What a search aircraft or coordinator uses to FIND and
+     * RECOGNISE the boat. Same never-public rule as the block above: these
+     * ship only in the float plan, to one chosen person.
+     */
+    /** Port shown on the transom / rego — "Newport, QLD". */
+    hailingPort?: string;
+    /** Hull construction — fibreglass, steel, aluminium, timber. */
+    hullMaterial?: string;
+    /** Deck/trim colour, distinct from the hull. */
+    trimColor?: string;
+    /** What to look for from the air — "hard dodger, wind generator, tan
+     *  sail covers". The single most SAR-useful free-text field. */
+    prominentFeatures?: string;
+    /** Radios and channels actually monitored — "VHF 16 + 67; HF 8291". */
+    radiosMonitored?: string;
+    /** Satellite phone number, if carried. */
+    satPhone?: string;
+    /** Tender/dinghy, separate from the liferaft — "grey 2.6 m RIB,
+     *  5 hp outboard". A boat found without its tender tells SAR a story. */
+    tenderDescription?: string;
 }
 
 /** Ship's Stores item categories */

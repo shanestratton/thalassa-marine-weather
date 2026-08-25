@@ -228,7 +228,7 @@ describe('channel-specific float plans', () => {
         const email = createFloatPlanSharePayload(base, 'email');
         expect(email.subject).toBe('Float plan | Serene Summer | Newport to Lady Musgrave');
         expect(email.text).toContain('AEST (UTC+10)');
-        expect(email.text).toContain('PEOPLE & CONTACT');
+        expect(email.text).toContain('PERSONS ONBOARD');
         expect(email.text).toContain('INTENDED TRACK');
     });
 
@@ -301,5 +301,80 @@ describe('composeArrivalMessage', () => {
         expect(msg).toContain('We arrived safely');
         expect(msg).not.toContain('undefined');
         expect(msg).not.toContain(' at ,');
+    });
+});
+
+describe('USCG-style restructure (2026-08-26)', () => {
+    const SAR_VESSEL = {
+        ...VESSEL,
+        hailingPort: 'Newport, QLD',
+        hullMaterial: 'fibreglass',
+        trimColor: 'blue',
+        prominentFeatures: 'hard dodger, wind generator, tan sail covers',
+        radiosMonitored: 'VHF 16 + 67; HF 8291',
+        satPhone: '+870 7731 12345',
+        tenderDescription: 'grey 2.6 m RIB, 5 hp outboard',
+        draft: 6.2,
+        fuelCapacity: 200,
+        waterCapacity: 400,
+        cruisingSpeed: 6,
+    };
+    const roster = [
+        { name: 'Shane Stratton', note: 'skipper' },
+        { name: 'K. Stratton', note: 'crew' },
+        { name: '   ', note: 'ignored — blank name' },
+    ];
+    const sarInput = { ...base, vessel: SAR_VESSEL, personsOnBoard: 2, personsRoster: roster, provisionsDays: 12 };
+
+    it('carries the USCG identification set a search aircraft uses', () => {
+        const plan = composeFloatPlan(sarInput);
+        expect(plan).toContain('Hailing port Newport, QLD');
+        expect(plan).toContain('fibreglass');
+        expect(plan).toContain('6.2 ft draft');
+        expect(plan).toContain('blue trim');
+        expect(plan).toContain('Look for: hard dodger, wind generator, tan sail covers');
+        expect(plan).toContain('Radios: VHF 16 + 67; HF 8291');
+        expect(plan).toContain('Sat phone +870 7731 12345');
+        expect(plan).toContain('Fuel 200 L · water 400 L · cruise 6 kn');
+    });
+
+    it('SAFETY & SURVIVAL carries tender and provisions endurance', () => {
+        const plan = composeFloatPlan(sarInput);
+        expect(plan).toContain('SAFETY & SURVIVAL');
+        expect(plan).toContain('Tender: grey 2.6 m RIB, 5 hp outboard');
+        expect(plan).toContain('Provisions ~12 days');
+    });
+
+    it('PERSONS ONBOARD lists the roster with blank names dropped, in every rich format', () => {
+        for (const channel of ['generic', 'email', 'whatsapp'] as const) {
+            const text = createFloatPlanSharePayload(sarInput, channel).text;
+            expect(text).toContain('1. Shane Stratton — skipper');
+            expect(text).toContain('2. K. Stratton — crew');
+            expect(text).not.toContain('ignored');
+        }
+    });
+
+    it('SMS stays compact — the roster and SAR detail never inflate the segment count', () => {
+        const withRoster = createFloatPlanSharePayload(sarInput, 'sms');
+        expect(withRoster.text).not.toContain('Shane Stratton');
+        expect(withRoster.text).not.toContain('Look for');
+        expect(withRoster.text).not.toContain('Provisions');
+    });
+
+    it('a roster that disagrees with the persons count warns before sharing', () => {
+        const validation = validateFloatPlan({ ...sarInput, personsOnBoard: 3 });
+        expect(validation.warnings.some((w) => w.includes('roster lists 2 names but persons on board is 3'))).toBe(
+            true,
+        );
+        expect(validateFloatPlan(sarInput).warnings.some((w) => w.includes('roster'))).toBe(false);
+    });
+
+    it('vessels without the SAR fields render exactly as before — no empty labels', () => {
+        const plan = composeFloatPlan(base);
+        expect(plan).not.toContain('Hailing port');
+        expect(plan).not.toContain('Look for:');
+        expect(plan).not.toContain('Radios:');
+        expect(plan).not.toContain('Tender:');
+        expect(plan).not.toContain('undefined');
     });
 });
