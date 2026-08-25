@@ -142,6 +142,10 @@ const CACHE_KEY_PREFIX = 'thalassa_ocean_currents_';
 const CACHE_TTL = 24 * 60 * 60 * 1000; // 24h for NRT, 7 days for climatology
 const PURGE_TTL = 30 * 24 * 60 * 60 * 1000; // 30 days auto-purge
 const CURRENT_FETCH_BUDGET_MS = 20_000;
+/** A surface-current field older than this is a provider failure, not a
+ *  briefing — [(last)] on a frozen ERDDAP dataset (jplOscar died at 2014,
+ *  nesdisSSH1day at 2026-03) answers happily with ancient water. */
+const CURRENT_FIELD_MAX_AGE_MS = 14 * 86_400_000;
 const CURRENT_HOP_TIMEOUT_MS = 8_000;
 
 /** Convert m/s to knots */
@@ -194,12 +198,19 @@ export const OceanCurrentService = {
         }
 
         try {
-            // Surface currents via NOAA CoastWatch ERDDAP. The original
-            // jplOscar_LonPM180 dataset was retired during NASA's
-            // PODAAC migration (~2024-2025). Try the current dataset
-            // ID first, then fall back through known alternates. A failed
-            // chain is explicitly unavailable; it must never be converted to
-            // an apparent zero-current field.
+            // Surface currents via NOAA CoastWatch ERDDAP. This chain has
+            // now been retired out from under us TWICE: jplOscar_LonPM180
+            // went in NASA's PODAAC migration (~2024-2025), and on
+            // 2026-08-25 all three replacement IDs (noaacwL3SCcurNRTL3,
+            // jplOscar_LonPM180, noaacwL3Scur5dayL3) answered clean 404s on
+            // the pfeg node — Shane's Ocean Currents card died in the field.
+            // Datasets are therefore full descriptors (host + variable
+            // names), verified live before shipping, and a fallback that
+            // NOAA freezes (jplOscar stopped at 2014; nesdisSSH1day was 5
+            // months stale when checked) is caught by the freshness guard
+            // below rather than briefed as today's water. A failed chain is
+            // explicitly unavailable; it must never be converted to an
+            // apparent zero-current field.
             const paddedBbox = {
                 south: Math.max(-80, bbox.south - 1),
                 north: Math.min(80, bbox.north + 1),
@@ -207,14 +218,32 @@ export const OceanCurrentService = {
                 east: bbox.east + 1,
             };
 
-            // Build ERDDAP query — request latest available data
-            const query = `?u[(last)][(${paddedBbox.south.toFixed(1)}):(${paddedBbox.north.toFixed(1)})][(${paddedBbox.west.toFixed(1)}):(${paddedBbox.east.toFixed(1)})],v[(last)][(${paddedBbox.south.toFixed(1)}):(${paddedBbox.north.toFixed(1)})][(${paddedBbox.west.toFixed(1)}):(${paddedBbox.east.toFixed(1)})]`;
+            const latRange = `[(${paddedBbox.south.toFixed(1)}):(${paddedBbox.north.toFixed(1)})]`;
+            const lonRange = `[(${paddedBbox.west.toFixed(1)}):(${paddedBbox.east.toFixed(1)})]`;
 
-            // Datasets to try in order. The first hit wins.
-            const datasets = [
-                'noaacwL3SCcurNRTL3', // NOAA L3 NRT currents
-                'jplOscar_LonPM180', // legacy OSCAR (kept for back-compat if revived)
-                'noaacwL3Scur5dayL3', // NOAA 5-day composite
+            // Datasets to try in order. The first FRESH hit wins. All are
+            // [time][lat][lon] grids on ±180 longitude, answering
+            // [time, lat, lon, u, v] rows.
+            const datasets: Array<{ id: string; base: string; uVar: string; vVar: string }> = [
+                {
+                    // Primary: NOAA blended NRT geostrophic currents from
+                    // altimetry — global, daily, ~2-day latency (verified
+                    // 2026-08-25: real EAC field off Fraser Island).
+                    id: 'noaacwBLENDEDNRTcurrentsDaily',
+                    base: 'https://coastwatch.noaa.gov/erddap',
+                    uVar: 'u_current',
+                    vVar: 'v_current',
+                },
+                {
+                    // Fallback: SSH-anomaly geostrophic currents on the pfeg
+                    // node. Stale to 2026-03 when last checked — kept in the
+                    // chain because the freshness guard rejects it while
+                    // frozen and it self-heals if NOAA resumes it.
+                    id: 'nesdisSSH1day',
+                    base: 'https://coastwatch.pfeg.noaa.gov/erddap',
+                    uVar: 'ugos',
+                    vVar: 'vgos',
+                },
             ];
 
             log.info(
@@ -228,7 +257,8 @@ export const OceanCurrentService = {
             for (const ds of datasets) {
                 const remainingMs = fetchDeadlineAt - Date.now();
                 if (remainingMs <= 0) break;
-                const url = `https://coastwatch.pfeg.noaa.gov/erddap/griddap/${ds}.json${query}`;
+                const query = `?${ds.uVar}[(last)]${latRange}${lonRange},${ds.vVar}[(last)]${latRange}${lonRange}`;
+                const url = `${ds.base}/griddap/${ds.id}.json${query}`;
                 try {
                     // AbortSignal is ignored by Capacitor's native fetch
                     // bridge, so the JS deadline is the real on-device bound.
@@ -236,26 +266,44 @@ export const OceanCurrentService = {
                     const res = await withDeadline(
                         fetch(url, { signal: AbortSignal.timeout(hopTimeoutMs) }),
                         hopTimeoutMs,
-                        `ocean-current dataset ${ds}`,
+                        `ocean-current dataset ${ds.id}`,
                     );
                     if (res.ok) {
                         const candidate = (await withDeadline(
                             res.json(),
                             Math.max(1, fetchDeadlineAt - Date.now()),
-                            `ocean-current response ${ds}`,
+                            `ocean-current response ${ds.id}`,
                         )) as ErddapPayload;
                         if (candidate.table && Array.isArray(candidate.table.rows)) {
-                            data = candidate;
-                            providerDataset = ds;
-                            log.info(`Ocean currents fetched from dataset "${ds}"`);
-                            break;
+                            // Freshness guard: [(last)] on a frozen dataset
+                            // answers happily with years-old water. A surface
+                            // current field older than the guard is a provider
+                            // failure, not a briefing — EAC eddies move
+                            // weekly, and dataTime in the card cannot rescue a
+                            // number the skipper reads as "now".
+                            const rowTime = candidate.table.rows.find(
+                                (row): row is [string, ...unknown[]] =>
+                                    Array.isArray(row) && typeof row[0] === 'string' && row[0].length > 0,
+                            )?.[0];
+                            const ageMs = rowTime ? Date.now() - Date.parse(rowTime) : NaN;
+                            if (Number.isFinite(ageMs) && ageMs > CURRENT_FIELD_MAX_AGE_MS) {
+                                providerFailures.push(
+                                    `${ds.id}: field stale (${Math.round(ageMs / 86_400_000)} d old)`,
+                                );
+                            } else {
+                                data = candidate;
+                                providerDataset = ds.id;
+                                log.info(`Ocean currents fetched from dataset "${ds.id}"`);
+                                break;
+                            }
+                        } else {
+                            providerFailures.push(`${ds.id}: malformed response`);
                         }
-                        providerFailures.push(`${ds}: malformed response`);
                     } else {
-                        providerFailures.push(`${ds}: HTTP ${res.status}`);
+                        providerFailures.push(`${ds.id}: HTTP ${res.status}`);
                     }
                 } catch (error) {
-                    providerFailures.push(`${ds}: ${error instanceof Error ? error.message : 'request failed'}`);
+                    providerFailures.push(`${ds.id}: ${error instanceof Error ? error.message : 'request failed'}`);
                 }
             }
             if (!data) {
