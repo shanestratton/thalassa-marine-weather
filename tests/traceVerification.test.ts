@@ -133,12 +133,36 @@ describe('Route Tracer durable verification', () => {
         expect(traceCastOffBlockReason(parsed, points, { ...castOffContext, draftM: 2.2 })).toContain(
             'draft has changed',
         );
+        // This check carries no tide window, so departure drift is irrelevant to it.
         expect(
             traceCastOffBlockReason(parsed, points, {
                 ...castOffContext,
                 voyageDepartureMs: context.departureMs + 3_600_000,
             }),
+        ).toBeNull();
+
+        // A tide-gated check DID verify a specific departure — drift past the
+        // 30-minute tolerance invalidates it; drift inside it does not.
+        const tideGated = evaluateTraceRelease(
+            points,
+            'ready',
+            [verdict('clear')],
+            new Set(),
+            { ...context, tideWindowLabel: 'HW 03:12 · window 01:40–04:45' },
+            '2026-08-05T00:00:00.000Z',
+        ).verification!;
+        expect(
+            traceCastOffBlockReason(tideGated, points, {
+                ...castOffContext,
+                voyageDepartureMs: context.departureMs + 3_600_000,
+            }),
         ).toContain('planned departure changed');
+        expect(
+            traceCastOffBlockReason(tideGated, points, {
+                ...castOffContext,
+                voyageDepartureMs: context.departureMs + 10 * 60_000,
+            }),
+        ).toBeNull();
     });
 });
 

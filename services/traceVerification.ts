@@ -361,8 +361,20 @@ export function traceCastOffBlockReason(
             cellName ? ` (${cellName})` : ''
         }. Recheck it before Cast Off.`;
     }
-    if (context.voyageDepartureMs === null || Math.abs(verification.departureMs - context.voyageDepartureMs) > 60_000) {
-        return 'The planned departure changed after the tide/route check. Recheck the route before Cast Off.';
+    // Departure equality matters ONLY when the check is tide-gated: the tide
+    // window was computed FOR that departure. A route with no tide gating is
+    // as valid at 0600 as at 1800, and demanding minute-level equality there
+    // blocked Cast Off after every innocent recheck (Shane 2026-08-26: 'i
+    // have checked / saved / rechecked… everything'). The tolerance is 30
+    // minutes — tide curves do not move materially inside that, and the ±6h
+    // now-vs-departure rule below still boxes the actual cast off.
+    if (verification.tideWindowLabel) {
+        if (
+            context.voyageDepartureMs === null ||
+            Math.abs(verification.departureMs - context.voyageDepartureMs) > 30 * 60_000
+        ) {
+            return 'The planned departure changed after the tide/route check. Recheck the route before Cast Off.';
+        }
     }
     const checkedMs = Date.parse(verification.checkedAt);
     const maxAgeMs = verification.tideWindowLabel ? 48 * 3_600_000 : 30 * 24 * 3_600_000;

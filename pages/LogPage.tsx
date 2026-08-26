@@ -298,6 +298,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         name: string;
         points: Array<{ lat: number; lon: number }>;
         report: import('../services/traceRecheck').RecheckReport;
+        priorDepartureMs: number | null;
     } | null>(null);
     const [ackedLegs, setAckedLegs] = React.useState<ReadonlySet<number>>(() => new Set());
     /** PRE-START mode (Shane 2026-08-10: "it starts to track, and THEN it
@@ -576,6 +577,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                             name: trace.name,
                             points: trace.points,
                             report: outcome.report,
+                            priorDepartureMs: trace.verification?.departureMs ?? null,
                         });
                         return;
                     }
@@ -641,7 +643,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                     import('../services/traceDirectUseGate'),
                 ]);
                 if (!isAuthIdentityScopeCurrent(actionScope)) return;
-                const gate = releaseWithAcks(ackReport.points, ackReport.report, nextAcks);
+                const gate = releaseWithAcks(ackReport.points, ackReport.report, nextAcks, ackReport.priorDepartureMs);
                 if (!gate.allowed || !gate.verification) return; // more legs to go
                 saveTrace(ackReport.name, ackReport.points, {
                     overwriteId: ackReport.savedRouteId,

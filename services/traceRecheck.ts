@@ -194,11 +194,16 @@ export async function recheckTrace(
 
     const verdicts = legs.map((l) => verdictByKey.get(l.key) ?? null);
 
+    // A recheck re-verifies THE PLAN unless the caller explicitly moves the
+    // departure — stamping Date.now() made verification.departureMs drift
+    // from the voyage row's planned time on every recheck, and the Cast Off
+    // departure gate could then never be satisfied.
+    const departureMs = opts.departureMs ?? opts.priorVerification?.departureMs ?? Date.now();
     let tideWindowLabel: string | null = null;
     if (verdicts.some((v) => v?.needsTide)) {
         try {
             tideWindowLabel = await commonDepartureWindowLabel(verdicts, draftM, {
-                departureMs: opts.departureMs ?? Date.now(),
+                departureMs,
             });
         } catch (e) {
             log.warn('tide window lookup failed during recheck:', (e as Error)?.message || e);
@@ -208,7 +213,6 @@ export async function recheckTrace(
         }
     }
 
-    const departureMs = opts.departureMs ?? Date.now();
     const gate = evaluateTraceRelease(
         points,
         result.status,
@@ -278,6 +282,10 @@ export function releaseWithAcks(
     points: ReadonlyArray<TracePoint>,
     report: RecheckReport,
     ackedLegs: ReadonlySet<number>,
+    /** The PLAN's departure — pass the prior verification's stamp so an
+     *  ack re-release keeps verifying the same plan instead of drifting to
+     *  "now" and tripping the Cast Off departure gate. */
+    departureMs?: number | null,
 ): TraceReleaseGate {
     const vessel = useSettingsStore.getState().settings?.vessel;
     return evaluateTraceRelease(points, report.status as never, report.verdicts, ackedLegs, {
@@ -285,7 +293,7 @@ export function releaseWithAcks(
         draftAssumed: vesselDraftIsAssumed(vessel),
         encRegistryVersion: getEncRegistryVersion(),
         encRegistryFingerprint: getRegistryFingerprint(traceRegistryScope(points)),
-        departureMs: Date.now(),
+        departureMs: departureMs ?? Date.now(),
         tideWindowLabel: report.tideWindowLabel,
     });
 }
