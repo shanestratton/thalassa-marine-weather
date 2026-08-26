@@ -250,7 +250,9 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                     voyageName: activatedVoyage.voyage_name,
                     caution: result.caution ?? null,
                     publishRoute: publishPublic,
-                    savedRouteId: activatedVoyage.saved_route_id ?? null,
+                    // The selected row carries the backfilled canonical
+                    // trace link even when the table row predates it.
+                    savedRouteId: selected.saved_route_id ?? activatedVoyage.saved_route_id ?? null,
                 });
                 void startHandoffGps();
                 onCastOff?.(activatedVoyage);

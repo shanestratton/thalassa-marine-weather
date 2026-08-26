@@ -1032,6 +1032,14 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                     // the dropdown's date picker.
                     departure_time: matched.departure_time ?? inferredDeparture,
                     eta: matched.eta ?? inferredEta,
+                    // Backfill the canonical trace link when the table row
+                    // lacks it — a voyage materialised from a standalone
+                    // logbook stub was created WITHOUT saved_route_id, and
+                    // every re-pick after End Voyage broke geometry, the
+                    // route check, auto-follow and the public publish at
+                    // once (Shane 2026-08-26: "plan a route first. even
+                    // though i have already added a route??").
+                    saved_route_id: matched.saved_route_id ?? r.savedRouteId ?? null,
                     departureCoords,
                     arrivalCoords,
                     routeCoordinates,
@@ -1079,6 +1087,11 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                 notes: null,
                 created_at: new Date(r.timestamp).toISOString(),
                 updated_at: new Date(r.timestamp).toISOString(),
+                // The canonical trace link rides the stub into createVoyage —
+                // without it the materialised row had no saved_route_id and
+                // every downstream consumer (geometry, route check, follow,
+                // public publish) silently lost the route.
+                saved_route_id: r.savedRouteId ?? null,
                 departureCoords,
                 arrivalCoords,
                 routeCoordinates,
@@ -2546,11 +2559,17 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                         // asking a one-answer question — the verification
                         // gate inside refuses anything unproven, and the Log
                         // page's own follow sheet stays as the fallback ask.
-                        void followCastOffRoute(
-                            voyage.id,
-                            voyage.saved_route_id,
-                            peekCastOffHandoff()?.publishRoute ?? true,
-                        );
+                        {
+                            // The handoff carries the SELECTED row's canonical
+                            // trace link, which is backfilled even when the
+                            // table row predates saved_route_id.
+                            const handoff = peekCastOffHandoff();
+                            void followCastOffRoute(
+                                voyage.id,
+                                handoff?.savedRouteId ?? voyage.saved_route_id,
+                                handoff?.publishRoute ?? true,
+                            );
+                        }
                         // 'details' is the Log tab's registry key — there is
                         // no 'log' view. The old 'log' literal rendered the
                         // blank search-bar chrome App.tsx keeps for
