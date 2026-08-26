@@ -74,6 +74,20 @@ describe('scoped registry fingerprint', () => {
         expect(getRegistryFingerprint(scope)).not.toBe(before);
     });
 
+    it('a manifest re-publication (cloudManifestVersion bump, same chart) does NOT move it', () => {
+        // cloudCellSync re-stamps EVERY cloud cell on each manifest
+        // publication — a delivery artefact, not a chart change. Including
+        // it made the recheck loop survive the route-scoped fix.
+        putCell(cell({ cloudManifestVersion: 3 }));
+        const scope = traceRegistryScope(ROUTE);
+        const before = getRegistryFingerprint(scope);
+
+        putCell(cell({ cloudManifestVersion: 4 }));
+
+        expect(getRegistryFingerprint(scope)).toBe(before);
+        expect(getRegistryFingerprint()).toBe(getRegistryFingerprint()); // stable full-library too
+    });
+
     it('a new cell arriving INSIDE the corridor invalidates — coverage genuinely changed', () => {
         putCell(cell());
         const scope = traceRegistryScope(ROUTE);
