@@ -55,8 +55,10 @@ import { fetchRoutesAndTracks } from '../services/shiplog/RoutesAndTracks';
 import { formatPlannedRouteLabel, formatStoredPlannedRouteName } from '../services/shiplog/plannedRouteNaming';
 import {
     buildTripPassageRollups,
+    legBadgeOrdinal,
     linkTraceToPassage,
     loadSavedTraces,
+    ordinalLegLabel,
     saveTrace,
     stripLegBadge,
 } from '../services/routeTracer';
@@ -1990,7 +1992,17 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
         return draftVoyages.map((row) => {
             const trace = row.saved_route_id ? traceById.get(row.saved_route_id) : traceByPassageVoyage.get(row.id);
             const isPassage = /\(passage\)/i.test(row.voyage_name);
-            const legOrdinal = trace?.legOrdinal;
+            const baseName = savedRouteDisplayName(row);
+            // The trace's legOrdinal is the glue; the name badge is paint.
+            // Inside a chained trip a cloud round-trip can drop legOrdinal,
+            // so the badge parsed from the name is its fallback — but ONLY
+            // inside a trip (mirroring displayRouteLabel in routeTracer.ts).
+            // A badge alone must not promote a trace-less shared row, or a
+            // lone leg the tracer deliberately demoted to standalone, into a
+            // ↳ leg of a trip the picker cannot even group it under.
+            const legOrdinal = trace?.tripId
+                ? (trace.legOrdinal ?? legBadgeOrdinal(baseName) ?? undefined)
+                : trace?.legOrdinal;
             const kind: SavedRoutePickerRow['kind'] = isPassage
                 ? 'passage'
                 : trace?.tripId || legOrdinal
@@ -2005,9 +2017,17 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                 distance,
                 row.isShared ? `Shared by ${row.sharedOwnerEmail || 'skipper'}` : null,
             ].filter(Boolean);
+            const badged = kind === 'leg' && Boolean(legOrdinal);
             return {
                 id: row.id,
-                name: savedRouteDisplayName(row),
+                // Paint the leg badge from the structural ordinal: a voyage
+                // row materialised before badging keeps its unbadged DB name
+                // (Shane 2026-08-27: Newport–Mackay leg 2 showed no
+                // "(2nd Leg)"). The badge travels as its own field so the
+                // picker can keep it clear of name truncation; the name is
+                // badge-stripped so an already-badged leg 1 never doubles up.
+                name: badged ? stripLegBadge(baseName) : baseName,
+                legBadge: badged && legOrdinal ? `(${ordinalLegLabel(legOrdinal)})` : undefined,
                 detail: detailParts.length > 0 ? detailParts.join(' · ') : null,
                 kind,
                 legOrdinal,
