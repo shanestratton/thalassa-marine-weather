@@ -1384,6 +1384,7 @@ describe('LogPage — Cast Off handoff', () => {
         clearCastOffHandoff();
         shipLogHandoffMock.startTracking.mockReset();
         shipLogHandoffMock.getTrackingStatus.mockReturnValue({ isTracking: false, currentVoyageId: null });
+        publishFollowedRouteMock.mockClear();
     });
 
     afterEach(() => {
@@ -1439,6 +1440,29 @@ describe('LogPage — Cast Off handoff', () => {
             expect.anything(),
             false,
         );
+        // Tracking just confirmed — THIS is the moment the public page can
+        // link the passage, so the publish fires here (default: show).
+        expect(publishFollowedRouteMock).toHaveBeenCalledWith('voyage-handoff');
+    });
+
+    it('respects the skipper who kept the passage private', async () => {
+        stashCastOffHandoff({
+            voyageId: 'voyage-private',
+            voyageName: 'Quiet trip',
+            caution: null,
+            publishRoute: false,
+        });
+        updateCastOffHandoff({ gps: 'failed', gpsError: 'first start died' });
+        shipLogHandoffMock.startTracking.mockResolvedValue(undefined);
+        shipLogHandoffMock.getTrackingStatus.mockReturnValue({
+            isTracking: true,
+            currentVoyageId: 'voyage-private',
+        });
+        render(<LogPage />);
+
+        // The auto-retry confirms GPS — and publishes NOTHING.
+        await waitFor(() => expect(peekCastOffHandoff()).toBeNull());
+        expect(publishFollowedRouteMock).not.toHaveBeenCalled();
     });
 
     it('clears itself once GPS is confirmed and no heads-up remains', async () => {

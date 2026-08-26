@@ -71,6 +71,17 @@ describe('followCastOffRoute', () => {
         expect(mocks.startFollowing).not.toHaveBeenCalled();
     });
 
+    it('opting out of the public page skips the publish but still follows locally', async () => {
+        mocks.fetchVoyageAsTrack.mockResolvedValue(null);
+        mocks.loadSavedTraces.mockReturnValue([
+            { id: 'route-1', name: 'Newport → Mooloolaba', createdAt: '2026-08-20T00:00:00Z', points: tracePoints },
+        ]);
+
+        expect(await followCastOffRoute('voyage-1', 'route-1', false)).toBe(true);
+        expect(mocks.startFollowing).toHaveBeenCalledTimes(1);
+        expect(mocks.publishFollowedRoute).not.toHaveBeenCalled();
+    });
+
     it('returns false with no saved route link and no log entries', async () => {
         mocks.fetchVoyageAsTrack.mockResolvedValue(null);
         mocks.loadSavedTraces.mockReturnValue([]);
