@@ -37,11 +37,15 @@ const log = createLogger('followCastOffRoute');
  * missing or the verification gate refuses it (the caller's fallback is the
  * Log page's own follow sheet — never force an unverified line).
  */
+const normaliseRouteName = (value: string): string =>
+    value.toLowerCase().replace(/[→⇄]/g, '-').replace(/\s+/g, ' ').trim();
+
 /** null = the line is up; a string names why it is not. */
 export async function followCastOffRoute(
     voyageId: string,
     savedRouteId?: string | null,
     publishPublic: boolean = true,
+    voyageName?: string | null,
 ): Promise<string | null> {
     try {
         const logRoute = await fetchVoyageAsTrack(voyageId);
@@ -57,9 +61,23 @@ export async function followCastOffRoute(
             // page re-ask "which passage?" seconds after casting off from
             // the passage that IS the answer (Shane 2026-08-26).
             const routeId = savedRouteId?.trim();
-            const saved = loadSavedTraces().find(
-                (trace) => (routeId && trace.id === routeId) || trace.passageVoyageId === voyageId,
-            );
+            const traces = loadSavedTraces();
+            let saved = traces.find((trace) => (routeId && trace.id === routeId) || trace.passageVoyageId === voyageId);
+            if (!saved && voyageName?.trim()) {
+                // Last resort for a voyage row that predates every link
+                // column: a UNIQUE name match against the canonical traces.
+                // Safe because the direct-use gate below still verifies the
+                // matched trace's own checked geometry before anything is
+                // followed or published — a wrong-name match cannot draw an
+                // unverified line.
+                const wanted = normaliseRouteName(voyageName);
+                const byName = traces.filter(
+                    (trace) =>
+                        normaliseRouteName(trace.name) === wanted ||
+                        normaliseRouteName(displayRouteLabel(trace)) === wanted,
+                );
+                if (byName.length === 1) saved = byName[0];
+            }
             if (!saved) {
                 return routeId
                     ? 'The saved route for this passage is not on this device. Open it in Route Tracer and save it again.'

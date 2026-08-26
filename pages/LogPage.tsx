@@ -358,6 +358,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                 activeCastOffVoyage.id,
                 activeCastOffVoyage.saved_route_id ?? null,
                 publishPref,
+                activeCastOffVoyage.voyage_name,
             ).then((reason) => {
                 if (reason) updateCastOffHandoff({ followNote: reason });
             });
