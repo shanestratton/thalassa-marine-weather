@@ -50,6 +50,7 @@ const gpsHealthMock = vi.hoisted(() => ({
     value: null as null | { usable: boolean; reason: string; actionable: boolean },
 }));
 const acquireFreshOwnshipPositionMock = vi.hoisted(() => vi.fn());
+const activeVoyageMock = vi.hoisted(() => ({ value: null as null | Record<string, unknown> }));
 const shipLogHandoffMock = vi.hoisted(() => ({
     startTracking: vi.fn(),
     getTrackingStatus: vi.fn(() => ({ isTracking: false, currentVoyageId: null as string | null })),
@@ -93,6 +94,10 @@ vi.mock('../stores/followRouteStore', () => ({
 vi.mock('../services/shiplog/RoutesAndTracks', () => ({
     fetchVoyageAsTrack: fetchVoyageAsTrackMock,
     groupByVoyage: vi.fn(() => []),
+}));
+
+vi.mock('../services/VoyageService', () => ({
+    getActiveVoyage: vi.fn(async () => activeVoyageMock.value),
 }));
 
 vi.mock('../services/routeTracer', async (importOriginal) => ({
@@ -1404,6 +1409,16 @@ describe('LogPage — Cast Off handoff', () => {
         shipLogHandoffMock.getTrackingStatus.mockReturnValue({ isTracking: false, currentVoyageId: null });
         publishFollowedRouteMock.mockClear();
         publishFollowedRouteMock.mockResolvedValue('linked');
+        activeVoyageMock.value = null;
+        followRouteMock.state.isFollowing = false;
+        followRouteMock.state.voyageId = null;
+        followRouteMock.state.routeCoords = [];
+        followRouteMock.state.startedAt = null;
+        followRouteMock.state.startFollowing.mockClear();
+        fetchVoyageAsTrackMock.mockReset();
+        fetchVoyageAsTrackMock.mockResolvedValue(null);
+        traceDirectUseBlockReasonMock.mockReset();
+        traceDirectUseBlockReasonMock.mockReturnValue(null);
     });
 
     afterEach(() => {
@@ -1564,5 +1579,42 @@ describe('LogPage — Cast Off handoff', () => {
         rerender(view());
 
         expect(screen.getByRole('dialog', { name: 'Following a route?' })).toBeInTheDocument();
+    });
+
+    it('the ACTIVE VOYAGE suppresses the route question even with no handoff at all', async () => {
+        // The handoff can die with the process; the voyages table cannot.
+        activeVoyageMock.value = {
+            id: 'active-voyage',
+            voyage_name: 'Newport → Coral Sea',
+            saved_route_id: 'route-x',
+            status: 'active',
+        };
+        const view = () => <LogPage />;
+        const { rerender } = render(view());
+
+        Object.assign(logPageStateOverrides.state, {
+            isTracking: true,
+            currentVoyageId: 'active-voyage',
+            entries: [],
+            summaries: [
+                {
+                    voyageId: 'planned-voyage',
+                    isPlannedRoute: true,
+                    totalDistanceNM: 12,
+                    entryCount: 4,
+                    firstLat: -27.5,
+                    firstLon: 153,
+                    lastLat: -27.4,
+                    lastLon: 153.1,
+                },
+            ],
+        });
+        rerender(view());
+
+        await waitFor(() =>
+            expect(screen.queryByRole('dialog', { name: 'Following a route?' })).not.toBeInTheDocument(),
+        );
+        // And the route line arms itself from the active voyage.
+        await waitFor(() => expect(followRouteMock.state.startFollowing).toHaveBeenCalled());
     });
 });
