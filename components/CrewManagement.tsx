@@ -1040,7 +1040,8 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                     // route check, auto-follow and the public publish at
                     // once (Shane 2026-08-26: "plan a route first. even
                     // though i have already added a route??").
-                    saved_route_id: matched.saved_route_id ?? r.savedRouteId ?? null,
+                    saved_route_id:
+                        matched.saved_route_id ?? r.savedRouteId ?? canonicalByPlannedRouteId.get(r.id)?.id ?? null,
                     departureCoords,
                     arrivalCoords,
                     routeCoordinates,
@@ -1092,7 +1093,10 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                 // without it the materialised row had no saved_route_id and
                 // every downstream consumer (geometry, route check, follow,
                 // public publish) silently lost the route.
-                saved_route_id: r.savedRouteId ?? null,
+                // Old mirrors predate the savedRouteId column on their
+                // rows — the planned-mirror map (geometry-backfilled for
+                // pre-migration routes) is the authoritative bridge.
+                saved_route_id: r.savedRouteId ?? canonicalByPlannedRouteId.get(r.id)?.id ?? null,
                 departureCoords,
                 arrivalCoords,
                 routeCoordinates,
@@ -2582,6 +2586,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                                 voyage.id,
                                 handoff?.savedRouteId ?? voyage.saved_route_id,
                                 handoff?.publishRoute ?? true,
+                                voyage.voyage_name,
                             ).then((reason) => {
                                 // Silent failures cost a night of guessing —
                                 // record why the line is not up so the Log
