@@ -14,7 +14,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { clearAllCellMetadata, getRegistryFingerprint, putCell } from '../services/enc/EncCellMetadata';
-import { traceRegistryScope } from '../services/traceVerification';
+import { traceCastOffBlockReason, traceRegistryScope } from '../services/traceVerification';
 import type { EncCell } from '../services/enc/types';
 
 const cell = (over: Partial<EncCell> = {}): EncCell => ({
@@ -115,5 +115,46 @@ describe('writer and checker share the scope (source tripwires)', () => {
         for (const rel of ['services/traceRecheck.ts', 'services/VoyageService.ts']) {
             expect(read(rel)).not.toMatch(/getRegistryFingerprint\(\)/);
         }
+    });
+});
+
+describe('the block message diagnoses itself', () => {
+    const context = {
+        draftM: 2.0,
+        draftAssumed: false,
+        voyageDepartureMs: Date.parse('2026-08-27T00:00:00Z'),
+        nowMs: Date.parse('2026-08-26T00:00:00Z'),
+    };
+    const verification = (fingerprint: string) => ({
+        version: 1,
+        graderVersion: 'route-tracer-v1',
+        geometryKey: 'any-key',
+        checkedAt: '2026-08-25T23:00:00Z',
+        result: 'verified',
+        legGrades: [],
+        acknowledgedDangerLegs: [],
+        draftM: 2.0,
+        draftAssumed: false,
+        encRegistryVersion: 1,
+        encRegistryFingerprint: fingerprint,
+        departureMs: Date.parse('2026-08-27T00:00:00Z'),
+        tideWindowLabel: '',
+    });
+
+    it('an old-format stamp names the real cause: checked by an older app version', () => {
+        const reason = traceCastOffBlockReason(verification('AU5MB01P@3@2026-01-15@100@cloud-7'), undefined, {
+            ...context,
+            encRegistryFingerprint: 'AU5MB01P@3@2026-01-15@100',
+        });
+        expect(reason).toContain('older app version');
+    });
+
+    it('a genuine chart change names the differing cell', () => {
+        const reason = traceCastOffBlockReason(verification('AU5MB01P@3@2026-01-15@100'), undefined, {
+            ...context,
+            encRegistryFingerprint: 'AU5MB01P@4@2026-06-01@120',
+        });
+        expect(reason).toContain('AU5MB01P');
+        expect(reason).toContain('Recheck');
     });
 });
