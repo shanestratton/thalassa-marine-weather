@@ -153,8 +153,15 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                     if (cancelled || !isAuthIdentityScopeCurrent(operationScope)) return;
                     const tracking = ShipLogService.getTrackingStatus();
                     if (!tracking.isTracking || tracking.currentVoyageId !== active.id) {
+                        // Name the REAL reason when the cast-off handoff
+                        // recorded one — "not recording" with no cause left
+                        // the skipper (and us) guessing at 9:15pm.
+                        const { peekCastOffHandoff } = await import('../../services/castOffHandoff');
+                        const handoff = peekCastOffHandoff();
+                        const detail =
+                            handoff?.voyageId === active.id && handoff.gpsError ? ` ${handoff.gpsError}` : '';
                         setTrackingWarning(
-                            'Passage is active, but GPS voyage logging is not recording. Retry GPS Logging now, or End Voyage if you are standing down.',
+                            `Passage is active, but GPS voyage logging is not recording.${detail} Retry GPS Logging now, or End Voyage if you are standing down.`,
                         );
                     }
                 } catch {
