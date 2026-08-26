@@ -37,7 +37,11 @@ const log = createLogger('followCastOffRoute');
  * missing or the verification gate refuses it (the caller's fallback is the
  * Log page's own follow sheet — never force an unverified line).
  */
-export async function followCastOffRoute(voyageId: string, savedRouteId?: string | null): Promise<boolean> {
+export async function followCastOffRoute(
+    voyageId: string,
+    savedRouteId?: string | null,
+    publishPublic: boolean = true,
+): Promise<boolean> {
     try {
         const logRoute = await fetchVoyageAsTrack(voyageId);
         let steerRoute: Pick<RouteOrTrack, 'savedRouteId' | 'points'>;
@@ -80,11 +84,16 @@ export async function followCastOffRoute(voyageId: string, savedRouteId?: string
         // trigger cannot fire first.
         markRouteKitAnswered(steerRoute.points);
         useFollowRouteStore.getState().startFollowing(exactPlan, voyageId, steerRoute.points);
-        // Public page (fire-and-forget like the Log page's pick): tracking is
-        // already live, so this resolves 'linked' — or queues offline.
-        void Promise.resolve(publishFollowedRoute(voyageId)).catch((error) => {
-            log.warn('publish cast-off followed route failed:', error);
-        });
+        // Public page (fire-and-forget like the Log page's pick). Usually a
+        // no-op 'not-tracking' at this point — GPS is still starting — so
+        // the authoritative publish happens in castOffHandoff the moment
+        // tracking confirms. This early attempt stays for the resume case
+        // where tracking is already live. Opt-out keeps the line private.
+        if (publishPublic) {
+            void Promise.resolve(publishFollowedRoute(voyageId)).catch((error) => {
+                log.warn('publish cast-off followed route failed:', error);
+            });
+        }
         return true;
     } catch (error) {
         log.warn('cast-off route follow failed:', error);

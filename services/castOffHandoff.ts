@@ -40,6 +40,9 @@ export interface CastOffHandoff {
     gps: CastOffGpsState;
     /** Human-readable failure detail when gps === 'failed'. */
     gpsError: string | null;
+    /** Show the passage's route on the public page once GPS confirms —
+     *  the skipper's choice from the Cast Off confirm step. */
+    publishRoute: boolean;
 }
 
 const PERSIST_KEY = 'thalassa_castoff_handoff';
@@ -59,10 +62,12 @@ function restore(): CastOffHandoff | null {
         const { stashedAt: _stashedAt, ...handoff } = parsed;
         // 'starting' cannot survive a process death — the start never
         // confirmed. Report it honestly so the retry surface appears.
-        if (handoff.gps === 'starting') {
-            return { ...handoff, gps: 'failed', gpsError: 'The app closed before GPS logging confirmed.' };
+        // Older persisted blobs predate the publish choice — default on.
+        const withPublish = { ...handoff, publishRoute: handoff.publishRoute ?? true };
+        if (withPublish.gps === 'starting') {
+            return { ...withPublish, gps: 'failed', gpsError: 'The app closed before GPS logging confirmed.' };
         }
-        return handoff;
+        return withPublish;
     } catch {
         return null;
     }
@@ -88,8 +93,13 @@ function emit(): void {
     for (const listener of listeners) listener();
 }
 
-export function stashCastOffHandoff(handoff: { voyageId: string; voyageName: string; caution: string | null }): void {
-    current = { ...handoff, gps: 'starting', gpsError: null };
+export function stashCastOffHandoff(handoff: {
+    voyageId: string;
+    voyageName: string;
+    caution: string | null;
+    publishRoute?: boolean;
+}): void {
+    current = { ...handoff, publishRoute: handoff.publishRoute ?? true, gps: 'starting', gpsError: null };
     emit();
 }
 
@@ -139,6 +149,20 @@ export async function startHandoffGps(retry = false): Promise<void> {
             throw new Error('Background GPS did not confirm the newly active passage.');
         }
         updateCastOffHandoff({ gps: 'confirmed', gpsError: null });
+        // Tracking is live NOW — this is the moment the public page can
+        // actually link the passage. Publishing any earlier returns
+        // 'not-tracking' and records nothing durable, which is why a
+        // cast-off passage never appeared publicly (Shane 2026-08-26:
+        // "it is not showing on the public page"). Opt-out honoured;
+        // publishFollowedRoute queues durably on network failure.
+        if (handoff.publishRoute !== false) {
+            try {
+                const { publishFollowedRoute } = await import('./shiplog/publishFollowedRoute');
+                await publishFollowedRoute(handoff.voyageId);
+            } catch {
+                /* the durable-intent layer owns retries */
+            }
+        }
     } catch (cause) {
         if (!isAuthIdentityScopeCurrent(scope)) return;
         const detail =

@@ -65,6 +65,27 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
     const [trackingWarning, setTrackingWarning] = useState<string | null>(null);
     const [error, setError] = useState('');
     const [safetyConfirmed, setSafetyConfirmed] = useState(false);
+    // Public-page choice, remembered between passages (default: show). The
+    // publish itself fires from castOffHandoff the moment GPS confirms —
+    // any earlier is 'not-tracking' and records nothing.
+    const [publishPublic, setPublishPublic] = useState(() => {
+        try {
+            return localStorage.getItem('thalassa_castoff_publish_public') !== '0';
+        } catch {
+            return true;
+        }
+    });
+    const togglePublishPublic = useCallback(() => {
+        setPublishPublic((v) => {
+            try {
+                localStorage.setItem('thalassa_castoff_publish_public', v ? '0' : '1');
+            } catch {
+                /* preference only */
+            }
+            return !v;
+        });
+        triggerHaptic('light');
+    }, []);
 
     // Quick-create state
     const [newName, setNewName] = useState('');
@@ -228,6 +249,7 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                     voyageId: activatedVoyage.id,
                     voyageName: activatedVoyage.voyage_name,
                     caution: result.caution ?? null,
+                    publishRoute: publishPublic,
                 });
                 void startHandoffGps();
                 onCastOff?.(activatedVoyage);
@@ -242,7 +264,7 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
         } finally {
             if (operationIsCurrent()) setCasting(false);
         }
-    }, [selected, safetyConfirmed, onCastOff]);
+    }, [selected, safetyConfirmed, publishPublic, onCastOff]);
 
     const handleRetryTracking = useCallback(async () => {
         if (!activeVoyage || casting || endingRef.current || trackingRetryRef.current) return;
@@ -1157,6 +1179,33 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                                 {error}
                             </p>
                         )}
+
+                        {/* Public page — an option, never a condition */}
+                        <button
+                            type="button"
+                            role="checkbox"
+                            aria-checked={publishPublic}
+                            aria-label="Show this passage on the public page"
+                            onClick={togglePublishPublic}
+                            className="flex min-h-[44px] w-full cursor-pointer items-center gap-3 rounded-xl border border-cyan-500/15 bg-cyan-500/[0.04] p-4 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"
+                        >
+                            <span
+                                aria-hidden="true"
+                                className={`w-6 h-6 rounded-md border-2 flex items-center justify-center transition-all ${
+                                    publishPublic
+                                        ? 'bg-cyan-500 border-cyan-500 text-black'
+                                        : 'border-gray-600 bg-transparent'
+                                }`}
+                            >
+                                {publishPublic && '✓'}
+                            </span>
+                            <span className="flex-1">
+                                <span className="block text-xs font-bold text-cyan-300">Show on the Public Page</span>
+                                <span className="block text-[11px] text-gray-500">
+                                    Family and crew can watch this passage live. Off keeps the line private.
+                                </span>
+                            </span>
+                        </button>
 
                         {/* Actions */}
                         <div className="space-y-2">
