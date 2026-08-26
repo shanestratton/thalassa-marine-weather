@@ -518,6 +518,41 @@ export async function updateActiveVoyageDetails(
 }
 
 /**
+ * Adopt a canonical saved-route link onto a planning row that has NONE.
+ *
+ * Narrow on purpose: `.is('saved_route_id', null)` means this can only fill
+ * a hole, never repoint a linked row at a different route. Idempotent from
+ * the caller's side — selecting an already-linked passage simply matches
+ * zero rows. Exists because voyages materialised from standalone logbook
+ * stubs were created without the link (Shane 2026-08-26: geometry, route
+ * check, follow and the public publish all silently lost the route on
+ * every re-pick).
+ */
+export async function adoptSavedRouteLink(voyageId: string, savedRouteId: string): Promise<Voyage | null> {
+    const exactVoyageId = voyageId.trim();
+    const exactRouteId = savedRouteId.trim();
+    if (!supabase || !exactVoyageId || !exactRouteId) return null;
+    const identity = getAuthIdentityScope();
+    if (!identity.userId || !(await revalidateAuth(identity, identity.userId))) return null;
+    const ownerId = identity.userId;
+    const { data, error } = await supabase
+        .from('voyages')
+        .update({ saved_route_id: exactRouteId, updated_at: new Date().toISOString() })
+        .eq('id', exactVoyageId)
+        .eq('user_id', ownerId)
+        .eq('status', 'planning')
+        .is('saved_route_id', null)
+        .select()
+        .maybeSingle();
+    if (error || !isOwnedVoyage(data, ownerId, { id: exactVoyageId, status: 'planning' })) return null;
+    if (!(await revalidateAuth(identity, ownerId))) return null;
+    const updated = cloneVoyage(data);
+    const drafts = readDraftVoyageCache(identity);
+    writeDraftVoyageCache([updated, ...drafts.filter((draft) => draft.id !== updated.id)], identity);
+    return updated;
+}
+
+/**
  * Refresh the machine verification on the exact planning row owned by a
  * canonical saved route. This is intentionally narrower than updateVoyage:
  * a stale/corrupt local graph link can never stamp proof onto another one of

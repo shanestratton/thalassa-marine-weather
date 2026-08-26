@@ -43,6 +43,7 @@ import { followCastOffRoute } from '../services/shiplog/followCastOffRoute';
 import { peekCastOffHandoff } from '../services/castOffHandoff';
 import { toast } from './Toast';
 import {
+    adoptSavedRouteLink,
     createVoyage,
     getCachedActiveVoyage,
     getCachedDraftVoyages,
@@ -1111,13 +1112,18 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
             if (routeCoordinates.length < 2) return draft;
             const departureCoords = routeCoordinates[0];
             const arrivalCoords = routeCoordinates[routeCoordinates.length - 1];
+            const distanceNm = routeDistanceNm(routeCoordinates) ?? undefined;
+            const speedKt = settings.vessel?.cruisingSpeed || 5.5;
             return {
                 ...draft,
                 departureCoords,
                 arrivalCoords,
                 routeCoordinates,
                 plannedRouteId: trace?.plannedRouteId,
-                distanceNm: routeDistanceNm(routeCoordinates) ?? undefined,
+                distanceNm,
+                // The summary card shows Duration alongside Distance — this
+                // path left it undefined and the card showed an em-dash.
+                durationHours: distanceNm ? distanceNm / speedKt : undefined,
             };
         };
 
@@ -1852,6 +1858,14 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
 
             if (!row || requestVersion !== passageSelectionVersion.current || !scopeStillOwnsPage(scope)) {
                 return;
+            }
+
+            // Heal the table row: a voyage created before saved_route_id (or
+            // by the old stub path) adopts the canonical trace link the
+            // picker resolved. The service guard (`saved_route_id IS NULL`)
+            // makes this a no-op for already-linked rows.
+            if (!id.startsWith('logbook:') && !row.isShared && row.saved_route_id) {
+                void adoptSavedRouteLink(realId, row.saved_route_id);
             }
 
             setPassageStatus(NO_PASSAGE_ACCESS);
