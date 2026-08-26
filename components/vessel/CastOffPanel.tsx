@@ -57,6 +57,10 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
     const [ending, setEnding] = useState(false);
     const [trackingRetrying, setTrackingRetrying] = useState(false);
     const [trackingWarning, setTrackingWarning] = useState<string | null>(null);
+    // Route-check heads-up from castOff(). Advisory only (Shane 2026-08-26:
+    // "allow it through first, then we will put the gates on") — the passage
+    // is already active when this renders.
+    const [routeCaution, setRouteCaution] = useState<string | null>(null);
     const [error, setError] = useState('');
     const [safetyConfirmed, setSafetyConfirmed] = useState(false);
 
@@ -209,6 +213,7 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
             if (!operationIsCurrent()) return;
             if (result.ok && result.voyage) {
                 activatedVoyage = result.voyage;
+                setRouteCaution(result.caution ?? null);
                 // The passage is already active remotely. Reflect that truth
                 // before touching native GPS so a bridge/permission failure
                 // can never leave a retry of the destructive Cast Off action
@@ -746,6 +751,18 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                         )}
                         {activeVoyage && showFloatPlan && (
                             <FloatPlanSheet voyage={activeVoyage} onClose={() => setShowFloatPlan(false)} />
+                        )}
+
+                        {routeCaution && (
+                            <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-400/25 space-y-1.5">
+                                <p className="text-[11px] font-black uppercase tracking-[0.2em] text-amber-300">
+                                    Route check heads-up
+                                </p>
+                                <p className="text-sm text-amber-100">{routeCaution}</p>
+                                <p className="text-xs text-amber-200/70">
+                                    You are underway — this did not stop Cast Off. Worth a recheck when convenient.
+                                </p>
+                            </div>
                         )}
 
                         {trackingWarning && (

@@ -165,7 +165,7 @@ describe('VoyageService atomic Cast Off', () => {
     });
 
     it.each(['startVoyage', 'castOff'] as const)(
-        'cannot bypass exact traced-route verification through %s',
+        'traced-route drift is an advisory caution, never a refusal, through %s',
         async (api) => {
             const now = Date.now();
             const points = [
@@ -225,8 +225,15 @@ describe('VoyageService atomic Cast Off', () => {
             );
             harness.rpc.mockResolvedValue({ data: active, error: null });
 
-            if (api === 'startVoyage') expect(await startVoyage(voyage.id)).toEqual(active);
-            else expect(await castOff(voyage.id)).toMatchObject({ ok: true, voyage: active });
+            if (api === 'startVoyage') {
+                expect(await startVoyage(voyage.id)).toEqual(active);
+            } else {
+                const clean = await castOff(voyage.id);
+                expect(clean).toMatchObject({ ok: true, voyage: active });
+                // A healthy check must not nag — the advisory only exists
+                // when there is genuinely something to say.
+                expect(clean.caution).toBeUndefined();
+            }
             expect(harness.rpc).toHaveBeenCalledOnce();
 
             harness.rpc.mockClear();
@@ -243,13 +250,20 @@ describe('VoyageService atomic Cast Off', () => {
                       })
                     : queryFor(planning),
             );
-            if (api === 'startVoyage') expect(await startVoyage(voyage.id)).toBeNull();
-            else
+            // Advisory, not a gate (Shane 2026-08-26: "allow it through
+            // first, then we will put the gates on"): drifted geometry still
+            // casts off — the RPC runs and the reason rides along as caution.
+            harness.rpc.mockResolvedValue({ data: active, error: null });
+            if (api === 'startVoyage') {
+                expect(await startVoyage(voyage.id)).toEqual(active);
+            } else {
                 expect(await castOff(voyage.id)).toMatchObject({
-                    ok: false,
-                    error: expect.stringMatching(/current waypoints/i),
+                    ok: true,
+                    voyage: active,
+                    caution: expect.stringMatching(/current waypoints/i),
                 });
-            expect(harness.rpc).not.toHaveBeenCalled();
+            }
+            expect(harness.rpc).toHaveBeenCalledOnce();
         },
     );
 });
