@@ -1160,9 +1160,19 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                 return score;
             };
             const rowStamp = (row: VoyageRow): number => Date.parse(row.updated_at ?? row.created_at ?? '') || 0;
+            // A row can name its route two ways: saved_route_id on the row,
+            // or the trace's passageVoyageId back-link naming the row. The
+            // remaining double was one of each — same route, different key
+            // (Shane 2026-08-27 screenshot: two "(1st Leg)" rows).
+            const traceByPassageVoyage = new Map<string, string>();
+            for (const trace of canonicalById.values()) {
+                if (trace.passageVoyageId) traceByPassageVoyage.set(trace.passageVoyageId, trace.id);
+            }
+            const routeKeyOf = (row: VoyageRow): string | undefined =>
+                row.saved_route_id?.trim() || traceByPassageVoyage.get(row.id);
             const bestByRoute = new Map<string, VoyageRow>();
             for (const row of ownRows) {
-                const key = row.saved_route_id?.trim();
+                const key = routeKeyOf(row);
                 if (!key) continue;
                 const existing = bestByRoute.get(key);
                 if (
@@ -1174,7 +1184,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                 }
             }
             const pruned = ownRows.filter((row) => {
-                const key = row.saved_route_id?.trim();
+                const key = routeKeyOf(row);
                 return !key || bestByRoute.get(key) === row;
             });
             ownRows.length = 0;

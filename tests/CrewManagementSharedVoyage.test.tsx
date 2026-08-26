@@ -515,6 +515,10 @@ describe('CrewManagement shared passage ownership', () => {
                     id: canonicalId,
                     name: 'Newport → Coral Sea',
                     createdAt: '2026-08-20T00:00:00.000Z',
+                    // The trace back-links the ORIGINAL voyage row by id —
+                    // that row shows keylessly and folded as a second entry
+                    // until the dedupe learned this identity too.
+                    passageVoyageId: 'draft-original',
                     points: [
                         { lat: -27.2, lon: 153.1 },
                         { lat: -21.1, lon: 152.4 },
@@ -523,6 +527,10 @@ describe('CrewManagement shared passage ownership', () => {
             ]),
         );
         const churn = [
+            {
+                ...voyage('draft-original', 'crew-user', 'Newport → Coral Sea'),
+                updated_at: '2026-08-23T00:00:00.000Z',
+            },
             {
                 ...voyage('draft-old', 'crew-user', 'Newport → Coral Sea'),
                 saved_route_id: canonicalId,
