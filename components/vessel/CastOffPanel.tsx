@@ -8,7 +8,7 @@
  *
  * State protection: blocks if another voyage is already ACTIVE.
  */
-import React, { useState, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import {
     getDraftVoyages,
     getActiveVoyage,
@@ -39,6 +39,26 @@ import { FloatPlanSheet } from './FloatPlanSheet';
 import { composeArrivalMessage } from '../../services/floatPlan';
 import { useSettingsStore } from '../../stores/settingsStore';
 
+/** The canonical saved-trace name (badged, healed) beats a stale DB
+ *  voyage_name — the Saved Routes picker shows the trace name, so Cast Off
+ *  must not disagree with what the skipper just tapped (Shane 2026-08-27:
+ *  the picker said "Coral Sea - Mackay (2nd Leg)", Cast Off said leg 1).
+ *  EXCEPT for a materialised "(Passage)" voyage: its saved_route_id is the
+ *  tripId, which doubles as LEG 1's trace id, so resolving it through the
+ *  trace store would retitle the whole passage as its first leg — the same
+ *  trap the picker dedupe guards with this exact name test. */
+function displayVoyageName(voyage: { voyage_name: string; saved_route_id?: string | null }): string {
+    if (voyage.saved_route_id && !/\(passage\)/i.test(voyage.voyage_name)) {
+        try {
+            const trace = loadSavedTraces().find((t) => t.id === voyage.saved_route_id);
+            if (trace?.name) return trace.name;
+        } catch {
+            /* fall through to the stored name */
+        }
+    }
+    return formatStoredPlannedRouteName(voyage.voyage_name) ?? voyage.voyage_name;
+}
+
 interface CastOffPanelProps {
     onCastOff?: (voyage: Voyage) => void;
     onClose: () => void;
@@ -61,8 +81,6 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
     const [loading, setLoading] = useState(true);
     const [casting, setCasting] = useState(false);
     const [ending, setEnding] = useState(false);
-    const [trackingRetrying, setTrackingRetrying] = useState(false);
-    const [trackingWarning, setTrackingWarning] = useState<string | null>(null);
     const [error, setError] = useState('');
     const [safetyConfirmed, setSafetyConfirmed] = useState(false);
     // Public-page choice, remembered between passages (default: show). The
@@ -104,11 +122,25 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
     // ignore the next one — so ending a voyage offers the stand-down message
     // rather than leaving the skipper to remember it.
     const [standDownText, setStandDownText] = useState<string | null>(null);
+    // The passage the skipper actually SELECTED when a different voyage is
+    // still active. The active card must render (the server's cast_off_voyage
+    // guard allows one live voyage), but the selection must not be silently
+    // swallowed (Shane 2026-08-27: "it always shows the newport - coral sea
+    // 1st leg. regardless of which route i chose") — it is named on the card
+    // and End Voyage hands straight into its pre-departure check.
+    const [pendingSelection, setPendingSelection] = useState<Voyage | null>(null);
+    // displayVoyageName parses the whole saved-trace store — once per
+    // voyage, never once per render: the active card's port inputs
+    // re-render this panel on every keystroke.
+    const pendingSelectionName = useMemo(
+        () => (pendingSelection ? displayVoyageName(pendingSelection) : null),
+        [pendingSelection],
+    );
+    const selectedDisplayName = useMemo(() => (selected ? displayVoyageName(selected) : null), [selected]);
     const vesselName = useSettingsStore((s) => s.settings.vessel?.name);
     const closeButtonRef = useRef<HTMLButtonElement>(null);
     const mountedRef = useRef(true);
     const endingRef = useRef(false);
-    const trackingRetryRef = useRef(false);
     const dialogRef = useFocusTrap<HTMLDivElement>(true, {
         initialFocusRef: closeButtonRef,
         onEscape: onClose,
@@ -141,35 +173,18 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                 setCurrentLeg(activeLeg);
                 const allLegs = getLegsForVoyage(active.id).filter((l) => l.status === 'completed');
                 setCompletedLegs(allLegs);
-
-                // The server can already hold an active passage when a prior
-                // Cast Off succeeded but its native GPS start failed. Never
-                // render that state as a normal green "Live" passage: hydrate
-                // the local tracker, compare the exact voyage id, and offer a
-                // recovery on this screen.
-                try {
-                    const { ShipLogService } = await import('../../services/ShipLogService');
-                    await ShipLogService.initialize();
-                    if (cancelled || !isAuthIdentityScopeCurrent(operationScope)) return;
-                    const tracking = ShipLogService.getTrackingStatus();
-                    if (!tracking.isTracking || tracking.currentVoyageId !== active.id) {
-                        // Name the REAL reason when the cast-off handoff
-                        // recorded one — "not recording" with no cause left
-                        // the skipper (and us) guessing at 9:15pm.
-                        const { peekCastOffHandoff } = await import('../../services/castOffHandoff');
-                        const handoff = peekCastOffHandoff();
-                        const detail =
-                            handoff?.voyageId === active.id && handoff.gpsError ? ` ${handoff.gpsError}` : '';
-                        setTrackingWarning(
-                            `Passage is active, but GPS voyage logging is not recording.${detail} Retry GPS Logging now, or End Voyage if you are standing down.`,
-                        );
-                    }
-                } catch {
-                    if (cancelled || !isAuthIdentityScopeCurrent(operationScope)) return;
-                    setTrackingWarning(
-                        'Passage is active, but GPS voyage logging could not be verified. Retry GPS Logging before relying on the track.',
-                    );
-                }
+                // No GPS-tracking verification here. getTrackingStatus()'s
+                // JS mirror stays cold until the Ship's Log page hydrates
+                // it, so the old amber "Retry GPS Logging" card cried wolf
+                // on every healthy passage (Shane 2026-08-27: "it is always
+                // working. but i need to open the ships log first" —
+                // removed at his call). The stale-passage age note below
+                // survives independently.
+                setPendingSelection(
+                    initialVoyageId && initialVoyageId !== active.id
+                        ? (d.find((v) => v.id === initialVoyageId) ?? null)
+                        : null,
+                );
             } else if (initialVoyageId) {
                 // Auto-select the passage planning voyage — skip draft list
                 const match = d.find((v) => v.id === initialVoyageId);
@@ -234,7 +249,6 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
         const operationIsCurrent = () => mountedRef.current && isAuthIdentityScopeCurrent(operationScope);
         setCasting(true);
         setError('');
-        setTrackingWarning(null);
         triggerHaptic('heavy');
         let activatedVoyage: Voyage | null = null;
 
@@ -276,43 +290,8 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
         }
     }, [selected, safetyConfirmed, publishPublic, onCastOff]);
 
-    const handleRetryTracking = useCallback(async () => {
-        if (!activeVoyage || casting || endingRef.current || trackingRetryRef.current) return;
-        const operationScope = getAuthIdentityScope();
-        const operationIsCurrent = () => mountedRef.current && isAuthIdentityScopeCurrent(operationScope);
-        const voyageId = activeVoyage.id;
-        trackingRetryRef.current = true;
-        setTrackingRetrying(true);
-        setError('');
-        try {
-            const { ShipLogService } = await import('../../services/ShipLogService');
-            if (!operationIsCurrent()) return;
-            await ShipLogService.startTracking(true, voyageId, operationScope);
-            if (!operationIsCurrent()) return;
-            const tracking = ShipLogService.getTrackingStatus();
-            if (!tracking.isTracking || tracking.currentVoyageId !== voyageId) {
-                throw new Error('Background GPS is still not recording this passage.');
-            }
-            setTrackingWarning(null);
-            onCastOff?.(activeVoyage);
-        } catch (cause) {
-            if (!operationIsCurrent()) return;
-            // Surface the REAL reason. The old unconditional "Fix location
-            // access" tail sent the skipper to iOS Settings when the actual
-            // blocker was another voyage holding the tracker.
-            const detail =
-                cause instanceof Error && cause.message.trim()
-                    ? ` ${cause.message.trim()}`
-                    : ' Fix location access, then retry.';
-            setTrackingWarning(`GPS voyage logging is still off.${detail}`);
-        } finally {
-            trackingRetryRef.current = false;
-            if (operationIsCurrent()) setTrackingRetrying(false);
-        }
-    }, [activeVoyage, casting, onCastOff]);
-
     const handleEndVoyage = useCallback(async () => {
-        if (!activeVoyage || endingRef.current || casting || trackingRetryRef.current) return;
+        if (!activeVoyage || endingRef.current || casting) return;
         const operationScope = getAuthIdentityScope();
         const operationIsCurrent = () => mountedRef.current && isAuthIdentityScopeCurrent(operationScope);
         const endingVoyage = activeVoyage;
@@ -337,10 +316,19 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
             setStandDownText(composeArrivalMessage({ vesselName, destination, arrivedMs: Date.now() }));
             setShowFloatPlan(false);
             setActiveVoyage(null);
-            setTrackingWarning(null);
             setCurrentLeg(null);
             setCompletedLegs([]);
-            setStep('select');
+            if (pendingSelection) {
+                // The passage the skipper originally picked takes over the
+                // moment the stale one stands down — straight into its
+                // pre-departure check, no re-hunt through the draft list.
+                setSelected(pendingSelection);
+                setSafetyConfirmed(false);
+                setPendingSelection(null);
+                setStep('preflight');
+            } else {
+                setStep('select');
+            }
             const d = await getDraftVoyages();
             if (operationIsCurrent()) setDrafts(d);
         } catch (cause) {
@@ -351,13 +339,19 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
             endingRef.current = false;
             if (operationIsCurrent()) setEnding(false);
         }
-    }, [activeVoyage, casting, vesselName]);
+    }, [activeVoyage, casting, pendingSelection, vesselName]);
 
     // ── Passage Leg Handlers ──
 
     const handleArriveAtPort = useCallback(() => {
         if (!activeVoyage || !currentLeg) return;
         triggerHaptic('light');
+        // Working the ACTIVE voyage's legs is a commitment to it — the
+        // earlier planning selection must not ambush the skipper later:
+        // "End Voyage Here" on the depart step would otherwise jump into a
+        // preflight nobody was promised (the sky note only shows on the
+        // active step).
+        setPendingSelection(null);
         // The leg's own planned destination (from the trip's saved legs)
         // beats the voyage-level destination: on a multi-leg passage the
         // voyage says "Auckland" while leg 1 actually ends at Noumea.
@@ -384,8 +378,15 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
         // legs, so the NEXT "Arrive at Port" opens pre-filled too.
         let plannedDestination: string | null = null;
         try {
-            const { tripLegPlannedDestination } = await import('../../services/routeTracer');
-            plannedDestination = tripLegPlannedDestination(activeVoyage.saved_route_id, completedLegs.length + 1);
+            const { tripLegPlannedDestination, tripLegAnchorOrdinal } = await import('../../services/routeTracer');
+            // completedLegs counts THIS voyage's legs, but the trip ordinal
+            // starts at the route's own position — a leg-2 voyage's first
+            // in-voyage leg IS trip leg 2, so its next leg is anchor +
+            // completed, not completed + 1.
+            plannedDestination = tripLegPlannedDestination(
+                activeVoyage.saved_route_id,
+                tripLegAnchorOrdinal(activeVoyage.saved_route_id) + completedLegs.length,
+            );
         } catch {
             /* best effort */
         }
@@ -598,17 +599,9 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                     <div className="p-5 pt-2 space-y-4">
                         <div className="p-4 rounded-2xl bg-emerald-500/[0.06] border border-emerald-500/15 space-y-3">
                             <div className="flex items-center gap-2">
-                                <div
-                                    className={`w-2 h-2 rounded-full ${
-                                        trackingWarning ? 'bg-amber-400' : 'bg-emerald-400 animate-pulse'
-                                    }`}
-                                />
-                                <span
-                                    className={`text-xs font-bold uppercase tracking-widest ${
-                                        trackingWarning ? 'text-amber-300' : 'text-emerald-400'
-                                    }`}
-                                >
-                                    {trackingWarning ? 'Passage Active · GPS Log Off' : 'Live'}
+                                <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                                <span className="text-xs font-bold uppercase tracking-widest text-emerald-400">
+                                    Live
                                 </span>
                                 {currentLeg && (
                                     <span className="ml-auto px-2 py-0.5 rounded-full text-[11px] font-bold uppercase bg-sky-500/10 text-sky-400 border border-sky-500/15">
@@ -785,36 +778,41 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                             <FloatPlanSheet voyage={activeVoyage} onClose={() => setShowFloatPlan(false)} />
                         )}
 
-                        {trackingWarning && (
-                            <div
-                                role="alert"
-                                className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-400/25 space-y-3"
-                            >
-                                <p className="text-sm font-semibold text-amber-100">{trackingWarning}</p>
-                                {/* A zombie row looks identical to a fresh passage
-                                    except for this pill — say the age out loud so a
-                                    month-old active row is recognisable at a glance
-                                    (Shane 2026-08-26: a 26-July voyage presented as
-                                    the live passage). */}
-                                {activeVoyage?.departure_time &&
-                                    Date.now() - Date.parse(activeVoyage.departure_time) > 48 * 3_600_000 && (
-                                        <p className="text-xs text-amber-200/80">
-                                            This passage departed{' '}
-                                            {Math.round(
-                                                (Date.now() - Date.parse(activeVoyage.departure_time)) / 86_400_000,
-                                            )}{' '}
-                                            days ago. If it is over, End Voyage &amp; Archive stands it down.
-                                        </p>
-                                    )}
-                                <button
-                                    onClick={handleRetryTracking}
-                                    disabled={casting || ending || trackingRetrying}
-                                    className="w-full py-3 bg-amber-400 text-slate-950 rounded-xl text-xs font-black uppercase tracking-widest active:scale-[0.97] disabled:opacity-50 disabled:cursor-wait"
-                                >
-                                    {casting || trackingRetrying ? '⏳ Starting GPS Logging…' : '↻ Retry GPS Logging'}
-                                </button>
+                        {/* The skipper picked a DIFFERENT passage than the
+                            one still active — name it, and promise the
+                            handoff End Voyage delivers (Shane 2026-08-27:
+                            Cast Off ignored the selection). */}
+                        {pendingSelectionName && (
+                            <div role="status" className="p-3.5 rounded-xl bg-sky-500/10 border border-sky-400/25">
+                                <p className="text-xs text-sky-200/90">
+                                    You selected <span className="font-bold text-sky-100">{pendingSelectionName}</span>,
+                                    but this passage is still active. End Voyage &amp; Archive below and the
+                                    pre-departure check for your selection opens straight away.
+                                </p>
                             </div>
                         )}
+
+                        {/* A zombie row looks identical to a fresh passage —
+                            say the age out loud so a month-old active row is
+                            recognisable at a glance (Shane 2026-08-26: a
+                            26-July voyage presented as the live passage).
+                            Outlives the removed "Retry GPS Logging" card it
+                            used to ride inside. */}
+                        {activeVoyage?.departure_time &&
+                            Date.now() - Date.parse(activeVoyage.departure_time) > 48 * 3_600_000 && (
+                                <div
+                                    role="status"
+                                    className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-400/25"
+                                >
+                                    <p className="text-xs text-amber-200/80">
+                                        This passage departed{' '}
+                                        {Math.round(
+                                            (Date.now() - Date.parse(activeVoyage.departure_time)) / 86_400_000,
+                                        )}{' '}
+                                        days ago. If it is over, End Voyage &amp; Archive stands it down.
+                                    </p>
+                                </div>
+                            )}
 
                         {error && (
                             <p role="alert" className="text-sm text-red-400 text-center">
@@ -823,7 +821,7 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                         )}
                         <button
                             onClick={handleEndVoyage}
-                            disabled={ending || casting || trackingRetrying}
+                            disabled={ending || casting}
                             className="w-full py-3.5 bg-red-500/10 border border-red-500/20 rounded-xl text-sm font-bold text-red-400 uppercase tracking-widest hover:bg-red-500/20 transition-colors active:scale-[0.97] disabled:opacity-40 disabled:cursor-wait"
                         >
                             {ending ? '⏳ Ending Voyage…' : '🏁 End Voyage & Archive'}
@@ -918,7 +916,7 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                             </button>
                             <button
                                 onClick={handleEndVoyage}
-                                disabled={ending || casting || trackingRetrying}
+                                disabled={ending || casting}
                                 className="w-full py-3.5 bg-red-500/10 border border-red-500/20 rounded-xl text-sm font-bold text-red-400 uppercase tracking-widest hover:bg-red-500/20 transition-colors active:scale-[0.97] disabled:opacity-40 disabled:cursor-wait"
                             >
                                 {ending ? '⏳ Ending Voyage…' : '🏁 End Voyage Here'}
@@ -1127,7 +1125,9 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                     <div className="p-5 pt-2 space-y-4">
                         {/* Voyage summary */}
                         <div className="text-center pb-2">
-                            <h3 className="text-lg font-black text-white">{selected.voyage_name}</h3>
+                            <h3 className="text-lg font-black text-white">
+                                {selectedDisplayName ?? selected.voyage_name}
+                            </h3>
                             <p className="text-[11px] text-gray-500">
                                 {selected.departure_port || '?'} → {selected.destination_port || '?'}
                             </p>

@@ -987,14 +987,19 @@ export async function castOff(
     // A response-loss retry must not turn the initial leg into "Leg 2".
     const activeLeg = getActiveLeg(voyageId);
     if (!activeLeg && identityStillOwns(identity, voyage.user_id)) {
-        // Seed leg 1's planned destination from the trip's saved legs so
-        // "Arrive at Port" opens pre-filled (Shane-approved design
-        // 2026-08-04). Lazy import: routeTracer must not join this module's
-        // cold-start path.
+        // Seed the first in-voyage leg's planned destination from the trip's
+        // saved legs so "Arrive at Port" opens pre-filled (Shane-approved
+        // design 2026-08-04). The trip ordinal is the ROUTE'S OWN position,
+        // not a literal 1 — casting off a leg-2 voyage used to fetch leg 1's
+        // destination (Shane 2026-08-27). Lazy import: routeTracer must not
+        // join this module's cold-start path.
         let plannedDestination: string | null = null;
         try {
-            const { tripLegPlannedDestination } = await import('./routeTracer');
-            plannedDestination = tripLegPlannedDestination(voyage.saved_route_id, 1);
+            const { tripLegPlannedDestination, tripLegAnchorOrdinal } = await import('./routeTracer');
+            plannedDestination = tripLegPlannedDestination(
+                voyage.saved_route_id,
+                tripLegAnchorOrdinal(voyage.saved_route_id),
+            );
         } catch {
             /* best effort — a blank arrival box is the pre-existing behaviour */
         }

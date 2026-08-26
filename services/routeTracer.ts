@@ -2152,6 +2152,23 @@ export function buildTripPassageRollups(traces: readonly SavedTrace[]): TripPass
  * 2026-08-04). Null when the route isn't a trip member or the leg is
  * beyond the plan.
  */
+/**
+ * Trip ordinal of the saved route itself — the anchor's own position in its
+ * trip (structural field first, name badge as the cross-device fallback, 1
+ * when the route is not a chained leg). Cast Off's first in-voyage leg must
+ * seed from THIS, not a literal 1: a voyage whose route is trip leg 2 was
+ * being handed leg 1's planned destination (Shane 2026-08-27: Cast Off
+ * "always shows the newport - coral sea 1st leg"). A passage rollup's
+ * saved_route_id is the tripId, which doubles as leg 1's trace id, so the
+ * passage case still resolves to 1 here by construction.
+ */
+export function tripLegAnchorOrdinal(savedRouteId: string | null | undefined): number {
+    if (!savedRouteId) return 1;
+    const anchor = loadSavedTraces().find((t) => t.id === savedRouteId);
+    if (!anchor) return 1;
+    return anchor.legOrdinal ?? legBadgeOrdinal(anchor.name) ?? 1;
+}
+
 export function tripLegPlannedDestination(savedRouteId: string | null | undefined, legNumber: number): string | null {
     if (!savedRouteId || !Number.isFinite(legNumber) || legNumber < 1) return null;
     const traces = loadSavedTraces();

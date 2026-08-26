@@ -250,7 +250,10 @@ describe('CastOffPanel', () => {
         expect(currentOnCastOff).not.toHaveBeenCalled();
         expect(peekCastOffHandoff()).toBeNull();
         expect(screen.getByRole('dialog', { name: 'Active Voyage' })).toBeInTheDocument();
-        expect(screen.getByRole('button', { name: /retry gps logging/i })).toBeEnabled();
+        // The amber "Retry GPS Logging" recovery card is gone (Shane
+        // 2026-08-27) — an active passage renders as Live, full stop.
+        expect(screen.getByText('Live')).toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: /retry gps logging/i })).not.toBeInTheDocument();
     });
 
     it('records a GPS start failure on the handoff for the Log page to surface', async () => {
@@ -288,7 +291,12 @@ describe('CastOffPanel', () => {
         expect(screen.queryByText('Passage Active · GPS Log Off')).not.toBeInTheDocument();
     });
 
-    it('detects an active-passage GPS mismatch on reopen and deduplicates recovery', async () => {
+    it('never second-guesses GPS on an active passage — the cold JS mirror cried wolf', async () => {
+        // getTrackingStatus()'s JS mirror stays cold until the Ship's Log
+        // page hydrates it, so a HEALTHY passage rendered the amber "Retry
+        // GPS Logging" card on every open (Shane 2026-08-27: "it is always
+        // working. but i need to open the ships log first"). The card and
+        // the load-time tracker probe are gone: an active passage is Live.
         const activeVoyage = {
             id: 'voyage-active',
             voyage_name: 'Brisbane → Cairns',
@@ -297,32 +305,54 @@ describe('CastOffPanel', () => {
             crew_count: 2,
             status: 'active',
         };
-        let resolveTracking!: () => void;
         castOffMocks.getActiveVoyage.mockResolvedValue(activeVoyage);
-        castOffMocks.getTrackingStatus
-            .mockReturnValueOnce({ isTracking: false, currentVoyageId: activeVoyage.id })
-            .mockReturnValue({ isTracking: true, currentVoyageId: activeVoyage.id });
-        castOffMocks.startTracking.mockReturnValue(
-            new Promise<void>((resolve) => {
-                resolveTracking = resolve;
-            }),
-        );
-        const onCastOff = vi.fn();
+        castOffMocks.getTrackingStatus.mockReturnValue({ isTracking: false, currentVoyageId: undefined });
 
-        render(<CastOffPanel onCastOff={onCastOff} onClose={vi.fn()} />);
-        const retry = await screen.findByRole('button', { name: /retry gps logging/i });
-        expect(castOffMocks.initializeTracking).toHaveBeenCalledOnce();
-        fireEvent.click(retry);
-        fireEvent.click(retry);
-
-        expect(await screen.findByRole('button', { name: /starting gps logging/i })).toBeDisabled();
-        await vi.waitFor(() => expect(castOffMocks.startTracking).toHaveBeenCalledTimes(1));
-
-        await act(async () => resolveTracking());
+        render(<CastOffPanel onCastOff={vi.fn()} onClose={vi.fn()} />);
         expect(await screen.findByText('Live')).toBeInTheDocument();
         expect(screen.queryByRole('button', { name: /retry gps logging/i })).not.toBeInTheDocument();
-        expect(onCastOff).toHaveBeenCalledTimes(1);
-        expect(onCastOff).toHaveBeenCalledWith(expect.objectContaining({ id: activeVoyage.id }));
+        expect(screen.queryByText(/GPS voyage logging/)).not.toBeInTheDocument();
+        expect(castOffMocks.initializeTracking).not.toHaveBeenCalled();
+        expect(castOffMocks.startTracking).not.toHaveBeenCalled();
+    });
+
+    it('names the selected passage when another voyage is active, and End Voyage hands into its preflight', async () => {
+        const activeVoyage = {
+            id: 'voyage-leg1',
+            voyage_name: 'Newport - Coral Sea (1st Leg)',
+            departure_port: 'Newport',
+            destination_port: 'Coral Sea',
+            crew_count: 2,
+            status: 'active',
+        };
+        const selectedVoyage = {
+            id: 'voyage-leg2',
+            voyage_name: 'Coral Sea - Mackay (2nd Leg)',
+            departure_port: 'Coral Sea',
+            destination_port: 'Mackay',
+            crew_count: 2,
+            status: 'planning',
+        };
+        castOffMocks.getActiveVoyage.mockResolvedValue(activeVoyage);
+        castOffMocks.getDraftVoyages.mockResolvedValue([selectedVoyage]);
+        castOffMocks.endVoyage.mockResolvedValue(true);
+
+        render(<CastOffPanel initialVoyageId={selectedVoyage.id} onCastOff={vi.fn()} onClose={vi.fn()} />);
+
+        // The active card still renders — one live voyage at a time — but
+        // the skipper's selection is named instead of silently swallowed
+        // (Shane 2026-08-27: "it always shows the newport - coral sea 1st
+        // leg. regardless of which route i chose").
+        expect(await screen.findByRole('dialog', { name: 'Active Voyage' })).toBeInTheDocument();
+        expect(screen.getByText(/You selected/)).toBeInTheDocument();
+        expect(screen.getByText('Coral Sea - Mackay (2nd Leg)')).toBeInTheDocument();
+
+        fireEvent.click(screen.getByRole('button', { name: /end voyage & archive/i }));
+
+        // Ending the stale passage opens the selected one's pre-departure
+        // check directly — no re-hunt through the draft list.
+        expect(await screen.findByText('Confirm Safety')).toBeInTheDocument();
+        expect(screen.getByRole('heading', { name: 'Coral Sea - Mackay (2nd Leg)' })).toBeInTheDocument();
     });
 
     it('keeps the active voyage visible and creates no stand-down when End Voyage is not confirmed', async () => {
