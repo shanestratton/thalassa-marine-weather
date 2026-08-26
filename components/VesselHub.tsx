@@ -79,6 +79,24 @@ const GLASS = {
     } as React.CSSProperties,
 };
 
+// Passage Planning is the doorway to the whole voyage workflow — readiness
+// cards, crew, watches, float plan, Cast Off — and as a plain office row it
+// disappeared into the list (Shane 2026-08-26: "make the passage planning
+// card more recognisable... maybe a bit of a hue around it"). Violet is the
+// planning identity everywhere else (the readiness group headers), so the
+// bezel matches the destination. Same treatment shape as the emerald safety
+// group below — a calm hue, not an alarm.
+const PASSAGE_PLANNING_GROUP = {
+    background:
+        'var(--vessel-passage-group-bg, linear-gradient(135deg, rgba(139, 92, 246, 0.16) 0%, rgba(76, 29, 149, 0.08) 48%, rgba(20, 25, 35, 0.08) 100%))',
+    backdropFilter: 'blur(16px)',
+    WebkitBackdropFilter: 'blur(16px)',
+    border: '1px solid var(--vessel-passage-group-border, rgba(167, 139, 250, 0.32))',
+    borderRadius: '16px',
+    overflow: 'hidden' as const,
+    boxShadow: '0 0 0 1px rgba(139, 92, 246, 0.07), 0 10px 26px rgba(109, 40, 217, 0.14)',
+} as React.CSSProperties;
+
 // The four pinned navigation-station controls are operational safety tools,
 // not ordinary shortcuts. Give the group a calm, visible emerald bezel so it
 // can be found immediately, while the alert variant below remains red for
@@ -1033,9 +1051,9 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                     to be inside Boat Binder, which made an operational voyage
                     workflow look like stored paperwork. Import GPX remains in
                     the Binder; planning the voyage belongs on the live hub. */}
-                <div className="mb-4" style={GLASS.listContainer}>
+                <div className="mb-4" style={PASSAGE_PLANNING_GROUP}>
                     <OfficeRow
-                        icon={<CrewIcon color="#cbd5e1" />}
+                        icon={<CrewIcon color="#c4b5fd" />}
                         label="Passage Planning"
                         status={
                             passageCrewCount > 0
@@ -1044,7 +1062,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                   ? `${pendingCrewInvites} Pending`
                                   : 'Plan Your Voyage'
                         }
-                        statusColor={pendingCrewInvites > 0 ? '#f59e0b' : '#94a3b8'}
+                        statusColor={pendingCrewInvites > 0 ? '#f59e0b' : '#a78bfa'}
                         onClick={() => {
                             triggerHaptic('light');
                             onNavigate('crew');
