@@ -51,10 +51,12 @@ vi.mock('../../services/ShipLogService', () => ({
 }));
 
 import { CastOffPanel } from '../../components/vessel/CastOffPanel';
+import { clearCastOffHandoff, peekCastOffHandoff } from '../../services/castOffHandoff';
 
 describe('CastOffPanel', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        clearCastOffHandoff();
         setAuthIdentityScope('account-a');
         castOffMocks.getDraftVoyages.mockResolvedValue([]);
         castOffMocks.getActiveVoyage.mockResolvedValue(null);
@@ -146,7 +148,10 @@ describe('CastOffPanel', () => {
         expect(castOffMocks.startTracking).not.toHaveBeenCalled();
     });
 
-    it('never presents a remotely activated passage as live while GPS verification is pending', async () => {
+    it('hands off to the Log page the moment the passage is active — GPS continues behind it', async () => {
+        // Shane 2026-08-26: "press the cast off button and the next button
+        // after that, it goes to the log page". The panel must NOT dwell on
+        // an intermediate active screen while a cold GPS fix warms up.
         const voyage = {
             id: 'voyage-slow-gps',
             voyage_name: 'Brisbane → Cairns',
@@ -158,7 +163,11 @@ describe('CastOffPanel', () => {
         let resolveTracking!: () => void;
         const onCastOff = vi.fn();
         castOffMocks.getDraftVoyages.mockResolvedValue([voyage]);
-        castOffMocks.castOff.mockResolvedValue({ ok: true, voyage: { ...voyage, status: 'active' } });
+        castOffMocks.castOff.mockResolvedValue({
+            ok: true,
+            voyage: { ...voyage, status: 'active' },
+            caution: 'The traced route changed after it was checked.',
+        });
         castOffMocks.startTracking.mockReturnValue(
             new Promise<void>((resolve) => {
                 resolveTracking = resolve;
@@ -175,18 +184,20 @@ describe('CastOffPanel', () => {
         fireEvent.click(safetyToggle as HTMLElement);
         fireEvent.click(screen.getByRole('button', { name: /cast off/i }));
 
-        expect(await screen.findByText('Passage Active · GPS Log Off')).toBeInTheDocument();
-        expect(screen.getByRole('alert')).toHaveTextContent('has not yet been verified');
-        expect(screen.getByRole('button', { name: /starting gps logging/i })).toBeDisabled();
-        expect(screen.getByRole('button', { name: /end voyage & archive/i })).toBeDisabled();
-        expect(onCastOff).not.toHaveBeenCalled();
+        // Handoff fires as soon as the voyage is active — no dwell.
+        await vi.waitFor(() => expect(onCastOff).toHaveBeenCalledTimes(1));
+        expect(screen.queryByText('Passage Active · GPS Log Off')).not.toBeInTheDocument();
+        expect(peekCastOffHandoff()).toMatchObject({
+            voyageId: voyage.id,
+            gps: 'starting',
+            caution: 'The traced route changed after it was checked.',
+        });
 
         await act(async () => resolveTracking());
-        expect(await screen.findByText('Live')).toBeInTheDocument();
-        expect(onCastOff).toHaveBeenCalledTimes(1);
+        await vi.waitFor(() => expect(peekCastOffHandoff()).toMatchObject({ gps: 'confirmed' }));
     });
 
-    it('revokes an unmounted Cast Off panel so its late GPS completion cannot close a reopened panel', async () => {
+    it('revokes an unmounted Cast Off panel so its late activation cannot hand off or stash', async () => {
         const voyage = {
             id: 'voyage-remounted',
             voyage_name: 'Brisbane → Cairns',
@@ -206,6 +217,14 @@ describe('CastOffPanel', () => {
         );
         castOffMocks.getTrackingStatus.mockReturnValue({ isTracking: false, currentVoyageId: voyage.id });
 
+        // The cast off RPC is still in flight when the panel unmounts — its
+        // late completion must not hand off from a dead mount.
+        let resolveCastOff!: (result: { ok: boolean; voyage: typeof voyage }) => void;
+        castOffMocks.castOff.mockReturnValue(
+            new Promise((resolve) => {
+                resolveCastOff = resolve;
+            }),
+        );
         const firstMount = render(
             <CastOffPanel initialVoyageId={voyage.id} onCastOff={staleOnCastOff} onClose={vi.fn()} />,
         );
@@ -213,7 +232,6 @@ describe('CastOffPanel', () => {
         const safetyToggle = screen.getByText('Confirm Safety').parentElement?.previousElementSibling;
         fireEvent.click(safetyToggle as HTMLElement);
         fireEvent.click(screen.getByRole('button', { name: /cast off/i }));
-        await screen.findByText('Passage Active · GPS Log Off');
         firstMount.unmount();
 
         castOffMocks.getActiveVoyage.mockResolvedValue({ ...voyage, status: 'active' });
@@ -221,14 +239,18 @@ describe('CastOffPanel', () => {
         render(<CastOffPanel onCastOff={currentOnCastOff} onClose={vi.fn()} />);
         expect(await screen.findByRole('dialog', { name: 'Active Voyage' })).toBeInTheDocument();
 
-        await act(async () => resolveTracking());
+        await act(async () => {
+            resolveCastOff({ ok: true, voyage: { ...voyage, status: 'active' } });
+            resolveTracking();
+        });
         expect(staleOnCastOff).not.toHaveBeenCalled();
         expect(currentOnCastOff).not.toHaveBeenCalled();
+        expect(peekCastOffHandoff()).toBeNull();
         expect(screen.getByRole('dialog', { name: 'Active Voyage' })).toBeInTheDocument();
         expect(screen.getByRole('button', { name: /retry gps logging/i })).toBeEnabled();
     });
 
-    it('shows the activated passage with a recovery action when background GPS cannot start', async () => {
+    it('records a GPS start failure on the handoff for the Log page to surface', async () => {
         const voyage = {
             id: 'voyage-gps-denied',
             voyage_name: 'Brisbane → Cairns',
@@ -250,13 +272,17 @@ describe('CastOffPanel', () => {
         fireEvent.click(safetyToggle as HTMLElement);
         fireEvent.click(screen.getByRole('button', { name: /cast off/i }));
 
-        expect(await screen.findByRole('alert')).toHaveTextContent(
-            'Passage is active, but GPS voyage logging did not start.',
+        // The handoff still happens — the Log page owns the failure surface
+        // and its Retry button. The skipper is never stranded in this panel.
+        await vi.waitFor(() => expect(onCastOff).toHaveBeenCalledTimes(1));
+        await vi.waitFor(() =>
+            expect(peekCastOffHandoff()).toMatchObject({
+                voyageId: voyage.id,
+                gps: 'failed',
+                gpsError: 'Voyage logging needs Always Location access for locked-screen operation.',
+            }),
         );
-        expect(screen.getByRole('dialog', { name: 'Active Voyage' })).toBeInTheDocument();
-        expect(screen.getByRole('button', { name: /retry gps logging/i })).toBeEnabled();
-        expect(screen.getByText('Passage Active · GPS Log Off')).toBeInTheDocument();
-        expect(onCastOff).not.toHaveBeenCalled();
+        expect(screen.queryByText('Passage Active · GPS Log Off')).not.toBeInTheDocument();
     });
 
     it('detects an active-passage GPS mismatch on reopen and deduplicates recovery', async () => {
