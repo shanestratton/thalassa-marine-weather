@@ -212,7 +212,8 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
             !castOffHandoff.caution &&
             !castOffHandoff.followNote &&
             castOffHandoff.publishState !== 'skipped' &&
-            castOffHandoff.publishState !== 'failed'
+            castOffHandoff.publishState !== 'failed' &&
+            castOffHandoff.publishState !== 'queued'
         ) {
             clearCastOffHandoff();
         }
@@ -2076,7 +2077,8 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                             castOffHandoff.gps !== 'confirmed' ||
                             castOffHandoff.followNote ||
                             castOffHandoff.publishState === 'skipped' ||
-                            castOffHandoff.publishState === 'failed') && (
+                            castOffHandoff.publishState === 'failed' ||
+                            castOffHandoff.publishState === 'queued') && (
                             <div className="px-4 mb-2 space-y-2">
                                 {castOffHandoff.gps === 'starting' && !isTracking && (
                                     <div className="rounded-xl border border-emerald-400/25 bg-emerald-500/10 px-3 py-2.5 flex items-center gap-2.5">
@@ -2120,7 +2122,8 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                     </div>
                                 )}
                                 {(castOffHandoff.publishState === 'skipped' ||
-                                    castOffHandoff.publishState === 'failed') && (
+                                    castOffHandoff.publishState === 'failed' ||
+                                    castOffHandoff.publishState === 'queued') && (
                                     <div className="rounded-xl border border-amber-400/25 bg-amber-500/10 px-3 py-2.5 space-y-1.5">
                                         <p className="text-[11px] font-black uppercase tracking-[0.2em] text-amber-300">
                                             Public page
@@ -2128,7 +2131,9 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                         <p className="text-sm text-amber-100">
                                             {castOffHandoff.publishState === 'skipped'
                                                 ? 'This route has no planned mirror the public page can draw. Open it in Route Tracer and save it again, then re-tick Show on the Public Page at your next Cast Off.'
-                                                : 'Publishing the route to the public page failed. It will keep retrying in the background while online.'}
+                                                : castOffHandoff.publishState === 'queued'
+                                                  ? 'The public-page link is queued — it will publish automatically when the connection allows.'
+                                                  : 'Publishing the route to the public page failed. It will keep retrying in the background while online.'}
                                         </p>
                                         <button
                                             type="button"
