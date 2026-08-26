@@ -114,9 +114,28 @@ class ReadinessCheckServiceClass {
     async loadChecks(voyageId: string): Promise<Record<string, Record<string, CheckState>>> {
         const scope = getAuthIdentityScope();
         // 1. Return localStorage data immediately
-        const localData = this._getLocalChecks(voyageId, scope);
+        let localData = this._getLocalChecks(voyageId, scope);
 
-        // 2. Background refresh from Supabase (non-blocking)
+        // 1b. A brand-new voyage inherits the skipper's most recent ticks
+        // when they are less than a week old (Shane 2026-08-26: "when you
+        // have ticked all of your boxes green, they should stay like that
+        // for at least one week"). Every re-planned trip used to mint a new
+        // voyage id and reset the whole stack to grey — but the boat's
+        // fuel, medical kit and comms plan did not change because a row id
+        // did. Identity-validated cards (weather window, ocean currents)
+        // re-verify inherited acceptances against the live route, so a
+        // stale inherited ack is ignored, never trusted.
+        if (Object.keys(localData).length === 0) {
+            const inherited = this._inheritNewestSiblingChecks(voyageId, scope);
+            if (inherited) {
+                localData = inherited;
+                this._saveLocalChecks(voyageId, localData, scope);
+            }
+        }
+
+        // 2. Background refresh from Supabase (non-blocking; add/update
+        // only, so an inherited cache is never clobbered by an empty
+        // server result for the new voyage)
         void this._refreshFromSupabase(voyageId, scope);
 
         // Yield once so an auth transition already queued by Supabase cannot
@@ -377,6 +396,53 @@ class ReadinessCheckServiceClass {
         } catch {
             /* non-critical */
         }
+    }
+
+    /**
+     * Find the sibling voyage cache with the newest tick under a week old
+     * and return a copy of it, or null when nothing qualifies. Whole-cache
+     * adoption on purpose: the set was ticked together and carries its
+     * honest checked_at timestamps with it.
+     */
+    private _inheritNewestSiblingChecks(
+        currentVoyageId: string,
+        scope: AuthIdentityScope,
+    ): Record<string, Record<string, CheckState>> | null {
+        const INHERIT_WINDOW_MS = 7 * 24 * 3_600_000;
+        const keep = this._storageKey(currentVoyageId, scope);
+        const scopeSuffix = `::${encodeURIComponent(scope.key)}`;
+        let bestData: Record<string, Record<string, CheckState>> | null = null;
+        let bestStamp = 0;
+        try {
+            const cutoff = Date.now() - INHERIT_WINDOW_MS;
+            for (let i = 0; i < localStorage.length; i++) {
+                const k = localStorage.key(i);
+                if (!k || !k.startsWith(CACHE_PREFIX) || !k.endsWith(scopeSuffix) || k === keep) continue;
+                let data: Record<string, Record<string, CheckState>>;
+                try {
+                    data = JSON.parse(localStorage.getItem(k) ?? '') as Record<string, Record<string, CheckState>>;
+                } catch {
+                    continue;
+                }
+                if (!data || typeof data !== 'object') continue;
+                let newestTick = 0;
+                for (const items of Object.values(data)) {
+                    if (!items || typeof items !== 'object') continue;
+                    for (const state of Object.values(items)) {
+                        if (!state?.checked || !state.checked_at) continue;
+                        const at = Date.parse(state.checked_at);
+                        if (Number.isFinite(at)) newestTick = Math.max(newestTick, at);
+                    }
+                }
+                if (newestTick >= cutoff && newestTick > bestStamp) {
+                    bestStamp = newestTick;
+                    bestData = data;
+                }
+            }
+        } catch {
+            return null;
+        }
+        return bestData ? (JSON.parse(JSON.stringify(bestData)) as Record<string, Record<string, CheckState>>) : null;
     }
 
     private _debounceKey(scope: AuthIdentityScope, voyageId: string, cardKey: string, itemKey: string): string {

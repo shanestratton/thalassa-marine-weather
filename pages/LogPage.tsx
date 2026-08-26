@@ -917,7 +917,19 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                 const firstEntry = state.entries.find((e) => e.voyageId === vid);
                 return firstEntry ? new Date(firstEntry.timestamp).getTime() : null;
             })();
-            if (voyageStartMs !== null && new Date(follow.startedAt).getTime() >= voyageStartMs) {
+            // Cast Off arms the follow BEFORE GPS mints the ship-log
+            // voyage, so the follow can legitimately predate the voyage by
+            // the length of a GPS cold start. A follow that began within
+            // the grace window before voyage start is this voyage's answer
+            // — re-asking here was the "it asks you for which passage you
+            // are doing — it should know that already" sheet (Shane
+            // 2026-08-26). A follow older than that is a previous voyage's
+            // and still re-asks.
+            const FOLLOW_PRESTART_GRACE_MS = 10 * 60_000;
+            if (
+                voyageStartMs !== null &&
+                new Date(follow.startedAt).getTime() >= voyageStartMs - FOLLOW_PRESTART_GRACE_MS
+            ) {
                 confirmedFollowVoyages.add(vid);
                 return;
             }
