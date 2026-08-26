@@ -561,6 +561,50 @@ describe('CrewManagement shared passage ownership', () => {
         });
     });
 
+    it('shows the whole-trip Passage as a heading the punter cannot select', async () => {
+        // "it should just be there so the legs make sense" (Shane
+        // 2026-08-27) — structure, not a choice.
+        localStorage.setItem(
+            authScopedStorageKey('thalassa_traced_routes_v1'),
+            JSON.stringify([
+                {
+                    id: 'leg-1',
+                    name: 'Newport - Coral Sea (1st Leg)',
+                    createdAt: '2026-08-26T00:00:00.000Z',
+                    tripId: 'leg-1',
+                    legOrdinal: 1,
+                    destName: 'Coral Sea',
+                    points: [
+                        { lat: -27.2, lon: 153.1 },
+                        { lat: -21.1, lon: 152.4 },
+                    ],
+                },
+                {
+                    id: 'leg-2',
+                    name: 'Coral Sea - Mackay (2nd Leg)',
+                    createdAt: '2026-08-25T00:00:00.000Z',
+                    tripId: 'leg-1',
+                    legOrdinal: 2,
+                    destName: 'Mackay',
+                    points: [
+                        { lat: -21.1, lon: 152.4 },
+                        { lat: -21.1, lon: 149.2 },
+                    ],
+                },
+            ]),
+        );
+        mocks.getCachedDraftVoyages.mockReturnValue([]);
+        mocks.getDraftVoyages.mockResolvedValue([]);
+        mocks.fetchRoutesAndTracks.mockResolvedValue({ routes: [], tracks: [] });
+
+        renderPage();
+        const selector = await screen.findByRole('combobox', { name: 'Saved Routes' });
+        fireEvent.click(selector);
+
+        await waitFor(() => expect(screen.getByText(/\(Passage\)/)).toBeInTheDocument());
+        expect(screen.queryByRole('option', { name: /\(Passage\)/ })).not.toBeInTheDocument();
+    });
+
     it('keeps the full Passage Planning title clear and removes bulk route deletion from the active selector', () => {
         const saved = voyage('saved-route', 'crew-user', 'Brisbane → Moreton');
         mocks.getCachedDraftVoyages.mockReturnValue([saved]);
