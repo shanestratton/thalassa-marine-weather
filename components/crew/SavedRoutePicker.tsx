@@ -3,10 +3,11 @@
  *
  * Replaces the native <select> (Shane 2026-08-27: "maybe a very nice modal
  * would be better than that horrible apple style box") and gives the list
- * STRUCTURE instead of a flat wheel: passages first with their legs indented
+ * STRUCTURE instead of a flat wheel: passages first with their legs listed
  * beneath them, then standalone routes — groups in date order, newest first
  * ("passage first. then the first leg, then the second leg. then the day
- * sail").
+ * sail"). Legs sit flush under the passage name — the ↳ dog-leg arrow alone
+ * marks them as legs (Shane 2026-08-27: "not have the legs indented").
  *
  * ARIA: the trigger is a combobox (aria-haspopup=listbox, aria-expanded);
  * the sheet is a listbox of options with aria-selected. Selection goes
@@ -20,6 +21,9 @@ import { triggerHaptic } from '../../utils/system';
 export interface SavedRoutePickerRow {
     id: string;
     name: string;
+    /** Trailing "(2nd Leg)" paint. Rendered OUTSIDE the truncating name span
+     *  so a long route name can never eat the badge on a narrow screen. */
+    legBadge?: string;
     /** Secondary line — distance / legs / shared-by. */
     detail: string | null;
     kind: 'passage' | 'leg' | 'standalone';
@@ -82,7 +86,7 @@ export const SavedRoutePicker: React.FC<SavedRoutePickerProps> = ({ rows, select
                 className="w-full flex items-center justify-between gap-2 bg-white/[0.06] border border-white/[0.12] rounded-lg px-3 py-2.5 text-sm text-left focus:outline-none focus:border-violet-500/40"
             >
                 <span className={selected ? 'text-white' : 'text-gray-400'}>
-                    {selected ? selected.name : 'Choose a saved route…'}
+                    {selected ? [selected.name, selected.legBadge].filter(Boolean).join(' ') : 'Choose a saved route…'}
                 </span>
                 <svg
                     className="w-4 h-4 shrink-0 text-violet-300"
@@ -199,8 +203,6 @@ export const SavedRoutePicker: React.FC<SavedRoutePickerProps> = ({ rows, select
                                                 onSelect(row.id);
                                             }}
                                             className={`w-full flex items-center gap-3 rounded-xl border px-3 py-3 text-left transition-colors ${
-                                                isLeg ? 'ml-5 w-[calc(100%-1.25rem)]' : ''
-                                            } ${
                                                 isSelected
                                                     ? 'bg-violet-500/[0.14] border-violet-400/40'
                                                     : 'bg-white/[0.03] border-white/[0.08] hover:bg-white/[0.06]'
@@ -210,8 +212,9 @@ export const SavedRoutePicker: React.FC<SavedRoutePickerProps> = ({ rows, select
                                                 {isLeg ? '↳' : '📍'}
                                             </span>
                                             <span className="flex-1 min-w-0">
-                                                <span className="block truncate text-sm font-semibold text-slate-100">
-                                                    {row.name}
+                                                <span className="flex items-baseline gap-1.5 text-sm font-semibold text-slate-100">
+                                                    <span className="min-w-0 truncate">{row.name}</span>
+                                                    {row.legBadge && <span className="shrink-0">{row.legBadge}</span>}
                                                 </span>
                                                 {row.detail && (
                                                     <span className="block text-[11px] text-gray-500">
