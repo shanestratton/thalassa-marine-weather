@@ -14,6 +14,7 @@ const castOffMocks = vi.hoisted(() => ({
     initializeTracking: vi.fn(),
     getTrackingStatus: vi.fn(),
     startTracking: vi.fn(),
+    stopTracking: vi.fn(),
 }));
 
 vi.mock('../../utils/createLogger', () => ({
@@ -47,6 +48,7 @@ vi.mock('../../services/ShipLogService', () => ({
         initialize: castOffMocks.initializeTracking,
         getTrackingStatus: castOffMocks.getTrackingStatus,
         startTracking: castOffMocks.startTracking,
+        stopTracking: castOffMocks.stopTracking,
     },
 }));
 
@@ -67,6 +69,7 @@ describe('CastOffPanel', () => {
             currentVoyageId: 'voyage-active',
         });
         castOffMocks.startTracking.mockResolvedValue(undefined);
+        castOffMocks.stopTracking.mockResolvedValue(undefined);
     });
 
     afterEach(() => {

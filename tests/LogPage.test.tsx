@@ -53,6 +53,7 @@ const acquireFreshOwnshipPositionMock = vi.hoisted(() => vi.fn());
 const activeVoyageMock = vi.hoisted(() => ({ value: null as null | Record<string, unknown> }));
 const shipLogHandoffMock = vi.hoisted(() => ({
     startTracking: vi.fn(),
+    stopTracking: vi.fn(),
     getTrackingStatus: vi.fn(() => ({ isTracking: false, currentVoyageId: null as string | null })),
 }));
 
@@ -269,6 +270,7 @@ vi.mock('../services/ShipLogService', () => ({
         setEngineRunning: vi.fn(),
         getTrackingStatus: shipLogHandoffMock.getTrackingStatus,
         startTracking: shipLogHandoffMock.startTracking,
+        stopTracking: shipLogHandoffMock.stopTracking,
     },
 }));
 
@@ -1415,6 +1417,8 @@ describe('LogPage — Cast Off handoff', () => {
         followRouteMock.state.routeCoords = [];
         followRouteMock.state.startedAt = null;
         followRouteMock.state.startFollowing.mockClear();
+        shipLogHandoffMock.stopTracking.mockReset();
+        shipLogHandoffMock.stopTracking.mockResolvedValue(undefined);
         fetchVoyageAsTrackMock.mockReset();
         fetchVoyageAsTrackMock.mockResolvedValue(null);
         traceDirectUseBlockReasonMock.mockReset();
@@ -1616,5 +1620,27 @@ describe('LogPage — Cast Off handoff', () => {
         );
         // And the route line arms itself from the active voyage.
         await waitFor(() => expect(followRouteMock.state.startFollowing).toHaveBeenCalled());
+    });
+
+    it('absorbs an orphan track first — one log at a time', async () => {
+        stashCastOffHandoff({
+            voyageId: 'voyage-new',
+            voyageName: 'Fresh passage',
+            caution: null,
+            savedRouteId: 'route-x',
+        });
+        updateCastOffHandoff({ gps: 'failed', gpsError: 'GPS logging is already recording a different voyage.' });
+        // The tracker is squatting on an earlier cycle's voyage.
+        shipLogHandoffMock.getTrackingStatus
+            .mockReturnValueOnce({ isTracking: true, currentVoyageId: 'voyage-orphan' })
+            .mockReturnValue({ isTracking: true, currentVoyageId: 'voyage-new' });
+        render(<LogPage />);
+
+        // The auto-retry stops the orphan (archiving its log), then starts ours.
+        await waitFor(() => expect(shipLogHandoffMock.stopTracking).toHaveBeenCalledWith('voyage-orphan'));
+        await waitFor(() =>
+            expect(shipLogHandoffMock.startTracking).toHaveBeenCalledWith(true, 'voyage-new', expect.anything(), false),
+        );
+        await waitFor(() => expect(peekCastOffHandoff()).toBeNull());
     });
 });
