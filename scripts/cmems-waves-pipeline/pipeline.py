@@ -346,6 +346,11 @@ def main() -> int:
             expected_steps=17,
             cadence_hours=3,
             native_resolution=1 / 12,
+            # VMDR is finite on a bounded coastal/ice-edge fringe outside
+            # VHM0's wet mask. VHM0's mask stays the published land truth;
+            # fringe directions are annihilated by the NaN height weighting
+            # and zeroed by the land mask, so nothing outside it is encoded.
+            finite_superset_variables=frozenset({"VMDR"}),
         )
         entries = encode_hourly_binaries(nc_path)
         paths = [path for path, _ in entries]
