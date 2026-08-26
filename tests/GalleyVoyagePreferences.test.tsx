@@ -121,7 +121,7 @@ describe('Galley voyage preferences', () => {
         mocks.getCrewCount.mockImplementation(async (voyageId: string) => (voyageId === 'voyage-1' ? 5 : 3));
     });
 
-    it('isolates the provisioned flag by both account and voyage', async () => {
+    it('a fresh tick carries to a new voyage for a week — but NEVER across accounts', async () => {
         const { rerender } = render(<GalleyCard passageStatus={passageStatus('voyage-1')} />);
         fireEvent.click(screen.getByRole('button', { name: /Voyage Provisioning/ }));
         fireEvent.click(screen.getByRole('button', { name: 'All meals provisioned for this voyage' }));
@@ -130,9 +130,24 @@ describe('Galley voyage preferences', () => {
         expect(localStorage.getItem(authScopedStorageKey('thalassa_provisioned:voyage-1', accountAScope))).toBe('true');
         expect(screen.getByText('✅ Provisioned')).toBeInTheDocument();
 
+        // Voyage-to-voyage inheritance is DELIBERATE (Shane 2026-08-26:
+        // "when you have ticked all of your boxes green, they should stay
+        // like that for at least one week") — the galley did not empty
+        // itself because a new voyage row was minted.
         rerender(<GalleyCard passageStatus={passageStatus('voyage-2')} />);
+        await waitFor(() => expect(screen.getByText('✅ Provisioned')).toBeInTheDocument());
+
+        // A STALE tick (over a week old) does not carry.
+        localStorage.setItem(
+            authScopedStorageKey('thalassa_provisioned_at:voyage-1', accountAScope),
+            new Date(Date.now() - 8 * 24 * 3_600_000).toISOString(),
+        );
+        localStorage.removeItem(authScopedStorageKey('thalassa_provisioned:voyage-2', accountAScope));
+        localStorage.removeItem(authScopedStorageKey('thalassa_provisioned_at:voyage-2', accountAScope));
+        rerender(<GalleyCard passageStatus={passageStatus('voyage-3')} />);
         await waitFor(() => expect(screen.getByText('Meals · Shopping')).toBeInTheDocument());
 
+        // Account isolation is ABSOLUTE — another account inherits nothing.
         await act(async () => {
             setAuthIdentityScope('account-b');
         });
