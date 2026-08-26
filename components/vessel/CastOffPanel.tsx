@@ -42,13 +42,18 @@ import { useSettingsStore } from '../../stores/settingsStore';
 interface CastOffPanelProps {
     onCastOff?: (voyage: Voyage) => void;
     onClose: () => void;
+    /** Close this panel and open the Ship's Log — the live passage's home.
+     *  Without it the active step was a dead end: back and X both landed on
+     *  Passage Planning (Shane 2026-08-26: "how do i get to the log page
+     *  from here???"). */
+    onOpenLog?: () => void;
     /** Pre-selected voyage ID from passage planning — skips draft list */
     initialVoyageId?: string;
 }
 
 type Step = 'select' | 'create' | 'preflight' | 'active' | 'arrive' | 'depart_leg';
 
-export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, initialVoyageId }) => {
+export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, onOpenLog, initialVoyageId }) => {
     const [step, setStep] = useState<Step>('select');
     const [drafts, setDrafts] = useState<Voyage[]>([]);
     const [selected, setSelected] = useState<Voyage | null>(null);
@@ -698,6 +703,20 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                                     );
                                 })}
                             </div>
+                        )}
+
+                        {/* The live passage lives on the Ship's Log — this
+                            is the primary door out of the management panel. */}
+                        {onOpenLog && (
+                            <button
+                                onClick={() => {
+                                    triggerHaptic('light');
+                                    onOpenLog();
+                                }}
+                                className="w-full py-3.5 bg-cyan-500/10 border border-cyan-400/25 rounded-xl text-sm font-bold text-cyan-300 uppercase tracking-widest hover:bg-cyan-500/20 transition-colors active:scale-[0.97]"
+                            >
+                                🧭 Open Ship&rsquo;s Log
+                            </button>
                         )}
 
                         {/* Arrive at Port — Stopover */}

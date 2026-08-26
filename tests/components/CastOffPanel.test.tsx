@@ -372,4 +372,23 @@ describe('CastOffPanel', () => {
         await act(async () => resolveEnd(false));
         expect(await screen.findByRole('alert')).toHaveTextContent('End Voyage was not confirmed');
     });
+
+    it("the active step's primary door is the Ship's Log", async () => {
+        const activeVoyage = {
+            id: 'voyage-active',
+            voyage_name: 'Brisbane → Cairns',
+            departure_port: 'Brisbane',
+            destination_port: 'Cairns',
+            crew_count: 2,
+            status: 'active',
+        };
+        castOffMocks.getActiveVoyage.mockResolvedValue(activeVoyage);
+        const onOpenLog = vi.fn();
+        const onClose = vi.fn();
+        render(<CastOffPanel onOpenLog={onOpenLog} onClose={onClose} />);
+
+        const door = await screen.findByRole('button', { name: /open ship.s log/i });
+        fireEvent.click(door);
+        expect(onOpenLog).toHaveBeenCalledTimes(1);
+    });
 });
