@@ -2119,15 +2119,18 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                                 setShowCastOff(true);
                                 triggerHaptic('medium');
                             }}
-                            // Readiness is advisory, never a lock (Shane
-                            // 2026-08-26: "allow it through first, then we
-                            // will put the gates on"). The colour still tells
-                            // the truth — green when every card is ticked,
-                            // amber while some are outstanding.
-                            className={`shrink-0 px-5 py-2.5 rounded-xl text-xs font-bold uppercase tracking-widest border transition-all active:scale-[0.97] flex items-center justify-center gap-1.5 ${
+                            // THE gate, and the ONLY gate (Shane 2026-08-26:
+                            // "happy for the cast off not to be green until
+                            // all of the below cards are green. i just dont
+                            // want any other hold up once the cast off button
+                            // is ready to push"). Readiness cards lock this
+                            // button; once it lights up, everything after it
+                            // — route check, GPS — is advisory or automatic.
+                            disabled={!allCardsReady}
+                            className={`shrink-0 px-5 py-2.5 rounded-xl text-xs font-bold uppercase tracking-widest border transition-all active:scale-[0.97] disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center gap-1.5 ${
                                 allCardsReady
                                     ? 'bg-gradient-to-r from-emerald-500/10 to-teal-500/10 border-emerald-500/20 text-emerald-300 hover:from-emerald-500/20 hover:to-teal-500/20'
-                                    : 'bg-amber-500/[0.06] border-amber-400/20 text-amber-300/90 hover:bg-amber-500/[0.12]'
+                                    : 'bg-white/[0.03] border-white/[0.08] text-gray-500'
                             } inline-flex items-center justify-center gap-2`}
                         >
                             <AnchorIcon className="w-4 h-4" />
@@ -2538,7 +2541,12 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                         // gate inside refuses anything unproven, and the Log
                         // page's own follow sheet stays as the fallback ask.
                         void followCastOffRoute(voyage.id);
-                        setPage('log');
+                        // 'details' is the Log tab's registry key — there is
+                        // no 'log' view. The old 'log' literal rendered the
+                        // blank search-bar chrome App.tsx keeps for
+                        // unregistered views (Shane's 2026-08-26 screenshot);
+                        // tests/ViewKeysExist.test.ts now outlaws the class.
+                        setPage('details');
                     }}
                 />
             )}
