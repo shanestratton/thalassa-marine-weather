@@ -231,6 +231,10 @@ export interface NmeaSample {
     stw: number | null;
     heading: number | null;
     rpm: number | null;
+    /** 5s-window mean rudder angle (°, + = stbd), from $xxRSA. */
+    rudder: number | null;
+    /** 5s-window rudder excursion (max-min, °) — the helm-activity signal. */
+    rudderSwing: number | null;
     voltage: number | null;
     depth: number | null;
     /** Sentence carrying `depth`; optional for compatibility with older saved/test samples. */
