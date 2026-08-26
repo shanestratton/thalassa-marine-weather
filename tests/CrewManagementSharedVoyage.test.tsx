@@ -502,6 +502,57 @@ describe('CrewManagement shared passage ownership', () => {
         });
     });
 
+    it('shows ONE row per saved route no matter how many replan cycles left drafts behind', async () => {
+        // Every End-Voyage-then-replan leaves a planning row; the 2026-08-26
+        // link-healing resurrected them all into the picker (Shane
+        // 2026-08-27: "the list is doubling up and sometimes even tripling
+        // up"). One canonical route, three churned drafts → one option.
+        const canonicalId = 'trace-newport-coral';
+        localStorage.setItem(
+            authScopedStorageKey('thalassa_traced_routes_v1'),
+            JSON.stringify([
+                {
+                    id: canonicalId,
+                    name: 'Newport → Coral Sea',
+                    createdAt: '2026-08-20T00:00:00.000Z',
+                    points: [
+                        { lat: -27.2, lon: 153.1 },
+                        { lat: -21.1, lon: 152.4 },
+                    ],
+                },
+            ]),
+        );
+        const churn = [
+            {
+                ...voyage('draft-old', 'crew-user', 'Newport → Coral Sea'),
+                saved_route_id: canonicalId,
+                updated_at: '2026-08-24T00:00:00.000Z',
+            },
+            {
+                ...voyage('draft-mid', 'crew-user', 'Newport → Coral Sea'),
+                saved_route_id: canonicalId,
+                updated_at: '2026-08-25T00:00:00.000Z',
+            },
+            {
+                ...voyage('draft-new', 'crew-user', 'Newport → Coral Sea'),
+                saved_route_id: canonicalId,
+                updated_at: '2026-08-26T00:00:00.000Z',
+            },
+        ];
+        mocks.getCachedDraftVoyages.mockReturnValue(churn);
+        mocks.getDraftVoyages.mockResolvedValue(churn);
+        mocks.fetchRoutesAndTracks.mockResolvedValue({ routes: [], tracks: [] });
+
+        renderPage();
+        const selector = await screen.findByRole('combobox', { name: 'Saved Routes' });
+        await waitFor(() => {
+            const options = within(selector)
+                .getAllByRole('option')
+                .map((option) => option.textContent);
+            expect(options.filter((label) => label === 'Newport → Coral Sea')).toHaveLength(1);
+        });
+    });
+
     it('keeps the full Passage Planning title clear and removes bulk route deletion from the active selector', () => {
         const saved = voyage('saved-route', 'crew-user', 'Brisbane → Moreton');
         mocks.getCachedDraftVoyages.mockReturnValue([saved]);

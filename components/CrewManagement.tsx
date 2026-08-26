@@ -1142,6 +1142,45 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
             ...visibleDrafts.filter((draft) => !matchedDraftIds.has(draft.id)).map(attachCanonicalTraceGeometry),
         );
 
+        // ── ONE row per saved route (Shane 2026-08-27: "the list is
+        // doubling up and sometimes even tripling up"). Every End-Voyage-
+        // then-replan cycle leaves a planning row behind; they used to be
+        // hidden as unlinked, and the 2026-08-26 link-healing resurrected
+        // them all — same route, many rows. The picker keeps the best row
+        // per canonical route: the skipper's current selection first, then
+        // one that carries geometry, then a materialised voyage over a
+        // logbook stub, then the most recently touched. Rows without a
+        // route link (manual voyages) are untouched.
+        {
+            const rowScore = (row: VoyageRow): number => {
+                let score = 0;
+                if (row.id === selectedPassageRef.current) score += 8;
+                if ((row.routeCoordinates?.length ?? 0) >= 2) score += 4;
+                if (!row.id.startsWith('logbook:')) score += 2;
+                return score;
+            };
+            const rowStamp = (row: VoyageRow): number => Date.parse(row.updated_at ?? row.created_at ?? '') || 0;
+            const bestByRoute = new Map<string, VoyageRow>();
+            for (const row of ownRows) {
+                const key = row.saved_route_id?.trim();
+                if (!key) continue;
+                const existing = bestByRoute.get(key);
+                if (
+                    !existing ||
+                    rowScore(row) > rowScore(existing) ||
+                    (rowScore(row) === rowScore(existing) && rowStamp(row) > rowStamp(existing))
+                ) {
+                    bestByRoute.set(key, row);
+                }
+            }
+            const pruned = ownRows.filter((row) => {
+                const key = row.saved_route_id?.trim();
+                return !key || bestByRoute.get(key) === row;
+            });
+            ownRows.length = 0;
+            ownRows.push(...pruned);
+        }
+
         // ── Derived "(Passage)" rows (Shane-approved design 2026-08-04) ──
         // One per multi-leg trip: the legs stitched, selectable exactly like
         // any other planning row. The `logbook:` id prefix reuses the same
