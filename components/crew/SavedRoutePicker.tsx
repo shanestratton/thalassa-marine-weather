@@ -98,7 +98,7 @@ export const SavedRoutePicker: React.FC<SavedRoutePickerProps> = ({ rows, select
 
             {open && (
                 <OverlayPortal>
-                    <div className="fixed inset-0 z-[10050] flex items-end justify-center">
+                    <div className="fixed inset-0 z-[10050] flex items-center justify-center p-4">
                         <button
                             type="button"
                             aria-label="Close saved routes"
@@ -110,7 +110,7 @@ export const SavedRoutePicker: React.FC<SavedRoutePickerProps> = ({ rows, select
                             role="dialog"
                             aria-modal="true"
                             aria-label="Saved Routes"
-                            className="relative w-full max-w-lg max-h-[75vh] flex flex-col rounded-t-3xl border border-white/10 border-b-0 bg-slate-900 shadow-2xl shadow-black/60"
+                            className="relative w-full max-w-lg max-h-[75vh] flex flex-col rounded-3xl border border-white/10 bg-slate-900 shadow-2xl shadow-black/60"
                         >
                             <div className="flex items-center justify-between px-5 pt-4 pb-3 border-b border-white/[0.06]">
                                 <div>
@@ -156,6 +156,37 @@ export const SavedRoutePicker: React.FC<SavedRoutePickerProps> = ({ rows, select
                                 {ordered.map((row) => {
                                     const isSelected = row.id === selectedId;
                                     const isLeg = row.kind === 'leg';
+                                    if (row.kind === 'passage') {
+                                        // The whole-trip row is a HEADING, not a
+                                        // choice (Shane 2026-08-27: "the punter can
+                                        // not select the actual passage. it should
+                                        // just be there so the legs make sense") —
+                                        // the legs beneath are the sailable units.
+                                        return (
+                                            <div
+                                                key={row.id}
+                                                role="presentation"
+                                                className="flex items-center gap-3 rounded-xl border border-violet-400/25 bg-violet-500/[0.08] px-3 py-2.5"
+                                            >
+                                                <span aria-hidden="true" className="text-base leading-none">
+                                                    🧭
+                                                </span>
+                                                <span className="flex-1 min-w-0">
+                                                    <span className="block truncate text-sm font-black text-violet-100">
+                                                        {row.name}
+                                                    </span>
+                                                    {row.detail && (
+                                                        <span className="block text-[11px] text-violet-300/60">
+                                                            {row.detail}
+                                                        </span>
+                                                    )}
+                                                </span>
+                                                <span className="shrink-0 rounded-md border border-violet-400/30 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-[0.15em] text-violet-300">
+                                                    Passage
+                                                </span>
+                                            </div>
+                                        );
+                                    }
                                     return (
                                         <button
                                             key={row.id}
@@ -176,16 +207,10 @@ export const SavedRoutePicker: React.FC<SavedRoutePickerProps> = ({ rows, select
                                             }`}
                                         >
                                             <span aria-hidden="true" className="text-base leading-none">
-                                                {row.kind === 'passage' ? '🧭' : isLeg ? '↳' : '📍'}
+                                                {isLeg ? '↳' : '📍'}
                                             </span>
                                             <span className="flex-1 min-w-0">
-                                                <span
-                                                    className={`block truncate text-sm ${
-                                                        row.kind === 'passage'
-                                                            ? 'font-black text-white'
-                                                            : 'font-semibold text-slate-100'
-                                                    }`}
-                                                >
+                                                <span className="block truncate text-sm font-semibold text-slate-100">
                                                     {row.name}
                                                 </span>
                                                 {row.detail && (
