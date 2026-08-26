@@ -570,7 +570,7 @@ export async function refreshSavedRouteVoyageVerification(
 async function activateVoyage(
     voyageId: string,
     identity: AuthIdentityScope = getAuthIdentityScope(),
-): Promise<{ voyage: Voyage | null; error?: string }> {
+): Promise<{ voyage: Voyage | null; error?: string; caution?: string }> {
     if (!supabase) {
         return { voyage: null, error: 'Offline — Cast Off requires a server connection' };
     }
@@ -603,12 +603,21 @@ async function activateVoyage(
     // Response-loss retry: the server has already made this voyage active and
     // immutable, so do not retroactively strand its recovery on a newer local
     // chart/profile state.
+    //
+    // ADVISORY, NOT A GATE (Shane 2026-08-26: "allow it through first, then
+    // we will put the gates on"). This preflight used to refuse Cast Off with
+    // an error, and a DB trigger repeated the refusal under the row lock —
+    // three weeks of unwinnable loops at the dock. The trigger is dropped
+    // (migration 20260826130000) and every reason computed here now rides
+    // along as `caution` for CastOffPanel to show on the active passage.
+    let caution: string | undefined;
     if (candidate.status !== 'active') {
         const savedRouteId = typeof candidate.saved_route_id === 'string' ? candidate.saved_route_id.trim() : '';
         const carriesTraceEnvelope =
             typeof candidate.notes === 'string' && candidate.notes.startsWith(TRACE_VERIFICATION_NOTES_PREFIX);
         if (savedRouteId || carriesTraceEnvelope) {
             let points: Array<{ lat: number; lon: number }> | undefined;
+            let routeCaution: string | undefined;
             if (savedRouteId) {
                 const routeResult = await supabase
                     .from('saved_routes')
@@ -617,34 +626,27 @@ async function activateVoyage(
                     .eq('user_id', ownerId)
                     .maybeSingle();
                 if (routeResult.error || !routeResult.data || routeResult.data.deleted === true) {
-                    return {
-                        voyage: null,
-                        error: 'This traced route is missing or deleted. Open Route Tracer and save/check it again.',
-                    };
-                }
-                const rawPoints = routeResult.data.points;
-                if (!Array.isArray(rawPoints)) {
-                    return {
-                        voyage: null,
-                        error: 'This traced route has invalid waypoints. Rebuild it before Cast Off.',
-                    };
-                }
-                points = rawPoints
-                    .filter(
-                        (point): point is [number, number] =>
-                            Array.isArray(point) &&
-                            point.length >= 2 &&
-                            typeof point[0] === 'number' &&
-                            Number.isFinite(point[0]) &&
-                            typeof point[1] === 'number' &&
-                            Number.isFinite(point[1]),
-                    )
-                    .map(([lat, lon]) => ({ lat, lon }));
-                if (points.length !== rawPoints.length || points.length < 2) {
-                    return {
-                        voyage: null,
-                        error: 'This traced route has invalid waypoints. Rebuild it before Cast Off.',
-                    };
+                    routeCaution = 'The traced route linked to this passage is missing or deleted.';
+                } else {
+                    const rawPoints = routeResult.data.points;
+                    const parsed = Array.isArray(rawPoints)
+                        ? rawPoints
+                              .filter(
+                                  (point): point is [number, number] =>
+                                      Array.isArray(point) &&
+                                      point.length >= 2 &&
+                                      typeof point[0] === 'number' &&
+                                      Number.isFinite(point[0]) &&
+                                      typeof point[1] === 'number' &&
+                                      Number.isFinite(point[1]),
+                              )
+                              .map(([lat, lon]) => ({ lat, lon }))
+                        : [];
+                    if (!Array.isArray(rawPoints) || parsed.length !== rawPoints.length || parsed.length < 2) {
+                        routeCaution = 'The traced route has invalid waypoints, so its check could not be confirmed.';
+                    } else {
+                        points = parsed;
+                    }
                 }
             }
             const verification = parseTraceVerificationNote(candidate.notes, points);
@@ -657,14 +659,16 @@ async function activateVoyage(
                 return { voyage: null, error: 'Account changed while checking Cast Off' };
             }
             const vessel = useSettingsStore.getState().settings.vessel;
-            const blockReason = traceCastOffBlockReason(verification, points, {
-                draftM: units.vesselDraftMetres(vessel),
-                draftAssumed: units.vesselDraftIsAssumed(vessel),
-                encRegistryFingerprint: encMetadata.getRegistryFingerprint(traceRegistryScope(points)),
-                voyageDepartureMs: candidate.departure_time ? Date.parse(candidate.departure_time) : null,
-                nowMs: Date.now(),
-            });
-            if (blockReason) return { voyage: null, error: blockReason };
+            caution =
+                routeCaution ??
+                traceCastOffBlockReason(verification, points, {
+                    draftM: units.vesselDraftMetres(vessel),
+                    draftAssumed: units.vesselDraftIsAssumed(vessel),
+                    encRegistryFingerprint: encMetadata.getRegistryFingerprint(traceRegistryScope(points)),
+                    voyageDepartureMs: candidate.departure_time ? Date.parse(candidate.departure_time) : null,
+                    nowMs: Date.now(),
+                }) ??
+                undefined;
         }
     }
 
@@ -687,7 +691,7 @@ async function activateVoyage(
 
     const voyage = cloneVoyage(data);
     cacheVoyage(voyage, identity);
-    return { voyage };
+    return { voyage, caution };
 }
 
 /**
@@ -933,9 +937,11 @@ export async function getDraftVoyages(): Promise<Voyage[]> {
  * GPS logging is deliberately owned by CastOffPanel + ShipLogService, which
  * can report tracking failures to the skipper and attach a real position.
  */
-export async function castOff(voyageId: string): Promise<{ ok: boolean; voyage?: Voyage; error?: string }> {
+export async function castOff(
+    voyageId: string,
+): Promise<{ ok: boolean; voyage?: Voyage; error?: string; caution?: string }> {
     const identity = getAuthIdentityScope();
-    const { voyage, error } = await activateVoyage(voyageId, identity);
+    const { voyage, error, caution } = await activateVoyage(voyageId, identity);
     if (!voyage) {
         return { ok: false, error: error || 'Failed to activate voyage' };
     }
@@ -960,7 +966,7 @@ export async function castOff(voyageId: string): Promise<{ ok: boolean; voyage?:
         startLeg(voyageId, voyage.departure_port || 'Unknown Port', plannedDestination);
     }
 
-    return { ok: true, voyage };
+    return { ok: true, voyage, caution };
 }
 
 /** End a passage — closes active leg and archives the voyage */

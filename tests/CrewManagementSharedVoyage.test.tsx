@@ -731,10 +731,13 @@ describe('CrewManagement shared passage ownership', () => {
         renderPage();
         const selector = await screen.findByRole('combobox');
         const castOff = await screen.findByRole('button', { name: 'Cast Off' });
-        expect(castOff).toBeDisabled();
+        // Advisory, never a lock (Shane 2026-08-26): the button stays
+        // tappable throughout — readiness speaks through its colour.
+        expect(castOff).toBeEnabled();
+        expect(castOff.className).toContain('text-amber-300');
 
         fireEvent.click(screen.getByRole('button', { name: 'Mark passage ready' }));
-        await waitFor(() => expect(castOff).toBeEnabled());
+        await waitFor(() => expect(castOff.className).toContain('text-emerald-300'));
         fireEvent.click(screen.getByRole('button', { name: 'Assign card' }));
         await waitFor(() =>
             expect(screen.getByTestId('readiness-stack')).toHaveAttribute('data-delegation-count', '1'),
@@ -744,13 +747,15 @@ describe('CrewManagement shared passage ownership', () => {
 
         await waitFor(() => {
             expect(selector).toHaveValue(second.id);
-            expect(screen.getByRole('button', { name: 'Cast Off' })).toBeDisabled();
+            const switched = screen.getByRole('button', { name: 'Cast Off' });
+            expect(switched).toBeEnabled();
+            expect(switched.className).toContain('text-amber-300');
             expect(screen.getByTestId('readiness-stack')).toHaveAttribute('data-delegation-count', '0');
             expect(mocks.setActivePassage).toHaveBeenCalledWith(second.id);
         });
     });
 
-    it('keeps Cast Off locked until currents and provisioning are both ready', async () => {
+    it('Cast Off stays tappable while readiness colours track currents and provisioning', async () => {
         const own = voyage('voyage-1', 'crew-user', 'Private passage');
         mocks.activePassageId = own.id;
         mocks.getDraftVoyages.mockResolvedValue([own]);
@@ -765,13 +770,16 @@ describe('CrewManagement shared passage ownership', () => {
         const castOff = await screen.findByRole('button', { name: 'Cast Off' });
 
         fireEvent.click(screen.getByRole('button', { name: 'Mark core checks ready' }));
-        expect(castOff).toBeDisabled();
+        expect(castOff).toBeEnabled();
+        expect(castOff.className).toContain('text-amber-300');
 
         fireEvent.click(screen.getByRole('button', { name: 'Mark currents ready' }));
-        expect(castOff).toBeDisabled();
+        expect(castOff).toBeEnabled();
+        expect(castOff.className).toContain('text-amber-300');
 
         fireEvent.click(screen.getByRole('button', { name: 'Mark provisioning ready' }));
         expect(castOff).toBeEnabled();
+        expect(castOff.className).toContain('text-emerald-300');
     });
 
     it('isolates per-voyage delegation emails across account transitions', async () => {
