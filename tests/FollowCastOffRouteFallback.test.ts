@@ -57,7 +57,7 @@ describe('followCastOffRoute', () => {
             },
         ]);
 
-        expect(await followCastOffRoute('voyage-1', 'route-1')).toBe(true);
+        expect(await followCastOffRoute('voyage-1', 'route-1')).toBeNull();
         expect(mocks.startFollowing).toHaveBeenCalledTimes(1);
         const [plan, voyageId, coords] = mocks.startFollowing.mock.calls[0];
         expect(voyageId).toBe('voyage-1');
@@ -81,7 +81,7 @@ describe('followCastOffRoute', () => {
         ]);
         mocks.blockReason.mockReturnValue('not verified');
 
-        expect(await followCastOffRoute('voyage-1', 'route-1')).toBe(false);
+        expect(await followCastOffRoute('voyage-1', 'route-1')).toBe('not verified');
         expect(mocks.startFollowing).not.toHaveBeenCalled();
     });
 
@@ -97,7 +97,7 @@ describe('followCastOffRoute', () => {
             },
         ]);
 
-        expect(await followCastOffRoute('voyage-1', 'route-1', false)).toBe(true);
+        expect(await followCastOffRoute('voyage-1', 'route-1', false)).toBeNull();
         expect(mocks.startFollowing).toHaveBeenCalledTimes(1);
         expect(mocks.publishFollowedRoute).not.toHaveBeenCalled();
     });
@@ -105,7 +105,7 @@ describe('followCastOffRoute', () => {
     it('returns false with no saved route link and no log entries', async () => {
         mocks.fetchVoyageAsTrack.mockResolvedValue(null);
         mocks.loadSavedTraces.mockReturnValue([]);
-        expect(await followCastOffRoute('voyage-1', null)).toBe(false);
+        expect(await followCastOffRoute('voyage-1', null)).toMatch(/no linked saved route/i);
         expect(mocks.startFollowing).not.toHaveBeenCalled();
     });
 });

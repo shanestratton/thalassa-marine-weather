@@ -205,7 +205,14 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
     // heads-up has been acknowledged.
     const castOffHandoff = useSyncExternalStore(subscribeCastOffHandoff, peekCastOffHandoff, peekCastOffHandoff);
     useEffect(() => {
-        if (castOffHandoff && castOffHandoff.gps === 'confirmed' && !castOffHandoff.caution) {
+        if (
+            castOffHandoff &&
+            castOffHandoff.gps === 'confirmed' &&
+            !castOffHandoff.caution &&
+            !castOffHandoff.followNote &&
+            castOffHandoff.publishState !== 'skipped' &&
+            castOffHandoff.publishState !== 'failed'
+        ) {
             clearCastOffHandoff();
         }
     }, [castOffHandoff]);
@@ -1965,56 +1972,96 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                         </div>
                     )}
 
-                    {castOffHandoff && (castOffHandoff.caution || castOffHandoff.gps !== 'confirmed') && (
-                        <div className="px-4 mb-2 space-y-2">
-                            {castOffHandoff.gps === 'starting' && !isTracking && (
-                                <div className="rounded-xl border border-emerald-400/25 bg-emerald-500/10 px-3 py-2.5 flex items-center gap-2.5">
-                                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0" />
-                                    <p className="text-sm font-semibold text-emerald-100">
-                                        Underway — GPS voyage logging is starting for “{castOffHandoff.voyageName}”…
-                                    </p>
-                                </div>
-                            )}
-                            {castOffHandoff.gps === 'failed' && (
-                                <div
-                                    role="alert"
-                                    className="rounded-xl border border-amber-400/25 bg-amber-500/10 px-3 py-2.5 space-y-2"
-                                >
-                                    <p className="text-sm font-semibold text-amber-100">
-                                        Passage is active, but GPS voyage logging did not start.
-                                        {castOffHandoff.gpsError ? ` ${castOffHandoff.gpsError}` : ''}
-                                    </p>
-                                    <button
-                                        type="button"
-                                        onClick={() => void startHandoffGps(true)}
-                                        className="min-h-[44px] rounded-xl border border-amber-300/25 bg-amber-400/15 px-3 py-2 text-xs font-black text-amber-100"
+                    {castOffHandoff &&
+                        (castOffHandoff.caution ||
+                            castOffHandoff.gps !== 'confirmed' ||
+                            castOffHandoff.followNote ||
+                            castOffHandoff.publishState === 'skipped' ||
+                            castOffHandoff.publishState === 'failed') && (
+                            <div className="px-4 mb-2 space-y-2">
+                                {castOffHandoff.gps === 'starting' && !isTracking && (
+                                    <div className="rounded-xl border border-emerald-400/25 bg-emerald-500/10 px-3 py-2.5 flex items-center gap-2.5">
+                                        <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+                                        <p className="text-sm font-semibold text-emerald-100">
+                                            Underway — GPS voyage logging is starting for “{castOffHandoff.voyageName}”…
+                                        </p>
+                                    </div>
+                                )}
+                                {castOffHandoff.gps === 'failed' && (
+                                    <div
+                                        role="alert"
+                                        className="rounded-xl border border-amber-400/25 bg-amber-500/10 px-3 py-2.5 space-y-2"
                                     >
-                                        Retry GPS Logging
-                                    </button>
-                                </div>
-                            )}
-                            {castOffHandoff.caution && (
-                                <div className="rounded-xl border border-amber-400/25 bg-amber-500/10 px-3 py-2.5 space-y-1.5">
-                                    <p className="text-[11px] font-black uppercase tracking-[0.2em] text-amber-300">
-                                        Route check heads-up
-                                    </p>
-                                    <p className="text-sm text-amber-100">{castOffHandoff.caution}</p>
-                                    <div className="flex items-center justify-between gap-2">
-                                        <p className="text-xs text-amber-200/70">
-                                            This did not stop Cast Off. Worth a recheck when convenient.
+                                        <p className="text-sm font-semibold text-amber-100">
+                                            Passage is active, but GPS voyage logging did not start.
+                                            {castOffHandoff.gpsError ? ` ${castOffHandoff.gpsError}` : ''}
                                         </p>
                                         <button
                                             type="button"
-                                            onClick={() => updateCastOffHandoff({ caution: null })}
-                                            className="shrink-0 rounded-lg border border-amber-300/20 px-2 py-1 text-xs font-black text-amber-200/80"
+                                            onClick={() => void startHandoffGps(true)}
+                                            className="min-h-[44px] rounded-xl border border-amber-300/25 bg-amber-400/15 px-3 py-2 text-xs font-black text-amber-100"
+                                        >
+                                            Retry GPS Logging
+                                        </button>
+                                    </div>
+                                )}
+                                {castOffHandoff.followNote && (
+                                    <div className="rounded-xl border border-amber-400/25 bg-amber-500/10 px-3 py-2.5 space-y-1.5">
+                                        <p className="text-[11px] font-black uppercase tracking-[0.2em] text-amber-300">
+                                            Route line not armed
+                                        </p>
+                                        <p className="text-sm text-amber-100">{castOffHandoff.followNote}</p>
+                                        <button
+                                            type="button"
+                                            onClick={() => updateCastOffHandoff({ followNote: null })}
+                                            className="rounded-lg border border-amber-300/20 px-2 py-1 text-xs font-black text-amber-200/80"
                                         >
                                             Got it
                                         </button>
                                     </div>
-                                </div>
-                            )}
-                        </div>
-                    )}
+                                )}
+                                {(castOffHandoff.publishState === 'skipped' ||
+                                    castOffHandoff.publishState === 'failed') && (
+                                    <div className="rounded-xl border border-amber-400/25 bg-amber-500/10 px-3 py-2.5 space-y-1.5">
+                                        <p className="text-[11px] font-black uppercase tracking-[0.2em] text-amber-300">
+                                            Public page
+                                        </p>
+                                        <p className="text-sm text-amber-100">
+                                            {castOffHandoff.publishState === 'skipped'
+                                                ? 'This route has no planned mirror the public page can draw. Open it in Route Tracer and save it again, then re-tick Show on the Public Page at your next Cast Off.'
+                                                : 'Publishing the route to the public page failed. It will keep retrying in the background while online.'}
+                                        </p>
+                                        <button
+                                            type="button"
+                                            onClick={() => updateCastOffHandoff({ publishState: 'private' })}
+                                            className="rounded-lg border border-amber-300/20 px-2 py-1 text-xs font-black text-amber-200/80"
+                                        >
+                                            Got it
+                                        </button>
+                                    </div>
+                                )}
+                                {castOffHandoff.caution && (
+                                    <div className="rounded-xl border border-amber-400/25 bg-amber-500/10 px-3 py-2.5 space-y-1.5">
+                                        <p className="text-[11px] font-black uppercase tracking-[0.2em] text-amber-300">
+                                            Route check heads-up
+                                        </p>
+                                        <p className="text-sm text-amber-100">{castOffHandoff.caution}</p>
+                                        <div className="flex items-center justify-between gap-2">
+                                            <p className="text-xs text-amber-200/70">
+                                                This did not stop Cast Off. Worth a recheck when convenient.
+                                            </p>
+                                            <button
+                                                type="button"
+                                                onClick={() => updateCastOffHandoff({ caution: null })}
+                                                className="shrink-0 rounded-lg border border-amber-300/20 px-2 py-1 text-xs font-black text-amber-200/80"
+                                            >
+                                                Got it
+                                            </button>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        )}
 
                     {isTracking ? (
                         <>
