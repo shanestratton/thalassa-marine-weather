@@ -24,6 +24,10 @@ export type DataFreshness = 'live' | 'stale' | 'dead';
  * scheduler/network jitter; dead requires more than two missed windows. */
 const WATCHDOG_INTERVAL_MS = 1000; // 1 second tick
 
+/** Helm window: 45s of 5s samples — inside the handover's 30-60s band. */
+const HELM_WINDOW_MS = 45_000;
+const HELM_WINDOW_MIN_SAMPLES = 6;
+
 // ── Timestamped metric ──
 export interface TimestampedMetric<T = number> {
     value: T | null;
@@ -75,6 +79,9 @@ export interface NmeaStoreState {
     cog: TimestampedMetric; // Course Over Ground (°)
     waterTemp: TimestampedMetric; // Water Temperature (°C)
 
+    // Steering
+    rudder: TimestampedMetric; // Rudder angle (°, + = helm to starboard), from $xxRSA
+
     // Engine / Systems
     rpm: TimestampedMetric; // Engine RPM
     voltage: TimestampedMetric; // Battery voltage (V)
@@ -95,6 +102,7 @@ export type NmeaStoreListener = (state: NmeaStoreState) => void;
 
 class NmeaStoreClass {
     private state: NmeaStoreState = this.createEmptyState();
+    private helmRing: Array<{ t: number; mean: number; swing: number }> = [];
     private listeners: Set<NmeaStoreListener> = new Set();
     private watchdogTimer: ReturnType<typeof setInterval> | null = null;
     private unsubSample: (() => void) | null = null;
@@ -201,6 +209,15 @@ class NmeaStoreClass {
         if (sample.stw !== null) this.updateMetric(this.state.stw, sample.stw, now);
         if (sample.heading !== null) this.updateMetric(this.state.heading, sample.heading, now);
         if (sample.rpm !== null) this.updateMetric(this.state.rpm, sample.rpm, now);
+        if (sample.rudder !== null) {
+            this.updateMetric(this.state.rudder, sample.rudder, now);
+            // 60s helm window ring — the serene helm-balance advice requires
+            // a 30-60s MEAN (instantaneous rudder makes it flicker with
+            // every wave) and ACTIVITY (which averaging destroys, so the 5s
+            // swings ride along separately).
+            this.helmRing.push({ t: now, mean: sample.rudder, swing: sample.rudderSwing ?? 0 });
+            while (this.helmRing.length > 0 && now - this.helmRing[0].t > HELM_WINDOW_MS) this.helmRing.shift();
+        }
         if (sample.voltage !== null) this.updateMetric(this.state.voltage, sample.voltage, now);
         if (sample.depth !== null && Number.isFinite(sample.depth)) {
             this.updateMetric(this.state.depth, sample.depth, now);
@@ -220,6 +237,23 @@ class NmeaStoreClass {
         if (sample.gpsFixQuality !== null) this.state.gpsFixQuality = sample.gpsFixQuality;
 
         this.notify();
+    }
+
+    /**
+     * The 30-60s helm window the serene helm-balance advice requires.
+     * Null until at least HELM_WINDOW_MIN_SAMPLES 5s samples sit inside the
+     * window, or when the rudder metric has gone dead — a stale mean is
+     * worse than no verdict.
+     */
+    helmWindow(): { mean: number; max: number; activity: number } | null {
+        if (this.state.rudder.freshness === 'dead') return null;
+        const now = Date.now();
+        const window = this.helmRing.filter((entry) => now - entry.t <= HELM_WINDOW_MS);
+        if (window.length < HELM_WINDOW_MIN_SAMPLES) return null;
+        const mean = window.reduce((sum, entry) => sum + entry.mean, 0) / window.length;
+        const max = Math.max(...window.map((entry) => Math.abs(entry.mean)));
+        const activity = window.reduce((sum, entry) => sum + entry.swing, 0) / window.length;
+        return { mean, max, activity };
     }
 
     /** Update a single metric */
@@ -248,6 +282,7 @@ class NmeaStoreClass {
             this.state.sog,
             this.state.cog,
             this.state.waterTemp,
+            this.state.rudder,
             this.state.rpm,
             this.state.voltage,
             this.state.latitude,
@@ -344,6 +379,7 @@ class NmeaStoreClass {
             sog: emptyMetric(),
             cog: emptyMetric(),
             waterTemp: emptyMetric(),
+            rudder: emptyMetric(),
             rpm: emptyMetric(),
             voltage: emptyMetric(),
             latitude: emptyMetric(),

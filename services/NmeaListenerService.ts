@@ -178,6 +178,10 @@ interface RawAccumulator {
     stw: number[];
     heading: number[];
     rpm: number[];
+    /** $xxRSA rudder angle (°, + = helm to starboard). Raw per-sentence
+     *  values — the 5s sample carries mean AND swing because helm-balance
+     *  activity needs the excursion the mean smooths away. */
+    rudder: number[];
     voltage: number[];
     /** DBT fallback for this sample window (never averaged with DPT). */
     depthDbt: ParsedNmeaDepth | null;
@@ -1015,6 +1019,9 @@ class NmeaListenerServiceClass {
             case 'HDM':
                 this.parseHDG(parts);
                 break; // Magnetic heading (alt)
+            case 'RSA':
+                this.parseRSA(parts);
+                break;
             case 'RPM':
                 this.parseRPM(parts);
                 break; // Engine RPM
@@ -1128,6 +1135,17 @@ class NmeaListenerServiceClass {
     private parseHDG(parts: string[]) {
         const heading = parseNmeaNumber(parts[1]);
         if (heading !== null && isPlausibleBearing(heading)) this.accumulator.heading.push(heading);
+    }
+
+    /** $xxRSA — Rudder Sensor Angle. parts: stbd-or-single angle, status,
+     *  port angle, status. Status 'A' = valid. Positive = helm to starboard
+     *  (the same unverified-under-sail caveat as heel applies — the serene
+     *  handover's dead bands absorb a degree of zero error by design). */
+    private parseRSA(parts: string[]) {
+        const status = (parts[2] ?? '').trim().toUpperCase();
+        if (status !== 'A') return;
+        const angle = parseNmeaNumber(parts[1]);
+        if (angle !== null && Math.abs(angle) <= 90) this.accumulator.rudder.push(angle);
     }
 
     /** $xxRPM — Engine RPM */
@@ -1324,6 +1342,17 @@ class NmeaListenerServiceClass {
             stw: avg(this.accumulator.stw),
             heading: circularMean(this.accumulator.heading),
             rpm: avg(this.accumulator.rpm),
+            // Signed mean like heel — a ±displacement, not a bearing. Swing
+            // (max-min in the 5s window) survives separately because helm
+            // ACTIVITY is exactly what averaging destroys, and the serene
+            // helm advice needs both.
+            rudder: avgSigned(this.accumulator.rudder),
+            rudderSwing:
+                this.accumulator.rudder.length >= 2
+                    ? Math.max(...this.accumulator.rudder) - Math.min(...this.accumulator.rudder)
+                    : this.accumulator.rudder.length === 1
+                      ? 0
+                      : null,
             voltage: avg(this.accumulator.voltage),
             depth: depthReading?.depthM ?? null,
             depthSource: depthReading?.source ?? null,
@@ -1388,6 +1417,7 @@ class NmeaListenerServiceClass {
             stw: [],
             heading: [],
             rpm: [],
+            rudder: [],
             voltage: [],
             depthDbt: null,
             depthDpt: null,

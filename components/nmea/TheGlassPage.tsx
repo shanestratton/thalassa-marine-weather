@@ -28,6 +28,18 @@ import { nmeaDepthReferenceLabel } from '../../services/nmea/nmeaSentence';
 import { NmeaStore } from '../../services/NmeaStore';
 import { NmeaListenerService } from '../../services/NmeaListenerService';
 import { diagnosePanel, missingInstruments } from '../../utils/instrumentPanelStatus';
+import { useSettingsStore } from '../../stores/settingsStore';
+import {
+    COMFORT_M,
+    DEPTH_FALLBACK_OFFSET,
+    helmBalance,
+    helmVerdict,
+    kiteAdvice,
+    reefDescribe,
+    sailPlanFor,
+    shoalRate,
+    type SailingWind,
+} from '../../services/sailing/sereneSailing';
 
 interface TheGlassPageProps {
     onBack: () => void;
@@ -488,6 +500,15 @@ function resolveMetric(metric: TimestampedMetric): { value: number | null; fresh
     return { value: metric.freshness === 'dead' ? null : metric.value, freshness: metric.freshness };
 }
 
+// ── Section faceplate — the etched title strip each instrument sits under ──
+const SectionPlate: React.FC<{ title: string }> = ({ title }) => (
+    <div className="flex items-center gap-3 py-1.5 shrink-0" aria-hidden="true">
+        <div className="h-px flex-1 bg-gradient-to-r from-transparent to-white/15" />
+        <p className="text-[10px] font-black uppercase tracking-[0.35em] text-gray-400">{title}</p>
+        <div className="h-px flex-1 bg-gradient-to-l from-transparent to-white/15" />
+    </div>
+);
+
 // ══════════════════════════════════════════════
 // THE GLASS PAGE
 // ══════════════════════════════════════════════
@@ -557,6 +578,79 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
     const awa = resolveMetric(state.awa);
     const twd = resolveMetric(state.twd);
     const twaSigned = resolveMetric(state.twaSigned);
+    const stw = resolveMetric(state.stw);
+    const rudder = resolveMetric(state.rudder);
+    // The 30-60s helm window the serene advice demands — null while it fills.
+    const helmWindow = NmeaStore.helmWindow();
+
+    // The serene sailing brain encodes Serene Summer specifically (Tayana 55,
+    // Leisure Furl, runners). Her advice must never reach another hull, so
+    // the sail-plan sections gate on the vessel profile.
+    const vesselProfile = useSettingsStore((store) => store.settings.vessel);
+    const isSereneSummer =
+        /tayana\s*55/i.test(vesselProfile?.model ?? '') || /serene\s*summer/i.test(vesselProfile?.name ?? '');
+
+    // Depth track with real timestamps for the shoaling trend — the sparkline
+    // history has no clock, and shoalRate least-squares against minutes.
+    const depthTrackRef = useRef<Array<{ t: number; d: number }>>([]);
+    useEffect(() => {
+        if (state.depth.value !== null && state.depth.freshness === 'live') {
+            const now = Date.now() / 1000;
+            depthTrackRef.current.push({ t: now, d: state.depth.value });
+            while (depthTrackRef.current.length > 0 && now - depthTrackRef.current[0].t > 900)
+                depthTrackRef.current.shift();
+        }
+    }, [state.depth.value, state.depth.freshness, state.depth.lastUpdated]);
+    const depthTrend = shoalRate(depthTrackRef.current, DEPTH_FALLBACK_OFFSET);
+
+    // Rolling 10-min TWS peak as the live gust proxy for the sail plan —
+    // labelled as such; a forecast gust would claim knowledge we lack here.
+    const gustRef = useRef<Array<{ t: number; v: number }>>([]);
+    useEffect(() => {
+        if (state.tws.value !== null && state.tws.freshness === 'live') {
+            const now = Date.now();
+            gustRef.current.push({ t: now, v: state.tws.value });
+            while (gustRef.current.length > 0 && now - gustRef.current[0].t > 600_000) gustRef.current.shift();
+        }
+    }, [state.tws.value, state.tws.freshness, state.tws.lastUpdated]);
+    const recentGust = gustRef.current.length > 0 ? Math.max(...gustRef.current.map((e) => e.v)) : null;
+
+    const awaUnsigned = awa.value !== null ? ((awa.value % 360) + 360) % 360 : null;
+    const twaUnsigned = twaSigned.value !== null ? ((twaSigned.value % 360) + 360) % 360 : null;
+    const sailingWind: SailingWind = {
+        awa: awaUnsigned,
+        aws: aws.value,
+        twa: twaUnsigned,
+        tws: tws.value,
+        sog: sog.value,
+        stw: stw.value,
+        hdg: heading.value,
+        helm: helmWindow ? { mean: helmWindow.mean, max: helmWindow.max, activity: helmWindow.activity } : null,
+    };
+    const helm = helmBalance(sailingWind);
+    const helmWords = helmWindow ? helmVerdict(helmWindow.mean) : null;
+    const plan = isSereneSummer ? sailPlanFor(recentGust, twaUnsigned) : null;
+    const kite = isSereneSummer ? kiteAdvice(recentGust, twaUnsigned, false) : null;
+
+    // Snap-section registry for the dot rail.
+    const scrollerRef = useRef<HTMLDivElement | null>(null);
+    const [activeSection, setActiveSection] = useState(0);
+    const sectionNames = useMemo(() => {
+        const base = ['Wind', 'Speed', 'Depth', 'Heading', 'Helm'];
+        return isSereneSummer ? [...base, 'Sail Plan'] : base;
+    }, [isSereneSummer]);
+    const onPanelScroll = useCallback(() => {
+        const el = scrollerRef.current;
+        if (!el) return;
+        const index = Math.round(el.scrollTop / Math.max(1, el.clientHeight));
+        setActiveSection((prev) => (prev === index ? prev : Math.max(0, Math.min(index, sectionNames.length - 1))));
+    }, [sectionNames.length]);
+    const jumpToSection = useCallback((index: number) => {
+        const el = scrollerRef.current;
+        if (!el) return;
+        triggerHaptic('light');
+        el.scrollTo({ top: index * el.clientHeight, behavior: 'smooth' });
+    }, []);
 
     // COG is a GPS-derived course made good. Below a knot it is noise — a
     // moored boat's fixes wander, and the compass card was reporting 053 while
@@ -699,344 +793,514 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                     }
                 />
 
-                {/* ═══ INSTRUMENT PANEL ═══ */}
-                <div
-                    className={`flex-1 min-h-0 overflow-y-auto ${containerPx} pb-4`}
-                    style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}
-                >
-                    {/* Why the panel looks the way it does. Shown only when
-                        there is something to explain — a live panel says
-                        nothing, because a banner that is always there is a
-                        banner nobody reads. */}
-                    {diagnosis.detail && (
-                        <div
-                            role="status"
-                            className={`${containerMb} rounded-xl border p-3 ${
-                                diagnosis.actionable
-                                    ? 'border-rose-500/25 bg-rose-500/[0.07]'
-                                    : 'border-white/10 bg-white/[0.03]'
-                            }`}
+                {/* ═══ INSTRUMENT PANEL — one instrument per screen, snap-scrolled ═══
+                    Rebuilt 2026-08-26 (Shane: "make the instruments page really
+                    pop… scrolls up and down, but snaps to each instrument…
+                    sail plans etc go to the bottom"). Each section owns the
+                    viewport; the dot rail jumps. Serene Summer's sail-plan
+                    brain renders only for her hull. */}
+                <div className="relative flex-1 min-h-0">
+                    <div
+                        ref={scrollerRef}
+                        onScroll={onPanelScroll}
+                        className="h-full overflow-y-auto snap-y snap-mandatory no-scrollbar"
+                    >
+                        {/* ── SECTION: WIND ── */}
+                        <section
+                            className={`w-full h-full snap-start snap-always shrink-0 overflow-hidden flex flex-col ${containerPx} pt-1`}
                         >
-                            <p className="text-[12px] leading-snug text-gray-300">{diagnosis.detail}</p>
-                        </div>
-                    )}
-                    {quietInstruments.length > 0 && (
-                        <div
-                            role="status"
-                            className={`${containerMb} rounded-xl border border-amber-500/20 bg-amber-500/[0.06] p-3`}
-                        >
-                            <p className="text-[12px] leading-snug text-gray-300">
-                                Not reporting: {quietInstruments.join(', ')}. The rest of the backbone is fine, so check
-                                the transducer or the gateway's sentence output.
-                            </p>
-                        </div>
-                    )}
-
-                    {/* ── ROW 1: SOG (left) + TWS GAUGE (center overlap) + AWS (right) ── */}
-                    <div className={`relative ${containerMb}`}>
-                        <div className={`grid grid-cols-2 ${containerGap}`}>
-                            {/* SOG Card */}
-                            <div className={`${cardPad} rounded-2xl bg-white/[0.03] border border-white/[0.06]`}>
-                                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400 mb-1">
-                                    SOG
-                                </p>
-                                <div className="flex items-baseline gap-1">
-                                    <span
-                                        className={`${sogAwsValueClass} font-black tabular-nums font-mono text-white`}
-                                    >
-                                        {fmt(sog.value)}
-                                    </span>
-                                    <span className="text-xs font-bold text-gray-500">kts</span>
+                            {diagnosis.detail && (
+                                <div
+                                    role="status"
+                                    className={`${containerMb} rounded-xl border p-3 ${
+                                        diagnosis.actionable
+                                            ? 'border-rose-500/25 bg-rose-500/[0.07]'
+                                            : 'border-white/10 bg-white/[0.03]'
+                                    }`}
+                                >
+                                    <p className="text-[12px] leading-snug text-gray-300">{diagnosis.detail}</p>
                                 </div>
-                                {/* Speed bar — purple → pink */}
-                                <div className="mt-1.5 h-1.5 rounded-full bg-white/[0.06] overflow-hidden">
+                            )}
+                            {quietInstruments.length > 0 && (
+                                <div
+                                    role="status"
+                                    className={`${containerMb} rounded-xl border border-amber-500/20 bg-amber-500/[0.06] p-3`}
+                                >
+                                    <p className="text-[12px] leading-snug text-gray-300">
+                                        Not reporting: {quietInstruments.join(', ')}. The rest of the backbone is fine,
+                                        so check the transducer or the gateway's sentence output.
+                                    </p>
+                                </div>
+                            )}
+                            <SectionPlate title="Wind" />
+                            <div className="flex-1 min-h-0 flex flex-col items-center justify-evenly">
+                                <div
+                                    className="rounded-full p-[3px]"
+                                    style={{
+                                        background:
+                                            'conic-gradient(from 220deg, #71717a, #27272a, #52525b, #18181b, #71717a, #3f3f46, #71717a)',
+                                        boxShadow:
+                                            '0 0 30px rgba(0,0,0,0.9), 0 8px 24px rgba(0,0,0,0.6), inset 0 0 1px rgba(255,255,255,0.4)',
+                                    }}
+                                >
                                     <div
-                                        className="h-full rounded-full bg-gradient-to-r from-purple-500 via-fuchsia-500 to-pink-500 transition-all duration-500"
-                                        style={{ width: `${Math.min(100, ((sog.value ?? 0) / 20) * 100)}%` }}
+                                        className="rounded-full p-[2px]"
+                                        style={{
+                                            background:
+                                                'linear-gradient(135deg, #3f3f46 0%, #18181b 50%, #3f3f46 100%)',
+                                        }}
+                                    >
+                                        <div
+                                            className="rounded-full p-2"
+                                            style={{
+                                                background:
+                                                    'radial-gradient(circle at 30% 25%, rgba(30,41,59,0.95) 0%, rgba(2,6,23,0.98) 70%)',
+                                                boxShadow:
+                                                    'inset 0 4px 14px rgba(0,0,0,0.7), inset 0 0 30px rgba(0,0,0,0.5)',
+                                                border: '1px solid rgba(255,255,255,0.06)',
+                                            }}
+                                        >
+                                            <div style={{ width: `${heroGaugeSize}px`, height: `${heroGaugeSize}px` }}>
+                                                <HeroArcGauge
+                                                    value={tws.value}
+                                                    min={0}
+                                                    max={60}
+                                                    unit="kts"
+                                                    label="TWS"
+                                                    accentColor="#ec4899"
+                                                    zones={[
+                                                        { from: 0, to: 15, color: '#22c55e' },
+                                                        { from: 15, to: 25, color: '#eab308' },
+                                                        { from: 25, to: 40, color: '#f97316' },
+                                                        { from: 40, to: 60, color: '#ef4444' },
+                                                    ]}
+                                                    majorTick={10}
+                                                    isLive={tws.value !== null && tws.freshness === 'live'}
+                                                />
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div className="w-full grid grid-cols-3 gap-2 items-center">
+                                    <div className="rounded-xl bg-white/[0.03] border border-white/[0.06] p-2 text-center">
+                                        <p className="text-[9px] font-black uppercase tracking-[0.2em] text-gray-400">
+                                            AWS
+                                        </p>
+                                        <p className="text-xl font-black tabular-nums font-mono text-sky-300">
+                                            {fmt(aws.value)}
+                                            <span className="text-[9px] font-bold text-gray-500"> kts</span>
+                                        </p>
+                                    </div>
+                                    <div className="rounded-xl bg-white/[0.04] border border-white/[0.08] p-2 text-center">
+                                        <p className="text-[9px] font-black uppercase tracking-[0.2em] text-gray-400">
+                                            Max
+                                        </p>
+                                        <p className="text-xl font-black tabular-nums font-mono text-amber-400">
+                                            {fmt(twsMaxDisplay)}
+                                            <span className="text-[9px] font-bold text-gray-500"> kts</span>
+                                        </p>
+                                    </div>
+                                    <div className="rounded-xl bg-white/[0.03] border border-white/[0.06] p-2 text-center">
+                                        <p className="text-[9px] font-black uppercase tracking-[0.2em] text-gray-400">
+                                            Gust 10m
+                                        </p>
+                                        <p className="text-xl font-black tabular-nums font-mono text-white">
+                                            {fmt(recentGust)}
+                                            <span className="text-[9px] font-bold text-gray-500"> kts</span>
+                                        </p>
+                                    </div>
+                                </div>
+                                <div className="w-full rounded-2xl bg-white/[0.03] border border-white/[0.06] p-2">
+                                    <WindRose
+                                        twd={twd.value}
+                                        twaSigned={twaSigned.value}
+                                        awa={awa.value}
+                                        heading={heading.value}
+                                        tws={tws.value}
+                                        aws={aws.value}
+                                        isLive={windAvailable && !windStale}
                                     />
                                 </div>
-                                {/* Sparkline */}
-                                <div className="mt-2">
+                            </div>
+                        </section>
+
+                        {/* ── SECTION: SPEED ── */}
+                        <section
+                            className={`w-full h-full snap-start snap-always shrink-0 overflow-hidden flex flex-col ${containerPx} pt-1`}
+                        >
+                            <SectionPlate title="Speed" />
+                            <div className="flex-1 min-h-0 flex flex-col justify-evenly">
+                                <div className="text-center">
+                                    <p className="text-[10px] font-black uppercase tracking-[0.3em] text-gray-400">
+                                        SOG
+                                    </p>
+                                    <p className="text-7xl font-black tabular-nums font-mono text-white leading-none">
+                                        {fmt(sog.value)}
+                                    </p>
+                                    <p className="text-xs font-bold text-gray-500 mt-1">knots over ground</p>
+                                    <div className="mt-3 mx-auto max-w-xs h-1.5 rounded-full bg-white/[0.06] overflow-hidden">
+                                        <div
+                                            className="h-full rounded-full bg-gradient-to-r from-purple-500 via-fuchsia-500 to-pink-500 transition-all duration-500"
+                                            style={{ width: `${Math.min(100, ((sog.value ?? 0) / 20) * 100)}%` }}
+                                        />
+                                    </div>
+                                </div>
+                                <div className="grid grid-cols-3 gap-2">
+                                    <div className="rounded-xl bg-white/[0.03] border border-white/[0.06] p-2 text-center">
+                                        <p className="text-[9px] font-black uppercase tracking-[0.2em] text-gray-400">
+                                            STW
+                                        </p>
+                                        <p className="text-xl font-black tabular-nums font-mono text-cyan-300">
+                                            {fmt(stw.value)}
+                                            <span className="text-[9px] font-bold text-gray-500"> kt</span>
+                                        </p>
+                                    </div>
+                                    <div className="rounded-xl bg-white/[0.03] border border-white/[0.06] p-2 text-center">
+                                        <p className="text-[9px] font-black uppercase tracking-[0.2em] text-gray-400">
+                                            Best
+                                        </p>
+                                        <p className="text-xl font-black tabular-nums font-mono text-emerald-300">
+                                            {sogReal.history.length > 0 ? sogReal.max.toFixed(1) : '--'}
+                                            <span className="text-[9px] font-bold text-gray-500"> kt</span>
+                                        </p>
+                                    </div>
+                                    <div className="rounded-xl bg-white/[0.03] border border-white/[0.06] p-2 text-center">
+                                        <p className="text-[9px] font-black uppercase tracking-[0.2em] text-gray-400">
+                                            Trip
+                                        </p>
+                                        <p className="text-xl font-black tabular-nums font-mono text-white">
+                                            {fmt(tripDisplay)}
+                                            <span className="text-[9px] font-bold text-gray-500"> NM</span>
+                                        </p>
+                                    </div>
+                                </div>
+                                <div className="rounded-2xl bg-white/[0.03] border border-white/[0.06] p-3">
                                     <Sparkline
                                         history={sogChart.history}
                                         min={sogChart.min}
                                         max={sogChart.max}
                                         color="#d946ef"
-                                        width={sparklineWidth}
-                                        height={sparklineHeight}
+                                        width={sparklineWidth * 2}
+                                        height={sparklineHeight + 20}
                                         showAxes
                                         label="sog"
                                     />
                                     <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400 text-center mt-0.5">
                                         Rolling Chart
                                     </p>
+                                    <div className="mt-2 flex items-center justify-center gap-1.5 border-t border-white/[0.06] pt-1.5">
+                                        <span className="text-[10px]">🔋</span>
+                                        <span className="font-mono text-xs font-black tabular-nums text-white">
+                                            {fmt(voltage.value)}
+                                        </span>
+                                        <span className="text-[10px] font-bold text-gray-500">V</span>
+                                    </div>
                                 </div>
                             </div>
+                        </section>
 
-                            {/* AWS Card */}
-                            <div className={`${cardPad} rounded-2xl bg-white/[0.03] border border-white/[0.06]`}>
-                                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400 mb-1">
-                                    AWS
-                                </p>
-                                <div className="flex items-baseline gap-1">
-                                    <span
-                                        className={`${sogAwsValueClass} font-black tabular-nums font-mono text-white`}
-                                    >
-                                        {fmt(aws.value)}
-                                    </span>
-                                    <span className="text-xs font-bold text-gray-500">kts</span>
+                        {/* ── SECTION: DEPTH ── */}
+                        <section
+                            className={`w-full h-full snap-start snap-always shrink-0 overflow-hidden flex flex-col ${containerPx} pt-1`}
+                        >
+                            <SectionPlate title="Depth" />
+                            <div className="flex-1 min-h-0 flex flex-col justify-evenly">
+                                <div className="text-center">
+                                    <p className="text-7xl font-black tabular-nums font-mono text-white leading-none">
+                                        {fmt(depth.value)}
+                                        <span className="text-2xl text-gray-500"> m</span>
+                                    </p>
+                                    <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mt-1">
+                                        {nmeaDepthReferenceLabel(state.depthReference)}
+                                    </p>
                                 </div>
-                                {/* Wind speed bar — blue gradient */}
-                                <div className="mt-1.5 h-1.5 rounded-full bg-white/[0.06] overflow-hidden">
-                                    <div
-                                        className="h-full rounded-full bg-gradient-to-r from-sky-500 via-cyan-400 to-blue-500 transition-all duration-500"
-                                        style={{ width: `${Math.min(100, ((aws.value ?? 0) / 30) * 100)}%` }}
-                                    />
+                                {/* Shoaling trend — least-squares over the last 6 min, from the
+                                    serene brain: one wild sounding cannot set the trend, and a
+                                    shoaling rate is translated into the number that matters —
+                                    minutes until the keel meets the bottom. */}
+                                <div
+                                    className={`rounded-2xl border p-3 text-center ${
+                                        depthTrend.level === 'critical'
+                                            ? 'border-rose-500/40 bg-rose-500/[0.10]'
+                                            : depthTrend.level === 'serious'
+                                              ? 'border-orange-500/30 bg-orange-500/[0.08]'
+                                              : depthTrend.level === 'warning'
+                                                ? 'border-amber-500/25 bg-amber-500/[0.06]'
+                                                : 'border-white/[0.06] bg-white/[0.03]'
+                                    }`}
+                                >
+                                    <p className="text-[9px] font-black uppercase tracking-[0.2em] text-gray-400">
+                                        {depthTrend.label}
+                                    </p>
+                                    <p className="text-lg font-black text-white">{depthTrend.text}</p>
+                                    {depthTrend.note && <p className="text-[11px] text-gray-400">{depthTrend.note}</p>}
+                                    <p className="mt-1 text-[10px] text-gray-500">
+                                        Comfort line {COMFORT_M.toFixed(1)} m under the keel
+                                    </p>
                                 </div>
-                                {/* Apparent winds sparkline */}
-                                <div className="mt-2">
+                                <div className="rounded-2xl bg-white/[0.03] border border-white/[0.06] p-3">
                                     <Sparkline
-                                        history={awsChart.history}
-                                        min={awsChart.min}
-                                        max={awsChart.max}
-                                        color="#38bdf8"
-                                        width={sparklineWidth}
-                                        height={sparklineHeight}
+                                        history={depthChart.history}
+                                        min={depthChart.min}
+                                        max={depthChart.max}
+                                        color="#22d3ee"
+                                        width={sparklineWidth * 2}
+                                        height={sparklineHeight + 20}
                                         showAxes
-                                        label="aws"
+                                        axisUnit="m"
+                                        label="depth"
                                     />
                                     <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400 text-center mt-0.5">
-                                        Apparent Winds
+                                        15 min chart
                                     </p>
                                 </div>
                             </div>
-                        </div>
+                        </section>
 
-                        {/* ── TWS HERO GAUGE (overlapping center, bezeled metallic) ── */}
-                        <div className="flex justify-center -mt-6 mb-1 relative z-10">
-                            {/* Outer bezel ring — conic-gradient simulates brushed metal */}
-                            <div
-                                className="rounded-full p-[3px]"
-                                style={{
-                                    background:
-                                        'conic-gradient(from 220deg, #71717a, #27272a, #52525b, #18181b, #71717a, #3f3f46, #71717a)',
-                                    boxShadow:
-                                        '0 0 30px rgba(0,0,0,0.9), 0 8px 24px rgba(0,0,0,0.6), inset 0 0 1px rgba(255,255,255,0.4)',
-                                }}
-                            >
-                                {/* Inner brushed metal ring */}
-                                <div
-                                    className="rounded-full p-[2px]"
-                                    style={{
-                                        background: 'linear-gradient(135deg, #3f3f46 0%, #18181b 50%, #3f3f46 100%)',
-                                    }}
-                                >
-                                    {/* Glass dial */}
-                                    <div
-                                        className="rounded-full p-2"
-                                        style={{
-                                            background:
-                                                'radial-gradient(circle at 30% 25%, rgba(30,41,59,0.95) 0%, rgba(2,6,23,0.98) 70%)',
-                                            boxShadow:
-                                                'inset 0 4px 14px rgba(0,0,0,0.7), inset 0 0 30px rgba(0,0,0,0.5)',
-                                            border: '1px solid rgba(255,255,255,0.06)',
-                                        }}
-                                    >
-                                        <div style={{ width: `${heroGaugeSize}px`, height: `${heroGaugeSize}px` }}>
-                                            <HeroArcGauge
-                                                value={tws.value}
-                                                min={0}
-                                                max={60}
-                                                unit="kts"
-                                                label="TWS"
-                                                accentColor="#ec4899"
-                                                zones={[
-                                                    { from: 0, to: 15, color: '#22c55e' },
-                                                    { from: 15, to: 25, color: '#eab308' },
-                                                    { from: 25, to: 40, color: '#f97316' },
-                                                    { from: 40, to: 60, color: '#ef4444' },
-                                                ]}
-                                                majorTick={10}
-                                                isLive={tws.value !== null && tws.freshness === 'live'}
-                                            />
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                        {/* MAX wind readout */}
-                        <div className="flex justify-center -mt-2 mb-2">
-                            <div className="px-3 py-1 rounded-lg bg-white/[0.04] border border-white/[0.06]">
-                                <span className="text-[9px] font-bold uppercase tracking-widest text-gray-500">
-                                    MAX{' '}
-                                </span>
-                                <span className="text-xs font-black text-amber-400 tabular-nums font-mono">
-                                    {fmt(twsMaxDisplay)}
-                                </span>
-                                <span className="text-[9px] font-bold text-gray-500"> kts</span>
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* ── ROW 2: DEPTH + HEADING (2-col) ── */}
-                    <div className={`grid grid-cols-2 ${containerGap} ${containerMb}`}>
-                        {/* Depth Sounder */}
-                        <div className={`${cardPad} rounded-2xl bg-white/[0.03] border border-white/[0.06]`}>
-                            <p className="text-[9px] font-black uppercase tracking-[0.15em] text-gray-400 mb-1">
-                                Depth Sounder
-                            </p>
-                            <div className="flex items-baseline gap-0.5">
-                                <span className={`${depthValueClass} font-black tabular-nums font-mono text-white`}>
-                                    {fmt(depth.value)}
-                                </span>
-                                <span className="text-xs font-bold text-gray-500">m</span>
-                            </div>
-                            <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mt-0.5">
-                                {nmeaDepthReferenceLabel(state.depthReference)}
-                            </p>
-                            <div className="mt-1">
-                                <Sparkline
-                                    history={depthChart.history}
-                                    min={depthChart.min}
-                                    max={depthChart.max}
-                                    color="#22d3ee"
-                                    width={depthSparkWidth}
-                                    height={depthSparkHeight}
-                                    showAxes
-                                    axisUnit="m"
-                                    label="depth"
-                                />
-                                <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400 text-center mt-0.5">
-                                    15 min chart
-                                </p>
-                            </div>
-                        </div>
-
-                        {/* Heading — with COG only once actually moving */}
-                        <div
-                            className={`${cardPad} rounded-2xl bg-white/[0.03] border border-white/[0.06] flex flex-col items-center`}
+                        {/* ── SECTION: HEADING ── */}
+                        <section
+                            className={`w-full h-full snap-start snap-always shrink-0 overflow-hidden flex flex-col ${containerPx} pt-1`}
                         >
-                            <p className="text-[9px] font-black uppercase tracking-[0.15em] text-gray-400 mb-1">
-                                Heading
-                            </p>
-                            <div style={{ width: '100%', maxWidth: `${compassMaxWidth}px`, aspectRatio: '1' }}>
-                                <HeroCompass
-                                    value={heading.value}
-                                    isLive={heading.value !== null && heading.freshness === 'live'}
-                                />
-                            </div>
-                            <p className="mt-1 font-mono text-[10px] font-bold tabular-nums text-gray-400">
-                                {makingWay && cog.value !== null
-                                    ? `COG ${Math.round(cog.value)}°`
-                                    : 'COG — not making way'}
-                            </p>
-                            {/* Heel, from the XDR Roll the backbone has been
-                                broadcasting at 1 Hz all along. The tile that
-                                stood here until 2026-08-08 was wired to a
-                                literal 0 with no sensor behind it and was
-                                removed for it; this one has a source. Renders
-                                nothing at all when that source is absent —
-                                which is the same rule, kept. */}
-                            {heelAvailable && (
-                                <div className="mt-1.5 flex items-baseline gap-1" aria-label="Heel angle">
-                                    <span className="text-[9px] font-black uppercase tracking-[0.15em] text-gray-500">
-                                        Heel
-                                    </span>
-                                    <span className="font-mono text-[13px] font-black tabular-nums text-white">
-                                        {Math.abs(heel.value as number).toFixed(1)}°
-                                    </span>
-                                    <span
-                                        className={`text-[9px] font-black uppercase tracking-wider ${
-                                            heelSide === 'PORT'
-                                                ? 'text-rose-400'
-                                                : heelSide === 'STBD'
-                                                  ? 'text-emerald-400'
-                                                  : 'text-gray-500'
-                                        }`}
-                                    >
-                                        {heelSide}
-                                    </span>
+                            <SectionPlate title="Heading" />
+                            <div className="flex-1 min-h-0 flex flex-col items-center justify-evenly">
+                                <div style={{ width: '80vw', maxWidth: '300px', aspectRatio: '1' }}>
+                                    <HeroCompass
+                                        value={heading.value}
+                                        isLive={heading.value !== null && heading.freshness === 'live'}
+                                    />
                                 </div>
-                            )}
-                        </div>
+                                <p className="font-mono text-sm font-bold tabular-nums text-gray-300">
+                                    {makingWay && cog.value !== null
+                                        ? `COG ${Math.round(cog.value)}°`
+                                        : 'COG — not making way'}
+                                </p>
+                                {heelAvailable && (
+                                    <div className="flex items-baseline gap-2" aria-label="Heel angle">
+                                        <span className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-500">
+                                            Heel
+                                        </span>
+                                        <span className="font-mono text-2xl font-black tabular-nums text-white">
+                                            {Math.abs(heel.value as number).toFixed(1)}°
+                                        </span>
+                                        <span
+                                            className={`text-[10px] font-black uppercase tracking-wider ${
+                                                heelSide === 'PORT'
+                                                    ? 'text-rose-400'
+                                                    : heelSide === 'STBD'
+                                                      ? 'text-emerald-400'
+                                                      : 'text-gray-500'
+                                            }`}
+                                        >
+                                            {heelSide}
+                                        </span>
+                                    </div>
+                                )}
+                            </div>
+                        </section>
+
+                        {/* ── SECTION: HELM ── */}
+                        <section
+                            className={`w-full h-full snap-start snap-always shrink-0 overflow-hidden flex flex-col ${containerPx} pt-1`}
+                        >
+                            <SectionPlate title="Helm" />
+                            <div className="flex-1 min-h-0 flex flex-col justify-evenly">
+                                {rudder.value !== null ? (
+                                    <>
+                                        {/* Rudder bar — port red left, starboard green right,
+                                            nav-light convention. */}
+                                        <div className="text-center">
+                                            <p className="text-6xl font-black tabular-nums font-mono text-white leading-none">
+                                                {Math.abs(rudder.value).toFixed(1)}°
+                                                <span
+                                                    className={`text-xl ml-2 ${
+                                                        rudder.value < -0.3
+                                                            ? 'text-rose-400'
+                                                            : rudder.value > 0.3
+                                                              ? 'text-emerald-400'
+                                                              : 'text-gray-500'
+                                                    }`}
+                                                >
+                                                    {rudder.value < -0.3 ? 'PORT' : rudder.value > 0.3 ? 'STBD' : 'MID'}
+                                                </span>
+                                            </p>
+                                            <div className="mt-3 mx-auto max-w-xs relative h-3 rounded-full bg-white/[0.06] overflow-hidden">
+                                                <div className="absolute inset-y-0 left-1/2 w-px bg-white/30" />
+                                                <div
+                                                    className={`absolute inset-y-0 ${rudder.value >= 0 ? 'left-1/2 bg-emerald-400/70' : 'right-1/2 bg-rose-400/70'}`}
+                                                    style={{
+                                                        width: `${Math.min(50, (Math.abs(rudder.value) / 40) * 50)}%`,
+                                                    }}
+                                                />
+                                            </div>
+                                        </div>
+                                        {helm && helm.ok ? (
+                                            <div
+                                                className={`rounded-2xl border p-4 ${
+                                                    helm.level === 'serious'
+                                                        ? 'border-orange-500/30 bg-orange-500/[0.08]'
+                                                        : helm.level === 'warning'
+                                                          ? 'border-amber-500/25 bg-amber-500/[0.06]'
+                                                          : 'border-emerald-500/20 bg-emerald-500/[0.05]'
+                                                }`}
+                                            >
+                                                <p className="text-2xl font-black text-white">{helm.word}</p>
+                                                <p className="mt-1 text-[13px] leading-relaxed text-gray-300">
+                                                    {helm.what}
+                                                </p>
+                                                <p className="mt-2 rounded-xl bg-white/[0.05] p-2.5 text-[13px] leading-relaxed text-white">
+                                                    {helm.fix}
+                                                </p>
+                                                <p className="mt-1 text-[10px] text-gray-500">
+                                                    {helm.deg.toFixed(1)}° weather helm · {helm.tack} tack
+                                                </p>
+                                            </div>
+                                        ) : helm && !helm.ok ? (
+                                            <div className="rounded-2xl border border-white/[0.06] bg-white/[0.03] p-4">
+                                                <p className="text-sm font-bold text-gray-300">
+                                                    {helm.downwind ? 'No verdict off the wind' : 'No verdict yet'}
+                                                </p>
+                                                <p className="mt-1 text-[12px] leading-relaxed text-gray-400">
+                                                    {helm.why}
+                                                </p>
+                                            </div>
+                                        ) : (
+                                            <div className="rounded-2xl border border-white/[0.06] bg-white/[0.03] p-4">
+                                                <p className="text-sm font-bold text-gray-300">Averaging the helm…</p>
+                                                <p className="mt-1 text-[12px] text-gray-400">
+                                                    The balance verdict needs 30 seconds of rudder history — an
+                                                    instantaneous angle flickers with every wave.
+                                                </p>
+                                            </div>
+                                        )}
+                                        {helmWords && (
+                                            <p className="text-center text-[11px] text-gray-500">
+                                                45 s mean {helmWindow!.mean.toFixed(1)}° · {helmWords.word} —{' '}
+                                                {helmWords.note}
+                                            </p>
+                                        )}
+                                    </>
+                                ) : (
+                                    <div className="rounded-2xl border border-white/[0.06] bg-white/[0.03] p-4 text-center">
+                                        <p className="text-4xl font-black text-gray-600">—</p>
+                                        <p className="mt-2 text-sm font-bold text-gray-300">No rudder sensor</p>
+                                        <p className="mt-1 text-[12px] leading-relaxed text-gray-400">
+                                            Helm balance needs a rudder-angle sentence ($--RSA) on the NMEA bus. Nothing
+                                            is shown rather than something invented.
+                                        </p>
+                                    </div>
+                                )}
+                            </div>
+                        </section>
+
+                        {/* ── SECTION: SAIL PLAN (Serene Summer only — her rig, her advice) ── */}
+                        {isSereneSummer && (
+                            <section
+                                className={`w-full h-full snap-start snap-always shrink-0 overflow-hidden flex flex-col ${containerPx} pt-1`}
+                            >
+                                <SectionPlate title="Sail Plan" />
+                                <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar space-y-2 pb-2">
+                                    {plan ? (
+                                        <>
+                                            <div className="rounded-2xl border border-white/[0.08] bg-white/[0.04] p-4">
+                                                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400">
+                                                    {plan.band.band} · {Math.round(plan.off)}° off ·{' '}
+                                                    {fmt(recentGust, 0)} kn gusts (10 min)
+                                                </p>
+                                                <p className="mt-1 text-xl font-black text-white">
+                                                    {reefDescribe(plan.row, plan.row.main === 'Down').m}
+                                                </p>
+                                                <p className="text-[13px] text-gray-300">
+                                                    {reefDescribe(plan.row, plan.row.main === 'Down').rest}
+                                                </p>
+                                                {(plan.row.stay === true || plan.row.stay === 'storm') && (
+                                                    <p className="mt-2 rounded-xl border border-amber-500/25 bg-amber-500/[0.08] p-2.5 text-[12px] font-semibold text-amber-200">
+                                                        Runners on BEFORE the staysail loads the inner forestay.
+                                                    </p>
+                                                )}
+                                                {plan.row.prevent && (
+                                                    <p className="mt-2 rounded-xl border border-amber-500/25 bg-amber-500/[0.08] p-2.5 text-[12px] font-semibold text-amber-200">
+                                                        Preventer on — led aft, releasable under load.
+                                                    </p>
+                                                )}
+                                                <p className="mt-2 text-[12px] leading-relaxed text-gray-400">
+                                                    {plan.row.note}
+                                                </p>
+                                            </div>
+                                            {plan.trim && (
+                                                <details className="rounded-2xl border border-white/[0.06] bg-white/[0.03] p-3">
+                                                    <summary className="cursor-pointer text-[11px] font-black uppercase tracking-[0.2em] text-gray-400 [&::-webkit-details-marker]:hidden">
+                                                        Where everything goes
+                                                    </summary>
+                                                    <div className="mt-2 space-y-2 text-[12px] leading-relaxed text-gray-300">
+                                                        <p>
+                                                            <b className="text-white">Traveller.</b>{' '}
+                                                            {plan.trim.traveller}
+                                                        </p>
+                                                        <p>
+                                                            <b className="text-white">Mainsheet.</b>{' '}
+                                                            {plan.trim.mainsheet}
+                                                        </p>
+                                                        <p>
+                                                            <b className="text-white">Yankee.</b> {plan.trim.yankee}
+                                                        </p>
+                                                        <p>
+                                                            <b className="text-white">Staysail.</b> {plan.trim.staysail}
+                                                        </p>
+                                                    </div>
+                                                </details>
+                                            )}
+                                            {kite && (
+                                                <div
+                                                    className={`rounded-2xl border p-3 ${
+                                                        kite.ok
+                                                            ? 'border-emerald-500/20 bg-emerald-500/[0.05]'
+                                                            : 'border-white/[0.06] bg-white/[0.03]'
+                                                    }`}
+                                                >
+                                                    <p className="text-[11px] font-black uppercase tracking-[0.2em] text-gray-400">
+                                                        Asymmetric
+                                                    </p>
+                                                    <p className="mt-1 text-[12px] leading-relaxed text-gray-300">
+                                                        {kite.why}
+                                                    </p>
+                                                    {kite.down && (
+                                                        <p className="mt-1.5 text-[12px] leading-relaxed font-semibold text-amber-200">
+                                                            {kite.down}
+                                                        </p>
+                                                    )}
+                                                </div>
+                                            )}
+                                        </>
+                                    ) : (
+                                        <div className="rounded-2xl border border-white/[0.06] bg-white/[0.03] p-4 text-center">
+                                            <p className="text-sm font-bold text-gray-300">No wind data yet</p>
+                                            <p className="mt-1 text-[12px] text-gray-400">
+                                                The sail plan reads true wind and ten minutes of gusts from the
+                                                backbone.
+                                            </p>
+                                        </div>
+                                    )}
+                                    <p className="text-center text-[10px] text-gray-600">
+                                        Tuned for Serene Summer — Tayana 55, in-boom furling, runners.
+                                    </p>
+                                </div>
+                            </section>
+                        )}
                     </div>
 
-                    {/* ── ROW 3: WIND + VOYAGE (2-col) ──
-                        The sensor-status tile that used to sit here said the
-                        same thing as the LIVE/Stale header, three emoji at a
-                        time. Its one real number (battery volts) moved into
-                        Voyage; the space went to the wind, which had none. */}
-                    <div className={`grid grid-cols-2 ${containerGap}`}>
-                        {/* Wind */}
-                        <div className={`${cardPad} rounded-2xl bg-white/[0.03] border border-white/[0.06]`}>
-                            <p className="text-[9px] font-black uppercase tracking-[0.15em] text-gray-400 mb-1">Wind</p>
-                            <WindRose
-                                twd={twd.value}
-                                twaSigned={twaSigned.value}
-                                awa={awa.value}
-                                heading={heading.value}
-                                tws={tws.value}
-                                aws={aws.value}
-                                isLive={windAvailable && !windStale}
+                    {/* Dot rail — one per section, current one lit. */}
+                    <div className="absolute right-1 top-1/2 -translate-y-1/2 flex flex-col gap-2.5 pr-0.5">
+                        {sectionNames.map((name, index) => (
+                            <button
+                                key={name}
+                                type="button"
+                                aria-label={`Jump to ${name}`}
+                                onClick={() => jumpToSection(index)}
+                                className={`w-2 h-2 rounded-full transition-all ${
+                                    index === activeSection ? 'bg-sky-400 scale-125' : 'bg-white/20'
+                                }`}
                             />
-                        </div>
-
-                        {/* Voyage */}
-                        <div className={`${cardPad} rounded-2xl bg-white/[0.03] border border-white/[0.06]`}>
-                            <p className="text-[9px] font-black uppercase tracking-[0.15em] text-gray-400 mb-2">
-                                Voyage
-                            </p>
-                            <p className="text-[10px] font-bold text-gray-500 mb-0.5">Trip Dist:</p>
-                            <div className="flex items-baseline gap-1">
-                                <span className={`${tripValueClass} font-black tabular-nums font-mono text-white`}>
-                                    {fmt(tripDisplay)}
-                                </span>
-                                <span className="text-xs font-bold text-gray-500">NM</span>
-                            </div>
-                            <div className="mt-1.5 grid grid-cols-2 gap-1">
-                                <div className="rounded-lg bg-white/[0.04] px-1.5 py-1">
-                                    <div className="text-[8px] font-black uppercase tracking-widest text-gray-500">
-                                        Speed
-                                    </div>
-                                    <div className="font-mono text-sm font-black tabular-nums text-cyan-400">
-                                        {fmt(sog.value)}
-                                        <span className="text-[8px] font-bold text-gray-500">kt</span>
-                                    </div>
-                                </div>
-                                <div className="rounded-lg bg-white/[0.04] px-1.5 py-1">
-                                    <div className="text-[8px] font-black uppercase tracking-widest text-gray-500">
-                                        Best
-                                    </div>
-                                    {/* Peak SOG of the session. A passage's fastest
-                                        moment is the bit worth retelling, and it costs
-                                        nothing — the sparkline history is already here. */}
-                                    <div className="font-mono text-sm font-black tabular-nums text-emerald-300">
-                                        {sogReal.history.length > 0 ? sogReal.max.toFixed(1) : '--'}
-                                        <span className="text-[8px] font-bold text-gray-500">kt</span>
-                                    </div>
-                                </div>
-                            </div>
-                            <div className="mt-1">
-                                <Sparkline
-                                    history={sogChart.history}
-                                    min={sogChart.min}
-                                    max={sogChart.max}
-                                    color="#22d3ee"
-                                    width={depthSparkWidth}
-                                    height={depthSparkHeight}
-                                    label="speed"
-                                />
-                            </div>
-                            {/* The one number worth keeping from the retired
-                                NMEA Data tile. */}
-                            <div className="mt-2 flex items-center gap-1.5 border-t border-white/[0.06] pt-1.5">
-                                <span className="text-[10px]">🔋</span>
-                                <span className="font-mono text-xs font-black tabular-nums text-white">
-                                    {fmt(voltage.value)}
-                                </span>
-                                <span className="text-[10px] font-bold text-gray-500">V</span>
-                            </div>
-                        </div>
+                        ))}
                     </div>
                 </div>
             </div>
