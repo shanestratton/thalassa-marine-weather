@@ -1501,4 +1501,68 @@ describe('LogPage — Cast Off handoff', () => {
         expect(screen.queryByText(/GPS voyage logging is starting/)).not.toBeInTheDocument();
         expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     });
+
+    it('never asks "which route?" on a voyage that was cast off — the passage IS its route', () => {
+        stashCastOffHandoff({
+            voyageId: 'active-voyage',
+            voyageName: 'Newport → Coral Sea',
+            caution: null,
+            savedRouteId: 'route-x',
+        });
+        const view = () => <LogPage />;
+        const { rerender } = render(view());
+
+        Object.assign(logPageStateOverrides.state, {
+            isTracking: true,
+            currentVoyageId: 'active-voyage',
+            entries: [],
+            summaries: [
+                {
+                    voyageId: 'planned-voyage',
+                    isPlannedRoute: true,
+                    totalDistanceNM: 12,
+                    entryCount: 4,
+                    firstLat: -27.5,
+                    firstLon: 153,
+                    lastLat: -27.4,
+                    lastLon: 153.1,
+                },
+            ],
+        });
+        rerender(view());
+
+        expect(screen.queryByRole('dialog', { name: 'Following a route?' })).not.toBeInTheDocument();
+    });
+
+    it('a DIFFERENT voyage (casual slide-start) still gets its honest question', () => {
+        stashCastOffHandoff({
+            voyageId: 'some-other-cast-off',
+            voyageName: 'Old trip',
+            caution: null,
+            savedRouteId: 'route-x',
+        });
+        const view = () => <LogPage />;
+        const { rerender } = render(view());
+
+        Object.assign(logPageStateOverrides.state, {
+            isTracking: true,
+            currentVoyageId: 'active-voyage',
+            entries: [],
+            summaries: [
+                {
+                    voyageId: 'planned-voyage',
+                    isPlannedRoute: true,
+                    totalDistanceNM: 12,
+                    entryCount: 4,
+                    firstLat: -27.5,
+                    firstLon: 153,
+                    lastLat: -27.4,
+                    lastLon: 153.1,
+                },
+            ],
+        });
+        rerender(view());
+
+        expect(screen.getByRole('dialog', { name: 'Following a route?' })).toBeInTheDocument();
+    });
 });

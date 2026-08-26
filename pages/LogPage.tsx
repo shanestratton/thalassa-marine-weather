@@ -919,6 +919,16 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         }
         if (followPromptVoyageId !== null) return; // already open
         if (confirmedFollowVoyages.has(vid) || dismissedFollowVoyages.has(vid)) return; // answered
+        // A cast-off passage already DECLARED its route — the handoff is the
+        // answer to "which route?", whether or not the auto-follow managed
+        // to arm the line (Shane 2026-08-26: "it asks you to pick a route,
+        // but we already know what route we are doing. so that needs to
+        // go"). Bound to the exact voyage id so a later casual slide-start
+        // still gets its honest question.
+        if (castOffHandoff && castOffHandoff.voyageId === vid) {
+            confirmedFollowVoyages.add(vid);
+            return;
+        }
         if (followSheetChoices.length === 0) return; // no saved routes at all
 
         // The question may have been answered OUTSIDE this component — e.g.
@@ -1006,6 +1016,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         state.entries,
         followSheetChoices,
         followPromptVoyageId,
+        castOffHandoff,
         applyFollowPick,
         toast,
     ]);
