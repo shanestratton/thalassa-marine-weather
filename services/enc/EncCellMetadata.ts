@@ -497,8 +497,16 @@ export function getVersion(): number {
 /** Stable cross-session identity of the navigation chart library. Unlike the
  * in-memory version counter, this survives reloads and can be bound into a
  * saved Route Tracer verification envelope. */
-export function getRegistryFingerprint(): string {
-    return listCells()
+export function getRegistryFingerprint(scope?: [number, number, number, number]): string {
+    // Optional scope [west, south, east, north]: fingerprint only the cells
+    // whose coverage intersects it. A route verification cares about the
+    // charts UNDER THE ROUTE — with the full-library fingerprint, syncing a
+    // Mackay cell invalidated a Newport route check the moment it landed
+    // (Shane 2026-08-26: 'i get this message whenever i try to cast off…
+    // i have checked and reapproved the route, same issue' — his Pi and
+    // cloud sync churned cells hundreds of miles from the route).
+    const cells = scope ? cellsForBBox(scope) : listCells();
+    return cells
         .map(
             (cell) =>
                 `${cell.id}@${cell.edition}@${cell.issued}@${cell.sizeBytes ?? 'unknown'}@cloud-${

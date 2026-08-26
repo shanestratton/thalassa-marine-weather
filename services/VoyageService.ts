@@ -19,6 +19,7 @@ import {
     parseTraceVerificationNote,
     traceCastOffBlockReason,
     TRACE_VERIFICATION_NOTES_PREFIX,
+    traceRegistryScope,
 } from './traceVerification';
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -659,7 +660,7 @@ async function activateVoyage(
             const blockReason = traceCastOffBlockReason(verification, points, {
                 draftM: units.vesselDraftMetres(vessel),
                 draftAssumed: units.vesselDraftIsAssumed(vessel),
-                encRegistryFingerprint: encMetadata.getRegistryFingerprint(),
+                encRegistryFingerprint: encMetadata.getRegistryFingerprint(traceRegistryScope(points)),
                 voyageDepartureMs: candidate.departure_time ? Date.parse(candidate.departure_time) : null,
                 nowMs: Date.now(),
             });
