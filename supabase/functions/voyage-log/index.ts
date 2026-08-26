@@ -251,6 +251,9 @@ Deno.serve(async (req: Request) => {
 
         const ownerId = config.owner_id as string;
         const boatId = config.boat_id as string | null;
+
+        // TEMPORARY DIAGNOSTIC (2026-08-26, remove after boat-pin audit):
+        // gated by a random token, reports why a boat-pinned page is empty.
         const scope = (config.scope as 'personal' | 'combined') ?? 'personal';
         const trackDays = (config.track_days as number) ?? 30;
         const trackSince = new Date(Date.now() - trackDays * 86400_000).toISOString();
@@ -1055,6 +1058,102 @@ Deno.serve(async (req: Request) => {
                     eta: etaIso,
                     plan_line: planLine,
                 };
+            }
+        }
+
+        // ── ACTIVE-VOYAGE PLAN FALLBACK (Shane 2026-08-26) ──────────
+        // A passage cast off moments ago has an active voyage and a checked
+        // plan but zero uploaded fixes (GPS still acquiring — or the skipper
+        // is testing from the saloon). The page used to show NOTHING until
+        // the first fix uploaded, which reads as broken: "i pressed show on
+        // the public page, but it is not showing". Resolve the planned
+        // mirror through every server-side link we hold and draw the plan
+        // with zero progress — the track catches up when fixes arrive.
+        if (!passage) {
+            const { data: activeVoyage } = await supabase
+                .from('voyages')
+                .select('id, voyage_name, saved_route_id')
+                .eq('user_id', ownerId)
+                .eq('status', 'active')
+                .maybeSingle();
+            if (activeVoyage) {
+                let fallbackPlanId: string | null = null;
+                const { data: activeLink } = await supabase
+                    .from('voyage_plan_links')
+                    .select('plan_voyage_id')
+                    .eq('user_id', ownerId)
+                    .eq('voyage_id', activeVoyage.id as string)
+                    .maybeSingle();
+                if (typeof activeLink?.plan_voyage_id === 'string') fallbackPlanId = activeLink.plan_voyage_id;
+                if (!fallbackPlanId && typeof activeVoyage.saved_route_id === 'string') {
+                    const { data: routeRow } = await supabase
+                        .from('saved_routes')
+                        .select('planned_route_id')
+                        .eq('id', activeVoyage.saved_route_id)
+                        .maybeSingle();
+                    if (typeof routeRow?.planned_route_id === 'string') fallbackPlanId = routeRow.planned_route_id;
+                }
+                if (!fallbackPlanId) {
+                    const { data: backLink } = await supabase
+                        .from('saved_routes')
+                        .select('planned_route_id')
+                        .eq('passage_voyage_id', activeVoyage.id as string)
+                        .maybeSingle();
+                    if (typeof backLink?.planned_route_id === 'string') fallbackPlanId = backLink.planned_route_id;
+                }
+                if (fallbackPlanId) {
+                    let planQuery = supabase
+                        .from('ship_logs')
+                        .select('latitude, longitude, cumulative_distance_nm, notes, timestamp')
+                        .eq('user_id', ownerId)
+                        .eq('voyage_id', fallbackPlanId)
+                        .eq('source', 'planned_route')
+                        .or('archived.is.null,archived.eq.false');
+                    if (boatId) planQuery = planQuery.eq('boat_id', boatId);
+                    const { data: planRows } = await planQuery.order('timestamp', { ascending: true }).limit(1000);
+                    const plan = (planRows ?? []) as Record<string, unknown>[];
+                    const planPoints = plan.filter(
+                        (point) =>
+                            typeof point.latitude === 'number' &&
+                            typeof point.longitude === 'number' &&
+                            Number.isFinite(point.latitude) &&
+                            Number.isFinite(point.longitude),
+                    );
+                    if (planPoints.length >= 2) {
+                        const plannedNM = Math.max(
+                            0,
+                            ...plan.map((point) =>
+                                typeof point.cumulative_distance_nm === 'number' ? point.cumulative_distance_nm : 0
+                            ),
+                        );
+                        const planEnd = planPoints[planPoints.length - 1];
+                        const routeGeometry = recoverPublicRouteGeometry(String(plan[0]?.notes ?? ''));
+                        const routeLine: Array<[number, number]> = routeGeometry ??
+                            planPoints.map(
+                                (point) => [point.longitude as number, point.latitude as number] as [number, number],
+                            );
+                        const step = Math.max(1, Math.ceil(routeLine.length / 200));
+                        const passageName = (activeVoyage.voyage_name as string | null) ?? null;
+                        destination = destination ?? {
+                            name: passageName?.split(/[→-]/).pop()?.trim() ?? null,
+                            lat: planEnd.latitude as number,
+                            lon: planEnd.longitude as number,
+                        };
+                        passage = {
+                            voyage_id: activeVoyage.id,
+                            plan_id: fallbackPlanId,
+                            name: passageName,
+                            planned_nm: Math.round(plannedNM * 10) / 10,
+                            done_nm: 0,
+                            pct: 0,
+                            avg_sog_kts: 0,
+                            eta: null,
+                            plan_line: routeLine.filter(
+                                (_, index) => index % step === 0 || index === routeLine.length - 1,
+                            ),
+                        };
+                    }
+                }
             }
         }
 
