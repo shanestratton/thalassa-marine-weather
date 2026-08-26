@@ -10,7 +10,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import React from 'react';
-import { WATCH_DIM_IDLE_MS, ScreenDimOverlay as WatchDimOverlay } from '../components/ScreenDimOverlay';
+import {
+    SWALLOW_AFTER_WAKE_MS,
+    WATCH_DIM_IDLE_MS,
+    ScreenDimOverlay as WatchDimOverlay,
+} from '../components/ScreenDimOverlay';
 
 beforeEach(() => {
     vi.useFakeTimers();
@@ -54,6 +58,19 @@ describe('WatchDimOverlay', () => {
         expect(event).toBe(false); // preventDefault was called
         expect(behind).not.toHaveBeenCalled();
         expect(overlay().style.opacity).toBe('0');
+        // WebKit composes a CLICK from the wake gesture AFTER pointerdown —
+        // the overlay must keep catching until it has come and died here
+        // (Shane 2026-08-26: the first press was opening the button under
+        // the finger). Invisible but still the pointer target.
+        expect(overlay().className).toContain('pointer-events-auto');
+        const clickBehind = vi.fn();
+        window.addEventListener('click', clickBehind);
+        const click = fireEvent.click(overlay());
+        window.removeEventListener('click', clickBehind);
+        expect(click).toBe(false); // swallowed
+        expect(clickBehind).not.toHaveBeenCalled();
+        // After the swallow window the overlay steps out of the way.
+        act(() => vi.advanceTimersByTime(SWALLOW_AFTER_WAKE_MS + 50));
         expect(overlay().className).toContain('pointer-events-none');
     });
 

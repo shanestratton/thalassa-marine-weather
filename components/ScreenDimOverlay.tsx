@@ -28,11 +28,24 @@ import { NIGHT_SCRIM_Z_INDEX } from './ui/OverlayPortal';
 import { SCREEN_DIM_CHANGED_EVENT, isScreenDimSuppressed, readScreenDimSettings } from '../services/screenDim';
 
 export const WATCH_DIM_IDLE_MS = 20_000;
+/** How long after a wake the overlay keeps catching pointer events, so the
+ *  browser's composed click from the wake gesture dies here and never
+ *  reaches the control under the finger. */
+export const SWALLOW_AFTER_WAKE_MS = 600;
 export const SCREEN_DIM_Z_INDEX = NIGHT_SCRIM_Z_INDEX - 1;
 const KEEP_AWAKE_POLL_MS = 5_000;
 
 export const ScreenDimOverlay: React.FC<{ active: boolean; opacityPercent: number }> = ({ active, opacityPercent }) => {
     const [dimmed, setDimmed] = useState(false);
+    // Swallow window after a wake. preventDefault on the wake touch does NOT
+    // stop WebKit synthesising a CLICK at those coordinates a moment later —
+    // and with the overlay already pointer-events-none, that click landed on
+    // whatever button sat under the skipper's finger (Shane 2026-08-26: "it
+    // is opening whatever button is under the pressed area"). The overlay
+    // therefore stays pointer-capturing, invisible, until the gesture's
+    // composed click has come and died on it.
+    const [swallowing, setSwallowing] = useState(false);
+    const swallowTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const dimmedRef = useRef(false);
     dimmedRef.current = dimmed;
@@ -69,21 +82,33 @@ export const ScreenDimOverlay: React.FC<{ active: boolean; opacityPercent: numbe
             event.preventDefault();
             event.stopPropagation();
             setDimmed(false);
+            setSwallowing(true);
+            if (swallowTimerRef.current) clearTimeout(swallowTimerRef.current);
+            swallowTimerRef.current = setTimeout(() => setSwallowing(false), SWALLOW_AFTER_WAKE_MS);
             armIdleTimer();
         },
         [armIdleTimer],
     );
 
+    const swallowResidual = useCallback((event: React.SyntheticEvent) => {
+        event.preventDefault();
+        event.stopPropagation();
+    }, []);
+
     if (!active) return null;
     const opacity = dimmed ? Math.min(0.98, Math.max(0, opacityPercent / 100)) : 0;
+    const capturing = dimmed || swallowing;
     return (
         <div
             data-testid="watch-dim-overlay"
             aria-hidden={!dimmed}
-            onPointerDown={dimmed ? wake : undefined}
-            onTouchStart={dimmed ? wake : undefined}
+            onPointerDown={dimmed ? wake : swallowing ? swallowResidual : undefined}
+            onTouchStart={dimmed ? wake : swallowing ? swallowResidual : undefined}
+            onPointerUp={capturing ? swallowResidual : undefined}
+            onTouchEnd={capturing ? swallowResidual : undefined}
+            onClick={capturing ? swallowResidual : undefined}
             className={`fixed inset-0 flex items-end justify-center bg-black transition-opacity duration-1000 ${
-                dimmed ? 'pointer-events-auto' : 'pointer-events-none'
+                capturing ? 'pointer-events-auto' : 'pointer-events-none'
             }`}
             style={{ opacity, zIndex: SCREEN_DIM_Z_INDEX }}
         >
