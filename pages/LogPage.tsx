@@ -20,6 +20,7 @@ import { TraceReportModal } from '../components/map/TraceReportModal';
 import { AddEntryModal } from '../components/AddEntryModal';
 import { useToast } from '../components/Toast';
 import { SlideToAction } from '../components/ui/SlideToAction';
+import { followCastOffRoute } from '../services/shiplog/followCastOffRoute';
 import {
     clearCastOffHandoff,
     peekCastOffHandoff,
@@ -300,6 +301,68 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         handoffAutoRetryRef.current = castOffHandoff.voyageId;
         void startHandoffGps(true);
     }, [castOffHandoff, state.isTracking]);
+
+    // ── THE AUTHORITY on "which route?": the active voyage itself ──
+    // Voyages only ever become active through Cast Off, and a cast-off
+    // passage IS its route (Shane 2026-08-26: "it must know what route we
+    // are doing"). Handoffs are session conveniences that can die with the
+    // process; the voyages table does not. While an active voyage exists,
+    // the follow question is answered by construction — and the route line
+    // arms itself from that voyage when it is not already up.
+    const [activeCastOffVoyage, setActiveCastOffVoyage] = useState<{
+        id: string;
+        voyage_name: string;
+        saved_route_id?: string | null;
+    } | null>(null);
+    useEffect(() => {
+        let cancelled = false;
+        if (!state.isTracking) {
+            setActiveCastOffVoyage(null);
+            return;
+        }
+        void (async () => {
+            try {
+                const { getActiveVoyage } = await import('../services/VoyageService');
+                const active = await getActiveVoyage();
+                if (!cancelled) setActiveCastOffVoyage(active);
+            } catch {
+                if (!cancelled) setActiveCastOffVoyage(null);
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [state.isTracking, state.currentVoyageId]);
+
+    const activeFollowArmRef = useRef<string | null>(null);
+    useEffect(() => {
+        if (!activeCastOffVoyage) return;
+        const vid = state.currentVoyageId;
+        if (vid) confirmedFollowVoyages.add(vid);
+        // Close the sheet if it opened before the voyage row loaded.
+        setFollowPromptVoyageId((open) => (vid && open === vid ? null : open));
+        if (activeFollowArmRef.current === activeCastOffVoyage.id) return;
+        activeFollowArmRef.current = activeCastOffVoyage.id;
+        const follow = useFollowRouteStore.getState();
+        if (!follow.isFollowing) {
+            const publishPref = (() => {
+                const handoff = peekCastOffHandoff();
+                if (handoff?.voyageId === activeCastOffVoyage.id) return handoff.publishRoute;
+                try {
+                    return localStorage.getItem('thalassa_castoff_publish_public') !== '0';
+                } catch {
+                    return true;
+                }
+            })();
+            void followCastOffRoute(
+                activeCastOffVoyage.id,
+                activeCastOffVoyage.saved_route_id ?? null,
+                publishPref,
+            ).then((reason) => {
+                if (reason) updateCastOffHandoff({ followNote: reason });
+            });
+        }
+    }, [activeCastOffVoyage, state.currentVoyageId]);
 
     const toast = useToast();
 
@@ -929,6 +992,14 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
             confirmedFollowVoyages.add(vid);
             return;
         }
+        // And the durable authority: while ANY active voyage exists, the
+        // question is answered — voyages only become active through Cast
+        // Off, whose passage is its route. Handoff lifecycles cannot be
+        // trusted across app deaths; the voyages table can.
+        if (activeCastOffVoyage) {
+            confirmedFollowVoyages.add(vid);
+            return;
+        }
         if (followSheetChoices.length === 0) return; // no saved routes at all
 
         // The question may have been answered OUTSIDE this component — e.g.
@@ -1017,6 +1088,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         followSheetChoices,
         followPromptVoyageId,
         castOffHandoff,
+        activeCastOffVoyage,
         applyFollowPick,
         toast,
     ]);
