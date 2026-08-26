@@ -972,7 +972,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
         // points) to the matching voyage row. PassageSummaryCard can then
         // render the actual sea path without guessing from PassageStore's
         // globally cached last chart route.
-        const ownRows: VoyageRow[] = visibleRoutes.map((r) => {
+        const ownRows: VoyageRow[] = visibleRoutes.flatMap((r): VoyageRow[] => {
             const first = r.points[0];
             const last = r.points[r.points.length - 1];
             const departureCoords = first ? { lat: first.lat, lon: first.lon } : undefined;
@@ -1023,33 +1023,37 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                 const canonicalName = r.savedRouteId
                     ? canonicalById.get(r.savedRouteId)?.name
                     : canonicalByPlannedRouteId.get(r.id)?.name;
-                return {
-                    ...matched,
-                    ...(canonicalName
-                        ? { voyage_name: canonicalName }
-                        : { voyage_name: formatStoredPlannedRouteName(matched.voyage_name) ?? matched.voyage_name }),
-                    // Fall back to the route-derived dates only when the
-                    // matched draft hasn't been given them yet. Don't
-                    // overwrite a date the user has explicitly set via
-                    // the dropdown's date picker.
-                    departure_time: matched.departure_time ?? inferredDeparture,
-                    eta: matched.eta ?? inferredEta,
-                    // Backfill the canonical trace link when the table row
-                    // lacks it — a voyage materialised from a standalone
-                    // logbook stub was created WITHOUT saved_route_id, and
-                    // every re-pick after End Voyage broke geometry, the
-                    // route check, auto-follow and the public publish at
-                    // once (Shane 2026-08-26: "plan a route first. even
-                    // though i have already added a route??").
-                    saved_route_id:
-                        matched.saved_route_id ?? r.savedRouteId ?? canonicalByPlannedRouteId.get(r.id)?.id ?? null,
-                    departureCoords,
-                    arrivalCoords,
-                    routeCoordinates,
-                    plannedRouteId: r.id,
-                    distanceNm,
-                    durationHours,
-                };
+                return [
+                    {
+                        ...matched,
+                        ...(canonicalName
+                            ? { voyage_name: canonicalName }
+                            : {
+                                  voyage_name: formatStoredPlannedRouteName(matched.voyage_name) ?? matched.voyage_name,
+                              }),
+                        // Fall back to the route-derived dates only when the
+                        // matched draft hasn't been given them yet. Don't
+                        // overwrite a date the user has explicitly set via
+                        // the dropdown's date picker.
+                        departure_time: matched.departure_time ?? inferredDeparture,
+                        eta: matched.eta ?? inferredEta,
+                        // Backfill the canonical trace link when the table row
+                        // lacks it — a voyage materialised from a standalone
+                        // logbook stub was created WITHOUT saved_route_id, and
+                        // every re-pick after End Voyage broke geometry, the
+                        // route check, auto-follow and the public publish at
+                        // once (Shane 2026-08-26: "plan a route first. even
+                        // though i have already added a route??").
+                        saved_route_id:
+                            matched.saved_route_id ?? r.savedRouteId ?? canonicalByPlannedRouteId.get(r.id)?.id ?? null,
+                        departureCoords,
+                        arrivalCoords,
+                        routeCoordinates,
+                        plannedRouteId: r.id,
+                        distanceNm,
+                        durationHours,
+                    },
+                ];
             }
             // Route names are auto-generated as "A - B" by routeAutoName, while
             // logbook labels use "A → B". Splitting on the arrow alone left the
@@ -1064,47 +1068,64 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
             // (VoyageService.ts:745). A lat/lon in that column would silently
             // break both. The coordinates ARE surfaced — as departureCoords
             // and arrivalCoords, which is what the passage cards read.
-            const [depPart, arrPart] = splitRouteEndpoints(r.label);
+            // A live canonical route already owning this EXACT geometry means
+            // this logbook copy is a stale pre-rename mirror — the rogue
+            // "Coral Sea" row was leg 2's old local mirror under its former
+            // name (Shane 2026-08-27: "find it and kill it dead"). Adopt the
+            // canonical identity rather than suppress: the stub takes the
+            // trace's name and link, so the picker dedupe folds it with any
+            // other representation — and when it is the ONLY representation,
+            // the route stays reachable under its true name. Ambiguous
+            // fingerprints (repeated island runs) are left alone.
+            const staleFingerprint = savedRouteGeometryFingerprint(r.points);
+            const geometryOwners = staleFingerprint ? (canonicalByFingerprint.get(staleFingerprint) ?? []) : [];
+            const adoptedTrace = geometryOwners.length === 1 ? geometryOwners[0] : undefined;
+            const [depPart, arrPart] = splitRouteEndpoints(adoptedTrace?.name ?? r.label);
             // Stub voyage — id starts with "logbook:" so the on-
             // select handler knows to find-or-create a real row
             // before calling setActivePassage.
-            return {
-                id: `logbook:${r.id}`,
-                user_id: '',
-                vessel_id: null,
-                voyage_name:
-                    (r.savedRouteId
-                        ? canonicalById.get(r.savedRouteId)?.name
-                        : canonicalByPlannedRouteId.get(r.id)?.name) ?? r.label,
-                departure_port: (depPart ?? '').trim() || null,
-                destination_port: (arrPart ?? '').trim() || null,
-                departure_time: inferredDeparture,
-                eta: inferredEta,
-                // Seed from the vessel's standing complement, not a bare 1 —
-                // this row becomes the voyage Cast Off and the float plan
-                // read souls-on-board from (Shane 2026-08-04: "the vessel
-                // profile shows two crew... that is not flowing through").
-                crew_count: vesselCrewAboard(settings.vessel),
-                status: 'planning',
-                weather_master_id: null,
-                notes: null,
-                created_at: new Date(r.timestamp).toISOString(),
-                updated_at: new Date(r.timestamp).toISOString(),
-                // The canonical trace link rides the stub into createVoyage —
-                // without it the materialised row had no saved_route_id and
-                // every downstream consumer (geometry, route check, follow,
-                // public publish) silently lost the route.
-                // Old mirrors predate the savedRouteId column on their
-                // rows — the planned-mirror map (geometry-backfilled for
-                // pre-migration routes) is the authoritative bridge.
-                saved_route_id: r.savedRouteId ?? canonicalByPlannedRouteId.get(r.id)?.id ?? null,
-                departureCoords,
-                arrivalCoords,
-                routeCoordinates,
-                plannedRouteId: r.id,
-                distanceNm,
-                durationHours,
-            };
+            return [
+                {
+                    id: `logbook:${r.id}`,
+                    user_id: '',
+                    vessel_id: null,
+                    voyage_name:
+                        (r.savedRouteId
+                            ? canonicalById.get(r.savedRouteId)?.name
+                            : canonicalByPlannedRouteId.get(r.id)?.name) ??
+                        adoptedTrace?.name ??
+                        r.label,
+                    departure_port: (depPart ?? '').trim() || null,
+                    destination_port: (arrPart ?? '').trim() || null,
+                    departure_time: inferredDeparture,
+                    eta: inferredEta,
+                    // Seed from the vessel's standing complement, not a bare 1 —
+                    // this row becomes the voyage Cast Off and the float plan
+                    // read souls-on-board from (Shane 2026-08-04: "the vessel
+                    // profile shows two crew... that is not flowing through").
+                    crew_count: vesselCrewAboard(settings.vessel),
+                    status: 'planning',
+                    weather_master_id: null,
+                    notes: null,
+                    created_at: new Date(r.timestamp).toISOString(),
+                    updated_at: new Date(r.timestamp).toISOString(),
+                    // The canonical trace link rides the stub into createVoyage —
+                    // without it the materialised row had no saved_route_id and
+                    // every downstream consumer (geometry, route check, follow,
+                    // public publish) silently lost the route.
+                    // Old mirrors predate the savedRouteId column on their
+                    // rows — the planned-mirror map (geometry-backfilled for
+                    // pre-migration routes) is the authoritative bridge.
+                    saved_route_id:
+                        r.savedRouteId ?? canonicalByPlannedRouteId.get(r.id)?.id ?? adoptedTrace?.id ?? null,
+                    departureCoords,
+                    arrivalCoords,
+                    routeCoordinates,
+                    plannedRouteId: r.id,
+                    distanceNm,
+                    durationHours,
+                },
+            ];
         });
 
         const attachCanonicalTraceGeometry = (draft: Voyage): VoyageRow => {
