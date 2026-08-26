@@ -605,6 +605,50 @@ describe('CrewManagement shared passage ownership', () => {
         expect(screen.queryByRole('option', { name: /\(Passage\)/ })).not.toBeInTheDocument();
     });
 
+    it('kills a stale pre-rename logbook copy whose geometry a live route already owns', async () => {
+        // The rogue "Coral Sea" (Shane 2026-08-27): leg 2's old local mirror
+        // under its former name — same polyline, different label.
+        localStorage.setItem(
+            authScopedStorageKey('thalassa_traced_routes_v1'),
+            JSON.stringify([
+                {
+                    id: 'leg-2-trace',
+                    name: 'Coral Sea - Mackay (2nd Leg)',
+                    createdAt: '2026-08-25T00:00:00.000Z',
+                    points: [
+                        { lat: -21.1, lon: 152.4 },
+                        { lat: -21.1, lon: 149.2 },
+                    ],
+                },
+            ]),
+        );
+        mocks.getCachedDraftVoyages.mockReturnValue([]);
+        mocks.getDraftVoyages.mockResolvedValue([]);
+        mocks.fetchRoutesAndTracks.mockResolvedValue({
+            routes: [
+                {
+                    ...route('planned-rogue', 'Coral Sea'),
+                    points: [
+                        { lat: -21.1, lon: 152.4 },
+                        { lat: -21.1, lon: 149.2 },
+                    ],
+                },
+            ],
+            tracks: [],
+        });
+
+        renderPage();
+        const selector = await screen.findByRole('combobox', { name: 'Saved Routes' });
+        await waitFor(() => expect(mocks.fetchRoutesAndTracks).toHaveBeenCalled());
+        fireEvent.click(selector);
+
+        await waitFor(() =>
+            expect(screen.getByRole('option', { name: /Coral Sea - Mackay \(2nd Leg\)/ })).toBeInTheDocument(),
+        );
+        const labels = screen.getAllByRole('option').map((option) => option.textContent ?? '');
+        expect(labels.some((label) => /Coral Sea(?! - Mackay)/.test(label))).toBe(false);
+    });
+
     it('keeps the full Passage Planning title clear and removes bulk route deletion from the active selector', () => {
         const saved = voyage('saved-route', 'crew-user', 'Brisbane → Moreton');
         mocks.getCachedDraftVoyages.mockReturnValue([saved]);
