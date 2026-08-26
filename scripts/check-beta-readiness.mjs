@@ -1351,10 +1351,12 @@ check(
             'upload_manifest_slot(discovery_tag, repo, slot,',
             'Published verified generation %s to discovery slot(s)',
         ]) &&
-        // 56, was 53: c6c4f438 (2026-08-08) added three regression tests to
-        // test_publish_flow.py with the gh missing-asset fix. The pin is a
-        // no-tests-deleted tripwire, so a deliberate ADDITION moves it up.
-        marinePublisherTestCount === 56 &&
+        // 60, was 56: 2357d9c9 (2026-08-26) added four bounded-superset
+        // mask tests to test_cmems_science.py with the VMDR fringe fix
+        // (was 53 before c6c4f438's three gh missing-asset regressions).
+        // The pin is a no-tests-deleted tripwire, so a deliberate ADDITION
+        // moves it up.
+        marinePublisherTestCount === 60 &&
         includesAll(marinePublisherContractTest, [
             'test_weekly_shard_derivation_and_iso_year_boundary',
             'test_shard_capacity_and_collision_guard_runs_before_mutation',

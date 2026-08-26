@@ -334,11 +334,12 @@ describe('public-beta release gate contract', () => {
         expect(gate).toContain(
             'marine producer contract validates source science and immutable weekly shards before dual-slot discovery publication',
         );
-        // 56, was 53: the pin is a no-tests-deleted tripwire, and c6c4f438
-        // (2026-08-08) deliberately ADDED three publish-flow regression
-        // tests. The count only ever moves up, and only with a commit that
-        // says why — same contract, new floor.
-        expect(gate).toContain('marinePublisherTestCount === 56');
+        // 60, was 56: the pin is a no-tests-deleted tripwire, and 2357d9c9
+        // (2026-08-26) deliberately ADDED four bounded-superset mask tests
+        // to test_cmems_science.py (before that, c6c4f438 added three
+        // publish-flow regressions). The count only ever moves up, and only
+        // with a commit that says why — same contract, new floor.
+        expect(gate).toContain('marinePublisherTestCount === 60');
         expect(gate).toContain('12-hourly waves use one exact three-hour source-age margin without weakening currents');
         expect(gate).toContain('offline marine publisher fixtures have a localhost-only dead-proxy network fence');
         expect(gate).toContain('!/^\\s+(?:no_proxy|https_proxy|http_proxy|all_proxy):/gm.test(offlineStep)');
