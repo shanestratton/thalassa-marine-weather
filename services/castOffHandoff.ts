@@ -357,3 +357,48 @@ export async function ensureActiveVoyageLogging(voyage: {
         /* every failure mode already reports through the handoff */
     }
 }
+
+/**
+ * Re-attempt the public-page publish for the current handoff — used when an
+ * earlier attempt recorded 'skipped' (no planned mirror known at the time)
+ * or 'failed'. Tries one honest repair first: if the trace has no
+ * plannedRouteId but the logbook holds a planned mirror that names this
+ * exact trace (savedRouteId linkage from a fresh re-save), persist that
+ * link and publish it. Never throws; reports through publishState.
+ */
+export async function retryPublicPublish(): Promise<void> {
+    const handoff = current;
+    if (!handoff || handoff.publishRoute === false) return;
+    try {
+        let mirror = await resolvePlannedMirrorId(handoff.savedRouteId, handoff.voyageId, handoff.voyageName);
+        if (!mirror) {
+            // Repair: find the trace, then a planned mirror that claims it.
+            const { loadSavedTraces, linkTraceToPassage } = await import('./routeTracer');
+            const traces = loadSavedTraces();
+            const routeId = handoff.savedRouteId?.trim();
+            const trace = traces.find(
+                (candidate) => (routeId && candidate.id === routeId) || candidate.passageVoyageId === handoff.voyageId,
+            );
+            if (trace && !trace.plannedRouteId) {
+                const { fetchRoutesAndTracks } = await import('./shiplog/RoutesAndTracks');
+                const { routes } = await fetchRoutesAndTracks();
+                const owned = routes.filter((route) => route.savedRouteId === trace.id);
+                if (owned.length === 1) {
+                    linkTraceToPassage(trace.id, { plannedRouteId: owned[0].id });
+                    mirror = owned[0].id;
+                }
+            }
+        }
+        if (!mirror) {
+            updateCastOffHandoff({ publishState: 'skipped' });
+            return;
+        }
+        const { publishFollowedRoute } = await import('./shiplog/publishFollowedRoute');
+        const outcome = await publishFollowedRoute(mirror);
+        updateCastOffHandoff({
+            publishState: outcome === 'linked' ? 'linked' : outcome === 'queued' ? 'queued' : 'failed',
+        });
+    } catch {
+        updateCastOffHandoff({ publishState: 'failed' });
+    }
+}

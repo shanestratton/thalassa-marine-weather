@@ -334,6 +334,21 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         };
     }, [state.isTracking, state.currentVoyageId]);
 
+    // A publish recorded 'skipped' or 'failed' earlier is not a verdict —
+    // the mirror may exist NOW (a fresh re-save, or the Plan page's repair
+    // pass ran since). One re-attempt per page visit, while tracking.
+    const publishRetryRef = useRef<string | null>(null);
+    useEffect(() => {
+        if (!castOffHandoff || !state.isTracking) return;
+        if (castOffHandoff.publishState !== 'skipped' && castOffHandoff.publishState !== 'failed') return;
+        if (publishRetryRef.current === castOffHandoff.voyageId) return;
+        publishRetryRef.current = castOffHandoff.voyageId;
+        void (async () => {
+            const { retryPublicPublish } = await import('../services/castOffHandoff');
+            await retryPublicPublish();
+        })();
+    }, [castOffHandoff, state.isTracking]);
+
     const activeFollowArmRef = useRef<string | null>(null);
     useEffect(() => {
         if (!activeCastOffVoyage) return;
