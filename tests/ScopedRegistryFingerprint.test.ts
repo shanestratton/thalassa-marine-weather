@@ -158,3 +158,62 @@ describe('the block message diagnoses itself', () => {
         expect(reason).toContain('Recheck');
     });
 });
+
+describe('the departure gate bites only tide-gated checks', () => {
+    const base = {
+        draftM: 2.0,
+        draftAssumed: false,
+        encRegistryFingerprint: 'AU5MB01P@3@2026-01-15@100',
+        nowMs: Date.parse('2026-08-26T00:00:00Z'),
+    };
+    const checked = (over: Record<string, unknown> = {}) => ({
+        version: 1,
+        graderVersion: 'route-tracer-v1',
+        geometryKey: 'any-key',
+        checkedAt: '2026-08-25T23:00:00Z',
+        result: 'verified',
+        legGrades: [],
+        acknowledgedDangerLegs: [],
+        draftM: 2.0,
+        draftAssumed: false,
+        encRegistryVersion: 1,
+        encRegistryFingerprint: 'AU5MB01P@3@2026-01-15@100',
+        departureMs: Date.parse('2026-08-26T08:00:00Z'),
+        tideWindowLabel: '',
+        ...over,
+    });
+
+    it('a NON-tide route ignores departure drift entirely — checked at dawn, valid at dusk', () => {
+        const reason = traceCastOffBlockReason(checked(), undefined, {
+            ...base,
+            voyageDepartureMs: Date.parse('2026-08-26T18:00:00Z'), // 10h drift
+        });
+        expect(reason).toBeNull();
+        // Even a voyage with no departure_time at all.
+        expect(traceCastOffBlockReason(checked(), undefined, { ...base, voyageDepartureMs: null })).toBeNull();
+    });
+
+    it('a TIDE-gated check still demands the plan it verified — 3h drift blocks, 10min passes', () => {
+        const tideGated = (departure: string) =>
+            traceCastOffBlockReason(checked({ tideWindowLabel: 'HW 09:12 · window 07:40–10:45' }), undefined, {
+                ...base,
+                nowMs: Date.parse('2026-08-26T07:50:00Z'),
+                voyageDepartureMs: Date.parse(departure),
+            });
+        expect(tideGated('2026-08-26T11:00:00Z')).toContain('planned departure changed');
+        expect(tideGated('2026-08-26T08:10:00Z')).toBeNull();
+    });
+});
+
+describe('rechecks re-verify THE PLAN (source tripwires)', () => {
+    it('a recheck inherits the prior departure instead of stamping now', () => {
+        const { readFileSync } = require('node:fs') as typeof import('node:fs');
+        const { resolve } = require('node:path') as typeof import('node:path');
+        const recheck = readFileSync(resolve(process.cwd(), 'services/traceRecheck.ts'), 'utf8');
+        expect(recheck).toContain('opts.departureMs ?? opts.priorVerification?.departureMs ?? Date.now()');
+        // The ack path threads it too.
+        expect(recheck).toContain('departureMs: departureMs ?? Date.now()');
+        const logPage = readFileSync(resolve(process.cwd(), 'pages/LogPage.tsx'), 'utf8');
+        expect(logPage).toContain('ackReport.priorDepartureMs');
+    });
+});
