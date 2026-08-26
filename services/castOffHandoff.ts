@@ -262,3 +262,66 @@ async function resolvePlannedMirrorId(savedRouteId: string | null, voyageId?: st
         return null;
     }
 }
+
+/**
+ * Make an ACTIVE voyage be "as though everything was done via the Log page"
+ * — GPS logging running, route line armed, public publish fired (Shane
+ * 2026-08-26: "i press the open ships log button... i am already gpsing, i
+ * am as though i have done everything via the log page"). Called from the
+ * Open Ship's Log door; safe to call when everything is already running
+ * (every step checks before acting). Never throws.
+ */
+export async function ensureActiveVoyageLogging(voyage: {
+    id: string;
+    voyage_name: string;
+    saved_route_id?: string | null;
+}): Promise<void> {
+    try {
+        const savedRouteId = voyage.saved_route_id ?? current?.savedRouteId ?? null;
+        let publishRoute = current?.voyageId === voyage.id ? current.publishRoute : true;
+        if (current?.voyageId !== voyage.id) {
+            try {
+                publishRoute = localStorage.getItem('thalassa_castoff_publish_public') !== '0';
+            } catch {
+                publishRoute = true;
+            }
+        }
+        if (!current || current.voyageId !== voyage.id) {
+            stashCastOffHandoff({
+                voyageId: voyage.id,
+                voyageName: voyage.voyage_name,
+                caution: null,
+                savedRouteId,
+                publishRoute,
+            });
+        }
+
+        // Route line first — local and fast, so the chart is dressed the
+        // moment the page paints.
+        try {
+            const [{ useFollowRouteStore }, { followCastOffRoute }] = await Promise.all([
+                import('../stores/followRouteStore'),
+                import('./shiplog/followCastOffRoute'),
+            ]);
+            const follow = useFollowRouteStore.getState();
+            if (!follow.isFollowing || follow.voyageId !== voyage.id) {
+                const reason = await followCastOffRoute(voyage.id, savedRouteId, publishRoute);
+                updateCastOffHandoff({ followNote: reason });
+            }
+        } catch {
+            /* the follow surface reports through the handoff card */
+        }
+
+        // GPS: re-attach exactly like the manual Retry that always works.
+        const { ShipLogService } = await import('./ShipLogService');
+        const tracking = ShipLogService.getTrackingStatus();
+        if (!tracking.isTracking || tracking.currentVoyageId !== voyage.id) {
+            await startHandoffGps(true);
+        } else if (current?.voyageId === voyage.id && current.gps !== 'confirmed') {
+            // Already tracking — mark it so the card and the publish settle.
+            updateCastOffHandoff({ gps: 'confirmed', gpsError: null });
+        }
+    } catch {
+        /* every failure mode already reports through the handoff */
+    }
+}
