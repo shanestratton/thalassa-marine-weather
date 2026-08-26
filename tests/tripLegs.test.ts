@@ -28,6 +28,8 @@ import {
     persistLegVerdicts,
     LEG_VERDICTS_KEY,
     hydrateLegVerdicts,
+    tripLegAnchorOrdinal,
+    tripLegPlannedDestination,
 } from '../services/routeTracer';
 import { authScopedStorageKey } from '../services/authIdentityScope';
 
@@ -65,6 +67,48 @@ const PTS = [
     { lat: -27.1, lon: 153.2 },
     { lat: -27.0, lon: 153.3 },
 ];
+
+describe('trip ordinal anchoring (Cast Off seeds)', () => {
+    beforeEach(() => {
+        localStorage.clear();
+    });
+
+    it('tripLegAnchorOrdinal: a route knows its own position in the trip', () => {
+        const { trace: leg1 } = saveTrace('newport - coral sea', PTS);
+        const seed = nextLegSeed(leg1)!;
+        const { trace: leg2 } = saveTrace(withLegBadge('coral sea - mackay', seed.ordinal), PTS, {
+            tripId: seed.tripId,
+            legOrdinal: seed.ordinal,
+            destName: 'mackay',
+        });
+        retroBadgeFirstLeg(seed.tripId);
+
+        // castOff() seeds the first in-voyage leg from this — the literal 1
+        // it replaced handed a leg-2 voyage leg 1's destination (Shane
+        // 2026-08-27: Cast Off "always shows the newport - coral sea 1st
+        // leg").
+        expect(tripLegAnchorOrdinal(leg2.id)).toBe(2);
+        // Leg 1 and the trip id are the same trace — a materialised
+        // "(Passage)" voyage anchors at 1 by construction.
+        expect(tripLegAnchorOrdinal(leg1.id)).toBe(1);
+        // Standalone / unknown / absent routes fall back to 1.
+        expect(tripLegAnchorOrdinal('no-such-trace')).toBe(1);
+        expect(tripLegAnchorOrdinal(null)).toBe(1);
+
+        // The exact seed both call sites build: the route's OWN destination.
+        expect(tripLegPlannedDestination(leg2.id, tripLegAnchorOrdinal(leg2.id))).toBe('mackay');
+        // And depart-next-leg's anchor + completed formula reaches beyond
+        // the plan → null, never a wrong port.
+        expect(tripLegPlannedDestination(leg2.id, tripLegAnchorOrdinal(leg2.id) + 1)).toBeNull();
+    });
+
+    it('tripLegAnchorOrdinal: badge-parsed fallback when structural fields were dropped', () => {
+        // adoptServerRoute-shaped trace: badged name, no tripId/legOrdinal
+        // (the cloud round-trip can null the structural fields).
+        const { trace } = saveTrace('coral sea - mackay (2nd Leg)', PTS);
+        expect(tripLegAnchorOrdinal(trace.id)).toBe(2);
+    });
+});
 
 describe('trip-chain storage operations', () => {
     beforeEach(() => {
