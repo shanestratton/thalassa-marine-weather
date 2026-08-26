@@ -90,9 +90,18 @@ export async function followCastOffRoute(
         // tracking confirms. This early attempt stays for the resume case
         // where tracking is already live. Opt-out keeps the line private.
         if (publishPublic) {
-            void Promise.resolve(publishFollowedRoute(voyageId)).catch((error) => {
-                log.warn('publish cast-off followed route failed:', error);
-            });
+            // Publish the PLANNED-ROUTE MIRROR id — the voyage whose
+            // ship_logs rows are source='planned_route'. The public page
+            // draws the plan from those rows; the cast-off voyage's own
+            // entries are live fixes and resolve to nothing.
+            const mirrorId = loadSavedTraces()
+                .find((trace) => trace.id === savedRouteId?.trim())
+                ?.plannedRouteId?.trim();
+            if (mirrorId) {
+                void Promise.resolve(publishFollowedRoute(mirrorId)).catch((error) => {
+                    log.warn('publish cast-off followed route failed:', error);
+                });
+            }
         }
         return true;
     } catch (error) {

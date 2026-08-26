@@ -250,6 +250,7 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                     voyageName: activatedVoyage.voyage_name,
                     caution: result.caution ?? null,
                     publishRoute: publishPublic,
+                    savedRouteId: activatedVoyage.saved_route_id ?? null,
                 });
                 void startHandoffGps();
                 onCastOff?.(activatedVoyage);

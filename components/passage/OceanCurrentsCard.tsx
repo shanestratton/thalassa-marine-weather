@@ -100,13 +100,15 @@ export const OceanCurrentsCard: React.FC<OceanCurrentsCardProps> = ({
                   courseBearingDeg: courseBearing,
               })
             : null;
-    // Bound by inputs + TTL, NOT the hourly provider data (Shane
-    // 2026-08-26: the ack died on every data refresh and re-nagged on
-    // every page open — see passageEnvironmentReadiness for the story).
+    // The READINESS tick is bound to the ROUTE and the 7-day TTL — never to
+    // the live briefing (Shane 2026-08-26: "refuse to stay green" — the old
+    // compare demanded an available, input-matching briefing before it even
+    // consulted the stored ack, so a slow or stale CMEMS feed greyed a valid
+    // acknowledgement). Creating an ack still requires the live briefing;
+    // holding one needs the same route, acknowledged within the week.
     const acknowledged =
-        reviewFingerprint !== null &&
         isCurrentAcknowledgementRecord(acknowledgement) &&
-        acknowledgement.fingerprint === reviewFingerprint &&
+        acknowledgement.routeFingerprint === routeFingerprint &&
         isAcknowledgementFresh(acknowledgement.acknowledgedAt);
 
     useLayoutEffect(() => {
@@ -450,7 +452,7 @@ export const OceanCurrentsCard: React.FC<OceanCurrentsCardProps> = ({
             </div>
             {!acknowledged && isCurrentAcknowledgementRecord(acknowledgement) && (
                 <p role="status" className="text-[11px] text-amber-300 text-center">
-                    Route or vessel speed changed — review and acknowledge this briefing again.
+                    The route changed or the acknowledgement expired — review and acknowledge this briefing again.
                 </p>
             )}
         </div>

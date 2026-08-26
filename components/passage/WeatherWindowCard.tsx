@@ -278,14 +278,17 @@ export const WeatherWindowCard: React.FC<WeatherWindowCardProps> = ({
             : null;
     const normalizedChosenDepartureIso = hasChosenDate ? new Date(chosenDepartureMs).toISOString() : null;
     const weatherDataAcceptable = resultMatchesInputs && isWeatherWindowResultAcceptable(result, freshnessNowMs);
-    // Bound by inputs + departure + TTL, NOT the forecast data fingerprint
-    // (Shane 2026-08-26: forecasts refresh every few hours, so a data-bound
-    // acceptance re-nagged on every page open).
+    // The READINESS tick is bound to the ROUTE and the 7-day TTL — never to
+    // the live analysis, the chosen departure, or vessel/comfort tweaks
+    // (Shane 2026-08-26: "those fucken green buttons refuse to stay green";
+    // the old compare needed a fresh analysis whose window list still
+    // contained the accepted time AND an exact departure match, so every
+    // re-plan or forecast refresh killed the green). Creating an acceptance
+    // still requires live data; HOLDING one needs the same route, accepted
+    // within the week.
     const accepted =
-        weatherDataAcceptable &&
         isWeatherWindowAcceptanceRecord(acceptance) &&
-        currentAcceptanceFingerprint === acceptance.fingerprint &&
-        normalizedChosenDepartureIso === acceptance.departureIso &&
+        acceptance.routeFingerprint === routeFingerprint &&
         isAcknowledgementFresh(acceptance.acceptedAt);
 
     useEffect(() => {
@@ -628,7 +631,7 @@ export const WeatherWindowCard: React.FC<WeatherWindowCardProps> = ({
             )}
             {!accepted && isWeatherWindowAcceptanceRecord(acceptance) && result?.availability === 'available' && (
                 <p role="status" className="text-[11px] text-amber-300 text-center">
-                    Departure, route or vessel limits changed — accept a current matching window again.
+                    The route changed or the acceptance expired — accept a current window again.
                 </p>
             )}
         </div>
