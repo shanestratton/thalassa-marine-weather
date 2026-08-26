@@ -70,12 +70,33 @@ export function passageRouteFingerprint(
     return passageDataFingerprint('passage-route', points);
 }
 
+/**
+ * What an acknowledgement BINDS to: the skipper's own inputs — route,
+ * speed, distance, bearing. Deliberately NOT the provider data fingerprint
+ * (Shane 2026-08-26: 'i seem to have to go into that card everytime and
+ * approve… once they are clicked they should stay green for a good week'):
+ * currents frames refresh hourly and forecasts every few hours, so a
+ * data-bound ack died before the page was reopened — a nag, and nagging
+ * teaches punters to click without reading. The record still STORES the
+ * data fingerprint so the card can note 'updated since your briefing',
+ * and freshness is bounded by PASSAGE_ACK_TTL_MS instead.
+ */
 export interface CurrentReviewIdentity {
     routeFingerprint: string;
     cruisingSpeedKts: number;
     distanceNm: number;
     courseBearingDeg: number;
-    dataFingerprint: string;
+}
+
+/** How long an environment acknowledgement stays green — 'a good week'. */
+export const PASSAGE_ACK_TTL_MS = 7 * 24 * 3_600_000;
+
+/** True while the ack's own timestamp is within the TTL (and not from the
+ *  future — a wrong clock fails closed). */
+export function isAcknowledgementFresh(acknowledgedAtIso: string, nowMs: number = Date.now()): boolean {
+    const at = Date.parse(acknowledgedAtIso);
+    if (!Number.isFinite(at)) return false;
+    return nowMs - at >= -5 * 60_000 && nowMs - at <= PASSAGE_ACK_TTL_MS;
 }
 
 export interface CurrentAcknowledgementRecord {
@@ -118,7 +139,6 @@ export interface WeatherAcceptanceIdentity {
         preferredAngles?: ReadonlyArray<string>;
     };
     analysisContextFingerprint: string;
-    dataFingerprint: string;
 }
 
 export interface WeatherWindowAcceptanceRecord {

@@ -20,6 +20,7 @@ import {
 } from '../../hooks/useReadinessSync';
 import { isAuthIdentityScopeCurrent } from '../../services/authIdentityScope';
 import {
+    isAcknowledgementFresh,
     currentReviewFingerprint,
     isCurrentAcknowledgementRecord,
     passageDataFingerprint,
@@ -97,13 +98,16 @@ export const OceanCurrentsCard: React.FC<OceanCurrentsCardProps> = ({
                   cruisingSpeedKts: speed,
                   distanceNm: dist,
                   courseBearingDeg: courseBearing,
-                  dataFingerprint: briefing.dataFingerprint,
               })
             : null;
+    // Bound by inputs + TTL, NOT the hourly provider data (Shane
+    // 2026-08-26: the ack died on every data refresh and re-nagged on
+    // every page open — see passageEnvironmentReadiness for the story).
     const acknowledged =
         reviewFingerprint !== null &&
         isCurrentAcknowledgementRecord(acknowledgement) &&
-        acknowledgement.fingerprint === reviewFingerprint;
+        acknowledgement.fingerprint === reviewFingerprint &&
+        isAcknowledgementFresh(acknowledgement.acknowledgedAt);
 
     useLayoutEffect(() => {
         requestGenerationRef.current += 1;
@@ -214,6 +218,8 @@ export const OceanCurrentsCard: React.FC<OceanCurrentsCardProps> = ({
             version: 1,
             fingerprint: reviewFingerprint,
             routeFingerprint,
+            // Stored for provenance/telemetry only — deliberately NOT part
+            // of the matching fingerprint.
             dataFingerprint: briefing.dataFingerprint,
             acknowledgedAt: new Date().toISOString(),
         };
@@ -444,7 +450,7 @@ export const OceanCurrentsCard: React.FC<OceanCurrentsCardProps> = ({
             </div>
             {!acknowledged && isCurrentAcknowledgementRecord(acknowledgement) && (
                 <p role="status" className="text-[11px] text-amber-300 text-center">
-                    Route, vessel speed or current data changed — review and acknowledge this briefing again.
+                    Route or vessel speed changed — review and acknowledge this briefing again.
                 </p>
             )}
         </div>

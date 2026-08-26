@@ -1,4 +1,5 @@
 import React from 'react';
+import { isAcknowledgementFresh, PASSAGE_ACK_TTL_MS } from '../services/passageEnvironmentReadiness';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CurrentBriefing } from '../services/OceanCurrentService';
@@ -148,7 +149,7 @@ describe('passage environment readiness journeys', () => {
         });
     });
 
-    it('never greens an unavailable current field and invalidates a review on route, speed or data change', async () => {
+    it('never greens an unavailable field; route/speed changes re-brief; a data refresh keeps the ack', async () => {
         const onReviewedChange = vi.fn();
         currentMocks.fetchCurrents.mockResolvedValueOnce(unavailableCurrent());
         const { rerender } = render(
@@ -184,7 +185,7 @@ describe('passage environment readiness journeys', () => {
             />,
         );
         await waitFor(() => expect(onReviewedChange).toHaveBeenLastCalledWith(false));
-        expect(await screen.findByText(/Route, vessel speed or current data changed/)).toBeInTheDocument();
+        expect(await screen.findByText(/Route or vessel speed changed/)).toBeInTheDocument();
 
         fireEvent.click(screen.getByRole('button', { name: 'Acknowledge Current Briefing' }));
         await waitFor(() => expect(onReviewedChange).toHaveBeenLastCalledWith(true));
@@ -197,12 +198,15 @@ describe('passage environment readiness journeys', () => {
 
         fireEvent.click(await screen.findByRole('button', { name: 'Acknowledge Current Briefing' }));
         await waitFor(() => expect(onReviewedChange).toHaveBeenLastCalledWith(true));
+        // A provider DATA refresh no longer kills the ack (Shane 2026-08-26:
+        // hourly frames re-nagged on every page open) — inputs + TTL bound it.
         currentMocks.fetchCurrents.mockResolvedValue(availableCurrent('current-data-b'));
         fireEvent.click(screen.getByRole('button', { name: /Enhance/ }));
-        await waitFor(() => expect(onReviewedChange).toHaveBeenLastCalledWith(false));
+        await screen.findByText(/Surface Currents/);
+        await waitFor(() => expect(onReviewedChange).toHaveBeenLastCalledWith(true));
     });
 
-    it('binds accepted weather to departure, exact route, vessel limits and the analysed data', async () => {
+    it('binds accepted weather to departure, exact route and vessel limits; a data refresh keeps it', async () => {
         const first = weatherResult();
         weatherMocks.analyse.mockResolvedValue(first);
         const onReviewedChange = vi.fn();
@@ -225,7 +229,7 @@ describe('passage environment readiness journeys', () => {
 
         rerender(<WeatherWindowCard {...props} routeCoordinates={ROUTE_B} />);
         await waitFor(() => expect(onReviewedChange).toHaveBeenLastCalledWith(false));
-        expect(screen.getByText(/Departure, route, vessel limits or forecast data changed/)).toBeInTheDocument();
+        expect(screen.getByText(/Departure, route or vessel limits changed/)).toBeInTheDocument();
 
         fireEvent.click(screen.getByRole('button', { name: 'Accept This Window' }));
         await waitFor(() => expect(onReviewedChange).toHaveBeenLastCalledWith(true));
@@ -249,9 +253,14 @@ describe('passage environment readiness journeys', () => {
 
         fireEvent.click(await screen.findByRole('button', { name: 'Accept This Window' }));
         await waitFor(() => expect(onReviewedChange).toHaveBeenLastCalledWith(true));
-        weatherMocks.analyse.mockResolvedValue(weatherResult('weather-data-b'));
+        // A forecast DATA refresh (same inputs, same windows, new provider
+        // data) keeps the acceptance. Reuse `first` wholesale: the fixture
+        // mints a fresh window time per call, which would masquerade as a
+        // genuine departure change.
+        weatherMocks.analyse.mockResolvedValue({ ...first, dataFingerprint: 'weather-data-b' });
         fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
-        await waitFor(() => expect(onReviewedChange).toHaveBeenLastCalledWith(false));
+        await screen.findByText('Thu, 6 Aug · 06:00');
+        await waitFor(() => expect(onReviewedChange).toHaveBeenLastCalledWith(true));
     });
 
     it('disables acceptance and readiness when a displayed analysis exceeds the hard age limit', async () => {
@@ -274,5 +283,17 @@ describe('passage environment readiness journeys', () => {
         await screen.findByText('Forecast is too old to accept');
         expect(screen.getByRole('button', { name: 'Refresh forecast to accept' })).toBeDisabled();
         expect(onReviewedChange).toHaveBeenLastCalledWith(false);
+    });
+});
+
+describe('acknowledgement TTL', () => {
+    it('stays fresh for a week, expires after, fails closed on garbage or future stamps', () => {
+        const now = Date.parse('2026-08-26T00:00:00Z');
+        const iso = (deltaMs: number) => new Date(now + deltaMs).toISOString();
+        expect(isAcknowledgementFresh(iso(0), now)).toBe(true);
+        expect(isAcknowledgementFresh(iso(-6 * 24 * 3_600_000), now)).toBe(true);
+        expect(isAcknowledgementFresh(iso(-PASSAGE_ACK_TTL_MS - 60_000), now)).toBe(false);
+        expect(isAcknowledgementFresh(iso(60 * 60_000), now)).toBe(false); // future clock
+        expect(isAcknowledgementFresh('not-a-date', now)).toBe(false);
     });
 });
