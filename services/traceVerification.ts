@@ -338,7 +338,28 @@ export function traceCastOffBlockReason(
         return 'Your vessel draft has changed since this route was checked. Recheck it before Cast Off.';
     }
     if (verification.encRegistryFingerprint !== context.encRegistryFingerprint) {
-        return 'Your ENC chart library has changed since this route was checked. Recheck it before Cast Off.';
+        // Self-diagnosing (Shane 2026-08-26 — this message survived two fix
+        // layers and every screenshot left us guessing WHY). An old-format
+        // stamp still carries the '@cloud-' delivery marker; otherwise name
+        // the first chart that actually differs.
+        if (verification.encRegistryFingerprint.includes('@cloud-')) {
+            return 'This route was checked by an older app version. Recheck it once on this version before Cast Off.';
+        }
+        const cellIds = (fingerprint: string): Set<string> =>
+            new Set(
+                fingerprint
+                    .split('|')
+                    .map((entry) => entry.trim())
+                    .filter(Boolean),
+            );
+        const checked = cellIds(verification.encRegistryFingerprint);
+        const current = cellIds(context.encRegistryFingerprint);
+        const differing =
+            [...current].find((entry) => !checked.has(entry)) ?? [...checked].find((entry) => !current.has(entry));
+        const cellName = differing ? differing.split('@')[0] : null;
+        return `Your ENC chart library has changed under this route since it was checked${
+            cellName ? ` (${cellName})` : ''
+        }. Recheck it before Cast Off.`;
     }
     if (context.voyageDepartureMs === null || Math.abs(verification.departureMs - context.voyageDepartureMs) > 60_000) {
         return 'The planned departure changed after the tide/route check. Recheck the route before Cast Off.';
