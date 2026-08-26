@@ -171,7 +171,7 @@ import {
     getRegistryFingerprint as getEncRegistryFingerprint,
     getVersion as getEncRegistryVersion,
 } from '../../services/enc/EncCellMetadata';
-import { evaluateTraceRelease, traceGeometryKey } from '../../services/traceVerification';
+import { evaluateTraceRelease, traceGeometryKey, traceRegistryScope } from '../../services/traceVerification';
 import { useEncChartInventory } from './useEncChartInventory';
 import { DETAIL_SCRUB_MAX, applyChartDetailLevel, isScrubHidden } from './encDetailScrubber';
 import { PinDirectionsCta } from './PinDirectionsCta';
@@ -1029,7 +1029,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                 draftM: vesselDraftMetres(settings.vessel),
                 draftAssumed: vesselDraftIsAssumed(settings.vessel),
                 encRegistryVersion: getEncRegistryVersion(),
-                encRegistryFingerprint: getEncRegistryFingerprint(),
+                encRegistryFingerprint: getEncRegistryFingerprint(traceRegistryScope(capturedCoords)),
                 departureMs: departureMs ?? Date.now(),
                 tideWindowLabel: departureLabel,
             }),

@@ -37,6 +37,7 @@ import {
     normaliseTraceVerification,
     type TraceReleaseGate,
     type TraceVerification,
+    traceRegistryScope,
 } from './traceVerification';
 import {
     commonDepartureWindowLabel,
@@ -212,12 +213,18 @@ export async function recheckTrace(
         points,
         result.status,
         verdicts,
-        inheritableAcks(opts.priorVerification, verdicts, getRegistryFingerprint(), draftM, draftAssumed),
+        inheritableAcks(
+            opts.priorVerification,
+            verdicts,
+            getRegistryFingerprint(traceRegistryScope(points)),
+            draftM,
+            draftAssumed,
+        ),
         {
             draftM,
             draftAssumed,
             encRegistryVersion: getEncRegistryVersion(),
-            encRegistryFingerprint: getRegistryFingerprint(),
+            encRegistryFingerprint: getRegistryFingerprint(traceRegistryScope(points)),
             departureMs,
             tideWindowLabel,
         },
@@ -277,7 +284,7 @@ export function releaseWithAcks(
         draftM: vesselDraftMetres(vessel),
         draftAssumed: vesselDraftIsAssumed(vessel),
         encRegistryVersion: getEncRegistryVersion(),
-        encRegistryFingerprint: getRegistryFingerprint(),
+        encRegistryFingerprint: getRegistryFingerprint(traceRegistryScope(points)),
         departureMs: Date.now(),
         tideWindowLabel: report.tideWindowLabel,
     });
