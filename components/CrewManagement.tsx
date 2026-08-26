@@ -2540,7 +2540,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                         // asking a one-answer question — the verification
                         // gate inside refuses anything unproven, and the Log
                         // page's own follow sheet stays as the fallback ask.
-                        void followCastOffRoute(voyage.id);
+                        void followCastOffRoute(voyage.id, voyage.saved_route_id);
                         // 'details' is the Log tab's registry key — there is
                         // no 'log' view. The old 'log' literal rendered the
                         // blank search-bar chrome App.tsx keeps for

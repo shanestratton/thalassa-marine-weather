@@ -20,8 +20,9 @@
  * auto-sheet guard sees a follow that STARTED after the voyage began and
  * records it as confirmed rather than re-asking (hardening 2026-08-01).
  */
-import { fetchVoyageAsTrack } from './RoutesAndTracks';
-import { buildFollowRoutePlanFromRoute } from './followRoutePlan';
+import { fetchVoyageAsTrack, type RouteOrTrack } from './RoutesAndTracks';
+import { buildFollowRoutePlan, buildFollowRoutePlanFromRoute } from './followRoutePlan';
+import { displayRouteLabel, loadSavedTraces } from '../routeTracer';
 import { publishFollowedRoute } from './publishFollowedRoute';
 import { useFollowRouteStore } from '../../stores/followRouteStore';
 import { tracedRouteDirectUseBlockReason, tracedRouteFollowGeometry } from '../traceDirectUseGate';
@@ -35,17 +36,43 @@ const log = createLogger('followCastOffRoute');
  * missing or the verification gate refuses it (the caller's fallback is the
  * Log page's own follow sheet — never force an unverified line).
  */
-export async function followCastOffRoute(voyageId: string): Promise<boolean> {
+export async function followCastOffRoute(voyageId: string, savedRouteId?: string | null): Promise<boolean> {
     try {
         const logRoute = await fetchVoyageAsTrack(voyageId);
-        if (!logRoute) return false;
-        const steerRoute = tracedRouteFollowGeometry(logRoute);
+        let steerRoute: Pick<RouteOrTrack, 'savedRouteId' | 'points'>;
+        let exactPlan: ReturnType<typeof buildFollowRoutePlanFromRoute>;
+        if (logRoute) {
+            steerRoute = tracedRouteFollowGeometry(logRoute);
+        } else {
+            // A JUST-cast-off passage has no ship-log entries yet — GPS is
+            // still warming up — so there is no log line to assemble. The
+            // passage's route is the saved trace itself, which is local and
+            // already checked. This was the silent bail that made the Log
+            // page re-ask "which passage?" seconds after casting off from
+            // the passage that IS the answer (Shane 2026-08-26).
+            const routeId = savedRouteId?.trim();
+            if (!routeId) return false;
+            const saved = loadSavedTraces().find((trace) => trace.id === routeId);
+            if (!saved || saved.points.length < 2) return false;
+            steerRoute = { savedRouteId: routeId, points: saved.points };
+        }
         const blockReason = tracedRouteDirectUseBlockReason(steerRoute);
         if (blockReason) {
             log.info(`cast-off route not auto-followed: ${blockReason}`);
             return false;
         }
-        const exactPlan = buildFollowRoutePlanFromRoute(steerRoute);
+        if (logRoute) {
+            exactPlan = buildFollowRoutePlanFromRoute({ ...logRoute, points: steerRoute.points });
+        } else {
+            const saved = loadSavedTraces().find((trace) => trace.id === savedRouteId?.trim());
+            exactPlan = saved
+                ? buildFollowRoutePlan({
+                      label: displayRouteLabel(saved),
+                      points: steerRoute.points,
+                      timestamp: Date.parse(saved.createdAt) || undefined,
+                  })
+                : null;
+        }
         if (!exactPlan) return false;
         useFollowRouteStore.getState().startFollowing(exactPlan, voyageId, steerRoute.points);
         // Public page (fire-and-forget like the Log page's pick): tracking is
