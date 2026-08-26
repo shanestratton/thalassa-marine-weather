@@ -163,6 +163,18 @@ export async function startHandoffGps(retry = false): Promise<void> {
     updateCastOffHandoff({ gps: 'starting', gpsError: null });
     try {
         const { ShipLogService } = await import('./ShipLogService');
+        // ONE log at a time (Shane 2026-08-26: "ensure that there is not
+        // already a log being done"). The server allows a single active
+        // voyage, so a tracker recording under any OTHER id is an orphan
+        // from an earlier cycle — an ended passage whose GPS never let go,
+        // or a casual track. Stop it cleanly first: its entries flush and
+        // archive as a completed log, nothing is lost, and the new passage
+        // no longer bounces off "already recording a different voyage".
+        const before = ShipLogService.getTrackingStatus();
+        if (before.isTracking && before.currentVoyageId && before.currentVoyageId !== handoff.voyageId) {
+            await ShipLogService.stopTracking(before.currentVoyageId);
+            if (!isAuthIdentityScopeCurrent(scope)) return;
+        }
         // freshDeparture=true on the first start only — a retry may already
         // hold a partial fix and must not look like a brand-new cold start.
         await ShipLogService.startTracking(retry, handoff.voyageId, scope, !retry);
