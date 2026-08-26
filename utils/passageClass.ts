@@ -210,3 +210,45 @@ export function classifyCompletedVoyage(summary: {
         reasons,
     };
 }
+
+/**
+ * Stable key for "has this route already been offered the passage kit?" —
+ * ends + length, matching PassageKitPrompt's one-shot geometry key.
+ */
+export function routePromptKey(points: ReadonlyArray<{ lat: number; lon: number }>): string {
+    const a = points[0];
+    const b = points[points.length - 1];
+    return `${points.length}:${a.lat.toFixed(3)},${a.lon.toFixed(3)}:${b.lat.toFixed(3)},${b.lon.toFixed(3)}`;
+}
+
+// A route cast off from Passage Planning has BEEN through the kit — readiness
+// cards, crew, watches, float plan. Nudging "This is a passage → Passage
+// Planning" at the skipper who just arrived FROM Passage Planning was the
+// Shane 2026-08-26 screenshot. Durable (webview reloads survive it), small,
+// advisory-only — losing it merely re-shows a dismissible card.
+const KIT_ANSWERED_KEY = 'thalassa_passage_kit_answered';
+const KIT_ANSWERED_MAX = 8;
+
+export function markRouteKitAnswered(points: ReadonlyArray<{ lat: number; lon: number }>): void {
+    if (points.length < 2) return;
+    try {
+        const raw = localStorage.getItem(KIT_ANSWERED_KEY);
+        const keys: string[] = raw ? (JSON.parse(raw) as string[]) : [];
+        const key = routePromptKey(points);
+        const next = [key, ...keys.filter((k) => k !== key)].slice(0, KIT_ANSWERED_MAX);
+        localStorage.setItem(KIT_ANSWERED_KEY, JSON.stringify(next));
+    } catch {
+        /* advisory only */
+    }
+}
+
+export function isRouteKitAnswered(points: ReadonlyArray<{ lat: number; lon: number }>): boolean {
+    if (points.length < 2) return false;
+    try {
+        const raw = localStorage.getItem(KIT_ANSWERED_KEY);
+        if (!raw) return false;
+        return (JSON.parse(raw) as string[]).includes(routePromptKey(points));
+    } catch {
+        return false;
+    }
+}

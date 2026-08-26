@@ -1410,9 +1410,12 @@ describe('LogPage — Cast Off handoff', () => {
         expect(peekCastOffHandoff()).toMatchObject({ caution: null });
     });
 
-    it('surfaces a GPS start failure with a Retry that goes through the shared handoff start', async () => {
+    it('auto-retries a failed GPS start once, then hands the skipper the Retry card', async () => {
         stashCastOffHandoff({ voyageId: 'voyage-handoff', voyageName: 'Mackay → Airlie', caution: null });
         updateCastOffHandoff({ gps: 'failed', gpsError: 'Background GPS did not confirm the newly active passage.' });
+        // The page's ONE automatic retry fails too — the amber card with the
+        // manual Retry is the surface that remains.
+        shipLogHandoffMock.startTracking.mockRejectedValueOnce(new Error('Still no location access.'));
         shipLogHandoffMock.startTracking.mockResolvedValue(undefined);
         shipLogHandoffMock.getTrackingStatus.mockReturnValue({
             isTracking: true,
@@ -1420,15 +1423,22 @@ describe('LogPage — Cast Off handoff', () => {
         });
         render(<LogPage />);
 
+        await waitFor(() => expect(shipLogHandoffMock.startTracking).toHaveBeenCalledTimes(1));
         const alert = await screen.findByRole('alert');
         expect(alert).toHaveTextContent('Passage is active, but GPS voyage logging did not start.');
-        expect(alert).toHaveTextContent('Background GPS did not confirm the newly active passage.');
+        expect(alert).toHaveTextContent('Still no location access.');
 
         fireEvent.click(screen.getByRole('button', { name: 'Retry GPS Logging' }));
         // Confirmation then auto-clear: the page wipes a confirmed handoff
         // with no outstanding heads-up, so the settled state is null.
         await waitFor(() => expect(peekCastOffHandoff()).toBeNull());
-        expect(shipLogHandoffMock.startTracking).toHaveBeenCalledWith(true, 'voyage-handoff', expect.anything(), false);
+        expect(shipLogHandoffMock.startTracking).toHaveBeenCalledTimes(2);
+        expect(shipLogHandoffMock.startTracking).toHaveBeenLastCalledWith(
+            true,
+            'voyage-handoff',
+            expect.anything(),
+            false,
+        );
     });
 
     it('clears itself once GPS is confirmed and no heads-up remains', async () => {
