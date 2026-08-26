@@ -30,12 +30,36 @@ import {
 
 const provisionedStorageKey = (voyageId: string, scope?: AuthIdentityScope): string =>
     authScopedStorageKey(`thalassa_provisioned:${voyageId}`, scope);
+const provisionedStampKey = (voyageId: string, scope?: AuthIdentityScope): string =>
+    authScopedStorageKey(`thalassa_provisioned_at:${voyageId}`, scope);
 const galleyCrewCountStorageKey = (voyageId: string, scope?: AuthIdentityScope): string =>
     authScopedStorageKey(`thalassa_galley_crew_count:${voyageId}`, scope);
 
+const PROVISIONED_INHERIT_WINDOW_MS = 7 * 24 * 3_600_000;
+
 function readProvisioned(voyageId: string): boolean {
     try {
-        return localStorage.getItem(provisionedStorageKey(voyageId)) === 'true';
+        const own = localStorage.getItem(provisionedStorageKey(voyageId));
+        if (own !== null) return own === 'true';
+        // A brand-new voyage inherits a provisioning tick under a week old —
+        // the galley did not empty itself because a voyage row was re-minted
+        // (same rule as ReadinessCheckService inheritance, Shane 2026-08-26).
+        const scope = getAuthIdentityScope();
+        const probe = provisionedStorageKey('\u0000', scope);
+        const [prefix, suffix] = probe.split('\u0000');
+        const cutoff = Date.now() - PROVISIONED_INHERIT_WINDOW_MS;
+        for (let i = 0; i < localStorage.length; i++) {
+            const k = localStorage.key(i);
+            if (!k || !k.startsWith(prefix) || !k.endsWith(suffix)) continue;
+            if (localStorage.getItem(k) !== 'true') continue;
+            const siblingVoyageId = k.slice(prefix.length, k.length - suffix.length);
+            const stamp = Date.parse(localStorage.getItem(provisionedStampKey(siblingVoyageId, scope)) ?? '');
+            if (!Number.isFinite(stamp) || stamp < cutoff) continue;
+            localStorage.setItem(provisionedStorageKey(voyageId, scope), 'true');
+            localStorage.setItem(provisionedStampKey(voyageId, scope), new Date(stamp).toISOString());
+            return true;
+        }
+        return false;
     } catch {
         return false;
     }
@@ -598,6 +622,7 @@ export const GalleyCard: React.FC<GalleyCardProps> = ({
                             try {
                                 if (perms.voyageId) {
                                     localStorage.setItem(provisionedStorageKey(perms.voyageId), String(next));
+                                    localStorage.setItem(provisionedStampKey(perms.voyageId), new Date().toISOString());
                                 }
                             } catch {
                                 /* ignore */

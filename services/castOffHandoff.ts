@@ -43,6 +43,9 @@ export interface CastOffHandoff {
     /** Show the passage's route on the public page once GPS confirms —
      *  the skipper's choice from the Cast Off confirm step. */
     publishRoute: boolean;
+    /** Saved trace backing this passage — resolves the planned-route mirror
+     *  id the public page draws from. */
+    savedRouteId: string | null;
 }
 
 const PERSIST_KEY = 'thalassa_castoff_handoff';
@@ -63,7 +66,11 @@ function restore(): CastOffHandoff | null {
         // 'starting' cannot survive a process death — the start never
         // confirmed. Report it honestly so the retry surface appears.
         // Older persisted blobs predate the publish choice — default on.
-        const withPublish = { ...handoff, publishRoute: handoff.publishRoute ?? true };
+        const withPublish = {
+            ...handoff,
+            publishRoute: handoff.publishRoute ?? true,
+            savedRouteId: handoff.savedRouteId ?? null,
+        };
         if (withPublish.gps === 'starting') {
             return { ...withPublish, gps: 'failed', gpsError: 'The app closed before GPS logging confirmed.' };
         }
@@ -98,8 +105,15 @@ export function stashCastOffHandoff(handoff: {
     voyageName: string;
     caution: string | null;
     publishRoute?: boolean;
+    savedRouteId?: string | null;
 }): void {
-    current = { ...handoff, publishRoute: handoff.publishRoute ?? true, gps: 'starting', gpsError: null };
+    current = {
+        ...handoff,
+        publishRoute: handoff.publishRoute ?? true,
+        savedRouteId: handoff.savedRouteId ?? null,
+        gps: 'starting',
+        gpsError: null,
+    };
     emit();
 }
 
@@ -157,8 +171,19 @@ export async function startHandoffGps(retry = false): Promise<void> {
         // publishFollowedRoute queues durably on network failure.
         if (handoff.publishRoute !== false) {
             try {
-                const { publishFollowedRoute } = await import('./shiplog/publishFollowedRoute');
-                await publishFollowedRoute(handoff.voyageId);
+                // The public page draws the plan from ship_logs rows with
+                // source='planned_route' under the PLANNED-ROUTE MIRROR
+                // voyage — the saved trace's plannedRouteId — never the
+                // cast-off voyage itself, whose entries are live GPS fixes
+                // (linking the cast-off voyage to itself resolved to zero
+                // plan points and the passage never appeared; Shane
+                // 2026-08-26: "i pressed the show on the public page button,
+                // but it is not showing").
+                const planShiplogVoyageId = await resolvePlannedMirrorId(handoff.savedRouteId);
+                if (planShiplogVoyageId) {
+                    const { publishFollowedRoute } = await import('./shiplog/publishFollowedRoute');
+                    await publishFollowedRoute(planShiplogVoyageId);
+                }
             } catch {
                 /* the durable-intent layer owns retries */
             }
@@ -168,5 +193,21 @@ export async function startHandoffGps(retry = false): Promise<void> {
         const detail =
             cause instanceof Error && cause.message.trim() ? cause.message.trim() : 'Background GPS failed to start.';
         updateCastOffHandoff({ gps: 'failed', gpsError: detail });
+    }
+}
+
+/** The saved trace's planned-route mirror voyage id — what voyage_plan_links
+ *  must point at for the public page to draw the plan line. Null when the
+ *  trace is missing or predates mirror ids (nothing public could draw). */
+async function resolvePlannedMirrorId(savedRouteId: string | null): Promise<string | null> {
+    const routeId = savedRouteId?.trim();
+    if (!routeId) return null;
+    try {
+        const { loadSavedTraces } = await import('./routeTracer');
+        const trace = loadSavedTraces().find((candidate) => candidate.id === routeId);
+        const mirror = trace?.plannedRouteId?.trim();
+        return mirror || null;
+    } catch {
+        return null;
     }
 }

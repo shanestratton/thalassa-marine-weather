@@ -149,7 +149,7 @@ describe('passage environment readiness journeys', () => {
         });
     });
 
-    it('never greens an unavailable field; route/speed changes re-brief; a data refresh keeps the ack', async () => {
+    it('never greens before an ack; a route change re-briefs; speed tweaks and data refreshes keep it', async () => {
         const onReviewedChange = vi.fn();
         currentMocks.fetchCurrents.mockResolvedValueOnce(unavailableCurrent());
         const { rerender } = render(
@@ -185,28 +185,30 @@ describe('passage environment readiness journeys', () => {
             />,
         );
         await waitFor(() => expect(onReviewedChange).toHaveBeenLastCalledWith(false));
-        expect(await screen.findByText(/Route or vessel speed changed/)).toBeInTheDocument();
+        expect(await screen.findByText(/The route changed or the acknowledgement expired/)).toBeInTheDocument();
 
         fireEvent.click(screen.getByRole('button', { name: 'Acknowledge Current Briefing' }));
         await waitFor(() => expect(onReviewedChange).toHaveBeenLastCalledWith(true));
+        // A cruising-speed tweak no longer kills the ack (Shane 2026-08-26:
+        // "those green buttons refuse to stay green") — the readiness tick
+        // binds to the ROUTE and the 7-day TTL only.
         act(() => {
             useSettingsStore.setState((state) => ({
                 settings: { ...state.settings, vessel: { ...state.settings.vessel!, cruisingSpeed: 7 } },
             }));
         });
-        await waitFor(() => expect(onReviewedChange).toHaveBeenLastCalledWith(false));
+        await screen.findByText(/Surface Currents/);
+        expect(onReviewedChange).toHaveBeenLastCalledWith(true);
 
-        fireEvent.click(await screen.findByRole('button', { name: 'Acknowledge Current Briefing' }));
-        await waitFor(() => expect(onReviewedChange).toHaveBeenLastCalledWith(true));
-        // A provider DATA refresh no longer kills the ack (Shane 2026-08-26:
-        // hourly frames re-nagged on every page open) — inputs + TTL bound it.
+        // A provider DATA refresh keeps it too (hourly frames re-nagged on
+        // every page open before 2026-08-26).
         currentMocks.fetchCurrents.mockResolvedValue(availableCurrent('current-data-b'));
         fireEvent.click(screen.getByRole('button', { name: /Enhance/ }));
         await screen.findByText(/Surface Currents/);
         await waitFor(() => expect(onReviewedChange).toHaveBeenLastCalledWith(true));
     });
 
-    it('binds accepted weather to departure, exact route and vessel limits; a data refresh keeps it', async () => {
+    it('binds accepted weather to the exact route; departure, limits and data refreshes keep it', async () => {
         const first = weatherResult();
         weatherMocks.analyse.mockResolvedValue(first);
         const onReviewedChange = vi.fn();
@@ -229,10 +231,14 @@ describe('passage environment readiness journeys', () => {
 
         rerender(<WeatherWindowCard {...props} routeCoordinates={ROUTE_B} />);
         await waitFor(() => expect(onReviewedChange).toHaveBeenLastCalledWith(false));
-        expect(screen.getByText(/Departure, route or vessel limits changed/)).toBeInTheDocument();
+        expect(screen.getByText(/The route changed or the acceptance expired/)).toBeInTheDocument();
 
         fireEvent.click(screen.getByRole('button', { name: 'Accept This Window' }));
         await waitFor(() => expect(onReviewedChange).toHaveBeenLastCalledWith(true));
+        // A departure change or a comfort tweak no longer kills the
+        // acceptance (Shane 2026-08-26): the readiness tick binds to the
+        // ROUTE and the 7-day TTL only. Every re-plan mints a new departure,
+        // which un-greened this card on every cycle.
         rerender(
             <WeatherWindowCard
                 {...props}
@@ -240,19 +246,16 @@ describe('passage environment readiness journeys', () => {
                 departureTime={new Date(Date.parse(first.windows[0].time) + 60 * 60 * 1000).toISOString()}
             />,
         );
-        await waitFor(() => expect(onReviewedChange).toHaveBeenLastCalledWith(false));
+        await screen.findByText('Thu, 6 Aug · 06:00');
+        expect(onReviewedChange).toHaveBeenLastCalledWith(true);
 
-        fireEvent.click(screen.getByRole('button', { name: 'Accept This Window' }));
-        await waitFor(() => expect(onReviewedChange).toHaveBeenLastCalledWith(true));
         act(() => {
             useSettingsStore.setState((state) => ({
                 settings: { ...state.settings, comfortParams: { ...state.settings.comfortParams, maxWindKts: 24 } },
             }));
         });
-        await waitFor(() => expect(onReviewedChange).toHaveBeenLastCalledWith(false));
-
-        fireEvent.click(await screen.findByRole('button', { name: 'Accept This Window' }));
-        await waitFor(() => expect(onReviewedChange).toHaveBeenLastCalledWith(true));
+        await screen.findByText('Thu, 6 Aug · 06:00');
+        expect(onReviewedChange).toHaveBeenLastCalledWith(true);
         // A forecast DATA refresh (same inputs, same windows, new provider
         // data) keeps the acceptance. Reuse `first` wholesale: the fixture
         // mints a fresh window time per call, which would masquerade as a

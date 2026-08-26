@@ -48,7 +48,13 @@ describe('followCastOffRoute', () => {
     it('falls back to the saved trace when the voyage has no log entries yet', async () => {
         mocks.fetchVoyageAsTrack.mockResolvedValue(null);
         mocks.loadSavedTraces.mockReturnValue([
-            { id: 'route-1', name: 'Newport → Mooloolaba', createdAt: '2026-08-20T00:00:00Z', points: tracePoints },
+            {
+                id: 'route-1',
+                name: 'Newport → Mooloolaba',
+                createdAt: '2026-08-20T00:00:00Z',
+                points: tracePoints,
+                plannedRouteId: 'planned-1',
+            },
         ]);
 
         expect(await followCastOffRoute('voyage-1', 'route-1')).toBe(true);
@@ -57,13 +63,21 @@ describe('followCastOffRoute', () => {
         expect(voyageId).toBe('voyage-1');
         expect(coords).toEqual(tracePoints);
         expect(plan).toBeTruthy();
-        expect(mocks.publishFollowedRoute).toHaveBeenCalledWith('voyage-1');
+        // The public page draws plan lines from the planned-route MIRROR
+        // voyage, never the cast-off voyage itself.
+        expect(mocks.publishFollowedRoute).toHaveBeenCalledWith('planned-1');
     });
 
     it('still refuses when the gate blocks — an unverified line never auto-follows', async () => {
         mocks.fetchVoyageAsTrack.mockResolvedValue(null);
         mocks.loadSavedTraces.mockReturnValue([
-            { id: 'route-1', name: 'Newport → Mooloolaba', createdAt: '2026-08-20T00:00:00Z', points: tracePoints },
+            {
+                id: 'route-1',
+                name: 'Newport → Mooloolaba',
+                createdAt: '2026-08-20T00:00:00Z',
+                points: tracePoints,
+                plannedRouteId: 'planned-1',
+            },
         ]);
         mocks.blockReason.mockReturnValue('not verified');
 
@@ -74,7 +88,13 @@ describe('followCastOffRoute', () => {
     it('opting out of the public page skips the publish but still follows locally', async () => {
         mocks.fetchVoyageAsTrack.mockResolvedValue(null);
         mocks.loadSavedTraces.mockReturnValue([
-            { id: 'route-1', name: 'Newport → Mooloolaba', createdAt: '2026-08-20T00:00:00Z', points: tracePoints },
+            {
+                id: 'route-1',
+                name: 'Newport → Mooloolaba',
+                createdAt: '2026-08-20T00:00:00Z',
+                points: tracePoints,
+                plannedRouteId: 'planned-1',
+            },
         ]);
 
         expect(await followCastOffRoute('voyage-1', 'route-1', false)).toBe(true);

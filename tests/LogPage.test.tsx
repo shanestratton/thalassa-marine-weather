@@ -95,6 +95,24 @@ vi.mock('../services/shiplog/RoutesAndTracks', () => ({
     groupByVoyage: vi.fn(() => []),
 }));
 
+vi.mock('../services/routeTracer', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('../services/routeTracer')>()),
+    // The cast-off handoff resolves the planned-route mirror id from the
+    // saved trace before publishing to the public page.
+    loadSavedTraces: () => [
+        {
+            id: 'route-x',
+            name: 'Mackay → Airlie',
+            createdAt: '2026-08-20T00:00:00Z',
+            points: [
+                { lat: -21.1, lon: 149.2 },
+                { lat: -20.3, lon: 148.7 },
+            ],
+            plannedRouteId: 'planned-x',
+        },
+    ],
+}));
+
 vi.mock('../services/shiplog/publishFollowedRoute', () => ({
     publishFollowedRoute: publishFollowedRouteMock,
     clearFollowedRoute: clearFollowedRouteMock,
@@ -1412,7 +1430,12 @@ describe('LogPage — Cast Off handoff', () => {
     });
 
     it('auto-retries a failed GPS start once, then hands the skipper the Retry card', async () => {
-        stashCastOffHandoff({ voyageId: 'voyage-handoff', voyageName: 'Mackay → Airlie', caution: null });
+        stashCastOffHandoff({
+            voyageId: 'voyage-handoff',
+            voyageName: 'Mackay → Airlie',
+            caution: null,
+            savedRouteId: 'route-x',
+        });
         updateCastOffHandoff({ gps: 'failed', gpsError: 'Background GPS did not confirm the newly active passage.' });
         // The page's ONE automatic retry fails too — the amber card with the
         // manual Retry is the surface that remains.
@@ -1441,8 +1464,10 @@ describe('LogPage — Cast Off handoff', () => {
             false,
         );
         // Tracking just confirmed — THIS is the moment the public page can
-        // link the passage, so the publish fires here (default: show).
-        expect(publishFollowedRouteMock).toHaveBeenCalledWith('voyage-handoff');
+        // link the passage, so the publish fires here (default: show), and
+        // it targets the planned-route MIRROR voyage the public page draws
+        // from, never the cast-off voyage itself.
+        expect(publishFollowedRouteMock).toHaveBeenCalledWith('planned-x');
     });
 
     it('respects the skipper who kept the passage private', async () => {
@@ -1451,6 +1476,7 @@ describe('LogPage — Cast Off handoff', () => {
             voyageName: 'Quiet trip',
             caution: null,
             publishRoute: false,
+            savedRouteId: 'route-x',
         });
         updateCastOffHandoff({ gps: 'failed', gpsError: 'first start died' });
         shipLogHandoffMock.startTracking.mockResolvedValue(undefined);
