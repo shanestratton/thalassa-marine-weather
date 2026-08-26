@@ -289,7 +289,27 @@ async function resolvePlannedMirrorId(
             if (byName.length === 1) trace = byName[0];
         }
         const mirror = trace?.plannedRouteId?.trim();
-        return mirror || null;
+        if (mirror) return mirror;
+        // The LOCAL trace copy can predate the link columns while the
+        // server's saved_routes row carries planned_route_id (the graph-
+        // integrity backfill runs server-side) — exactly the gap that made
+        // tonight's publish report "no planned mirror" for a route whose
+        // mirror existed all along (Shane 2026-08-26). The server is
+        // authoritative; ask it before giving up.
+        const serverRouteId = routeId ?? trace?.id;
+        if (serverRouteId) {
+            const { supabase } = await import('./supabase');
+            if (supabase) {
+                const { data } = await supabase
+                    .from('saved_routes')
+                    .select('planned_route_id')
+                    .eq('id', serverRouteId)
+                    .maybeSingle();
+                const serverMirror = typeof data?.planned_route_id === 'string' ? data.planned_route_id.trim() : '';
+                if (serverMirror) return serverMirror;
+            }
+        }
+        return null;
     } catch {
         return null;
     }
