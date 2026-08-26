@@ -34,6 +34,7 @@ import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { OverlayPortal } from '../ui/OverlayPortal';
 import { EmptyState } from '../ui/EmptyState';
 import { getAuthIdentityScope, isAuthIdentityScopeCurrent } from '../../services/authIdentityScope';
+import { stashCastOffHandoff, startHandoffGps } from '../../services/castOffHandoff';
 import { FloatPlanSheet } from './FloatPlanSheet';
 import { composeArrivalMessage } from '../../services/floatPlan';
 import { useSettingsStore } from '../../stores/settingsStore';
@@ -57,10 +58,6 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
     const [ending, setEnding] = useState(false);
     const [trackingRetrying, setTrackingRetrying] = useState(false);
     const [trackingWarning, setTrackingWarning] = useState<string | null>(null);
-    // Route-check heads-up from castOff(). Advisory only (Shane 2026-08-26:
-    // "allow it through first, then we will put the gates on") — the passage
-    // is already active when this renders.
-    const [routeCaution, setRouteCaution] = useState<string | null>(null);
     const [error, setError] = useState('');
     const [safetyConfirmed, setSafetyConfirmed] = useState(false);
 
@@ -213,34 +210,21 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
             if (!operationIsCurrent()) return;
             if (result.ok && result.voyage) {
                 activatedVoyage = result.voyage;
-                setRouteCaution(result.caution ?? null);
-                // The passage is already active remotely. Reflect that truth
-                // before touching native GPS so a bridge/permission failure
-                // can never leave a retry of the destructive Cast Off action
-                // looking like the right recovery.
-                setTrackingWarning('Passage is active. GPS voyage logging is starting and has not yet been verified.');
-                setActiveVoyage(activatedVoyage);
-                setStep('active');
-
-                // Casting off and NOT starting the GPS trip log is almost
-                // never what the skipper actually wants — we used to show a
-                // separate "Log this track?" step that everyone tapped Yes
-                // on. Just start it. The Nav Station hero band's "Underway"
-                // pill keys off this; without this start, casting off
-                // would produce a stale "active" voyage with no trip log.
-                const { ShipLogService } = await import('../../services/ShipLogService');
-                if (!operationIsCurrent()) return;
-                // freshDeparture=true — this voyage was minted a few lines up.
-                // Passing its id as continueVoyageId made cast-off look like a
-                // mid-passage resume, which skipped the cold-start fast-lock
-                // and left "Acquiring GPS fix…" starving at the dock.
-                await ShipLogService.startTracking(false, activatedVoyage.id, operationScope, true);
-                if (!operationIsCurrent()) return;
-                const tracking = ShipLogService.getTrackingStatus();
-                if (!tracking.isTracking || tracking.currentVoyageId !== activatedVoyage.id) {
-                    throw new Error('Background GPS did not confirm the newly active passage.');
-                }
-                setTrackingWarning(null);
+                // Hand off to the Log page IMMEDIATELY (Shane 2026-08-26:
+                // "press the cast off button and the next button after that,
+                // it goes to the log page"). The old flow dwelt here while a
+                // cold GPS fix warmed at the dock — or stranded the skipper
+                // in this panel when it failed. GPS logging now starts at
+                // service level through the handoff (it must survive this
+                // panel unmounting on navigation), and the Log page renders
+                // the honest starting/failed/confirmed state plus the
+                // route-check heads-up.
+                stashCastOffHandoff({
+                    voyageId: activatedVoyage.id,
+                    voyageName: activatedVoyage.voyage_name,
+                    caution: result.caution ?? null,
+                });
+                void startHandoffGps();
                 onCastOff?.(activatedVoyage);
             } else {
                 setError(result.error || 'Cast off failed');
@@ -248,16 +232,8 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
         } catch (cause) {
             if (!operationIsCurrent()) return;
             const detail =
-                cause instanceof Error && cause.message.trim()
-                    ? cause.message.trim()
-                    : 'Background GPS failed to start.';
-            if (activatedVoyage) {
-                setTrackingWarning(
-                    `Passage is active, but GPS voyage logging did not start. ${detail} Retry GPS Logging before relying on the track.`,
-                );
-            } else {
-                setError(`Cast Off could not be completed. ${detail}`);
-            }
+                cause instanceof Error && cause.message.trim() ? cause.message.trim() : 'Cast Off failed unexpectedly.';
+            setError(`Cast Off could not be completed. ${detail}`);
         } finally {
             if (operationIsCurrent()) setCasting(false);
         }
@@ -751,18 +727,6 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                         )}
                         {activeVoyage && showFloatPlan && (
                             <FloatPlanSheet voyage={activeVoyage} onClose={() => setShowFloatPlan(false)} />
-                        )}
-
-                        {routeCaution && (
-                            <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-400/25 space-y-1.5">
-                                <p className="text-[11px] font-black uppercase tracking-[0.2em] text-amber-300">
-                                    Route check heads-up
-                                </p>
-                                <p className="text-sm text-amber-100">{routeCaution}</p>
-                                <p className="text-xs text-amber-200/70">
-                                    You are underway — this did not stop Cast Off. Worth a recheck when convenient.
-                                </p>
-                            </div>
                         )}
 
                         {trackingWarning && (

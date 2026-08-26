@@ -50,6 +50,10 @@ const gpsHealthMock = vi.hoisted(() => ({
     value: null as null | { usable: boolean; reason: string; actionable: boolean },
 }));
 const acquireFreshOwnshipPositionMock = vi.hoisted(() => vi.fn());
+const shipLogHandoffMock = vi.hoisted(() => ({
+    startTracking: vi.fn(),
+    getTrackingStatus: vi.fn(() => ({ isTracking: false, currentVoyageId: null as string | null })),
+}));
 
 // ── Mock services & context ──
 vi.mock('../utils/createLogger', () => ({
@@ -232,6 +236,17 @@ vi.mock('../pages/log/StatsSheet', () => ({
     StatsSheet: ({ voyageGroups }: { voyageGroups: Array<{ voyageId: string }> }) => (
         <div data-testid="stats-sheet" data-voyages={JSON.stringify(voyageGroups.map((voyage) => voyage.voyageId))} />
     ),
+}));
+
+vi.mock('../services/ShipLogService', () => ({
+    ShipLogService: {
+        initialize: vi.fn(),
+        getCurrentVoyageId: vi.fn(() => null),
+        getEngineRunning: vi.fn(() => undefined),
+        setEngineRunning: vi.fn(),
+        getTrackingStatus: shipLogHandoffMock.getTrackingStatus,
+        startTracking: shipLogHandoffMock.startTracking,
+    },
 }));
 
 vi.mock('@capacitor/preferences', () => ({
@@ -419,6 +434,12 @@ vi.mock('../hooks/useLogPageState', () => ({
 }));
 
 import { LogPage, resetFollowPromptGuardsForTest } from '../pages/LogPage';
+import {
+    clearCastOffHandoff,
+    peekCastOffHandoff,
+    stashCastOffHandoff,
+    updateCastOffHandoff,
+} from '../services/castOffHandoff';
 
 describe('LogPage', () => {
     afterEach(() => {
@@ -1352,5 +1373,71 @@ describe('LogPage — the acquiring surfaces tell the truth', () => {
         // The banner's Fix deep-link went with the banner — the badge names
         // the cause and the GPS disclaimer modal remains the actionable door.
         expect(screen.queryByRole('button', { name: 'Fix' })).not.toBeInTheDocument();
+    });
+});
+
+describe('LogPage — Cast Off handoff', () => {
+    beforeEach(() => {
+        resetFollowPromptGuardsForTest();
+        logPageStateOverrides.state = {};
+        logPageStateOverrides.hook = {};
+        clearCastOffHandoff();
+        shipLogHandoffMock.startTracking.mockReset();
+        shipLogHandoffMock.getTrackingStatus.mockReturnValue({ isTracking: false, currentVoyageId: null });
+    });
+
+    afterEach(() => {
+        clearCastOffHandoff();
+    });
+
+    it('shows the honest GPS-starting state instead of the slide, plus the route heads-up', async () => {
+        stashCastOffHandoff({
+            voyageId: 'voyage-handoff',
+            voyageName: 'Mackay → Airlie',
+            caution: 'The traced route changed after it was checked.',
+        });
+        render(<LogPage />);
+
+        expect(await screen.findByText(/GPS voyage logging is starting for/)).toBeInTheDocument();
+        expect(screen.getByText('Route check heads-up')).toBeInTheDocument();
+        expect(screen.getByText('The traced route changed after it was checked.')).toBeInTheDocument();
+        // The slide would mint a SECOND voyage while the cast-off one is
+        // still attaching its GPS log — it must not be offered.
+        expect(screen.queryByText('Slide to Start Tracking')).not.toBeInTheDocument();
+
+        fireEvent.click(screen.getByRole('button', { name: 'Got it' }));
+        expect(screen.queryByText('Route check heads-up')).not.toBeInTheDocument();
+        expect(peekCastOffHandoff()).toMatchObject({ caution: null });
+    });
+
+    it('surfaces a GPS start failure with a Retry that goes through the shared handoff start', async () => {
+        stashCastOffHandoff({ voyageId: 'voyage-handoff', voyageName: 'Mackay → Airlie', caution: null });
+        updateCastOffHandoff({ gps: 'failed', gpsError: 'Background GPS did not confirm the newly active passage.' });
+        shipLogHandoffMock.startTracking.mockResolvedValue(undefined);
+        shipLogHandoffMock.getTrackingStatus.mockReturnValue({
+            isTracking: true,
+            currentVoyageId: 'voyage-handoff',
+        });
+        render(<LogPage />);
+
+        const alert = await screen.findByRole('alert');
+        expect(alert).toHaveTextContent('Passage is active, but GPS voyage logging did not start.');
+        expect(alert).toHaveTextContent('Background GPS did not confirm the newly active passage.');
+
+        fireEvent.click(screen.getByRole('button', { name: 'Retry GPS Logging' }));
+        // Confirmation then auto-clear: the page wipes a confirmed handoff
+        // with no outstanding heads-up, so the settled state is null.
+        await waitFor(() => expect(peekCastOffHandoff()).toBeNull());
+        expect(shipLogHandoffMock.startTracking).toHaveBeenCalledWith(true, 'voyage-handoff', expect.anything(), false);
+    });
+
+    it('clears itself once GPS is confirmed and no heads-up remains', async () => {
+        stashCastOffHandoff({ voyageId: 'voyage-handoff', voyageName: 'Mackay → Airlie', caution: null });
+        updateCastOffHandoff({ gps: 'confirmed' });
+        render(<LogPage />);
+
+        await waitFor(() => expect(peekCastOffHandoff()).toBeNull());
+        expect(screen.queryByText(/GPS voyage logging is starting/)).not.toBeInTheDocument();
+        expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     });
 });

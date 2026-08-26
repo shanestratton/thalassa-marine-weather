@@ -20,6 +20,13 @@ import { TraceReportModal } from '../components/map/TraceReportModal';
 import { AddEntryModal } from '../components/AddEntryModal';
 import { useToast } from '../components/Toast';
 import { SlideToAction } from '../components/ui/SlideToAction';
+import {
+    clearCastOffHandoff,
+    peekCastOffHandoff,
+    startHandoffGps,
+    subscribeCastOffHandoff,
+    updateCastOffHandoff,
+} from '../services/castOffHandoff';
 import { VoyageStatsPanel } from '../components/VoyageStatsPanel';
 import { EditEntryModal } from '../components/EditEntryModal';
 import { TrackMapViewer } from '../components/TrackMapViewer';
@@ -190,6 +197,18 @@ export function resetFollowPromptGuardsForTest(): void {
 
 export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
     const identityScope = useSyncExternalStore(subscribeIdentitySnapshot, getIdentitySnapshot, getIdentitySnapshot);
+
+    // Cast Off handoff — Passage Planning's Cast Off lands here immediately
+    // and this page owns the honest GPS starting/failed state plus the
+    // route-check heads-up (Shane 2026-08-26: "act as though we went through
+    // that page"). Cleared automatically once GPS is confirmed and any
+    // heads-up has been acknowledged.
+    const castOffHandoff = useSyncExternalStore(subscribeCastOffHandoff, peekCastOffHandoff, peekCastOffHandoff);
+    useEffect(() => {
+        if (castOffHandoff && castOffHandoff.gps === 'confirmed' && !castOffHandoff.caution) {
+            clearCastOffHandoff();
+        }
+    }, [castOffHandoff]);
     const [pageStateScope, setPageStateScope] = useState(identityScope);
     const previousIdentityScopeRef = useRef(identityScope);
     const pageBelongsToCurrentIdentity =
@@ -1922,6 +1941,57 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                         </div>
                     )}
 
+                    {castOffHandoff && (castOffHandoff.caution || castOffHandoff.gps !== 'confirmed') && (
+                        <div className="px-4 mb-2 space-y-2">
+                            {castOffHandoff.gps === 'starting' && !isTracking && (
+                                <div className="rounded-xl border border-emerald-400/25 bg-emerald-500/10 px-3 py-2.5 flex items-center gap-2.5">
+                                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+                                    <p className="text-sm font-semibold text-emerald-100">
+                                        Underway — GPS voyage logging is starting for “{castOffHandoff.voyageName}”…
+                                    </p>
+                                </div>
+                            )}
+                            {castOffHandoff.gps === 'failed' && (
+                                <div
+                                    role="alert"
+                                    className="rounded-xl border border-amber-400/25 bg-amber-500/10 px-3 py-2.5 space-y-2"
+                                >
+                                    <p className="text-sm font-semibold text-amber-100">
+                                        Passage is active, but GPS voyage logging did not start.
+                                        {castOffHandoff.gpsError ? ` ${castOffHandoff.gpsError}` : ''}
+                                    </p>
+                                    <button
+                                        type="button"
+                                        onClick={() => void startHandoffGps(true)}
+                                        className="min-h-[44px] rounded-xl border border-amber-300/25 bg-amber-400/15 px-3 py-2 text-xs font-black text-amber-100"
+                                    >
+                                        Retry GPS Logging
+                                    </button>
+                                </div>
+                            )}
+                            {castOffHandoff.caution && (
+                                <div className="rounded-xl border border-amber-400/25 bg-amber-500/10 px-3 py-2.5 space-y-1.5">
+                                    <p className="text-[11px] font-black uppercase tracking-[0.2em] text-amber-300">
+                                        Route check heads-up
+                                    </p>
+                                    <p className="text-sm text-amber-100">{castOffHandoff.caution}</p>
+                                    <div className="flex items-center justify-between gap-2">
+                                        <p className="text-xs text-amber-200/70">
+                                            This did not stop Cast Off. Worth a recheck when convenient.
+                                        </p>
+                                        <button
+                                            type="button"
+                                            onClick={() => updateCastOffHandoff({ caution: null })}
+                                            className="shrink-0 rounded-lg border border-amber-300/20 px-2 py-1 text-xs font-black text-amber-200/80"
+                                        >
+                                            Got it
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    )}
+
                     {isTracking ? (
                         <>
                             {/* ── TRACKING MODE: Live card fills entire space ── */}
@@ -2473,14 +2543,16 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                         )}
                                     </div>
                                 )}
-                                <SlideToAction
-                                    label="Slide to Start Tracking"
-                                    thumbIcon={<PlayIcon className="w-5 h-5 text-white" />}
-                                    onConfirm={beginCastOff}
-                                    loading={checkingStartGps}
-                                    loadingText="Checking GPS…"
-                                    theme="emerald"
-                                />
+                                {!castOffHandoff ? (
+                                    <SlideToAction
+                                        label="Slide to Start Tracking"
+                                        thumbIcon={<PlayIcon className="w-5 h-5 text-white" />}
+                                        onConfirm={beginCastOff}
+                                        loading={checkingStartGps}
+                                        loadingText="Checking GPS…"
+                                        theme="emerald"
+                                    />
+                                ) : null}
                             </div>
                         </>
                     )}
