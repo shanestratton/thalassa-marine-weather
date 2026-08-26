@@ -37,7 +37,12 @@ import { ShipLogService } from '../../services/ShipLogService';
 import { useUIStore } from '../../stores/uiStore';
 import { PassageStore } from '../../stores/PassageStore';
 import { useFollowRouteStore } from '../../stores/followRouteStore';
-import { classifyPlannedRoute, type PassageVerdict } from '../../utils/passageClass';
+import {
+    classifyPlannedRoute,
+    isRouteKitAnswered,
+    routePromptKey,
+    type PassageVerdict,
+} from '../../utils/passageClass';
 import { triggerHaptic } from '../../utils/system';
 
 /** Best available plan for the voyage just started, or null for a casual
@@ -86,9 +91,10 @@ export const PassageKitPrompt: React.FC = () => {
     const promptedKeys = useRef<Set<string>>(new Set());
     const offer = useCallback((points: { lat: number; lon: number }[], speedKts?: number) => {
         if (points.length < 2) return;
-        const a = points[0];
-        const b = points[points.length - 1];
-        const key = `${points.length}:${a.lat.toFixed(3)},${a.lon.toFixed(3)}:${b.lat.toFixed(3)},${b.lon.toFixed(3)}`;
+        // A route that already went through Passage Planning (cast off from
+        // the kit itself) never re-nudges toward the page it came from.
+        if (isRouteKitAnswered(points)) return;
+        const key = routePromptKey(points);
         if (promptedKeys.current.has(key)) return;
         const verdict = classifyPlannedRoute(points, Date.now(), speedKts);
         if (verdict.kind !== 'passage') return;

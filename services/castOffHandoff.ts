@@ -19,8 +19,13 @@
  * presented as live before it is; it is presented as exactly what it is,
  * on the page the skipper expects to be on.
  *
- * Module-level state, deliberately not persisted: a handoff only makes sense
- * in the seconds-to-minutes after a Cast Off in this same app session.
+ * Persisted to localStorage with a 12-hour shelf life: the app dying right
+ * after Cast Off (Shane's boat, 2026-08-26 — flight recorder logged a kill
+ * seconds after departure) used to take the handoff with it, so the Log page
+ * never showed the GPS-failed retry card and the passage sat "active, GPS
+ * log off" for an hour. A restored handoff that was still 'starting' when
+ * the process died is downgraded to 'failed' — the start never confirmed —
+ * and the Log page auto-retries it once.
  */
 
 import { getAuthIdentityScope, isAuthIdentityScopeCurrent } from './authIdentityScope';
@@ -37,10 +42,49 @@ export interface CastOffHandoff {
     gpsError: string | null;
 }
 
-let current: CastOffHandoff | null = null;
+const PERSIST_KEY = 'thalassa_castoff_handoff';
+const PERSIST_MAX_AGE_MS = 12 * 3_600_000;
+
+interface PersistedHandoff extends CastOffHandoff {
+    stashedAt: number;
+}
+
+function restore(): CastOffHandoff | null {
+    try {
+        const raw = localStorage.getItem(PERSIST_KEY);
+        if (!raw) return null;
+        const parsed = JSON.parse(raw) as PersistedHandoff;
+        if (!parsed?.voyageId || typeof parsed.stashedAt !== 'number') return null;
+        if (Date.now() - parsed.stashedAt > PERSIST_MAX_AGE_MS) return null;
+        const { stashedAt: _stashedAt, ...handoff } = parsed;
+        // 'starting' cannot survive a process death — the start never
+        // confirmed. Report it honestly so the retry surface appears.
+        if (handoff.gps === 'starting') {
+            return { ...handoff, gps: 'failed', gpsError: 'The app closed before GPS logging confirmed.' };
+        }
+        return handoff;
+    } catch {
+        return null;
+    }
+}
+
+function persist(): void {
+    try {
+        if (!current) {
+            localStorage.removeItem(PERSIST_KEY);
+        } else {
+            localStorage.setItem(PERSIST_KEY, JSON.stringify({ ...current, stashedAt: Date.now() }));
+        }
+    } catch {
+        /* persistence is a convenience; the in-memory handoff still works */
+    }
+}
+
+let current: CastOffHandoff | null = restore();
 const listeners = new Set<() => void>();
 
 function emit(): void {
+    persist();
     for (const listener of listeners) listener();
 }
 

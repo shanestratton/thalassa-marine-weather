@@ -282,6 +282,18 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         clearEmptyPruneNotice,
     } = useLogPageState();
 
+    // One automatic retry per handed-off voyage: an app death right after
+    // Cast Off restores the handoff as 'failed' — start GPS again without
+    // making the skipper find a button first. A second failure keeps the
+    // amber Retry card, which remains the manual path.
+    const handoffAutoRetryRef = useRef<string | null>(null);
+    useEffect(() => {
+        if (!castOffHandoff || castOffHandoff.gps !== 'failed' || state.isTracking) return;
+        if (handoffAutoRetryRef.current === castOffHandoff.voyageId) return;
+        handoffAutoRetryRef.current = castOffHandoff.voyageId;
+        void startHandoffGps(true);
+    }, [castOffHandoff, state.isTracking]);
+
     const toast = useToast();
 
     // ── Cast-off "Follow a route?" prompt (Shane 2026-07-17) ──

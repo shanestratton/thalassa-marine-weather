@@ -23,6 +23,7 @@
 import { fetchVoyageAsTrack, type RouteOrTrack } from './RoutesAndTracks';
 import { buildFollowRoutePlan, buildFollowRoutePlanFromRoute } from './followRoutePlan';
 import { displayRouteLabel, loadSavedTraces } from '../routeTracer';
+import { markRouteKitAnswered } from '../../utils/passageClass';
 import { publishFollowedRoute } from './publishFollowedRoute';
 import { useFollowRouteStore } from '../../stores/followRouteStore';
 import { tracedRouteDirectUseBlockReason, tracedRouteFollowGeometry } from '../traceDirectUseGate';
@@ -74,6 +75,10 @@ export async function followCastOffRoute(voyageId: string, savedRouteId?: string
                 : null;
         }
         if (!exactPlan) return false;
+        // This passage was born in Passage Planning — the kit is answered by
+        // construction. Mark BEFORE following so the nudge's route-committed
+        // trigger cannot fire first.
+        markRouteKitAnswered(steerRoute.points);
         useFollowRouteStore.getState().startFollowing(exactPlan, voyageId, steerRoute.points);
         // Public page (fire-and-forget like the Log page's pick): tracking is
         // already live, so this resolves 'linked' — or queues offline.
