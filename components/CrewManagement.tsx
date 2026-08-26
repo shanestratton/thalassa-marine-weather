@@ -9,7 +9,7 @@
  *   - InviteCrewModal: invite form
  */
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { t } from '../theme';
 import { useAuthStore } from '../stores/authStore';
 import { useSettings } from '../context/SettingsContext';
@@ -86,6 +86,7 @@ import { UsersIcon, CompassIcon, CalendarGridIcon, AnchorIcon, AlertTriangleIcon
 import { InviteCrewModal } from './crew/InviteCrewModal';
 import { CrewRoster } from './crew/CrewRoster';
 import { ReadinessCardStack } from './crew/ReadinessCardStack';
+import { SavedRoutePicker, type SavedRoutePickerRow } from './crew/SavedRoutePicker';
 import { PageHeader } from './ui/PageHeader';
 import {
     departureOnLocalDate,
@@ -1168,8 +1169,13 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
             for (const trace of canonicalById.values()) {
                 if (trace.passageVoyageId) traceByPassageVoyage.set(trace.passageVoyageId, trace.id);
             }
-            const routeKeyOf = (row: VoyageRow): string | undefined =>
-                row.saved_route_id?.trim() || traceByPassageVoyage.get(row.id);
+            const routeKeyOf = (row: VoyageRow): string | undefined => {
+                const base = row.saved_route_id?.trim() || traceByPassageVoyage.get(row.id);
+                if (!base) return undefined;
+                // Leg 1's trace id doubles as the trip id — a materialised
+                // passage row must not collapse into leg 1's slot.
+                return /\(passage\)/i.test(row.voyage_name) ? `trip:${base}` : base;
+            };
             const bestByRoute = new Map<string, VoyageRow>();
             for (const row of ownRows) {
                 const key = routeKeyOf(row);
@@ -1199,7 +1205,12 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
         // waypoints and the Cast Off destination seed both resolve. Skipped
         // once a materialised passage voyage exists for the trip.
         for (const rollup of buildTripPassageRollups(canonicalTraces)) {
-            if (ownRows.some((row) => row.saved_route_id === rollup.tripId)) continue;
+            // Only a materialised PASSAGE row suppresses its rollup. Leg 1's
+            // trace id doubles as the trip id, so after the 2026-08-26 link
+            // healing a plain leg row matched here and the "(Passage)" row
+            // vanished from the picker (Shane 2026-08-27).
+            if (ownRows.some((row) => row.saved_route_id === rollup.tripId && /\(passage\)/i.test(row.voyage_name)))
+                continue;
             const routeCoordinates = rollup.points.map((point) => ({ lat: point.lat, lon: point.lon }));
             const distanceNm = routeDistanceNm(routeCoordinates) ?? undefined;
             const speedKt = settings.vessel?.cruisingSpeed || 5.5;
@@ -1944,6 +1955,47 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
         selectedPassageId && passageStatus.voyageId === selectedPassageId ? passageStatus : NO_PASSAGE_ACCESS;
     const isSelectedPassageOwner =
         Boolean(selectedPassageId) && verifiedPassageStatus.visible && verifiedPassageStatus.isOwner;
+    // Classified picker rows: passages carry their trip identity so legs
+    // nest beneath them, groups order by their newest activity (Shane
+    // 2026-08-27: "passage first. then the first leg, then the second leg.
+    // then the day sail... date order with passages kept together").
+    const savedRoutePickerRows = useMemo<SavedRoutePickerRow[]>(() => {
+        const traces = loadSavedTraces();
+        const traceById = new Map(traces.map((trace) => [trace.id, trace]));
+        const traceByPassageVoyage = new Map<string, (typeof traces)[number]>();
+        for (const trace of traces) {
+            if (trace.passageVoyageId) traceByPassageVoyage.set(trace.passageVoyageId, trace);
+        }
+        return draftVoyages.map((row) => {
+            const trace = row.saved_route_id ? traceById.get(row.saved_route_id) : traceByPassageVoyage.get(row.id);
+            const isPassage = /\(passage\)/i.test(row.voyage_name);
+            const legOrdinal = trace?.legOrdinal;
+            const kind: SavedRoutePickerRow['kind'] = isPassage
+                ? 'passage'
+                : trace?.tripId || legOrdinal
+                  ? 'leg'
+                  : 'standalone';
+            const groupKey = isPassage
+                ? (row.saved_route_id ?? row.id)
+                : (trace?.tripId ?? trace?.id ?? row.saved_route_id ?? row.id);
+            const distance = row.distanceNm ? `${Math.round(row.distanceNm)} NM` : null;
+            const detailParts = [
+                kind === 'leg' && legOrdinal ? `Leg ${legOrdinal}` : null,
+                distance,
+                row.isShared ? `Shared by ${row.sharedOwnerEmail || 'skipper'}` : null,
+            ].filter(Boolean);
+            return {
+                id: row.id,
+                name: savedRouteDisplayName(row),
+                detail: detailParts.length > 0 ? detailParts.join(' · ') : null,
+                kind,
+                legOrdinal,
+                groupKey,
+                stamp: Date.parse(row.departure_time ?? '') || Date.parse(row.updated_at ?? row.created_at ?? '') || 0,
+            };
+        });
+    }, [draftVoyages]);
+
     const selectedVoyage = draftVoyages.find((voyage) => voyage.id === selectedPassageId);
     const selectedPassageIsDomestic = Boolean(
         selectedVoyage?.departure_port &&
@@ -2101,28 +2153,11 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                         <span>Saved Routes</span>
                     </label>
                     {draftVoyages.length > 0 ? (
-                        <select
-                            aria-label="Saved Routes"
-                            value={selectedPassageId}
-                            onChange={(event) => void handlePassageSelection(event.target.value)}
-                            className="w-full bg-white/[0.06] border border-white/[0.12] rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500/40 appearance-none cursor-pointer"
-                            style={{
-                                backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%23a78bfa'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'/%3E%3C/svg%3E")`,
-                                backgroundRepeat: 'no-repeat',
-                                backgroundPosition: 'right 0.75rem center',
-                                backgroundSize: '1rem',
-                            }}
-                        >
-                            <option value="" style={{ background: '#1e293b' }}>
-                                Choose a saved route…
-                            </option>
-                            {draftVoyages.map((v) => (
-                                <option key={v.id} value={v.id} style={{ background: '#1e293b' }}>
-                                    {savedRouteDisplayName(v)}
-                                    {v.isShared ? ` — Shared by ${v.sharedOwnerEmail || 'skipper'}` : ''}
-                                </option>
-                            ))}
-                        </select>
+                        <SavedRoutePicker
+                            rows={savedRoutePickerRows}
+                            selectedId={selectedPassageId}
+                            onSelect={(id) => void handlePassageSelection(id)}
+                        />
                     ) : savedRoutesLoading ? (
                         <div
                             role="status"

@@ -490,9 +490,10 @@ describe('CrewManagement shared passage ownership', () => {
         renderPage();
 
         const selector = screen.getByRole('combobox', { name: 'Saved Routes' });
-        expect(selector).toHaveValue('');
-        expect(within(selector).getByRole('option', { name: 'Choose a saved route…' })).toBeInTheDocument();
-        expect(within(selector).getByRole('option', { name: saved.voyage_name })).toBeInTheDocument();
+        expect(selector).toHaveTextContent('Choose a saved route…');
+        fireEvent.click(selector);
+        expect(await screen.findByRole('option', { name: new RegExp(saved.voyage_name) })).toBeInTheDocument();
+        fireEvent.click(screen.getByRole('button', { name: 'Close' }));
 
         await waitFor(() => expect(mocks.getDraftVoyages).toHaveBeenCalledTimes(1));
         expect(mocks.fetchRoutesAndTracks).not.toHaveBeenCalled();
@@ -553,11 +554,10 @@ describe('CrewManagement shared passage ownership', () => {
 
         renderPage();
         const selector = await screen.findByRole('combobox', { name: 'Saved Routes' });
+        fireEvent.click(selector);
         await waitFor(() => {
-            const options = within(selector)
-                .getAllByRole('option')
-                .map((option) => option.textContent);
-            expect(options.filter((label) => label === 'Newport → Coral Sea')).toHaveLength(1);
+            const options = screen.getAllByRole('option').map((option) => option.textContent ?? '');
+            expect(options.filter((label) => label.includes('Newport → Coral Sea'))).toHaveLength(1);
         });
     });
 
@@ -664,7 +664,9 @@ describe('CrewManagement shared passage ownership', () => {
         const selector = await screen.findByRole('combobox', { name: 'Saved Routes' });
         await waitFor(() => expect(mocks.fetchRoutesAndTracks).toHaveBeenCalled());
 
-        expect(within(selector).getByRole('option', { name: legacy.voyage_name })).toBeInTheDocument();
+        fireEvent.click(selector);
+        expect(await screen.findByRole('option', { name: new RegExp(legacy.voyage_name) })).toBeInTheDocument();
+        fireEvent.click(screen.getByRole('button', { name: 'Close' }));
     });
 
     it('keeps an unlinked legacy passage when its exact planned mirror still exists', async () => {
@@ -679,7 +681,9 @@ describe('CrewManagement shared passage ownership', () => {
         renderPage();
 
         const selector = await screen.findByRole('combobox', { name: 'Saved Routes' });
-        expect(within(selector).getByRole('option', { name: legacy.voyage_name })).toBeInTheDocument();
+        fireEvent.click(selector);
+        expect(await screen.findByRole('option', { name: new RegExp(legacy.voyage_name) })).toBeInTheDocument();
+        fireEvent.click(screen.getByRole('button', { name: 'Close' }));
     });
 
     it('retains and marks a verified shared voyage without logbook coordinates', async () => {
@@ -703,14 +707,12 @@ describe('CrewManagement shared passage ownership', () => {
         renderPage();
 
         const selector = await screen.findByRole('combobox');
-        await waitFor(() =>
-            expect(
-                within(selector).getByRole('option', {
-                    name: /Captain’s passage — Shared by captain@example.com/,
-                }),
-            ).toBeInTheDocument(),
-        );
-        expect(selector).toHaveValue(shared.id);
+        await waitFor(() => expect(selector).toHaveTextContent('Captain’s passage'));
+        fireEvent.click(selector);
+        expect(
+            await screen.findByRole('option', { name: /Captain’s passage.*Shared by captain@example\.com/ }),
+        ).toBeInTheDocument();
+        fireEvent.click(screen.getByRole('button', { name: 'Close' }));
         expect(mocks.getPassageStatus).toHaveBeenCalledWith(shared.id);
         expect(mocks.setActivePassage).not.toHaveBeenCalled();
         expect(mocks.clearPassagePlan).not.toHaveBeenCalled();
@@ -766,11 +768,12 @@ describe('CrewManagement shared passage ownership', () => {
 
         renderPage();
         const selector = await screen.findByRole('combobox');
-        await waitFor(() => expect(selector).toHaveValue(own.id));
+        await waitFor(() => expect(selector).toHaveTextContent(own.voyage_name));
 
-        fireEvent.change(selector, { target: { value: '' } });
+        fireEvent.click(selector);
+        fireEvent.click(await screen.findByRole('option', { name: /Clear selection/ }));
 
-        await waitFor(() => expect(selector).toHaveValue(''));
+        await waitFor(() => expect(selector).toHaveTextContent('Choose a saved route…'));
         expect(mocks.clearPassagePlan).toHaveBeenCalledTimes(1);
         await waitFor(() => expect(mocks.getPassageStatus).toHaveBeenCalledWith(null));
         expect(screen.queryByLabelText('Departure Date')).not.toBeInTheDocument();
@@ -802,10 +805,11 @@ describe('CrewManagement shared passage ownership', () => {
             expect(screen.getByTestId('readiness-stack')).toHaveAttribute('data-delegation-count', '1'),
         );
 
-        fireEvent.change(selector, { target: { value: second.id } });
+        fireEvent.click(selector);
+        fireEvent.click(await screen.findByRole('option', { name: /Second passage/ }));
 
         await waitFor(() => {
-            expect(selector).toHaveValue(second.id);
+            expect(selector).toHaveTextContent('Second passage');
             expect(screen.getByRole('button', { name: 'Cast Off' })).toBeDisabled();
             expect(screen.getByTestId('readiness-stack')).toHaveAttribute('data-delegation-count', '0');
             expect(mocks.setActivePassage).toHaveBeenCalledWith(second.id);
@@ -933,18 +937,17 @@ describe('CrewManagement shared passage ownership', () => {
 
         renderPage();
         const selector = await screen.findByRole('combobox');
-        const stubId = 'logbook:planned-route';
-        await waitFor(() => expect(within(selector).getByRole('option', { name: promoted.voyage_name })).toBeDefined());
-
-        fireEvent.change(selector, { target: { value: stubId } });
-        fireEvent.change(selector, { target: { value: '' } });
+        fireEvent.click(selector);
+        fireEvent.click(await screen.findByRole('option', { name: new RegExp(promoted.voyage_name) }));
+        fireEvent.click(selector);
+        fireEvent.click(await screen.findByRole('option', { name: /Clear selection/ }));
         await act(async () => {
             resolveCreate({ voyage: promoted });
         });
 
         expect(mocks.clearPassagePlan).toHaveBeenCalledTimes(1);
         expect(mocks.setActivePassage).not.toHaveBeenCalled();
-        expect(selector).toHaveValue('');
+        expect(selector).toHaveTextContent('Choose a saved route…');
     });
 
     it('scopes passage-register invites to the currently verified owner voyage', async () => {
