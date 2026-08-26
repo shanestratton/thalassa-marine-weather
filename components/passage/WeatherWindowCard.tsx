@@ -26,6 +26,7 @@ import {
 import { isAuthIdentityScopeCurrent } from '../../services/authIdentityScope';
 import { useSettings } from '../../context/SettingsContext';
 import {
+    isAcknowledgementFresh,
     isWeatherWindowAcceptanceRecord,
     passageDataFingerprint,
     passageRouteFingerprint,
@@ -273,16 +274,19 @@ export const WeatherWindowCard: React.FC<WeatherWindowCardProps> = ({
                   },
                   comfort: settings.comfortParams ?? {},
                   analysisContextFingerprint: result.analysisContextFingerprint,
-                  dataFingerprint: result.dataFingerprint,
               })
             : null;
     const normalizedChosenDepartureIso = hasChosenDate ? new Date(chosenDepartureMs).toISOString() : null;
     const weatherDataAcceptable = resultMatchesInputs && isWeatherWindowResultAcceptable(result, freshnessNowMs);
+    // Bound by inputs + departure + TTL, NOT the forecast data fingerprint
+    // (Shane 2026-08-26: forecasts refresh every few hours, so a data-bound
+    // acceptance re-nagged on every page open).
     const accepted =
         weatherDataAcceptable &&
         isWeatherWindowAcceptanceRecord(acceptance) &&
         currentAcceptanceFingerprint === acceptance.fingerprint &&
-        normalizedChosenDepartureIso === acceptance.departureIso;
+        normalizedChosenDepartureIso === acceptance.departureIso &&
+        isAcknowledgementFresh(acceptance.acceptedAt);
 
     useEffect(() => {
         onReviewedChange?.(accepted);
@@ -347,7 +351,6 @@ export const WeatherWindowCard: React.FC<WeatherWindowCardProps> = ({
                     },
                     comfort: settings.comfortParams ?? {},
                     analysisContextFingerprint: result.analysisContextFingerprint,
-                    dataFingerprint: result.dataFingerprint,
                 }),
                 routeFingerprint,
                 dataFingerprint: result.dataFingerprint,
@@ -625,7 +628,7 @@ export const WeatherWindowCard: React.FC<WeatherWindowCardProps> = ({
             )}
             {!accepted && isWeatherWindowAcceptanceRecord(acceptance) && result?.availability === 'available' && (
                 <p role="status" className="text-[11px] text-amber-300 text-center">
-                    Departure, route, vessel limits or forecast data changed — accept a current matching window again.
+                    Departure, route or vessel limits changed — accept a current matching window again.
                 </p>
             )}
         </div>
