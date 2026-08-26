@@ -1403,6 +1403,7 @@ describe('LogPage — Cast Off handoff', () => {
         shipLogHandoffMock.startTracking.mockReset();
         shipLogHandoffMock.getTrackingStatus.mockReturnValue({ isTracking: false, currentVoyageId: null });
         publishFollowedRouteMock.mockClear();
+        publishFollowedRouteMock.mockResolvedValue('linked');
     });
 
     afterEach(() => {

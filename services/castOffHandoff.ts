@@ -42,6 +42,10 @@ export interface CastOffHandoff {
     gpsError: string | null;
     /** Automatic retry attempts made so far (max 2 before going manual). */
     retryCount: number;
+    /** Why the route line is NOT armed (null = armed or not yet known). */
+    followNote: string | null;
+    /** What happened to the public-page publish. */
+    publishState: 'pending' | 'private' | 'linked' | 'queued' | 'skipped' | 'failed';
     /** Show the passage's route on the public page once GPS confirms —
      *  the skipper's choice from the Cast Off confirm step. */
     publishRoute: boolean;
@@ -116,6 +120,8 @@ export function stashCastOffHandoff(handoff: {
         gps: 'starting',
         gpsError: null,
         retryCount: 0,
+        followNote: null,
+        publishState: handoff.publishRoute === false ? 'private' : 'pending',
     };
     emit();
 }
@@ -182,13 +188,20 @@ export async function startHandoffGps(retry = false): Promise<void> {
                 // plan points and the passage never appeared; Shane
                 // 2026-08-26: "i pressed the show on the public page button,
                 // but it is not showing").
-                const planShiplogVoyageId = await resolvePlannedMirrorId(handoff.savedRouteId);
+                const planShiplogVoyageId = await resolvePlannedMirrorId(handoff.savedRouteId, handoff.voyageId);
                 if (planShiplogVoyageId) {
                     const { publishFollowedRoute } = await import('./shiplog/publishFollowedRoute');
-                    await publishFollowedRoute(planShiplogVoyageId);
+                    const outcome = await publishFollowedRoute(planShiplogVoyageId);
+                    updateCastOffHandoff({
+                        publishState: outcome === 'linked' ? 'linked' : outcome === 'queued' ? 'queued' : 'failed',
+                    });
+                } else {
+                    // Nothing the public page could draw — an old trace
+                    // without a planned mirror. Actionable, so say so.
+                    updateCastOffHandoff({ publishState: 'skipped' });
                 }
             } catch {
-                /* the durable-intent layer owns retries */
+                updateCastOffHandoff({ publishState: 'failed' });
             }
         }
     } catch (cause) {
@@ -235,12 +248,14 @@ if (current?.gps === 'failed') scheduleAutoRetry();
 /** The saved trace's planned-route mirror voyage id — what voyage_plan_links
  *  must point at for the public page to draw the plan line. Null when the
  *  trace is missing or predates mirror ids (nothing public could draw). */
-async function resolvePlannedMirrorId(savedRouteId: string | null): Promise<string | null> {
+async function resolvePlannedMirrorId(savedRouteId: string | null, voyageId?: string): Promise<string | null> {
     const routeId = savedRouteId?.trim();
-    if (!routeId) return null;
     try {
         const { loadSavedTraces } = await import('./routeTracer');
-        const trace = loadSavedTraces().find((candidate) => candidate.id === routeId);
+        const trace = loadSavedTraces().find(
+            (candidate) =>
+                (routeId && candidate.id === routeId) || (voyageId && candidate.passageVoyageId === voyageId),
+        );
         const mirror = trace?.plannedRouteId?.trim();
         return mirror || null;
     } catch {

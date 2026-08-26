@@ -37,11 +37,12 @@ const log = createLogger('followCastOffRoute');
  * missing or the verification gate refuses it (the caller's fallback is the
  * Log page's own follow sheet — never force an unverified line).
  */
+/** null = the line is up; a string names why it is not. */
 export async function followCastOffRoute(
     voyageId: string,
     savedRouteId?: string | null,
     publishPublic: boolean = true,
-): Promise<boolean> {
+): Promise<string | null> {
     try {
         const logRoute = await fetchVoyageAsTrack(voyageId);
         let steerRoute: Pick<RouteOrTrack, 'savedRouteId' | 'points'>;
@@ -56,20 +57,26 @@ export async function followCastOffRoute(
             // page re-ask "which passage?" seconds after casting off from
             // the passage that IS the answer (Shane 2026-08-26).
             const routeId = savedRouteId?.trim();
-            if (!routeId) return false;
-            const saved = loadSavedTraces().find((trace) => trace.id === routeId);
-            if (!saved || saved.points.length < 2) return false;
-            steerRoute = { savedRouteId: routeId, points: saved.points };
+            const saved = loadSavedTraces().find(
+                (trace) => (routeId && trace.id === routeId) || trace.passageVoyageId === voyageId,
+            );
+            if (!saved) {
+                return routeId
+                    ? 'The saved route for this passage is not on this device. Open it in Route Tracer and save it again.'
+                    : 'This passage has no linked saved route. Pick it again in Passage Planning, or re-save the route.';
+            }
+            if (saved.points.length < 2) return 'The saved route has no usable waypoints.';
+            steerRoute = { savedRouteId: saved.id, points: saved.points };
         }
         const blockReason = tracedRouteDirectUseBlockReason(steerRoute);
         if (blockReason) {
             log.info(`cast-off route not auto-followed: ${blockReason}`);
-            return false;
+            return blockReason;
         }
         if (logRoute) {
             exactPlan = buildFollowRoutePlanFromRoute({ ...logRoute, points: steerRoute.points });
         } else {
-            const saved = loadSavedTraces().find((trace) => trace.id === savedRouteId?.trim());
+            const saved = loadSavedTraces().find((trace) => trace.id === steerRoute.savedRouteId);
             exactPlan = saved
                 ? buildFollowRoutePlan({
                       label: displayRouteLabel(saved),
@@ -78,7 +85,7 @@ export async function followCastOffRoute(
                   })
                 : null;
         }
-        if (!exactPlan) return false;
+        if (!exactPlan) return 'Could not build a follow plan from the saved route.';
         // This passage was born in Passage Planning — the kit is answered by
         // construction. Mark BEFORE following so the nudge's route-committed
         // trigger cannot fire first.
@@ -95,7 +102,7 @@ export async function followCastOffRoute(
             // draws the plan from those rows; the cast-off voyage's own
             // entries are live fixes and resolve to nothing.
             const mirrorId = loadSavedTraces()
-                .find((trace) => trace.id === savedRouteId?.trim())
+                .find((trace) => trace.id === steerRoute.savedRouteId)
                 ?.plannedRouteId?.trim();
             if (mirrorId) {
                 void Promise.resolve(publishFollowedRoute(mirrorId)).catch((error) => {
@@ -103,9 +110,9 @@ export async function followCastOffRoute(
                 });
             }
         }
-        return true;
+        return null;
     } catch (error) {
         log.warn('cast-off route follow failed:', error);
-        return false;
+        return error instanceof Error && error.message.trim() ? error.message.trim() : 'Route follow failed.';
     }
 }

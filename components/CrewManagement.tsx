@@ -40,7 +40,7 @@ import { vesselCrewAboard } from '../services/units';
 import { triggerHaptic } from '../utils/system';
 import { useUIStore } from '../stores/uiStore';
 import { followCastOffRoute } from '../services/shiplog/followCastOffRoute';
-import { peekCastOffHandoff } from '../services/castOffHandoff';
+import { peekCastOffHandoff, updateCastOffHandoff } from '../services/castOffHandoff';
 import { toast } from './Toast';
 import {
     adoptSavedRouteLink,
@@ -2582,7 +2582,13 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                                 voyage.id,
                                 handoff?.savedRouteId ?? voyage.saved_route_id,
                                 handoff?.publishRoute ?? true,
-                            );
+                            ).then((reason) => {
+                                // Silent failures cost a night of guessing —
+                                // record why the line is not up so the Log
+                                // page can SAY it (Shane 2026-08-26: "it is
+                                // not showing the route").
+                                if (reason) updateCastOffHandoff({ followNote: reason });
+                            });
                         }
                         // 'details' is the Log tab's registry key — there is
                         // no 'log' view. The old 'log' literal rendered the
