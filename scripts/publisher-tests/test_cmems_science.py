@@ -113,6 +113,55 @@ class CmemsScientificContractTests(unittest.TestCase):
         with self.assertRaisesRegex(ContractError, "refusing to fabricate ocean values"):
             cmems_contract.require_invariant_finite_mask(reference, drifted, "fixture")
 
+    def test_direction_fringe_superset_is_accepted_within_bound(self) -> None:
+        reference = np.zeros((10, 10), dtype=bool)
+        reference[2:8, 2:8] = True
+        exact = reference.copy()
+        cmems_contract.require_finite_superset_of_reference(exact, exact.copy(), "fixture", 0.05)
+        fringe = reference.copy()
+        fringe[1, 2] = True
+        fringe[8, 5] = True
+        cmems_contract.require_finite_superset_of_reference(reference, fringe, "fixture", 0.05)
+
+    def test_direction_missing_over_ocean_is_rejected(self) -> None:
+        reference = np.zeros((10, 10), dtype=bool)
+        reference[2:8, 2:8] = True
+        hole = reference.copy()
+        hole[4, 4] = False
+        with self.assertRaisesRegex(ContractError, "refusing to fabricate ocean values"):
+            cmems_contract.require_finite_superset_of_reference(reference, hole, "fixture", 0.05)
+
+    def test_direction_fringe_beyond_bound_is_rejected(self) -> None:
+        reference = np.zeros((10, 10), dtype=bool)
+        reference[2:8, 2:8] = True
+        flooded = np.ones((10, 10), dtype=bool)
+        with self.assertRaisesRegex(ContractError, "upstream mask changed"):
+            cmems_contract.require_finite_superset_of_reference(reference, flooded, "fixture", 0.05)
+        with self.assertRaisesRegex(ContractError, "finite-mask shape changed"):
+            cmems_contract.require_finite_superset_of_reference(reference, np.ones((4, 4), dtype=bool), "fixture", 0.05)
+
+    def test_reference_variable_cannot_be_declared_a_superset(self) -> None:
+        with self.assertRaisesRegex(ContractError, "reference variable"):
+            cmems_contract.validate_cmems_source(
+                Path("/nonexistent.nc"),
+                dataset_key="fixture",
+                variables=["VHM0", "VMDR"],
+                expected_steps=1,
+                cadence_hours=3,
+                native_resolution=1 / 12,
+                finite_superset_variables=frozenset({"VHM0"}),
+            )
+        with self.assertRaisesRegex(ContractError, "must name declared variables"):
+            cmems_contract.validate_cmems_source(
+                Path("/nonexistent.nc"),
+                dataset_key="fixture",
+                variables=["VHM0", "VMDR"],
+                expected_steps=1,
+                cadence_hours=3,
+                native_resolution=1 / 12,
+                finite_superset_variables=frozenset({"thetao"}),
+            )
+
     def test_chlorophyll_floor_midpoint_and_ceiling_are_exact(self) -> None:
         self.assertEqual(chl.normalise_chlorophyll_value(0.0), 0.0)
         self.assertEqual(chl.normalise_chlorophyll_value(0.01), 0.0)

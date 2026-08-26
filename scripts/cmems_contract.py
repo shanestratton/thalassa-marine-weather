@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import hashlib
-from typing import Any, Mapping, Sequence
+from typing import Any, Collection, Mapping, Sequence
 
 from publisher_contract import ContractError, read_thcu_header
 
@@ -144,6 +144,42 @@ def require_invariant_finite_mask(reference: Any, candidate: Any, label: str) ->
     _require(drift == 0, f"{label}: finite-mask drifted in {drift} cells; refusing to fabricate ocean values")
 
 
+# The wave product defines VMDR on a one-cell fringe outside VHM0's wet mask
+# (coastlines plus the seasonal sea-ice edge). Measured against the live
+# product across 2026-06-01..2026-08-26: 53,093-58,099 extra cells
+# (0.60-0.66% of the grid, mid-latitude counts identical across months, polar
+# counts moving with the ice edge), and zero cells in the opposite direction
+# on every date. The bound is ~3x the observed seasonal maximum so a regrid or
+# genuine mask change upstream still fails closed.
+FINITE_SUPERSET_MAX_FRACTION = 0.02
+
+
+def require_finite_superset_of_reference(
+    reference: Any, candidate: Any, label: str, max_extra_fraction: float
+) -> None:
+    """Forbid missing ocean values; tolerate a bounded finite fringe outside the mask.
+
+    The reference variable's mask is the published ocean/land truth. Extra
+    finite candidate cells outside it are never encoded (the producers weight
+    by the reference field, whose NaN annihilates them, and the land mask
+    zeroes those cells), so they cannot fabricate ocean values — but their
+    count is still bounded so an upstream grid or mask change fails closed.
+    """
+    import numpy as np
+
+    reference_array = np.asarray(reference, dtype=bool)
+    candidate_array = np.asarray(candidate, dtype=bool)
+    _require(reference_array.shape == candidate_array.shape, f"{label}: finite-mask shape changed")
+    missing = int(np.count_nonzero(reference_array & ~candidate_array))
+    _require(missing == 0, f"{label}: value missing in {missing} ocean cells; refusing to fabricate ocean values")
+    extra = int(np.count_nonzero(candidate_array & ~reference_array))
+    limit = int(reference_array.size * max_extra_fraction)
+    _require(
+        extra <= limit,
+        f"{label}: finite mask exceeds the reference ocean by {extra} cells (limit {limit}); upstream mask changed",
+    )
+
+
 def validate_cmems_source(
     nc_path: Path,
     *,
@@ -152,11 +188,20 @@ def validate_cmems_source(
     expected_steps: int,
     cadence_hours: int,
     native_resolution: float,
+    finite_superset_variables: Collection[str] = frozenset(),
 ) -> list[str]:
     """Validate downloaded source before any NaNs are filled or values clipped."""
     import numpy as np
     import xarray as xr
 
+    _require(
+        variables[0] not in finite_superset_variables,
+        f"{dataset_key}: the reference variable {variables[0]} defines the ocean mask and cannot be a superset variable",
+    )
+    _require(
+        set(finite_superset_variables) <= set(variables),
+        f"{dataset_key}: finite_superset_variables must name declared variables",
+    )
     _require(nc_path.is_file() and nc_path.stat().st_size > 0, f"{dataset_key}: source NetCDF is missing")
     with xr.open_dataset(nc_path) as ds:
         for coordinate in ("time", "latitude", "longitude"):
@@ -227,7 +272,12 @@ def validate_cmems_source(
                 _require(values.shape == ocean_mask.shape, f"{dataset_key}: {variable} grid shape changed")
                 _require(not np.isinf(values).any(), f"{dataset_key}: {variable} contains infinity")
                 finite = np.isfinite(values)
-                require_invariant_finite_mask(ocean_mask, finite, f"{dataset_key}:{variable}:step{step}")
+                if variable in finite_superset_variables:
+                    require_finite_superset_of_reference(
+                        ocean_mask, finite, f"{dataset_key}:{variable}:step{step}", FINITE_SUPERSET_MAX_FRACTION
+                    )
+                else:
+                    require_invariant_finite_mask(ocean_mask, finite, f"{dataset_key}:{variable}:step{step}")
                 ocean_values = values[finite & ocean_mask]
                 _require(ocean_values.size > 0, f"{dataset_key}: {variable} has no finite ocean values")
                 observed_low = min(observed_low, float(ocean_values.min()))
