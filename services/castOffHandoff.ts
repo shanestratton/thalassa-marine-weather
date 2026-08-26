@@ -40,6 +40,8 @@ export interface CastOffHandoff {
     gps: CastOffGpsState;
     /** Human-readable failure detail when gps === 'failed'. */
     gpsError: string | null;
+    /** Automatic retry attempts made so far (max 2 before going manual). */
+    retryCount: number;
     /** Show the passage's route on the public page once GPS confirms —
      *  the skipper's choice from the Cast Off confirm step. */
     publishRoute: boolean;
@@ -113,6 +115,7 @@ export function stashCastOffHandoff(handoff: {
         savedRouteId: handoff.savedRouteId ?? null,
         gps: 'starting',
         gpsError: null,
+        retryCount: 0,
     };
     emit();
 }
@@ -193,8 +196,41 @@ export async function startHandoffGps(retry = false): Promise<void> {
         const detail =
             cause instanceof Error && cause.message.trim() ? cause.message.trim() : 'Background GPS failed to start.';
         updateCastOffHandoff({ gps: 'failed', gpsError: detail });
+        scheduleAutoRetry();
     }
 }
+
+/**
+ * The retry ladder — 8 s, then 30 s, then manual only.
+ *
+ * The cast-off GPS start races the PREVIOUS voyage's teardown when the
+ * skipper ends one passage and immediately casts off the next (End Voyage →
+ * pick route → Cast Off inside a minute): the fresh start throws
+ * "finish the pending teardown"/DifferentVoyage and nothing recovered
+ * unless the Log page happened to be visited. Manual retry always worked
+ * because human seconds are longer than teardowns — so retry like a human,
+ * automatically, from module level where no particular page needs to be
+ * open (Shane's 9:15pm "GPS LOG OFF" panel, an hour after departure).
+ */
+let autoRetryTimer: ReturnType<typeof setTimeout> | null = null;
+function scheduleAutoRetry(): void {
+    const handoff = current;
+    if (!handoff || handoff.gps !== 'failed') return;
+    if (handoff.retryCount >= 2) return;
+    if (autoRetryTimer) clearTimeout(autoRetryTimer);
+    const delayMs = handoff.retryCount === 0 ? 8_000 : 30_000;
+    autoRetryTimer = setTimeout(() => {
+        autoRetryTimer = null;
+        const latest = current;
+        if (!latest || latest.gps !== 'failed') return;
+        updateCastOffHandoff({ retryCount: latest.retryCount + 1 });
+        void startHandoffGps(true);
+    }, delayMs);
+}
+
+// A handoff restored as 'failed' (the app died mid-start) begins its retry
+// ladder immediately — recovery must not wait for a page visit.
+if (current?.gps === 'failed') scheduleAutoRetry();
 
 /** The saved trace's planned-route mirror voyage id — what voyage_plan_links
  *  must point at for the public page to draw the plan line. Null when the
