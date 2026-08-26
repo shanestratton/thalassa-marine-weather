@@ -34,7 +34,7 @@ import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { OverlayPortal } from '../ui/OverlayPortal';
 import { EmptyState } from '../ui/EmptyState';
 import { getAuthIdentityScope, isAuthIdentityScopeCurrent } from '../../services/authIdentityScope';
-import { stashCastOffHandoff, startHandoffGps } from '../../services/castOffHandoff';
+import { ensureActiveVoyageLogging, stashCastOffHandoff, startHandoffGps } from '../../services/castOffHandoff';
 import { FloatPlanSheet } from './FloatPlanSheet';
 import { composeArrivalMessage } from '../../services/floatPlan';
 import { useSettingsStore } from '../../stores/settingsStore';
@@ -743,6 +743,11 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                             <button
                                 onClick={() => {
                                     triggerHaptic('light');
+                                    // The door GUARANTEES the underway state:
+                                    // GPS logging, route line, publish — the
+                                    // Log page must open as though everything
+                                    // was done from it.
+                                    if (activeVoyage) void ensureActiveVoyageLogging(activeVoyage);
                                     onOpenLog();
                                 }}
                                 className="w-full py-3.5 bg-cyan-500/10 border border-cyan-400/25 rounded-xl text-sm font-bold text-cyan-300 uppercase tracking-widest hover:bg-cyan-500/20 transition-colors active:scale-[0.97]"

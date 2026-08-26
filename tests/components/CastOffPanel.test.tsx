@@ -391,4 +391,27 @@ describe('CastOffPanel', () => {
         fireEvent.click(door);
         expect(onOpenLog).toHaveBeenCalledTimes(1);
     });
+
+    it('the door starts GPS logging when the active passage is not recording', async () => {
+        const activeVoyage = {
+            id: 'voyage-active',
+            voyage_name: 'Brisbane → Cairns',
+            departure_port: 'Brisbane',
+            destination_port: 'Cairns',
+            crew_count: 2,
+            status: 'active',
+        };
+        castOffMocks.getActiveVoyage.mockResolvedValue(activeVoyage);
+        castOffMocks.getTrackingStatus.mockReturnValue({ isTracking: false, currentVoyageId: null });
+        castOffMocks.startTracking.mockResolvedValue(undefined);
+        render(<CastOffPanel onOpenLog={vi.fn()} onClose={vi.fn()} />);
+
+        const door = await screen.findByRole('button', { name: /open ship.s log/i });
+        fireEvent.click(door);
+
+        // Same resume path as the manual Retry that always works.
+        await vi.waitFor(() =>
+            expect(castOffMocks.startTracking).toHaveBeenCalledWith(true, 'voyage-active', expect.anything(), false),
+        );
+    });
 });
