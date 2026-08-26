@@ -2526,6 +2526,11 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                     onClose={() => {
                         if (scopeStillOwnsPage(renderScope)) setShowCastOff(false);
                     }}
+                    onOpenLog={() => {
+                        if (!scopeStillOwnsPage(renderScope)) return;
+                        setShowCastOff(false);
+                        setPage('details');
+                    }}
                     initialVoyageId={selectedPassageId || undefined}
                     onCastOff={(voyage) => {
                         if (!scopeStillOwnsPage(renderScope)) return;
