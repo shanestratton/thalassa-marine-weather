@@ -40,36 +40,49 @@ const RANDOM_DROP_RATE = 0.004; // 0.4% chance per frame of spontaneous respawn
 const TRAIL_LENGTH = 18;
 
 /**
- * ONE RAMP DRIVES BOTH COUNT AND SPEED (Shane 2026-08-23: "at zoom level 9
- * there are too many sperm and they are travelling way too fast. can we cut
- * the number in half and slow them down and increment as the zooms move
- * out").
+ * THE ZOOM RAMP, round two. The 2026-08-23 version halved count and step
+ * together at z9 — not enough (Shane 2026-08-27: "a lot less wind sperm when
+ * we are zoomed at level 9, and put it on a sliding scale to level 3?? ther
+ * is just way to many. also we need to slow them down at zoom level 9 and
+ * sliding scale to zoom 3"). Count and step now ramp SEPARATELY, because
+ * their physics differ:
  *
- * WHY IT LOOKS WORSE THE FURTHER YOU ZOOM IN, and why one factor fixes both:
- * the advection step is in DEGREES per frame and has been fixed. Screen
- * pixels per degree double with every zoom level, so an unchanged step is
- * twice as fast on screen at z9 as at z8, and 64x as fast as at z3. The
- * particles were never accelerating — the map was.
+ * SPEED: the advection step is in DEGREES per frame, and screen pixels per
+ * degree double with every zoom level — an unchanged step is 64x as fast on
+ * screen at z9 as at z3. The particles were never accelerating; the map was.
+ * The step therefore now HALVES per zoom level between z3 and z9, which
+ * cancels the doubling exactly: every zoom in that range moves at z3's
+ * on-screen pace — the pace he has never complained about. Clamped at z9 so
+ * zooming past it doesn't grind the field to a stop (stillness reads as
+ * broken).
  *
- * Density has the mirror problem. A fixed 9 000 particles spread over the
- * whole Coral Sea at z3 is sparse; the same 9 000 packed into one bay at z9
- * is a swarm.
+ * COUNT: density has the mirror problem (9 000 across the Coral Sea at z3 is
+ * sparse; 9 000 in one bay at z9 is a swarm), but area-proportional thinning
+ * would leave single digits at z9 — the field must still read as a field. A
+ * linear ramp to a QUARTER at z9 is "a lot less" without going empty.
  *
- * So both scale together, 0.5 at z9 and above, back to 1.0 at z3 and below.
- * Deliberately anchored so the WIDE end is unchanged: at z3 this is exactly
- * today's count and today's step. Nothing he has not complained about gets
- * slower or sparser — only the zoomed-in end moves.
+ * Both anchored so the WIDE end is unchanged: at z3 this is exactly today's
+ * count and today's step.
  */
 const WIND_ZOOM_TIGHT = 9;
 const WIND_ZOOM_WIDE = 3;
-const WIND_ZOOM_MIN_FACTOR = 0.5;
+const WIND_ZOOM_MIN_FACTOR = 0.25;
 
-/** 0.5 at z9+, 1.0 at z3-, linear between. Drives particle count AND step. */
+/** 0.25 at z9+, 1.0 at z3-, linear between. Drives particle COUNT. */
 export function windZoomFactor(zoom: number): number {
     if (!Number.isFinite(zoom)) return 1;
     const t = (WIND_ZOOM_TIGHT - zoom) / (WIND_ZOOM_TIGHT - WIND_ZOOM_WIDE);
     const clamped = Math.min(1, Math.max(0, t));
     return WIND_ZOOM_MIN_FACTOR + (1 - WIND_ZOOM_MIN_FACTOR) * clamped;
+}
+
+/** Advection-step factor: halves per zoom level from z3 (1.0) to z9 (1/64),
+ *  cancelling the pixels-per-degree doubling so ON-SCREEN speed stays at
+ *  z3's pace across the whole range. Clamped both ends. */
+export function windStepZoomFactor(zoom: number): number {
+    if (!Number.isFinite(zoom)) return 1;
+    const clamped = Math.min(WIND_ZOOM_TIGHT, Math.max(WIND_ZOOM_WIDE, zoom));
+    return Math.pow(2, -(clamped - WIND_ZOOM_WIDE));
 }
 
 /** Particles actually simulated and drawn at this zoom. The buffer is always
@@ -89,9 +102,11 @@ export const WIND_PARTICLE_BUDGET = {
     /** Bytes re-uploaded to the GPU per frame at the high-end tier, at the
      *  WIDEST zoom — the worst case, and unchanged by the zoom ramp. */
     bytesPerFrameHighTier: 9000 * TRAIL_LENGTH * FLOATS_PER_TRAIL_PT * 4,
-    /** …and at the tightest zoom, where the ramp halves it. */
+    /** …and at the tightest zoom, where the ramp quarters it. */
     bytesPerFrameTightZoom: Math.round(9000 * WIND_ZOOM_MIN_FACTOR) * TRAIL_LENGTH * FLOATS_PER_TRAIL_PT * 4,
     zoomFactorRange: [WIND_ZOOM_MIN_FACTOR, 1] as const,
+    /** Step ramp bounds: z3 pace preserved on-screen across z3–z9. */
+    stepFactorRange: [Math.pow(2, -(WIND_ZOOM_TIGHT - WIND_ZOOM_WIDE)), 1] as const,
 } as const;
 
 interface WindBounds {
@@ -1092,7 +1107,7 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
     private syncZoomBudget(): void {
         const zoom = this.map?.getZoom?.();
         if (typeof zoom !== 'number' || !Number.isFinite(zoom)) return;
-        this.speedFactor = SPEED_FACTOR * windZoomFactor(zoom);
+        this.speedFactor = SPEED_FACTOR * windStepZoomFactor(zoom);
 
         const bucket = Math.round(zoom);
         if (bucket === this.zoomBudgetFor) return;
