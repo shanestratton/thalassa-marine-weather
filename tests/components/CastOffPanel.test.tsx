@@ -316,7 +316,56 @@ describe('CastOffPanel', () => {
         expect(castOffMocks.startTracking).not.toHaveBeenCalled();
     });
 
-    it('names the selected passage when another voyage is active, and End Voyage hands into its preflight', async () => {
+    it('the selection wins over a stale active voyage: preflight opens, one Cast Off ends then starts', async () => {
+        const activeVoyage = {
+            id: 'voyage-leg1',
+            voyage_name: 'Newport - Coral Sea (1st Leg)',
+            departure_port: 'Newport',
+            destination_port: 'Coral Sea',
+            crew_count: 2,
+            status: 'active',
+        };
+        const selectedVoyage = {
+            id: 'voyage-leg2',
+            voyage_name: 'Coral Sea - Mackay (2nd Leg)',
+            departure_port: 'Coral Sea',
+            destination_port: 'Mackay',
+            crew_count: 2,
+            status: 'planning',
+        };
+        const onCastOff = vi.fn();
+        castOffMocks.getActiveVoyage.mockResolvedValue(activeVoyage);
+        castOffMocks.getDraftVoyages.mockResolvedValue([selectedVoyage]);
+        castOffMocks.endVoyage.mockResolvedValue(true);
+        castOffMocks.castOff.mockResolvedValue({ ok: true, voyage: { ...selectedVoyage, status: 'active' } });
+
+        render(<CastOffPanel initialVoyageId={selectedVoyage.id} onCastOff={onCastOff} onClose={vi.fn()} />);
+
+        // The selection opens ITS OWN pre-departure check — the stale
+        // active passage is a named caution, not a gate (Shane 2026-08-27:
+        // "it always shows the newport - coral sea 1st leg" / "i dont
+        // think that it is necessary to enforce it").
+        expect(await screen.findByText('Confirm Safety')).toBeInTheDocument();
+        expect(screen.getByRole('heading', { name: 'Coral Sea - Mackay (2nd Leg)' })).toBeInTheDocument();
+        expect(screen.getByText(/still active/)).toBeInTheDocument();
+        expect(screen.getByText('Newport - Coral Sea (1st Leg)')).toBeInTheDocument();
+
+        const safetyToggle = screen.getByRole('checkbox', { name: /confirm safety/i });
+        fireEvent.click(safetyToggle);
+        fireEvent.click(screen.getByRole('button', { name: /cast off/i }));
+
+        // One gesture: the stale passage is ended & archived FIRST, then
+        // the selected one casts off.
+        await vi.waitFor(() => expect(onCastOff).toHaveBeenCalledTimes(1));
+        expect(castOffMocks.endVoyage).toHaveBeenCalledWith('voyage-leg1', 'completed');
+        expect(castOffMocks.castOff).toHaveBeenCalledWith('voyage-leg2');
+        expect(castOffMocks.endVoyage.mock.invocationCallOrder[0]).toBeLessThan(
+            castOffMocks.castOff.mock.invocationCallOrder[0],
+        );
+        expect(onCastOff).toHaveBeenCalledWith(expect.objectContaining({ id: 'voyage-leg2' }));
+    });
+
+    it('a failed auto-end blocks Cast Off with an honest error, not a half-state', async () => {
         const activeVoyage = {
             id: 'voyage-leg1',
             voyage_name: 'Newport - Coral Sea (1st Leg)',
@@ -335,24 +384,78 @@ describe('CastOffPanel', () => {
         };
         castOffMocks.getActiveVoyage.mockResolvedValue(activeVoyage);
         castOffMocks.getDraftVoyages.mockResolvedValue([selectedVoyage]);
-        castOffMocks.endVoyage.mockResolvedValue(true);
+        castOffMocks.endVoyage.mockResolvedValue(false);
+
+        render(<CastOffPanel initialVoyageId={selectedVoyage.id} onCastOff={vi.fn()} onClose={vi.fn()} />);
+        fireEvent.click(await screen.findByRole('checkbox', { name: /confirm safety/i }));
+        fireEvent.click(screen.getByRole('button', { name: /cast off/i }));
+
+        expect(await screen.findByRole('alert')).toHaveTextContent('could not be ended');
+        expect(castOffMocks.castOff).not.toHaveBeenCalled();
+    });
+
+    it('a passage ended elsewhere cannot dead-end Cast Off — the re-check lets it proceed', async () => {
+        const activeVoyage = {
+            id: 'voyage-leg1',
+            voyage_name: 'Newport - Coral Sea (1st Leg)',
+            departure_port: 'Newport',
+            destination_port: 'Coral Sea',
+            crew_count: 2,
+            status: 'active',
+        };
+        const selectedVoyage = {
+            id: 'voyage-leg2',
+            voyage_name: 'Coral Sea - Mackay (2nd Leg)',
+            departure_port: 'Coral Sea',
+            destination_port: 'Mackay',
+            crew_count: 2,
+            status: 'planning',
+        };
+        const onCastOff = vi.fn();
+        // The load sees the active voyage; by Cast Off time it was ended on
+        // another device — endVoyage returns false (its UPDATE filters
+        // status='active'), and the re-check finds nothing active.
+        castOffMocks.getActiveVoyage.mockResolvedValueOnce(activeVoyage).mockResolvedValue(null);
+        castOffMocks.getDraftVoyages.mockResolvedValue([selectedVoyage]);
+        castOffMocks.endVoyage.mockResolvedValue(false);
+        castOffMocks.castOff.mockResolvedValue({ ok: true, voyage: { ...selectedVoyage, status: 'active' } });
+
+        render(<CastOffPanel initialVoyageId={selectedVoyage.id} onCastOff={onCastOff} onClose={vi.fn()} />);
+        fireEvent.click(await screen.findByRole('checkbox', { name: /confirm safety/i }));
+        fireEvent.click(screen.getByRole('button', { name: /cast off/i }));
+
+        await vi.waitFor(() => expect(onCastOff).toHaveBeenCalledTimes(1));
+        expect(castOffMocks.castOff).toHaveBeenCalledWith('voyage-leg2');
+    });
+
+    it('the handed preflight keeps a door back to the active passage (Watch Mode)', async () => {
+        const activeVoyage = {
+            id: 'voyage-leg1',
+            voyage_name: 'Newport - Coral Sea (1st Leg)',
+            departure_port: 'Newport',
+            destination_port: 'Coral Sea',
+            crew_count: 2,
+            status: 'active',
+        };
+        const selectedVoyage = {
+            id: 'voyage-leg2',
+            voyage_name: 'Coral Sea - Mackay (2nd Leg)',
+            departure_port: 'Coral Sea',
+            destination_port: 'Mackay',
+            crew_count: 2,
+            status: 'planning',
+        };
+        castOffMocks.getActiveVoyage.mockResolvedValue(activeVoyage);
+        castOffMocks.getDraftVoyages.mockResolvedValue([selectedVoyage]);
 
         render(<CastOffPanel initialVoyageId={selectedVoyage.id} onCastOff={vi.fn()} onClose={vi.fn()} />);
 
-        // The active card still renders — one live voyage at a time — but
-        // the skipper's selection is named instead of silently swallowed
-        // (Shane 2026-08-27: "it always shows the newport - coral sea 1st
-        // leg. regardless of which route i chose").
+        // Selection wins, but the leg controls / float plan / stand-down
+        // offer live on the active card — the caution's link is the only
+        // in-panel way back to them.
+        fireEvent.click(await screen.findByRole('button', { name: /view active passage/i }));
         expect(await screen.findByRole('dialog', { name: 'Active Voyage' })).toBeInTheDocument();
-        expect(screen.getByText(/You selected/)).toBeInTheDocument();
-        expect(screen.getByText('Coral Sea - Mackay (2nd Leg)')).toBeInTheDocument();
-
-        fireEvent.click(screen.getByRole('button', { name: /end voyage & archive/i }));
-
-        // Ending the stale passage opens the selected one's pre-departure
-        // check directly — no re-hunt through the draft list.
-        expect(await screen.findByText('Confirm Safety')).toBeInTheDocument();
-        expect(screen.getByRole('heading', { name: 'Coral Sea - Mackay (2nd Leg)' })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /end voyage & archive/i })).toBeInTheDocument();
     });
 
     it('keeps the active voyage visible and creates no stand-down when End Voyage is not confirmed', async () => {

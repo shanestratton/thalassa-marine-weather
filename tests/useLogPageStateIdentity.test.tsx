@@ -21,8 +21,16 @@ const mocks = vi.hoisted(() => ({
     unarchiveVoyage: vi.fn(),
     deleteEntry: vi.fn(),
     deleteVoyage: vi.fn(),
+    endVoyage: vi.fn(),
     toastSuccess: vi.fn(),
     toastError: vi.fn(),
+}));
+
+// confirmStopVoyage dynamically imports VoyageService to archive the voyages
+// row when its track is stopped (the stop dialog IS "End Voyage") — resolve
+// that import to the mock so tests never touch the real service graph.
+vi.mock('../services/VoyageService', () => ({
+    endVoyage: (...args: unknown[]) => mocks.endVoyage(...args),
 }));
 
 vi.mock('../utils/createLogger', () => ({
@@ -189,6 +197,7 @@ beforeEach(() => {
     mocks.unarchiveVoyage.mockResolvedValue(true);
     mocks.deleteEntry.mockResolvedValue(true);
     mocks.deleteVoyage.mockResolvedValue(true);
+    mocks.endVoyage.mockResolvedValue(true);
 });
 
 afterEach(() => {
@@ -307,6 +316,76 @@ describe('useLogPageState identity boundary', () => {
         expect(result.current.state).toMatchObject({ isTracking: false, isPaused: true });
         expect(mocks.toastError).toHaveBeenCalledWith('Background GPS is still active. Retry End Voyage.');
         expect(mocks.deleteVoyage).not.toHaveBeenCalled();
+        // A failed teardown must leave the voyages row active too.
+        expect(mocks.endVoyage).not.toHaveBeenCalled();
+    });
+
+    it('stopping a cast-off voyage archives its voyages row — the dialog IS "End Voyage"', async () => {
+        // Shane 2026-08-27: "i have to end voyage and archive. even though
+        // i stopped the route in the log???" — the stop dialog promised
+        // "End Voyage" but only stopped GPS.
+        const { result } = renderHook(() => useLogPageState());
+        await waitFor(() => expect(result.current.state.loading).toBe(false));
+
+        await act(async () => result.current.confirmStopVoyage());
+
+        expect(mocks.stopTracking).toHaveBeenCalledWith('voyage-a');
+        expect(mocks.endVoyage).toHaveBeenCalledWith('voyage-a', 'completed');
+        expect(mocks.toastError).not.toHaveBeenCalled();
+    });
+
+    it('stopping a casual Log-page voyage archives nothing — local ids have no voyages row', async () => {
+        mocks.getCurrentVoyageId.mockReturnValue('voyage_1724900000000_ab12cd34e');
+        const { result } = renderHook(() => useLogPageState());
+        await waitFor(() => expect(result.current.state.loading).toBe(false));
+
+        await act(async () => result.current.confirmStopVoyage());
+
+        expect(mocks.endVoyage).not.toHaveBeenCalled();
+    });
+
+    it('an unconfirmed archive on stop says so instead of pretending', async () => {
+        mocks.endVoyage.mockResolvedValue(false);
+        const { result } = renderHook(() => useLogPageState());
+        await waitFor(() => expect(result.current.state.loading).toBe(false));
+
+        await act(async () => result.current.confirmStopVoyage());
+
+        // endVoyage=false also means "already archived elsewhere" — the
+        // toast must not assert the passage is still active.
+        expect(mocks.toastError).toHaveBeenCalledWith(
+            'Track stopped. The passage could not be confirmed as ended — if it still shows active, End Voyage from the Vessel tab.',
+        );
+    });
+
+    it('archive-on-stop runs BEFORE the empty prune, and never blocks it', async () => {
+        // The two tails are independent tables (voyages row vs ship-log
+        // entries) — an unconfirmed archive must not abort the prune or the
+        // trailing reload (mutation-tested gap, 2026-08-27).
+        mocks.getVoyageEntries.mockResolvedValue([{ ...entryA, cumulativeDistanceNM: 0, distanceNM: 0 }]);
+        const { result } = renderHook(() => useLogPageState());
+        await waitFor(() => expect(result.current.state.loading).toBe(false));
+        mocks.deleteVoyage.mockClear();
+
+        await act(async () => result.current.confirmStopVoyage());
+
+        expect(mocks.endVoyage).toHaveBeenCalledWith('voyage-a', 'completed');
+        expect(mocks.deleteVoyage).toHaveBeenCalledWith('voyage-a');
+        expect(mocks.endVoyage.mock.invocationCallOrder[0]).toBeLessThan(
+            mocks.deleteVoyage.mock.invocationCallOrder[0],
+        );
+    });
+
+    it('an unconfirmed archive still lets the empty prune run', async () => {
+        mocks.endVoyage.mockResolvedValue(false);
+        mocks.getVoyageEntries.mockResolvedValue([{ ...entryA, cumulativeDistanceNM: 0, distanceNM: 0 }]);
+        const { result } = renderHook(() => useLogPageState());
+        await waitFor(() => expect(result.current.state.loading).toBe(false));
+        mocks.deleteVoyage.mockClear();
+
+        await act(async () => result.current.confirmStopVoyage());
+
+        expect(mocks.deleteVoyage).toHaveBeenCalledWith('voyage-a');
     });
 
     it('surfaces a pause teardown failure and reflects the service paused state', async () => {
@@ -328,6 +407,9 @@ describe('useLogPageState identity boundary', () => {
         expect(mocks.toastError).toHaveBeenCalledWith(
             'Voyage recording is paused, but background GPS could not be stopped.',
         );
+        // Pause ≠ stop: a moored-for-a-refuel pause must NEVER archive the
+        // voyages row (VesselHub's Underway card depends on it).
+        expect(mocks.endVoyage).not.toHaveBeenCalled();
     });
 
     it('rejects a retained A voyage undo callback after B is active', async () => {
