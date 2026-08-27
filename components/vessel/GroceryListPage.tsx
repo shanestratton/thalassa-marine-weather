@@ -698,7 +698,7 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack, passag
                                                             ? 'grocery-permission-note'
                                                             : undefined
                                                     }
-                                                    className={`w-6 h-6 rounded-lg border-2 flex items-center justify-center flex-shrink-0 transition-all active:scale-90 disabled:cursor-not-allowed disabled:opacity-40 ${
+                                                    className={`hit-target-44 w-6 h-6 rounded-lg border-2 flex items-center justify-center flex-shrink-0 transition-all active:scale-90 disabled:cursor-not-allowed disabled:opacity-40 ${
                                                         item.purchased
                                                             ? 'bg-emerald-500 border-emerald-500'
                                                             : isPurchasing
@@ -969,7 +969,7 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack, passag
                                         !!purchasingId || !permissionsLoadedForScope || !permissions.canEditStores
                                     }
                                     aria-pressed={storeName === s}
-                                    className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all active:scale-95 ${
+                                    className={`min-h-[44px] px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all active:scale-95 ${
                                         storeName === s
                                             ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
                                             : 'bg-white/[0.04] text-gray-500 border border-white/[0.06] hover:text-gray-300'
@@ -1147,7 +1147,7 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack, passag
                                         onClick={() => setAddZone(z)}
                                         disabled={isAdding || !canManageShoppingList}
                                         aria-pressed={addZone === z}
-                                        className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition-all active:scale-95 ${
+                                        className={`min-h-[44px] px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition-all active:scale-95 ${
                                             addZone === z
                                                 ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
                                                 : 'bg-white/[0.04] text-gray-500 border border-white/[0.06] hover:text-gray-300'

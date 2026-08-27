@@ -309,7 +309,7 @@ export const MealCalendar: React.FC<MealCalendarProps> = ({
                         <button
                             onClick={() => onCrewCountChange?.(crewCount - 1)}
                             disabled={crewCount <= 1}
-                            className="w-5 h-5 rounded-full flex items-center justify-center text-sky-400 text-xs font-bold hover:bg-sky-500/20 disabled:opacity-30 active:scale-90 transition-all"
+                            className="hit-target-44 w-5 h-5 rounded-full flex items-center justify-center text-sky-400 text-xs font-bold hover:bg-sky-500/20 disabled:opacity-30 active:scale-90 transition-all"
                             aria-label="Decrease crew count"
                         >
                             −
@@ -323,7 +323,7 @@ export const MealCalendar: React.FC<MealCalendarProps> = ({
                         <button
                             onClick={() => onCrewCountChange?.(crewCount + 1)}
                             disabled={crewCount >= 20}
-                            className="w-5 h-5 rounded-full flex items-center justify-center text-sky-400 text-xs font-bold hover:bg-sky-500/20 disabled:opacity-30 active:scale-90 transition-all"
+                            className="hit-target-44 w-5 h-5 rounded-full flex items-center justify-center text-sky-400 text-xs font-bold hover:bg-sky-500/20 disabled:opacity-30 active:scale-90 transition-all"
                             aria-label="Increase crew count"
                         >
                             +

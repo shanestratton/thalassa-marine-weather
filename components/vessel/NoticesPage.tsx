@@ -209,7 +209,7 @@ export const NoticesPage: React.FC<NoticesPageProps> = ({ onBack }) => {
                         }}
                         disabled={!vesselPos}
                         title={!vesselPos ? 'Waiting for GPS fix…' : `Within ${NEAR_ME_RADIUS_NM} NM of your position`}
-                        className="shrink-0 px-3 py-1.5 rounded-full text-[11px] font-black uppercase tracking-widest transition-all disabled:opacity-40"
+                        className="shrink-0 min-h-[44px] px-3 py-1.5 rounded-full text-[11px] font-black uppercase tracking-widest transition-all disabled:opacity-40"
                         style={{
                             background: nearMe && vesselPos ? '#10b98124' : 'rgba(255,255,255,0.04)',
                             border: `1px solid ${nearMe && vesselPos ? '#10b98166' : 'rgba(255,255,255,0.08)'}`,
@@ -228,7 +228,7 @@ export const NoticesPage: React.FC<NoticesPageProps> = ({ onBack }) => {
                                     triggerHaptic('light');
                                     setFilter(f.id);
                                 }}
-                                className="shrink-0 px-3 py-1.5 rounded-full text-[11px] font-black uppercase tracking-widest transition-all"
+                                className="shrink-0 min-h-[44px] px-3 py-1.5 rounded-full text-[11px] font-black uppercase tracking-widest transition-all"
                                 style={{
                                     background: active ? `${f.color}24` : 'rgba(255,255,255,0.04)',
                                     border: `1px solid ${active ? f.color + '66' : 'rgba(255,255,255,0.08)'}`,

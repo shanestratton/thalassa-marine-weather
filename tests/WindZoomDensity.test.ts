@@ -162,7 +162,9 @@ describe('wiring', () => {
         const span = src.slice(src.indexOf('const WIND_ZOOM_TIGHT'), src.indexOf('const FLOATS_PER_TRAIL_PT'));
         expect(span).toContain('WIND_ZOOM_TIGHT = 9');
         expect(span).toContain('WIND_ZOOM_WIDE = 3');
-        expect(src).toContain('(u_zoom - ${WIND_ZOOM_WIDE}.0) / ${(WIND_ZOOM_TIGHT - WIND_ZOOM_WIDE)}.0');
+        // Matched loosely: prettier reflows the interpolation and exact
+        // string matches on formatted source are a maintenance tax.
+        expect(src).toMatch(/u_zoom - \$\{WIND_ZOOM_WIDE\}\.0\) \/ \$\{WIND_ZOOM_TIGHT - WIND_ZOOM_WIDE\}/);
     });
 
     it('keeps the worst-case frame budget where it was', () => {

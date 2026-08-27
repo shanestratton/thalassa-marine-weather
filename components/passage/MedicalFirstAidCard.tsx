@@ -396,7 +396,7 @@ export const MedicalFirstAidCard: React.FC<MedicalFirstAidCardProps> = ({ voyage
                                 updateTelemedNumber(preset.number);
                                 triggerHaptic('light');
                             }}
-                            className={`px-2 py-1 rounded-lg text-[11px] font-bold uppercase tracking-wider border transition-all active:scale-[0.97] ${
+                            className={`px-2 py-1 min-h-[44px] rounded-lg text-[11px] font-bold uppercase tracking-wider border transition-all active:scale-[0.97] ${
                                 telemedNumber === preset.number
                                     ? 'bg-sky-500/15 border-sky-500/30 text-sky-300'
                                     : 'bg-white/[0.03] border-white/[0.08] text-gray-500 hover:text-gray-300'

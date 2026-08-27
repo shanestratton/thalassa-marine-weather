@@ -927,7 +927,7 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo((props) 
                                 key={m}
                                 onClick={() => setColorMode(m)}
                                 aria-pressed={colorMode === m}
-                                className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider transition-colors ${
+                                className={`px-3 py-1 min-h-[44px] rounded-full text-[10px] font-bold uppercase tracking-wider transition-colors ${
                                     colorMode === m ? 'bg-sky-500 text-white' : 'text-white/60'
                                 }`}
                             >

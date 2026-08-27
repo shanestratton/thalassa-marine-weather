@@ -733,7 +733,7 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                                             type="button"
                                             aria-label="Decrease crew"
                                             onClick={() => void persistCrew(displayedCrewCount - 1)}
-                                            className="w-6 h-6 rounded-md bg-white/[0.06] text-white font-bold leading-none"
+                                            className="w-6 h-6 min-h-[44px] min-w-[44px] rounded-md bg-white/[0.06] text-white font-bold leading-none"
                                         >
                                             −
                                         </button>
@@ -742,7 +742,7 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                                             type="button"
                                             aria-label="Increase crew"
                                             onClick={() => void persistCrew(displayedCrewCount + 1)}
-                                            className="w-6 h-6 rounded-md bg-white/[0.06] text-white font-bold leading-none"
+                                            className="w-6 h-6 min-h-[44px] min-w-[44px] rounded-md bg-white/[0.06] text-white font-bold leading-none"
                                         >
                                             +
                                         </button>
@@ -1231,7 +1231,7 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                                         triggerHaptic('light');
                                         setStep('active');
                                     }}
-                                    className="mt-2 text-xs font-black uppercase tracking-widest text-amber-300 underline underline-offset-2"
+                                    className="hit-target-44 mt-2 text-xs font-black uppercase tracking-widest text-amber-300 underline underline-offset-2"
                                 >
                                     View active passage →
                                 </button>

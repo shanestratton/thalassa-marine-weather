@@ -515,7 +515,7 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
                                                         setEditorRecipe(recipe);
                                                     }}
                                                     aria-label={`Edit ${recipe.title}`}
-                                                    className="shrink-0 rounded-lg border border-white/[0.08] bg-white/[0.04] px-2.5 py-1.5 text-[11px] font-bold text-gray-300 transition-colors hover:bg-white/[0.08]"
+                                                    className="shrink-0 min-h-[44px] rounded-lg border border-white/[0.08] bg-white/[0.04] px-2.5 py-1.5 text-[11px] font-bold text-gray-300 transition-colors hover:bg-white/[0.08]"
                                                 >
                                                     Edit
                                                 </button>

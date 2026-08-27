@@ -1158,7 +1158,7 @@ export const RoutePlanner: React.FC<{
                                     ref={routePickerCloseRef}
                                     type="button"
                                     onClick={closeRoutePicker}
-                                    className="ml-3 shrink-0 text-sm font-bold text-gray-400"
+                                    className="hit-target-44 ml-3 shrink-0 text-sm font-bold text-gray-400"
                                 >
                                     Close
                                 </button>

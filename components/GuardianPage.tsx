@@ -776,7 +776,7 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
                         <button
                             type="button"
                             onClick={() => setFeedback(null)}
-                            className="shrink-0 rounded-md p-1 text-current opacity-70 transition-opacity hover:opacity-100"
+                            className="hit-target-44 shrink-0 rounded-md p-1 text-current opacity-70 transition-opacity hover:opacity-100"
                             aria-label="Dismiss Guardian message"
                         >
                             <XIcon className="h-4 w-4" />
@@ -1061,7 +1061,7 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
                                             triggerHaptic('light');
                                             setShowHail(user);
                                         }}
-                                        className="px-3 py-1.5 bg-emerald-500/15 border border-emerald-500/20 rounded-lg text-[11px] font-bold text-emerald-400 uppercase tracking-wider hover:bg-emerald-500/25 transition-colors active:scale-[0.95]"
+                                        className="px-3 py-1.5 min-h-[44px] bg-emerald-500/15 border border-emerald-500/20 rounded-lg text-[11px] font-bold text-emerald-400 uppercase tracking-wider hover:bg-emerald-500/25 transition-colors active:scale-[0.95]"
                                     >
                                         Hail
                                     </button>

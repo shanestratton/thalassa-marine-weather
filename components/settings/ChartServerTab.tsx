@@ -269,7 +269,7 @@ export const ChartServerTab: React.FC = () => {
                         <button
                             onClick={() => setServerTypeChoice('avnav')}
                             disabled={isConnected}
-                            className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider transition-all ${
+                            className={`px-3 py-1.5 min-h-[44px] rounded-lg text-xs font-bold uppercase tracking-wider transition-all ${
                                 serverTypeChoice === 'avnav'
                                     ? 'bg-emerald-500/25 text-emerald-400 border border-emerald-500/40'
                                     : 'text-gray-500 hover:text-gray-300'
@@ -280,7 +280,7 @@ export const ChartServerTab: React.FC = () => {
                         <button
                             onClick={() => setServerTypeChoice('signalk')}
                             disabled={isConnected}
-                            className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider transition-all ${
+                            className={`px-3 py-1.5 min-h-[44px] rounded-lg text-xs font-bold uppercase tracking-wider transition-all ${
                                 serverTypeChoice === 'signalk'
                                     ? 'bg-sky-500/25 text-sky-400 border border-sky-500/40'
                                     : 'text-gray-500 hover:text-gray-300'
@@ -315,7 +315,7 @@ export const ChartServerTab: React.FC = () => {
                 <div className="px-4 pt-1">
                     <button
                         onClick={() => setShowAdvanced((v) => !v)}
-                        className="text-[11px] text-gray-500 hover:text-gray-400 transition-colors flex items-center gap-1"
+                        className="min-h-[44px] text-[11px] text-gray-500 hover:text-gray-400 transition-colors flex items-center gap-1"
                     >
                         <span
                             style={{

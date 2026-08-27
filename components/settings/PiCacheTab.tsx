@@ -481,7 +481,7 @@ const PiCacheTabDevelopment: React.FC<SettingsTabProps> = ({ settings, onSave })
                         <button
                             onClick={handleScanAgain}
                             disabled={visibleDiscovering}
-                            className="px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider bg-white/5 border border-white/10 text-white/70 hover:bg-white/10 disabled:opacity-40 transition-all"
+                            className="min-h-[44px] px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider bg-white/5 border border-white/10 text-white/70 hover:bg-white/10 disabled:opacity-40 transition-all"
                         >
                             {visibleDiscovering ? 'Scanning…' : 'Scan'}
                         </button>
@@ -498,7 +498,7 @@ const PiCacheTabDevelopment: React.FC<SettingsTabProps> = ({ settings, onSave })
                                 triggerHaptic('light');
                                 setShowInstall((v) => !v);
                             }}
-                            className="w-full py-1.5 text-[10px] font-semibold uppercase tracking-wider text-white/40 hover:text-white/70 transition-colors"
+                            className="w-full min-h-[44px] py-1.5 text-[10px] font-semibold uppercase tracking-wider text-white/40 hover:text-white/70 transition-colors"
                         >
                             {showInstall ? 'Hide setup' : "Don't have a Pi set up yet? Install on a new Pi"}
                         </button>
@@ -520,7 +520,7 @@ const PiCacheTabDevelopment: React.FC<SettingsTabProps> = ({ settings, onSave })
                             </div>
                             <button
                                 onClick={handleForget}
-                                className="shrink-0 px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider bg-white/5 border border-white/10 text-white/60 hover:bg-red-500/10 hover:text-red-300 hover:border-red-500/30 transition-all"
+                                className="shrink-0 min-h-[44px] px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider bg-white/5 border border-white/10 text-white/60 hover:bg-red-500/10 hover:text-red-300 hover:border-red-500/30 transition-all"
                             >
                                 Forget
                             </button>

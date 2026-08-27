@@ -398,7 +398,7 @@ export const EssentialAnchorView: React.FC<EssentialAnchorViewProps> = ({
                         onClick={() => void handleAcceptSuggestion()}
                         disabled={suggestionSaving}
                         aria-label={`Accept suggested swing radius of ${formatDistance(suggestion.proposed)}`}
-                        className={`shrink-0 px-2.5 py-1 rounded-lg text-[11px] font-bold uppercase tracking-wider transition-all active:scale-[0.95] ${
+                        className={`shrink-0 min-h-[44px] px-2.5 py-1 rounded-lg text-[11px] font-bold uppercase tracking-wider transition-all active:scale-[0.95] ${
                             suggestion.direction === 'larger'
                                 ? 'bg-amber-500/25 border border-amber-400/50 text-amber-100 hover:bg-amber-500/35'
                                 : 'bg-sky-500/25 border border-sky-400/50 text-sky-100 hover:bg-sky-500/35'
@@ -409,7 +409,7 @@ export const EssentialAnchorView: React.FC<EssentialAnchorViewProps> = ({
                     <button
                         onClick={handleDismissSuggestion}
                         aria-label="Dismiss swing radius suggestion"
-                        className="shrink-0 w-6 h-6 flex items-center justify-center rounded-full text-white/40 hover:text-white/80 hover:bg-white/[0.08] transition-colors"
+                        className="shrink-0 w-6 h-6 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-full text-white/40 hover:text-white/80 hover:bg-white/[0.08] transition-colors"
                     >
                         <svg
                             width="12"

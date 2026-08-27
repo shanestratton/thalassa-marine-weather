@@ -441,7 +441,7 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                                     type="button"
                                     aria-label="Clear availability end date"
                                     onClick={() => setEditAvailTo('')}
-                                    className="text-[11px] text-emerald-400/50 hover:text-emerald-400/80 mt-1 transition-colors"
+                                    className="min-h-[44px] text-[11px] text-emerald-400/50 hover:text-emerald-400/80 mt-1 transition-colors"
                                 >
                                     ✕ Clear end date
                                 </button>

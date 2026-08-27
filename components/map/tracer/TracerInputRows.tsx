@@ -155,7 +155,7 @@ export const TracerInputRows: React.FC<TracerInputRowsProps> = ({
                             (document.activeElement as HTMLElement | null)?.blur?.();
                             setDepartureMs(null);
                         }}
-                        className="w-full rounded-lg bg-white/10 py-1.5 text-[11px] font-black uppercase tracking-wide text-gray-300 active:scale-95"
+                        className="min-h-[44px] w-full rounded-lg bg-white/10 py-1.5 text-[11px] font-black uppercase tracking-wide text-gray-300 active:scale-95"
                     >
                         Now
                     </button>
@@ -184,7 +184,7 @@ export const TracerInputRows: React.FC<TracerInputRowsProps> = ({
                 <button
                     onClick={addCoordPin}
                     disabled={!coordEntry.trim()}
-                    className="shrink-0 rounded-lg bg-emerald-500/20 px-3 py-1.5 text-[11px] font-black uppercase tracking-wide text-emerald-300 active:scale-95 disabled:opacity-40"
+                    className="hit-target-44 shrink-0 rounded-lg bg-emerald-500/20 px-3 py-1.5 text-[11px] font-black uppercase tracking-wide text-emerald-300 active:scale-95 disabled:opacity-40"
                 >
                     ＋ Add
                 </button>

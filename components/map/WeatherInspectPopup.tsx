@@ -154,7 +154,7 @@ const SaveRow: React.FC<{ save: InspectSaveProps }> = ({ save }) => {
                 <button
                     type="button"
                     onClick={() => save.onUnsave(save.savedAs!)}
-                    className="shrink-0 px-2 py-1 rounded-lg text-[11px] font-semibold text-white/40 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                    className="hit-target-44 shrink-0 px-2 py-1 rounded-lg text-[11px] font-semibold text-white/40 hover:text-red-400 hover:bg-red-500/10 transition-colors"
                 >
                     Remove
                 </button>
@@ -200,14 +200,14 @@ const SaveRow: React.FC<{ save: InspectSaveProps }> = ({ save }) => {
                     type="button"
                     onClick={commit}
                     disabled={!name.trim()}
-                    className="flex-1 py-1.5 rounded-lg bg-amber-500/20 text-amber-200 text-[12px] font-bold hover:bg-amber-500/30 disabled:opacity-40 transition-colors"
+                    className="min-h-[44px] flex-1 py-1.5 rounded-lg bg-amber-500/20 text-amber-200 text-[12px] font-bold hover:bg-amber-500/30 disabled:opacity-40 transition-colors"
                 >
                     Save
                 </button>
                 <button
                     type="button"
                     onClick={() => setEditing(false)}
-                    className="px-3 py-1.5 rounded-lg text-[12px] font-semibold text-white/40 hover:text-white/70 transition-colors"
+                    className="min-h-[44px] px-3 py-1.5 rounded-lg text-[12px] font-semibold text-white/40 hover:text-white/70 transition-colors"
                 >
                     Cancel
                 </button>

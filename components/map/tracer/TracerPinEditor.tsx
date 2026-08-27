@@ -79,7 +79,7 @@ export const TracerPinEditor: React.FC<TracerPinEditorProps> = ({
                         setInsertAfter(selectedPin);
                         insertAfterRef.current = selectedPin;
                     }}
-                    className="rounded-lg bg-sky-500/20 px-2 py-1.5 text-[11px] font-black uppercase text-sky-300 active:scale-95"
+                    className="hit-target-44 rounded-lg bg-sky-500/20 px-2 py-1.5 text-[11px] font-black uppercase text-sky-300 active:scale-95"
                 >
                     + Insert
                 </button>
@@ -101,7 +101,7 @@ export const TracerPinEditor: React.FC<TracerPinEditorProps> = ({
                     insertAfterRef.current = null;
                     setCapturedCoords((prev) => prev.filter((_, j) => j !== idx));
                 }}
-                className="rounded-lg bg-red-500/20 px-2 py-1.5 text-[11px] font-black uppercase text-red-300 active:scale-95"
+                className="hit-target-44 rounded-lg bg-red-500/20 px-2 py-1.5 text-[11px] font-black uppercase text-red-300 active:scale-95"
             >
                 Delete
             </button>
@@ -112,7 +112,7 @@ export const TracerPinEditor: React.FC<TracerPinEditorProps> = ({
                     insertAfterRef.current = null;
                 }}
                 aria-label="Close pin editor"
-                className="px-1 text-gray-400"
+                className="min-h-[44px] min-w-[44px] px-1 text-gray-400"
             >
                 ✕
             </button>

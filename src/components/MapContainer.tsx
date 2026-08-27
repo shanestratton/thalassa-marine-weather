@@ -849,7 +849,7 @@ export default function MapContainer({
                         key={m}
                         onClick={() => setStyleMode(m)}
                         aria-label={`${m === 'dark' ? 'Chart' : 'Satellite'} basemap`}
-                        className={`px-3 py-1.5 transition-colors ${
+                        className={`min-h-[44px] px-3 py-1.5 transition-colors ${
                             styleMode === m ? 'bg-sky-600 text-white' : 'text-slate-300 hover:bg-white/10'
                         }`}
                     >

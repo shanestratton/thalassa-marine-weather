@@ -804,7 +804,7 @@ export const WatchScheduleCard: React.FC<WatchScheduleCardProps> = ({
                                 setAlarmEnabled((v) => !v);
                                 triggerHaptic('light');
                             }}
-                            className={`shrink-0 relative inline-flex h-5 w-9 cursor-pointer rounded-full border-2 border-transparent transition-colors ${
+                            className={`hit-target-44 shrink-0 relative inline-flex h-5 w-9 cursor-pointer rounded-full border-2 border-transparent transition-colors ${
                                 alarmEnabled ? 'bg-amber-500' : 'bg-slate-700'
                             }`}
                             aria-label="Enable pre-watch alarm"
@@ -859,7 +859,7 @@ export const WatchScheduleCard: React.FC<WatchScheduleCardProps> = ({
                             type="button"
                             onClick={() => void handleAutofill()}
                             disabled={autofilling}
-                            className="shrink-0 px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider bg-sky-600 text-white hover:bg-sky-500 active:scale-95 transition-all disabled:opacity-50"
+                            className="hit-target-44 shrink-0 px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider bg-sky-600 text-white hover:bg-sky-500 active:scale-95 transition-all disabled:opacity-50"
                         >
                             {autofilling ? 'Applying…' : 'Apply'}
                         </button>
@@ -867,7 +867,7 @@ export const WatchScheduleCard: React.FC<WatchScheduleCardProps> = ({
                             type="button"
                             onClick={handleDismissAutofill}
                             disabled={autofilling}
-                            className="shrink-0 px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider text-sky-300/70 hover:text-sky-200 active:scale-95 transition-all disabled:opacity-50"
+                            className="hit-target-44 shrink-0 px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider text-sky-300/70 hover:text-sky-200 active:scale-95 transition-all disabled:opacity-50"
                             aria-label="Dismiss auto-fill suggestion for this passage"
                         >
                             Dismiss

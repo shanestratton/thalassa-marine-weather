@@ -508,7 +508,7 @@ export const WeatherWindowCard: React.FC<WeatherWindowCardProps> = ({
                         {result?.availability === 'unavailable' && (
                             <p className="text-[11px] text-gray-400 mt-1">Provider: {result.provider}</p>
                         )}
-                        <button onClick={analyse} className="text-[11px] font-bold text-cyan-300 mt-2">
+                        <button onClick={analyse} className="hit-target-44 text-[11px] font-bold text-cyan-300 mt-2">
                             Retry forecast analysis
                         </button>
                     </div>
@@ -544,7 +544,7 @@ export const WeatherWindowCard: React.FC<WeatherWindowCardProps> = ({
                         </div>
                         <button
                             onClick={analyse}
-                            className="px-2.5 py-1.5 rounded-lg text-[11px] font-bold text-cyan-400 bg-cyan-500/10 border border-cyan-500/20 hover:bg-cyan-500/20 transition-all"
+                            className="hit-target-44 px-2.5 py-1.5 rounded-lg text-[11px] font-bold text-cyan-400 bg-cyan-500/10 border border-cyan-500/20 hover:bg-cyan-500/20 transition-all"
                         >
                             Refresh
                         </button>

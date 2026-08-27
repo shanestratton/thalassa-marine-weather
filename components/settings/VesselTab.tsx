@@ -699,7 +699,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                 aria-label="Sync vessel fleet now"
                                 onClick={syncFleet}
                                 disabled={!fleetSurface.syncVesselFleet || fleetBusyAction !== null || syncStatus.busy}
-                                className="ml-auto inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-wide opacity-85 transition-opacity hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-40"
+                                className="hit-target-44 ml-auto inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-wide opacity-85 transition-opacity hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-40"
                             >
                                 <RefreshIcon
                                     className={`h-3.5 w-3.5 ${fleetBusyAction === 'sync' ? 'animate-spin' : ''}`}
@@ -734,7 +734,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                 <button
                                     type="button"
                                     onClick={() => setArchiveCandidate(null)}
-                                    className="rounded-lg px-3 py-1.5 text-[10px] font-black uppercase tracking-wide text-slate-300 hover:bg-white/[0.06]"
+                                    className="rounded-lg px-3 py-1.5 min-h-[44px] text-[10px] font-black uppercase tracking-wide text-slate-300 hover:bg-white/[0.06]"
                                 >
                                     Keep
                                 </button>
@@ -742,7 +742,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                     type="button"
                                     onClick={archiveFleetVessel}
                                     disabled={fleetBusyAction !== null}
-                                    className="rounded-lg border border-red-400/25 bg-red-500/[0.15] px-3 py-1.5 text-[10px] font-black uppercase tracking-wide text-red-100 hover:bg-red-500/[0.22] disabled:cursor-not-allowed disabled:opacity-45"
+                                    className="rounded-lg border border-red-400/25 bg-red-500/[0.15] px-3 py-1.5 min-h-[44px] text-[10px] font-black uppercase tracking-wide text-red-100 hover:bg-red-500/[0.22] disabled:cursor-not-allowed disabled:opacity-45"
                                 >
                                     Archive
                                 </button>
@@ -762,7 +762,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                         ? 'Keep at least one vessel profile active.'
                                         : 'Archive this vessel profile'
                                 }
-                                className="mt-3 inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wide text-slate-400 transition-colors hover:text-red-200 disabled:cursor-not-allowed disabled:opacity-40"
+                                className="mt-3 inline-flex min-h-[44px] items-center gap-1.5 text-[10px] font-black uppercase tracking-wide text-slate-400 transition-colors hover:text-red-200 disabled:cursor-not-allowed disabled:opacity-40"
                             >
                                 <TrashIcon className="h-3.5 w-3.5" />
                                 Archive active vessel
@@ -1251,7 +1251,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                     <button
                                         type="button"
                                         onClick={() => updateVessel('cruisingSpeed', 0)}
-                                        className="mt-1.5 text-[11px] font-bold text-sky-400 hover:text-sky-300"
+                                        className="mt-1.5 min-h-[44px] text-[11px] font-bold text-sky-400 hover:text-sky-300"
                                     >
                                         ↻ Reset to auto (
                                         {Math.round(vesselCruisingSpeedKts({ ...vessel, cruisingSpeed: 0 }) * 10) / 10}{' '}
@@ -1276,7 +1276,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                     <button
                                         type="button"
                                         onClick={() => updateVessel('maxWaveHeight', 0)}
-                                        className="mt-1.5 text-[11px] font-bold text-sky-400 hover:text-sky-300"
+                                        className="mt-1.5 min-h-[44px] text-[11px] font-bold text-sky-400 hover:text-sky-300"
                                     >
                                         ↻ Reset to auto (
                                         {Math.round(vesselMaxWaveHeightFt({ ...vessel, maxWaveHeight: 0 }) * 10) / 10}{' '}
@@ -1449,7 +1449,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                 aria-checked={settings.currentNrtEnabled === true}
                                 aria-label="Toggle high-fidelity ocean currents"
                                 onClick={() => onSave({ currentNrtEnabled: !settings.currentNrtEnabled })}
-                                className={`shrink-0 relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none ${
+                                className={`hit-target-44 shrink-0 relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none ${
                                     settings.currentNrtEnabled ? 'bg-cyan-500' : 'bg-slate-700'
                                 }`}
                             >

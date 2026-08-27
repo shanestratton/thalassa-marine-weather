@@ -153,7 +153,7 @@ const SystemStatusModal: React.FC<{
                         ref={closeButtonRef}
                         onClick={onClose}
                         aria-label="Close system status"
-                        className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white transition-colors"
+                        className="hit-target-44 p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white transition-colors"
                     >
                         <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path
@@ -494,7 +494,7 @@ const SystemRow: React.FC<{
                     e.stopPropagation();
                     action.onClick();
                 }}
-                className={`shrink-0 px-2.5 py-1.5 rounded-lg text-[11px] font-bold uppercase tracking-wider transition-all active:scale-95 ${
+                className={`shrink-0 min-h-[44px] px-2.5 py-1.5 rounded-lg text-[11px] font-bold uppercase tracking-wider transition-all active:scale-95 ${
                     action.destructive
                         ? 'bg-red-500/15 border border-red-500/30 text-red-400'
                         : 'bg-sky-500/15 border border-sky-500/30 text-sky-400'

@@ -105,7 +105,7 @@ export const DisplayPrefsStep: React.FC<DisplayPrefsStepProps> = ({
                         aria-label="Keep display always on"
                         aria-pressed={prefAlwaysOn}
                         onClick={() => onAlwaysOnChange(!prefAlwaysOn)}
-                        className={`relative w-12 h-7 rounded-full transition-all duration-300 shrink-0 ml-4 ${
+                        className={`hit-target-44 relative w-12 h-7 rounded-full transition-all duration-300 shrink-0 ml-4 ${
                             prefAlwaysOn ? 'bg-sky-500' : 'bg-white/15'
                         }`}
                     >

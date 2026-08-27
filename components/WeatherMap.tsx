@@ -456,7 +456,7 @@ export const WeatherMap: React.FC<WeatherMapProps> = React.memo(
                                         setActiveLayer('wind');
                                         setPendingSelection(null);
                                     }}
-                                    className={`px-4 py-1.5 rounded-full text-[11px] font-bold uppercase tracking-wider transition-all ${activeLayer === 'wind' ? 'bg-sky-600 text-white shadow-lg' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}
+                                    className={`min-h-[44px] px-4 py-1.5 rounded-full text-[11px] font-bold uppercase tracking-wider transition-all ${activeLayer === 'wind' ? 'bg-sky-600 text-white shadow-lg' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}
                                 >
                                     Wind
                                 </button>
@@ -465,7 +465,7 @@ export const WeatherMap: React.FC<WeatherMapProps> = React.memo(
                                         setActiveLayer('rain');
                                         setPendingSelection(null);
                                     }}
-                                    className={`px-4 py-1.5 rounded-full text-[11px] font-bold uppercase tracking-wider transition-all ${activeLayer === 'rain' ? 'bg-sky-600 text-white shadow-lg' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}
+                                    className={`min-h-[44px] px-4 py-1.5 rounded-full text-[11px] font-bold uppercase tracking-wider transition-all ${activeLayer === 'rain' ? 'bg-sky-600 text-white shadow-lg' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}
                                 >
                                     Rain
                                 </button>
@@ -475,14 +475,14 @@ export const WeatherMap: React.FC<WeatherMapProps> = React.memo(
                                         setActiveLayer('global-wind');
                                         setPendingSelection(null);
                                     }}
-                                    className={`px-4 py-1.5 rounded-full text-[11px] font-bold uppercase tracking-wider transition-all flex items-center gap-1 ${activeLayer === 'global-wind' ? 'bg-emerald-600 text-white shadow-lg' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}
+                                    className={`min-h-[44px] px-4 py-1.5 rounded-full text-[11px] font-bold uppercase tracking-wider transition-all flex items-center gap-1 ${activeLayer === 'global-wind' ? 'bg-emerald-600 text-white shadow-lg' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}
                                 >
                                     <CompassIcon rotation={0} className="w-3 h-3" /> Global
                                 </button>
                                 <button
                                     aria-label="Weather stations"
                                     onClick={() => setActiveLayer('buoys')}
-                                    className={`px-4 py-1.5 rounded-full text-[11px] font-bold uppercase tracking-wider transition-all flex items-center gap-1 ${activeLayer === 'buoys' ? 'bg-amber-600 text-white shadow-lg' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}
+                                    className={`min-h-[44px] px-4 py-1.5 rounded-full text-[11px] font-bold uppercase tracking-wider transition-all flex items-center gap-1 ${activeLayer === 'buoys' ? 'bg-amber-600 text-white shadow-lg' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}
                                 >
                                     <RadioTowerIcon className="w-3 h-3" /> Stations
                                 </button>
@@ -492,14 +492,14 @@ export const WeatherMap: React.FC<WeatherMapProps> = React.memo(
                                         setActiveLayer('velocity');
                                         setPendingSelection(null);
                                     }}
-                                    className={`px-4 py-1.5 rounded-full text-[11px] font-bold uppercase tracking-wider transition-all flex items-center gap-1 ${activeLayer === 'velocity' ? 'bg-sky-600 text-white shadow-lg' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}
+                                    className={`min-h-[44px] px-4 py-1.5 rounded-full text-[11px] font-bold uppercase tracking-wider transition-all flex items-center gap-1 ${activeLayer === 'velocity' ? 'bg-sky-600 text-white shadow-lg' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}
                                 >
                                     <WindIcon className="w-3 h-3" /> Velocity
                                 </button>
                                 <button
                                     aria-label="Show Nav Mesh"
                                     onClick={() => setShowNavMesh((v) => !v)}
-                                    className={`px-3 py-1.5 rounded-full text-[11px] font-bold uppercase tracking-wider transition-all ${showNavMesh ? 'bg-purple-600 text-white shadow-lg' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}
+                                    className={`min-h-[44px] min-w-[44px] px-3 py-1.5 rounded-full text-[11px] font-bold uppercase tracking-wider transition-all ${showNavMesh ? 'bg-purple-600 text-white shadow-lg' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}
                                     title="Toggle Nav Mesh X-Ray"
                                 >
                                     ⊞

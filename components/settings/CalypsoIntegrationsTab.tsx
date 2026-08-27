@@ -396,7 +396,7 @@ export const CalypsoIntegrationsTab: React.FC<SettingsTabProps> = ({ settings, o
                             <button
                                 onClick={() => handlePlaySample(preset.id)}
                                 disabled={!!samplePlaying}
-                                className={`text-xs px-2 py-1 rounded border transition-colors ${
+                                className={`min-h-[44px] text-xs px-2 py-1 rounded border transition-colors ${
                                     playing
                                         ? 'border-sky-400 text-sky-400 bg-sky-400/10'
                                         : samplePlaying
@@ -468,7 +468,7 @@ export const CalypsoIntegrationsTab: React.FC<SettingsTabProps> = ({ settings, o
                                 </div>
                                 <button
                                     onClick={handleTestAlert}
-                                    className="text-sm font-bold text-sky-400 hover:text-sky-300 px-3 py-1 rounded border border-sky-400/40 hover:border-sky-300/60 transition-colors"
+                                    className="min-h-[44px] text-sm font-bold text-sky-400 hover:text-sky-300 px-3 py-1 rounded border border-sky-400/40 hover:border-sky-300/60 transition-colors"
                                 >
                                     Test alert
                                 </button>

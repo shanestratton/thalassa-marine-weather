@@ -628,7 +628,7 @@ export const TrackPickerSheet: React.FC<TrackPickerSheetProps> = React.memo(
                 <h3 className="text-sm font-bold text-white/80">Share a Voyage</h3>
                 <button
                     onClick={onClose}
-                    className="text-white/60 hover:text-white/80 text-lg transition-colors px-2"
+                    className="hit-target-44 text-white/60 hover:text-white/80 text-lg transition-colors px-2"
                     aria-label="Close attachment sheet"
                 >
                     ✕
@@ -675,7 +675,7 @@ export const TrackPickerSheet: React.FC<TrackPickerSheetProps> = React.memo(
                                     aria-label="Send attachment"
                                     onClick={() => onSendTrack(v)}
                                     disabled={trackSharing}
-                                    className="flex-shrink-0 px-3 py-1.5 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 text-xs text-emerald-400/80 font-bold transition-all active:scale-95 disabled:opacity-40"
+                                    className="flex-shrink-0 px-3 py-1.5 min-h-[44px] rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 text-xs text-emerald-400/80 font-bold transition-all active:scale-95 disabled:opacity-40"
                                 >
                                     {trackSharing ? (
                                         <div className="w-4 h-4 border-2 border-emerald-500/30 rounded-full border-t-teal-500 animate-spin" />

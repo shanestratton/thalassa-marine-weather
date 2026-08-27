@@ -197,7 +197,7 @@ export const ComfortQuickConfig: React.FC<ComfortQuickConfigProps> = ({ expanded
                                 <button
                                     type="button"
                                     onClick={() => updateField('preferredAngles', undefined)}
-                                    className="text-[10px] text-slate-500 hover:text-slate-300 underline-offset-2 hover:underline"
+                                    className="min-h-[44px] text-[10px] text-slate-500 hover:text-slate-300 underline-offset-2 hover:underline"
                                 >
                                     select all
                                 </button>
@@ -213,7 +213,7 @@ export const ComfortQuickConfig: React.FC<ComfortQuickConfigProps> = ({ expanded
                                         onClick={() => toggleAngle(key)}
                                         title={desc}
                                         aria-pressed={active}
-                                        className={`px-2.5 py-1 rounded-full text-[11px] font-bold border transition-colors active:scale-[0.97] ${
+                                        className={`px-2.5 py-1 min-h-[44px] rounded-full text-[11px] font-bold border transition-colors active:scale-[0.97] ${
                                             active
                                                 ? 'bg-violet-500/20 border-violet-500/40 text-violet-200'
                                                 : 'bg-white/[0.02] border-white/10 text-slate-500 hover:text-slate-300'

@@ -138,7 +138,7 @@ const CellRow: React.FC<{
                     onShowOnMap(cell);
                 }}
                 disabled={busy}
-                className="text-base shrink-0 mt-0.5 hover:scale-110 active:scale-95 transition-transform"
+                className="hit-target-44 text-base shrink-0 mt-0.5 hover:scale-110 active:scale-95 transition-transform"
                 title="Show coverage on map"
                 aria-label={`Show ${cell.id} coverage on map`}
             >
@@ -155,7 +155,7 @@ const CellRow: React.FC<{
                         onShowOnMap(cell);
                     }}
                     disabled={busy}
-                    className="text-[11px] text-gray-500 truncate hover:text-sky-300 active:scale-[0.99] transition-colors text-left w-full"
+                    className="hit-target-44 text-[11px] text-gray-500 truncate hover:text-sky-300 active:scale-[0.99] transition-colors text-left w-full"
                     title="Show coverage on map"
                 >
                     {formatBBox(cell.bbox)}
@@ -196,7 +196,7 @@ const CellRow: React.FC<{
                             setConfirming(false);
                         }}
                         disabled={busy}
-                        className="px-2 py-1 rounded-md text-[10px] font-black uppercase tracking-wider bg-red-500/15 border border-red-500/30 text-red-400 hover:bg-red-500/25"
+                        className="min-h-[44px] px-2 py-1 rounded-md text-[10px] font-black uppercase tracking-wider bg-red-500/15 border border-red-500/30 text-red-400 hover:bg-red-500/25"
                     >
                         Delete
                     </button>
@@ -205,7 +205,7 @@ const CellRow: React.FC<{
                             triggerHaptic('light');
                             setConfirming(false);
                         }}
-                        className="px-2 py-1 rounded-md text-[10px] uppercase tracking-wider bg-white/[0.04] text-gray-400"
+                        className="min-h-[44px] px-2 py-1 rounded-md text-[10px] uppercase tracking-wider bg-white/[0.04] text-gray-400"
                     >
                         Cancel
                     </button>
@@ -217,7 +217,7 @@ const CellRow: React.FC<{
                         setConfirming(true);
                     }}
                     disabled={busy}
-                    className="shrink-0 px-2 py-1 rounded-md text-[10px] font-black uppercase tracking-wider bg-white/[0.04] hover:bg-white/[0.08] text-gray-400"
+                    className="hit-target-44 shrink-0 px-2 py-1 rounded-md text-[10px] font-black uppercase tracking-wider bg-white/[0.04] hover:bg-white/[0.08] text-gray-400"
                     title="Remove this cell from your device"
                 >
                     Remove
@@ -700,7 +700,7 @@ export const EncCellManager: React.FC = () => {
                                             triggerHaptic('light');
                                             setShowPicker((v) => !v);
                                         }}
-                                        className="w-full py-1.5 text-[10px] font-semibold uppercase tracking-wider text-white/40 hover:text-white/70 transition-colors"
+                                        className="min-h-[44px] w-full py-1.5 text-[10px] font-semibold uppercase tracking-wider text-white/40 hover:text-white/70 transition-colors"
                                     >
                                         {showPicker ? 'Hide chart picker' : 'Or pick one chart…'}
                                     </button>
@@ -737,7 +737,7 @@ export const EncCellManager: React.FC = () => {
                                                                 void handleGetCell(c.cellId);
                                                             }}
                                                             disabled={importing || pullingCellId !== null}
-                                                            className="shrink-0 px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider bg-amber-500/10 border border-amber-500/30 text-amber-300 hover:bg-amber-500/20 active:scale-95 disabled:opacity-40 transition-all"
+                                                            className="hit-target-44 shrink-0 px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider bg-amber-500/10 border border-amber-500/30 text-amber-300 hover:bg-amber-500/20 active:scale-95 disabled:opacity-40 transition-all"
                                                         >
                                                             {pullingCellId === c.cellId ? '…' : 'Get'}
                                                         </button>

@@ -623,7 +623,7 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = ({ settings, onSave }) =
                                         onClick={() => void handleCreateCrewLog(boat)}
                                         disabled={isBusy}
                                         aria-label={`Create personal voyage log on ${boat.boatName}`}
-                                        className="shrink-0 text-xs font-bold text-sky-400 hover:text-sky-300 px-2.5 py-1 rounded border border-sky-400/40 hover:border-sky-300/60 transition-colors uppercase tracking-wider disabled:opacity-50"
+                                        className="hit-target-44 shrink-0 text-xs font-bold text-sky-400 hover:text-sky-300 px-2.5 py-1 rounded border border-sky-400/40 hover:border-sky-300/60 transition-colors uppercase tracking-wider disabled:opacity-50"
                                     >
                                         {isBusy ? 'Creating…' : 'Create page'}
                                     </button>
@@ -640,7 +640,7 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = ({ settings, onSave }) =
                                     <button
                                         onClick={() => void copy(`crew-${boat.boatId}`, publicUrlForHandle(handle))}
                                         aria-label="Copy crew log share link"
-                                        className="shrink-0 text-xs font-bold text-sky-400 hover:text-sky-300 px-2.5 py-1 rounded border border-sky-400/40 hover:border-sky-300/60 transition-colors uppercase tracking-wider"
+                                        className="hit-target-44 shrink-0 text-xs font-bold text-sky-400 hover:text-sky-300 px-2.5 py-1 rounded border border-sky-400/40 hover:border-sky-300/60 transition-colors uppercase tracking-wider"
                                     >
                                         {copiedField === `crew-${boat.boatId}` ? 'Copied' : 'Copy'}
                                     </button>
@@ -877,7 +877,7 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = ({ settings, onSave }) =
                                         {canLink && (
                                             <button
                                                 onClick={() => toggleLinkPicker(v.voyageId)}
-                                                className="text-xs text-sky-400 mt-1 text-left"
+                                                className="hit-target-44 text-xs text-sky-400 mt-1 text-left"
                                             >
                                                 Passage: {linkedPlan?.label ?? (linkedPlanId ? 'linked plan' : 'none')}{' '}
                                                 ▸
@@ -900,7 +900,7 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = ({ settings, onSave }) =
                                                 <button
                                                     key={r.id}
                                                     onClick={() => void handlePlanLink(v.voyageId, r.id)}
-                                                    className={`text-left text-xs py-1.5 px-2 rounded-lg ${
+                                                    className={`min-h-[44px] text-left text-xs py-1.5 px-2 rounded-lg ${
                                                         linkedPlanId === r.id
                                                             ? 'bg-sky-500/20 text-sky-300'
                                                             : 'bg-white/5 text-gray-300'
@@ -912,7 +912,7 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = ({ settings, onSave }) =
                                             ))}
                                             <button
                                                 onClick={() => void handlePlanLink(v.voyageId, null)}
-                                                className="text-left text-xs py-1.5 px-2 rounded-lg bg-white/5 text-gray-400"
+                                                className="min-h-[44px] text-left text-xs py-1.5 px-2 rounded-lg bg-white/5 text-gray-400"
                                             >
                                                 No linked passage
                                             </button>
@@ -943,7 +943,7 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = ({ settings, onSave }) =
                     <button
                         onClick={() => void copy('api', apiUrl)}
                         aria-label="Copy API endpoint URL"
-                        className="shrink-0 text-xs font-bold text-sky-400 hover:text-sky-300 px-2.5 py-1 rounded border border-sky-400/40 hover:border-sky-300/60 transition-colors uppercase tracking-wider"
+                        className="hit-target-44 shrink-0 text-xs font-bold text-sky-400 hover:text-sky-300 px-2.5 py-1 rounded border border-sky-400/40 hover:border-sky-300/60 transition-colors uppercase tracking-wider"
                     >
                         {copiedField === 'api' ? 'Copied' : 'Copy'}
                     </button>
@@ -957,7 +957,7 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = ({ settings, onSave }) =
                     <button
                         onClick={() => void Browser.open({ url: 'https://thalassawx.app/voyage-log-api' })}
                         aria-label="Open the Voyage Log API documentation"
-                        className="shrink-0 text-xs font-bold text-sky-400 hover:text-sky-300 px-2.5 py-1 rounded border border-sky-400/40 hover:border-sky-300/60 transition-colors uppercase tracking-wider"
+                        className="hit-target-44 shrink-0 text-xs font-bold text-sky-400 hover:text-sky-300 px-2.5 py-1 rounded border border-sky-400/40 hover:border-sky-300/60 transition-colors uppercase tracking-wider"
                     >
                         API docs
                     </button>

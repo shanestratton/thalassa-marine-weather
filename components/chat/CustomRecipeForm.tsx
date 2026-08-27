@@ -266,7 +266,7 @@ export const CustomRecipeForm: React.FC<CustomRecipeFormProps> = ({ onSaved, onC
                                 setPhotoFile(null);
                                 setPhotoPreview(null);
                             }}
-                            className="absolute top-2 right-2 w-7 h-7 rounded-full bg-black/60 flex items-center justify-center text-white text-xs"
+                            className="absolute top-2 right-2 w-7 h-7 min-w-[44px] min-h-[44px] rounded-full bg-black/60 flex items-center justify-center text-white text-xs"
                             aria-label="Remove photo"
                         >
                             ✕
@@ -329,7 +329,7 @@ export const CustomRecipeForm: React.FC<CustomRecipeFormProps> = ({ onSaved, onC
                                 });
                                 triggerHaptic('light');
                             }}
-                            className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition-all active:scale-95 ${
+                            className={`px-2.5 py-1.5 min-h-[44px] rounded-lg text-[11px] font-bold transition-all active:scale-95 ${
                                 selectedTags.has(tag.id)
                                     ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
                                     : 'bg-white/[0.03] text-gray-500 border border-white/[0.06]'
@@ -423,7 +423,7 @@ export const CustomRecipeForm: React.FC<CustomRecipeFormProps> = ({ onSaved, onC
                     />
                     <button
                         onClick={() => removeDirection(i)}
-                        className="w-7 h-7 rounded-lg bg-red-500/10 text-red-400 flex items-center justify-center text-xs shrink-0 mt-1 hover:bg-red-500/20 transition-colors"
+                        className="w-7 h-7 min-w-[44px] min-h-[44px] rounded-lg bg-red-500/10 text-red-400 flex items-center justify-center text-xs shrink-0 mt-1 hover:bg-red-500/20 transition-colors"
                         aria-label={`Remove step ${i + 1}`}
                     >
                         ✕

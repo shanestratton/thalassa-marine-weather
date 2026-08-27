@@ -544,7 +544,7 @@ export const ModelComparisonMatrix: React.FC<Props> = React.memo(
                             ref={closeButtonRef}
                             onClick={onClose}
                             aria-label="Close"
-                            className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white transition-colors"
+                            className="hit-target-44 p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white transition-colors"
                         >
                             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path
@@ -566,7 +566,7 @@ export const ModelComparisonMatrix: React.FC<Props> = React.memo(
                                     <button
                                         key={p.id}
                                         onClick={() => setParam(p.id)}
-                                        className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold uppercase tracking-wider transition-all shrink-0 ${
+                                        className={`px-2.5 py-1.5 min-h-[44px] rounded-lg text-[11px] font-bold uppercase tracking-wider transition-all shrink-0 ${
                                             active
                                                 ? 'bg-sky-500/20 text-sky-300 shadow-[0_0_8px_rgba(56,189,248,0.2)]'
                                                 : 'text-gray-500 hover:text-gray-300'
