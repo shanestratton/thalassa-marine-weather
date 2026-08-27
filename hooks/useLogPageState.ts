@@ -1144,7 +1144,10 @@ export function useLogPageState() {
         stoppingRef.current = true;
         dispatch({ type: 'SET_TRACKING', isTracking: false, isPaused: false });
         try {
-            await ShipLogService.stopTracking();
+            // Exact-voyage teardown: every other caller passes the id it
+            // means to stop; the captured id IS the current one, so this is
+            // pure lease verification, never a mismatch.
+            await ShipLogService.stopTracking(stoppedVoyageId);
         } catch (e) {
             if (!isAuthIdentityScopeCurrent(actionScope)) return;
             log.warn('stopTracking failed:', e);
@@ -1159,6 +1162,36 @@ export function useLogPageState() {
         if (!isAuthIdentityScopeCurrent(actionScope)) return;
         // Clear the guard
         stoppingRef.current = false;
+
+        // Keep the dialog's promise. Its title is "End Voyage?" and its
+        // button says "End Voyage" — but this handler only ever stopped
+        // GPS, leaving the voyages row status='active' forever, which then
+        // ambushed the next Cast Off (Shane 2026-08-27: "i have to end
+        // voyage and archive. even though i stopped the route in the
+        // log???"). Archive the row now. Only cast-off voyages have a
+        // voyages row — casual Log-page starts mint a local "voyage_…" id
+        // with nothing to archive. Success-path only: a failed teardown
+        // returned above and must leave the row active.
+        if (stoppedVoyageId && !stoppedVoyageId.startsWith('voyage_')) {
+            try {
+                const { endVoyage } = await import('../services/VoyageService');
+                const ended = await endVoyage(stoppedVoyageId, 'completed');
+                if (!isAuthIdentityScopeCurrent(actionScope)) return;
+                if (!ended) {
+                    // false also means "row already archived elsewhere", so
+                    // the wording must not assert it is still active.
+                    toast.error(
+                        'Track stopped. The passage could not be confirmed as ended — if it still shows active, End Voyage from the Vessel tab.',
+                    );
+                }
+            } catch (e) {
+                if (!isAuthIdentityScopeCurrent(actionScope)) return;
+                log.warn('archive-on-stop failed:', e);
+                toast.error(
+                    'Track stopped. The passage could not be confirmed as ended — if it still shows active, End Voyage from the Vessel tab.',
+                );
+            }
+        }
 
         // Immediately bin an empty (0.0 NM) just-stopped voyage. The
         // summary-level auto-prune holds recently-active voyages for 15 min

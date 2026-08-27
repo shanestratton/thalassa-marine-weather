@@ -122,21 +122,14 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
     // ignore the next one — so ending a voyage offers the stand-down message
     // rather than leaving the skipper to remember it.
     const [standDownText, setStandDownText] = useState<string | null>(null);
-    // The passage the skipper actually SELECTED when a different voyage is
-    // still active. The active card must render (the server's cast_off_voyage
-    // guard allows one live voyage), but the selection must not be silently
-    // swallowed (Shane 2026-08-27: "it always shows the newport - coral sea
-    // 1st leg. regardless of which route i chose") — it is named on the card
-    // and End Voyage hands straight into its pre-departure check.
-    const [pendingSelection, setPendingSelection] = useState<Voyage | null>(null);
     // displayVoyageName parses the whole saved-trace store — once per
     // voyage, never once per render: the active card's port inputs
     // re-render this panel on every keystroke.
-    const pendingSelectionName = useMemo(
-        () => (pendingSelection ? displayVoyageName(pendingSelection) : null),
-        [pendingSelection],
-    );
     const selectedDisplayName = useMemo(() => (selected ? displayVoyageName(selected) : null), [selected]);
+    const activeVoyageDisplayName = useMemo(
+        () => (activeVoyage ? displayVoyageName(activeVoyage) : null),
+        [activeVoyage],
+    );
     const vesselName = useSettingsStore((s) => s.settings.vessel?.name);
     const closeButtonRef = useRef<HTMLButtonElement>(null);
     const mountedRef = useRef(true);
@@ -167,7 +160,6 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
             setDrafts(d);
             if (active) {
                 setActiveVoyage(active);
-                setStep('active');
                 // Load leg state
                 const activeLeg = getActiveLeg(active.id);
                 setCurrentLeg(activeLeg);
@@ -178,13 +170,27 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                 // it, so the old amber "Retry GPS Logging" card cried wolf
                 // on every healthy passage (Shane 2026-08-27: "it is always
                 // working. but i need to open the ships log first" —
-                // removed at his call). The stale-passage age note below
-                // survives independently.
-                setPendingSelection(
+                // removed at his call). The stale-passage age note on the
+                // active card survives independently.
+                const match =
                     initialVoyageId && initialVoyageId !== active.id
-                        ? (d.find((v) => v.id === initialVoyageId) ?? null)
-                        : null,
-                );
+                        ? d.find((v) => v.id === initialVoyageId)
+                        : undefined;
+                if (match) {
+                    // The skipper's SELECTION wins (Shane 2026-08-27: "i
+                    // realise that people wouldnt start one route and then
+                    // move to another, but i dont think that it is
+                    // necessary to enforce it") — straight into its
+                    // pre-departure check. The still-active passage is
+                    // named there, and Cast Off ends & archives it in the
+                    // same gesture. Watch Mode still opens for the active
+                    // passage itself, or when nothing was selected.
+                    setSelected(match);
+                    setSafetyConfirmed(false);
+                    setStep('preflight');
+                } else {
+                    setStep('active');
+                }
             } else if (initialVoyageId) {
                 // Auto-select the passage planning voyage — skip draft list
                 const match = d.find((v) => v.id === initialVoyageId);
@@ -253,6 +259,38 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
         let activatedVoyage: Voyage | null = null;
 
         try {
+            // The one-live-voyage rule is the SERVER'S (cast_off_voyage
+            // refuses a second active row) — not the skipper's problem
+            // (Shane 2026-08-27: "i dont think that it is necessary to
+            // enforce it"). A stale active passage is ended & archived as
+            // part of this same gesture; the preflight caution named it,
+            // so nothing here is a surprise.
+            if (activeVoyage && activeVoyage.id !== selected.id) {
+                const ended = await endVoyage(activeVoyage.id, 'completed');
+                if (!operationIsCurrent()) return;
+                if (!ended) {
+                    // endVoyage conflates "row no longer active" with real
+                    // failure (its UPDATE filters status='active'). A
+                    // passage ended on another device returns false here
+                    // too — and retrying the same stale id can never
+                    // succeed. Re-check before blocking: when nothing is
+                    // active any more, Cast Off proceeds; when a different
+                    // voyage took the slot, refresh the gate so the retry
+                    // ends the right one.
+                    const stillActive = await getActiveVoyage();
+                    if (!operationIsCurrent()) return;
+                    if (stillActive) {
+                        setActiveVoyage(stillActive);
+                        setError(
+                            'The previous passage could not be ended, so Cast Off has not started. Retry, or end it from the Vessel page.',
+                        );
+                        return;
+                    }
+                }
+                setActiveVoyage(null);
+                setCurrentLeg(null);
+                setCompletedLegs([]);
+            }
             const result = await castOff(selected.id);
             if (!operationIsCurrent()) return;
             if (result.ok && result.voyage) {
@@ -288,7 +326,7 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
         } finally {
             if (operationIsCurrent()) setCasting(false);
         }
-    }, [selected, safetyConfirmed, publishPublic, onCastOff]);
+    }, [selected, safetyConfirmed, publishPublic, activeVoyage, onCastOff]);
 
     const handleEndVoyage = useCallback(async () => {
         if (!activeVoyage || endingRef.current || casting) return;
@@ -318,17 +356,7 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
             setActiveVoyage(null);
             setCurrentLeg(null);
             setCompletedLegs([]);
-            if (pendingSelection) {
-                // The passage the skipper originally picked takes over the
-                // moment the stale one stands down — straight into its
-                // pre-departure check, no re-hunt through the draft list.
-                setSelected(pendingSelection);
-                setSafetyConfirmed(false);
-                setPendingSelection(null);
-                setStep('preflight');
-            } else {
-                setStep('select');
-            }
+            setStep('select');
             const d = await getDraftVoyages();
             if (operationIsCurrent()) setDrafts(d);
         } catch (cause) {
@@ -339,19 +367,13 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
             endingRef.current = false;
             if (operationIsCurrent()) setEnding(false);
         }
-    }, [activeVoyage, casting, pendingSelection, vesselName]);
+    }, [activeVoyage, casting, vesselName]);
 
     // ── Passage Leg Handlers ──
 
     const handleArriveAtPort = useCallback(() => {
         if (!activeVoyage || !currentLeg) return;
         triggerHaptic('light');
-        // Working the ACTIVE voyage's legs is a commitment to it — the
-        // earlier planning selection must not ambush the skipper later:
-        // "End Voyage Here" on the depart step would otherwise jump into a
-        // preflight nobody was promised (the sky note only shows on the
-        // active step).
-        setPendingSelection(null);
         // The leg's own planned destination (from the trip's saved legs)
         // beats the voyage-level destination: on a multi-leg passage the
         // voyage says "Auckland" while leg 1 actually ends at Noumea.
@@ -778,20 +800,6 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                             <FloatPlanSheet voyage={activeVoyage} onClose={() => setShowFloatPlan(false)} />
                         )}
 
-                        {/* The skipper picked a DIFFERENT passage than the
-                            one still active — name it, and promise the
-                            handoff End Voyage delivers (Shane 2026-08-27:
-                            Cast Off ignored the selection). */}
-                        {pendingSelectionName && (
-                            <div role="status" className="p-3.5 rounded-xl bg-sky-500/10 border border-sky-400/25">
-                                <p className="text-xs text-sky-200/90">
-                                    You selected <span className="font-bold text-sky-100">{pendingSelectionName}</span>,
-                                    but this passage is still active. End Voyage &amp; Archive below and the
-                                    pre-departure check for your selection opens straight away.
-                                </p>
-                            </div>
-                        )}
-
                         {/* A zombie row looks identical to a fresh passage —
                             say the age out loud so a month-old active row is
                             recognisable at a glance (Shane 2026-08-26: a
@@ -1142,6 +1150,35 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                                 </p>
                             )}
                         </div>
+
+                        {/* A stale passage is a caution, not a gate (Shane
+                            2026-08-27: "i dont think that it is necessary
+                            to enforce it") — name it, and let the one Cast
+                            Off gesture stand it down. The link is the ONLY
+                            in-panel door back to Watch Mode (leg controls,
+                            float plan, the stand-down offer) while a
+                            different draft is selected — the auto-end path
+                            cannot offer the stand-down message, so a sent
+                            float plan needs this manual route. */}
+                        {activeVoyage && (
+                            <div role="status" className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-400/25">
+                                <p className="text-xs text-amber-200/80">
+                                    <span className="font-bold text-amber-100">{activeVoyageDisplayName}</span> is still
+                                    active — Cast Off ends &amp; archives it first, then starts this passage. If a float
+                                    plan went out for it, stand your shore contact down from the active passage first.
+                                </p>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        triggerHaptic('light');
+                                        setStep('active');
+                                    }}
+                                    className="mt-2 text-xs font-black uppercase tracking-widest text-amber-300 underline underline-offset-2"
+                                >
+                                    View active passage →
+                                </button>
+                            </div>
+                        )}
 
                         {/* Safety Confirm */}
                         <div className="p-4 rounded-xl bg-amber-500/[0.04] border border-amber-500/15">
