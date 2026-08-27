@@ -4774,12 +4774,14 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                             </button>
                                                             <button
                                                                 onClick={() => void handleReview(r.id, 'approved')}
+                                                                aria-label={`Approve ${r.name}`}
                                                                 className="px-1 font-black text-emerald-300 active:scale-95"
                                                             >
                                                                 ✓
                                                             </button>
                                                             <button
                                                                 onClick={() => void handleReview(r.id, 'rejected')}
+                                                                aria-label={`Reject ${r.name}`}
                                                                 className="px-1 font-black text-red-400 active:scale-95"
                                                             >
                                                                 ✕
@@ -4838,6 +4840,11 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                                     setConfirmDeleteId(t.id);
                                                                 }
                                                             }}
+                                                            aria-label={
+                                                                confirmDeleteId === t.id
+                                                                    ? `Confirm delete ${t.name}`
+                                                                    : `Delete saved route ${t.name}`
+                                                            }
                                                             className={`px-1 ${confirmDeleteId === t.id ? 'font-black text-red-400' : 'text-gray-500 active:text-red-400'}`}
                                                         >
                                                             {confirmDeleteId === t.id ? 'sure?' : '✕'}
