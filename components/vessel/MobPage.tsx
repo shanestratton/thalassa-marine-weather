@@ -553,7 +553,7 @@ export const MobPage: React.FC<MobPageProps> = ({ onBack, onNavigate }) => {
                 </div>
             )}
 
-            <div className="shrink-0 grid grid-cols-2 gap-2.5 px-5 py-5">
+            <div className="shrink-0 grid grid-cols-2 gap-2.5 px-5 pt-5">
                 <button
                     type="button"
                     onClick={handleSpeakMayday}
@@ -604,7 +604,7 @@ export const MobPage: React.FC<MobPageProps> = ({ onBack, onNavigate }) => {
             {(speechError || copyFailureText) && (
                 <div
                     role="alert"
-                    className="mx-5 mb-3 rounded-xl border border-red-400/45 bg-red-500/15 px-3 py-2 text-xs font-bold leading-relaxed text-red-100"
+                    className="mx-5 mt-2.5 mb-0 rounded-xl border border-red-400/45 bg-red-500/15 px-3 py-2 text-xs font-bold leading-relaxed text-red-100"
                 >
                     <p>
                         {speechError ?? 'Mayday was not copied. Select the complete script below and copy it manually.'}
@@ -622,16 +622,25 @@ export const MobPage: React.FC<MobPageProps> = ({ onBack, onNavigate }) => {
             {clearError && (
                 <div
                     role="alert"
-                    className="mx-5 mb-3 rounded-xl border border-red-400/45 bg-red-500/15 px-3 py-2 text-xs font-bold leading-relaxed text-red-100"
+                    className="mx-5 mt-2.5 mb-0 rounded-xl border border-red-400/45 bg-red-500/15 px-3 py-2 text-xs font-bold leading-relaxed text-red-100"
                 >
                     {clearError}
                 </div>
             )}
 
-            {/* Hold-to-clear */}
+            {/* Hold-to-clear.
+                No `mt-auto`: pushing this to the bottom of the flex column
+                left a big uneven gap under "Open MOB Mayday Script" while the
+                button itself crowded the tab bar (Shane 2026-08-28: "lift the
+                hold 3 s to clear MOB button so that it clears the bottom menu
+                area, it just needs to have equal spaces between the two or
+                three buttons above it"). It now sits one grid gap below the
+                actions, and the bottom padding matches the 5.5rem clearance
+                the rest of the app uses over the tab bar — this page was on
+                4rem, which is why it alone looked crowded. */}
             <div
-                className="shrink-0 px-5 pb-8 mt-auto"
-                style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}
+                className="shrink-0 px-5 pt-2.5"
+                style={{ paddingBottom: 'calc(5.5rem + env(safe-area-inset-bottom))' }}
             >
                 <button
                     type="button"
