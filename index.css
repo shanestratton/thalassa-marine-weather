@@ -3698,3 +3698,93 @@ html[data-keyboard-open='true'] .anchor-shore-watch-backdrop {
 html[data-keyboard-open='true'] .anchor-shore-watch-dialog {
     max-height: calc(100dvh - var(--thalassa-keyboard-height) - env(safe-area-inset-top) - 1rem);
 }
+
+/* ────────────────────────────────────────────────────────────────
+   SUNLIGHT MODE — coverage completion (2026-08-27 UI audit)
+
+   `.display-light` is a hand-maintained allow-list over compiled Tailwind
+   utilities, which guarantees silent holes: any near-white text utility with
+   no rule here keeps its dark-mode colour and turns near-invisible on a light
+   surface. An audit of every text-* utility used in .tsx found 20 of 39
+   uncovered, including text-white/90, /45 and /35.
+
+   Deliberately NOT overridden: text-slate-900 / text-slate-950. Those are
+   already dark and are used as dark-on-light chip text (amber/emerald
+   buttons); remapping them would invert exactly the cases that were right.
+
+   Targets are chosen for WCAG AA (>= 4.5:1) against a white-to-slate-200
+   surface, preserving the emphasis ORDER of the dark palette rather than its
+   literal alpha — in a sunlit cockpit legibility outranks fidelity.
+   ──────────────────────────────────────────────────────────────── */
+.display-light .text-white\/90 {
+    color: rgb(15 23 42 / 0.95);
+}
+.display-light .text-white\/75 {
+    color: rgb(30 41 59 / 0.92);
+}
+.display-light .text-white\/65 {
+    color: rgb(30 41 59 / 0.88);
+}
+.display-light .text-white\/55 {
+    color: rgb(51 65 85 / 0.88);
+}
+.display-light .text-white\/45,
+.display-light .text-white\/42 {
+    color: rgb(51 65 85 / 0.82);
+}
+.display-light .text-white\/35 {
+    color: rgb(51 65 85 / 0.78);
+}
+/* Decorative only (ghost glyphs, hairline separators) — kept faint. */
+.display-light .text-white\/10 {
+    color: rgb(100 116 139 / 0.45);
+}
+.display-light .text-slate-200 {
+    color: rgb(30 41 59);
+}
+.display-light .text-slate-100 {
+    color: rgb(15 23 42);
+}
+.display-light .text-gray-100 {
+    color: rgb(17 24 39);
+}
+.display-light .text-slate-300\/90 {
+    color: rgb(51 65 85 / 0.9);
+}
+.display-light .text-slate-300\/80,
+.display-light .text-slate-300\/75,
+.display-light .text-slate-400\/80 {
+    color: rgb(51 65 85 / 0.85);
+}
+.display-light .text-slate-300\/70 {
+    color: rgb(51 65 85 / 0.82);
+}
+.display-light .text-gray-300\/70 {
+    color: rgb(31 41 55 / 0.8);
+}
+.display-light .text-gray-500\/70 {
+    color: rgb(55 65 81 / 0.85);
+}
+
+/* ────────────────────────────────────────────────────────────────
+   MUTED TEXT — WCAG AA floor in the dark palettes (2026-08-27 audit)
+
+   text-gray-500 (#6B7280) on slate-950 measures 4.24:1 — under the 4.5:1 AA
+   floor for normal text, and it degrades further on the lighter card
+   surfaces (3.0:1 on slate-800). It is the app's most-used muted-text
+   utility, so the whole secondary layer of a sunlit cockpit display sat
+   below the readability line.
+
+   Lifted one Tailwind step here rather than rewritten at ~690 call sites:
+   one rule, reversible, and it cannot miss a site. Guarded off the sunlight
+   mode, which already remaps these three to dark-on-light equivalents.
+   ──────────────────────────────────────────────────────────────── */
+:root:not(.display-light) .text-gray-500 {
+    color: rgb(156 163 175); /* gray-400 — 7.9:1 on slate-950 */
+}
+:root:not(.display-light) .text-slate-500 {
+    color: rgb(148 163 184); /* slate-400 — 7.6:1 on slate-950 */
+}
+:root:not(.display-light) .text-white\/40 {
+    color: rgb(255 255 255 / 0.62);
+}

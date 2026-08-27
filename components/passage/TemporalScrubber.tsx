@@ -156,6 +156,60 @@ const TemporalScrubber: React.FC<TemporalScrubberProps> = memo(
             [positionToHour, updateVisuals, onChange],
         );
 
+        // ── Accessible value + keyboard control ──
+        // The scrubber was a bare div: no role, no value, no tabIndex and no
+        // key handling, so the passage timeline could only be operated with a
+        // pointer and was invisible to assistive tech. The pointer path below
+        // is unchanged; this adds the semantics a custom control still owes.
+        const hourValueText = useCallback(
+            (hour: number) => (hour <= 0 ? 'Departure' : `plus ${Math.round(hour)} hours`),
+            [],
+        );
+
+        const commitHour = useCallback(
+            (hour: number) => {
+                const clamped = Math.max(0, Math.min(maxTimeHours, hour));
+                updateVisuals(clamped);
+                onChange(clamped);
+            },
+            [maxTimeHours, updateVisuals, onChange],
+        );
+
+        const handleKeyDown = useCallback(
+            (e: React.KeyboardEvent) => {
+                const step = e.shiftKey ? 6 : 1;
+                let next: number | null = null;
+                switch (e.key) {
+                    case 'ArrowRight':
+                    case 'ArrowUp':
+                        next = currentHour + step;
+                        break;
+                    case 'ArrowLeft':
+                    case 'ArrowDown':
+                        next = currentHour - step;
+                        break;
+                    case 'PageUp':
+                        next = currentHour + 12;
+                        break;
+                    case 'PageDown':
+                        next = currentHour - 12;
+                        break;
+                    case 'Home':
+                        next = 0;
+                        break;
+                    case 'End':
+                        next = maxTimeHours;
+                        break;
+                    default:
+                        return;
+                }
+                e.preventDefault();
+                e.stopPropagation();
+                commitHour(next);
+            },
+            [currentHour, maxTimeHours, commitHour],
+        );
+
         // ── Sync visuals when React state changes from outside (play, reset) ──
         useEffect(() => {
             if (!isDraggingRef.current) {
@@ -222,6 +276,14 @@ const TemporalScrubber: React.FC<TemporalScrubberProps> = memo(
                     {/* Custom track */}
                     <div
                         ref={trackRef}
+                        role="slider"
+                        tabIndex={0}
+                        aria-label="Passage time"
+                        aria-valuemin={0}
+                        aria-valuemax={maxTimeHours}
+                        aria-valuenow={currentHour}
+                        aria-valuetext={hourValueText(currentHour)}
+                        onKeyDown={handleKeyDown}
                         style={{
                             flex: 1,
                             position: 'relative',
@@ -230,6 +292,7 @@ const TemporalScrubber: React.FC<TemporalScrubberProps> = memo(
                             alignItems: 'center',
                             cursor: 'pointer',
                             touchAction: 'none',
+                            borderRadius: 12,
                         }}
                         onPointerDown={handlePointerDown}
                         onPointerMove={handlePointerMove}

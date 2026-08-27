@@ -8,6 +8,12 @@
  *   4. React state (forecastHour) committed only on drag-end for the label
  *   5. Pointer events for cross-platform (mouse + touch) smoothness
  *   6. touch-action: none prevents browser scroll/gesture interference
+ *
+ * A custom control still owes the platform its semantics. Skipping the native
+ * <input type="range"> for drag smoothness left this — the chart's primary
+ * control — with no role, no value and no keyboard, so it was unreachable by
+ * VoiceOver and by anyone not using a pointer. It is now an ARIA slider with
+ * arrow/Home/End/PageUp/PageDown handling; the pointer path is untouched.
  */
 import React, { useRef, useCallback, useEffect, memo } from 'react';
 
@@ -163,6 +169,65 @@ export const SynopticScrubber: React.FC<SynopticScrubberProps> = memo(
             [positionToFrame, updateVisuals, applyFrame, onHourChange],
         );
 
+        // ── Accessible value + keyboard control ──
+        // Same wording the visual label uses, so a screen reader and the
+        // screen agree rather than drifting apart.
+        const frameValueText = useCallback(
+            (frame: number) => {
+                if (frame <= 0) return 'Now';
+                const hrs = maxFrame > 0 ? (frame / maxFrame) * 12 : 0;
+                return hrs % 1 === 0 ? `plus ${hrs} hours` : `plus ${hrs.toFixed(1)} hours`;
+            },
+            [maxFrame],
+        );
+
+        const commitFrame = useCallback(
+            (frame: number) => {
+                const clamped = Math.max(0, Math.min(maxFrame, frame));
+                updateVisuals(clamped);
+                applyFrame(clamped);
+                onHourChange(clamped);
+            },
+            [maxFrame, updateVisuals, applyFrame, onHourChange],
+        );
+
+        const handleKeyDown = useCallback(
+            (e: React.KeyboardEvent) => {
+                const step = e.shiftKey ? Math.max(1, Math.round(maxFrame / 12)) : 1;
+                let next: number | null = null;
+                switch (e.key) {
+                    case 'ArrowRight':
+                    case 'ArrowUp':
+                        next = forecastHour + step;
+                        break;
+                    case 'ArrowLeft':
+                    case 'ArrowDown':
+                        next = forecastHour - step;
+                        break;
+                    case 'PageUp':
+                        next = forecastHour + Math.max(1, Math.round(maxFrame / 4));
+                        break;
+                    case 'PageDown':
+                        next = forecastHour - Math.max(1, Math.round(maxFrame / 4));
+                        break;
+                    case 'Home':
+                        next = 0;
+                        break;
+                    case 'End':
+                        next = maxFrame;
+                        break;
+                    default:
+                        return;
+                }
+                e.preventDefault();
+                e.stopPropagation();
+                onScrubStart();
+                commitFrame(next);
+                triggerHaptic('light');
+            },
+            [forecastHour, maxFrame, commitFrame, onScrubStart, triggerHaptic],
+        );
+
         // ── Sync visuals when React state changes from outside (play, reset) ──
         useEffect(() => {
             if (!isDraggingRef.current) {
@@ -195,7 +260,15 @@ export const SynopticScrubber: React.FC<SynopticScrubberProps> = memo(
                     {/* Custom track */}
                     <div
                         ref={trackRef}
-                        className="flex-1 relative h-10 flex items-center cursor-pointer"
+                        role="slider"
+                        tabIndex={0}
+                        aria-label="Forecast time"
+                        aria-valuemin={0}
+                        aria-valuemax={maxFrame}
+                        aria-valuenow={forecastHour}
+                        aria-valuetext={frameValueText(forecastHour)}
+                        onKeyDown={handleKeyDown}
+                        className="flex-1 relative h-10 flex items-center cursor-pointer rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
                         style={{ touchAction: 'none' }}
                         onPointerDown={handlePointerDown}
                         onPointerMove={handlePointerMove}

@@ -16,7 +16,13 @@ interface CurrentConditionsCardProps {
  * so this card just provides complementary at-a-glance data.
  */
 export const CurrentConditionsCard: React.FC<CurrentConditionsCardProps> = React.memo(({ data, units }) => {
-    const windRotation = data.windDegree ? data.windDegree : 0;
+    // A bearing we do not have must not be drawn. The old
+    // `data.windDegree ? data.windDegree : 0` rendered the arrow pointing due
+    // south beside a "--" direction — the card inventing a heading is exactly
+    // the failure this app's honesty rules exist to prevent. The truthy test
+    // also swallowed a real 0° (due north) as "missing".
+    const windRotation =
+        typeof data.windDegree === 'number' && Number.isFinite(data.windDegree) ? data.windDegree : null;
 
     const windSpeed =
         data.windSpeed !== null && data.windSpeed !== undefined
@@ -46,15 +52,19 @@ export const CurrentConditionsCard: React.FC<CurrentConditionsCardProps> = React
                 {/* Wind */}
                 <div className="flex flex-col items-center justify-center">
                     <div className="flex items-center gap-1">
-                        <svg
-                            className="w-3 h-3 text-emerald-400"
-                            style={{ transform: `rotate(${windRotation + 180}deg)` }}
-                            viewBox="0 0 24 24"
-                            fill="currentColor"
-                        >
-                            <path d="M12 2L8 10h8L12 2z" />
-                            <rect x="10" y="10" width="4" height="12" />
-                        </svg>
+                        {windRotation !== null && (
+                            <svg
+                                className="w-3 h-3 text-emerald-400"
+                                style={{ transform: `rotate(${windRotation + 180}deg)` }}
+                                viewBox="0 0 24 24"
+                                fill="currentColor"
+                                role="img"
+                                aria-label={`Wind from ${Math.round(windRotation)} degrees`}
+                            >
+                                <path d="M12 2L8 10h8L12 2z" />
+                                <rect x="10" y="10" width="4" height="12" />
+                            </svg>
+                        )}
                         <span className="text-xs font-bold text-emerald-400 uppercase tracking-wider">{windDir}</span>
                     </div>
                     <div className="flex items-baseline mt-1">

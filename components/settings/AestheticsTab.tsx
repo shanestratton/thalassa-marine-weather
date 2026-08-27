@@ -49,7 +49,11 @@ const DISPLAY_MODES: {
         value: 'auto',
         label: 'Auto',
         Icon: RefreshIcon,
-        desc: 'Sunrise/sunset',
+        // Honest: auto resolves to light/DARK at sunrise/sunset — it never
+        // selects the red Night tint (useAppController: `isNight ? 'dark' :
+        // 'light'`). The old "Sunrise/sunset" read as "picks Night for me",
+        // so a skipper could leave it on Auto expecting red at 2am.
+        desc: 'Light / dark by sun',
         gradient: 'from-violet-500/20 to-violet-600/20 border-violet-500/40 shadow-violet-500/20',
     },
 ];

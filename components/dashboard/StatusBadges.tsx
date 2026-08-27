@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useEnvironment } from '../../context/ThemeContext';
+import { formatAge } from '../ui/DataFreshness';
 import { MetricSource } from '../../types';
 import type { WeatherModel } from '../../types';
 import { useWeather } from '../../context/WeatherContext';
@@ -73,8 +74,8 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
         sources: _sources,
         activeData: _activeData,
         isLive: _isLive = true,
-        modelUsed: _modelUsed,
-        generatedAt: _generatedAt,
+        modelUsed,
+        generatedAt,
         coordinates,
         offshoreModelLabel,
         isOffshore: isOffshoreProp,
@@ -189,6 +190,27 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
         const modelInfo = getForecastModelInfo(glassModel);
         const [showModelSheet, setShowModelSheet] = useState(false);
 
+        // FORECAST AGE. generatedAt was threaded all the way down here and
+        // then dropped on the floor (`generatedAt: _generatedAt`), so the
+        // Glass — the app's primary weather surface — never said how old its
+        // numbers were. DataFreshness.tsx was written for exactly this and
+        // cites the 2026-05-17 audit; the strip that carried it was removed
+        // 2026-08-13 as redundant and the age never came back. A stale
+        // forecast that looks live is the one weather failure that matters.
+        const [ageTick, setAgeTick] = useState(() => Date.now());
+        useEffect(() => {
+            const id = window.setInterval(() => setAgeTick(Date.now()), 30_000);
+            return () => window.clearInterval(id);
+        }, []);
+        const generatedMs = generatedAt ? Date.parse(String(generatedAt)) : Number.NaN;
+        const forecastAge = Number.isFinite(generatedMs) ? formatAge(Math.max(0, ageTick - generatedMs)) : null;
+
+        // What ACTUALLY served this data, when the publisher says so. The
+        // pill's face stays the pinned selection (it is a picker, and must
+        // show what tapping it will change), but the accessible name and
+        // tooltip no longer claim a model the server may not have used.
+        const servedModel = typeof modelUsed === 'string' && modelUsed.trim() ? modelUsed.trim() : null;
+
         // SPITFIRE only exists where the wx box computes it, so both the pill
         // and the picker follow the boat's position.
         const spitfireLoc = spitfireLocationFor(coordinates?.lat ?? null, coordinates?.lon ?? null);
@@ -242,6 +264,19 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
                             {statusBadgeLabel}
                         </div>
 
+                        {/* Forecast age — the primary staleness signal on the
+                            Glass. Silent when there is no timestamp rather
+                            than guessing at one. */}
+                        {forecastAge && (
+                            <span
+                                role="status"
+                                aria-label={`Forecast updated ${forecastAge}`}
+                                className={`${badgeTextSize} font-semibold text-gray-500 tabular-nums truncate`}
+                            >
+                                {forecastAge}
+                            </span>
+                        )}
+
                         {/* Model Pill — opens the forecast-model picker sheet.
                             Shows the pinned model's name with its chart colour;
                             the triple-dot pulse plays while a (fully automatic)
@@ -255,7 +290,10 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
                                 void triggerHaptic('light');
                                 setShowModelSheet(true);
                             }}
-                            aria-label="Choose forecast model"
+                            aria-label={
+                                servedModel ? `Choose forecast model — showing ${servedModel}` : 'Choose forecast model'
+                            }
+                            title={servedModel ? `Served by ${servedModel}` : undefined}
                             aria-haspopup="dialog"
                             className={`px-2.5 py-1.5 rounded-lg border ${badgeTextSize} font-bold uppercase tracking-wider flex items-center gap-1.5 justify-center cursor-pointer active:scale-[0.95] transition-transform min-w-[82px] ${
                                 hasError
