@@ -15,6 +15,7 @@ import { CheckCircleIcon } from '../Icons';
 import { piCache, type PiRemoteAccessStatus } from '../../services/PiCacheService';
 import { Browser } from '@capacitor/browser';
 import { triggerHaptic } from '../../utils/system';
+import { assessHostRoute } from '../../services/network/networkContext';
 
 export const RemoteAccessSection: React.FC = () => {
     const reachable = useSyncExternalStore(
@@ -23,6 +24,33 @@ export const RemoteAccessSection: React.FC = () => {
     );
     const [ra, setRa] = useState<PiRemoteAccessStatus | null | 'unsupported'>(null);
     const [busy, setBusy] = useState(false);
+    /**
+     * Aboard, with Tailscale still on, LAN traffic to the Pi can round-trip
+     * out to the internet and back — it shows up as lag and dropped
+     * connections, and gets rediagnosed as broken hardware. The banner that
+     * used to say this lived on the NMEA card and fired on a subnet match
+     * alone, so it blamed the VPN for failures it had nothing to do with.
+     * Here it is scoped to the one case where it is actually true: a tunnel
+     * is up AND we are already reaching the Pi directly on the LAN, so the
+     * tunnel can only be adding a detour.
+     */
+    const [vpnUpOnLan, setVpnUpOnLan] = useState(false);
+    useEffect(() => {
+        let alive = true;
+        const check = () => {
+            void assessHostRoute(null).then((r) => {
+                if (alive) setVpnUpOnLan(r.vpnActive && !piCache.viaRemoteAccess);
+            });
+        };
+        check();
+        // Toggling the VPN is exactly what this asks for, so it has to notice
+        // them doing it and clear itself.
+        const timer = setInterval(check, 20_000);
+        return () => {
+            alive = false;
+            clearInterval(timer);
+        };
+    }, []);
     const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
     const refresh = useCallback(async () => {
@@ -106,6 +134,12 @@ export const RemoteAccessSection: React.FC = () => {
                             </p>
                         </div>
                     </div>
+                    {vpnUpOnLan && (
+                        <p role="status" className="text-[11px] leading-relaxed text-amber-300/80">
+                            You&apos;re on the Pi&apos;s own network right now and Tailscale is still running — turn it
+                            off while you&apos;re aboard so traffic goes direct instead of out to the internet and back.
+                        </p>
+                    )}
                     <button
                         onClick={handleDisable}
                         disabled={busy}
