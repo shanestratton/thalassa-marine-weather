@@ -354,9 +354,22 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
     useEffect(() => {
         if (!activeCastOffVoyage) return;
         const vid = state.currentVoyageId;
-        if (vid) confirmedFollowVoyages.add(vid);
+        // The active row is the route authority for ITS OWN voyage only. A
+        // casual "voyage_…" track running beside a (possibly stale) active
+        // row must keep its route question — answering it from a different
+        // voyage's row silently killed the Log-page publish for anyone
+        // carrying a stuck-active passage (Shane 2026-08-27: "if you just
+        // use the log from the log page… it no longer shows up on your
+        // public page").
+        if (!vid || vid !== activeCastOffVoyage.id) return;
+        confirmedFollowVoyages.add(vid);
         // Close the sheet if it opened before the voyage row loaded.
-        setFollowPromptVoyageId((open) => (vid && open === vid ? null : open));
+        setFollowPromptVoyageId((open) => (open === vid ? null : open));
+        // The auto-arm below is gated by the SAME id, and must be: arming a
+        // stale passage's route while a casual track is recording put the
+        // zombie's line on the cockpit AND published it against the casual
+        // voyage — whose own route question then auto-answered itself off
+        // the resulting plan-link event. That defeated the whole fix online.
         if (activeFollowArmRef.current === activeCastOffVoyage.id) return;
         activeFollowArmRef.current = activeCastOffVoyage.id;
         const follow = useFollowRouteStore.getState();
@@ -1009,11 +1022,14 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
             confirmedFollowVoyages.add(vid);
             return;
         }
-        // And the durable authority: while ANY active voyage exists, the
-        // question is answered — voyages only become active through Cast
-        // Off, whose passage is its route. Handoff lifecycles cannot be
-        // trusted across app deaths; the voyages table can.
-        if (activeCastOffVoyage) {
+        // And the durable authority: the active voyage's question is
+        // answered — voyages only become active through Cast Off, whose
+        // passage is its route. Handoff lifecycles cannot be trusted across
+        // app deaths; the voyages table can. But the row answers ONLY for
+        // its own voyage id — a stale active row answering for a casual
+        // "voyage_…" track suppressed every Log-page publish (Shane
+        // 2026-08-27).
+        if (activeCastOffVoyage && activeCastOffVoyage.id === vid) {
             confirmedFollowVoyages.add(vid);
             return;
         }

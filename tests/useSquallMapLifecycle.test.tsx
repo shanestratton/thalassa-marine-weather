@@ -39,6 +39,7 @@ function makeMap() {
         getStyle: vi.fn(() => ({ layers: [] })),
         getContainer: vi.fn(() => document.createElement('div')),
         getMaxZoom: vi.fn(() => 22),
+        getMinZoom: vi.fn(() => 0),
         setMaxZoom: vi.fn(),
         setMinZoom: vi.fn(),
         getZoom: vi.fn(() => 3),

@@ -74,7 +74,7 @@ describe('cloudOverlayBeforeId', () => {
     });
 });
 
-describe('both implementations defer to it', () => {
+describe('every overlay defers to it', () => {
     it('neither cloud layer re-derives an anchor of its own', () => {
         const squall = readFileSync('components/map/useSquallMap.ts', 'utf8');
         const cyclone = readFileSync('components/map/useCycloneLayer.ts', 'utf8');
@@ -89,5 +89,23 @@ describe('both implementations defer to it', () => {
         // this. Its own first-symbol lookup must be gone.
         expect(service).toContain('beforeId?: string');
         expect(service).not.toContain("layers?.find((l) => l.type === 'symbol')");
+    });
+
+    it('the squall PRECIP half carries no bare first-symbol anchor either', () => {
+        // The cloud half was converted on 2026-08-23 with lightning; the
+        // precip half kept its bare anchor and mounted below the opaque
+        // satellite base on OBS — cells rendered, invisible, legend "Live"
+        // (Shane 2026-08-27: "it is not working at all"). Squall pins the
+        // camera to z3–8 where no ENC mounts, so MapHub's encBottom-gated
+        // ordering self-heal can never rescue it: the anchor must be right
+        // at mount, and the styledata re-assert must lift the cells too.
+        const squall = readFileSync('components/map/useSquallMap.ts', 'utf8');
+        expect(squall).not.toContain("find((l) => l.type === 'symbol')");
+        expect(squall).toContain('const beforeId = squallBeforeId(styleLayers);');
+        expect(squall).toContain('map.moveLayer(SQUALL_LAYER, squallBeforeId(layersNow));');
+        // …and squallBeforeId sits one slot ABOVE the cloud: anchoring at the
+        // cloud's own id would tuck the cells under its heaviest alpha,
+        // which is exactly where active cells are.
+        expect(squall).toContain('return layers[cloudIdx + 1]?.id;');
     });
 });
