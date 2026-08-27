@@ -4,6 +4,7 @@
  * Import from here instead of individual files:
  *   import { ModalSheet, ConfirmDialog, FormField } from '../ui';
  */
+export { Button, type ButtonProps, type ButtonVariant, type ButtonSize } from './Button';
 export { ModalSheet } from './ModalSheet';
 export { ConfirmDialog } from './ConfirmDialog';
 export { FormField } from './FormField';
