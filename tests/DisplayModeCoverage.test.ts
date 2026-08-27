@@ -18,6 +18,42 @@ import { readFileSync } from 'node:fs';
 
 const css = readFileSync('index.css', 'utf8');
 
+/** Every source root tailwind.config.js compiles class names from. */
+const ROOTS = 'components pages src modules hooks context contexts services utils';
+
+/**
+ * Neutrals AND chromatics. The chromatic families were the second proven
+ * hole: the daylight sheet has always carried amber/sky/emerald/red rules,
+ * so the author knew coloured text needs them — but the guard policed none
+ * of it, and text-amber-200 (79 uses, on the Glass) rendered ~1.2:1 on a
+ * white card with the suite green.
+ */
+const FAMILIES = [
+    'white',
+    'gray',
+    'slate',
+    'zinc',
+    'neutral',
+    'stone',
+    'amber',
+    'sky',
+    'emerald',
+    'red',
+    'cyan',
+    'teal',
+    'blue',
+    'green',
+    'violet',
+    'purple',
+    'yellow',
+    'orange',
+    'rose',
+    'indigo',
+    'lime',
+    'pink',
+    'fuchsia',
+].join('|');
+
 /** Classes carrying a `.display-light …` override, unescaped. */
 function coveredByDaylight(): Set<string> {
     const rules = css.match(/\.display-light\s+\.[-A-Za-z0-9_\\[\]/.]+/g) ?? [];
@@ -26,9 +62,13 @@ function coveredByDaylight(): Set<string> {
 
 /** Every text-* colour utility actually used in app source. */
 function textUtilitiesInUse(): Map<string, number> {
+    // Scan every root tailwind.config.js globs. The first cut of this guard
+    // scanned only components/pages/src/modules, so App.tsx's own
+    // text-white/45 sat outside it — and a probe file dropped in hooks/ with
+    // an uncovered utility left the suite green.
     const out = execSync(
-        'grep -rohE "text-(white|gray|slate|zinc|neutral|stone)(/[0-9]+|-[0-9]{2,3}(/[0-9]+)?)?" components pages src modules || true',
-        { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 },
+        `grep -rohE "text-(${FAMILIES})(/[0-9]+|-[0-9]{2,3}(/[0-9]+)?)?" ${ROOTS} ./*.tsx 2>/dev/null || true`,
+        { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 },
     )
         .split('\n')
         .filter(Boolean);
@@ -43,11 +83,18 @@ function textUtilitiesInUse(): Map<string, number> {
  */
 const INTENTIONALLY_DARK = new Set(['text-slate-900', 'text-slate-950']);
 
+/**
+ * Chromatic steps 600 and darker are legible on a white surface by
+ * construction (amber-700 measures 5.0:1, red-700 6.5:1), so they need no
+ * daylight remap. Steps 50-500 do: amber-400 is ~1.7:1 on white.
+ */
+const DARK_ENOUGH_STEP = /-(600|700|800|900|950)(\/|$)/;
+
 describe('sunlight mode coverage', () => {
     it('every text utility in use has a daylight override', () => {
         const covered = coveredByDaylight();
         const uncovered = [...textUtilitiesInUse().entries()]
-            .filter(([cls]) => !covered.has(cls) && !INTENTIONALLY_DARK.has(cls))
+            .filter(([cls]) => !covered.has(cls) && !INTENTIONALLY_DARK.has(cls) && !DARK_ENOUGH_STEP.test(cls))
             .sort((a, b) => b[1] - a[1]);
 
         expect(
@@ -72,12 +119,24 @@ describe('muted text meets the AA floor in the dark palettes', () => {
         // 4.5:1 WCAG AA floor for normal text, and it is the app's most-used
         // muted-text utility. Lifted by rule rather than at ~690 call sites.
         for (const sel of [
-            ':root:not(.display-light) .text-gray-500',
-            ':root:not(.display-light) .text-slate-500',
+            ':root:not(.display-light):not(.theme-onshore) .text-gray-500',
+            ':root:not(.display-light):not(.theme-onshore) .text-slate-500',
+            ':root:not(.display-light).theme-onshore .text-gray-500',
             String.raw`:root:not(.display-light) .text-white\/40`,
         ]) {
             expect(css).toContain(sel);
         }
+    });
+
+    it('does NOT out-rank the onshore palette — the warm ramp must survive', () => {
+        // The first cut was a single :root:not(.display-light) rule at
+        // specificity (0,3,0) sitting 3,380 lines BELOW
+        // `.theme-onshore .text-gray-500` (0,2,0). It won on both counts, so
+        // it fixed contrast by silently deleting the onshore warm ramp —
+        // every muted label went cool gray in a theme whose whole point is
+        // warm stone. Onshore must keep a rule of its own.
+        expect(css).toContain(':root:not(.display-light).theme-onshore .text-gray-500');
+        expect(css).not.toContain(':root:not(.display-light) .text-gray-500 {');
     });
 
     it('guards the lift off sunlight mode, which remaps those three itself', () => {

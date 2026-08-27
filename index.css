@@ -3767,24 +3767,513 @@ html[data-keyboard-open='true'] .anchor-shore-watch-dialog {
 }
 
 /* ────────────────────────────────────────────────────────────────
-   MUTED TEXT — WCAG AA floor in the dark palettes (2026-08-27 audit)
+   MUTED TEXT — WCAG AA floor in BOTH dark palettes (2026-08-28)
 
-   text-gray-500 (#6B7280) on slate-950 measures 4.24:1 — under the 4.5:1 AA
-   floor for normal text, and it degrades further on the lighter card
-   surfaces (3.0:1 on slate-800). It is the app's most-used muted-text
-   utility, so the whole secondary layer of a sunlit cockpit display sat
-   below the readability line.
+   text-gray-500 (#6B7280) on slate-950 measures 4.24:1 and stone-500 on
+   stone-950 measures 4.12:1 — both under the 4.5:1 AA floor for normal
+   text, and these are the app's most-used muted-text utilities, so the
+   whole secondary layer of a sunlit cockpit display sat below the
+   readable line in EVERY theme.
 
-   Lifted one Tailwind step here rather than rewritten at ~690 call sites:
-   one rule, reversible, and it cannot miss a site. Guarded off the sunlight
-   mode, which already remaps these three to dark-on-light equivalents.
+   Scoped per palette rather than applied blanket. The first cut of this
+   (a single :root:not(.display-light) rule) out-ranked
+   `.theme-onshore .text-gray-500` on both specificity and source order,
+   so it silently replaced the onshore warm stone ramp with cool gray —
+   fixing contrast by deleting the palette. Onshore now gets its own warm
+   AA-compliant value.
+
+   Values are chosen to clear 4.5:1 while staying visibly darker than the
+   -400 step above them (5.3-5.7:1 against ~8:1), so the three-tier muted
+   ramp survives. Lifting straight to -400 would have met AA by
+   collapsing two tiers into one.
+
+   Sunlight mode is excluded — it remaps these to dark-on-light itself.
    ──────────────────────────────────────────────────────────────── */
-:root:not(.display-light) .text-gray-500 {
-    color: rgb(156 163 175); /* gray-400 — 7.9:1 on slate-950 */
+:root:not(.display-light):not(.theme-onshore) .text-gray-500 {
+    color: rgb(124 134 148); /* 5.47:1 on slate-950 */
 }
-:root:not(.display-light) .text-slate-500 {
-    color: rgb(148 163 184); /* slate-400 — 7.6:1 on slate-950 */
+:root:not(.display-light):not(.theme-onshore) .text-slate-500 {
+    color: rgb(122 138 158); /* 5.72:1 on slate-950 */
+}
+:root:not(.display-light).theme-onshore .text-gray-500,
+:root:not(.display-light).theme-onshore .text-slate-500 {
+    color: rgb(139 131 125); /* warm stone, 5.31:1 on stone-950 */
 }
 :root:not(.display-light) .text-white\/40 {
     color: rgb(255 255 255 / 0.62);
+}
+
+/* ────────────────────────────────────────────────────────────────
+   SUNLIGHT MODE — chromatic text (2026-08-28)
+
+   The daylight sheet covered neutrals only, so every PALE chromatic
+   utility kept its dark-mode colour on a white card: text-amber-200 (79
+   uses) measured ~1.2:1, and text-red-200/-100 — which carry warnings —
+   were effectively invisible. 525 instances in total.
+
+   Each maps to the -700/-800 step of its OWN hue, so amber stays amber
+   and red stays red: the semantic colour survives, only the lightness
+   moves. Every target is verified >= 4.5:1 on white.
+   ──────────────────────────────────────────────────────────────── */
+.display-light .text-amber-100 {
+    color: rgb(180 83 9);
+}
+.display-light .text-amber-100\/55 {
+    color: rgb(180 83 9 / 0.9);
+}
+.display-light .text-amber-100\/60 {
+    color: rgb(180 83 9 / 0.9);
+}
+.display-light .text-amber-100\/70 {
+    color: rgb(180 83 9 / 0.9);
+}
+.display-light .text-amber-100\/75 {
+    color: rgb(180 83 9 / 0.9);
+}
+.display-light .text-amber-100\/80 {
+    color: rgb(180 83 9 / 0.9);
+}
+.display-light .text-amber-100\/85 {
+    color: rgb(180 83 9 / 0.9);
+}
+.display-light .text-amber-100\/90 {
+    color: rgb(180 83 9 / 0.9);
+}
+.display-light .text-amber-200 {
+    color: rgb(180 83 9);
+}
+.display-light .text-amber-200\/60 {
+    color: rgb(180 83 9 / 0.9);
+}
+.display-light .text-amber-200\/70 {
+    color: rgb(180 83 9 / 0.9);
+}
+.display-light .text-amber-200\/75 {
+    color: rgb(180 83 9 / 0.9);
+}
+.display-light .text-amber-200\/80 {
+    color: rgb(180 83 9 / 0.9);
+}
+.display-light .text-amber-200\/90 {
+    color: rgb(180 83 9 / 0.9);
+}
+.display-light .text-amber-300\/50 {
+    color: rgb(180 83 9 / 0.9);
+}
+.display-light .text-amber-300\/60 {
+    color: rgb(180 83 9 / 0.9);
+}
+.display-light .text-amber-300\/70 {
+    color: rgb(180 83 9 / 0.9);
+}
+.display-light .text-amber-300\/80 {
+    color: rgb(180 83 9 / 0.9);
+}
+.display-light .text-amber-300\/90 {
+    color: rgb(180 83 9 / 0.9);
+}
+.display-light .text-amber-50 {
+    color: rgb(180 83 9);
+}
+.display-light .text-cyan-100 {
+    color: rgb(14 116 144);
+}
+.display-light .text-cyan-100\/70 {
+    color: rgb(14 116 144 / 0.9);
+}
+.display-light .text-cyan-100\/75 {
+    color: rgb(14 116 144 / 0.9);
+}
+.display-light .text-cyan-200 {
+    color: rgb(14 116 144);
+}
+.display-light .text-cyan-200\/80 {
+    color: rgb(14 116 144 / 0.9);
+}
+.display-light .text-cyan-300\/50 {
+    color: rgb(14 116 144 / 0.9);
+}
+.display-light .text-cyan-300\/55 {
+    color: rgb(14 116 144 / 0.9);
+}
+.display-light .text-cyan-300\/60 {
+    color: rgb(14 116 144 / 0.9);
+}
+.display-light .text-cyan-300\/80 {
+    color: rgb(14 116 144 / 0.9);
+}
+.display-light .text-cyan-50\/80 {
+    color: rgb(14 116 144 / 0.9);
+}
+.display-light .text-cyan-50\/85 {
+    color: rgb(14 116 144 / 0.9);
+}
+.display-light .text-emerald-100\/60 {
+    color: rgb(4 120 87 / 0.9);
+}
+.display-light .text-emerald-100\/75 {
+    color: rgb(4 120 87 / 0.9);
+}
+.display-light .text-emerald-100\/80 {
+    color: rgb(4 120 87 / 0.9);
+}
+.display-light .text-emerald-100\/85 {
+    color: rgb(4 120 87 / 0.9);
+}
+.display-light .text-emerald-200\/60 {
+    color: rgb(4 120 87 / 0.9);
+}
+.display-light .text-emerald-200\/65 {
+    color: rgb(4 120 87 / 0.9);
+}
+.display-light .text-emerald-200\/70 {
+    color: rgb(4 120 87 / 0.9);
+}
+.display-light .text-emerald-200\/80 {
+    color: rgb(4 120 87 / 0.9);
+}
+.display-light .text-emerald-300\/40 {
+    color: rgb(4 120 87 / 0.9);
+}
+.display-light .text-emerald-300\/50 {
+    color: rgb(4 120 87 / 0.9);
+}
+.display-light .text-emerald-300\/60 {
+    color: rgb(4 120 87 / 0.9);
+}
+.display-light .text-emerald-300\/70 {
+    color: rgb(4 120 87 / 0.9);
+}
+.display-light .text-emerald-300\/75 {
+    color: rgb(4 120 87 / 0.9);
+}
+.display-light .text-emerald-300\/80 {
+    color: rgb(4 120 87 / 0.9);
+}
+.display-light .text-emerald-50 {
+    color: rgb(4 120 87);
+}
+.display-light .text-indigo-200 {
+    color: rgb(67 56 202);
+}
+.display-light .text-indigo-300 {
+    color: rgb(67 56 202);
+}
+.display-light .text-orange-200 {
+    color: rgb(194 65 12);
+}
+.display-light .text-orange-300 {
+    color: rgb(194 65 12);
+}
+.display-light .text-pink-300 {
+    color: rgb(190 24 93);
+}
+.display-light .text-purple-100 {
+    color: rgb(126 34 206);
+}
+.display-light .text-purple-200 {
+    color: rgb(126 34 206);
+}
+.display-light .text-purple-200\/70 {
+    color: rgb(126 34 206 / 0.9);
+}
+.display-light .text-purple-300 {
+    color: rgb(126 34 206);
+}
+.display-light .text-purple-300\/40 {
+    color: rgb(126 34 206 / 0.9);
+}
+.display-light .text-purple-300\/70 {
+    color: rgb(126 34 206 / 0.9);
+}
+.display-light .text-red-100 {
+    color: rgb(185 28 28);
+}
+.display-light .text-red-100\/80 {
+    color: rgb(185 28 28 / 0.9);
+}
+.display-light .text-red-100\/85 {
+    color: rgb(185 28 28 / 0.9);
+}
+.display-light .text-red-100\/90 {
+    color: rgb(185 28 28 / 0.9);
+}
+.display-light .text-red-200 {
+    color: rgb(185 28 28);
+}
+.display-light .text-red-200\/70 {
+    color: rgb(185 28 28 / 0.9);
+}
+.display-light .text-red-200\/75 {
+    color: rgb(185 28 28 / 0.9);
+}
+.display-light .text-red-200\/80 {
+    color: rgb(185 28 28 / 0.9);
+}
+.display-light .text-red-200\/90 {
+    color: rgb(185 28 28 / 0.9);
+}
+.display-light .text-red-300\/50 {
+    color: rgb(185 28 28 / 0.9);
+}
+.display-light .text-red-300\/70 {
+    color: rgb(185 28 28 / 0.9);
+}
+.display-light .text-red-300\/80 {
+    color: rgb(185 28 28 / 0.9);
+}
+.display-light .text-red-300\/90 {
+    color: rgb(185 28 28 / 0.9);
+}
+.display-light .text-red-50 {
+    color: rgb(185 28 28);
+}
+.display-light .text-rose-300 {
+    color: rgb(190 18 60);
+}
+.display-light .text-sky-100 {
+    color: rgb(3 105 161);
+}
+.display-light .text-sky-100\/50 {
+    color: rgb(3 105 161 / 0.9);
+}
+.display-light .text-sky-100\/65 {
+    color: rgb(3 105 161 / 0.9);
+}
+.display-light .text-sky-100\/70 {
+    color: rgb(3 105 161 / 0.9);
+}
+.display-light .text-sky-100\/80 {
+    color: rgb(3 105 161 / 0.9);
+}
+.display-light .text-sky-100\/85 {
+    color: rgb(3 105 161 / 0.9);
+}
+.display-light .text-sky-100\/90 {
+    color: rgb(3 105 161 / 0.9);
+}
+.display-light .text-sky-200\/60 {
+    color: rgb(3 105 161 / 0.9);
+}
+.display-light .text-sky-200\/65 {
+    color: rgb(3 105 161 / 0.9);
+}
+.display-light .text-sky-200\/75 {
+    color: rgb(3 105 161 / 0.9);
+}
+.display-light .text-sky-200\/80 {
+    color: rgb(3 105 161 / 0.9);
+}
+.display-light .text-sky-200\/90 {
+    color: rgb(3 105 161 / 0.9);
+}
+.display-light .text-sky-300\/25 {
+    color: rgb(3 105 161 / 0.9);
+}
+.display-light .text-sky-300\/40 {
+    color: rgb(3 105 161 / 0.9);
+}
+.display-light .text-sky-300\/60 {
+    color: rgb(3 105 161 / 0.9);
+}
+.display-light .text-sky-300\/70 {
+    color: rgb(3 105 161 / 0.9);
+}
+.display-light .text-sky-300\/75 {
+    color: rgb(3 105 161 / 0.9);
+}
+.display-light .text-sky-300\/80 {
+    color: rgb(3 105 161 / 0.9);
+}
+.display-light .text-sky-300\/90 {
+    color: rgb(3 105 161 / 0.9);
+}
+.display-light .text-sky-50 {
+    color: rgb(3 105 161);
+}
+.display-light .text-teal-200 {
+    color: rgb(15 118 110);
+}
+.display-light .text-violet-100 {
+    color: rgb(109 40 217);
+}
+.display-light .text-violet-200 {
+    color: rgb(109 40 217);
+}
+.display-light .text-violet-200\/80 {
+    color: rgb(109 40 217 / 0.9);
+}
+.display-light .text-violet-300 {
+    color: rgb(109 40 217);
+}
+.display-light .text-violet-300\/60 {
+    color: rgb(109 40 217 / 0.9);
+}
+.display-light .text-yellow-200 {
+    color: rgb(161 98 7);
+}
+.display-light .text-yellow-300 {
+    color: rgb(161 98 7);
+}
+
+/* Mid-tone chromatics — amber-400 is ~1.7:1 on white, so the -400/-500
+   steps need the same hue-preserving darkening as the pale ones. */
+.display-light .text-amber-400\/30 {
+    color: rgb(180 83 9 / 0.9);
+}
+.display-light .text-amber-400\/40 {
+    color: rgb(180 83 9 / 0.9);
+}
+.display-light .text-amber-400\/50 {
+    color: rgb(180 83 9 / 0.9);
+}
+.display-light .text-amber-400\/60 {
+    color: rgb(180 83 9 / 0.9);
+}
+.display-light .text-amber-400\/70 {
+    color: rgb(180 83 9 / 0.9);
+}
+.display-light .text-amber-400\/80 {
+    color: rgb(180 83 9 / 0.9);
+}
+.display-light .text-amber-400\/90 {
+    color: rgb(180 83 9 / 0.9);
+}
+.display-light .text-amber-500 {
+    color: rgb(180 83 9);
+}
+.display-light .text-amber-500\/40 {
+    color: rgb(180 83 9 / 0.9);
+}
+.display-light .text-amber-500\/50 {
+    color: rgb(180 83 9 / 0.9);
+}
+.display-light .text-amber-500\/60 {
+    color: rgb(180 83 9 / 0.9);
+}
+.display-light .text-amber-500\/70 {
+    color: rgb(180 83 9 / 0.9);
+}
+.display-light .text-blue-400\/70 {
+    color: rgb(29 78 216 / 0.9);
+}
+.display-light .text-blue-500 {
+    color: rgb(29 78 216);
+}
+.display-light .text-emerald-400\/30 {
+    color: rgb(4 120 87 / 0.9);
+}
+.display-light .text-emerald-400\/40 {
+    color: rgb(4 120 87 / 0.9);
+}
+.display-light .text-emerald-400\/50 {
+    color: rgb(4 120 87 / 0.9);
+}
+.display-light .text-emerald-400\/60 {
+    color: rgb(4 120 87 / 0.9);
+}
+.display-light .text-emerald-400\/70 {
+    color: rgb(4 120 87 / 0.9);
+}
+.display-light .text-emerald-400\/80 {
+    color: rgb(4 120 87 / 0.9);
+}
+.display-light .text-emerald-500 {
+    color: rgb(4 120 87);
+}
+.display-light .text-emerald-500\/50 {
+    color: rgb(4 120 87 / 0.9);
+}
+.display-light .text-emerald-500\/60 {
+    color: rgb(4 120 87 / 0.9);
+}
+.display-light .text-indigo-400\/70 {
+    color: rgb(67 56 202 / 0.9);
+}
+.display-light .text-orange-400 {
+    color: rgb(194 65 12);
+}
+.display-light .text-orange-400\/70 {
+    color: rgb(194 65 12 / 0.9);
+}
+.display-light .text-pink-400 {
+    color: rgb(190 24 93);
+}
+.display-light .text-purple-400\/50 {
+    color: rgb(126 34 206 / 0.9);
+}
+.display-light .text-purple-400\/60 {
+    color: rgb(126 34 206 / 0.9);
+}
+.display-light .text-purple-400\/70 {
+    color: rgb(126 34 206 / 0.9);
+}
+.display-light .text-purple-400\/80 {
+    color: rgb(126 34 206 / 0.9);
+}
+.display-light .text-red-400\/50 {
+    color: rgb(185 28 28 / 0.9);
+}
+.display-light .text-red-400\/60 {
+    color: rgb(185 28 28 / 0.9);
+}
+.display-light .text-red-400\/70 {
+    color: rgb(185 28 28 / 0.9);
+}
+.display-light .text-red-400\/80 {
+    color: rgb(185 28 28 / 0.9);
+}
+.display-light .text-red-500 {
+    color: rgb(185 28 28);
+}
+.display-light .text-red-500\/50 {
+    color: rgb(185 28 28 / 0.9);
+}
+.display-light .text-red-500\/80 {
+    color: rgb(185 28 28 / 0.9);
+}
+.display-light .text-rose-400 {
+    color: rgb(190 18 60);
+}
+.display-light .text-sky-400\/30 {
+    color: rgb(3 105 161 / 0.9);
+}
+.display-light .text-sky-400\/40 {
+    color: rgb(3 105 161 / 0.9);
+}
+.display-light .text-sky-400\/50 {
+    color: rgb(3 105 161 / 0.9);
+}
+.display-light .text-sky-400\/60 {
+    color: rgb(3 105 161 / 0.9);
+}
+.display-light .text-sky-400\/70 {
+    color: rgb(3 105 161 / 0.9);
+}
+.display-light .text-sky-400\/80 {
+    color: rgb(3 105 161 / 0.9);
+}
+.display-light .text-sky-500 {
+    color: rgb(3 105 161);
+}
+.display-light .text-sky-500\/30 {
+    color: rgb(3 105 161 / 0.9);
+}
+.display-light .text-sky-500\/40 {
+    color: rgb(3 105 161 / 0.9);
+}
+.display-light .text-sky-500\/60 {
+    color: rgb(3 105 161 / 0.9);
+}
+.display-light .text-sky-500\/70 {
+    color: rgb(3 105 161 / 0.9);
+}
+.display-light .text-violet-400\/60 {
+    color: rgb(109 40 217 / 0.9);
+}
+.display-light .text-yellow-400\/50 {
+    color: rgb(161 98 7 / 0.9);
+}
+.display-light .text-yellow-500 {
+    color: rgb(161 98 7);
 }
