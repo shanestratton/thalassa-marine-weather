@@ -205,6 +205,11 @@ export function useTracerPinMarkers({
                         marker.setLngLat([p0.lon, p0.lat]);
                         flashTraceFeedback('Snapped onto the lead 🎯');
                     }
+                    // p0 is a FRESH bare point — never spread the old one in.
+                    // Dropping the `auto` tag is what promotes a dragged
+                    // auto-inserted point to a hand-placed pin, so MapHub's
+                    // auto-densify re-derives around the drag instead of
+                    // stripping it on the next pass.
                     setCapturedCoordsRef.current((prev) => prev.map((p, j) => (j === newRec.index ? p0 : p)));
                 });
                 el.addEventListener('click', (e) => {

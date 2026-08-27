@@ -1622,6 +1622,53 @@ describe('LogPage — Cast Off handoff', () => {
         await waitFor(() => expect(followRouteMock.state.startFollowing).toHaveBeenCalled());
     });
 
+    it('a stale active voyage must NOT answer for a casual track — the publish regression', async () => {
+        // The 2026-08-26 "route authority" gate checked that ANY active row
+        // existed, not that it was THIS voyage's. With a zombie-active row
+        // parked (the pre-archive-on-stop stop bug), every casual Log-page
+        // start lost its route question — so nothing ever published (Shane
+        // 2026-08-27: "if you just use the log from the log page… it no
+        // longer shows up on your public page").
+        activeVoyageMock.value = {
+            id: 'stuck-active-voyage',
+            voyage_name: 'Newport → Coral Sea',
+            saved_route_id: 'route-x',
+            status: 'active',
+        };
+        const view = () => <LogPage />;
+        const { rerender } = render(view());
+
+        Object.assign(logPageStateOverrides.state, {
+            isTracking: true,
+            currentVoyageId: 'voyage_1724900000000_casual12',
+            entries: [],
+            summaries: [
+                {
+                    voyageId: 'planned-voyage',
+                    isPlannedRoute: true,
+                    totalDistanceNM: 12,
+                    entryCount: 4,
+                    firstLat: -27.5,
+                    firstLon: 153,
+                    lastLat: -27.4,
+                    lastLon: 153.1,
+                },
+            ],
+        });
+        rerender(view());
+
+        expect(await screen.findByRole('dialog', { name: 'Following a route?' })).toBeInTheDocument();
+        // …and the stale row must not arm ITS route against this track. The
+        // auto-arm sits directly under the same gate: left ungated it put
+        // the zombie's line on the cockpit and published it against the
+        // casual voyage, whose plan-link event then auto-answered the very
+        // question this test just proved was asked.
+        await waitFor(() => {
+            expect(followRouteMock.state.startFollowing).not.toHaveBeenCalled();
+            expect(publishFollowedRouteMock).not.toHaveBeenCalled();
+        });
+    });
+
     it('absorbs an orphan track first — one log at a time', async () => {
         stashCastOffHandoff({
             voyageId: 'voyage-new',

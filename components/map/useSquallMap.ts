@@ -93,6 +93,10 @@ export function useSquallMap(
     const isSetUp = useRef(false);
     const stormMarkersRef = useRef<mapboxgl.Marker[]>([]);
     const prevMaxZoomRef = useRef<number | null>(null);
+    const prevMinZoomRef = useRef<number | null>(null);
+    /** What squall itself pinned the floor to — the restore is skipped when
+     *  another view (cyclone) has since moved it. */
+    const pinnedMinZoomRef = useRef<number | null>(null);
     const zoomSnapRef = useRef<(() => void) | null>(null);
     const lastRefreshAtRef = useRef<number>(0);
     const loadSessionRef = useRef(0);
@@ -151,6 +155,21 @@ export function useSquallMap(
                 map.setMaxZoom(prevMaxZoomRef.current);
                 prevMaxZoomRef.current = null;
             }
+            // The min zoom was pinned at setup too — leaving it raised kept
+            // the whole map from zooming out after the squall view closed.
+            // Restore ONLY if the floor is still the one squall set: tapping
+            // a storm flips squall off and the cyclone view on in the same
+            // batch, and cyclone's effect (declared first) has already
+            // lowered the floor to 1 by the time this branch runs. An
+            // unconditional restore stomped it back to ~3 and locked the
+            // skipper out of the basin-wide frame.
+            if (prevMinZoomRef.current !== null) {
+                if (pinnedMinZoomRef.current === null || map.getMinZoom() === pinnedMinZoomRef.current) {
+                    map.setMinZoom(prevMinZoomRef.current);
+                }
+                prevMinZoomRef.current = null;
+                pinnedMinZoomRef.current = null;
+            }
             return;
         }
 
@@ -160,6 +179,8 @@ export function useSquallMap(
             const ausNzMin: number = (map as any).__ausNzMinZoom ?? 3;
             const minInt = Math.round(ausNzMin);
             prevMaxZoomRef.current = map.getMaxZoom();
+            prevMinZoomRef.current = map.getMinZoom();
+            pinnedMinZoomRef.current = minInt;
             map.setMinZoom(minInt);
             map.setMaxZoom(SQUALL_MAX_ZOOM);
 
@@ -475,9 +496,37 @@ function ensureSatelliteLayer(map: mapboxgl.Map, session: number, liveSession: (
             liftCloudOverlay(map, cloudOverlayBeforeId(layers));
             log.warn(`☁️ Cloud layer was buried under imagery — lifted above layer ${imageryIdx}`);
         }
+        // Same burial check for the PRECIP half — the actual squall cells.
+        // A basemap swap re-appends the opaque imagery on top, and this
+        // styledata re-assert is the only thing that can notice for the
+        // five minutes until the next refresh.
+        const layersNow = map.getStyle()?.layers ?? [];
+        const squallIdx = layersNow.findIndex((l) => l.id === SQUALL_LAYER);
+        if (squallIdx >= 0 && imageryTopIndex(layersNow) > squallIdx) {
+            map.moveLayer(SQUALL_LAYER, squallBeforeId(layersNow));
+            log.warn('⛈️ Squall cells were buried under imagery — lifted');
+        }
     } catch (err) {
         log.warn('Cloud layer ensure failed — continuing with precip only', err);
     }
+}
+
+/**
+ * Anchor for the PRECIP cells: one slot ABOVE the IR cloud.
+ *
+ * mapbox inserts BENEATH beforeId, so anchoring the cells at the cloud's own
+ * id would tuck them under it — and OWM's clouds_new paints its heaviest
+ * alpha exactly where active cells are, washing out the one thing this view
+ * exists to show. Taking the layer above the cloud keeps the cells over the
+ * IR and still below whatever the cloud itself was anchored beneath (labels,
+ * ENC), so coastlines and names stay readable. Falls back to the cloud's own
+ * ladder when no cloud is up.
+ */
+function squallBeforeId(layers: Array<{ id: string }>): string | undefined {
+    const cloudIdx = layers.findIndex((l) => l.id === CLOUD_OVERLAY_LAYER);
+    if (cloudIdx < 0) return cloudOverlayBeforeId(layers);
+    // Cloud is topmost — nothing to sit beneath, so the cells go on top.
+    return layers[cloudIdx + 1]?.id;
 }
 
 function mountSatelliteLayerNow(map: mapboxgl.Map): void {
@@ -525,10 +574,17 @@ function mountSquallLayer(map: mapboxgl.Map, supabaseUrl: string, snapshot: numb
         maxzoom: 8,
     });
 
-    // Insert above satellite/base but below the first symbol layer so
-    // labels/coastlines stay visible over the squall cells.
+    // Anchor via the imagery-aware ladder, NOT the first symbol layer. The
+    // bare first-symbol anchor put the cells above ENC but BELOW the
+    // top-appended opaque satellite base — and squall pins the camera to
+    // z3–8 where no ENC cell ever mounts, so MapHub's ordering self-heal
+    // (gated on encBottom) could never run. The cells rendered perfectly,
+    // under the imagery, while the legend said "Live" (Shane 2026-08-27:
+    // "it is not working at all"). Same fix lightning got on 2026-08-23 —
+    // one slot higher, so the cells sit ABOVE the IR cloud they composite
+    // with rather than under its heaviest alpha.
     const styleLayers = map.getStyle()?.layers ?? [];
-    const beforeId = styleLayers.find((l) => l.type === 'symbol')?.id;
+    const beforeId = squallBeforeId(styleLayers);
 
     map.addLayer(
         {

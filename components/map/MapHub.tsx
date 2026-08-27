@@ -154,6 +154,7 @@ import {
     splitLegForDepthGrid,
     holdTracerCtx,
     type TraceLegVerdict,
+    type TracePoint,
     type TracerContext,
     type SavedTrace,
 } from '../../services/routeTracer';
@@ -976,52 +977,73 @@ export const MapHub: React.FC<MapHubProps> = ({
         [flashTraceFeedback, lastAutoNameRef, rebaseHistoryRef, setCapturedCoords, setLegAnchor, setTraceName],
     );
     /**
-     * The check-points a long leg is ALREADY being graded at, per leg.
+     * AUTO-DENSIFY (Shane 2026-08-27: "when two waypoints are too far apart,
+     * can it just automatically put the missing points in, as it is already a
+     * straight line. i dont see any reason why it needs to ask first, also it
+     * is easy to miss that"). The grading pass has always cut long legs into
+     * grid-sized pieces for its own shadow copy; the pins now follow by
+     * themselves instead of waiting behind the old teal "Add N check
+     * waypoints" button.
      *
-     * Derived, never stored: the grading pass cuts over-long legs with the same
-     * pure function, so this is exactly where the checks happen — it cannot
-     * drift from what was verified. Empty for every leg on a normal route.
-     */
-    const legSplitPoints = useMemo(() => {
-        const out: Array<{ afterIndex: number; points: { lat: number; lon: number }[] }> = [];
-        for (let i = 1; i < capturedCoords.length; i++) {
-            const mids = splitLegForDepthGrid(capturedCoords[i - 1], capturedCoords[i]);
-            if (mids.length > 0) out.push({ afterIndex: i - 1, points: mids });
-        }
-        return out;
-    }, [capturedCoords]);
-    const splitPointCount = useMemo(() => legSplitPoints.reduce((n, s) => n + s.points.length, 0), [legSplitPoints]);
-
-    /**
-     * Turn those check-points into real, editable waypoints — the opt-in half
-     * of the long-leg fix (Shane 2026-08-01: verification happens by itself,
-     * the pins only appear when he asks).
+     * Self-healing, not sticky: every pass strips the previous auto points
+     * and re-derives them from the hand-placed pins, so dragging a parent
+     * re-lays its mids on the NEW line. That converts the silent-dogleg
+     * failure that kept the 2026-08-01 design opt-in (inserted pins did not
+     * follow a dragged parent) into a non-event.
      *
-     * Splices LAST leg first so earlier indices stay valid mid-loop — the same
-     * ordering fixLegOnGrid uses. The points sit on each leg's own line, so the
-     * route's shape is unchanged; what changes is that they now save, export
-     * and follow with it. Verdicts re-grade because the leg keys change.
+     * The write is a correction, not an edit — same undo suppression as the
+     * legAnchor re-assert, so Undo steps over the auto points to the previous
+     * hand-made shape. Index 0 is never rewritten (legAnchor lock), an
+     * antimeridian leg is left alone (linear lon interpolation would run the
+     * long way round), and the cloud's 200-point sync cap is respected out
+     * loud rather than silently un-syncing the route.
      */
-    const materialiseSplitWaypoints = useCallback(() => {
-        if (legSplitPoints.length === 0) return;
-        triggerHaptic('light');
-        setCapturedCoords((prev) => {
-            let next = prev;
-            for (const { afterIndex, points } of [...legSplitPoints].reverse()) {
-                if (afterIndex + 1 > next.length) continue; // trace changed under us
-                next = [
-                    ...next.slice(0, afterIndex + 1),
-                    ...points.map((p) => ({ ...p })),
-                    ...next.slice(afterIndex + 1),
-                ];
+    const autoDensifyNoticeRef = useRef({ count: 0, capWarned: false });
+    useEffect(() => {
+        const timer = window.setTimeout(() => {
+            type AutoPoint = TracePoint & { auto?: boolean };
+            const coords = capturedCoords as AutoPoint[];
+            if (coords.length < 2) return;
+            // Hand-placed pins only — previous auto points are re-derived.
+            const base = coords.filter((p) => !p.auto);
+            if (base.length < 2) return;
+            const next: AutoPoint[] = [base[0]];
+            let inserted = 0;
+            for (let i = 1; i < base.length; i++) {
+                const a = base[i - 1];
+                const b = base[i];
+                const mids = Math.abs(b.lon - a.lon) > 180 ? [] : splitLegForDepthGrid(a, b);
+                for (const m of mids) next.push({ ...m, auto: true });
+                inserted += mids.length;
+                next.push(b);
             }
-            return next;
-        });
-        clearTraceSelection();
-        flashTraceFeedback(
-            `Added ${splitPointCount} waypoint${splitPointCount === 1 ? '' : 's'} — the legs were already checked here`,
-        );
-    }, [legSplitPoints, splitPointCount, clearTraceSelection, flashTraceFeedback, setCapturedCoords]);
+            if (next.length > 200) {
+                if (!autoDensifyNoticeRef.current.capWarned) {
+                    autoDensifyNoticeRef.current.capWarned = true;
+                    flashTraceFeedback('Route is at the 200-point sync cap — long legs left as drawn');
+                }
+                return;
+            }
+            autoDensifyNoticeRef.current.capWarned = false;
+            const unchanged =
+                next.length === coords.length &&
+                next.every(
+                    (p, i) => p.lat === coords[i].lat && p.lon === coords[i].lon && !!p.auto === !!coords[i].auto,
+                );
+            if (unchanged) return;
+            // A correction is not an edit — see the legAnchor re-assert.
+            skipNextHistoryRef.current = true;
+            setCapturedCoords(next);
+            clearTraceSelection();
+            if (inserted > autoDensifyNoticeRef.current.count) {
+                flashTraceFeedback(
+                    `Added ${inserted} point${inserted === 1 ? '' : 's'} along the long legs — checked automatically`,
+                );
+            }
+            autoDensifyNoticeRef.current.count = inserted;
+        }, 300);
+        return () => window.clearTimeout(timer);
+    }, [capturedCoords, clearTraceSelection, flashTraceFeedback, setCapturedCoords, skipNextHistoryRef]);
 
     const getTraceReleaseGate = useCallback(
         () =>
@@ -4295,14 +4317,16 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                 No ENC charts here — legs can't be depth-checked.
                                             </div>
                                         )}
+                                        {/* 'toolarge' now only fires for a single leg the auto-split
+                                            DECLINED (> MAX_LEG_SUBDIVISIONS pieces, ~115 NM) — more
+                                            pins won't help; the leg needs to be shorter. The old
+                                            'marksonly' banner was unreachable (every window either
+                                            fits the depth grid or refuses outright) and its "add a
+                                            mid pin" advice is auto-densify's job now. */}
                                         {tracerStatus === 'toolarge' && (
                                             <div className="border-b border-white/10 px-3 py-1.5 text-[10px] font-bold text-amber-400">
-                                                A leg spans too much water to check — drop pins along it.
-                                            </div>
-                                        )}
-                                        {tracerStatus === 'marksonly' && (
-                                            <div className="border-b border-white/10 px-3 py-1.5 text-[10px] font-bold text-amber-400">
-                                                Long open-water leg — marks checked, depth not. Add a mid pin.
+                                                A leg is over 115 NM — too long for the chart check. Split it into
+                                                shorter legs.
                                             </div>
                                         )}
                                         {/* Persistent ⚡ auto-route outcome — stays until the
@@ -4507,26 +4531,9 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                 ⇄
                                             </button>
                                         </div>
-                                        {/* Long legs are cut into grid-sized pieces and depth-checked
-                                            automatically — this only offers to make those check-points
-                                            into real waypoints, for export or a chartplotter. It is
-                                            deliberately opt-in: inserted pins stay put when their
-                                            parent is dragged, which would silently dogleg the route. */}
-                                        {splitPointCount > 0 && (
-                                            <div className="border-t border-white/10 px-3 py-2">
-                                                <button
-                                                    onClick={materialiseSplitWaypoints}
-                                                    className="w-full rounded-lg bg-teal-500/15 py-2 text-[11px] font-black uppercase tracking-wide text-teal-300 active:scale-95"
-                                                >
-                                                    📍 Add {splitPointCount} check waypoint
-                                                    {splitPointCount === 1 ? '' : 's'}
-                                                </button>
-                                                <p className="px-0.5 pt-1 text-[10px] leading-snug text-gray-400">
-                                                    Long legs are already checked at these points. Adding them puts them
-                                                    in the saved route.
-                                                </p>
-                                            </div>
-                                        )}
+                                        {/* The old teal "Add N check waypoints" button is gone —
+                                            long legs densify themselves now (Shane 2026-08-27,
+                                            see the AUTO-DENSIFY effect). */}
                                         {capturedCoords.length >= 2 && (
                                             <div className="flex gap-1.5 border-t border-white/10 px-3 py-2">
                                                 <button
