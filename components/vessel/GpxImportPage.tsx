@@ -324,6 +324,7 @@ export const GpxImportPage: React.FC<GpxImportPageProps> = ({ onBack }) => {
                                         <p className="text-[11px] text-red-400/80 mt-1">{error}</p>
                                     </div>
                                     <button
+                                        aria-label="Dismiss import error"
                                         onClick={handleReset}
                                         className="p-1.5 rounded-lg hover:bg-white/5 transition-colors"
                                     >

@@ -111,6 +111,7 @@ export const TracerPinEditor: React.FC<TracerPinEditorProps> = ({
                     setInsertAfter(null);
                     insertAfterRef.current = null;
                 }}
+                aria-label="Close pin editor"
                 className="px-1 text-gray-400"
             >
                 ✕

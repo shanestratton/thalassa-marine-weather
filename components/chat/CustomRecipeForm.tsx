@@ -267,6 +267,7 @@ export const CustomRecipeForm: React.FC<CustomRecipeFormProps> = ({ onSaved, onC
                                 setPhotoPreview(null);
                             }}
                             className="absolute top-2 right-2 w-7 h-7 rounded-full bg-black/60 flex items-center justify-center text-white text-xs"
+                            aria-label="Remove photo"
                         >
                             ✕
                         </button>
@@ -291,6 +292,7 @@ export const CustomRecipeForm: React.FC<CustomRecipeFormProps> = ({ onSaved, onC
                     <button
                         onClick={() => setReadyInMinutes(Math.max(5, readyInMinutes - 5))}
                         className="w-10 h-10 rounded-xl bg-white/[0.06] border border-white/[0.1] text-white font-bold text-lg flex items-center justify-center active:scale-95"
+                        aria-label="Decrease cook time by 5 minutes"
                     >
                         −
                     </button>
@@ -301,6 +303,7 @@ export const CustomRecipeForm: React.FC<CustomRecipeFormProps> = ({ onSaved, onC
                     <button
                         onClick={() => setReadyInMinutes(readyInMinutes + 5)}
                         className="w-10 h-10 rounded-xl bg-white/[0.06] border border-white/[0.1] text-white font-bold text-lg flex items-center justify-center active:scale-95"
+                        aria-label="Increase cook time by 5 minutes"
                     >
                         +
                     </button>
