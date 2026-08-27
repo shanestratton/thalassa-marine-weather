@@ -1,5 +1,23 @@
 /**
  * @filesize-justified WebGL2 shader class — vertex/fragment shaders + GPU buffer management are tightly coupled by design.
+ *
+ * ⚠️ NOT WIRED UP. NOTHING IN THE APP RENDERS THIS LAYER.
+ *
+ * Its only instantiation is components/map/ThalassaMap.tsx, and nothing
+ * imports ThalassaMap — both are reachable from tests alone. The OBS page is
+ * MapHub, and MapHub renders components/map/MapboxVelocityOverlay.tsx (a
+ * leaflet-velocity bridge). That is the wind you see.
+ *
+ * This matters because it has already cost three rounds: the particle count,
+ * speed and size ramps below were tuned on 2026-08-23, 08-27 and 08-28 in
+ * response to Shane reporting the field was too dense, too fast and too
+ * coarse at z9 — and every one of them shipped no visible change, because
+ * this file does not run. The tests covering them are source-text assertions,
+ * so they passed throughout and hid it.
+ *
+ * Tune MapboxVelocityOverlay.tsx instead; tests/WindParticleDensityRamp.test.ts
+ * pins that one. Keep this file only if it is going to be wired up — otherwise
+ * it is 1,100 lines of convincing-looking misdirection.
  */
 import mapboxgl from 'mapbox-gl';
 import { createLogger } from '../../utils/createLogger';

@@ -90,19 +90,56 @@ const VELOCITY_SCALE_REF_ZOOM = 3;
  */
 function zoomCompensatedVelocityScale(mapboxZoom: number): number {
     const z = Math.min(12, Math.max(VELOCITY_SCALE_REF_ZOOM, mapboxZoom));
-    return BASE_VELOCITY_SCALE * Math.pow(2, 0.45 * (z - VELOCITY_SCALE_REF_ZOOM));
+    return BASE_VELOCITY_SCALE * Math.pow(2, VELOCITY_ZOOM_COMPENSATION * (z - VELOCITY_SCALE_REF_ZOOM));
+}
+
+/**
+ * How much of the library's zoom collapse to hand back, per level.
+ *
+ * 0.45 gave 6.5x the base scale by z9, which is why the tight end still read
+ * as fast however much the count came down (Shane 2026-08-28: the pre-jump
+ * frame — the uncompensated one — "starts out right"). 0.22 gives ~2.3x at
+ * z9 and ~3.9x at z12: the "wind died when I zoomed in" failure this
+ * compensation exists to prevent stays fixed, but zooming in no longer turns
+ * a sea breeze into a gale.
+ */
+const VELOCITY_ZOOM_COMPENSATION = 0.22;
+
+/**
+ * PARTICLE COUNT, the ramp that never existed.
+ *
+ * leaflet-velocity sizes its population from CANVAS PIXEL AREA:
+ *   particuleCount = round(canvas.width * canvas.height * particleMultiplier)
+ * That has no zoom term at all, so the same number of particles is drawn
+ * whether they cover an ocean or a bay — which is exactly why the tight end
+ * looks like a swarm and the wide end looks like texture. Zooming in was
+ * concentrating a fixed population into less and less sea.
+ *
+ * The multiplier now falls to a quarter across z3 -> z9, matching the count
+ * ramp's intent. The wide end is untouched: at z3 this is exactly the
+ * density that shipped.
+ */
+const BASE_PARTICLE_MULTIPLIER = 1 / 150;
+const PARTICLE_ZOOM_TIGHT = 9;
+const PARTICLE_MIN_DENSITY = 0.25;
+
+export function zoomScaledParticleMultiplier(mapboxZoom: number): number {
+    if (!Number.isFinite(mapboxZoom)) return BASE_PARTICLE_MULTIPLIER;
+    const span = PARTICLE_ZOOM_TIGHT - VELOCITY_SCALE_REF_ZOOM;
+    const t = Math.min(1, Math.max(0, (mapboxZoom - VELOCITY_SCALE_REF_ZOOM) / span));
+    return BASE_PARTICLE_MULTIPLIER * (1 - (1 - PARTICLE_MIN_DENSITY) * t);
 }
 
 // ── Helper: Create velocity layer ─────────────────────────────
 
-function createVelocityLayer(data: VelocityGribRecord[], velocityScale: number): L.Layer {
+function createVelocityLayer(data: VelocityGribRecord[], velocityScale: number, particleMultiplier: number): L.Layer {
     const layer = (L as unknown as Record<string, (...args: unknown[]) => L.Layer>).velocityLayer({
         displayValues: false, // No mouse readout (overlay has pointer-events: none)
         data,
         maxVelocity: WIND_MAX_MS,
         velocityScale,
         particleAge: 60,
-        particleMultiplier: 1 / 150,
+        particleMultiplier,
         // 30, was 15: a 66 ms particle step is visible judder on a 60 Hz
         // panel — half of Shane's "shaky" (2026-08-21). 33 ms reads as
         // motion. Still throttled: full-rate RAF measurably warms phones.
@@ -117,7 +154,7 @@ function createVelocityLayer(data: VelocityGribRecord[], velocityScale: number):
 }
 
 type MutableVelocityLayer = L.Layer & {
-    _windy?: { setData: (data: VelocityGribRecord[]) => void; velocityScale?: number };
+    _windy?: { setData: (data: VelocityGribRecord[]) => void; velocityScale?: number; particleMultiplier?: number };
     setData?: (data: VelocityGribRecord[]) => void;
 };
 
@@ -177,9 +214,10 @@ function applyVelocityData(
     layer: L.Layer | null,
     data: VelocityGribRecord[],
     velocityScale: number,
+    particleMultiplier: number,
 ): L.Layer {
     if (!layer) {
-        const created = createVelocityLayer(data, velocityScale);
+        const created = createVelocityLayer(data, velocityScale, particleMultiplier);
         created.addTo(map);
         return created;
     }
@@ -187,6 +225,8 @@ function applyVelocityData(
     const mutableLayer = layer as MutableVelocityLayer;
     if (mutableLayer._windy) {
         mutableLayer._windy.velocityScale = velocityScale;
+        // Re-read on the next start() via the particuleCount getter.
+        mutableLayer._windy.particleMultiplier = particleMultiplier;
         mutableLayer._windy.setData(data);
         return layer;
     }
@@ -196,7 +236,7 @@ function applyVelocityData(
     }
 
     removeVelocityLayer(map, layer);
-    const replacement = createVelocityLayer(data, velocityScale);
+    const replacement = createVelocityLayer(data, velocityScale, particleMultiplier);
     replacement.addTo(map);
     return replacement;
 }
@@ -580,6 +620,7 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
                 velocityLayerRef.current,
                 nextData,
                 zoomCompensatedVelocityScale(mapboxMap?.getZoom() ?? VELOCITY_SCALE_REF_ZOOM),
+                zoomScaledParticleMultiplier(mapboxMap?.getZoom() ?? VELOCITY_SCALE_REF_ZOOM),
             );
             if (overlayRef.current) overlayRef.current.style.opacity = '1';
             syncRef.current?.();
@@ -756,6 +797,7 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
                     null,
                     initialData,
                     zoomCompensatedVelocityScale(mapboxMap.getZoom()),
+                    zoomScaledParticleMultiplier(mapboxMap.getZoom()),
                 );
             }
 
@@ -782,7 +824,14 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
                     // The restart this setView triggers re-reads velocityScale,
                     // so hand it the zoom-compensated value first.
                     const windy = (velocityLayerRef.current as MutableVelocityLayer | null)?._windy;
-                    if (windy) windy.velocityScale = zoomCompensatedVelocityScale(zRaw);
+                    if (windy) {
+                        windy.velocityScale = zoomCompensatedVelocityScale(zRaw);
+                        // The restart re-reads particuleCount, so the density
+                        // ramp has to be handed over in the same breath as the
+                        // speed one — otherwise zooming in thins the motion
+                        // but leaves the swarm.
+                        windy.particleMultiplier = zoomScaledParticleMultiplier(zRaw);
+                    }
                     leafletMapRef.current.setView([c.lat, c.lng], zRaw + 1, { animate: false });
 
                     // Measure residual error and correct

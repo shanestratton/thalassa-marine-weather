@@ -76,7 +76,7 @@ export const TracerSavedRoutePicker: React.FC<TracerSavedRoutePickerProps> = ({
                         setSavedTraces(loadSavedTraces());
                         setShowSavedTraces((v) => !v);
                     }}
-                    className={`flex-1 rounded-lg px-2.5 py-1 text-left text-[10px] font-black uppercase tracking-wide active:scale-95 ${showSavedTraces ? 'bg-white/10 text-gray-100' : 'bg-white/5 text-gray-400'}`}
+                    className={`min-h-[44px] flex-1 rounded-lg px-2.5 py-1 text-left text-[10px] font-black uppercase tracking-wide active:scale-95 ${showSavedTraces ? 'bg-white/10 text-gray-100' : 'bg-white/5 text-gray-400'}`}
                 >
                     {showSavedTraces ? '▾ Saved routes' : '📂 Open a saved route'}
                 </button>
@@ -95,7 +95,7 @@ export const TracerSavedRoutePicker: React.FC<TracerSavedRoutePickerProps> = ({
                                 <button
                                     key={trip.key}
                                     onClick={() => openSavedTrace(trip.legs[0])}
-                                    className="block w-full truncate rounded-md px-1.5 py-1.5 text-left text-[11px] text-gray-200 active:bg-white/10"
+                                    className="block min-h-[44px] w-full truncate rounded-md px-1.5 py-1.5 text-left text-[11px] text-gray-200 active:bg-white/10"
                                 >
                                     {trip.legs[0].name}{' '}
                                     <span className="text-gray-500">({trip.legs[0].points.length} pins)</span>
@@ -109,7 +109,7 @@ export const TracerSavedRoutePicker: React.FC<TracerSavedRoutePickerProps> = ({
                                         <button
                                             key={leg.id}
                                             onClick={() => openSavedTrace(leg)}
-                                            className="block w-full truncate rounded-md py-1.5 pl-4 pr-1.5 text-left text-[11px] text-gray-200 active:bg-white/10"
+                                            className="block min-h-[44px] w-full truncate rounded-md py-1.5 pl-4 pr-1.5 text-left text-[11px] text-gray-200 active:bg-white/10"
                                         >
                                             {leg.name} <span className="text-gray-500">({leg.points.length} pins)</span>
                                         </button>

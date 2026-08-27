@@ -878,7 +878,7 @@ export const LegPickerDropdown: React.FC<LegPickerDropdownProps> = ({
                         setCleanupOpen(true);
                         triggerHaptic('light');
                     }}
-                    className="text-[11px] text-gray-500 hover:text-amber-300 transition-colors px-2 py-1"
+                    className="min-h-[44px] text-[11px] text-gray-500 hover:text-amber-300 transition-colors px-2 py-1"
                 >
                     ⚙ Manage saved trips
                 </button>

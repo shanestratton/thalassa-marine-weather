@@ -140,7 +140,7 @@ const WheelRating: React.FC<WheelRatingProps> = ({ rating, count, interactive = 
                             key={i}
                             type="button"
                             onClick={() => onRate?.(i)}
-                            className="cursor-pointer transition-transform hover:scale-125 active:scale-90"
+                            className="cursor-pointer transition-transform hover:scale-125 active:scale-90 min-h-[44px] min-w-[44px]"
                             aria-label={`Rate ${i} wheel${i !== 1 ? 's' : ''}`}
                             aria-pressed={i === roundedRating}
                         >
@@ -461,7 +461,7 @@ const RecipeDetail: React.FC<RecipeDetailProps> = ({ recipe, onClose, onRated })
                                             setShareOpen(false);
                                             setShareNote('');
                                         }}
-                                        className="text-[11px] text-gray-500 hover:text-gray-300"
+                                        className="hit-target-44 text-[11px] text-gray-500 hover:text-gray-300"
                                         aria-label="Cancel share"
                                     >
                                         Cancel
@@ -486,7 +486,7 @@ const RecipeDetail: React.FC<RecipeDetailProps> = ({ recipe, onClose, onRated })
                                                             triggerHaptic('light');
                                                             setSelectedChannelId(ch.id);
                                                         }}
-                                                        className={`px-2.5 py-1 rounded-full text-[11px] font-bold border transition-colors ${
+                                                        className={`px-2.5 py-1 min-h-[44px] rounded-full text-[11px] font-bold border transition-colors ${
                                                             isSelected
                                                                 ? 'bg-sky-500/20 border-sky-400/40 text-sky-200'
                                                                 : 'bg-white/[0.03] border-white/[0.06] text-gray-400 hover:bg-white/[0.06]'
@@ -552,7 +552,7 @@ const RecipeDetail: React.FC<RecipeDetailProps> = ({ recipe, onClose, onRated })
                             <button
                                 onClick={handleReportImage}
                                 disabled={reportSent}
-                                className="flex items-center gap-1.5 text-[11px] text-gray-500 hover:text-red-400/70 transition-colors disabled:opacity-40"
+                                className="hit-target-44 flex items-center gap-1.5 text-[11px] text-gray-500 hover:text-red-400/70 transition-colors disabled:opacity-40"
                                 aria-label="Report image"
                             >
                                 <span>⚑</span>
@@ -830,7 +830,7 @@ export const CaptainsTable: React.FC<CaptainsTableProps> = ({ className, fullPag
                                         setBilgeIngredients((prev) => prev.filter((i) => i !== ing));
                                         triggerHaptic('light');
                                     }}
-                                    className="px-2.5 py-1 rounded-lg bg-sky-500/15 text-sky-300 text-[11px] font-bold border border-sky-500/20 hover:bg-sky-500/25 transition-all flex items-center gap-1"
+                                    className="px-2.5 py-1 min-h-[44px] rounded-lg bg-sky-500/15 text-sky-300 text-[11px] font-bold border border-sky-500/20 hover:bg-sky-500/25 transition-all flex items-center gap-1"
                                 >
                                     {ing} <span className="text-sky-400/60">✕</span>
                                 </button>
@@ -842,7 +842,7 @@ export const CaptainsTable: React.FC<CaptainsTableProps> = ({ className, fullPag
                                         setBilgeExclusions((prev) => prev.filter((i) => i !== ing));
                                         triggerHaptic('light');
                                     }}
-                                    className="px-2.5 py-1 rounded-lg bg-red-500/15 text-red-300 text-[11px] font-bold border border-red-500/20 hover:bg-red-500/25 transition-all flex items-center gap-1"
+                                    className="px-2.5 py-1 min-h-[44px] rounded-lg bg-red-500/15 text-red-300 text-[11px] font-bold border border-red-500/20 hover:bg-red-500/25 transition-all flex items-center gap-1"
                                 >
                                     −{ing} <span className="text-red-400/60">✕</span>
                                 </button>
@@ -870,7 +870,7 @@ export const CaptainsTable: React.FC<CaptainsTableProps> = ({ className, fullPag
                                                     key={tag.id}
                                                     onClick={() => handleToggleFilter(tag.id)}
                                                     aria-pressed={isActive}
-                                                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-[11px] font-extrabold uppercase tracking-wider transition-all whitespace-nowrap active:scale-95 ${
+                                                    className={`flex items-center gap-1.5 px-3 py-1.5 min-h-[44px] rounded-full border text-[11px] font-extrabold uppercase tracking-wider transition-all whitespace-nowrap active:scale-95 ${
                                                         isActive ? accent.active : accent.idle
                                                     }`}
                                                 >
@@ -895,7 +895,7 @@ export const CaptainsTable: React.FC<CaptainsTableProps> = ({ className, fullPag
                                         setSortBy(opt.key);
                                         triggerHaptic('light');
                                     }}
-                                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-bold transition-all whitespace-nowrap ${
+                                    className={`flex items-center gap-1.5 px-3 py-1.5 min-h-[44px] rounded-full text-[11px] font-bold transition-all whitespace-nowrap ${
                                         sortBy === opt.key
                                             ? 'bg-white/[0.08] text-white border border-white/[0.12]'
                                             : 'bg-white/[0.03] text-gray-500 border border-white/[0.06] hover:bg-white/[0.06] hover:text-gray-300'
@@ -911,7 +911,7 @@ export const CaptainsTable: React.FC<CaptainsTableProps> = ({ className, fullPag
                                     setShowFavouritesOnly((v) => !v);
                                     triggerHaptic('light');
                                 }}
-                                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-bold transition-all whitespace-nowrap ${
+                                className={`flex items-center gap-1.5 px-3 py-1.5 min-h-[44px] rounded-full text-[11px] font-bold transition-all whitespace-nowrap ${
                                     showFavouritesOnly
                                         ? 'bg-rose-500/15 text-rose-300 border border-rose-500/25'
                                         : 'bg-white/[0.03] text-gray-500 border border-white/[0.06] hover:bg-white/[0.06] hover:text-gray-300'
@@ -956,7 +956,7 @@ export const CaptainsTable: React.FC<CaptainsTableProps> = ({ className, fullPag
                                     setActiveFilters(new Set());
                                     triggerHaptic('light');
                                 }}
-                                className="text-[10px] font-black uppercase tracking-wider text-gray-500 hover:text-white transition-colors"
+                                className="min-h-[44px] text-[10px] font-black uppercase tracking-wider text-gray-500 hover:text-white transition-colors"
                             >
                                 Clear
                             </button>

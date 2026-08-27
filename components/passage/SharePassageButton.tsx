@@ -329,7 +329,7 @@ const SharePassageButton: React.FC<SharePassageButtonProps> = ({ briefData, clas
                         <button
                             role="menuitem"
                             onClick={closeMenu}
-                            className="w-full text-center text-[11px] text-gray-500 font-bold uppercase tracking-wider py-1 hover:text-gray-400 transition-colors"
+                            className="w-full min-h-[44px] text-center text-[11px] text-gray-500 font-bold uppercase tracking-wider py-1 hover:text-gray-400 transition-colors"
                         >
                             Cancel
                         </button>

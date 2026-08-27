@@ -199,7 +199,7 @@ export const RecipeEditor: React.FC<RecipeEditorProps> = ({ onClose, onSaved, re
                     onClick={onClose}
                     disabled={saving}
                     aria-label={isEditing ? 'Cancel recipe editing' : 'Cancel recipe creation'}
-                    className="text-gray-400 hover:text-white text-sm font-bold transition-colors"
+                    className="hit-target-44 text-gray-400 hover:text-white text-sm font-bold transition-colors"
                 >
                     Cancel
                 </button>
@@ -363,7 +363,7 @@ export const RecipeEditor: React.FC<RecipeEditorProps> = ({ onClose, onSaved, re
                                         key={tag}
                                         onClick={() => toggleTag(tag)}
                                         aria-pressed={tags.includes(tag)}
-                                        className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all ${
+                                        className={`min-h-[44px] px-3 py-1.5 rounded-full text-xs font-bold transition-all ${
                                             tags.includes(tag)
                                                 ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
                                                 : 'bg-white/5 text-gray-400 border border-white/10'
@@ -384,7 +384,7 @@ export const RecipeEditor: React.FC<RecipeEditorProps> = ({ onClose, onSaved, re
                             <button
                                 onClick={addIngredient}
                                 aria-label="Add ingredient"
-                                className="text-[11px] font-bold text-amber-400 hover:text-amber-300 transition-colors"
+                                className="hit-target-44 text-[11px] font-bold text-amber-400 hover:text-amber-300 transition-colors"
                             >
                                 + Add
                             </button>
@@ -422,7 +422,7 @@ export const RecipeEditor: React.FC<RecipeEditorProps> = ({ onClose, onSaved, re
                                     <button
                                         onClick={() => removeIngredient(i)}
                                         aria-label={`Remove ingredient ${i + 1}`}
-                                        className="text-red-400/60 hover:text-red-400 text-lg font-bold transition-colors shrink-0"
+                                        className="min-h-[44px] min-w-[44px] text-red-400/60 hover:text-red-400 text-lg font-bold transition-colors shrink-0"
                                     >
                                         ×
                                     </button>

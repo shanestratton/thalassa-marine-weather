@@ -4180,7 +4180,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                     setPlotArmed((a) => !a);
                                                 }}
                                                 aria-pressed={plotArmed}
-                                                className={`flex-1 rounded-lg py-1.5 text-[10px] font-black uppercase tracking-wide active:scale-95 ${
+                                                className={`min-h-[44px] flex-1 rounded-lg py-1.5 text-[10px] font-black uppercase tracking-wide active:scale-95 ${
                                                     plotArmed
                                                         ? 'bg-amber-500/20 text-amber-300'
                                                         : 'bg-white/10 text-gray-300'
@@ -4194,7 +4194,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                     <button
                                                         onClick={() => void autoCompleteTrace()}
                                                         disabled={autoBusy}
-                                                        className="flex-1 rounded-lg bg-violet-500/20 py-1.5 text-[10px] font-black uppercase tracking-wide text-violet-300 active:scale-95 disabled:opacity-50"
+                                                        className="min-h-[44px] flex-1 rounded-lg bg-violet-500/20 py-1.5 text-[10px] font-black uppercase tracking-wide text-violet-300 active:scale-95 disabled:opacity-50"
                                                     >
                                                         {autoBusy ? '⏳ Routing…' : '⚡ Auto'}
                                                     </button>
@@ -4202,14 +4202,14 @@ export const MapHub: React.FC<MapHubProps> = ({
                                             <button
                                                 onClick={undoTrace}
                                                 disabled={!canUndoTrace}
-                                                className="flex-1 rounded-lg bg-white/5 py-1.5 text-[10px] font-black uppercase tracking-wide text-gray-300 active:scale-95 disabled:opacity-40"
+                                                className="min-h-[44px] flex-1 rounded-lg bg-white/5 py-1.5 text-[10px] font-black uppercase tracking-wide text-gray-300 active:scale-95 disabled:opacity-40"
                                             >
                                                 Undo
                                             </button>
                                             <button
                                                 onClick={redoTrace}
                                                 disabled={!canRedoTrace}
-                                                className="flex-1 rounded-lg bg-white/5 py-1.5 text-[10px] font-black uppercase tracking-wide text-gray-300 active:scale-95 disabled:opacity-40"
+                                                className="min-h-[44px] flex-1 rounded-lg bg-white/5 py-1.5 text-[10px] font-black uppercase tracking-wide text-gray-300 active:scale-95 disabled:opacity-40"
                                             >
                                                 Redo
                                             </button>
@@ -4301,7 +4301,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                 <button
                                                     onClick={clearCourseFrame}
                                                     aria-label="Clear the course frame"
-                                                    className="ml-2 shrink-0 text-[10px] font-bold text-gray-500"
+                                                    className="ml-2 min-h-[44px] min-w-[44px] shrink-0 text-[10px] font-bold text-gray-500"
                                                 >
                                                     ✕
                                                 </button>
@@ -4334,7 +4334,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                         {autoRouteDiag && (
                                             <button
                                                 onClick={() => setAutoRouteDiag(null)}
-                                                className="w-full border-b border-white/10 px-3 py-1.5 text-left text-[10px] font-bold text-violet-300 active:opacity-70"
+                                                className="min-h-[44px] w-full border-b border-white/10 px-3 py-1.5 text-left text-[10px] font-bold text-violet-300 active:opacity-70"
                                             >
                                                 {autoRouteDiag} <span className="text-gray-500">(tap to dismiss)</span>
                                             </button>
@@ -4455,7 +4455,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                     setPlotArmed((a) => !a);
                                                 }}
                                                 aria-pressed={plotArmed}
-                                                className={`flex-1 rounded-lg py-1.5 text-[11px] font-black uppercase tracking-wide active:scale-95 ${
+                                                className={`min-h-[44px] flex-1 rounded-lg py-1.5 text-[11px] font-black uppercase tracking-wide active:scale-95 ${
                                                     plotArmed
                                                         ? 'bg-amber-500/20 text-amber-300'
                                                         : 'bg-white/10 text-gray-300'
@@ -4466,14 +4466,14 @@ export const MapHub: React.FC<MapHubProps> = ({
                                             <button
                                                 onClick={undoTrace}
                                                 disabled={!canUndoTrace}
-                                                className="flex-1 rounded-lg bg-white/5 py-1.5 text-[11px] font-black uppercase tracking-wide text-gray-300 active:scale-95 disabled:opacity-40"
+                                                className="min-h-[44px] flex-1 rounded-lg bg-white/5 py-1.5 text-[11px] font-black uppercase tracking-wide text-gray-300 active:scale-95 disabled:opacity-40"
                                             >
                                                 Undo
                                             </button>
                                             <button
                                                 onClick={redoTrace}
                                                 disabled={!canRedoTrace}
-                                                className="flex-1 rounded-lg bg-white/5 py-1.5 text-[11px] font-black uppercase tracking-wide text-gray-300 active:scale-95 disabled:opacity-40"
+                                                className="min-h-[44px] flex-1 rounded-lg bg-white/5 py-1.5 text-[11px] font-black uppercase tracking-wide text-gray-300 active:scale-95 disabled:opacity-40"
                                             >
                                                 Redo
                                             </button>
@@ -4486,7 +4486,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                 <button
                                                     onClick={() => void copyCapturedCoords()}
                                                     disabled={capturedCoords.length === 0}
-                                                    className="flex-1 rounded-lg bg-white/5 py-1.5 text-[11px] font-black uppercase tracking-wide text-gray-300 active:scale-95 disabled:opacity-40"
+                                                    className="min-h-[44px] flex-1 rounded-lg bg-white/5 py-1.5 text-[11px] font-black uppercase tracking-wide text-gray-300 active:scale-95 disabled:opacity-40"
                                                 >
                                                     {coordsCopied ? 'Copied ✓' : 'Copy'}
                                                 </button>
@@ -4515,7 +4515,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                     setTraceName((cur) => (cur === lastAutoNameRef.current ? '' : cur));
                                                 }}
                                                 disabled={capturedCoords.length === 0}
-                                                className="flex-1 rounded-lg bg-white/5 py-1.5 text-[11px] font-black uppercase tracking-wide text-gray-400 active:scale-95 disabled:opacity-40"
+                                                className="min-h-[44px] flex-1 rounded-lg bg-white/5 py-1.5 text-[11px] font-black uppercase tracking-wide text-gray-400 active:scale-95 disabled:opacity-40"
                                             >
                                                 Clear
                                             </button>
@@ -4526,7 +4526,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                 disabled={capturedCoords.length < 2}
                                                 aria-label="Reverse route — plot the return trip"
                                                 title="Reverse route"
-                                                className="rounded-lg bg-white/5 px-2.5 py-1.5 text-[13px] font-black text-sky-300 active:scale-95 disabled:opacity-40"
+                                                className="min-h-[44px] rounded-lg bg-white/5 px-2.5 py-1.5 text-[13px] font-black text-sky-300 active:scale-95 disabled:opacity-40"
                                             >
                                                 ⇄
                                             </button>
@@ -4589,7 +4589,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                             ? 'Save this checked route'
                                                             : traceReleaseGate.reason
                                                     }
-                                                    className={`flex-1 rounded-lg py-1.5 text-[11px] font-black uppercase tracking-wide active:scale-95 disabled:opacity-40 ${
+                                                    className={`min-h-[44px] flex-1 rounded-lg py-1.5 text-[11px] font-black uppercase tracking-wide active:scale-95 disabled:opacity-40 ${
                                                         overwriteArm
                                                             ? 'bg-red-500/25 text-red-300'
                                                             : 'bg-amber-500/20 text-amber-300'
@@ -4606,7 +4606,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                     <button
                                                         onClick={() => void copyFairwaySnippet()}
                                                         disabled={capturedCoords.length < 2}
-                                                        className="flex-1 rounded-lg bg-sky-500/15 py-1.5 text-[11px] font-black uppercase tracking-wide text-sky-300 active:scale-95 disabled:opacity-40"
+                                                        className="min-h-[44px] flex-1 rounded-lg bg-sky-500/15 py-1.5 text-[11px] font-black uppercase tracking-wide text-sky-300 active:scale-95 disabled:opacity-40"
                                                     >
                                                         Fairway
                                                     </button>
@@ -4635,7 +4635,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                                     capturedCoords.length < 2 ||
                                                                     traceReleaseGate.verification?.draftAssumed === true
                                                                 }
-                                                                className={`flex-1 rounded-lg py-1.5 text-[11px] font-black uppercase tracking-wide active:scale-95 disabled:opacity-40 ${
+                                                                className={`min-h-[44px] flex-1 rounded-lg py-1.5 text-[11px] font-black uppercase tracking-wide active:scale-95 disabled:opacity-40 ${
                                                                     hasDanger
                                                                         ? 'bg-red-500/25 text-red-300'
                                                                         : 'bg-emerald-500/20 text-emerald-300'

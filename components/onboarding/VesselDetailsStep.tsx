@@ -139,7 +139,7 @@ const UnitToggle: React.FC<{ value: string; onClick: () => void }> = ({ value, o
         type="button"
         aria-label={`Switch unit, currently ${value}`}
         onClick={onClick}
-        className="px-2.5 py-1.5 -my-1.5 rounded-md bg-sky-500/10 text-sky-400 hover:text-white text-xs font-bold uppercase transition-colors active:scale-95"
+        className="hit-target-44 px-2.5 py-1.5 -my-1.5 rounded-md bg-sky-500/10 text-sky-400 hover:text-white text-xs font-bold uppercase transition-colors active:scale-95"
     >
         {value}
     </button>

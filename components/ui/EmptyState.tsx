@@ -102,7 +102,7 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
             {secondaryLabel && onSecondary && (
                 <button
                     onClick={onSecondary}
-                    className="mt-2 px-4 py-1.5 text-[11px] text-gray-500 hover:text-gray-300 transition-colors"
+                    className="mt-2 px-4 py-1.5 min-h-[44px] text-[11px] text-gray-500 hover:text-gray-300 transition-colors"
                 >
                     {secondaryLabel}
                 </button>

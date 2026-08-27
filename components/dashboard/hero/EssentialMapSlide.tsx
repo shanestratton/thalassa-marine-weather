@@ -595,7 +595,7 @@ export const EssentialMapSlide: React.FC<EssentialMapSlideProps> = ({
                             <button
                                 aria-label={isPlaying ? 'Pause radar animation' : 'Play radar animation'}
                                 onClick={() => setIsPlaying((p) => !p)}
-                                className="w-7 h-7 shrink-0 rounded-full bg-white/10 backdrop-blur-md border border-white/[0.12] flex items-center justify-center active:scale-90 transition-all"
+                                className="hit-target-44 w-7 h-7 shrink-0 rounded-full bg-white/10 backdrop-blur-md border border-white/[0.12] flex items-center justify-center active:scale-90 transition-all"
                             >
                                 {isPlaying ? (
                                     <svg className="w-3 h-3 text-white/80" fill="currentColor" viewBox="0 0 24 24">

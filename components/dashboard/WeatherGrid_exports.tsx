@@ -74,7 +74,7 @@ export const AlertsBanner = ({ alerts }: { alerts?: string[] }) => {
             <button
                 aria-label="View weather grid export page"
                 onClick={() => setPage('warnings')}
-                className="flex items-center gap-2.5 flex-1 cursor-pointer"
+                className="hit-target-44 flex items-center gap-2.5 flex-1 cursor-pointer"
             >
                 <AlertTriangleIcon className="w-5 h-5 text-white animate-pulse" />
                 <span className="text-white font-bold uppercase tracking-wider text-sm">
@@ -86,7 +86,7 @@ export const AlertsBanner = ({ alerts }: { alerts?: string[] }) => {
                     <button
                         aria-label="Dismiss weather export panel"
                         onClick={handleDismiss}
-                        className="bg-white/20 hover:bg-white/30 active:bg-white/40 text-white font-bold text-xs px-2.5 py-1.5 rounded-lg transition-colors uppercase tracking-wider"
+                        className="min-h-[44px] bg-white/20 hover:bg-white/30 active:bg-white/40 text-white font-bold text-xs px-2.5 py-1.5 rounded-lg transition-colors uppercase tracking-wider"
                         title="Dismiss non-critical warnings"
                     >
                         OK

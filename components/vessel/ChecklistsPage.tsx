@@ -881,7 +881,7 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                                                             <button
                                                                 type="button"
                                                                 onClick={() => toggleRunItem(item.entry_id)}
-                                                                className="flex flex-1 min-w-0 items-center gap-3 text-left rounded-lg active:scale-[0.98] transition-transform"
+                                                                className="flex flex-1 min-w-0 min-h-[44px] items-center gap-3 text-left rounded-lg active:scale-[0.98] transition-transform"
                                                                 aria-label={`${item.text}: ${statusLabel}. Change status to ${nextStatusLabel}`}
                                                             >
                                                                 {/* Status checkbox */}
@@ -949,7 +949,7 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                                                                     aria-label={`Flag ${item.text} for repair and maintenance`}
                                                                     aria-pressed={item.flagged_rm}
                                                                     onClick={() => toggleRmFlag(item.entry_id)}
-                                                                    className={`shrink-0 px-2 py-1 rounded-lg text-[11px] font-bold uppercase tracking-wider transition-all ${
+                                                                    className={`hit-target-44 shrink-0 px-2 py-1 rounded-lg text-[11px] font-bold uppercase tracking-wider transition-all ${
                                                                         item.flagged_rm
                                                                             ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
                                                                             : 'bg-white/5 text-gray-400 border border-white/10 hover:text-amber-400'

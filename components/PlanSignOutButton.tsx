@@ -56,7 +56,7 @@ export const PlanSignOutButton: React.FC = () => {
                 disabled={busy}
                 data-testid="plan-sign-out"
                 aria-label="Sign out of the passage builder"
-                className="rounded-full border border-white/15 bg-slate-900/80 px-3 py-1.5 text-[11px] font-black uppercase tracking-wide text-slate-200 backdrop-blur transition-colors active:brightness-110 disabled:opacity-50"
+                className="hit-target-44 rounded-full border border-white/15 bg-slate-900/80 px-3 py-1.5 text-[11px] font-black uppercase tracking-wide text-slate-200 backdrop-blur transition-colors active:brightness-110 disabled:opacity-50"
             >
                 {busy ? 'Signing out…' : 'Sign out'}
             </button>

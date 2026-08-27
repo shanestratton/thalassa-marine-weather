@@ -56,7 +56,7 @@ export const AudioWidget: React.FC<AudioWidgetProps> = React.memo(
                             aria-label="Transcribe audio memo"
                             onClick={() => onTranscribe(url)}
                             disabled={transcribing}
-                            className="px-3 py-1.5 bg-white/5 border border-white/10 rounded-lg text-[11px] font-bold text-purple-300 hover:bg-purple-500/15 transition-colors disabled:opacity-40"
+                            className="px-3 py-1.5 min-h-[44px] bg-white/5 border border-white/10 rounded-lg text-[11px] font-bold text-purple-300 hover:bg-purple-500/15 transition-colors disabled:opacity-40"
                             title="Transcribe to text"
                         >
                             {transcribing ? '⏳' : '📝'} {transcribing ? 'Transcribing…' : 'To Text'}
@@ -66,7 +66,7 @@ export const AudioWidget: React.FC<AudioWidgetProps> = React.memo(
                         <button
                             aria-label="Remove this item"
                             onClick={onRemove}
-                            className="p-1.5 rounded-lg hover:bg-red-500/20 transition-colors"
+                            className="p-1.5 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg hover:bg-red-500/20 transition-colors"
                         >
                             <svg
                                 className="w-4 h-4 text-red-400/60"

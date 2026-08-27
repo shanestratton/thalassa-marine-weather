@@ -80,7 +80,7 @@ export const UndoToast: React.FC<UndoToastProps> = ({ message, isOpen, duration 
                             if (frameRef.current) cancelAnimationFrame(frameRef.current);
                             onUndoRef.current();
                         }}
-                        className="shrink-0 px-4 py-1.5 bg-amber-500/20 text-amber-400 rounded-xl text-xs font-black uppercase tracking-widest hover:bg-amber-500/30 active:scale-95 transition-all"
+                        className="hit-target-44 shrink-0 px-4 py-1.5 bg-amber-500/20 text-amber-400 rounded-xl text-xs font-black uppercase tracking-widest hover:bg-amber-500/30 active:scale-95 transition-all"
                     >
                         Undo
                     </button>

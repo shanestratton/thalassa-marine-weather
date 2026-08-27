@@ -187,7 +187,7 @@ export const DataFreshness: React.FC<DataFreshnessProps> = ({
                 onClick={handleClick}
                 disabled={isLoading}
                 aria-label={`${ctaLabel} data`}
-                className={`shrink-0 ml-1 px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-widest transition-colors ${
+                className={`hit-target-44 shrink-0 ml-1 px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-widest transition-colors ${
                     mode === 'error' || mode === 'stale'
                         ? 'bg-white/10 hover:bg-white/15 text-white'
                         : 'text-slate-400 hover:text-white hover:bg-white/5'

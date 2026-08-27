@@ -119,7 +119,7 @@ const sevRow = (
     const isAcked = acked.has(i);
     return (
         <div key={i} className={`rounded-xl border border-white/10 bg-white/5 p-2 ${isAcked ? 'opacity-50' : ''}`}>
-            <button onClick={() => onFlyTo?.(spot)} className="w-full text-left" disabled={!onFlyTo}>
+            <button onClick={() => onFlyTo?.(spot)} className="min-h-[44px] w-full text-left" disabled={!onFlyTo}>
                 <div className="flex items-start gap-1.5 text-[12px] leading-tight text-gray-100">
                     <span className={v.grade === 'danger' ? 'text-red-400' : 'text-amber-300'}>
                         {v.grade === 'danger' ? '⛔' : '⚠'}
@@ -146,14 +146,14 @@ const sevRow = (
                         <button
                             onClick={() => onFixLeg(i)}
                             disabled={fixBusy !== null}
-                            className="rounded-lg bg-emerald-500/20 px-3 py-1.5 text-[11px] font-black uppercase tracking-wide text-emerald-300 active:scale-95 disabled:opacity-50"
+                            className="min-h-[44px] rounded-lg bg-emerald-500/20 px-3 py-1.5 text-[11px] font-black uppercase tracking-wide text-emerald-300 active:scale-95 disabled:opacity-50"
                         >
                             {fixBusy === i ? 'Fixing…' : 'Fix it'}
                         </button>
                     )}
                     <button
                         onClick={() => onAckLeg(i)}
-                        className="rounded-lg bg-white/5 px-3 py-1.5 text-[11px] font-black uppercase tracking-wide text-gray-300 active:scale-95"
+                        className="min-h-[44px] rounded-lg bg-white/5 px-3 py-1.5 text-[11px] font-black uppercase tracking-wide text-gray-300 active:scale-95"
                     >
                         Acknowledge
                     </button>
@@ -352,18 +352,22 @@ export const TraceReportModal: React.FC<Props> = ({
                             onClick={() => void onExportGpx()}
                             disabled={exporting || pins.length < 2 || !releaseGate.allowed}
                             title="Export as GPX for a chartplotter (OpenCPN, Garmin, B&G…)"
-                            className="rounded-lg bg-emerald-500/15 px-2.5 py-1.5 text-[11px] font-black uppercase tracking-wide text-emerald-300 active:scale-95 disabled:opacity-40"
+                            className="hit-target-44 rounded-lg bg-emerald-500/15 px-2.5 py-1.5 text-[11px] font-black uppercase tracking-wide text-emerald-300 active:scale-95 disabled:opacity-40"
                         >
                             ⬇ GPX
                         </button>
                         <button
                             onClick={() => void onExportPdf()}
                             disabled={exporting || pins.length < 2 || !releaseGate.allowed}
-                            className="rounded-lg bg-sky-500/15 px-2.5 py-1.5 text-[11px] font-black uppercase tracking-wide text-sky-300 active:scale-95 disabled:opacity-40"
+                            className="hit-target-44 rounded-lg bg-sky-500/15 px-2.5 py-1.5 text-[11px] font-black uppercase tracking-wide text-sky-300 active:scale-95 disabled:opacity-40"
                         >
                             {exporting ? 'Making…' : '⬇ PDF'}
                         </button>
-                        <button ref={closeButtonRef} onClick={onClose} className="text-sm font-bold text-gray-400">
+                        <button
+                            ref={closeButtonRef}
+                            onClick={onClose}
+                            className="hit-target-44 text-sm font-bold text-gray-400"
+                        >
                             Close
                         </button>
                     </div>
@@ -458,7 +462,7 @@ export const TraceReportModal: React.FC<Props> = ({
                                         <button
                                             key={i}
                                             onClick={() => onFlyTo?.(p)}
-                                            className="flex w-full items-baseline gap-2 rounded px-1 py-0.5 text-left active:bg-white/10"
+                                            className="flex min-h-[44px] w-full items-baseline gap-2 rounded px-1 py-0.5 text-left active:bg-white/10"
                                         >
                                             <span className="w-6 shrink-0 text-right text-amber-300/80">{i + 1}</span>
                                             <span className="tabular-nums">{fmtFix(p)}</span>

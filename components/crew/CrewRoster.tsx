@@ -169,7 +169,7 @@ export const CrewRoster: React.FC<CrewRosterProps> = ({
                         type="button"
                         aria-label="Invite crew member"
                         onClick={onInviteClick}
-                        className="ml-auto px-3 py-1.5 rounded-lg text-[11px] font-bold text-white bg-sky-600 hover:bg-sky-500 active:scale-95 transition-all"
+                        className="hit-target-44 ml-auto px-3 py-1.5 rounded-lg text-[11px] font-bold text-white bg-sky-600 hover:bg-sky-500 active:scale-95 transition-all"
                     >
                         + Invite Crew
                     </button>

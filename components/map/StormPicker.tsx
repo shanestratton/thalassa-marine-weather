@@ -132,7 +132,7 @@ export const StormPicker: React.FC<StormPickerProps> = ({
                                 ref={closeButtonRef}
                                 onClick={onClose}
                                 aria-label="Close storm picker"
-                                className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white transition-colors"
+                                className="hit-target-44 p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white transition-colors"
                             >
                                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                     <path
@@ -218,7 +218,7 @@ export const StormPicker: React.FC<StormPickerProps> = ({
                                         onClearStorms();
                                         onClose();
                                     }}
-                                    className="w-full py-2 text-[10px] font-black uppercase tracking-widest text-gray-400 hover:text-red-400 transition-colors"
+                                    className="w-full py-2 min-h-[44px] text-[10px] font-black uppercase tracking-widest text-gray-400 hover:text-red-400 transition-colors"
                                 >
                                     Hide All Storms
                                 </button>

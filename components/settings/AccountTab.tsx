@@ -95,7 +95,7 @@ const StatusRow = ({
                     <button
                         aria-label="Test push notification delivery"
                         onClick={onTest}
-                        className="px-2 py-1 rounded bg-white/5 border border-white/10 text-[11px] font-bold text-white uppercase"
+                        className="hit-target-44 px-2 py-1 rounded bg-white/5 border border-white/10 text-[11px] font-bold text-white uppercase"
                     >
                         Test
                     </button>

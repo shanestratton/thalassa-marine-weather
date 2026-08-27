@@ -2131,7 +2131,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                         <button
                                             type="button"
                                             onClick={() => updateCastOffHandoff({ followNote: null })}
-                                            className="rounded-lg border border-amber-300/20 px-2 py-1 text-xs font-black text-amber-200/80"
+                                            className="hit-target-44 rounded-lg border border-amber-300/20 px-2 py-1 text-xs font-black text-amber-200/80"
                                         >
                                             Got it
                                         </button>
@@ -2154,7 +2154,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                         <button
                                             type="button"
                                             onClick={() => updateCastOffHandoff({ publishState: 'private' })}
-                                            className="rounded-lg border border-amber-300/20 px-2 py-1 text-xs font-black text-amber-200/80"
+                                            className="hit-target-44 rounded-lg border border-amber-300/20 px-2 py-1 text-xs font-black text-amber-200/80"
                                         >
                                             Got it
                                         </button>
@@ -2173,7 +2173,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                             <button
                                                 type="button"
                                                 onClick={() => updateCastOffHandoff({ caution: null })}
-                                                className="shrink-0 rounded-lg border border-amber-300/20 px-2 py-1 text-xs font-black text-amber-200/80"
+                                                className="hit-target-44 shrink-0 rounded-lg border border-amber-300/20 px-2 py-1 text-xs font-black text-amber-200/80"
                                             >
                                                 Got it
                                             </button>
@@ -2267,7 +2267,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                                 <div className="flex rounded-full bg-slate-900/60 border border-white/10 p-0.5">
                                                     <button
                                                         onClick={() => toggleEngine(true)}
-                                                        className={`px-3 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider transition-colors ${
+                                                        className={`hit-target-44 px-3 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider transition-colors ${
                                                             engineRunning === true
                                                                 ? 'bg-amber-500 text-white'
                                                                 : 'text-white/55'
@@ -2277,7 +2277,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                                     </button>
                                                     <button
                                                         onClick={() => toggleEngine(false)}
-                                                        className={`px-3 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider transition-colors ${
+                                                        className={`hit-target-44 px-3 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider transition-colors ${
                                                             engineRunning === false
                                                                 ? 'bg-emerald-500 text-white'
                                                                 : 'text-white/55'
@@ -2442,7 +2442,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                                 type="button"
                                                 aria-label="Dismiss"
                                                 onClick={() => setFollowBlockNotice(null)}
-                                                className="-mr-1 -mt-1 shrink-0 rounded-lg px-2 py-1 text-[15px] leading-none text-amber-200/60 active:scale-95 hover:text-amber-100"
+                                                className="hit-target-44 -mr-1 -mt-1 shrink-0 rounded-lg px-2 py-1 text-[15px] leading-none text-amber-200/60 active:scale-95 hover:text-amber-100"
                                             >
                                                 {'×'}
                                             </button>
@@ -2694,7 +2694,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                                         <button
                                                             aria-label="Unarchive voyage"
                                                             onClick={() => handleUnarchiveVoyage(voyage.voyageId)}
-                                                            className="px-3 py-1.5 rounded-lg text-[11px] font-bold text-amber-400 bg-amber-500/15 border border-amber-500/20 uppercase tracking-wider active:scale-[0.95] transition-all"
+                                                            className="hit-target-44 px-3 py-1.5 rounded-lg text-[11px] font-bold text-amber-400 bg-amber-500/15 border border-amber-500/20 uppercase tracking-wider active:scale-[0.95] transition-all"
                                                         >
                                                             Unarchive
                                                         </button>
@@ -3009,7 +3009,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                         type="button"
                                         aria-label="Dismiss"
                                         onClick={() => setFollowBlockNotice(null)}
-                                        className="-mr-1 -mt-1 shrink-0 rounded-lg px-2 py-1 text-[13px] leading-none text-amber-200/60 active:scale-95 hover:text-amber-100"
+                                        className="hit-target-44 -mr-1 -mt-1 shrink-0 rounded-lg px-2 py-1 text-[13px] leading-none text-amber-200/60 active:scale-95 hover:text-amber-100"
                                     >
                                         {'\u00D7'}
                                     </button>
