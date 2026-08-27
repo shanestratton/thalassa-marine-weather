@@ -380,14 +380,26 @@ function buildTheme(colors: ThemeColors, env: Environment): ThemeTokens {
             insetRelaxed: `${colors.bg.inset} ${radii.control} p-2 text-center`,
         },
 
+        /* Button variants.
+         *
+         * These carry NO width. `primary` was written `w-full` because its
+         * only intended use was one full-bleed CTA, which made the token
+         * unusable as a general button — a token that can only describe one
+         * button is a screenshot, not a token. Width is now the caller's
+         * decision (`className="w-full"`), the way every other layout
+         * property already is.
+         *
+         * They also carry horizontal padding. `secondary` and `danger` had
+         * `py-2` and no `px-*` at all, so text rendered flush against the
+         * border. Nothing caught it because nothing consumed them. */
         button: {
             primary:
                 env === 'offshore'
-                    ? 'w-full py-3.5 bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 rounded-xl text-white text-base font-black transition-all active:scale-[0.98] shadow-lg shadow-amber-900/30 disabled:opacity-50 disabled:cursor-wait flex items-center justify-center gap-2'
-                    : 'w-full py-3.5 bg-gradient-to-r from-emerald-700 to-emerald-600 hover:from-emerald-600 hover:to-emerald-500 rounded-xl text-white text-base font-black transition-all active:scale-[0.98] shadow-lg shadow-emerald-900/30 disabled:opacity-50 disabled:cursor-wait flex items-center justify-center gap-2',
-            secondary: `py-2 ${colors.bg.inset} backdrop-blur ${colors.border.default} ${radii.card} text-sm font-bold transition-all active:scale-[0.97]`,
-            danger: `py-2 bg-red-500/[0.08] backdrop-blur border border-red-500/20 ${radii.card} text-red-400 text-sm font-bold transition-all active:scale-[0.97] hover:bg-red-500/[0.12]`,
-            ghost: `px-3 py-1.5 bg-white/5 hover:bg-white/10 ${radii.control} text-sm font-bold transition-all active:scale-95`,
+                    ? 'px-5 py-3.5 bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 rounded-xl text-white text-base font-black transition-all active:scale-[0.98] shadow-lg shadow-amber-900/30 disabled:opacity-50 disabled:cursor-wait flex items-center justify-center gap-2'
+                    : 'px-5 py-3.5 bg-gradient-to-r from-emerald-700 to-emerald-600 hover:from-emerald-600 hover:to-emerald-500 rounded-xl text-white text-base font-black transition-all active:scale-[0.98] shadow-lg shadow-emerald-900/30 disabled:opacity-50 disabled:cursor-wait flex items-center justify-center gap-2',
+            secondary: `px-4 py-2 ${colors.bg.inset} backdrop-blur ${colors.border.default} ${radii.card} text-sm font-bold transition-all active:scale-[0.97] flex items-center justify-center gap-2`,
+            danger: `px-4 py-2 bg-red-500/[0.08] backdrop-blur border border-red-500/20 ${radii.card} text-red-400 text-sm font-bold transition-all active:scale-[0.97] hover:bg-red-500/[0.12] flex items-center justify-center gap-2`,
+            ghost: `px-3 py-1.5 bg-white/5 hover:bg-white/10 ${radii.control} text-sm font-bold transition-all active:scale-95 flex items-center justify-center gap-2`,
             toggleOff: `flex-1 py-1.5 ${radii.control} text-sm font-bold ${colors.bg.insetDeep} ${colors.border.subtle} ${colors.text.muted}`,
         },
 

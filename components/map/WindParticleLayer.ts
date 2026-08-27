@@ -67,6 +67,25 @@ const TRAIL_LENGTH = 18;
 const WIND_ZOOM_TIGHT = 9;
 const WIND_ZOOM_WIDE = 3;
 const WIND_ZOOM_MIN_FACTOR = 0.25;
+/**
+ * Particle SIZE, the third ramp (Shane 2026-08-28: "make the sperm smaller at
+ * level 9, and go to a sliding scale to level 3… what i am trying to achieve
+ * is that zoom level 9 looks more like zoom level 3. at the moment it
+ * doesn't").
+ *
+ * It didn't because size ran the WRONG WAY: the shader grew the point from
+ * 2.5px at z3 to 5.0px at z10, so the tight end — already the crowded, fast
+ * end before the count and step ramps landed — also drew the fattest marks.
+ * Zoomed in you saw big slow blobs; zoomed out, fine texture. Count and speed
+ * were fixed on 2026-08-23/27; this is the half that was still inverted.
+ *
+ * Now it shrinks with zoom, over the same z3→z9 span the other two ramps use,
+ * so all three agree: at z9 the field is a quarter as dense, moving at z3's
+ * on-screen pace, drawn a touch finer than z3. Held at the wide end so z3 is
+ * exactly what it is today.
+ */
+const WIND_POINT_SIZE_WIDE = 2.5;
+const WIND_POINT_SIZE_TIGHT = 1.9;
 
 /** 0.25 at z9+, 1.0 at z3-, linear between. Drives particle COUNT. */
 export function windZoomFactor(zoom: number): number {
@@ -107,6 +126,8 @@ export const WIND_PARTICLE_BUDGET = {
     zoomFactorRange: [WIND_ZOOM_MIN_FACTOR, 1] as const,
     /** Step ramp bounds: z3 pace preserved on-screen across z3–z9. */
     stepFactorRange: [Math.pow(2, -(WIND_ZOOM_TIGHT - WIND_ZOOM_WIDE)), 1] as const,
+    /** Point size in px: z3 unchanged, finer at z9 — the ramp that was inverted. */
+    pointSizeRange: [WIND_POINT_SIZE_TIGHT, WIND_POINT_SIZE_WIDE] as const,
 } as const;
 
 interface WindBounds {
@@ -275,7 +296,7 @@ void main() {
     v_opposition = a_particle_opposition;
     vec2 merc = toMercator(lon, lat);
     gl_Position = u_matrix * vec4(merc, 0.0, 1.0);
-    gl_PointSize = mix(2.5, 5.0, clamp((u_zoom - 3.0) / 7.0, 0.0, 1.0));
+    gl_PointSize = mix(${WIND_POINT_SIZE_WIDE.toFixed(1)}, ${WIND_POINT_SIZE_TIGHT.toFixed(1)}, clamp((u_zoom - ${WIND_ZOOM_WIDE}.0) / ${WIND_ZOOM_TIGHT - WIND_ZOOM_WIDE}.0, 0.0, 1.0));
 }`;
 
 const PARTICLE_FRAG = `
