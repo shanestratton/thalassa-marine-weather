@@ -141,6 +141,30 @@ describe('wiring', () => {
         expect(fn).toContain('i < NUM_PARTICLES');
     });
 
+    it('draws SMALLER marks as it zooms in, not bigger', () => {
+        // The size ramp used to run the wrong way — 2.5px at z3 growing to
+        // 5.0px at z10 — so the tight end drew the fattest marks on top of
+        // being the most crowded. That is why z9 never looked like z3
+        // (Shane 2026-08-28). All three ramps now agree in direction.
+        const shader = src.slice(src.indexOf('gl_PointSize = mix('));
+        expect(shader).toContain('mix(${WIND_POINT_SIZE_WIDE.toFixed(1)}, ${WIND_POINT_SIZE_TIGHT.toFixed(1)}');
+        expect(src).not.toContain('gl_PointSize = mix(2.5, 5.0');
+        // Tight end is the SMALL end, and the wide end is untouched.
+        expect(WIND_PARTICLE_BUDGET.pointSizeRange[0]).toBeLessThan(WIND_PARTICLE_BUDGET.pointSizeRange[1]);
+        expect(WIND_PARTICLE_BUDGET.pointSizeRange[1]).toBe(2.5);
+        // Not so fine it disappears on a phone.
+        expect(WIND_PARTICLE_BUDGET.pointSizeRange[0]).toBeGreaterThanOrEqual(1.5);
+    });
+
+    it('runs all three ramps over the same z3-z9 span', () => {
+        // Count, speed and size must turn over together, or the field changes
+        // character halfway through a pinch.
+        const span = src.slice(src.indexOf('const WIND_ZOOM_TIGHT'), src.indexOf('const FLOATS_PER_TRAIL_PT'));
+        expect(span).toContain('WIND_ZOOM_TIGHT = 9');
+        expect(span).toContain('WIND_ZOOM_WIDE = 3');
+        expect(src).toContain('(u_zoom - ${WIND_ZOOM_WIDE}.0) / ${(WIND_ZOOM_TIGHT - WIND_ZOOM_WIDE)}.0');
+    });
+
     it('keeps the worst-case frame budget where it was', () => {
         // The ceiling is unchanged — the ramp only ever draws less than it.
         expect(WIND_PARTICLE_BUDGET.bytesPerFrameHighTier).toBe(9000 * 18 * 5 * 4);
