@@ -11,6 +11,7 @@
 import React, { useState, useMemo, useRef, useCallback } from 'react';
 import type mapboxgl from 'mapbox-gl';
 import { ModalSheet } from '../ui/ModalSheet';
+import { Button } from '../ui/Button';
 import { triggerHaptic } from '../../utils/system';
 import {
     BULK_OFFLINE_PREFETCH_CAPABILITY,
@@ -110,13 +111,9 @@ export const OfflineAreaModal: React.FC<OfflineAreaModalProps> = ({ isOpen, onCl
                         You can still import MBTiles, GeoTIFF, KAP and licensed o-charts in Chart Locker. Charts already
                         installed on your phone or boat Pi are unaffected.
                     </p>
-                    <button
-                        type="button"
-                        onClick={handleClose}
-                        className="w-full rounded-xl border border-white/10 bg-white/[0.05] py-3 text-xs font-bold text-white"
-                    >
+                    <Button type="button" variant="secondary" onClick={handleClose} className="w-full text-white">
                         Close
-                    </button>
+                    </Button>
                 </div>
             </ModalSheet>
         );

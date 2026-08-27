@@ -12,6 +12,7 @@ import { DiaryEntry, MOOD_CONFIG } from '../../services/DiaryService';
 import { VoyageLogService, voyageLogPublicUrl } from '../../services/VoyageLogService';
 import { triggerHaptic } from '../../utils/system';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
+import { Button } from '../ui/Button';
 import { OverlayPortal } from '../ui/OverlayPortal';
 import {
     diaryPublishFailureMessage,
@@ -284,15 +285,15 @@ export const DiaryPublishModal: React.FC<DiaryPublishModalProps> = ({ entry, onC
                         </>
                     ) : (
                         <>
-                            <button
+                            <Button
                                 ref={safeActionRef}
                                 onClick={onClose}
                                 disabled={working}
                                 aria-label="Keep this entry private"
-                                className="flex-1 py-3 rounded-xl bg-white/5 border border-white/[0.08] text-gray-300 font-bold text-sm hover:bg-white/10 transition-colors active:scale-[0.98] disabled:opacity-50"
+                                className="flex-1 text-gray-300 disabled:opacity-50"
                             >
                                 Keep Private
-                            </button>
+                            </Button>
                             <button
                                 onClick={handlePublish}
                                 disabled={working}

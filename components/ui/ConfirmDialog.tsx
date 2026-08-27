@@ -10,6 +10,7 @@
  */
 import React, { useState, useCallback, useRef } from 'react';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
+import { Button } from './Button';
 import { OverlayPortal } from './OverlayPortal';
 
 interface ConfirmDialogProps {
@@ -118,14 +119,14 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
                 <p className="text-sm text-gray-300 text-center mb-6">{message}</p>
 
                 <div className="flex gap-3">
-                    <button
+                    <Button
                         aria-label="Cancel action"
                         ref={cancelRef}
                         onClick={onCancel}
-                        className="flex-1 py-3 bg-white/5 border border-white/10 rounded-xl text-sm font-bold text-gray-400 hover:bg-white/10 transition-colors active:scale-[0.97] min-h-[44px]"
+                        className="flex-1 text-gray-400"
                     >
                         {cancelLabel}
-                    </button>
+                    </Button>
                     <button
                         aria-label="Confirm action"
                         onClick={handleConfirm}

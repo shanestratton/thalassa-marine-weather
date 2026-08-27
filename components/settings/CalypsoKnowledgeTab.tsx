@@ -11,6 +11,7 @@ import React, { useCallback, useEffect, useState, useSyncExternalStore } from 'r
 import { Section, type SettingsTabProps } from './SettingsPrimitives';
 import { toast } from '../Toast';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
+import { Button } from '../ui/Button';
 import {
     getKnowledge,
     addKnowledge,
@@ -250,12 +251,9 @@ export const CalypsoKnowledgeTab: React.FC<SettingsTabProps> = ({ settings }) =>
                         >
                             {saving ? 'Saving…' : draft.id ? 'Save changes' : 'Add'}
                         </button>
-                        <button
-                            onClick={() => setDraft(null)}
-                            className="px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-slate-300 font-bold text-sm hover:bg-white/10 transition-colors"
-                        >
+                        <Button variant="secondary" onClick={() => setDraft(null)} className="text-slate-300">
                             Cancel
-                        </button>
+                        </Button>
                     </div>
                 </div>
             )}

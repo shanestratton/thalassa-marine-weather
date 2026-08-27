@@ -14,6 +14,7 @@
  */
 import React from 'react';
 import { AlertTriangleIcon } from '../Icons';
+import { Button } from './Button';
 
 interface RetryCardProps {
     title?: string;
@@ -40,11 +41,11 @@ export const RetryCard: React.FC<RetryCardProps> = ({
             <p className="text-sm font-bold text-white mb-1 text-center">{title}</p>
             <p className="text-xs text-white/50 text-center max-w-[240px] mb-5">{description}</p>
             {onRetry && (
-                <button
+                <Button
                     aria-label="Retry loading content"
                     onClick={onRetry}
                     disabled={retrying}
-                    className="px-6 py-2.5 bg-white/[0.06] border border-white/[0.08] rounded-xl text-sm font-bold text-white hover:bg-white/[0.1] transition-all active:scale-[0.97] disabled:opacity-50 flex items-center gap-2"
+                    className="text-white disabled:opacity-50"
                 >
                     {retrying ? (
                         <>
@@ -69,7 +70,7 @@ export const RetryCard: React.FC<RetryCardProps> = ({
                             Try Again
                         </>
                     )}
-                </button>
+                </Button>
             )}
         </div>
     );

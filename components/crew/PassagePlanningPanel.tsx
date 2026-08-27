@@ -6,6 +6,7 @@
  */
 import React from 'react';
 import { scrollInputAboveKeyboard } from '../../utils/keyboardScroll';
+import { Button } from '../ui/Button';
 
 export interface PassagePlanningPanelProps {
     planDeparture: string;
@@ -152,12 +153,9 @@ export const PassagePlanningPanel: React.FC<PassagePlanningPanelProps> = ({
                 >
                     {savingPlan ? '⏳ Saving…' : '💾 Save'}
                 </button>
-                <button
-                    onClick={onCancel}
-                    className="px-4 py-2.5 bg-white/[0.04] border border-white/[0.06] rounded-xl text-[11px] font-bold text-gray-400 hover:text-white transition-colors"
-                >
+                <Button variant="secondary" onClick={onCancel} className="text-gray-400 hover:text-white">
                     Cancel
-                </button>
+                </Button>
             </div>
         </div>
     );

@@ -33,6 +33,7 @@ import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { useKeyboardOffset } from '../../hooks/useKeyboardOffset';
 import { OverlayPortal } from '../ui/OverlayPortal';
 import { SafeImage } from '../ui/SafeImage';
+import { Button } from '../ui/Button';
 
 const log = createLogger('MealCalendar');
 
@@ -634,13 +635,14 @@ export const MealCalendar: React.FC<MealCalendarProps> = ({
                             </div>
 
                             {/* Cancel */}
-                            <button
+                            <Button
+                                variant="secondary"
                                 ref={contextCancelRef}
                                 onClick={() => setContextMenu(null)}
-                                className="w-full py-3 rounded-xl bg-white/[0.04] text-sm text-gray-400 font-medium"
+                                className="w-full text-gray-400"
                             >
                                 Cancel
-                            </button>
+                            </Button>
                         </div>
                     </div>,
                     document.body,

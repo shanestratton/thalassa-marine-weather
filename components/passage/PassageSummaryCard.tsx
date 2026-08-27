@@ -17,6 +17,7 @@ import type { PassageBriefData } from '../../services/PassageBriefService';
 import { useSettings } from '../../context/SettingsContext';
 import type { ShipLogEntry } from '../../types';
 import { TrackMapViewer } from '../TrackMapViewer';
+import { Button } from '../ui/Button';
 import { useReadinessIdentityScope } from '../../hooks/useReadinessSync';
 import { isAuthIdentityScopeCurrent } from '../../services/authIdentityScope';
 import { formatPlannedRouteLabel, isGeneratedEndpointLabel } from '../../services/shiplog/plannedRouteNaming';
@@ -961,12 +962,13 @@ export const PassageSummaryCard: React.FC<PassageSummaryCardProps> = ({
             {/* ── Leg-by-Leg Breakdown ── */}
             {passageMatchesVoyage && passage.legs.length > 0 && (
                 <div>
-                    <button
+                    <Button
+                        variant="secondary"
                         onClick={() => {
                             setShowLegs((v) => !v);
                             triggerHaptic('light');
                         }}
-                        className="w-full flex items-center justify-between px-4 py-2.5 rounded-xl bg-white/[0.03] border border-white/[0.06] text-left"
+                        className="w-full justify-between text-left"
                     >
                         <span className="text-[11px] text-gray-400 uppercase tracking-widest font-bold">
                             Leg Breakdown ({passage.legs.length} legs)
@@ -982,7 +984,7 @@ export const PassageSummaryCard: React.FC<PassageSummaryCardProps> = ({
                                 clipRule="evenodd"
                             />
                         </svg>
-                    </button>
+                    </Button>
                     {showLegs && (
                         <div className="mt-2 space-y-2 animate-in slide-in-from-top-2 duration-200">
                             {passage.legs.map((leg, i) => (

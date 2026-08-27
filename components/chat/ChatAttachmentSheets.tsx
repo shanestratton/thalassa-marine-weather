@@ -9,6 +9,7 @@ import { ShipLogEntry } from '../../types';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import type { PinSelectionSource } from '../../hooks/chat/usePinDrop';
 import { getStaticMapUrl } from './chatUtils';
+import { Button } from '../ui/Button';
 import { OverlayPortal } from '../ui/OverlayPortal';
 import { SafeImage } from '../ui/SafeImage';
 
@@ -748,14 +749,14 @@ export const TrackDisclaimerModal: React.FC<TrackDisclaimerModalProps> = React.m
                     </p>
                 </div>
                 <div className="px-5 pb-5 flex gap-2 pt-2">
-                    <button
+                    <Button
                         ref={cancelButtonRef}
                         aria-label="Cancel track import"
                         onClick={onClose}
-                        className="flex-1 py-2.5 rounded-xl bg-white/[0.05] border border-white/[0.08] text-white/60 text-sm font-bold transition-all active:scale-95"
+                        className="flex-1 text-white/60"
                     >
                         Cancel
-                    </button>
+                    </Button>
                     <button
                         aria-label="Import shared track to ship's log"
                         onClick={() => onImport(track.trackId, track.title)}

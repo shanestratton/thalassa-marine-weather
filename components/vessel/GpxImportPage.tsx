@@ -25,6 +25,7 @@ import { triggerHaptic } from '../../utils/system';
 import { useUI } from '../../context/UIContext';
 import { requestPassageMode, stagePassageRequest, type PassageHandoffDetail } from '../../services/passageHandoff';
 import { PageHeader } from '../ui/PageHeader';
+import { Button } from '../ui/Button';
 import { getAuthIdentityScope } from '../../services/authIdentityScope';
 
 interface GpxImportPageProps {
@@ -596,12 +597,9 @@ export const GpxImportPage: React.FC<GpxImportPageProps> = ({ onBack }) => {
                             </div>
 
                             <div className="flex gap-3 w-full max-w-xs">
-                                <button
-                                    onClick={handleReset}
-                                    className="flex-1 h-12 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-sm font-bold text-white transition-all"
-                                >
+                                <Button variant="secondary" onClick={handleReset} className="flex-1 h-12 text-white">
                                     Import Another
-                                </button>
+                                </Button>
                                 <button
                                     onClick={onBack}
                                     className="flex-1 h-12 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/20 text-sm font-bold text-emerald-400 transition-all"

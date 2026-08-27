@@ -24,6 +24,7 @@ import { useSettings } from '../context/SettingsContext';
 import { useFocusTrap } from '../hooks/useFocusTrap';
 import { PageHeader } from './ui/PageHeader';
 import { OverlayPortal } from './ui/OverlayPortal';
+import { Button } from './ui/Button';
 import { useAuthStore } from '../stores/authStore';
 import {
     getAuthIdentityScope,
@@ -1306,13 +1307,14 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
                             className="w-full bg-white/5 border border-red-500/20 rounded-xl px-4 py-3 text-white placeholder-gray-500 text-sm resize-none mb-4"
                         />
                         <div className="flex gap-3">
-                            <button
+                            <Button
+                                variant="secondary"
                                 aria-label="Cancel suspicious activity report"
                                 onClick={() => setShowReport(false)}
-                                className="flex-1 py-3 bg-white/5 border border-white/10 rounded-xl text-sm font-bold text-gray-400 active:scale-[0.98] transition-transform"
+                                className="flex-1 text-gray-400"
                             >
                                 Cancel
-                            </button>
+                            </Button>
                             <button
                                 aria-label="Broadcast suspicious activity alert"
                                 onClick={handleReport}
@@ -1388,14 +1390,15 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
                                 </button>
                             ))}
                         </div>
-                        <button
+                        <Button
+                            variant="secondary"
                             ref={weatherCancelRef}
                             aria-label="Cancel weather alert"
                             onClick={() => setShowWeather(false)}
-                            className="w-full mt-4 py-3 bg-white/5 border border-white/10 rounded-xl text-sm font-bold text-gray-400 active:scale-[0.98] transition-transform"
+                            className="w-full mt-4 text-gray-400"
                         >
                             Cancel
-                        </button>
+                        </Button>
                     </div>
                 </OverlayPortal>
             )}
@@ -1437,14 +1440,15 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
                                 </button>
                             ))}
                         </div>
-                        <button
+                        <Button
+                            variant="secondary"
                             ref={hailCancelRef}
                             aria-label="Cancel hail message"
                             onClick={() => setShowHail(null)}
-                            className="w-full mt-4 py-3 bg-white/5 border border-white/10 rounded-xl text-sm font-bold text-gray-400 active:scale-[0.98] transition-transform"
+                            className="w-full mt-4 text-gray-400"
                         >
                             Cancel
-                        </button>
+                        </Button>
                     </div>
                 </OverlayPortal>
             )}
