@@ -39,8 +39,10 @@
 import React, { useEffect, useState } from 'react';
 import { triggerHaptic } from '../../utils/system';
 
-/** Format a millisecond delta as a compact, marine-friendly age. */
-function formatAge(ageMs: number): string {
+/** Format a millisecond delta as a compact, marine-friendly age. Exported so
+ *  other surfaces (the Glass status row) speak age the same way this pill
+ *  does, rather than growing a second formatter. */
+export function formatAge(ageMs: number): string {
     const seconds = Math.floor(ageMs / 1000);
     if (seconds < 60) return 'just now';
     const minutes = Math.floor(seconds / 60);
