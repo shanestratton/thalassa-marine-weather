@@ -63,6 +63,7 @@ import {
     stripLegBadge,
 } from '../services/routeTracer';
 import { savedRouteGeometryFingerprint } from '../services/savedRouteLibrary';
+import { buildTraceStubRows, traceVerificationNote } from '../services/savedRouteRows';
 import { isSameCountry } from '../data/customsDb';
 import {
     authScopedStorageKey,
@@ -909,6 +910,10 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                     selectedPassageRef.current,
                 );
                 own.push(...tripPassageRollupRows(cachedCanonicalTraces, own, settings.vessel));
+                // TRACE-FIRST TRUTH: anything saved on the Plan page that no
+                // row stands for gets a stub, so only a Plan-page delete can
+                // take a route off this list (Shane 2026-08-27).
+                own.push(...buildTraceStubRows(cachedCanonicalTraces, own, settings.vessel));
                 return [
                     ...new Map(
                         [...own, ...previous.filter((row) => row.isShared)].map((row) => [row.id, row] as const),
@@ -954,6 +959,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                 selectedPassageRef.current,
             );
             own.push(...tripPassageRollupRows(cachedCanonicalTraces, own, settings.vessel));
+            own.push(...buildTraceStubRows(cachedCanonicalTraces, own, settings.vessel));
             return [
                 ...new Map(
                     [...own, ...previous.filter((row) => row.isShared)].map((row) => [row.id, row] as const),
@@ -1322,6 +1328,10 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
             ownRows.push(...pruned);
         }
         ownRows.push(...tripPassageRollupRows(canonicalTraces, ownRows, settings.vessel));
+        // TRACE-FIRST TRUTH — the settled pass sees the SYNCED trace set, so
+        // a route saved on another device lands here even with no local row
+        // or mirror of any kind.
+        ownRows.push(...buildTraceStubRows(canonicalTraces, ownRows, settings.vessel));
 
         const activeId = getActivePassageId();
 
@@ -1947,6 +1957,10 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
             // Materialise it before changing either React state or localStorage
             // so an in-flight create can never leave the two sources split.
             if (id.startsWith('logbook:') && row) {
+                const materialisingRouteId = row.saved_route_id;
+                const materialisingNote = materialisingRouteId
+                    ? traceVerificationNote(loadSavedTraces().find((trace) => trace.id === materialisingRouteId))
+                    : undefined;
                 const { voyage, error } = await createVoyage({
                     voyage_name: row.voyage_name,
                     departure_port: row.departure_port,
@@ -1963,6 +1977,12 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                     // Passage rollup rows carry the trip's first-leg trace id;
                     // leg/standalone stubs have none (linked elsewhere).
                     saved_route_id: row.saved_route_id ?? undefined,
+                    // The verification envelope lives in `notes` and is what
+                    // Cast Off reads to know this geometry was checked.
+                    // Materialising without it made every stub-born row cast
+                    // off with a "not verified" caution for a route the Plan
+                    // page had already cleared.
+                    ...(materialisingNote ? { notes: materialisingNote } : {}),
                 });
                 if (requestVersion !== passageSelectionVersion.current || !scopeStillOwnsPage(scope)) return;
                 if (!voyage) {

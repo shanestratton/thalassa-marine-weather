@@ -2,9 +2,9 @@
  * CastOffPanel — smoke tests (595 LOC component)
  */
 import React from 'react';
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { setAuthIdentityScope } from '../../services/authIdentityScope';
+import { authScopedStorageKey, setAuthIdentityScope } from '../../services/authIdentityScope';
 
 const castOffMocks = vi.hoisted(() => ({
     getDraftVoyages: vi.fn(),
@@ -15,6 +15,7 @@ const castOffMocks = vi.hoisted(() => ({
     getTrackingStatus: vi.fn(),
     startTracking: vi.fn(),
     stopTracking: vi.fn(),
+    createVoyage: vi.fn(),
 }));
 
 vi.mock('../../utils/createLogger', () => ({
@@ -41,7 +42,7 @@ vi.mock('../../services/VoyageService', () => ({
     getActiveVoyage: castOffMocks.getActiveVoyage,
     castOff: castOffMocks.castOff,
     endVoyage: castOffMocks.endVoyage,
-    createVoyage: vi.fn(),
+    createVoyage: castOffMocks.createVoyage,
 }));
 vi.mock('../../services/ShipLogService', () => ({
     ShipLogService: {
@@ -70,6 +71,8 @@ describe('CastOffPanel', () => {
         });
         castOffMocks.startTracking.mockResolvedValue(undefined);
         castOffMocks.stopTracking.mockResolvedValue(undefined);
+        castOffMocks.createVoyage.mockResolvedValue({ voyage: null, error: null });
+        localStorage.clear();
     });
 
     afterEach(() => {
@@ -549,5 +552,54 @@ describe('CastOffPanel', () => {
         await vi.waitFor(() =>
             expect(castOffMocks.startTracking).toHaveBeenCalledWith(true, 'voyage-active', expect.anything(), false),
         );
+    });
+    it('a saved route with no voyage row is still offered here, and materialises on tap', async () => {
+        // Shane 2026-08-27: "a route is not removed from the list in the cast
+        // off list or the passage planning page, unless it is removed from
+        // the plan page". This list only ever showed status='planning' rows,
+        // so an End Voyage — or a tracer-only save — hid the route entirely.
+        localStorage.setItem(
+            authScopedStorageKey('thalassa_traced_routes_v1'),
+            JSON.stringify([
+                {
+                    id: 'trace-1',
+                    name: 'Newport - Mackay',
+                    createdAt: '2026-08-26T00:00:00.000Z',
+                    destName: 'Mackay',
+                    points: [
+                        { lat: -27.2, lon: 153.1 },
+                        { lat: -21.1, lon: 149.2 },
+                    ],
+                },
+            ]),
+        );
+        castOffMocks.getDraftVoyages.mockResolvedValue([]);
+        castOffMocks.getActiveVoyage.mockResolvedValue(null);
+        castOffMocks.createVoyage.mockResolvedValue({
+            voyage: {
+                id: 'voyage-materialised',
+                voyage_name: 'Newport - Mackay',
+                departure_port: 'Newport',
+                destination_port: 'Mackay',
+                crew_count: 2,
+                status: 'planning',
+                saved_route_id: 'trace-1',
+            },
+            error: null,
+        });
+
+        render(<CastOffPanel onClose={vi.fn()} />);
+
+        const row = await screen.findByRole('button', { name: /Newport - Mackay/ });
+        expect(within(row).getByText('Saved route')).toBeInTheDocument();
+
+        fireEvent.click(row);
+
+        await vi.waitFor(() => expect(castOffMocks.createVoyage).toHaveBeenCalledTimes(1));
+        expect(castOffMocks.createVoyage).toHaveBeenCalledWith(
+            expect.objectContaining({ saved_route_id: 'trace-1', voyage_name: 'Newport - Mackay' }),
+        );
+        // …and it lands in the pre-departure check like any other draft.
+        expect(await screen.findByText('Confirm Safety')).toBeInTheDocument();
     });
 });

@@ -603,6 +603,17 @@ describe('CrewManagement shared passage ownership', () => {
 
         await waitFor(() => expect(screen.getByText(/\(Passage\)/)).toBeInTheDocument());
         expect(screen.queryByRole('option', { name: /\(Passage\)/ })).not.toBeInTheDocument();
+
+        // …and the legs beneath it ARE selectable. These two traces have no
+        // voyage row and no logbook mirror of any kind — the state left by a
+        // tracer-only save, a cross-device sync, or an End Voyage — and the
+        // heading used to sit there with nothing under it. The Plan page's
+        // library is the truth for this list now (Shane 2026-08-27: "a route
+        // is not removed… unless it is removed from the plan page").
+        await waitFor(() => {
+            expect(screen.getByRole('option', { name: /1st Leg/ })).toBeInTheDocument();
+            expect(screen.getByRole('option', { name: /2nd Leg/ })).toBeInTheDocument();
+        });
     });
 
     it('kills a stale pre-rename logbook copy whose geometry a live route already owns', async () => {

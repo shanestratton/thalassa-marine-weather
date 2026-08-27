@@ -24,6 +24,7 @@ import {
     formatStoredPlannedRouteName,
 } from '../../services/shiplog/plannedRouteNaming';
 import { destNameFromRouteName, loadSavedTraces, stripLegBadge } from '../../services/routeTracer';
+import { TRACE_STUB_ID_PREFIX, buildTraceStubRows, traceVerificationNote } from '../../services/savedRouteRows';
 import { vesselCrewAboard } from '../../services/units';
 import { getActiveLeg, getLegsForVoyage, closeLeg, startLeg, getLegSummary } from '../../services/VoyageLegService';
 import type { PassageLeg } from '../../types/navigation';
@@ -79,6 +80,8 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
     const [selected, setSelected] = useState<Voyage | null>(null);
     const [activeVoyage, setActiveVoyage] = useState<Voyage | null>(null);
     const [loading, setLoading] = useState(true);
+    /** Trace stub being materialised into a real voyage row on tap. */
+    const [selectingId, setSelectingId] = useState<string | null>(null);
     const [casting, setCasting] = useState(false);
     const [ending, setEnding] = useState(false);
     const [error, setError] = useState('');
@@ -157,7 +160,10 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
             setLoading(true);
             const [d, active] = await Promise.all([getDraftVoyages(), getActiveVoyage()]);
             if (cancelled || !isAuthIdentityScopeCurrent(operationScope)) return;
-            setDrafts(d);
+            // The Plan page's saved routes are the truth for this list too:
+            // a route with no planning row of its own still belongs here,
+            // and materialises on tap (Shane 2026-08-27).
+            setDrafts([...d, ...buildTraceStubRows(loadSavedTraces(), d, useSettingsStore.getState().settings.vessel)]);
             if (active) {
                 setActiveVoyage(active);
                 // Load leg state
@@ -208,17 +214,58 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
         };
     }, [initialVoyageId]);
 
-    const handleSelect = useCallback((voyage: Voyage) => {
-        setSelected(voyage);
-        setStep('preflight');
-        setSafetyConfirmed(false);
-        triggerHaptic('light');
+    const handleSelect = useCallback(
+        async (voyage: Voyage) => {
+            triggerHaptic('light');
+            let chosen = voyage;
+            // A trace stub is a saved route with no voyage row yet — the Plan
+            // page's library is the truth for this list, so the row is minted
+            // on the way into the pre-departure check rather than the route
+            // being hidden until some other screen happens to create one.
+            if (voyage.id.startsWith(TRACE_STUB_ID_PREFIX)) {
+                const operationScope = getAuthIdentityScope();
+                setSelectingId(voyage.id);
+                try {
+                    const trace = voyage.saved_route_id
+                        ? loadSavedTraces().find((t) => t.id === voyage.saved_route_id)
+                        : undefined;
+                    const note = traceVerificationNote(trace);
+                    const { voyage: created, error: createError } = await createVoyage({
+                        voyage_name: voyage.voyage_name,
+                        departure_port: voyage.departure_port,
+                        destination_port: voyage.destination_port,
+                        crew_count: vesselCrewAboard(useSettingsStore.getState().settings.vessel),
+                        departure_time: voyage.departure_time,
+                        eta: voyage.eta,
+                        saved_route_id: voyage.saved_route_id ?? undefined,
+                        ...(note ? { notes: note } : {}),
+                    });
+                    if (!mountedRef.current || !isAuthIdentityScopeCurrent(operationScope)) return;
+                    if (!created) {
+                        setError(createError || 'Could not open this saved route');
+                        return;
+                    }
+                    chosen = created;
+                    setDrafts((prev) => prev.map((row) => (row.id === voyage.id ? created : row)));
+                } catch {
+                    if (!mountedRef.current) return;
+                    setError('Could not open this saved route');
+                    return;
+                } finally {
+                    if (mountedRef.current) setSelectingId(null);
+                }
+            }
+            setSelected(chosen);
+            setStep('preflight');
+            setSafetyConfirmed(false);
 
-        // Fire-and-forget: create private voyage channel for planning
-        ChatService.createVoyageChannel(voyage.id, voyage.voyage_name).catch(() => {
-            /* non-critical — channel can be created later */
-        });
-    }, []);
+            // Fire-and-forget: create private voyage channel for planning
+            ChatService.createVoyageChannel(chosen.id, chosen.voyage_name).catch(() => {
+                /* non-critical — channel can be created later */
+            });
+        },
+        [setError],
+    );
 
     const handleCreateVoyage = useCallback(async () => {
         if (!newName.trim()) return;
@@ -358,7 +405,11 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
             setCompletedLegs([]);
             setStep('select');
             const d = await getDraftVoyages();
-            if (operationIsCurrent()) setDrafts(d);
+            if (operationIsCurrent())
+                setDrafts([
+                    ...d,
+                    ...buildTraceStubRows(loadSavedTraces(), d, useSettingsStore.getState().settings.vessel),
+                ]);
         } catch (cause) {
             if (!operationIsCurrent()) return;
             const detail = cause instanceof Error && cause.message.trim() ? ` ${cause.message.trim()}` : '';
@@ -996,20 +1047,25 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                                 {drafts.map((v) => (
                                     <button
                                         key={v.id}
-                                        onClick={() => handleSelect(v)}
-                                        className="w-full p-4 rounded-xl bg-white/[0.03] border border-white/[0.06] text-left hover:bg-white/[0.05] hover:border-amber-500/20 transition-all active:scale-[0.98] group"
+                                        onClick={() => void handleSelect(v)}
+                                        disabled={selectingId !== null}
+                                        className="w-full p-4 rounded-xl bg-white/[0.03] border border-white/[0.06] text-left hover:bg-white/[0.05] hover:border-amber-500/20 transition-all active:scale-[0.98] disabled:opacity-50 group"
                                     >
                                         <div className="flex items-start justify-between">
                                             <div>
                                                 <h3 className="text-sm font-bold text-white group-hover:text-amber-300 transition-colors">
-                                                    {v.voyage_name}
+                                                    {displayVoyageName(v)}
                                                 </h3>
                                                 <p className="text-[11px] text-gray-500 mt-0.5">
                                                     {v.departure_port || '?'} → {v.destination_port || '?'}
                                                 </p>
                                             </div>
                                             <span className="px-2 py-0.5 rounded-full text-[11px] font-bold uppercase bg-sky-500/10 text-sky-400 border border-sky-500/15">
-                                                Draft
+                                                {selectingId === v.id
+                                                    ? 'Opening…'
+                                                    : v.id.startsWith(TRACE_STUB_ID_PREFIX)
+                                                      ? 'Saved route'
+                                                      : 'Draft'}
                                             </span>
                                         </div>
                                         <div className="flex gap-3 mt-2 text-[11px] text-gray-500">
