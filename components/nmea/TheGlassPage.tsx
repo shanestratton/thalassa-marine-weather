@@ -18,7 +18,7 @@
  */
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useNmeaStore } from './useNmeaStore';
-import { WindRose } from './gauges/WindRose';
+import { SereneWindRose } from './gauges/SereneWindRose';
 import { useUnwrappedAngle } from './gauges/useUnwrappedAngle';
 import { triggerHaptic } from '../../utils/system';
 import { PageHeader } from '../ui/PageHeader';
@@ -722,6 +722,22 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
     // reads without thinking. Dead-band the needle: an XDR that idles at 0.2°
     // would otherwise flip PORT/STBD every second and look broken.
     const heelSide = (heel.value ?? 0) < -0.3 ? 'PORT' : (heel.value ?? 0) > 0.3 ? 'STBD' : 'LEVEL';
+    /* The rose wants 0-360 with 0 at the bow; the bus carries signed angles,
+       negative to port. Normalising with ((d % 360) + 360) % 360 turns -45
+       into 315, which is what puts the needle — and the red/green decision
+       that rides on angle > 180 — on the correct side.
+
+       TRUE prefers the signed TWA when the gateway sends it, and falls back
+       to TWD minus heading, which is the same number the long way round.
+       Without either there is nothing honest to draw, so it stays null and
+       the rose shows its no-data face rather than a needle at zero. */
+    const normaliseBowAngle = (deg: number | null): number | null =>
+        deg === null || !Number.isFinite(deg) ? null : ((deg % 360) + 360) % 360;
+    const roseApparentAngle = normaliseBowAngle(awa.value);
+    const roseTrueAngle =
+        normaliseBowAngle(twaSigned.value) ??
+        (twd.value !== null && heading.value !== null ? normaliseBowAngle(twd.value - heading.value) : null);
+
     const windMetrics = [state.tws, state.twa, state.aws, state.awa, state.twd];
     const windAvailable = windMetrics.some(metricIsAvailable);
     const windStale =
@@ -910,16 +926,49 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                         </p>
                                     </div>
                                 </div>
-                                <div className="w-full rounded-2xl bg-white/[0.03] border border-white/[0.06] p-2">
-                                    <WindRose
-                                        twd={twd.value}
-                                        twaSigned={twaSigned.value}
-                                        awa={awa.value}
-                                        heading={heading.value}
-                                        tws={tws.value}
-                                        aws={aws.value}
-                                        isLive={windAvailable && !windStale}
-                                    />
+                                {/* Both roses on the one page (Shane 2026-08-28).
+                                    APPARENT is bow-relative — what the sails are
+                                    trimmed to — so it carries no heading and the
+                                    ring is labelled in degrees off the bow. TRUE
+                                    is handed the heading, so it draws the compass
+                                    and prints a real bearing. That is exactly the
+                                    pairing the handoff's own demo shows, and it
+                                    means neither rose has to answer two questions.
+
+                                    Distinct keys are mandatory, not tidy: every
+                                    gradient id is namespaced with them, url(#id)
+                                    resolves document-wide, and a collision here
+                                    would paint the second rose with the first
+                                    one's needle — the WRONG SIDE on opposite
+                                    tacks. */}
+                                <div className="grid w-full grid-cols-2 gap-2">
+                                    <div className="rounded-2xl bg-white/[0.03] border border-white/[0.06] p-1.5">
+                                        <SereneWindRose
+                                            gaugeKey="glass-awa"
+                                            angle={roseApparentAngle}
+                                            speed={aws.value}
+                                            unit="kn"
+                                            isLive={windAvailable && !windStale}
+                                            className="block h-auto w-full"
+                                        />
+                                        <p className="mt-0.5 text-center text-[9px] font-black uppercase tracking-[0.2em] text-gray-400">
+                                            Apparent
+                                        </p>
+                                    </div>
+                                    <div className="rounded-2xl bg-white/[0.03] border border-white/[0.06] p-1.5">
+                                        <SereneWindRose
+                                            gaugeKey="glass-twa"
+                                            angle={roseTrueAngle}
+                                            speed={tws.value}
+                                            unit="kn"
+                                            heading={heading.value}
+                                            isLive={windAvailable && !windStale}
+                                            className="block h-auto w-full"
+                                        />
+                                        <p className="mt-0.5 text-center text-[9px] font-black uppercase tracking-[0.2em] text-gray-400">
+                                            True
+                                        </p>
+                                    </div>
                                 </div>
                             </div>
                         </section>
