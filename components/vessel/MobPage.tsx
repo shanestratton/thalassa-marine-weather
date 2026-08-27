@@ -13,7 +13,7 @@ import { MOB_PRECISE_FIX_ACCURACY_M, MobService, type MobSnapshot, type MobState
 import { useSettings } from '../../context/SettingsContext';
 import { triggerHaptic } from '../../utils/system';
 import { PageHeader } from '../ui/PageHeader';
-import { speakSafetyMessage, type SafetyUtteranceHandle } from '../../services/voice/safetyTts';
+import { prewarmSafetyMessage, speakSafetyMessage, type SafetyUtteranceHandle } from '../../services/voice/safetyTts';
 import { authScopedStorageKey } from '../../services/authIdentityScope';
 
 interface MobPageProps {
@@ -85,6 +85,12 @@ function buildMaydayText(
     activatedAt: number,
     fixAccuracy: number,
 ): string {
+    // Commas, not spaces. A space between digits is not a pause to any TTS
+    // engine — it reads "5 0 3" as "five hundred and three" or races the run
+    // together (Shane 2026-08-28: "it reads the mmsi and call sign too
+    // quick"). A comma is a prosodic boundary in every engine we use, so the
+    // digits land separately and at radio cadence.
+    const spellDigits = (value: string): string => value.split('').join(', ');
     const absLat = Math.abs(fixLat);
     const latDeg = Math.floor(absLat);
     const latMin = ((absLat - latDeg) * 60).toFixed(1);
@@ -98,7 +104,7 @@ function buildMaydayText(
     // clock time or, worse, a decimal, and a misheard datum time on a MAYDAY
     // costs a search pattern.
     const utcDigits = new Date(activatedAt).toISOString().slice(11, 16).replace(':', '');
-    const utc = `${utcDigits.split('').join(' ')} U T C`;
+    const utc = `${spellDigits(utcDigits)}, U T C`;
 
     // Spell the degree integers out digit-by-digit so TTS can't elide
     // the leading digit on triple-digit longitudes. ElevenLabs has been
@@ -106,16 +112,16 @@ function buildMaydayText(
     // emergency comms — fatal for a position report. "one five three"
     // is unambiguous and the same trick we already use for callsign +
     // MMSI a few lines down.
-    const latDegSpoken = String(latDeg).split('').join(' ');
-    const lonDegSpoken = String(lonDeg).split('').join(' ');
+    const latDegSpoken = spellDigits(String(latDeg));
+    const lonDegSpoken = spellDigits(String(lonDeg));
     const vesselKind = spokenVesselKind(vesselType);
 
     let out = 'Mayday, Mayday, Mayday. ';
     out += vesselName
         ? `This is ${vesselKind} ${vesselName}, ${vesselName}, ${vesselName}. `
         : `This is ${vesselKind}. Say your vessel name three times now. `;
-    if (callSign) out += `Call sign ${callSign.split('').join(' ')}. `;
-    if (mmsi) out += `MMSI ${mmsi.split('').join(' ')}. `;
+    if (callSign) out += `Call sign ${spellDigits(callSign)}. `;
+    if (mmsi) out += `MMSI ${spellDigits(mmsi)}. `;
     out += 'Mayday. ';
     out += vesselName ? `This is ${vesselKind} ${vesselName}. ` : 'Say your vessel name once now. ';
     out += `Man Overboard datum ${latDegSpoken} degrees ${latMin} minutes ${latDir}, `;
@@ -239,6 +245,23 @@ export const MobPage: React.FC<MobPageProps> = ({ onBack, onNavigate }) => {
               state.active.fixAccuracy,
           )
         : '';
+
+    /**
+     * Synthesise the Mayday the moment it exists, not when Speak is pressed.
+     *
+     * ElevenLabs needs several seconds for a script this long, and the safety
+     * budget deliberately gives it only four before falling back — so Calypso
+     * lost every time and the robotic voice was what actually transmitted.
+     * The text is known from the instant MOB goes active, which is minutes of
+     * warning, so the audio can simply be waiting. Debounced because the text
+     * changes as the fix updates, and each distinct script is only ever
+     * synthesised once.
+     */
+    useEffect(() => {
+        if (!maydayText) return;
+        const timer = window.setTimeout(() => prewarmSafetyMessage(maydayText), 1200);
+        return () => window.clearTimeout(timer);
+    }, [maydayText]);
 
     const handleSpeakMayday = useCallback(() => {
         if (!maydayText || speaking) return;

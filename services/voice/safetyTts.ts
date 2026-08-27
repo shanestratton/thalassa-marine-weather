@@ -45,6 +45,63 @@ import { synthesise, type VoiceSettingsOverride } from './ttsClient';
  *  to native. Set short because safety messages must not stall. */
 const SAFETY_TTS_BUDGET_MS = 4000;
 
+/**
+ * PRE-SYNTHESISED SAFETY AUDIO.
+ *
+ * The budget above is the right call — a distress transmission must never
+ * stall on a network — but it meant Calypso essentially never won. A MOB
+ * Mayday runs to ~600 characters, ElevenLabs takes several seconds on that,
+ * and 4 s is not enough, so the fallback was firing every single time (Shane
+ * 2026-08-28: "it is defaulting to the fallback voice").
+ *
+ * Raising the budget is the wrong lever: it buys a better voice with silence
+ * at the exact moment silence is most expensive. Instead, synthesise EARLY.
+ * The Mayday text is fully known the moment MOB goes active — minutes before
+ * anyone presses Speak — so the audio can be waiting. A cache hit skips the
+ * race entirely and plays Calypso instantly, and the 4 s budget stays intact
+ * for anything not warmed.
+ *
+ * Small and text-keyed: a few distinct scripts per session at most (the text
+ * changes as the position updates), so an LRU of a handful is plenty and
+ * costs nothing to miss.
+ */
+const PREWARM_LIMIT = 4;
+const prewarmed = new Map<string, string>();
+
+/**
+ * Synthesise `text` now and hold the audio for a later
+ * `speakSafetyMessage(text)`. Fire-and-forget: failures are swallowed,
+ * because a failed pre-warm must degrade to the ordinary race, never to an
+ * error in front of the skipper.
+ */
+export function prewarmSafetyMessage(text: string, opts: { voiceSettings?: VoiceSettingsOverride } = {}): void {
+    const trimmed = (text || '').trim();
+    if (!trimmed || prewarmed.has(trimmed)) return;
+    void synthesise(trimmed, { voiceSettings: opts.voiceSettings })
+        .then((audio) => {
+            if (!audio) return;
+            // Evict oldest first; Map preserves insertion order.
+            if (prewarmed.size >= PREWARM_LIMIT) {
+                const oldest = prewarmed.keys().next().value;
+                if (oldest !== undefined) prewarmed.delete(oldest);
+            }
+            prewarmed.set(trimmed, audio);
+        })
+        .catch(() => {
+            /* a missed pre-warm just means the normal race runs */
+        });
+}
+
+/** Test seam. */
+export function __clearSafetyPrewarmForTests(): void {
+    prewarmed.clear();
+}
+
+/** Is audio already in hand for this exact text? */
+export function hasPrewarmedSafetyAudio(text: string): boolean {
+    return prewarmed.has((text || '').trim());
+}
+
 export interface SafetyUtteranceOptions {
     /** What was actually spoken — useful for logging or transcripts. */
     onPlaybackStart?: (engine: 'calypso' | 'native') => void;
@@ -286,13 +343,16 @@ export function speakSafetyMessage(text: string, opts: SafetyUtteranceOptions = 
         // OR the timeout fires, we go native. The race never hands
         // back a "Calypso is playing — sort of" intermediate state,
         // so we can't double-fire.
-        const synthPromise: Promise<string | null> = synthesise(trimmed, {
-            voiceSettings: opts.voiceSettings,
-        });
+        // Already synthesised? Then there is nothing to race — play the good
+        // voice immediately. This is the path a pre-warmed Mayday takes.
+        const ready = prewarmed.get(trimmed) ?? null;
+        const synthPromise: Promise<string | null> = ready
+            ? Promise.resolve(ready)
+            : synthesise(trimmed, { voiceSettings: opts.voiceSettings });
         const timeoutPromise = new Promise<null>((resolve) => {
             setTimeout(() => resolve(null), SAFETY_TTS_BUDGET_MS);
         });
-        const audio_b64 = await Promise.race([synthPromise, timeoutPromise]);
+        const audio_b64 = ready ?? (await Promise.race([synthPromise, timeoutPromise]));
 
         if (cancelled) return;
 
