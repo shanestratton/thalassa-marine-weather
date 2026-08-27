@@ -15,6 +15,7 @@ import React, { useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { WindIcon, WaveIcon, GaugeIcon, DropletIcon, SunIcon, EyeIcon, CompassIcon, ThermometerIcon } from '../Icons';
 import { AnimatedRainIcon } from '../ui/AnimatedIcons';
+import { Button } from '../ui/Button';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 
 // Canonical list of pinnable metrics. Order matches the 5×2 grid in
@@ -203,13 +204,13 @@ export const MetricPinSheet: React.FC<MetricPinSheetProps> = ({
 
                 {/* Footer */}
                 <div className="px-4 py-3 border-t border-white/[0.06]">
-                    <button
+                    <Button
                         onClick={onClose}
                         aria-label="Close pin a metric sheet"
-                        className="w-full py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.06] text-slate-300 text-sm font-bold uppercase tracking-wider hover:bg-white/[0.08] transition-colors"
+                        className="w-full text-slate-300 uppercase tracking-wider"
                     >
                         Close
-                    </button>
+                    </Button>
                 </div>
             </div>
         </div>,

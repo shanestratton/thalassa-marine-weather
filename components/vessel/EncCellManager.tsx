@@ -43,6 +43,7 @@ import { EncPersonalCloudPanel } from './EncPersonalCloudPanel';
 import { requestMapFit } from '../../stores/MapFitTargetStore';
 import { useUI } from '../../context/UIContext';
 import { ModalSheet } from '../ui/ModalSheet';
+import { Button } from '../ui/Button';
 
 // ── Helpers ────────────────────────────────────────────────────────
 
@@ -899,7 +900,8 @@ export const EncCellManager: React.FC = () => {
                         )}
                     </div>
                     <div className="flex gap-3">
-                        <button
+                        <Button
+                            variant="secondary"
                             type="button"
                             onClick={() => {
                                 if (urlInstallInFlight.current) return;
@@ -908,10 +910,10 @@ export const EncCellManager: React.FC = () => {
                                 setUrlError(null);
                             }}
                             disabled={importing}
-                            className="min-h-11 flex-1 rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-bold text-gray-300 disabled:opacity-50"
+                            className="flex-1 text-gray-300 disabled:opacity-50"
                         >
                             Cancel
-                        </button>
+                        </Button>
                         <button
                             type="submit"
                             disabled={importing || !urlInput.trim()}

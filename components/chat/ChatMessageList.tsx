@@ -26,6 +26,7 @@ import {
     subscribeAuthIdentityScope,
     type AuthIdentityScope,
 } from '../../services/authIdentityScope';
+import { Button } from '../ui/Button';
 import { SafeImage } from '../ui/SafeImage';
 import { FEATURE_VISIBILITY } from '../../utils/featureVisibility';
 
@@ -248,13 +249,13 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = React.memo(
                         {/* Load earlier messages — pagination trigger */}
                         {hasMore && (
                             <div className="flex justify-center py-3">
-                                <button
+                                <Button
                                     onClick={loadMore}
-                                    className="px-4 py-2 rounded-xl bg-white/[0.04] border border-white/[0.06] text-[11px] font-bold text-white/40 uppercase tracking-wider hover:bg-white/[0.08] active:scale-95 transition-all min-h-[40px]"
+                                    className="text-white/40 uppercase tracking-wider"
                                     aria-label="Load earlier messages"
                                 >
                                     ↑ Load earlier messages ({regularMessages.length - visibleCount} more)
-                                </button>
+                                </Button>
                             </div>
                         )}
 

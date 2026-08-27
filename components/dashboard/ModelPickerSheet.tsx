@@ -20,6 +20,7 @@ import {
     SPITFIRE_MODEL,
 } from '../../services/weather/forecastModels';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
+import { Button } from '../ui/Button';
 
 interface ModelPickerSheetProps {
     visible: boolean;
@@ -184,12 +185,13 @@ export const ModelPickerSheet: React.FC<ModelPickerSheetProps> = ({
                     >
                         Refresh now
                     </button>
-                    <button
+                    <Button
+                        variant="secondary"
                         onClick={onClose}
-                        className="w-full rounded-xl border border-white/[0.06] bg-white/[0.04] py-2.5 text-sm font-bold uppercase tracking-wider text-slate-300 transition-colors hover:bg-white/[0.08]"
+                        className="w-full uppercase tracking-wider text-slate-300"
                     >
                         Close
-                    </button>
+                    </Button>
                     <p className="text-[9px] text-gray-400 text-center">{MODEL_ATTRIBUTION_LINE}</p>
                 </div>
             </div>

@@ -6,6 +6,18 @@ import { render } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('../theme', () => ({
+    // Button (via useThemeStore) resolves tokens per environment, so the
+    // theme mock has to answer for the whole module, not just `t`.
+    getThemeForEnvironment: () => ({
+        button: {
+            primary: 'primary',
+            secondary: 'secondary',
+            danger: 'danger',
+            ghost: 'ghost',
+            toggleOff: 'toggleOff',
+        },
+    }),
+    touchTarget: { button: 'min-h-[44px]', buttonSm: 'min-h-[36px]', icon: 'w-11 h-11' },
     t: {
         colors: {
             bg: { base: '#0f172a', elevated: '#1e293b', card: '#1e293b' },

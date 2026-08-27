@@ -8,6 +8,7 @@ import { Capacitor } from '@capacitor/core';
 import { LocalNotifications } from '@capacitor/local-notifications';
 import { createPortal } from 'react-dom';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
+import { Button } from '../ui/Button';
 import { AlarmAudioService } from '../../services/AlarmAudioService';
 import { AnchorSafetyNotificationService } from '../../services/AnchorSafetyNotificationService';
 
@@ -414,21 +415,21 @@ export const SoundCheckModal: React.FC<SoundCheckModalProps> = React.memo(({ onC
                 {/* Actions */}
                 <div className="anchor-sound-check-actions shrink-0 border-t border-white/[0.06] bg-slate-950/95 px-5 pt-3 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
                     <div className="flex gap-2.5">
-                        <button
+                        <Button
                             ref={cancelButtonRef}
                             aria-label={
                                 testState === 'stop-failed' ? 'Retry stopping alarm and cancel' : 'Cancel this action'
                             }
                             onClick={handleCancel}
                             disabled={testState === 'stopping'}
-                            className="flex-1 py-3 rounded-xl bg-white/5 border border-white/[0.06] text-sm font-bold text-slate-400 hover:text-white transition-colors disabled:cursor-wait disabled:opacity-60"
+                            className="flex-1 text-slate-400 hover:text-white disabled:cursor-wait disabled:opacity-60"
                         >
                             {testState === 'stopping'
                                 ? 'Stopping…'
                                 : testState === 'stop-failed'
                                   ? 'Retry Stop & Cancel'
                                   : 'Cancel'}
-                        </button>
+                        </Button>
                         <button
                             aria-label="Confirm selection"
                             onClick={handleConfirm}

@@ -8,6 +8,7 @@
 
 import React, { useMemo } from 'react';
 import type { CrewListIntroduction } from '../../hooks/useCrewFinderState';
+import { Button } from '../ui/Button';
 import { EmptyState } from '../ui/EmptyState';
 import { SafeImage } from '../ui/SafeImage';
 
@@ -109,15 +110,15 @@ export const CrewMatchesList: React.FC<CrewMatchesListProps> = React.memo(
                                             </p>
                                         )}
                                         <div className="mt-3 grid grid-cols-2 gap-2">
-                                            <button
+                                            <Button
                                                 aria-label={`Decline introduction from ${name}`}
                                                 onClick={() =>
                                                     onRespondIntroduction(introduction.request.id, 'declined')
                                                 }
-                                                className="min-h-[44px] rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2.5 text-sm font-bold text-white/55 transition-colors hover:bg-white/[0.06] active:scale-[0.98]"
+                                                className="text-white/55"
                                             >
                                                 Decline
-                                            </button>
+                                            </Button>
                                             <button
                                                 aria-label={`Accept introduction from ${name}`}
                                                 onClick={() =>

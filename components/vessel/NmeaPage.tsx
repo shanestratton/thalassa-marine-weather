@@ -38,6 +38,7 @@ import { GpsReceiverStatusService, type GpsReceiverStatus } from '../../services
 
 import { PageHeader } from '../ui/PageHeader';
 import { FormField } from '../ui/FormField';
+import { Button } from '../ui/Button';
 
 interface NmeaPageProps {
     onBack: () => void;
@@ -578,13 +579,14 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
                                 </button>
                             )}
                             {isConnecting && (
-                                <button
+                                <Button
+                                    variant="secondary"
                                     onClick={handleDisconnect}
                                     aria-label="Cancel connection"
-                                    className="px-4 py-2.5 rounded-xl text-xs font-bold uppercase tracking-widest bg-white/[0.06] border border-white/10 text-gray-400 hover:text-white hover:bg-white/10 transition-all active:scale-[0.95]"
+                                    className="uppercase tracking-widest text-gray-400 hover:text-white"
                                 >
                                     Cancel
-                                </button>
+                                </Button>
                             )}
                         </div>
                     </div>

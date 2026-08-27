@@ -17,6 +17,7 @@ import { CATZOC_LABELS, isLowConfidenceCatzoc } from '../../services/enc/types';
 import { PI_PUBLIC_BETA_UNAVAILABLE_MESSAGE } from '../../services/piPublicBetaBoundary';
 import { requestMapFit } from '../../stores/MapFitTargetStore';
 import { triggerHaptic } from '../../utils/system';
+import { Button } from '../ui/Button';
 import { ModalSheet } from '../ui/ModalSheet';
 import { PageHeader } from '../ui/PageHeader';
 
@@ -498,7 +499,7 @@ export const EncLibraryPage: React.FC<EncLibraryPageProps> = ({ onBack, onOpenMa
                         )}
                     </div>
                     <div className="grid grid-cols-2 gap-2">
-                        <button
+                        <Button
                             type="button"
                             disabled={busy}
                             onClick={() => {
@@ -506,10 +507,10 @@ export const EncLibraryPage: React.FC<EncLibraryPageProps> = ({ onBack, onOpenMa
                                 setUrl('');
                                 setUrlError(null);
                             }}
-                            className="min-h-12 rounded-xl border border-white/10 bg-white/5 px-4 text-sm font-bold text-gray-200 disabled:opacity-50"
+                            className="text-gray-200 disabled:opacity-50"
                         >
                             Cancel
-                        </button>
+                        </Button>
                         <button
                             type="submit"
                             disabled={busy || !url.trim()}

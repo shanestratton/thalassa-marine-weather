@@ -5,6 +5,7 @@ import { parseRecipeShareMessage } from '../../services/GalleyRecipeService';
 import { getAvatarGradient, timeAgo } from './chatUtils';
 import { RecipeCard } from './RecipeCard';
 import { MAX_CHAT_MESSAGE_CHARS } from '../../services/chat/messagePolicy';
+import { Button } from '../ui/Button';
 
 // Pin drop card component
 const PinDropCard: React.FC<{ lat: number; lon: number; label: string }> = ({ lat, lon, label }) => {
@@ -223,13 +224,14 @@ export const ChatDMCompose: React.FC<ChatDMComposeProps> = React.memo(
                             >
                                 {isUserBlocked ? '🔓 Unblock' : '🚫 Block'}
                             </button>
-                            <button
+                            <Button
+                                variant="secondary"
                                 onClick={() => setShowBlockConfirm(false)}
                                 aria-label="Cancel editing message"
-                                className="flex-1 py-3 rounded-xl bg-white/[0.04] text-white/60 text-sm font-medium border border-white/[0.06] transition-all active:scale-95 min-h-[44px]"
+                                className="flex-1 text-white/60"
                             >
                                 Cancel
-                            </button>
+                            </Button>
                         </div>
                     </div>
                 )}

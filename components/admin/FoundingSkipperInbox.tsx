@@ -8,6 +8,7 @@ import {
     type FoundingSkipperPage,
     type FoundingSkipperStatus,
 } from '../../types/foundingSkippers';
+import { Button } from '../ui/Button';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { EmptyState } from '../ui/EmptyState';
 import { RetryCard } from '../ui/RetryCard';
@@ -469,14 +470,14 @@ export const FoundingSkipperInbox: React.FC<FoundingSkipperInboxProps> = ({
                         })}
 
                         {cursor && (
-                            <button
+                            <Button
                                 type="button"
                                 onClick={() => loadApplications(true)}
                                 disabled={loadingMore}
-                                className="w-full min-h-[44px] rounded-xl border border-white/[0.08] bg-white/[0.03] text-xs font-bold text-white/55 disabled:opacity-50"
+                                className="w-full text-white/55 disabled:opacity-50"
                             >
                                 {loadingMore ? 'Loading…' : 'Load older applications'}
-                            </button>
+                            </Button>
                         )}
                     </div>
 

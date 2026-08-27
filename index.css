@@ -4277,3 +4277,17 @@ html[data-keyboard-open='true'] .anchor-shore-watch-dialog {
 .display-light .text-yellow-500 {
     color: rgb(161 98 7);
 }
+
+/* Newly-introduced chromatic text — same hue-preserving darkening. */
+.display-light .text-cyan-200\/65 {
+    color: rgb(14 116 144 / 0.9);
+}
+.display-light .text-cyan-200\/70 {
+    color: rgb(14 116 144 / 0.9);
+}
+.display-light .text-emerald-100\/65 {
+    color: rgb(4 120 87 / 0.9);
+}
+.display-light .text-sky-100\/75 {
+    color: rgb(3 105 161 / 0.9);
+}

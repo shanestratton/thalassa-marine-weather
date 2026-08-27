@@ -14,6 +14,7 @@ import { scrollInputAboveKeyboard } from '../../utils/keyboardScroll';
 import { triggerHaptic } from '../../utils/system';
 import { DiaryPhoto } from './DiaryPhoto';
 import { OfflineBadge } from '../ui/OfflineBadge';
+import { Button } from '../ui/Button';
 import { POLISH_LABEL, type PolishStyle } from '../../types/settings';
 
 interface DiaryComposeFormProps {
@@ -332,14 +333,14 @@ export const DiaryComposeForm: React.FC<DiaryComposeFormProps> = React.memo(
                 {/* ═══ SAVE + CANCEL — fixed at bottom ═══ */}
                 <div className="shrink-0 px-4 py-3 border-t border-white/5 bg-slate-950">
                     <div className="flex gap-3">
-                        <button
+                        <Button
                             aria-label="Cancel this action"
                             onClick={onCancel}
                             disabled={saving}
-                            className="flex-1 py-3 rounded-xl bg-white/5 border border-white/[0.08] text-gray-400 font-bold text-sm hover:bg-white/10 transition-colors active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed"
+                            className="flex-1 text-gray-400 disabled:opacity-40 disabled:cursor-not-allowed"
                         >
                             Cancel
-                        </button>
+                        </Button>
                         <button
                             aria-label="Save changes"
                             onClick={onSave}
