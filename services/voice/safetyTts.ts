@@ -177,6 +177,90 @@ async function playCalypsoB64(b64: string): Promise<{ done: Promise<void>; cance
 }
 
 /**
+ * Novelty and gimmick voices Apple still ships. Any of these reading a
+ * MAYDAY would be grotesque, so they are excluded by name before quality
+ * ranking even runs.
+ */
+const NOVELTY_VOICE =
+    /albert|bad news|bahh|bells|boing|bubbles|cellos|deranged|good news|jester|organ|superstar|trinoids|whisper|wobble|zarvox|hysterical|pipe organ|ralph|fred|junior|kathy/i;
+
+/** Higher is better. Apple exposes quality only in the NAME on the web
+ *  speech API, so that is what we rank on. */
+function voiceQualityRank(name: string): number {
+    if (/siri/i.test(name)) return 4;
+    if (/premium/i.test(name)) return 3;
+    if (/enhanced/i.test(name)) return 2;
+    return 1; // compact / default — the robotic one
+}
+
+/** Locale preference: Shane sails Australian waters, and a Mayday read in
+ *  the listener's own accent is marginally easier to copy on a noisy VHF
+ *  channel. Falls through to any English voice rather than failing. */
+function localeRank(lang: string): number {
+    const l = (lang || '').toLowerCase().replace('_', '-');
+    if (l.startsWith('en-au')) return 4;
+    if (l.startsWith('en-gb')) return 3;
+    if (l.startsWith('en-us')) return 2;
+    if (l.startsWith('en')) return 1;
+    return 0;
+}
+
+/**
+ * Best English voice this device actually has.
+ *
+ * The fallback path used to construct the utterance and set no voice at
+ * all, so iOS handed back its default — usually the compact voice, which
+ * is the "1980s autopilot" this module's own header complains about. The
+ * fallback is the one that fires when the network is poor, which at sea is
+ * exactly when the Mayday matters, so it deserves the best voice on the
+ * device rather than the first one.
+ *
+ * Returns null when the list is empty (iOS populates it asynchronously and
+ * may not have yet) — the caller then leaves `voice` unset, which is the
+ * old behaviour and still speaks.
+ */
+/**
+ * Warm the voice list.
+ *
+ * iOS populates `getVoices()` asynchronously and returns an EMPTY array on
+ * the first synchronous call after load — so the very first Mayday, the one
+ * most likely to be the real one, would fall back to the default voice no
+ * matter how good the picker is. Touching the list at module load and again
+ * on `voiceschanged` means it is populated long before anyone presses the
+ * button. Cheap, idempotent, and safe if the API is missing.
+ */
+function warmNativeVoices(): void {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+    try {
+        window.speechSynthesis.getVoices();
+        window.speechSynthesis.addEventListener?.('voiceschanged', () => {
+            try {
+                window.speechSynthesis.getVoices();
+            } catch {
+                /* nothing to do — the picker degrades to the default voice */
+            }
+        });
+    } catch {
+        /* no speech synthesis on this platform */
+    }
+}
+warmNativeVoices();
+
+export function pickBestNativeVoice(voices: SpeechSynthesisVoice[]): SpeechSynthesisVoice | null {
+    const candidates = voices.filter((v) => localeRank(v.lang) > 0 && !NOVELTY_VOICE.test(v.name));
+    if (candidates.length === 0) return null;
+    return candidates.reduce((best, v) => {
+        const score = voiceQualityRank(v.name) * 10 + localeRank(v.lang);
+        const bestScore = voiceQualityRank(best.name) * 10 + localeRank(best.lang);
+        if (score !== bestScore) return score > bestScore ? v : best;
+        // Tie-break toward an on-device voice: no network, no latency, and
+        // it cannot fail halfway through a distress call.
+        if (v.localService !== best.localService) return v.localService ? v : best;
+        return best;
+    });
+}
+
+/**
  * Speak the given text. Race ElevenLabs synthesis against
  * `SAFETY_TTS_BUDGET_MS`; if synth wins, commit to Calypso, otherwise
  * fall back to native iOS speech synthesis. Decision is made before
@@ -239,6 +323,18 @@ export function speakSafetyMessage(text: string, opts: SafetyUtteranceOptions = 
             const utt = new SpeechSynthesisUtterance(trimmed);
             utt.rate = opts.nativeRate ?? 0.85;
             utt.pitch = opts.nativePitch ?? 0.9;
+            // Pick the best voice the device has rather than accepting the
+            // default. iOS ships Siri/Premium/Enhanced voices alongside the
+            // compact one, and the default is often the compact.
+            try {
+                const best = pickBestNativeVoice(window.speechSynthesis.getVoices() ?? []);
+                if (best) {
+                    utt.voice = best;
+                    utt.lang = best.lang;
+                }
+            } catch {
+                /* voice list unavailable — the default still speaks */
+            }
             engineUsed = 'native';
             await new Promise<void>((resolve) => {
                 let started = false;

@@ -93,7 +93,12 @@ function buildMaydayText(
     const lonDeg = Math.floor(absLon);
     const lonMin = ((absLon - lonDeg) * 60).toFixed(1);
     const lonDir = fixLon >= 0 ? 'East' : 'West';
-    const utc = new Date(activatedAt).toISOString().slice(11, 16) + ' UTC';
+    // Radio convention reads a time as digits — "two two four two", not
+    // "twenty-two forty-two". TTS engines otherwise say the colon form as a
+    // clock time or, worse, a decimal, and a misheard datum time on a MAYDAY
+    // costs a search pattern.
+    const utcDigits = new Date(activatedAt).toISOString().slice(11, 16).replace(':', '');
+    const utc = `${utcDigits.split('').join(' ')} U T C`;
 
     // Spell the degree integers out digit-by-digit so TTS can't elide
     // the leading digit on triple-digit longitudes. ElevenLabs has been
