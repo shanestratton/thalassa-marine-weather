@@ -198,6 +198,37 @@ interface RawAccumulator {
     gpsFixQuality: number | null;
 }
 
+/**
+ * Turn a raw socket failure into something a skipper can act on.
+ *
+ * The native layer surfaces strings like "The operation couldn't be completed.
+ * (SwiftSocket.SocketError error 3.)", which names the errno and nothing else
+ * — so a refused port and an unreachable boat looked identical on screen, and
+ * both got rediagnosed as broken hardware. Error 3 in particular means the
+ * host ANSWERED and refused the port, which is the single most useful thing
+ * to know: the gateway is alive and the port is wrong or its server is down.
+ *
+ * The raw text is always kept on the end; support needs the errno even when
+ * the plain-English half is what gets read.
+ */
+export function diagnoseConnectFailure(raw: string, host: string, port: number): string {
+    const s = raw.toLowerCase();
+    const where = `${host}:${port}`;
+    if (/socketerror error 3\b|refused|econnrefused/.test(s)) {
+        return `${where} answered but refused the connection — nothing is listening on port ${port}. Check the port, and that the gateway's NMEA server is running. (${raw})`;
+    }
+    if (/timed ?out|etimedout|socketerror error 60\b/.test(s)) {
+        return `No answer from ${where} before the timeout — the gateway may be powered down, asleep, or on a network you are not currently on. (${raw})`;
+    }
+    if (/no route|enetunreach|ehostunreach|unreachable|socketerror error 51\b/.test(s)) {
+        return `No route to ${host} — you are not on its network, and nothing is carrying it (subnet router or VPN). (${raw})`;
+    }
+    if (/refused to connect|connection reset|econnreset/.test(s)) {
+        return `${where} dropped the connection. On a Yacht Devices gateway this usually means its TCP slots are already taken — close other apps or captures using it. (${raw})`;
+    }
+    return raw;
+}
+
 class NmeaListenerServiceClass {
     // ── Transport state ──
     private ws: WebSocket | null = null; // WebSocket (browser dev)
@@ -486,7 +517,7 @@ class NmeaListenerServiceClass {
         } catch (e: unknown) {
             const msg = (e as Error)?.message || String(e);
             log.warn('TCP connect failed:', msg);
-            this.lastError = msg;
+            this.lastError = diagnoseConnectFailure(msg, this.host, this.port);
             this.setStatus('error');
             if (this.enabled) this.scheduleReconnect();
         }

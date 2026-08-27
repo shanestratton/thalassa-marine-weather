@@ -17,7 +17,6 @@ import { LocationStore } from '../../stores/LocationStore';
 import { triggerHaptic } from '../../utils/system';
 import { PageHeader } from '../ui/PageHeader';
 import { EncCellManager } from './EncCellManager';
-import { RemoteAccessSection } from '../settings/RemoteAccessSection';
 import {
     getAuthIdentityScope,
     isAuthIdentityScopeCurrent,
@@ -616,10 +615,10 @@ const AvNavPageDevelopment: React.FC<AvNavPageProps> = ({ onBack }) => {
                     lines of raster-chart-downloader UI. */}
                 <EncCellManager />
 
-                {/* ═══ REMOTE ACCESS (Tailscale) ═══
-                    Shared card with Settings → Boat Network; self-gating,
-                    renders only while the Pi is reachable. */}
-                <RemoteAccessSection />
+                {/* Remote access moved to the NMEA Gateway card (2026-08-28) —
+                    that is where a skipper is standing when "can I reach the
+                    boat?" actually matters. Still available in
+                    Settings → Boat Network. */}
             </div>
         </div>
     );

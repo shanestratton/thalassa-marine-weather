@@ -32,7 +32,7 @@ import {
     type ScanPhase,
 } from '../../services/nmea/gatewayScan';
 import { nativeTcpProbe, detectSubnetPrefix } from '../../services/nmea/nativeTcpProbe';
-import { VpnHairpinNotice } from '../network/VpnHairpinNotice';
+import { RemoteAccessSection } from '../settings/RemoteAccessSection';
 import { NMEA_DEVICE_PROFILES } from '../../services/NmeaDeviceProfiles';
 import { GpsReceiverStatusService, type GpsReceiverStatus } from '../../services/GpsReceiverStatusService';
 
@@ -364,11 +364,22 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
                             )}
                         </div>
 
-                        {/* A VPN hairpinning boat-LAN traffic makes a healthy
-                            gateway look broken — laggy, dropping, "won't
-                            connect". Name it here rather than let it be
-                            rediagnosed as hardware (2026-08-08). */}
-                        <VpnHairpinNotice hostIp={host} hostLabel="the NMEA gateway" className="mb-3" />
+                        {/* Remote access lives here rather than at the foot of
+                            Boat Network (Shane 2026-08-28: "this is a better
+                            spot for it"). This is the card you are on when the
+                            gateway will not answer, so the question it raises —
+                            am I even on the boat's network? — is the question
+                            Tailscale answers. Self-gating: renders nothing
+                            until the Pi is reachable.
+
+                            The VPN-hairpin banner that used to sit here is
+                            gone. It fired on a subnet match and blamed the VPN
+                            for every failure, including the common one where
+                            the host answers and simply refuses the port — the
+                            connection error itself now says which of those it
+                            is. The "turn it off aboard" advice survives inside
+                            the remote-access card, where it belongs. */}
+                        <RemoteAccessSection />
 
                         {/* Why it failed — shown on the FIRST failure, not
                             withheld until a retry, and never truncated.
