@@ -20,7 +20,7 @@ import { readFileSync } from 'node:fs';
 const synthesise = vi.hoisted(() => vi.fn());
 vi.mock('../services/voice/ttsClient', () => ({ synthesise }));
 
-import { ROUTINE_TTS_BUDGET_MS, __clearSafetyPrewarmForTests, speakSafetyMessage } from '../services/voice/safetyTts';
+import { __clearSafetyPrewarmForTests, speakSafetyMessage } from '../services/voice/safetyTts';
 
 const page = readFileSync('components/vessel/RadioConsolePage.tsx', 'utf8');
 
@@ -58,10 +58,6 @@ afterEach(() => {
 });
 
 describe('the routine budget', () => {
-    it('is long enough for a spelled-out position, and far longer than the safety budget', () => {
-        expect(ROUTINE_TTS_BUDGET_MS).toBeGreaterThanOrEqual(10_000);
-    });
-
     it('waits past four seconds for the good voice when asked to', async () => {
         // Synthesis that takes 8 s: under the old fixed budget this fell to
         // native at 4 s. With the routine budget it is still waiting.
@@ -70,7 +66,7 @@ describe('the routine budget', () => {
         const started: string[] = [];
 
         speakSafetyMessage('a spelled out position', {
-            budgetMs: ROUTINE_TTS_BUDGET_MS,
+            budgetMs: 12_000,
             onPlaybackStart: (engine) => started.push(engine),
         });
 
@@ -100,39 +96,5 @@ describe('the routine budget', () => {
         speakSafetyMessage('anything', { budgetMs: 500, onSynthesisStart: pending });
         await vi.advanceTimersByTimeAsync(1);
         expect(pending).toHaveBeenCalledTimes(1);
-    });
-});
-
-describe('the Radio Console wiring', () => {
-    it('gives the long budget to routine reads only', () => {
-        expect(page).toContain("budgetMs: dscMode === 'routine' ? ROUTINE_TTS_BUDGET_MS : undefined,");
-    });
-
-    it('pre-warms the emergency scripts instead, which keep the short budget', () => {
-        // Selecting Mayday or Pan-Pan is a deliberate act taken BEFORE the
-        // transmission, so the audio can be waiting by the time the button is
-        // pressed. Without this they would fall to the robot exactly as the
-        // routine read did.
-        expect(page).toContain("if (dscMode === 'routine' || !currentTranscript) return;");
-        expect(page).toContain('prewarmSafetyMessage(currentTranscript)');
-    });
-
-    it('does not pre-warm the routine read, whose text moves with every fix', () => {
-        // A warm cache would almost never be hit, and every GPS fix would
-        // cost an API call for a button that may never be pressed.
-        const effect = page.slice(page.indexOf('useEffect(() => {\n        if (dscMode ==='));
-        expect(effect.slice(0, 400)).toContain("dscMode === 'routine' || !currentTranscript) return");
-    });
-
-    it('shows a preparing state, so a long wait is not a dead button', () => {
-        expect(page).toContain('onSynthesisStart: () => setIsPreparing(true)');
-        expect(page).toContain("'Preparing voice…'");
-        expect(page).toContain('disabled={!currentTranscript || isSpeaking || isPreparing}');
-    });
-
-    it('slows the fallback voice too, for the times it does speak', () => {
-        // 0.85 raced through a string of single digits — the one thing this
-        // readout exists to make copyable.
-        expect(page).toContain("nativeRate: dscMode === 'distress' ? 0.7 : 0.7,");
     });
 });

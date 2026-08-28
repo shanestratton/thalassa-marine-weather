@@ -16,13 +16,6 @@ import { MOB_PRECISE_FIX_ACCURACY_M, MobService, type MobSnapshot, type MobState
 import { useSettings } from '../../context/SettingsContext';
 import { triggerHaptic } from '../../utils/system';
 import { PageHeader } from '../ui/PageHeader';
-import { createLogger } from '../../utils/createLogger';
-import {
-    ROUTINE_TTS_BUDGET_MS,
-    prewarmSafetyMessage,
-    speakSafetyMessage,
-    type SafetyUtteranceHandle,
-} from '../../services/voice/safetyTts';
 import {
     formatSpokenPosition,
     spellDigits,
@@ -165,8 +158,6 @@ const NATURE_LABEL: Record<DistressNature, string> = {
     medical: 'Medical Emergency',
 };
 
-const log = createLogger('RadioConsole');
-
 const NATURE_SPOKEN: Record<DistressNature, string> = {
     undesignated: 'undesignated distress',
     fire: 'fire on board',
@@ -260,29 +251,6 @@ function buildDistressText(
     return out;
 }
 
-/** Build a compact clipboard-friendly position string */
-function buildClipboardText(
-    vesselName: string | undefined,
-    callSign: string | undefined,
-    mmsi: string | undefined,
-    rego: string | undefined,
-    lat: number,
-    lon: number,
-    sogKts: number,
-    cogDeg: number | null,
-): string {
-    const lines = vesselName ? [vesselName] : ['Vessel name not set — add your vessel name before sending'];
-    if (callSign) lines.push(`CS: ${callSign}`);
-    if (mmsi) lines.push(`MMSI: ${mmsi}`);
-    if (rego) lines.push(`Rego: ${rego}`);
-    lines.push(`Pos: ${formatLat(lat)} ${formatLon(lon)}`);
-    lines.push(
-        cogDeg === null ? `SOG: ${sogKts.toFixed(1)}kts` : `SOG: ${sogKts.toFixed(1)}kts  COG: ${Math.round(cogDeg)}°T`,
-    );
-    lines.push(`UTC: ${new Date().toISOString().slice(0, 19).replace('T', ' ')}`);
-    return lines.join('\n');
-}
-
 export const RadioConsolePage: React.FC<RadioConsolePageProps> = ({ onBack, onNavigate }) => {
     const { settings } = useSettings();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -291,19 +259,6 @@ export const RadioConsolePage: React.FC<RadioConsolePageProps> = ({ onBack, onNa
     // ── GPS state ──
     const [position, setPosition] = useState<GpsPosition | null>(null);
     const [gpsAge, setGpsAge] = useState<string>('—');
-    const [isSpeaking, setIsSpeaking] = useState(false);
-    /** Calypso is synthesising and nothing is audible yet. Only reachable on
-     *  the routine budget, which is long enough that silence would read as a
-     *  dead button. */
-    const [isPreparing, setIsPreparing] = useState(false);
-    /** Engine that spoke the most-recent transcript — surfaced as a
-     *  small caption so the skipper knows when they got the robotic
-     *  fallback (network blip during a position report). */
-    const [lastVoiceEngine, setLastVoiceEngine] = useState<'calypso' | 'native' | null>(null);
-    const utteranceRef = useRef<SafetyUtteranceHandle | null>(null);
-    const [copied, setCopied] = useState(false);
-    const [speechError, setSpeechError] = useState<string | null>(null);
-    const [copyFailureText, setCopyFailureText] = useState<string | null>(null);
     const [gpsError, setGpsError] = useState(false);
     const tickRef = useRef<ReturnType<typeof setInterval>>();
 
@@ -462,141 +417,6 @@ export const RadioConsolePage: React.FC<RadioConsolePageProps> = ({ onBack, onNa
                 : '';
 
     // ── TTS ──
-    const handleSpeak = useCallback(() => {
-        if (!currentTranscript || isSpeaking) return;
-        triggerHaptic(dscMode === 'routine' ? 'medium' : 'heavy');
-        setSpeechError(null);
-
-        // Cancel anything in-flight so a rapid tap doesn't stack
-        // overlapping speeches.
-        utteranceRef.current?.cancel();
-        // Race Calypso first; fall back to native SpeechSynthesisUtterance
-        // if Calypso can't deliver in time. Distress reports use a
-        // slower rate (0.75) for the listener at the other end of the
-        // VHF; routine ones a touch faster.
-        try {
-            const handle = speakSafetyMessage(currentTranscript, {
-                /*
-                 * A routine position read is not a distress transmission.
-                 * Nothing is burning, the skipper pressed a button and is
-                 * waiting to hear their own position, so it can afford to
-                 * wait for the good voice. Holding it to the 4 s distress
-                 * budget bought the worst of both: a spelled-out position is
-                 * too long to synthesise that fast, so it fell to the robot
-                 * every single time. Mayday and Pan-Pan keep the short
-                 * budget — those must never stall — and are pre-warmed
-                 * instead, which skips the race altogether.
-                 */
-                budgetMs: dscMode === 'routine' ? ROUTINE_TTS_BUDGET_MS : undefined,
-                onSynthesisStart: () => setIsPreparing(true),
-                // 0.7 across the board. The old 0.85 raced through a string
-                // of single digits, which is the one thing this readout
-                // exists to make copyable.
-                nativeRate: dscMode === 'distress' ? 0.7 : 0.7,
-                nativePitch: 0.9,
-                // Calypso override: distress = extra-deliberate (slower
-                // + most stable), routine = slightly slower than default
-                // but still natural. Distress matches the MOB cadence
-                // so a listener at the other end gets the same calm
-                // measured delivery regardless of which surface fired.
-                voiceSettings:
-                    dscMode === 'distress' ? { speed: 0.875, stability: 0.8 } : { speed: 0.92, stability: 0.7 },
-                onPlaybackStart: (engine) => {
-                    setIsPreparing(false);
-                    setIsSpeaking(true);
-                    setLastVoiceEngine(engine);
-                },
-                onPlaybackEnd: () => setIsSpeaking(false),
-                onError: () => {
-                    setIsPreparing(false);
-                    setIsSpeaking(false);
-                    setSpeechError(
-                        'Audio playback stopped or could not start. Read the visible transcript aloud; no complete playback was confirmed.',
-                    );
-                },
-            });
-            utteranceRef.current = handle;
-        } catch (err) {
-            // The message below is deliberately about the SKIPPER's next
-            // action, not the fault — but swallowing the cause entirely is
-            // how a mocked-away export once looked like a dead button for an
-            // afternoon. Say what happened, then say what to do.
-            log.warn('[RadioConsole] speakSafetyMessage failed', err);
-            setIsPreparing(false);
-            setIsSpeaking(false);
-            setSpeechError(
-                'Audio playback stopped or could not start. Read the visible transcript aloud; no complete playback was confirmed.',
-            );
-        }
-    }, [currentTranscript, isSpeaking, dscMode]);
-
-    /*
-     * Pre-synthesise the EMERGENCY scripts the moment the skipper selects
-     * that mode. Selecting Mayday or Pan-Pan is a deliberate act taken before
-     * the transmission, so the audio can be waiting by the time the button is
-     * pressed — and those two keep the 4 s budget, so without this they would
-     * fall to the robot exactly as the routine read did.
-     *
-     * Routine is deliberately NOT pre-warmed: its text moves with every GPS
-     * fix, so a warm cache would almost never be hit and every fix would cost
-     * an API call for a button that may never be pressed. It gets the long
-     * budget instead. Spend the quota where the seconds matter; spend the
-     * seconds where the quota does.
-     */
-    useEffect(() => {
-        if (dscMode === 'routine' || !currentTranscript) return;
-        const t = setTimeout(() => prewarmSafetyMessage(currentTranscript), 400);
-        return () => clearTimeout(t);
-    }, [dscMode, currentTranscript]);
-
-    // Cancel any in-flight TTS on unmount so navigating away mid-
-    // playback doesn't leave the report still talking.
-    useEffect(() => {
-        return () => {
-            utteranceRef.current?.cancel();
-        };
-    }, []);
-
-    // ── Copy to clipboard ──
-    const handleCopy = useCallback(() => {
-        if (!currentTranscript) return;
-        triggerHaptic('light');
-        setCopied(false);
-        setCopyFailureText(null);
-
-        // Routine: keep the compact tabular format (sat-phone SMS friendly).
-        // Urgency / Distress: copy the full voice transcript.
-        const text =
-            dscMode === 'routine' && position
-                ? buildClipboardText(
-                      vesselName,
-                      callSign,
-                      mmsi,
-                      rego,
-                      position.latitude,
-                      position.longitude,
-                      sogKts,
-                      cogDeg,
-                  )
-                : currentTranscript;
-
-        const failCopy = () => setCopyFailureText(text);
-        try {
-            if (typeof navigator === 'undefined' || !navigator.clipboard?.writeText) {
-                failCopy();
-                return;
-            }
-            void navigator.clipboard
-                .writeText(text)
-                .then(() => {
-                    setCopied(true);
-                    setTimeout(() => setCopied(false), 2000);
-                })
-                .catch(failCopy);
-        } catch {
-            failCopy();
-        }
-    }, [position, dscMode, currentTranscript, vesselName, callSign, mmsi, rego, sogKts, cogDeg]);
 
     const utcTime = new Date().toISOString().slice(11, 19);
 
@@ -799,112 +619,22 @@ export const RadioConsolePage: React.FC<RadioConsolePageProps> = ({ onBack, onNa
             {/* ── Instructions + transcript preview ── */}
             <DscInstructions mode={dscMode} transcript={currentTranscript} />
 
-            {speechError && (
-                <div
-                    role="alert"
-                    className="mx-5 mt-3 rounded-xl border border-red-400/45 bg-red-500/15 px-3 py-2 text-xs font-bold leading-relaxed text-red-100"
-                >
-                    {speechError}
-                </div>
-            )}
-
-            {copyFailureText && (
-                <div
-                    role="alert"
-                    className="mx-5 mt-3 rounded-xl border border-red-400/45 bg-red-500/15 px-3 py-2 text-xs font-bold leading-relaxed text-red-100"
-                >
-                    <p>Transcript was not copied. Select the text below and copy it manually.</p>
-                    <textarea
-                        aria-label="Manual radio transcript"
-                        readOnly
-                        value={copyFailureText}
-                        onFocus={(event) => event.currentTarget.select()}
-                        className="mt-2 min-h-28 w-full resize-y rounded-lg border border-white/15 bg-slate-950/80 p-2 font-mono text-[11px] font-medium leading-relaxed text-white"
-                    />
-                </div>
-            )}
-
-            {/* ── Action buttons ── */}
-            <div
-                className="flex gap-3 px-5 py-6 mt-auto"
-                style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}
-            >
-                <button
-                    onClick={handleSpeak}
-                    disabled={!currentTranscript || isSpeaking || isPreparing}
-                    className={`flex-1 flex items-center justify-center gap-2.5 py-4 px-5 rounded-2xl text-[13px] font-extrabold uppercase tracking-wider transition-all border disabled:opacity-30 disabled:cursor-not-allowed active:scale-[0.97] ${
-                        isSpeaking || isPreparing
-                            ? dscMode === 'distress'
-                                ? 'bg-red-500/30 border-red-400/60 text-red-100 animate-pulse'
-                                : dscMode === 'urgency'
-                                  ? 'bg-amber-500/30 border-amber-400/60 text-amber-100 animate-pulse'
-                                  : 'bg-sky-500/20 border-sky-500/40 text-sky-300 animate-pulse'
-                            : dscMode === 'distress'
-                              ? 'bg-red-500/15 border-red-400/40 text-red-300 hover:bg-red-500/25'
-                              : dscMode === 'urgency'
-                                ? 'bg-amber-500/15 border-amber-400/40 text-amber-300 hover:bg-amber-500/25'
-                                : 'bg-sky-500/10 border-sky-500/30 text-sky-400 hover:bg-sky-500/15'
-                    }`}
-                    aria-label="Speak transcript aloud"
-                >
-                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
-                        <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            d="M19.114 5.636a9 9 0 010 12.728M16.463 8.288a5.25 5.25 0 010 7.424M6.75 8.25l4.72-4.72a.75.75 0 011.28.53v15.88a.75.75 0 01-1.28.53l-4.72-4.72H4.51c-.88 0-1.704-.507-1.938-1.354A9.01 9.01 0 012.25 12c0-.83.112-1.633.322-2.396C2.806 8.756 3.63 8.25 4.51 8.25H6.75z"
-                        />
-                    </svg>
-                    <div className="flex flex-col items-start leading-tight">
-                        <span>
-                            {isPreparing
-                                ? 'Preparing voice…'
-                                : isSpeaking
-                                  ? 'Speaking…'
-                                  : dscMode === 'distress'
-                                    ? 'Speak Mayday'
-                                    : dscMode === 'urgency'
-                                      ? 'Speak Pan-Pan'
-                                      : 'Read Position'}
-                        </span>
-                        {/* Engine indicator — only after first playback,
-                         *  and only when not currently speaking. Keeps
-                         *  the button compact during playback animation. */}
-                        {lastVoiceEngine && !isSpeaking && !isPreparing && (
-                            <span
-                                className={`text-[9px] font-medium normal-case tracking-normal opacity-80 ${
-                                    lastVoiceEngine === 'calypso' ? 'text-current' : 'text-amber-300'
-                                }`}
-                            >
-                                {lastVoiceEngine === 'calypso' ? 'Calypso voice' : 'Fallback voice'}
-                            </span>
-                        )}
-                    </div>
-                </button>
-
-                <button
-                    onClick={handleCopy}
-                    disabled={!currentTranscript}
-                    className={`flex-1 flex items-center justify-center gap-2.5 py-4 px-5 rounded-2xl text-[13px] font-extrabold uppercase tracking-wider transition-all border disabled:opacity-30 disabled:cursor-not-allowed active:scale-[0.97] ${
-                        copied
-                            ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-400'
-                            : 'bg-white/[0.04] border-white/10 text-slate-300 hover:bg-white/[0.08]'
-                    }`}
-                    aria-label="Copy transcript to clipboard"
-                >
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
-                        {copied ? (
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
-                        ) : (
-                            <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                d="M15.666 3.888A2.25 2.25 0 0013.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9.75a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184"
-                            />
-                        )}
-                    </svg>
-                    <span>{copied ? 'Copied!' : 'Copy'}</span>
-                </button>
-            </div>
+            {/*
+             * Speak and Copy are gone (Shane 2026-08-28: "i am just not happy
+             * with the voice Claude, best we remove them. people will just
+             * have to read it out").
+             *
+             * The transcript above IS the deliverable. A radio script exists
+             * to be read aloud by whoever is holding the handset, and a
+             * synthesised voice reading a position over VHF was never going to
+             * beat a person doing it — the fact that it had to spell every
+             * digit out one at a time was the tell.
+             *
+             * Copy went with it at his request. That does cost the sat-phone
+             * SMS path the file header mentions; the transcript is selectable
+             * text on screen, which is the fallback.
+             */}
+            <div style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }} />
         </div>
     );
 };
@@ -986,7 +716,9 @@ const DscInstructions: React.FC<{ mode: DscMode; transcript: string }> = ({ mode
                     <div className="text-[10px] font-extrabold tracking-[0.2em] uppercase text-slate-500 mb-1">
                         Transcript
                     </div>
-                    <div className="text-[12px] text-slate-300 leading-relaxed">{transcript || 'Awaiting GPS…'}</div>
+                    <div data-testid="dsc-transcript" className="text-[12px] text-slate-300 leading-relaxed">
+                        {transcript || 'Awaiting GPS…'}
+                    </div>
                 </div>
             </div>
         );
@@ -1038,7 +770,7 @@ const DscInstructions: React.FC<{ mode: DscMode; transcript: string }> = ({ mode
                 <div className="text-[10px] font-extrabold tracking-[0.2em] uppercase text-slate-500 mb-1">
                     Voice Transcript
                 </div>
-                <div className="text-[13px] text-white leading-relaxed font-medium">
+                <div data-testid="dsc-transcript" className="text-[13px] text-white leading-relaxed font-medium">
                     {transcript || 'Awaiting GPS…'}
                 </div>
             </div>
