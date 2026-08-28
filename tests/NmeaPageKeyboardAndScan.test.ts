@@ -26,10 +26,15 @@ const page = readFileSync('components/vessel/NmeaPage.tsx', 'utf8');
 const css = readFileSync('index.css', 'utf8');
 
 describe('the keyboard no longer buries the fields', () => {
-    it('gives the scroller somewhere to scroll to', () => {
-        expect(css).toContain('.thalassa-keyboard-safe-page {');
-        expect(css).toContain('padding-bottom: var(--thalassa-keyboard-height, 0px);');
-        expect(page).toContain('className="thalassa-keyboard-safe-page flex-1 px-4 min-h-0 overflow-y-auto"');
+    it('lets the app-wide keyboard guard do the scrolling', () => {
+        // First attempt at this added padding-bottom to the scroller. It made
+        // things markedly WORSE — Shane's screenshot showed the page scrolled
+        // clean past the fields into the new empty space below them. Keyboard
+        // avoidance is scroll-position work, not layout work.
+        expect(css).not.toContain('.thalassa-keyboard-safe-page');
+        expect(page).toContain("import { useKeyboardScroll } from '../../hooks/useKeyboardScroll';");
+        expect(page).toContain('const keyboardScrollRef = useKeyboardScroll<HTMLDivElement>();');
+        expect(page).toContain('ref={keyboardScrollRef}');
     });
 
     it('stops the host and port fields clear of the sticky header', () => {
@@ -44,9 +49,9 @@ describe('the keyboard no longer buries the fields', () => {
         expect(driver).toContain("setProperty('--thalassa-keyboard-height'");
     });
 
-    it('respects reduced motion', () => {
-        const block = css.slice(css.indexOf('.thalassa-keyboard-safe-page'));
-        expect(block.slice(0, 600)).toContain('prefers-reduced-motion: reduce');
+    it('uses the same hook as the other form page, not a second implementation', () => {
+        const anchor = readFileSync('components/AnchorWatchPage.tsx', 'utf8');
+        expect(anchor).toContain('useKeyboardScroll<HTMLDivElement>()');
     });
 });
 
