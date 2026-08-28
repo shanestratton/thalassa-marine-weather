@@ -206,6 +206,12 @@ export default defineConfig(({ mode }) => {
                     changeOrigin: true,
                     rewrite: (path: string) => path.replace(/^\/api\/nga-msi/, '/api/publications'),
                 },
+                // Exercise the deployed server-only OWM boundary in local QA;
+                // no paid provider credential enters the Vite process/bundle.
+                '/api/owm-tile': {
+                    target: 'https://thalassawx.vercel.app',
+                    changeOrigin: true,
+                },
                 // Same-origin dev routes retain their /api/{dataset}/... path
                 // and pass through the canonical shard-aware production proxy.
                 ...canonicalMarineDevProxy,

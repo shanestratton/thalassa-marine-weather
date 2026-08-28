@@ -107,16 +107,16 @@ thalassa-marine-weather/
 
 Copy `.env.example` to `.env` and configure:
 
-| Variable                   | Required   | Description                                       |
-| -------------------------- | ---------- | ------------------------------------------------- |
-| `VITE_SUPABASE_URL`        | ✅         | Supabase project URL                              |
-| `VITE_SUPABASE_KEY`        | ✅         | Supabase publishable key (public, RLS-protected)  |
-| `VITE_MAPBOX_ACCESS_TOKEN` | ✅         | Mapbox GL access token for map rendering          |
-| `VITE_OWM_API_KEY`         | ✅ release | OpenWeatherMap API key (temp/cloud tile overlays) |
-| `VITE_APP_VERSION`         | ✅ release | App version string; must match `package.json`     |
-| `VITE_SENTRY_DSN`          | ✅ release | Sentry DSN for error reporting                    |
+| Variable                   | Required   | Description                                      |
+| -------------------------- | ---------- | ------------------------------------------------ |
+| `VITE_SUPABASE_URL`        | ✅         | Supabase project URL                             |
+| `VITE_SUPABASE_KEY`        | ✅         | Supabase publishable key (public, RLS-protected) |
+| `VITE_MAPBOX_ACCESS_TOKEN` | ✅         | Mapbox GL access token for map rendering         |
+| `OWM_API_KEY`              | ✅ server  | Vercel-only OpenWeatherMap tile-proxy credential |
+| `VITE_APP_VERSION`         | ✅ release | App version string; must match `package.json`    |
+| `VITE_SENTRY_DSN`          | ✅ release | Sentry DSN for error reporting                   |
 
-> **⚡ Optional but recommended.** Paid provider credentials—including Rainbow.ai, Open-Meteo, Spoonacular, WeatherKit, Stripe, and voice/AI keys—belong only in Supabase/worker secrets. Never prefix them with `VITE_`; Vite embeds every such value in the browser and native bundle.
+> **⚡ Optional but recommended.** Paid provider credentials—including OpenWeatherMap, Rainbow.ai, Open-Meteo, Spoonacular, WeatherKit, Stripe, and voice/AI keys—belong only in Vercel/Supabase/worker secrets. Never prefix them with `VITE_`; Vite embeds every such value in the browser and native bundle.
 
 Production feature switches and public endpoint choices come from
 [`config/public-beta-features.json`](./config/public-beta-features.json), not ignored `.env.local` state. Every build

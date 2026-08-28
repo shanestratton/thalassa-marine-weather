@@ -55,7 +55,6 @@ export const PUBLIC_BETA_HELD_CAPABILITIES = Object.freeze([
 // the button can no longer ship pointing at an unconfigured provider.
 export const PUBLIC_BETA_REQUIRED_ABSENT_CLIENT_CONFIG = Object.freeze([]);
 export const PUBLIC_BETA_REQUIRED_CREDENTIAL_PRESENCE = Object.freeze([
-    'VITE_OWM_API_KEY',
     'VITE_SENTRY_DSN',
     'VITE_GOOGLE_OAUTH_CLIENT_ID',
 ]);

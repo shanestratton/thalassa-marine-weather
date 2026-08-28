@@ -75,11 +75,7 @@ describe('committed public-beta feature profile', () => {
             'spoonacular-online-catalogue',
         ]);
         expect(profile.requiredAbsentClientConfig).toEqual([]);
-        expect(profile.requiredCredentialPresence).toEqual([
-            'VITE_OWM_API_KEY',
-            'VITE_SENTRY_DSN',
-            'VITE_GOOGLE_OAUTH_CLIENT_ID',
-        ]);
+        expect(profile.requiredCredentialPresence).toEqual(['VITE_SENTRY_DSN', 'VITE_GOOGLE_OAUTH_CLIENT_ID']);
     });
 
     it('turns the committed profile into exact Vite defines, including held empty config', () => {
@@ -94,6 +90,7 @@ describe('committed public-beta feature profile', () => {
         // The client ID left required-absent on 2026-08-25: the build no longer
         // blanks it, the environment supplies it (presence-asserted).
         expect(define['import.meta.env.VITE_GOOGLE_OAUTH_CLIENT_ID']).toBeUndefined();
+        expect(define['import.meta.env.VITE_OWM_API_KEY']).toBeUndefined();
     });
 
     it('fails production when a supplied feature or endpoint override disagrees', () => {
@@ -114,7 +111,6 @@ describe('committed public-beta feature profile', () => {
 
     it('emits a deterministic fingerprint and credential presence without credential values', () => {
         const credentialValues = {
-            VITE_OWM_API_KEY: 'test-only-owm-value',
             VITE_SENTRY_DSN: 'https://test-only-sentry-value.invalid/1',
             VITE_GOOGLE_OAUTH_CLIENT_ID: 'test-only-client-id.apps.googleusercontent.com',
         };
@@ -126,7 +122,7 @@ describe('committed public-beta feature profile', () => {
         expect(first).toEqual(second);
         expect(first.fingerprint).toMatch(/^sha256:[a-f0-9]{64}$/);
         expect(first.credentialPresence).toEqual(allRequiredCredentialsPresent);
-        expect(serialized).not.toContain(credentialValues.VITE_OWM_API_KEY);
+        expect(serialized).not.toContain('VITE_OWM_API_KEY');
         expect(serialized).not.toContain(credentialValues.VITE_SENTRY_DSN);
         expect(publicBetaFeatureArtifactFailures(first, profile, allRequiredCredentialsPresent)).toEqual([]);
     });
@@ -163,7 +159,8 @@ describe('committed public-beta feature profile', () => {
 
         for (const workflowPath of ['.github/workflows/ci.yml', '.github/workflows/lighthouse.yml']) {
             const workflow = read(workflowPath);
-            expect(workflow).toContain('VITE_OWM_API_KEY: ${{ vars.VITE_OWM_API_KEY }}');
+            expect(workflow).not.toContain('VITE_OWM_API_KEY');
+            expect(workflow).not.toContain('OWM_API_KEY');
             expect(workflow).toContain('VITE_SENTRY_DSN: ${{ vars.VITE_SENTRY_DSN }}');
             expect(workflow).toContain('npm run build');
         }

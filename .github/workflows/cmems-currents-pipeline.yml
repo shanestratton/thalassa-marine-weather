@@ -2,8 +2,9 @@ name: CMEMS Currents - Trusted Release
 
 on:
     schedule:
-        # Thirteen hourly steps cover 12h; a 6h refresh keeps continuous overlap.
+        # Staggered six-hour schedules produce a three-hour refresh with dual-slot headroom.
         - cron: '20 */6 * * *'
+        - cron: '20 3,9,15,21 * * *'
     workflow_dispatch:
 
 permissions: {}

@@ -9,6 +9,7 @@ import {
     IMMUTABLE_ASSET_CACHE_CONTROL,
     RETIRED_LEGACY_MARINE_PATHS,
     hostedMarineManifestFailures,
+    hostedOwmTileFailures,
     localRouteExpectation,
     verifyHostedMarineDataset,
     validatePublicBetaFeatureManifest,
@@ -126,7 +127,7 @@ function hostedMarineFetchMock({
             headers: {
                 ...integrityHeaders(asset),
                 'accept-ranges': 'none',
-                'cache-control': 'public, max-age=31536000, s-maxage=31536000, immutable',
+                'cache-control': IMMUTABLE_ASSET_CACHE_CONTROL,
                 'content-type': 'application/octet-stream',
                 'x-thalassa-generation': generation,
             },
@@ -299,6 +300,49 @@ describe('web release verification', () => {
         expect(new Set(assetCalls).size).toBe(12);
     });
 
+    it("accepts Vercel's client-visible immutable marine asset cache policy", async () => {
+        const asset = new Uint8Array(TEST_ASSET_BYTES);
+        const manifest = sstHostedFixture('2026-08-05T00:00:00Z', '2026-08-05T11:00:00Z', asset);
+        hostedMarineFetchMock({ slotA: manifest, slotB: manifest, asset, missingFilename: '__none__' });
+
+        expect(await verifyHostedMarineDataset('https://thalassa.test', 'sst', HOSTED_TEST_NOW)).toEqual([]);
+    });
+
+    it('accepts only a bounded, cacheable, credential-free hosted OWM PNG surface', () => {
+        const bytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0]);
+        const result = {
+            url: new URL('https://thalassa.test/api/owm-tile?layer=clouds&z=0&x=0&y=0'),
+            bytes,
+            text: bytes.toString('utf8'),
+            response: new Response(bytes, {
+                headers: {
+                    'access-control-allow-origin': '*',
+                    'cache-control': 'public, max-age=300',
+                    'content-type': 'image/png',
+                    'x-content-type-options': 'nosniff',
+                },
+            }),
+        };
+
+        expect(hostedOwmTileFailures(result, 'hosted OWM cloud')).toEqual([]);
+        const leaked = { ...result, url: new URL(`${result.url}&appid=client-secret`) };
+        expect(hostedOwmTileFailures(leaked, 'hosted OWM cloud')).toContain(
+            'hosted OWM cloud: provider credential metadata escaped the server proxy',
+        );
+        const leakedBody = { ...result, bytes: Buffer.concat([bytes, Buffer.from('OWM_API_KEY')]) };
+        expect(hostedOwmTileFailures(leakedBody, 'hosted OWM cloud')).toContain(
+            'hosted OWM cloud: provider credential metadata escaped the server proxy',
+        );
+    });
+
+    it('schedules alternating marine publishers with freshness headroom', () => {
+        const currentsPublisher = read('.github/workflows/cmems-currents-pipeline.yml');
+        expect(currentsPublisher).toContain("- cron: '20 */6 * * *'");
+        expect(currentsPublisher).toContain("- cron: '20 3,9,15,21 * * *'");
+        expect(read('.github/workflows/cmems-sst-pipeline.yml')).toContain("- cron: '17 3,15 * * *'");
+        expect(read('.github/workflows/cmems-chl-pipeline.yml')).toContain("- cron: '47 4,16 * * *'");
+    });
+
     it('accepts the complete Vercel routing, security, and cache contract', () => {
         const config = JSON.parse(read('vercel.json'));
 
@@ -391,6 +435,8 @@ describe('web release verification', () => {
         expect(verifier).toContain('RAW_MANIFEST_SLOTS.map((slot) => fetchRawManifestSlot(dataset, slot, nowMs))');
         expect(verifier).toContain('HOSTED_ASSET_CONCURRENCY = 2');
         expect(verifier).toContain('verifyHostedMarineAsset(origin, dataset, asset, protectionBypassSecret)');
+        expect(verifier).toContain("for (const layer of ['clouds', 'temperature'])");
+        expect(verifier).toContain('hostedOwmTileFailures(result, `hosted ${pathname}`)');
         expect(verifier).toContain('same-generation discovery slots disagree on immutable manifest content');
         expect(verifier).toContain('/manifest-v2.json?release-verifier=${nowMs}');
         expect(verifier).toContain('virtual discovery manifest must use Cache-Control: no-store');

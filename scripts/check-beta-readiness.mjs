@@ -372,6 +372,9 @@ const watchInfoPlist = read('ios/App/ThalassaWatch-Watch-App-Info.plist');
 const mainPrivacy = read('ios/App/App/PrivacyInfo.xcprivacy');
 const watchPrivacy = read('ios/App/ThalassaWatch Watch App/PrivacyInfo.xcprivacy');
 const viteConfig = read('vite.config.ts');
+const owmTileProxy = read('api/owm-tile.ts');
+const mapConstantsSource = read('components/map/mapConstants.ts');
+const clientSecretBoundary = read('scripts/check-client-secrets.mjs');
 const marineDevProxyBoundary = viteConfig.slice(
     viteConfig.indexOf('export const MARINE_PROXY_DATASETS'),
     viteConfig.indexOf('function releasePublicBetaFeatureManifest'),
@@ -593,18 +596,49 @@ check(
 );
 check(
     'CI production builds require the complete public client configuration',
-    [ciWorkflow, lighthouseWorkflow].every((workflow) =>
-        includesAll(workflow, [
-            'VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}',
-            'VITE_SUPABASE_KEY: ${{ vars.VITE_SUPABASE_KEY }}',
-            'VITE_MAPBOX_ACCESS_TOKEN: ${{ vars.VITE_MAPBOX_ACCESS_TOKEN }}',
-            'VITE_OWM_API_KEY: ${{ vars.VITE_OWM_API_KEY }}',
-            'VITE_SENTRY_DSN: ${{ vars.VITE_SENTRY_DSN }}',
-            'VITE_APP_VERSION: ${{ vars.VITE_APP_VERSION }}',
-            'npm run check:beta',
-            'npm run build',
-        ]),
+    [ciWorkflow, lighthouseWorkflow].every(
+        (workflow) =>
+            includesAll(workflow, [
+                'VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}',
+                'VITE_SUPABASE_KEY: ${{ vars.VITE_SUPABASE_KEY }}',
+                'VITE_MAPBOX_ACCESS_TOKEN: ${{ vars.VITE_MAPBOX_ACCESS_TOKEN }}',
+                'VITE_SENTRY_DSN: ${{ vars.VITE_SENTRY_DSN }}',
+                'VITE_APP_VERSION: ${{ vars.VITE_APP_VERSION }}',
+                'npm run check:beta',
+                'npm run build',
+            ]) &&
+            !workflow.includes('VITE_OWM_API_KEY') &&
+            !workflow.includes('OWM_API_KEY'),
     ),
+);
+check(
+    'OpenWeatherMap tiles use one bounded server-only proxy for web and native',
+    includesAll(owmTileProxy, [
+        'process.env.OWM_API_KEY?.trim()',
+        'https://tile.openweathermap.org/map/',
+        "clouds: 'clouds_new'",
+        "temperature: 'temp_new'",
+        "request.method !== 'GET' && request.method !== 'HEAD'",
+        "request.method === 'OPTIONS'",
+        "'access-control-allow-origin': '*'",
+        "'content-type': 'image/png'",
+        'OWM_TILE_MAX_BYTES',
+        'OWM_TILE_TIMEOUT_MS',
+        'hasPngSignature(bytes)',
+        "'cache-control': 'no-store'",
+    ]) &&
+        includesAll(mapConstantsSource, [
+            "import { API_BASE } from '../../services/native/apiBase';",
+            '`${API_BASE}/owm-tile`',
+            '&z={z}&x={x}&y={y}',
+        ]) &&
+        !mapConstantsSource.includes('VITE_OWM_API_KEY') &&
+        !mapConstantsSource.includes('tile.openweathermap.org') &&
+        includesAll(viteConfig, ["'/api/owm-tile'", "target: 'https://thalassawx.vercel.app'"]) &&
+        includesAll(clientSecretBoundary, ["'VITE_OWM_API_KEY'", "'OWM_API_KEY'"]) &&
+        environmentExample.includes('OWM_API_KEY=') &&
+        !environmentExample.includes('VITE_OWM_API_KEY=') &&
+        !viteEnvironmentTypes.includes('VITE_OWM_API_KEY'),
 );
 check(
     'AIS production packaging is a locked multi-stage Node 22 compiled non-root image',
@@ -1583,7 +1617,7 @@ check(
         JSON.stringify(publicBetaFeatureProfile.heldCapabilities) === JSON.stringify(PUBLIC_BETA_HELD_CAPABILITIES) &&
         JSON.stringify(publicBetaFeatureProfile.requiredAbsentClientConfig) === JSON.stringify([]) &&
         JSON.stringify(publicBetaFeatureProfile.requiredCredentialPresence) ===
-            JSON.stringify(['VITE_OWM_API_KEY', 'VITE_SENTRY_DSN', 'VITE_GOOGLE_OAUTH_CLIENT_ID']),
+            JSON.stringify(['VITE_SENTRY_DSN', 'VITE_GOOGLE_OAUTH_CLIENT_ID']),
 );
 check(
     'production builds inject and emit the committed public-beta profile without workflow duplication',
@@ -3128,7 +3162,6 @@ if (!SOURCE_ONLY) {
     const supabaseUrl = String(env.VITE_SUPABASE_URL ?? '').trim();
     const supabaseKey = String(env.VITE_SUPABASE_ANON_KEY ?? env.VITE_SUPABASE_KEY ?? '').trim();
     const mapboxToken = String(env.VITE_MAPBOX_ACCESS_TOKEN ?? '').trim();
-    const openWeatherMapKey = String(env.VITE_OWM_API_KEY ?? '').trim();
     const sentryDsn = String(env.VITE_SENTRY_DSN ?? '').trim();
     const appVersion = String(env.VITE_APP_VERSION ?? '').trim();
 
@@ -3139,7 +3172,6 @@ if (!SOURCE_ONLY) {
         'only sb_publishable_ keys or legacy JWTs with role=anon may enter the client',
     );
     check('release Mapbox public token is configured', /^pk\.[A-Za-z0-9._-]{20,}$/.test(mapboxToken));
-    check('release OpenWeatherMap client credential is present', openWeatherMapKey.length > 0);
     check('release Sentry ingest DSN is present', sentryDsn.length > 0);
     check(
         'release environment version matches package.json',

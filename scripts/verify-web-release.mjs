@@ -270,7 +270,10 @@ export function validateHtmlSurface(html, surface) {
     for (const marker of markers) {
         if (!html.includes(marker)) failures.push(`${surface} document is missing ${marker}`);
     }
-    if ((surface === 'main' || surface === 'logs' || surface === 'beta') && !/\bsrc=["']\/assets\/[^"']+\.js["']/.test(html)) {
+    if (
+        (surface === 'main' || surface === 'logs' || surface === 'beta') &&
+        !/\bsrc=["']\/assets\/[^"']+\.js["']/.test(html)
+    ) {
         failures.push(`${surface} document does not boot a hashed production JavaScript asset`);
     }
     if (/\bsrc=["']\/src\//.test(html)) failures.push(`${surface} document still references a source module`);
@@ -694,6 +697,51 @@ function responseMediaType(response) {
     return (response.headers.get('content-type') ?? '').split(';', 1)[0].trim().toLowerCase();
 }
 
+const OWM_HOSTED_TILE_MAX_BYTES = 2 * 1024 * 1024;
+const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+
+export function hostedOwmTileFailures(result, label) {
+    const failures = [];
+    if (result.response.status !== 200) {
+        failures.push(`${label}: HTTP ${result.response.status}, expected a proxied PNG tile`);
+        return failures;
+    }
+    if (responseMediaType(result.response) !== 'image/png') {
+        failures.push(`${label}: content-type must be image/png`);
+    }
+    if (
+        result.bytes.length < PNG_SIGNATURE.length ||
+        result.bytes.length > OWM_HOSTED_TILE_MAX_BYTES ||
+        !result.bytes.subarray(0, PNG_SIGNATURE.length).equals(PNG_SIGNATURE)
+    ) {
+        failures.push(`${label}: response is not a bounded PNG tile`);
+    }
+    const cacheControl = result.response.headers.get('cache-control') ?? '';
+    const cacheDirectives = new Set(cacheControl.split(',').map((directive) => directive.trim().toLowerCase()));
+    if (!cacheDirectives.has('public') || !cacheDirectives.has('max-age=300')) {
+        failures.push(`${label}: browser tile cache policy is missing`);
+    }
+    if (result.response.headers.get('access-control-allow-origin') !== '*') {
+        failures.push(`${label}: native tile CORS is missing`);
+    }
+    if (result.response.headers.get('x-content-type-options') !== 'nosniff') {
+        failures.push(`${label}: X-Content-Type-Options: nosniff is missing`);
+    }
+    const responseSurface = [...result.response.headers]
+        .flatMap(([name, value]) => [name, value])
+        .join('\n')
+        .toLowerCase();
+    const bodySurface = result.bytes.toString('latin1');
+    if (
+        result.url.searchParams.has('appid') ||
+        /(?:appid=|owm_api_key)/i.test(responseSurface) ||
+        /(?:appid=|owm_api_key)/i.test(bodySurface)
+    ) {
+        failures.push(`${label}: provider credential metadata escaped the server proxy`);
+    }
+    return failures;
+}
+
 function immutableManifestCore(manifest) {
     return JSON.stringify({
         schema_version: manifest.schema_version,
@@ -775,7 +823,7 @@ async function verifyHostedMarineAsset(origin, dataset, asset, protectionBypassS
     if (result.response.headers.get('x-thalassa-generation') !== asset.generation) {
         failures.push(`${assetPath}: X-Thalassa-Generation does not match ${asset.generation}`);
     }
-    if (result.response.headers.get('cache-control') !== 'public, max-age=31536000, s-maxage=31536000, immutable') {
+    if (result.response.headers.get('cache-control') !== IMMUTABLE_ASSET_CACHE_CONTROL) {
         failures.push(`${assetPath}: immutable release asset cache policy is missing`);
     }
     if (result.response.headers.get('accept-ranges') !== 'none') {
@@ -1060,6 +1108,24 @@ async function verifyHostedDeployment(rawOrigin) {
         } catch (error) {
             failures.push(
                 `/api/${dataset}: hosted manifest/asset probe failed (${error instanceof Error ? error.message : error})`,
+            );
+        }
+    }
+
+    for (const layer of ['clouds', 'temperature']) {
+        const pathname = `/api/owm-tile?layer=${layer}&z=0&x=0&y=0`;
+        try {
+            const result = await getResponse(
+                origin,
+                pathname,
+                'manual',
+                OWM_HOSTED_TILE_MAX_BYTES,
+                protectionBypassSecret,
+            );
+            failures.push(...hostedOwmTileFailures(result, `hosted ${pathname}`));
+        } catch (error) {
+            failures.push(
+                `${pathname}: hosted OWM proxy probe failed (${error instanceof Error ? error.message : error})`,
             );
         }
     }

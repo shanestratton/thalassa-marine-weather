@@ -51,11 +51,12 @@ describe('storm cloud layer', () => {
         expect(overlay).not.toContain('GIBS_MAX_ZOOM');
     });
 
-    it('says so and bails when the build has no OWM key', () => {
-        // Same dark state as the Sky layer — a configuration fact, not a
-        // fault, and better than mounting a source that can never paint.
-        expect(cloudMount).toMatch(/if \(!tiles\)/);
-        expect(overlay).toContain('no OpenWeatherMap key');
+    it('keeps the OWM credential behind the shared server tile proxy', () => {
+        const constants = readFileSync('components/map/mapConstants.ts', 'utf8');
+        expect(constants).toContain('`${API_BASE}/owm-tile`');
+        expect(constants).toContain('&z={z}&x={x}&y={y}');
+        expect(constants).not.toContain('VITE_OWM_API_KEY');
+        expect(constants).not.toContain('appid=');
     });
 });
 
