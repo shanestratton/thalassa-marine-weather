@@ -32,11 +32,11 @@ import {
     type ScanPhase,
 } from '../../services/nmea/gatewayScan';
 import { nativeTcpProbe, detectSubnetPrefix } from '../../services/nmea/nativeTcpProbe';
-import { RemoteAccessSection } from '../settings/RemoteAccessSection';
 import { NMEA_DEVICE_PROFILES } from '../../services/NmeaDeviceProfiles';
 import { GpsReceiverStatusService, type GpsReceiverStatus } from '../../services/GpsReceiverStatusService';
 
 import { PageHeader } from '../ui/PageHeader';
+import { assessHostRoute, getInterfaces } from '../../services/network/networkContext';
 import { FormField } from '../ui/FormField';
 import { Button } from '../ui/Button';
 
@@ -98,6 +98,81 @@ function clearLegacyGatewayDefaultsOnce(): void {
         /* storage unavailable — the defaults below still apply */
     }
 }
+
+/**
+ * How this phone is placed relative to the gateway, right now.
+ *
+ * Deliberately modest about what it can know. iOS lets us see our own
+ * interfaces and whether a tunnel is up; it does NOT let us enumerate which
+ * subnets that tunnel carries. So when a VPN is running and we are not on the
+ * gateway's LAN, the honest answer is "this works if your VPN carries that
+ * network", not "you are connected".
+ *
+ * Renders nothing at all when we have no interface data — on web, and on any
+ * failure. A false claim about the network is exactly what sent Shane looking
+ * at the boat for a problem that was on his phone.
+ */
+const GatewayRouteNote: React.FC<{ host: string }> = ({ host }) => {
+    const [state, setState] = useState<{ known: boolean; vpn: boolean; onLan: boolean; warning: string | null } | null>(
+        null,
+    );
+    useEffect(() => {
+        let alive = true;
+        const check = async () => {
+            const interfaces = await getInterfaces();
+            const route = await assessHostRoute(host, 'the NMEA gateway');
+            if (!alive) return;
+            setState({
+                known: interfaces.length > 0,
+                vpn: route.vpnActive,
+                onLan: route.onSameLan,
+                warning: route.warning,
+            });
+        };
+        void check();
+        // Joining boat Wi-Fi or toggling the VPN is exactly what this reports
+        // on, so it has to notice them doing it.
+        const timer = setInterval(() => void check(), 20_000);
+        return () => {
+            alive = false;
+            clearInterval(timer);
+        };
+    }, [host]);
+
+    if (!state || !state.known) return null;
+
+    const [tone, words] = state.onLan
+        ? state.vpn
+            ? ([
+                  'warn',
+                  state.warning ??
+                      "You are on the gateway's own network with a VPN up — turn it off aboard so traffic goes direct.",
+              ] as const)
+            : (['ok', "You are on the gateway's own network — connecting directly."] as const)
+        : state.vpn
+          ? ([
+                'info',
+                `You are not on ${host}'s network. A VPN is up, so this works if that VPN carries the boat's network.`,
+            ] as const)
+          : ([
+                'warn',
+                `You are not on ${host}'s network, and no VPN is running. Join the boat's Wi-Fi, or turn on the VPN that carries it.`,
+            ] as const);
+
+    return (
+        <div
+            className={`mb-3 rounded-xl border px-3 py-2 text-[11px] leading-snug ${
+                tone === 'ok'
+                    ? 'border-emerald-400/25 bg-emerald-500/10 text-emerald-200'
+                    : tone === 'warn'
+                      ? 'border-amber-400/25 bg-amber-500/10 text-amber-200'
+                      : 'border-white/10 bg-white/[0.03] text-gray-300'
+            }`}
+        >
+            {words}
+        </div>
+    );
+};
 
 export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass }) => {
     // Idempotent and flag-guarded, so the render-phase call is safe under
@@ -411,22 +486,33 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
                             )}
                         </div>
 
-                        {/* Remote access lives here rather than at the foot of
-                            Boat Network (Shane 2026-08-28: "this is a better
-                            spot for it"). This is the card you are on when the
-                            gateway will not answer, so the question it raises —
-                            am I even on the boat's network? — is the question
-                            Tailscale answers. Self-gating: renders nothing
-                            until the Pi is reachable.
-
-                            The VPN-hairpin banner that used to sit here is
-                            gone. It fired on a subnet match and blamed the VPN
-                            for every failure, including the common one where
-                            the host answers and simply refuses the port — the
-                            connection error itself now says which of those it
-                            is. The "turn it off aboard" advice survives inside
-                            the remote-access card, where it belongs. */}
-                        <RemoteAccessSection />
+                        {/*
+                         * "Enable remote access" USED to sit here, and it did
+                         * not belong (Shane 2026-08-28: "i can still reach the
+                         * ydwg-02 without it being connected??? so i am unsure
+                         * of its purpose").
+                         *
+                         * He was right to be unsure. That control runs
+                         * `tailscale up` ON THE PI — POST /api/remote-access/
+                         * enable against pi-cache — and makes the PI reachable
+                         * off the boat. It has nothing to do with the gateway.
+                         * He reaches the YDWG-02 from home because his RUTX50
+                         * advertises the boat's 192.168.1.0/24 to his tailnet
+                         * and the route is approved, which is a router setting
+                         * and is true whether the Pi is switched on, off, or
+                         * sitting on his bench at home.
+                         *
+                         * Worse, it was mounted here AND in the Boat Pi tab,
+                         * so one Pi setting had two switches on two screens. I
+                         * moved it here this morning on the strength of "this
+                         * is a better spot for it" and did not check what it
+                         * actually did. It lives in the Boat Pi tab only.
+                         *
+                         * What belongs on THIS card is the question this card
+                         * raises: can this phone reach THIS gateway from where
+                         * it is standing right now.
+                         */}
+                        <GatewayRouteNote host={host} />
 
                         {/* Why it failed — shown on the FIRST failure, not
                             withheld until a retry, and never truncated.
