@@ -19,6 +19,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useNmeaStore } from './useNmeaStore';
 import { SereneWindRose } from './gauges/SereneWindRose';
+import { SailPlanDiagram } from './gauges/SailPlanDiagram';
 import { useUnwrappedAngle } from './gauges/useUnwrappedAngle';
 import { triggerHaptic } from '../../utils/system';
 import { PageHeader } from '../ui/PageHeader';
@@ -1315,6 +1316,25 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                                     <summary className="cursor-pointer text-[11px] font-black uppercase tracking-[0.2em] text-gray-400 [&::-webkit-details-marker]:hidden">
                                                         Where everything goes
                                                     </summary>
+                                                    {/* The picture first, the prose under it. A
+                                                        position is read from a diagram in one
+                                                        glance and rebuilt from a sentence only
+                                                        with effort — but the words carry the
+                                                        seamanship the drawing cannot (why the
+                                                        traveller is the one you play in a gust),
+                                                        so they stay. Every mark in the diagram
+                                                        comes from this same plan; if the two ever
+                                                        disagree, the diagram is the bug. */}
+                                                    <SailPlanDiagram
+                                                        band={plan.band.band}
+                                                        windAngle={roseTrueAngle}
+                                                        main={plan.row.main}
+                                                        yankee={plan.row.yankee}
+                                                        stay={plan.row.stay}
+                                                        runners={plan.row.runners}
+                                                        prevent={plan.row.prevent}
+                                                        className="mx-auto mt-2 block h-auto w-full max-w-[260px]"
+                                                    />
                                                     <div className="mt-2 space-y-2 text-[12px] leading-relaxed text-gray-300">
                                                         <p>
                                                             <b className="text-white">Traveller.</b>{' '}
