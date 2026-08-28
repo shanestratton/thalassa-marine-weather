@@ -34,7 +34,7 @@ describe('public-beta privacy contract', () => {
         const signIn = read('components/SignInScreen.tsx');
         const account = read('components/settings/AccountTab.tsx');
 
-        expect(terms).toContain('Version 2.4 · Public Beta');
+        expect(terms).toContain('Version 2.7 · Public Beta');
         expect(terms).toContain('supported account data syncs');
         expect(terms).toContain('may also be sent to');
         expect(terms).toContain('pseudonymous Thalassa account ID');
@@ -49,6 +49,74 @@ describe('public-beta privacy contract', () => {
         expect(signIn).toContain('https://www.thalassawx.app/terms.html');
         expect(account).toContain('Automatic private sync');
         expect(account).not.toContain('cloudSyncSettings !== false');
+    });
+
+    it('fully discloses the Crew List phone-verification boundary and removal right', () => {
+        const terms = read('public/terms.html');
+        const normalizedTerms = terms.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
+
+        expect(normalizedTerms).toContain('Twilio Verify solely to deliver and check one-time verification codes');
+        expect(normalizedTerms).toContain('It is not displayed on your public profile');
+        expect(normalizedTerms).toContain('used by Thalassa for marketing');
+        expect(normalizedTerms).toContain(
+            'Thalassa does not retain the full phone number or one-time code in its database',
+        );
+        expect(normalizedTerms).toContain(
+            'During a verification attempt, the only retained representations of the phone number are the last four digits and a keyed one-way fingerprint',
+        );
+        expect(normalizedTerms).toContain('Attempt records are automatically deleted within 25 hours');
+        expect(normalizedTerms).toContain(
+            'After successful verification, those same limited fields form your current verification record and remain until you remove verification or delete your account',
+        );
+        expect(normalizedTerms).toContain('a Twilio verification reference for security and delivery auditing');
+        expect(normalizedTerms).toContain('Twilio separately processes and retains the number');
+        expect(normalizedTerms).toContain('cannot be used to recover the number');
+        expect(normalizedTerms).toContain('remove the retained phone-verification record at any time');
+        expect(normalizedTerms).toContain(
+            "Removal immediately deletes Thalassa's stored last four digits, verification-record fingerprint, verification status and time, and provider reference",
+        );
+        expect(normalizedTerms).toContain(
+            "separate opaque keyed quota tokens derived from the number and the request's network address",
+        );
+        expect(normalizedTerms).toContain('the raw network address is not stored in those records');
+        expect(normalizedTerms).toContain(
+            'These non-dialable tokens may remain for up to 25 hours after verification removal solely to stop repeated SMS abuse',
+        );
+        expect(normalizedTerms).toContain(
+            'Opaque, non-dialable number- and network-derived keyed abuse-prevention tokens may remain for up to 25 hours after account deletion solely to stop repeated SMS abuse and are then deleted',
+        );
+        expect(normalizedTerms).toContain('cannot remain published after removal');
+        expect(normalizedTerms).toContain(
+            'private safety marker containing only your account identifier and the time the marker was created',
+        );
+        expect(normalizedTerms).toContain(
+            'used solely to prevent a former Crew List account from becoming eligible for unsolicited first-contact messages after its profile is removed',
+        );
+        expect(normalizedTerms).toContain(
+            'contains no phone number, phone fingerprint, verification code, profile text, or photograph',
+        );
+        expect(normalizedTerms).toContain('Deleting your Thalassa account deletes the marker');
+    });
+
+    it('discloses automatic Crew List moderation, human fallback, and the no-biometrics boundary', () => {
+        const terms = read('public/terms.html');
+        const normalizedTerms = terms.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
+        const form = read('components/crew-finder/CrewProfileForm.tsx');
+
+        expect(normalizedTerms).toContain('Crew List Profile Safety Check');
+        expect(normalizedTerms).toContain('sent securely to Google Gemini');
+        expect(normalizedTerms).toContain('A clearly safe result may publish automatically');
+        expect(normalizedTerms).toContain('stays private for a Thalassa administrator to review');
+        expect(normalizedTerms).toContain('does not reject or suspend a member by itself');
+        expect(normalizedTerms).toContain('does not ask the safety service to identify you');
+        expect(normalizedTerms).toContain('perform a liveness check');
+        expect(normalizedTerms).toContain('create a facial template or embedding');
+        expect(normalizedTerms).toContain('This is content moderation, not identity verification');
+        expect(normalizedTerms).toContain(
+            'does not copy the profile text, phone number, image bytes, or provider response',
+        );
+        expect(normalizedTerms).toContain('Request human review');
+        expect(form).toContain('No face matching or biometric template');
     });
 
     /**

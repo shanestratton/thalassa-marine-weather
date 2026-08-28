@@ -1,9 +1,22 @@
 {
   "version": "5",
   "specifiers": {
+    "jsr:@std/assert@1": "1.0.19",
+    "jsr:@std/internal@^1.0.12": "1.0.14",
     "npm:@supabase/supabase-js@2": "2.110.9",
     "npm:@types/geojson@7946": "7946.0.16",
     "npm:jose@5": "5.10.0"
+  },
+  "jsr": {
+    "@std/assert@1.0.19": {
+      "integrity": "eaada96ee120cb980bc47e040f82814d786fe8162ecc53c91d8df60b8755991e",
+      "dependencies": [
+        "jsr:@std/internal"
+      ]
+    },
+    "@std/internal@1.0.14": {
+      "integrity": "291516b3d4c35024d6ffbc0a9df5bf4c64116e05b50012cf846710152d2ffdf7"
+    }
   },
   "npm": {
     "@supabase/auth-js@2.110.9": {
@@ -356,6 +369,7 @@
         "npm:@capacitor/ios@^8.0.2",
         "npm:@capacitor/keyboard@8",
         "npm:@capacitor/local-notifications@^8.0.2",
+        "npm:@capacitor/network@^8.0.1",
         "npm:@capacitor/preferences@8",
         "npm:@capacitor/push-notifications@8",
         "npm:@capacitor/screen-orientation@8",
@@ -369,6 +383,7 @@
         "npm:@playwright/test@^1.41.2",
         "npm:@sentry/react@^10.44.0",
         "npm:@storybook/react-vite@^10.5.3",
+        "npm:@supabase/auth-js@^2.98.0",
         "npm:@supabase/supabase-js@^2.39.0",
         "npm:@testing-library/jest-dom@^6.9.1",
         "npm:@testing-library/react@^14.3.1",
@@ -412,6 +427,7 @@
         "npm:lint-staged@^16.4.0",
         "npm:mapbox-gl@^3.18.1",
         "npm:martinez-polygon-clipping@~0.8.1",
+        "npm:patch-package@^8.0.1",
         "npm:pbf@^4.0.1",
         "npm:postcss@^8.5.25",
         "npm:prettier@^3.8.1",

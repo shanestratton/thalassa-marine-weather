@@ -2942,11 +2942,36 @@ check(
         // v2.3 (24 Aug 2026) added the Founding Skipper application privacy
         // section — what the form collects, why, and that raw IPs are not
         // stored with applications. v2.4 (26 Aug 2026) adds the disclosed
-        // transactional application receipt and decision-email flow.
-        'Version 2.4',
-        '26 August 2026',
+        // transactional application receipt and decision-email flow. v2.5
+        // (28 Aug 2026) added Crew List phone-verification processing,
+        // minimisation, non-marketing, and removal disclosures. v2.6 clarifies
+        // the bounded abuse-prevention token retained after explicit removal.
+        // v2.7 adds the server-side Crew List safety-classification flow, its
+        // strict no-biometrics boundary, human fallback, and bounded audit.
+        'Version 2.7',
+        '28 August 2026',
         'destructive in-app deletion flow is temporarily unavailable during this beta',
         'mailto:privacy@thalassawx.com',
+        'Twilio Verify',
+        'solely to deliver and check one-time verification codes',
+        'Thalassa does not retain the full phone number or one-time code in its database',
+        'During a verification attempt, the only retained representations of the phone number are the last four digits',
+        'Attempt records are automatically deleted within 25 hours',
+        'those same limited fields form your current verification record',
+        'Twilio separately processes and retains the number',
+        'remove the retained phone-verification record at any time',
+        "opaque keyed quota tokens derived from the number and the request's network address",
+        'the raw network address is not stored in those records',
+        'non-dialable tokens may remain for up to 25 hours',
+        'solely to stop repeated SMS abuse',
+        'private safety marker containing only your account identifier',
+        'used solely to prevent a former Crew List account from becoming eligible for unsolicited first-contact messages',
+        'Deleting your Thalassa account deletes the marker',
+        'Crew List Profile Safety Check',
+        'Google Gemini',
+        'content moderation, not identity verification',
+        'does not reject or suspend a member by itself',
+        'create a facial template or embedding',
         'Sentry',
         'precise location',
         'syncs automatically',

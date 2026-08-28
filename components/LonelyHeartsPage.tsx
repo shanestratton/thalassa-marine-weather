@@ -8,9 +8,16 @@
 import React from 'react';
 import { useCrewFinderState, type CrewListIntroduction } from '../hooks/useCrewFinderState';
 import { useCrewFinderActions } from '../hooks/useCrewFinderActions';
+import { useCrewPhoneVerification } from '../hooks/useCrewPhoneVerification';
 import { useCrewListConversation } from '../hooks/useCrewListConversation';
-import { getAuthIdentityScope, subscribeAuthIdentityScope } from '../services/authIdentityScope';
+import {
+    getAuthIdentityScope,
+    isAuthIdentityScopeCurrent,
+    subscribeAuthIdentityScope,
+} from '../services/authIdentityScope';
+import { LonelyHeartsService } from '../services/LonelyHeartsService';
 import { CrewProfileForm } from './crew-finder/CrewProfileForm';
+import { CrewPhoneVerificationPanel } from './crew-finder/CrewPhoneVerificationPanel';
 import { CrewBrowseBoard } from './crew-finder/CrewBrowseBoard';
 import { CrewDetailView } from './crew-finder/CrewDetailView';
 import { CrewMatchesList } from './crew-finder/CrewMatchesList';
@@ -29,13 +36,30 @@ interface ActiveCrewListIntroduction {
 
 export const LonelyHeartsPage: React.FC = () => {
     const { state, dispatch } = useCrewFinderState();
-    const actions = useCrewFinderActions(state, dispatch);
+    const phoneVerification = useCrewPhoneVerification();
+    const actions = useCrewFinderActions(state, dispatch, {
+        publicationState: phoneVerification.publicationState,
+    });
     const identityScope = React.useSyncExternalStore(
         (onStoreChange) => subscribeAuthIdentityScope(() => onStoreChange()),
         getAuthIdentityScope,
         getAuthIdentityScope,
     );
     const [activeIntroduction, setActiveIntroduction] = React.useState<ActiveCrewListIntroduction | null>(null);
+
+    // Successful SMS verification may atomically restore an already-approved
+    // profile's server visibility. Refresh that canonical row immediately so
+    // the board opens without requiring another save or app reload.
+    React.useEffect(() => {
+        if (phoneVerification.publicationState !== 'ready') return;
+        const scope = getAuthIdentityScope();
+        if (!scope.userId) return;
+        void LonelyHeartsService.getCrewProfile(scope.userId).then((freshProfile) => {
+            if (freshProfile && isAuthIdentityScopeCurrent(scope)) {
+                dispatch({ type: 'LOAD_PROFILE', payload: freshProfile });
+            }
+        });
+    }, [dispatch, identityScope.generation, identityScope.key, phoneVerification.publicationState]);
 
     const {
         setView,
@@ -85,7 +109,9 @@ export const LonelyHeartsPage: React.FC = () => {
     const isApprovedForCrewList =
         profile?.community_enabled === true &&
         profile.approval_status === 'approved' &&
-        profile.verification_status === 'verified';
+        profile.verification_status === 'verified' &&
+        profile.crew_list_visibility === 'visible' &&
+        phoneVerification.publicationReady;
     const introductionCount = introductions.filter(
         (introduction) =>
             introduction.request.status === 'accepted' ||
@@ -152,7 +178,15 @@ export const LonelyHeartsPage: React.FC = () => {
                             if (tab.key === 'board' && !isApprovedForCrewList) {
                                 setView('my_profile');
                                 toast.error(
-                                    'Your Crew List profile must be approved before you can browse or send introductions',
+                                    phoneVerification.publicationState === 'checking'
+                                        ? 'Still checking your email and mobile verification'
+                                        : phoneVerification.publicationState === 'unavailable'
+                                          ? 'Retry the trust check before opening The Crew List'
+                                          : phoneVerification.publicationState === 'ready'
+                                            ? profile?.approval_status === 'pending'
+                                                ? 'Your Crew List profile is private while the safety review is completed'
+                                                : 'Publish your Crew List profile before browsing or sending introductions'
+                                            : 'Verify your email and mobile before you can browse The Crew List',
                                 );
                                 return;
                             }
@@ -222,6 +256,9 @@ export const LonelyHeartsPage: React.FC = () => {
                     <CrewProfileForm
                         state={state}
                         dispatch={dispatch}
+                        phoneVerificationPanel={<CrewPhoneVerificationPanel controller={phoneVerification} />}
+                        publicationReady={phoneVerification.publicationReady}
+                        publicationState={phoneVerification.publicationState}
                         onSaveProfile={handleSaveProfile}
                         onPauseCrewList={handlePauseCrewList}
                         onPhotoUpload={handlePhotoUpload}

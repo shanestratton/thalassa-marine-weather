@@ -64,13 +64,12 @@ const CREW_LIST_INTENTS: Array<{
 
 /**
  * These fields are intentionally optional while older locally-cached profiles
- * are upgraded. Discoverability is governed by the backend, not this view;
- * the UI only describes an approved status when both review checks are known
- * to have passed.
+ * are upgraded. Discoverability is governed by the backend, not this view.
  */
 interface CrewListReviewFields {
     approval_status?: string | null;
     verification_status?: string | null;
+    crew_list_visibility?: string | null;
 }
 
 // ── Props ──
@@ -78,6 +77,9 @@ interface CrewListReviewFields {
 interface CrewProfileFormProps {
     state: CrewFinderState;
     dispatch: React.Dispatch<CrewFinderAction>;
+    phoneVerificationPanel?: React.ReactNode;
+    publicationReady?: boolean;
+    publicationState?: 'checking' | 'ready' | 'blocked' | 'unavailable';
     // Handler callbacks
     onSaveProfile: () => void;
     onPauseCrewList: () => void;
@@ -92,6 +94,9 @@ interface CrewProfileFormProps {
 const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
     state,
     dispatch,
+    phoneVerificationPanel,
+    publicationReady = true,
+    publicationState,
     onSaveProfile,
     onPauseCrewList,
     onPhotoUpload,
@@ -184,7 +189,10 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
         });
 
     const review = profile as Partial<CrewListReviewFields>;
-    const isApprovedForCrewList = review.approval_status === 'approved' && review.verification_status === 'verified';
+    const resolvedPublicationState = publicationState ?? (publicationReady ? 'ready' : 'blocked');
+    const reviewApproved = review.approval_status === 'approved' && review.verification_status === 'verified';
+    const isApprovedForCrewList =
+        reviewApproved && review.crew_list_visibility === 'visible' && resolvedPublicationState === 'ready';
 
     return (
         <div
@@ -249,17 +257,32 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                         aria-live="polite"
                         className={`mt-3 rounded-2xl border px-3 py-2.5 text-xs leading-relaxed ${isApprovedForCrewList ? 'border-emerald-400/20 bg-emerald-500/[0.10] text-emerald-100/80' : 'border-amber-400/15 bg-amber-500/[0.08] text-amber-100/75'}`}
                     >
-                        {isApprovedForCrewList
-                            ? '✓ Approved for Crew List. You can pause your profile whenever you need privacy.'
-                            : profile?.user_id
-                              ? '⏳ Profile review pending. Keep contact details and exact vessel locations out of your bio.'
-                              : 'Your profile begins private. Add a clear headshot, then submit it for verification and approval.'}
+                        {resolvedPublicationState === 'checking'
+                            ? 'Checking your email and mobile verification… No profile changes are being sent yet.'
+                            : resolvedPublicationState === 'unavailable'
+                              ? 'We could not check your account verification. Retry the trust check below before saving.'
+                              : isApprovedForCrewList
+                                ? '✓ Live on The Crew List. You can pause your profile whenever you need privacy.'
+                                : reviewApproved && resolvedPublicationState === 'blocked'
+                                  ? '🔒 Profile approved. Verify your account email and mobile before it can go live.'
+                                  : reviewApproved
+                                    ? '🔒 Profile approved but private. Publish again to complete the current safety checks.'
+                                    : review.approval_status === 'pending' || review.verification_status === 'pending'
+                                      ? '⏳ A quick safety review is needed. Your profile stays private while we check it.'
+                                      : profile?.user_id
+                                        ? 'Your private draft is saved. Complete the trust checks, then publish when ready.'
+                                        : 'Your profile begins private. Once the trust and content checks pass, it can go live automatically.'}
                     </div>
                     <ul className="mt-3 grid gap-1.5 text-[11px] text-white/45 sm:grid-cols-2">
                         <li>• Your first photo must be a clear headshot.</li>
                         <li>• Introductions are mutual before private chat.</li>
+                        <li className="sm:col-span-2">
+                            • Publishing runs an automated content-safety check. No face matching or biometric template.
+                        </li>
                     </ul>
                 </section>
+
+                {phoneVerificationPanel}
 
                 <div className="text-center mb-1">
                     <span className="text-3xl block mb-1" aria-hidden="true">
@@ -680,8 +703,8 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                         📸 Profile Photos ({editPhotos.length}/6)
                     </label>
                     <p className="text-[11px] leading-relaxed text-white/40 mb-3">
-                        Your first photo is required: use a clear headshot for profile review. The remaining five can
-                        show your sailing life. Every photo is reviewed for safety.
+                        Your first photo is required: use a clear headshot. The remaining five can show your sailing
+                        life. Every photo is checked for safety before publication.
                     </p>
                     <div className="grid grid-cols-3 gap-2">
                         {Array.from({ length: 6 }).map((_, idx) => {
@@ -900,8 +923,8 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                     <section className="mt-6 rounded-2xl border border-amber-400/15 bg-amber-500/[0.045] p-4">
                         <p className="text-sm font-bold text-amber-100/90">Need to disappear for a while?</p>
                         <p className="mt-1 text-xs leading-relaxed text-white/50">
-                            Pausing makes your Crew List profile private immediately. Your draft stays on this device,
-                            but returning needs a fresh manual review.
+                            Pausing makes your Crew List profile private immediately. Your draft stays saved, and the
+                            normal automatic safety check runs when you publish again.
                         </p>
                         <button
                             type="button"
@@ -914,7 +937,7 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                                 ? 'Pausing…'
                                 : isApprovedForCrewList
                                   ? 'Pause The Crew List'
-                                  : 'Withdraw profile from review'}
+                                  : 'Withdraw private profile'}
                         </button>
                     </section>
                 )}
@@ -947,11 +970,31 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                                     Still needed: {missing.join(', ')}
                                 </p>
                             )}
+                            {isComplete && resolvedPublicationState === 'blocked' && (
+                                <p className="mb-2 text-center text-xs text-cyan-200/65">
+                                    Your draft stays private until your email and mobile are verified.
+                                </p>
+                            )}
+                            {isComplete && resolvedPublicationState === 'checking' && (
+                                <p className="mb-2 text-center text-xs text-cyan-200/65">
+                                    Checking your account verification before saving…
+                                </p>
+                            )}
+                            {isComplete && resolvedPublicationState === 'unavailable' && (
+                                <p className="mb-2 text-center text-xs text-amber-200/70">
+                                    Retry the trust check before saving or publishing.
+                                </p>
+                            )}
                             <button
                                 aria-label="Save changes"
                                 onClick={onSaveProfile}
-                                disabled={saving || !isComplete}
-                                className={`w-full py-4 rounded-2xl text-base font-bold transition-all active:scale-[0.98] shadow-xl ${
+                                disabled={
+                                    saving ||
+                                    !isComplete ||
+                                    resolvedPublicationState === 'checking' ||
+                                    resolvedPublicationState === 'unavailable'
+                                }
+                                className={`w-full py-4 rounded-2xl text-base font-bold transition-all active:scale-[0.98] shadow-xl disabled:cursor-not-allowed disabled:opacity-55 ${
                                     isComplete
                                         ? 'bg-gradient-to-r from-emerald-500 to-sky-600 hover:from-emerald-400 hover:to-sky-500 text-white shadow-emerald-500/15'
                                         : 'bg-white/[0.06] text-white/40 cursor-not-allowed shadow-none'
@@ -961,9 +1004,15 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                                     ? '✓ Crew List profile saved'
                                     : saving
                                       ? 'Saving...'
-                                      : isApprovedForCrewList
-                                        ? '💾 Save approved profile'
-                                        : '🛟 Save profile for review'}
+                                      : resolvedPublicationState === 'checking'
+                                        ? 'Checking verification…'
+                                        : resolvedPublicationState === 'unavailable'
+                                          ? 'Retry trust check to continue'
+                                          : isApprovedForCrewList
+                                            ? '💾 Save live profile'
+                                            : resolvedPublicationState === 'blocked'
+                                              ? '💾 Save private draft'
+                                              : '🛟 Publish Crew List profile'}
                             </button>
                         </>
                     );

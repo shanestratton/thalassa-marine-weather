@@ -188,7 +188,22 @@ async function hydrateCrewIntroductions(
 // Hook
 // ────────────────────────────────────────────────────────────
 
-export function useCrewFinderActions(state: CrewFinderState, dispatch: React.Dispatch<CrewFinderAction>) {
+interface CrewFinderActionOptions {
+    /**
+     * Server-backed account checks required before a private draft may enter
+     * the automatic publication check. Optional for isolated callers/tests.
+     */
+    publicationReady?: boolean;
+    publicationState?: 'checking' | 'ready' | 'blocked' | 'unavailable';
+}
+
+export function useCrewFinderActions(
+    state: CrewFinderState,
+    dispatch: React.Dispatch<CrewFinderAction>,
+    options: CrewFinderActionOptions = {},
+) {
+    const publicationState = options.publicationState ?? (options.publicationReady === false ? 'blocked' : 'ready');
+    const publicationReady = publicationState === 'ready';
     const identityScope = useSyncExternalStore(subscribeIdentitySnapshot, getAuthIdentityScope, getAuthIdentityScope);
     const {
         view,
@@ -530,6 +545,14 @@ export function useCrewFinderActions(state: CrewFinderState, dispatch: React.Dis
             toast.error('Sign in first — go to Vessel > Settings > Account');
             return;
         }
+        if (publicationState === 'checking' || publicationState === 'unavailable') {
+            toast.error(
+                publicationState === 'checking'
+                    ? 'Still checking your account verification — try again in a moment'
+                    : 'Could not check your account verification — retry the trust check first',
+            );
+            return;
+        }
         const intent =
             editListingType === 'seeking_crew'
                 ? 'find_crew'
@@ -537,9 +560,7 @@ export function useCrewFinderActions(state: CrewFinderState, dispatch: React.Dis
                   ? 'find_skipper'
                   : null;
         if (!intent || !editFirstName.trim() || !editPhotos[0] || editBio.trim().length < 20) {
-            toast.error(
-                'Add your intent, first name, clear primary headshot and a short bio before submitting for review',
-            );
+            toast.error('Add your intent, first name, clear primary headshot and a short bio before publishing');
             return;
         }
 
@@ -573,22 +594,27 @@ export function useCrewFinderActions(state: CrewFinderState, dispatch: React.Dis
                     return { outcome: 'failed' as const, profileSaved, loadedProfile: null };
                 }
 
-                // Saving an unchanged, already-approved profile must never
-                // hide it or force a redundant review. The database trigger
-                // resets genuinely material edits to draft; only those (and
-                // new/rejected profiles) need the private re-review path.
+                // Saving an unchanged live profile must never hide it or run a
+                // redundant check. The database demotes genuinely material
+                // edits so their exact new snapshot is checked again.
                 const profileAfterSave = await service.getCrewProfile(scope.userId!);
                 if (!profileAfterSave || !isAuthIdentityScopeCurrent(scope)) {
                     return { outcome: 'failed' as const, profileSaved, loadedProfile: null };
                 }
+                // Profile fields are always safe to save as a private draft.
+                // Publication waits for verified email and mobile status.
+                if (!publicationReady) {
+                    return { outcome: 'draft_saved' as const, profileSaved, loadedProfile: profileAfterSave };
+                }
                 if (
                     profileAfterSave.approval_status === 'approved' &&
-                    profileAfterSave.verification_status === 'verified'
+                    profileAfterSave.verification_status === 'verified' &&
+                    profileAfterSave.crew_list_visibility === 'visible'
                 ) {
-                    return { outcome: 'approved' as const, profileSaved, loadedProfile: profileAfterSave };
+                    return { outcome: 'live' as const, profileSaved, loadedProfile: profileAfterSave };
                 }
                 if (profileAfterSave.approval_status === 'pending') {
-                    return { outcome: 'pending' as const, profileSaved, loadedProfile: profileAfterSave };
+                    return { outcome: 'manual_review' as const, profileSaved, loadedProfile: profileAfterSave };
                 }
 
                 const stateSaved = await service.updateCrewListState({
@@ -604,7 +630,17 @@ export function useCrewFinderActions(state: CrewFinderState, dispatch: React.Dis
                     return { outcome: 'failed' as const, profileSaved, loadedProfile: null };
                 }
                 const loadedProfile = await service.getCrewProfile(scope.userId!);
-                return { outcome: 'submitted' as const, profileSaved, loadedProfile };
+                if (
+                    loadedProfile?.approval_status === 'approved' &&
+                    loadedProfile.verification_status === 'verified' &&
+                    loadedProfile.crew_list_visibility === 'visible'
+                ) {
+                    return { outcome: 'published' as const, profileSaved, loadedProfile };
+                }
+                if (loadedProfile?.approval_status === 'pending') {
+                    return { outcome: 'manual_review' as const, profileSaved, loadedProfile };
+                }
+                return { outcome: 'failed' as const, profileSaved, loadedProfile };
             });
             if (result.status === 'stale' || !isAuthIdentityScopeCurrent(scope)) return;
             if (result.status === 'unauthenticated') {
@@ -615,7 +651,7 @@ export function useCrewFinderActions(state: CrewFinderState, dispatch: React.Dis
 
             setSaving(false);
             if (result.value.outcome === 'failed' || !result.value.profileSaved) {
-                toast.error('Could not submit your Crew List profile for review');
+                toast.error('Could not save your Crew List profile');
                 return;
             }
             if (result.value.loadedProfile) {
@@ -624,24 +660,28 @@ export function useCrewFinderActions(state: CrewFinderState, dispatch: React.Dis
             setSaved(true);
             scheduleForIdentity(scope, () => setSaved(false), 2500);
             toast.success(
-                result.value.outcome === 'approved'
-                    ? 'Crew List profile saved — your approved listing remains live'
-                    : result.value.outcome === 'pending'
-                      ? 'Crew List profile saved — it remains in the review queue'
-                      : 'Crew List profile submitted for review',
+                result.value.outcome === 'live'
+                    ? 'Crew List profile saved — your listing remains live'
+                    : result.value.outcome === 'published'
+                      ? 'Crew List profile published — you are live'
+                      : result.value.outcome === 'manual_review'
+                        ? 'Profile saved privately — it needs a quick safety review'
+                        : result.value.outcome === 'draft_saved'
+                          ? 'Private draft saved — verify your email and mobile before publishing'
+                          : 'Crew List profile saved',
             );
         } catch (error) {
             if (!isAuthIdentityScopeCurrent(scope)) return;
             log.warn('Crew profile save failed:', error);
             setSaving(false);
-            toast.error('Could not submit your Crew List profile for review');
+            toast.error('Could not save your Crew List profile');
         }
     };
 
     /**
      * Discreetly take a Crew List profile offline without deleting the sailor's
-     * private draft. The server makes it undiscoverable immediately and clears
-     * its prior review attestation, so returning is a deliberate fresh review.
+     * private draft. The server makes it undiscoverable immediately; returning
+     * runs the normal automatic safety check again.
      */
     const handlePauseCrewList = async () => {
         const scope = getAuthIdentityScope();
@@ -660,7 +700,7 @@ export function useCrewFinderActions(state: CrewFinderState, dispatch: React.Dis
                 return;
             }
             if (result.value.profile) dispatch({ type: 'LOAD_PROFILE', payload: result.value.profile });
-            toast.success('Crew List paused — your profile is private. Returning will need a fresh review.');
+            toast.success('Crew List paused — your profile is private. Publish again whenever you are ready.');
         } catch (error) {
             if (!isAuthIdentityScopeCurrent(scope)) return;
             log.warn('Crew List pause failed:', error);
