@@ -37,7 +37,33 @@ describe('Crew profile-publication Edge contract', () => {
         expect(moderation).toContain('Image 1 is a reasonable primary profile headshot');
         expect(moderation).toContain('Never automatically reject a sailor');
         expect(moderation).toMatch(/temperature: 0/);
+        expect(moderation).toMatch(/thinkingConfig: \{ thinkingBudget: 0 \}/);
+        expect(moderation).toMatch(/maxOutputTokens: 256/);
         expect(moderation).toMatch(/responseMimeType: 'application\/json'/);
+    });
+
+    it('retries only bounded technical failures before the trusted finalizer', () => {
+        expect(index).toContain('runCrewPublicationModerationWithRetry');
+        expect(index).toMatch(/MODERATION_REQUEST_TIMEOUT_MS\s*=\s*15_000/);
+        expect(index).toMatch(
+            /runCrewPublicationModerationWithRetry\(\(\) =>[\s\S]*?moderate\(geminiKey, moderationRequest\)/,
+        );
+        expect(moderation).toMatch(/TECHNICAL_MODERATION_RETRY_DELAYS_MS\s*=\s*\[500\]/);
+        const retryCodes = moderation.match(/RETRYABLE_TECHNICAL_REASON_CODES\s*=\s*new Set\(\[([\s\S]*?)\]\)/)?.[1];
+        expect(retryCodes).toContain('moderation_incomplete');
+        expect(retryCodes).toContain('moderation_unavailable');
+        expect(retryCodes).toContain('provider_rate_limited');
+        expect(retryCodes).not.toMatch(/moderation_malformed|provider_blocked|unsafe_content|scam_signal/);
+        expect(moderation).toMatch(/!isRetryableTechnicalModerationResult\(result\) \|\| retryDelay === undefined/);
+        expect(moderation).toMatch(/finishReason === 'MAX_TOKENS'[\s\S]*?'moderation_incomplete'/);
+        expect(moderation).toMatch(/PROVIDER_BLOCK_FINISH_REASONS[\s\S]*?'provider_blocked'/);
+        expect(moderation).toMatch(/safetyRatings\.some[\s\S]*?blocked === true[\s\S]*?'provider_blocked'/);
+
+        expect(index.match(/admin\.rpc\('begin_crew_profile_publication'/g)).toHaveLength(1);
+        expect(index.match(/admin\.rpc\('finalize_crew_profile_publication'/g)).toHaveLength(1);
+        expect(index.match(/\.from\('sailor_crew_profiles'\)/g)).toHaveLength(1);
+        expect(index.match(/admin\.storage\.from\('crew-list-photos'\)\.download\(path\)/g)).toHaveLength(1);
+        expect(index).not.toMatch(/\.update\s*\(/);
     });
 
     it('fails provider, parsing, file, and ambiguity errors closed into human review', () => {
