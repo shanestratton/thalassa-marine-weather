@@ -19,6 +19,7 @@ import {
     fixIsCurrent,
     readFix,
     relayFingerprint,
+    AnchorWatchRunner,
 } from './anchorBroadcaster.js';
 
 const ASSIGNMENT = { sessionCode: 'ABC123DEF456', anchorLat: -27.19508, anchorLon: 153.10555, swingRadius: 40 };
@@ -185,4 +186,84 @@ test('a relay fingerprint identifies a Pi in logs without leaking its id', () =>
     const fp = relayFingerprint(CREDENTIAL.relayId);
     assert.match(fp, /^[0-9a-f]{8}$/);
     assert.ok(!CREDENTIAL.relayId.includes(fp));
+});
+
+/* ── the running watch ─────────────────────────────────────────────────── */
+
+const runnerDeps = (post: { ok: boolean; status: number }, fixDoc: unknown = skDoc(-27.19, 153.1)) => {
+    const timers: Array<() => void> = [];
+    const outcomes: string[] = [];
+    const { impl } = fetcherFor(fixDoc, true, post);
+    return {
+        outcomes,
+        tick: async () => {
+            timers.forEach((fn) => fn());
+            await new Promise((r) => setTimeout(r, 0));
+        },
+        deps: {
+            fetchImpl: impl,
+            signalkOrigin: 'http://127.0.0.1:3000',
+            now: () => Date.now(),
+            setIntervalImpl: ((fn: () => void) => {
+                timers.push(fn);
+                return 1 as unknown as ReturnType<typeof setInterval>;
+            }) as unknown as typeof setInterval,
+            clearIntervalImpl: (() => {
+                timers.length = 0;
+            }) as unknown as typeof clearInterval,
+            onOutcome: (o: string) => outcomes.push(o),
+        },
+    };
+};
+
+test('a second assignment replaces the first — a boat has one anchor down', async () => {
+    const { deps } = runnerDeps({ ok: true, status: 200 });
+    const runner = new AnchorWatchRunner(deps);
+    runner.start(ASSIGNMENT, CREDENTIAL);
+    runner.start({ ...ASSIGNMENT, sessionCode: 'ZZZ999YYY888' }, CREDENTIAL);
+    assert.equal(runner.describe().sessionCode, 'ZZZ999YYY888');
+    assert.equal(runner.isRunning(), true);
+    runner.stop();
+});
+
+test('stops itself on a credential the relay rejects outright', async () => {
+    // Retrying a bad credential every ten seconds is a stream of failed auth
+    // attempts against the skipper's own account, and it will never start
+    // working.
+    const { deps, tick } = runnerDeps({ ok: false, status: 401 });
+    const runner = new AnchorWatchRunner(deps);
+    runner.start(ASSIGNMENT, CREDENTIAL);
+    await tick();
+    await new Promise((r) => setTimeout(r, 10));
+    assert.equal(runner.isRunning(), false);
+});
+
+test('keeps going when the authorisation has merely lapsed', async () => {
+    // The app renews it; this is not a permanent failure.
+    const { deps, tick } = runnerDeps({ ok: false, status: 403 });
+    const runner = new AnchorWatchRunner(deps);
+    runner.start(ASSIGNMENT, CREDENTIAL);
+    await tick();
+    await new Promise((r) => setTimeout(r, 10));
+    assert.equal(runner.isRunning(), true);
+    runner.stop();
+});
+
+test('describe() is safe to put in a status response', () => {
+    const { deps } = runnerDeps({ ok: true, status: 200 });
+    const runner = new AnchorWatchRunner(deps);
+    runner.start(ASSIGNMENT, CREDENTIAL);
+    const described = JSON.stringify(runner.describe());
+    assert.ok(!described.includes(CREDENTIAL.token), 'must never carry the relay token');
+    assert.ok(!described.includes(CREDENTIAL.relayId), 'must never carry the relay id');
+    runner.stop();
+});
+
+test('stopping clears the assignment, so nothing lingers after the watch ends', () => {
+    const { deps } = runnerDeps({ ok: true, status: 200 });
+    const runner = new AnchorWatchRunner(deps);
+    runner.start(ASSIGNMENT, CREDENTIAL);
+    runner.stop();
+    assert.equal(runner.describe().sessionCode, null);
+    assert.equal(runner.isRunning(), false);
 });
