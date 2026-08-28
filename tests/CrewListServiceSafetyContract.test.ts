@@ -45,7 +45,7 @@ describe('Crew List service safety contract', () => {
     it('keeps owner-controlled opt-in state separate from review and verification controls', () => {
         const stateUpdate = sourceBetween(
             'async updateCrewListState(',
-            '/** Submit a complete, private profile for administrator verification. */',
+            '/**\n     * Ask the trusted publication worker',
         );
         const reviewSubmit = sourceBetween('async submitCrewProfileForReview(', '/** Admin-only queue.');
 
@@ -56,12 +56,14 @@ describe('Crew List service safety contract', () => {
         expect(stateUpdate).not.toContain("verification_status: 'verified'");
         expect(stateUpdate).toMatch(/update\.community_enabled === false\) updates\.crew_list_visibility = 'private'/);
 
-        expect(reviewSubmit).toMatch(/approval_status: 'pending'/);
-        expect(reviewSubmit).toMatch(/verification_status: 'pending'/);
-        expect(reviewSubmit).toMatch(/crew_list_visibility: 'private'/);
-        expect(reviewSubmit).toMatch(/!profile\.community_enabled/);
-        expect(reviewSubmit).toMatch(/profile\.crew_intents\.length === 0/);
-        expect(reviewSubmit).toMatch(/!profile\.crew_photo_path\?\.trim\(\)/);
+        expect(reviewSubmit).toMatch(/supabase\.functions\.invoke\('crew-profile-publication'/);
+        expect(reviewSubmit).toMatch(/body: \{ action: 'submit' \}/);
+        expect(reviewSubmit).toMatch(/outcome === 'published' \|\| outcome === 'manual_review'/);
+        expect(reviewSubmit).not.toContain('.from(CREW_PROFILES_TABLE)');
+        expect(reviewSubmit).not.toMatch(/user_?id:/i);
+        expect(reviewSubmit).not.toMatch(/verdict:/i);
+        expect(reviewSubmit).not.toMatch(/approval_status: 'pending'/);
+        expect(reviewSubmit).not.toMatch(/verification_status: 'pending'/);
     });
 
     it('rejects contact details before an introduction request can write anything', () => {
@@ -78,11 +80,14 @@ describe('Crew List service safety contract', () => {
         expect(sanitizer).toMatch(/return containsEmail \|\| containsUrl \|\| containsPhone \? null : normalized/);
 
         expect(sendIntro.indexOf('this.normalizeCrewIntroMessage(message)')).toBeLessThan(
-            sendIntro.indexOf('.from(CREW_INTRO_REQUESTS_TABLE)'),
+            sendIntro.indexOf("supabase.rpc('create_crew_intro_request'"),
         );
         expect(sendIntro).toMatch(/note === null/);
         expect(sendIntro).toMatch(/return null/);
-        expect(sendIntro).toMatch(/\.insert\(\{ sender_id: ownerId, recipient_id: recipient, message: note \}\)/);
+        expect(sendIntro).toMatch(/supabase\.rpc\('create_crew_intro_request'/);
+        expect(sendIntro).toMatch(/p_recipient_id: recipient/);
+        expect(sendIntro).toMatch(/p_message: note/);
+        expect(sendIntro).not.toMatch(/sender_id:/);
         expect(sendIntro).not.toMatch(/\b(?:email|phone|mobile|url|website|contact)\b/i);
     });
 

@@ -93,6 +93,18 @@ function useHarness() {
     return { ...crewState, actions };
 }
 
+function useHarnessWithPublicationReady(publicationReady: boolean) {
+    const crewState = useCrewFinderState();
+    const actions = useCrewFinderActions(crewState.state, crewState.dispatch, { publicationReady });
+    return { ...crewState, actions };
+}
+
+function useHarnessWithPublicationState(publicationState: 'checking' | 'ready' | 'blocked' | 'unavailable') {
+    const crewState = useCrewFinderState();
+    const actions = useCrewFinderActions(crewState.state, crewState.dispatch, { publicationState });
+    return { ...crewState, actions };
+}
+
 async function renderReady() {
     const rendered = renderHook(() => useHarness());
     await waitFor(() => expect(rendered.result.current.state.loading).toBe(false));
@@ -422,6 +434,157 @@ describe('Crew Finder async identity fencing', () => {
         expect(rendered.result.current.state.profile).toEqual({});
         expect(toastMocks.success).not.toHaveBeenCalled();
         expect(toastMocks.error).not.toHaveBeenCalled();
+    });
+
+    it('saves a complete private draft without opting in or submitting before account checks pass', async () => {
+        const rendered = renderHook(() => useHarnessWithPublicationReady(false));
+        await waitFor(() => expect(rendered.result.current.state.loading).toBe(false));
+        crewService.getCrewProfile.mockResolvedValue(profile('account-a', 'Sailor A'));
+        toastMocks.success.mockClear();
+
+        act(() => {
+            rendered.result.current.dispatch({ type: 'SET_EDIT_LISTING_TYPE', payload: 'seeking_crew' });
+            rendered.result.current.dispatch({ type: 'SET_EDIT_FIRST_NAME', payload: 'Sailor A' });
+            rendered.result.current.dispatch({
+                type: 'SET_EDIT_PHOTOS',
+                payload: ['https://example.com/headshot.jpg'],
+            });
+            rendered.result.current.dispatch({
+                type: 'SET_EDIT_BIO',
+                payload: 'An experienced sailor looking for a thoughtful coastal passage.',
+            });
+        });
+
+        await act(async () => rendered.result.current.actions.handleSaveProfile());
+
+        expect(crewService.updateCrewProfile).toHaveBeenCalledTimes(1);
+        expect(crewService.updateCrewListState).not.toHaveBeenCalled();
+        expect(crewService.submitCrewProfileForReview).not.toHaveBeenCalled();
+        expect(toastMocks.success).toHaveBeenCalledWith(
+            'Private draft saved — verify your email and mobile before publishing',
+        );
+    });
+
+    it('does not mutate a profile while the current account trust check is unknown', async () => {
+        const rendered = renderHook(() => useHarnessWithPublicationState('checking'));
+        await waitFor(() => expect(rendered.result.current.state.loading).toBe(false));
+        toastMocks.error.mockClear();
+
+        await act(async () => rendered.result.current.actions.handleSaveProfile());
+
+        expect(crewService.updateCrewProfile).not.toHaveBeenCalled();
+        expect(crewService.updateCrewListState).not.toHaveBeenCalled();
+        expect(crewService.submitCrewProfileForReview).not.toHaveBeenCalled();
+        expect(toastMocks.error).toHaveBeenCalledWith(
+            'Still checking your account verification — try again in a moment',
+        );
+    });
+
+    it('reports the authoritative automatic-publication outcome after reloading the profile', async () => {
+        const rendered = await renderReady();
+        crewService.getCrewProfile.mockReset();
+        crewService.getCrewProfile
+            .mockResolvedValueOnce({
+                ...profile('account-a', 'Sailor A'),
+                approval_status: 'draft',
+                verification_status: 'unverified',
+                crew_list_visibility: 'private',
+            })
+            .mockResolvedValueOnce({
+                ...profile('account-a', 'Sailor A'),
+                approval_status: 'approved',
+                verification_status: 'verified',
+                crew_list_visibility: 'visible',
+            });
+        toastMocks.success.mockClear();
+
+        act(() => {
+            rendered.result.current.dispatch({ type: 'SET_EDIT_LISTING_TYPE', payload: 'seeking_crew' });
+            rendered.result.current.dispatch({ type: 'SET_EDIT_FIRST_NAME', payload: 'Sailor A' });
+            rendered.result.current.dispatch({
+                type: 'SET_EDIT_PHOTOS',
+                payload: ['https://example.com/headshot.jpg'],
+            });
+            rendered.result.current.dispatch({
+                type: 'SET_EDIT_BIO',
+                payload: 'An experienced sailor looking for a thoughtful coastal passage.',
+            });
+        });
+        await act(async () => rendered.result.current.actions.handleSaveProfile());
+
+        expect(crewService.updateCrewListState).toHaveBeenCalledWith({
+            community_enabled: true,
+            crew_intents: ['find_crew'],
+            crew_list_visibility: 'private',
+        });
+        expect(crewService.submitCrewProfileForReview).toHaveBeenCalledTimes(1);
+        expect(toastMocks.success).toHaveBeenCalledWith('Crew List profile published — you are live');
+    });
+
+    it('keeps an uncertain automatic result private and describes the human fallback', async () => {
+        const rendered = await renderReady();
+        crewService.getCrewProfile.mockReset();
+        crewService.getCrewProfile
+            .mockResolvedValueOnce({
+                ...profile('account-a', 'Sailor A'),
+                approval_status: 'draft',
+                verification_status: 'unverified',
+                crew_list_visibility: 'private',
+            })
+            .mockResolvedValueOnce({
+                ...profile('account-a', 'Sailor A'),
+                approval_status: 'pending',
+                verification_status: 'pending',
+                crew_list_visibility: 'private',
+            });
+        toastMocks.success.mockClear();
+
+        act(() => {
+            rendered.result.current.dispatch({ type: 'SET_EDIT_LISTING_TYPE', payload: 'seeking_berth' });
+            rendered.result.current.dispatch({ type: 'SET_EDIT_FIRST_NAME', payload: 'Sailor A' });
+            rendered.result.current.dispatch({
+                type: 'SET_EDIT_PHOTOS',
+                payload: ['https://example.com/headshot.jpg'],
+            });
+            rendered.result.current.dispatch({
+                type: 'SET_EDIT_BIO',
+                payload: 'An experienced sailor looking for a thoughtful coastal passage.',
+            });
+        });
+        await act(async () => rendered.result.current.actions.handleSaveProfile());
+
+        expect(crewService.submitCrewProfileForReview).toHaveBeenCalledTimes(1);
+        expect(toastMocks.success).toHaveBeenCalledWith('Profile saved privately — it needs a quick safety review');
+    });
+
+    it('does not rerun publication for an unchanged profile that remains live', async () => {
+        const rendered = await renderReady();
+        crewService.getCrewProfile.mockReset();
+        crewService.getCrewProfile.mockResolvedValueOnce({
+            ...profile('account-a', 'Sailor A'),
+            approval_status: 'approved',
+            verification_status: 'verified',
+            crew_list_visibility: 'visible',
+        });
+        toastMocks.success.mockClear();
+
+        act(() => {
+            rendered.result.current.dispatch({ type: 'SET_EDIT_LISTING_TYPE', payload: 'seeking_crew' });
+            rendered.result.current.dispatch({ type: 'SET_EDIT_FIRST_NAME', payload: 'Sailor A' });
+            rendered.result.current.dispatch({
+                type: 'SET_EDIT_PHOTOS',
+                payload: ['https://example.com/headshot.jpg'],
+            });
+            rendered.result.current.dispatch({
+                type: 'SET_EDIT_BIO',
+                payload: 'An experienced sailor looking for a thoughtful coastal passage.',
+            });
+        });
+        await act(async () => rendered.result.current.actions.handleSaveProfile());
+
+        expect(crewService.updateCrewListState).not.toHaveBeenCalled();
+        expect(crewService.submitCrewProfileForReview).not.toHaveBeenCalled();
+        expect(toastMocks.success).toHaveBeenCalledWith('Crew List profile saved — your listing remains live');
     });
 
     it('cancels an A swipe-completion timer at the identity boundary', async () => {

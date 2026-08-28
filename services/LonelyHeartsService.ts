@@ -1014,37 +1014,22 @@ class LonelyHeartsServiceClass {
         return this.updateCrewProfileForScope(scope, ownerId, updates);
     }
 
-    /** Submit a complete, private profile for administrator verification. */
+    /**
+     * Ask the trusted publication worker to check the canonical private
+     * profile. Clear profiles publish automatically; uncertain or flagged
+     * profiles stay private in the administrator queue.
+     */
     async submitCrewProfileForReview(): Promise<boolean> {
         if (!supabase) return false;
         const scope = getAuthIdentityScope();
         const ownerId = await this.getAuthenticatedOwner(scope);
         if (!ownerId || !isAuthIdentityScopeCurrent(scope)) return false;
-
-        const profile = await this.getCrewProfileForScope(scope, ownerId);
-        if (
-            !profile ||
-            !profile.community_enabled ||
-            profile.crew_intents.length === 0 ||
-            !profile.crew_photo_path?.trim() ||
-            !isAuthIdentityScopeCurrent(scope)
-        ) {
-            return false;
-        }
-
-        const { error } = await supabase
-            .from(CREW_PROFILES_TABLE)
-            .update({
-                approval_status: 'pending',
-                verification_status: 'pending',
-                crew_list_visibility: 'private',
-                review_requested_at: new Date().toISOString(),
-                reviewed_at: null,
-                reviewed_by: null,
-            })
-            .eq('user_id', ownerId);
-
-        return !error && isAuthIdentityScopeCurrent(scope);
+        const { data, error } = await supabase.functions.invoke('crew-profile-publication', {
+            body: { action: 'submit' },
+        });
+        if (error || !isAuthIdentityScopeCurrent(scope) || !data || typeof data !== 'object') return false;
+        const outcome = (data as Record<string, unknown>).outcome;
+        return (outcome === 'published' || outcome === 'manual_review') && isAuthIdentityScopeCurrent(scope);
     }
 
     /** Admin-only queue. RLS returns no profiles to non-administrators. */
@@ -1970,11 +1955,10 @@ class LonelyHeartsServiceClass {
             return null;
         }
 
-        const { data, error } = await supabase
-            .from(CREW_INTRO_REQUESTS_TABLE)
-            .insert({ sender_id: ownerId, recipient_id: recipient, message: note })
-            .select('*')
-            .single();
+        const { data, error } = await supabase.rpc('create_crew_intro_request', {
+            p_recipient_id: recipient,
+            p_message: note,
+        });
         if (error || !isAuthIdentityScopeCurrent(scope)) return null;
         const request = data ? this.normalizeCrewIntroRequest(data) : null;
         return request?.sender_id === ownerId && request.recipient_id === recipient ? request : null;

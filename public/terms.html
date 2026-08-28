@@ -229,7 +229,7 @@
                 <img src="/thalassa-icon.png" alt="Thalassa" />
                 <h1>Terms & Privacy</h1>
                 <p class="subtitle">Thalassa Marine Weather</p>
-                <p class="effective">Effective Date: 26 August 2026 &nbsp;·&nbsp; Version 2.4 · Public Beta</p>
+                <p class="effective">Effective Date: 28 August 2026 &nbsp;·&nbsp; Version 2.7 · Public Beta</p>
             </div>
 
             <!-- Tabs -->
@@ -256,6 +256,7 @@
                     <li>Anchor watch with GPS monitoring and drag alarms</li>
                     <li>Ship's log book and captain's diary</li>
                     <li>Vessel inventory, equipment register, and document management</li>
+                    <li>Find a Crew and Find a Skipper community profiles</li>
                     <li>NMEA instrument data integration</li>
                     <li>Polar performance analysis</li>
                 </ul>
@@ -349,6 +350,10 @@
                         <strong>Resend</strong> — transactional Founding Skipper application receipt, acceptance, and
                         operator notification emails
                     </li>
+                    <li>
+                        <strong>Twilio Verify</strong> — delivery and checking of one-time SMS codes used solely to
+                        verify a phone number before a Find a Crew or Find a Skipper profile is published
+                    </li>
                     <li><strong>Open-Meteo, StormGlass, and Apple WeatherKit</strong> — weather and ocean data</li>
                     <li>
                         <strong>Mapbox, MapTiler, and OpenStreetMap contributors</strong> — maps and geospatial data
@@ -356,7 +361,10 @@
                     <li>
                         <strong>Nominatim and other configured geocoders</strong> — place search and reverse geocoding
                     </li>
-                    <li><strong>Google Gemini and Anthropic</strong> — optional AI assistance</li>
+                    <li>
+                        <strong>Google Gemini and Anthropic</strong> — optional AI assistance; Google Gemini also
+                        performs the automated Crew List content-safety check described in the Privacy Policy
+                    </li>
                     <li><strong>Deepgram and ElevenLabs</strong> — optional speech recognition and text-to-speech</li>
                     <li><strong>Sentry</strong> — crash and limited performance diagnostics</li>
                     <li>
@@ -440,6 +448,66 @@
                     data or use it for advertising.
                 </p>
 
+                <h3>Crew List Phone Verification</h3>
+                <p>
+                    Before a Find a Crew or Find a Skipper profile can be published, Thalassa asks you to verify control
+                    of a phone number. The number is sent to <strong>Twilio Verify</strong> solely to deliver and check
+                    one-time verification codes. It is not displayed on your public profile, disclosed to other members,
+                    used by Thalassa for marketing, or shared with third parties for marketing.
+                </p>
+                <p>
+                    Thalassa does not retain the full phone number or one-time code in its database. During a
+                    verification attempt, the only retained representations of the phone number are the last four digits
+                    and a keyed one-way fingerprint used to recognise the same number and deter duplicate or abusive
+                    profiles. Thalassa also temporarily retains the attempt status and times and a Twilio verification
+                    reference for security and delivery auditing and to complete the attempt; the reference is not a
+                    phone number. Attempt records are automatically deleted within 25 hours. After successful
+                    verification, those same limited fields form your current verification record and remain until you
+                    remove verification or delete your account. The fingerprint is not dialable and cannot be used to
+                    recover the number without Thalassa's private server-side key. Twilio separately processes and
+                    retains the number and related delivery data for limited periods as Thalassa's verification provider
+                    under Twilio's privacy terms.
+                </p>
+                <p>
+                    You may ask Thalassa to remove the retained phone-verification record at any time by emailing
+                    <a href="mailto:privacy@thalassawx.com">privacy@thalassawx.com</a>. Removal immediately deletes
+                    Thalassa's stored last four digits, verification-record fingerprint, verification status and time,
+                    and provider reference. To limit repeated SMS abuse, Thalassa also keeps separate opaque keyed quota
+                    tokens derived from the number and the request's network address, together with a quota window and
+                    count; the raw network address is not stored in those records. These non-dialable tokens may remain
+                    for up to 25 hours after verification removal solely to stop repeated SMS abuse. They cannot be used
+                    to contact you or recover the number or network address without Thalassa's private server-side key
+                    and are then deleted. A Crew List profile cannot remain published after removal unless a phone
+                    number is verified again.
+                </p>
+                <p>
+                    If you hide or delete a Crew List profile while keeping your Thalassa account, Thalassa retains a
+                    private safety marker containing only your account identifier and the time the marker was created.
+                    It remains until your Thalassa account is deleted and is used solely to prevent a former Crew List
+                    account from becoming eligible for unsolicited first-contact messages after its profile is removed.
+                    The marker is not public and contains no phone number, phone fingerprint, verification code, profile
+                    text, or photograph. Deleting your Thalassa account deletes the marker.
+                </p>
+
+                <h3>Crew List Profile Safety Check</h3>
+                <p>
+                    When you ask to publish a Crew List profile, the profile fields intended for other approved members
+                    and each Crew List photograph are sent securely to <strong>Google Gemini</strong> for a limited
+                    content-safety classification. The check looks for a reasonable adult primary headshot, ordinary
+                    sailing or social content, scams, external contact details, advertising, and unsafe material. A
+                    clearly safe result may publish automatically. An uncertain or flagged result stays private for a
+                    Thalassa administrator to review; the automated check does not reject or suspend a member by itself.
+                </p>
+                <p>
+                    Thalassa does not ask the safety service to identify you, match your face to any record, compare
+                    faces, perform a liveness check, create a facial template or embedding, or infer sensitive traits.
+                    This is content moderation, not identity verification. Thalassa retains a private, bounded audit
+                    record containing the decision, reason code, rules version, and cryptographic snapshots of the
+                    checked profile and file objects. That record does not copy the profile text, phone number, image
+                    bytes, or provider response. Your actual Crew List profile and photographs remain in Thalassa's
+                    private account storage until you edit or delete them or delete your account.
+                </p>
+
                 <h3>Location Data</h3>
                 <div class="card">
                     <p>Thalassa uses your device's GPS for:</p>
@@ -509,11 +577,13 @@
                 <p>
                     When you invoke AI or voice features, your prompt, audio or transcribed text, and the selected
                     weather, vessel, passage, location, or app context are sent to the configured AI, speech-to-text, or
-                    text-to-speech provider. Gmail and Apple Music connections are disabled in this public-beta
-                    candidate. If a future release enables one and you explicitly connect it, Thalassa will process the
-                    account tokens and content needed for the actions you request. You can disconnect an enabled
-                    integration in Settings and should also revoke its grant in the provider's account settings if you
-                    want the provider authorisation itself withdrawn.
+                    text-to-speech provider. Separately, asking to publish a Crew List profile sends its member-visible
+                    fields and photographs to Google Gemini for the limited safety check described above. Gmail and
+                    Apple Music connections are disabled in this public-beta candidate. If a future release enables one
+                    and you explicitly connect it, Thalassa will process the account tokens and content needed for the
+                    actions you request. You can disconnect an enabled integration in Settings and should also revoke
+                    its grant in the provider's account settings if you want the provider authorisation itself
+                    withdrawn.
                 </p>
 
                 <h3>Diagnostics</h3>
@@ -528,6 +598,14 @@
                 <ul>
                     <li>To provide and maintain the App's core functionality</li>
                     <li>To authenticate your account and provide the public beta</li>
+                    <li>
+                        To verify control of a phone number before publishing a Crew List profile and deter duplicate or
+                        abusive profiles
+                    </li>
+                    <li>
+                        To check Crew List profiles for scams and unsafe content, publish clearly safe profiles, and
+                        refer uncertain profiles for human review
+                    </li>
                     <li>To sync your private account data across devices while you are signed in</li>
                     <li>To generate weather forecasts for your requested locations</li>
                     <li>To provide AI, voice, mapping, sharing, and optional connected-account actions you request</li>
@@ -609,6 +687,17 @@
                         <strong>Withdraw permissions</strong> — Disable location, notifications, microphone, or
                         connected integrations at any time
                     </li>
+                    <li>
+                        <strong>Remove phone verification</strong> — Ask us to delete Thalassa's retained last four
+                        digits, verification-record fingerprint, verification status and time, and provider reference;
+                        opaque number- and network-derived keyed abuse-prevention tokens may remain for up to 25 hours
+                        solely to stop repeated SMS abuse, and the Crew List profile will need to be verified again
+                        before it can be published
+                    </li>
+                    <li>
+                        <strong>Request human review</strong> — Ask us to review a Crew List profile that an automated
+                        safety check kept private
+                    </li>
                 </ul>
                 <p>
                     To exercise these rights, contact us at
@@ -621,12 +710,14 @@
                     request deletion. The destructive in-app flow remains paused until durable write fencing, survivor
                     scrubs, exact backend deployment, storage verification, and live failure-path testing are complete.
                     Once verified and enabled, that flow is designed to remove your Thalassa sign-in, private synced
-                    records, uploaded media, account-linked community content, and account-scoped device caches. Limited
-                    security, abuse-prevention, or legal audit records may be retained only after direct identifiers and
-                    free-form details are removed. Content in a shared conversation may be anonymised where deleting the
-                    entire conversation would remove other people's records. Backup copies age out under infrastructure
-                    backup schedules. If device cleanup reports a failure, uninstalling Thalassa removes the remaining
-                    app sandbox.
+                    records, phone-verification last four digits and verification-record fingerprint, uploaded media,
+                    account-linked community content, and account-scoped device caches. Opaque, non-dialable number- and
+                    network-derived keyed abuse-prevention tokens may remain for up to 25 hours after account deletion
+                    solely to stop repeated SMS abuse and are then deleted. Other limited security or legal audit
+                    records may be retained only after direct identifiers and free-form details are removed. Content in
+                    a shared conversation may be anonymised where deleting the entire conversation would remove other
+                    people's records. Backup copies age out under infrastructure backup schedules. If device cleanup
+                    reports a failure, uninstalling Thalassa removes the remaining app sandbox.
                 </p>
                 <p>
                     Founding Skipper applications are deleted automatically after 180 days unless the applicant joins

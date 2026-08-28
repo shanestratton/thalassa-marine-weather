@@ -170,15 +170,16 @@ describe('The Crew List safety-first profile UI', () => {
         );
     });
 
-    it('does not claim approval until both the review and verification statuses have passed', () => {
+    it('claims a live profile only when approval, verification, visibility, and account checks all pass', () => {
         const { rerender } = renderProfileForm({
             user_id: 'sailor-1',
             approval_status: 'approved',
             verification_status: 'pending',
+            crew_list_visibility: 'private',
         });
 
-        expect(screen.getByText(/profile review pending/i)).toBeInTheDocument();
-        expect(screen.queryByText(/profile review approved/i)).not.toBeInTheDocument();
+        expect(screen.getByText(/quick safety review is needed/i)).toBeInTheDocument();
+        expect(screen.queryByText(/live on the crew list/i)).not.toBeInTheDocument();
 
         rerender(
             <CrewProfileForm
@@ -186,6 +187,7 @@ describe('The Crew List safety-first profile UI', () => {
                     user_id: 'sailor-1',
                     approval_status: 'approved',
                     verification_status: 'verified',
+                    crew_list_visibility: 'private',
                 })}
                 dispatch={vi.fn()}
                 onSaveProfile={vi.fn()}
@@ -198,7 +200,55 @@ describe('The Crew List safety-first profile UI', () => {
             />,
         );
 
-        expect(screen.getByText(/approved for crew list/i)).toBeInTheDocument();
+        expect(screen.getByText(/profile approved but private/i)).toBeInTheDocument();
+        expect(screen.queryByText(/live on the crew list/i)).not.toBeInTheDocument();
+
+        rerender(
+            <CrewProfileForm
+                state={profileFormState({
+                    user_id: 'sailor-1',
+                    approval_status: 'approved',
+                    verification_status: 'verified',
+                    crew_list_visibility: 'visible',
+                })}
+                dispatch={vi.fn()}
+                publicationReady={false}
+                publicationState="blocked"
+                onSaveProfile={vi.fn()}
+                onPhotoUpload={vi.fn()}
+                onPhotoRemove={vi.fn()}
+                onDeleteProfile={vi.fn()}
+                onPauseCrewList={vi.fn()}
+                myProfileScrollRef={React.createRef<HTMLDivElement>()}
+                fileInputRef={React.createRef<HTMLInputElement>()}
+            />,
+        );
+
+        expect(screen.getByText(/verify your account email and mobile/i)).toBeInTheDocument();
+        expect(screen.queryByText(/live on the crew list/i)).not.toBeInTheDocument();
+
+        rerender(
+            <CrewProfileForm
+                state={profileFormState({
+                    user_id: 'sailor-1',
+                    approval_status: 'approved',
+                    verification_status: 'verified',
+                    crew_list_visibility: 'visible',
+                })}
+                dispatch={vi.fn()}
+                publicationReady
+                publicationState="ready"
+                onSaveProfile={vi.fn()}
+                onPhotoUpload={vi.fn()}
+                onPhotoRemove={vi.fn()}
+                onDeleteProfile={vi.fn()}
+                onPauseCrewList={vi.fn()}
+                myProfileScrollRef={React.createRef<HTMLDivElement>()}
+                fileInputRef={React.createRef<HTMLInputElement>()}
+            />,
+        );
+
+        expect(screen.getByText(/live on the crew list/i)).toBeInTheDocument();
     });
 
     it('does not expose a connection path from an unaccepted introduction', () => {

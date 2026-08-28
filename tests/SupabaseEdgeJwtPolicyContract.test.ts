@@ -22,6 +22,8 @@ const RECONCILED_PROTECTED_FUNCTIONS = {
 } as const;
 
 const EXISTING_PROTECTED_FUNCTIONS = {
+    'crew-phone-verification':
+        'signed-in Crew List identity challenge with a second user-session check inside the function',
     'delete-account': 'irreversible signed-in mutation with a second identity check',
     'founding-skipper-email-worker':
         'gateway-verified JWT plus a worker-level service_role claim or bounded exact internal worker secret',

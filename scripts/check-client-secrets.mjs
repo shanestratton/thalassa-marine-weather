@@ -32,6 +32,14 @@ export const FORBIDDEN_CLIENT_SECRET_NAMES = [
     'VITE_STRIPE_SECRET_KEY',
     'VITE_SUPABASE_SECRET_KEY',
     'VITE_SUPABASE_SERVICE_ROLE_KEY',
+    'VITE_CREW_PHONE_HMAC_KEY',
+    'VITE_TWILIO_ACCOUNT_SID',
+    'VITE_TWILIO_API_KEY',
+    'VITE_TWILIO_API_KEY_SECRET',
+    'VITE_TWILIO_API_KEY_SID',
+    'VITE_TWILIO_API_SECRET',
+    'VITE_TWILIO_AUTH_TOKEN',
+    'VITE_TWILIO_VERIFY_SERVICE_SID',
     // The Transistorsoft licence lives ONLY in Info.plist (TSLocationManager
     // reads it natively). A VITE_ copy served no code path — two dead
     // underscore-prefixed reads inlined the 66-char key into the public
@@ -42,9 +50,29 @@ export const FORBIDDEN_CLIENT_SECRET_NAMES = [
     'VITE_WORLD_TIDES_API_KEY',
 ];
 
+// Twilio provider configuration belongs exclusively in the Edge-function
+// environment. Keep the prefix blocked as well as the known names above so a
+// newly introduced Twilio credential cannot silently cross the Vite boundary.
+export const FORBIDDEN_CLIENT_SECRET_PREFIXES = ['VITE_TWILIO_'];
+
+export const FORBIDDEN_CLIENT_ARTIFACT_IDENTIFIERS = [
+    'CREW_PHONE_HMAC_KEY',
+    'TWILIO_ACCOUNT_SID',
+    'TWILIO_API_KEY',
+    'TWILIO_API_KEY_SECRET',
+    'TWILIO_API_KEY_SID',
+    'TWILIO_API_SECRET',
+    'TWILIO_AUTH_TOKEN',
+    'TWILIO_VERIFY_SERVICE_SID',
+];
+
 const forbidden = new Set(FORBIDDEN_CLIENT_SECRET_NAMES);
 const violations = [];
 const CLIENT_SUPABASE_KEY_NAMES = new Set(['VITE_SUPABASE_ANON_KEY', 'VITE_SUPABASE_KEY']);
+
+function isForbiddenClientSecretName(name) {
+    return forbidden.has(name) || FORBIDDEN_CLIENT_SECRET_PREFIXES.some((prefix) => name.startsWith(prefix));
+}
 
 function isPublishableSupabaseClientKey(value) {
     const key = String(value ?? '')
@@ -61,8 +89,8 @@ function isPublishableSupabaseClientKey(value) {
     }
 }
 
-for (const name of FORBIDDEN_CLIENT_SECRET_NAMES) {
-    if (Object.hasOwn(process.env, name)) violations.push(`process environment: ${name}`);
+for (const name of Object.keys(process.env)) {
+    if (isForbiddenClientSecretName(name)) violations.push(`process environment: ${name}`);
 }
 for (const name of CLIENT_SUPABASE_KEY_NAMES) {
     const value = process.env[name];
@@ -90,7 +118,7 @@ for (const file of activeEnvFiles()) {
     for (const line of fs.readFileSync(file, 'utf8').split(/\r?\n/)) {
         const match = line.match(/^\s*(?:export\s+)?([A-Z][A-Z0-9_]*)\s*=\s*(.*)$/);
         const name = match?.[1];
-        if (name && forbidden.has(name)) violations.push(`${relative}: ${name}`);
+        if (name && isForbiddenClientSecretName(name)) violations.push(`${relative}: ${name}`);
         if (name && CLIENT_SUPABASE_KEY_NAMES.has(name) && !isPublishableSupabaseClientKey(match?.[2] ?? '')) {
             violations.push(`${relative}: ${name} is not a publishable/anon Supabase key`);
         }
@@ -120,7 +148,7 @@ if (CHECK_DIST) {
 
     for (const file of files) {
         const source = fs.readFileSync(file, 'utf8');
-        for (const name of FORBIDDEN_CLIENT_SECRET_NAMES) {
+        for (const name of [...FORBIDDEN_CLIENT_SECRET_NAMES, ...FORBIDDEN_CLIENT_ARTIFACT_IDENTIFIERS]) {
             if (source.includes(name)) violations.push(`${path.relative(ROOT, file)}: ${name}`);
         }
         if (/sb_secret_[A-Za-z0-9_-]{20,}/.test(source)) {

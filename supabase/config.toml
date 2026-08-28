@@ -92,6 +92,18 @@ verify_jwt = true
 # Signed-in vessel client; the function also enforces an authenticated quota.
 verify_jwt = true
 
+[functions.crew-phone-verification]
+# Crew List phone verification carries a phone number or one-time code. The
+# gateway verifies the JWT and the function independently resolves that token
+# to a current, email-confirmed Supabase user before any Twilio or database work.
+verify_jwt = true
+
+[functions.crew-profile-publication]
+# A signed-in sailor may request publication, but the function accepts no
+# client profile data or verdict. It fetches the canonical private profile and
+# exact Storage objects itself, then uses service-role-only snapshot RPCs.
+verify_jwt = true
+
 [functions.maritime-intel]
 # Public-news client supplies the anon JWT; the function enforces its public quota.
 verify_jwt = true
