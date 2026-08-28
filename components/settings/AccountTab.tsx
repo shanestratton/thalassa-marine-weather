@@ -15,6 +15,7 @@ import {
     ACCOUNT_DELETION_PRIVACY_MAILTO,
     ACCOUNT_DELETION_PUBLIC_BETA_ENABLED,
 } from '../../services/accountDeletionPublicBetaBoundary';
+import { EncPersonalCloudPanel } from '../vessel/EncPersonalCloudPanel';
 
 // Keep the unfinished destructive flow out of held public-beta artifacts. The
 // direct env check lets Vite/Rollup remove the dynamic import entirely when the
@@ -340,6 +341,27 @@ export const AccountTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => 
                                 </p>
                             </div>
                         </div>
+                    </Row>
+                    {/*
+                     * Chart backup lives here now.
+                     *
+                     * It is pure Supabase — no Pi anywhere in it or in
+                     * personalCellSync — but its only mount was inside
+                     * EncCellManager, which renders only when Pi integration
+                     * is on. So a build without the pinning plugin, and the
+                     * web build at thalassawx.app, could DOWNLOAD your
+                     * personal cells and never publish or back one up. Paid
+                     * Nouméa and Port Vila cells had no route off the phone
+                     * they were imported on.
+                     *
+                     * It was also buried inside a collapsed card on a page
+                     * about hardware discovery, which is not where anyone
+                     * looks for a backup. This section already promises that
+                     * settings, vessel records and voyage data sync privately
+                     * across devices; charts belong in that sentence.
+                     */}
+                    <Row>
+                        <EncPersonalCloudPanel />
                     </Row>
                 </Section>
             )}
