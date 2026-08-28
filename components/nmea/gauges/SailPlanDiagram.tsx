@@ -137,7 +137,9 @@ export const SailPlanDiagram: React.FC<SailPlanDiagramProps> = ({
             viewBox={`0 0 ${W} ${H}`}
             className={className}
             role="img"
-            aria-label={`Sail plan: ${band}. Main ${main}, yankee ${yankee}${staySet ? ', staysail set' : ''}${prevent ? ', preventer on' : ''}.`}
+            aria-label={`Sail plan: ${band}. Main ${main}, yankee ${yankee}, ${
+                staySet ? (stayStorm ? 'storm jib set' : 'staysail set') : 'staysail stowed'
+            }${prevent ? ', preventer on' : ''}.`}
         >
             {/* ── hull, bow up ── */}
             <path
@@ -177,14 +179,53 @@ export const SailPlanDiagram: React.FC<SailPlanDiagramProps> = ({
                     strokeWidth={1.5}
                 />
             )}
-            {staySet && (
-                <path
-                    d={`M ${CX} 76 Q ${CX + lee * 34} 116, ${CX + lee * 12} 148 Z`}
-                    fill={stayStorm ? 'rgba(239,83,80,0.28)' : 'rgba(255,255,255,0.10)'}
-                    stroke={stayStorm ? PORT : INK_2}
-                    strokeWidth={1.5}
-                />
-            )}
+            {/* The staysail. Drawn even when it is stowed — ghosted rather
+                than absent, because Serene Summer is a CUTTER and the inner
+                sail is half of what that means. "Where everything goes" is a
+                reference for where things live on the boat, so a sail that
+                simply disappears when furled teaches the wrong rig (Shane
+                2026-08-28: "we need to show the staysail when we are drawing
+                pictures"). */}
+            <path
+                d={`M ${CX} 76 Q ${CX + lee * 34} 116, ${CX + lee * 12} 148 Z`}
+                fill={staySet ? (stayStorm ? 'rgba(239,83,80,0.28)' : 'rgba(255,255,255,0.10)') : 'none'}
+                stroke={staySet ? (stayStorm ? PORT : INK_2) : GRID}
+                strokeWidth={1.5}
+                strokeDasharray={staySet ? undefined : '3 4'}
+            />
+
+            {/* The two stay fittings on the foredeck. In plan view a stay is a
+                point, and it is the SECOND one — aft of the headstay — that
+                makes her a cutter rather than a sloop. Standing rigging, so
+                both are drawn whatever the sails are doing. */}
+            <circle cx={CX} cy={40} r={2.5} fill={MUTED} />
+            <circle cx={CX} cy={76} r={2.5} fill={staySet ? INK_2 : MUTED} />
+
+            {/* Labels. The sails all sit to leeward, so the windward side is
+                free — the inner sail's label goes there rather than fighting
+                the outer sail for room. */}
+            <text
+                x={CX + lee * 66}
+                y={94}
+                textAnchor={lee > 0 ? 'start' : 'end'}
+                fill={yankeeSet ? INK_2 : MUTED}
+                fontSize={8}
+                fontWeight={700}
+                style={{ letterSpacing: '.1em' }}
+            >
+                YANKEE
+            </text>
+            <text
+                x={CX - lee * 10}
+                y={118}
+                textAnchor={lee > 0 ? 'end' : 'start'}
+                fill={staySet ? INK_2 : MUTED}
+                fontSize={8}
+                fontWeight={700}
+                style={{ letterSpacing: '.1em' }}
+            >
+                {staySet ? (stayStorm ? 'STORM JIB' : 'STAYSAIL') : 'STAYSAIL (STOWED)'}
+            </text>
 
             {/* ── main + boom ── */}
             {!mainDown && (
