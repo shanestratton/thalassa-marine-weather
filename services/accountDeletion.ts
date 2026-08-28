@@ -65,6 +65,16 @@ const NATIVE_QUARANTINE_KEYS = [
 ] as const;
 /** Unowned v1 secrets are never safe to migrate and are retired on sight. */
 const NATIVE_UNOWNED_SECRET_KEYS = [
+    /*
+     * The anchor dashboard pairing. Unscoped, like the Gmail tokens below and
+     * for the same reason — they predate the auth-scoped key convention — so
+     * purgeNativePreferences' suffix sweep cannot see them. The outbox is here
+     * on its own account: it holds queued ANCHOR POSITIONS, which is where the
+     * boat is lying.
+     */
+    'anchor_pi_endpoint',
+    'anchor_pi_token',
+    'anchor_pi_outbox',
     'calypso:gmail:access_token',
     'calypso:gmail:refresh_token',
     'calypso:gmail:token_expiry',
