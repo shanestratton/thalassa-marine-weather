@@ -22,6 +22,7 @@ import { SereneWindRose } from './gauges/SereneWindRose';
 import { useUnwrappedAngle } from './gauges/useUnwrappedAngle';
 import { triggerHaptic } from '../../utils/system';
 import { PageHeader } from '../ui/PageHeader';
+import { ModalSheet } from '../ui/ModalSheet';
 import { useDeviceClass, pickByDevice } from '../../utils/useDeviceClass';
 import type { TimestampedMetric, DataFreshness } from '../../services/NmeaStore';
 import { nmeaDepthReferenceLabel } from '../../services/nmea/nmeaSentence';
@@ -785,6 +786,8 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
     // Which transducer is quiet while the rest of the boat reports? Naming it
     // turns "why is the wind rose empty" into a job on the boat rather than a
     // suspicion about the app.
+    const [showDiagnosis, setShowDiagnosis] = useState(false);
+
     const quietInstruments = missingInstruments([
         { name: 'Wind', metrics: [state.tws, state.twa, state.aws, state.awa, state.twd] },
         { name: 'Depth', metrics: [state.depth] },
@@ -793,6 +796,11 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
         { name: 'Water temp', metrics: [state.waterTemp] },
     ]);
 
+    /* Only worth a tap when there is something to read. With everything
+       reporting the chip stays a plain label, so the underline is a promise
+       that there is detail behind it rather than decoration. */
+    const hasDiagnosisDetail = Boolean(diagnosis.detail) || quietInstruments.length > 0;
+
     return (
         <div className="relative h-full bg-slate-950 overflow-hidden slide-up-enter">
             <div className="flex flex-col h-full">
@@ -800,14 +808,50 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                     title="Instrument Panel"
                     onBack={handleBack}
                     action={
-                        <div className="flex items-center gap-1.5">
-                            <div className={`w-2 h-2 rounded-full ${panelStatusDot}`} />
-                            <span className="text-[9px] font-bold uppercase tracking-wider text-gray-500">
-                                {panelStatus}
-                            </span>
-                        </div>
+                        hasDiagnosisDetail ? (
+                            <button
+                                type="button"
+                                onClick={() => setShowDiagnosis(true)}
+                                aria-label={`Instrument status: ${panelStatus}. Show details`}
+                                className="flex min-h-[44px] items-center gap-1.5 px-1"
+                            >
+                                <div className={`w-2 h-2 rounded-full ${panelStatusDot}`} />
+                                <span className="text-[9px] font-bold uppercase tracking-wider text-gray-400 underline underline-offset-2">
+                                    {panelStatus}
+                                </span>
+                            </button>
+                        ) : (
+                            <div className="flex items-center gap-1.5">
+                                <div className={`w-2 h-2 rounded-full ${panelStatusDot}`} />
+                                <span className="text-[9px] font-bold uppercase tracking-wider text-gray-500">
+                                    {panelStatus}
+                                </span>
+                            </div>
+                        )
                     }
                 />
+
+                <ModalSheet
+                    isOpen={showDiagnosis}
+                    onClose={() => setShowDiagnosis(false)}
+                    title="Instrument status"
+                    maxWidth="max-w-md"
+                >
+                    <div className="space-y-3 px-1 pb-2">
+                        {diagnosis.detail && (
+                            <p className="text-sm leading-relaxed text-gray-300">{diagnosis.detail}</p>
+                        )}
+                        {quietInstruments.length > 0 && (
+                            <div className="rounded-xl border border-amber-500/20 bg-amber-500/[0.06] p-3">
+                                <p className="text-sm leading-relaxed text-gray-300">
+                                    Not reporting: {quietInstruments.join(', ')}. The rest of the backbone is fine, so
+                                    check the transducer or the gateway&apos;s sentence output — or the boat is ashore,
+                                    in which case this is exactly what it should say.
+                                </p>
+                            </div>
+                        )}
+                    </div>
+                </ModalSheet>
 
                 {/* ═══ INSTRUMENT PANEL — one instrument per screen, snap-scrolled ═══
                     Rebuilt 2026-08-26 (Shane: "make the instruments page really
@@ -825,29 +869,20 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                         <section
                             className={`w-full h-full snap-start snap-always shrink-0 overflow-hidden flex flex-col ${containerPx} pt-1`}
                         >
-                            {diagnosis.detail && (
-                                <div
-                                    role="status"
-                                    className={`${containerMb} rounded-xl border p-3 ${
-                                        diagnosis.actionable
-                                            ? 'border-rose-500/25 bg-rose-500/[0.07]'
-                                            : 'border-white/10 bg-white/[0.03]'
-                                    }`}
-                                >
-                                    <p className="text-[12px] leading-snug text-gray-300">{diagnosis.detail}</p>
-                                </div>
-                            )}
-                            {quietInstruments.length > 0 && (
-                                <div
-                                    role="status"
-                                    className={`${containerMb} rounded-xl border border-amber-500/20 bg-amber-500/[0.06] p-3`}
-                                >
-                                    <p className="text-[12px] leading-snug text-gray-300">
-                                        Not reporting: {quietInstruments.join(', ')}. The rest of the backbone is fine,
-                                        so check the transducer or the gateway's sentence output.
-                                    </p>
-                                </div>
-                            )}
+                            {/* The diagnosis and the "not reporting" list used
+                                to sit here as two stacked banners. On a
+                                full-height snap panel they cost the wind roses
+                                their bottom third — and with the boat on the
+                                hard the transducers are SUPPOSED to be silent,
+                                so the steady state was a permanent banner explaining
+                                an expected condition (Shane 2026-08-28: "it is
+                                pushing your beautiful wind rose below the
+                                bottom of the screen").
+
+                                It lives behind the header's status chip now:
+                                the coloured dot still reports the state at a
+                                glance, and tapping it opens the detail. Zero
+                                layout cost, and nothing is hidden. */}
                             <SectionPlate title="Wind" />
                             <div className="flex-1 min-h-0 flex flex-col items-center justify-evenly">
                                 <div
