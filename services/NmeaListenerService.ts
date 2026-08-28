@@ -1488,7 +1488,32 @@ class NmeaListenerServiceClass {
         const depthReading = this.accumulator.depthDpt ?? this.accumulator.depthDbt;
 
         const sample: NmeaSample = {
-            timestamp: Date.now(),
+            /*
+             * WHEN THE DATA ARRIVED, not when we got round to publishing it.
+             *
+             * This used to be Date.now(). The store stamps every metric's
+             * lastUpdated from it, and freshness is live <= 6.5 s / stale
+             * <= 13 s — so the entire panel's liveness rode on a 5 s
+             * setInterval with 1.5 s of headroom. One coalesced timer tick
+             * and every instrument read "stale"; two and the panel said "no
+             * data", while the gateway streamed happily at 3.5 sentences a
+             * second (measured on Serene Summer's YDWG 2026-08-28: 452 MWV in
+             * 130 s, largest gap 0.64 s, not one gap over 6.5 s).
+             *
+             * Worse, it was self-inflicted. The Glass page renders SVG
+             * gauges, two wind roses and the sail diagram on every sample; a
+             * render that holds the main thread for more than 1.5 s delays
+             * the next interval past the live threshold. The panel could make
+             * itself stale by drawing itself.
+             *
+             * The tiers claim to describe the INSTRUMENTS, so they have to be
+             * measured from the instruments. Per-metric ageing still works:
+             * ingestSample only stamps fields that are non-null, so a wind
+             * transducer that goes quiet leaves sample.tws null, its
+             * lastUpdated stops advancing, and it correctly ages to stale and
+             * then dead while GPS keeps streaming.
+             */
+            timestamp: this.lastSentenceAt || Date.now(),
             tws: avg(this.accumulator.tws),
             twa: avg(this.accumulator.twa),
             twaSigned: avgSigned(this.accumulator.twaSigned),
