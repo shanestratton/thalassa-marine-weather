@@ -28,6 +28,7 @@ import { NMEA_DEVICE_PROFILES } from '../../services/NmeaDeviceProfiles';
 import { GpsReceiverStatusService, type GpsReceiverStatus } from '../../services/GpsReceiverStatusService';
 
 import { PageHeader } from '../ui/PageHeader';
+import { useKeyboardScroll } from '../../hooks/useKeyboardScroll';
 import { assessHostRoute, getInterfaces } from '../../services/network/networkContext';
 import { FormField } from '../ui/FormField';
 import { Button } from '../ui/Button';
@@ -163,6 +164,11 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
     // Idempotent and flag-guarded, so the render-phase call is safe under
     // StrictMode's double-invoke — it does its work once per install.
     clearLegacyGatewayDefaultsOnce();
+    /* Container-scoped focus handling, the same pattern AnchorWatchPage uses.
+       The app-wide guard owns keyboard geometry; this makes sure THIS
+       scroller is the surface that moves when the host or port field takes
+       focus. */
+    const keyboardScrollRef = useKeyboardScroll<HTMLDivElement>();
     const [host, setHost] = useState(localStorage.getItem('nmea_host') || '192.168.1.151');
     const [port, setPort] = useState(localStorage.getItem('nmea_port') || '1456');
     const [device, setDevice] = useState(localStorage.getItem('nmea_device') || 'ydwg02');
@@ -307,7 +313,8 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
 
                 {/* Content — fills viewport */}
                 <div
-                    className="thalassa-keyboard-safe-page flex-1 px-4 min-h-0 overflow-y-auto"
+                    ref={keyboardScrollRef}
+                    className="flex-1 px-4 min-h-0 overflow-y-auto"
                     style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}
                 >
                     {/* ═══ POSITION SOURCE ═══
