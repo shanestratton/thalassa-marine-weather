@@ -454,6 +454,23 @@ const withHeroRowTemperatureRange = <T extends SourcedWeatherMetrics>(
  * lead with a DAY-OVERVIEW summary card instead of midnight — the hourly cards
  * (00:00, 01:00, …) follow it, one swipe left. (Midnight-first was useless.)
  */
+/**
+ * Timestamp to stand for a whole forecast day when no hourly frame exists to
+ * borrow one from. Local midday off the row's own isoDate, falling back to
+ * counting days from today when the row carries no date at all.
+ */
+function heroRowMiddayTs(rowData: SourcedWeatherMetrics, index: number): number {
+    const iso = (rowData as { isoDate?: string; date?: string }).isoDate ?? (rowData as { date?: string }).date;
+    if (iso && /^\d{4}-\d{2}-\d{2}$/.test(iso)) {
+        const [y, m, d] = iso.split('-').map(Number);
+        return new Date(y, m - 1, d, 12, 0, 0, 0).getTime();
+    }
+    const d = new Date();
+    d.setDate(d.getDate() + index);
+    d.setHours(12, 0, 0, 0);
+    return d.getTime();
+}
+
 export function buildSlides(
     data: SourcedWeatherMetrics,
     index: number,
@@ -470,9 +487,23 @@ export function buildSlides(
     const rowData = withHeroRowTemperatureRange(data, temperatures);
 
     // Forecast days: prepend a day-overview summary as the landing card.
+    //
+    // This used to require `firstHour`, which quietly deleted the far end of
+    // the carousel. WeatherKit's hourly stops at +120 h (weatherkit.ts) while
+    // Hero builds ELEVEN day rows off the daily forecast, so every day past
+    // about five out had no hourly, no overview and therefore no slides at
+    // all — buildSlides returned [] and the day rendered as bare chrome.
+    // Shane 2026-08-28: "it does not show the rain radar. it shows the same
+    // as the normal glass page. this only happens when you are about 5 days
+    // forward of today". Five days is not a coincidence; it is the horizon.
+    //
+    // We still hold real daily data for those days, so the overview stands on
+    // its own. `time` falls back to the row's own date at local midday: it
+    // only seeds the slide's clock, and midday is the least wrong hour to
+    // stand for a whole day.
     let dailySlide: SlideData[] = [];
     const firstHour = hourlyToRender?.[0];
-    if (index > 0 && firstHour) {
+    if (index > 0) {
         // If the provider omits a matching daily record, keep the overview
         // using the row data rather than showing an adjacent (wrong-day)
         // forecast or dropping the overview altogether.
@@ -511,7 +542,7 @@ export function buildSlides(
                     sunset: m.sunset || rowData.sunset,
                     precipChance: m.precipChance,
                 } as unknown as SourcedWeatherMetrics,
-                time: new Date(firstHour.time).getTime(),
+                time: firstHour ? new Date(firstHour.time).getTime() : heroRowMiddayTs(rowData, index),
                 daily: {
                     highTemp: temperatures.highTemp ?? m.highTemp,
                     lowTemp: temperatures.lowTemp ?? m.lowTemp,
