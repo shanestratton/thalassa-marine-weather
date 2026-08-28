@@ -27,6 +27,7 @@ const mocks = vi.hoisted(() => ({
     getCurrentPosition: vi.fn(),
     mobSubscribe: vi.fn(),
     speakSafetyMessage: vi.fn(),
+    prewarmSafetyMessage: vi.fn(),
     clipboardWrite: vi.fn(),
 }));
 
@@ -57,6 +58,12 @@ vi.mock('../services/MobService', () => ({
 
 vi.mock('../services/voice/safetyTts', () => ({
     speakSafetyMessage: (...args: unknown[]) => mocks.speakSafetyMessage(...args),
+    // Vitest THROWS on any export the factory omits, and the page reads both
+    // of these. Left out, the throw lands in handleSpeak's catch and presents
+    // as a button that does nothing — so the mock has to keep up with the
+    // module's real surface.
+    prewarmSafetyMessage: (...args: unknown[]) => mocks.prewarmSafetyMessage(...args),
+    ROUTINE_TTS_BUDGET_MS: 12000,
 }));
 
 vi.mock('../utils/system', () => ({ triggerHaptic: vi.fn() }));
