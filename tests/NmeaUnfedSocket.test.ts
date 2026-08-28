@@ -145,6 +145,50 @@ describe('a socket that is accepted but never fed', () => {
         expect(NmeaListenerService.isReconnecting()).toBe(true);
     });
 
+    it('says a silent port never started, not that the gateway stopped', async () => {
+        // "Stopped sending" and "never started" are different faults with
+        // different fixes. A port that opens and stays quiet is usually not a
+        // gateway at all — telling Shane his gateway "stopped sending" sent
+        // him looking at the boat for a wrong address on his phone.
+        socket.read.mockImplementation(blockingEmpty);
+
+        NmeaListenerService.configure('192.168.50.152', 10110);
+        NmeaListenerService.start();
+        await settle(40);
+        // Past the 15 s data-silence watchdog.
+        for (let i = 0; i < 5; i++) {
+            await vi.advanceTimersByTimeAsync(5_000);
+            await settle(10);
+        }
+
+        const err = NmeaListenerService.getLastError() ?? '';
+        expect(err).toContain('has never sent a sentence');
+        expect(err).not.toContain('stopped sending');
+    });
+
+    it('does not blame the YDWG slots on a port a YDWG does not use', async () => {
+        // Measured on Shane's home Pi 2026-08-28: 192.168.50.152:10110
+        // accepts a connection and sends nothing, forever. A silent Python
+        // listener does exactly what a full gateway does, and "your gateway's
+        // three TCP slots are taken" would point him at the boat for a fault
+        // that was a wrong address on his phone.
+        socket.read.mockImplementation(() => Promise.reject(new Error('connection reset by peer')));
+
+        NmeaListenerService.configure('192.168.50.152', 10110);
+        NmeaListenerService.start();
+        await settle(40);
+        for (let i = 0; i < 6; i++) {
+            await vi.advanceTimersByTimeAsync(1_000);
+            await settle(10);
+        }
+
+        const err = NmeaListenerService.getLastError() ?? '';
+        expect(err).toContain('not feeding NMEA');
+        expect(err).not.toMatch(/three TCP\s+slots|Yacht Devices/);
+        // Still says what was observed, so it is not just vaguer.
+        expect(err).toContain('accepts the connection then drops it');
+    });
+
     it('still hands the slot back every time, so it cannot lock itself out', async () => {
         // The ladder change must not weaken the discipline from
         // NmeaGatewaySlotLeak: three orphans and the app has taken the whole
