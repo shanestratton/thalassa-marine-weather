@@ -46,7 +46,7 @@ describe('server-only OWM tile proxy', () => {
         expect(upstream.origin).toBe('https://tile.openweathermap.org');
         expect(upstream.pathname).toBe(`/map/${upstreamLayer}/3/6/4.png`);
         expect(upstream.searchParams.get('appid')).toBe(SERVER_SECRET);
-        expect(fetchSpy.mock.calls[0]?.[1]).toMatchObject({ method: 'GET', redirect: 'error' });
+        expect(fetchSpy.mock.calls[0]?.[1]).toMatchObject({ method: 'GET', redirect: 'manual' });
         expect(response.headers.get('content-type')).toBe('image/png');
         expect(response.headers.get('cache-control')).toBe(
             'public, max-age=300, s-maxage=1800, stale-while-revalidate=3600',
