@@ -218,7 +218,11 @@ describe('silent-socket watchdog', () => {
         await settle(20);
 
         expect(socket.connect.mock.calls.length).toBeGreaterThan(before);
-        expect(NmeaListenerService.getStatus()).toBe('connected');
+        // 'connecting', not 'connected': this socket is mocked to
+        // blockingEmpty and has never delivered a byte. A completed TCP
+        // handshake is not a feed — see NmeaUnfedSocket.test.ts. The subject
+        // of this test is the retry above; the status is incidental to it.
+        expect(NmeaListenerService.getStatus()).toBe('connecting');
     });
 
     it('caps backoff at ten seconds so a LAN device is never waited on for half a minute', async () => {

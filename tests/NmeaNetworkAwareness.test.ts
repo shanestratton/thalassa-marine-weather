@@ -219,7 +219,11 @@ describe('NMEA network awareness', () => {
         await settle(20);
 
         expect(socket.connect.mock.calls.length).toBeGreaterThan(before);
-        expect(NmeaListenerService.getStatus()).toBe('connected');
+        // 'connecting', not 'connected': this socket is mocked to
+        // blockingEmpty and has never delivered a byte. A completed TCP
+        // handshake is not a feed — see NmeaUnfedSocket.test.ts. The subject
+        // of this test is the retry above; the status is incidental to it.
+        expect(NmeaListenerService.getStatus()).toBe('connecting');
     });
 
     it('does not churn a healthy socket when the network merely reports itself', async () => {
@@ -288,7 +292,11 @@ describe('NMEA network awareness', () => {
         socket.read.mockImplementation(blockingEmpty);
         emit(true, 'wifi');
         await settle(20);
-        expect(NmeaListenerService.getStatus()).toBe('connected');
+        // 'connecting', not 'connected': this socket is mocked to
+        // blockingEmpty and has never delivered a byte. A completed TCP
+        // handshake is not a feed — see NmeaUnfedSocket.test.ts. The subject
+        // of this test is the retry above; the status is incidental to it.
+        expect(NmeaListenerService.getStatus()).toBe('connecting');
         const held = socket.connect.mock.calls.length;
         expect(held).toBeGreaterThan(0);
 
@@ -328,7 +336,11 @@ describe('NMEA network awareness', () => {
         await settle(20);
 
         expect(socket.connect.mock.calls.length).toBeGreaterThan(before);
-        expect(NmeaListenerService.getStatus()).toBe('connected');
+        // 'connecting', not 'connected': this socket is mocked to
+        // blockingEmpty and has never delivered a byte. A completed TCP
+        // handshake is not a feed — see NmeaUnfedSocket.test.ts. The subject
+        // of this test is the retry above; the status is incidental to it.
+        expect(NmeaListenerService.getStatus()).toBe('connecting');
     });
 
     it('does not open a second socket while a connect is still in flight', async () => {
@@ -431,6 +443,10 @@ describe('NMEA network awareness', () => {
         await settle(20);
 
         expect(socket.connect.mock.calls.length).toBeGreaterThan(parked);
-        expect(NmeaListenerService.getStatus()).toBe('connected');
+        // 'connecting', not 'connected': this socket is mocked to
+        // blockingEmpty and has never delivered a byte. A completed TCP
+        // handshake is not a feed — see NmeaUnfedSocket.test.ts. The subject
+        // of this test is the retry above; the status is incidental to it.
+        expect(NmeaListenerService.getStatus()).toBe('connecting');
     });
 });

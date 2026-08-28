@@ -57,6 +57,10 @@ const RECONNECT_MAX_MS = 10000;
  * only a clean release plus a 400 ms reconnect.
  */
 const DATA_SILENCE_TIMEOUT_MS = 15000;
+
+/** How many accepted-then-unfed sockets in a row before we blame the
+ *  gateway's slots by name. Two, so a single unlucky socket stays quiet. */
+const NEVER_FED_STREAK_BEFORE_BLAMING_SLOTS = 2;
 /**
  * Ignore repeat network-change events inside this window.
  *
@@ -251,6 +255,18 @@ class NmeaListenerServiceClass {
      * carries traffic. Only this field is evidence.
      */
     private lastSentenceAt = 0;
+    /**
+     * Has the CURRENT socket delivered a single byte yet?
+     *
+     * A YDWG-02 accepts every connection and feeds only the first three
+     * (boat-network survey 2026-08-08, re-measured 2026-08-28: three
+     * consecutive connects to Serene Summer's gateway all completed the
+     * handshake and were reset on first read). So `TcpSocket.connect`
+     * resolving proves nothing whatsoever about whether a feed exists.
+     */
+    private connectionFedData = false;
+    /** Consecutive sockets that were accepted and then died unfed. */
+    private neverFedStreak = 0;
     private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     private firstAttemptTime: number | null = null; // For 5-minute give-up
     private sampleTimer: ReturnType<typeof setInterval> | null = null;
@@ -387,6 +403,12 @@ class NmeaListenerServiceClass {
         this.firstAttemptTime = null;
         this.reconnectAttempts = 0;
         this.lastError = null;
+        // The unfed-socket counter is per connection ATTEMPT-RUN, not per
+        // process. Carrying it across the off-switch would let a session that
+        // once hit a full gateway blame the slots on its very first socket
+        // days later — an accusation that has to be earned each time.
+        this.neverFedStreak = 0;
+        this.connectionFedData = false;
         // Throttles must not outlive the off-switch. Flipping Disconnect and
         // then Connect is a deliberate act; it must not be swallowed as a
         // duplicate of some event from before the service was switched off.
@@ -506,10 +528,33 @@ class NmeaListenerServiceClass {
             this.tcpClientId = result.client;
             this.tcpLineBuffer = '';
             this.lastDataAt = Date.now();
-            this.reconnectAttempts = 0;
-            this.firstAttemptTime = null; // Reset give-up timer on success
-            this.setStatus('connected');
-            log.info(`TCP connected to ${this.host}:${this.port} (client ${this.tcpClientId})`);
+            this.connectionFedData = false;
+            /*
+             * STAY 'connecting' UNTIL A SENTENCE ARRIVES.
+             *
+             * This used to declare 'connected' here, zero the backoff ladder
+             * and null the give-up clock — all on the strength of a completed
+             * TCP handshake. Against a YDWG-02 whose three slots are already
+             * taken, that handshake ALWAYS succeeds and the gateway then
+             * resets the socket on first read. The result was a strobe: the
+             * panel flashed live, the read loop errored, the ladder was back
+             * at zero so the retry came 400 ms later, and round it went —
+             * indefinitely, at full speed, never backing off and never
+             * parking, because every unfed socket looked like a success.
+             *
+             * Shane 2026-08-28: "the wind section keeps coming up with no
+             * data the live, then no data, then live, then no data". Measured
+             * the same hour: three consecutive connects to the boat's gateway
+             * accepted, then reset unfed.
+             *
+             * The service already reasons this way elsewhere — `lastSentenceAt`
+             * exists because "opening a connection is not evidence the link
+             * carries traffic. Only this field is evidence." The promotion
+             * now honours that, and the ladder and give-up clock are only
+             * reset once the link has PROVED itself in the read loop.
+             */
+            this.setStatus('connecting');
+            log.info(`TCP socket open to ${this.host}:${this.port} (client ${this.tcpClientId}) — awaiting data`);
 
             // Start continuous read loop
             this.tcpReadLoop = true;
@@ -553,6 +598,17 @@ class NmeaListenerServiceClass {
                         fastEmptyReads = 0;
                         this.lastDataAt = Date.now();
                         this.lastSentenceAt = this.lastDataAt;
+                        if (!this.connectionFedData) {
+                            // The link has now proved itself. THIS is the
+                            // moment a connection exists, and the only place
+                            // the ladder and the give-up clock may be reset.
+                            this.connectionFedData = true;
+                            this.neverFedStreak = 0;
+                            this.reconnectAttempts = 0;
+                            this.firstAttemptTime = null;
+                            this.setStatus('connected');
+                            log.info(`TCP feed live from ${this.host}:${this.port}`);
+                        }
                         // Append to line buffer and process complete lines
                         this.tcpLineBuffer += result;
                         const lines = this.tcpLineBuffer.split(/\r?\n/);
@@ -637,8 +693,30 @@ class NmeaListenerServiceClass {
             return;
         }
         await this.releaseTcpClient();
+        if (!this.connectionFedData) {
+            /*
+             * Accepted, then dead without a single byte. One of these is
+             * ordinary bad luck; a run of them is the YDWG's signature for
+             * "all three slots are in use" — it is the only common failure
+             * that accepts a connection it has no intention of feeding.
+             *
+             * Naming it turns an unreadable flicker into a job on the boat:
+             * shut a client down, or power-cycle the gateway.
+             */
+            this.neverFedStreak++;
+            if (this.neverFedStreak >= NEVER_FED_STREAK_BEFORE_BLAMING_SLOTS) {
+                this.lastError =
+                    `${this.host}:${this.port} accepts the connection then drops it without sending anything ` +
+                    `(${this.neverFedStreak} attempts). On a Yacht Devices gateway that means its three TCP ` +
+                    `slots are already taken — close other apps, chartplotters or captures using it, or ` +
+                    `power-cycle the gateway.`;
+            }
+        }
         if (this.enabled) {
-            this.setStatus('disconnected');
+            // An unfed socket never reached 'connected', so calling this
+            // 'disconnected' would be the same overclaim in reverse. It is
+            // still trying, and the ladder now actually climbs.
+            this.setStatus(this.connectionFedData ? 'disconnected' : 'error');
             this.scheduleReconnect();
         }
     }
