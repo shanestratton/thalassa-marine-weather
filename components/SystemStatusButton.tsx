@@ -45,6 +45,8 @@ interface SystemState {
     nmea: {
         active: boolean;
         detail: string;
+        /** There is a diagnosed fault, as opposed to simply being switched off. */
+        faulted: boolean;
     };
     extGps: GpsReceiverStatus;
     followRoute: {
@@ -247,7 +249,23 @@ const SystemStatusModal: React.FC<{
                         label="NMEA Backbone"
                         active={state.nmea.active}
                         detail={state.nmea.detail}
-                        dotColor={state.nmea.active ? 'bg-emerald-400' : 'bg-slate-600'}
+                        dotColor={
+                            state.nmea.active ? 'bg-emerald-400' : state.nmea.faulted ? 'bg-rose-400' : 'bg-slate-600'
+                        }
+                        /* Every other row that has somewhere to go offers a
+                           way there. This one described a problem and then
+                           left the skipper to find the page themselves. */
+                        action={
+                            state.nmea.active
+                                ? undefined
+                                : {
+                                      label: 'Fix',
+                                      onClick: () =>
+                                          window.dispatchEvent(
+                                              new CustomEvent('thalassa:navigate', { detail: { tab: 'nmea' } }),
+                                          ),
+                                  }
+                        }
                     />
 
                     {/* ── External GPS ── */}
@@ -420,6 +438,26 @@ const SystemStatusModal: React.FC<{
 
 // ── Individual System Row ──
 
+/**
+ * The gateway's diagnosis, trimmed to fit one truncated row.
+ *
+ * NmeaListenerService writes a real sentence for every failure — "no route to
+ * that network", "has never sent a sentence", "its three TCP slots are already
+ * taken" — and this panel used to throw all of it away and show the flat word
+ * "Not connected", identical to a gateway the skipper had deliberately switched
+ * off. The FAB is the surface glanced at first and it was the one saying least
+ * (audit 2026-08-28).
+ *
+ * Keeps the first sentence and drops the raw native string the service appends
+ * for support; that belongs on the NMEA page, not in a 11px row.
+ */
+function shortNmeaFault(raw: string | null): string | null {
+    if (!raw) return null;
+    const withoutRawTail = raw.replace(/\s*\([^()]*SocketError[^()]*\)\s*$/i, '').trim();
+    const firstSentence = /^(.*?[.!?])(\s|$)/.exec(withoutRawTail)?.[1] ?? withoutRawTail;
+    return firstSentence.length > 96 ? `${firstSentence.slice(0, 95).trimEnd()}…` : firstSentence;
+}
+
 const SystemRow: React.FC<{
     icon: React.ReactNode;
     label: string;
@@ -458,7 +496,13 @@ const SystemRow: React.FC<{
         {/* Action button */}
         {action && (
             <button
-                aria-label="View signal propagation forecast"
+                /* Was hard-coded to "View signal propagation forecast" on
+                   EVERY row — so a screen reader announced the anchor's View
+                   button and the route's Stop button as a propagation
+                   forecast, which is neither. Two buttons also cannot share
+                   one accessible name and stay addressable; adding a third
+                   is what surfaced it. Named from the row it belongs to. */
+                aria-label={`${action.label} ${label}`}
                 onClick={(e) => {
                     e.stopPropagation();
                     action.onClick();
@@ -696,15 +740,21 @@ export const SystemStatusButton: React.FC<SystemStatusButtonProps> = ({
                 distance: anchorSnapshot?.distanceFromAnchor ?? 0,
                 swingRadius: anchorSnapshot?.swingRadius ?? 0,
             },
-            nmea: {
-                active: nmeaStatus === 'connected',
-                detail:
-                    nmeaStatus === 'connected'
-                        ? `Connected via ${NmeaListenerService.getConnectionInfo().deviceLabel} · live vessel data`
-                        : nmeaStatus === 'connecting'
-                          ? `Connecting to ${NmeaListenerService.getConnectionInfo().deviceLabel}`
-                          : 'Not connected',
-            },
+            nmea: (() => {
+                const fault = nmeaStatus === 'connected' ? null : shortNmeaFault(NmeaListenerService.getLastError());
+                return {
+                    active: nmeaStatus === 'connected',
+                    detail:
+                        nmeaStatus === 'connected'
+                            ? `Connected via ${NmeaListenerService.getConnectionInfo().deviceLabel} · live vessel data`
+                            : nmeaStatus === 'connecting'
+                              ? `Connecting to ${NmeaListenerService.getConnectionInfo().deviceLabel}`
+                              : (fault ?? 'Not connected'),
+                    // A fault the skipper can act on is not the same grey as a
+                    // gateway they switched off themselves.
+                    faulted: Boolean(fault) && nmeaStatus !== 'connecting',
+                };
+            })(),
             extGps: gpsReceiver,
             followRoute: {
                 active: isFollowing && !!voyagePlan,
