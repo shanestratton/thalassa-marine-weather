@@ -1,52 +1,78 @@
 /**
- * The gateway card used to show the raw native error and nothing else:
- *   "The operation couldn't be completed. (SwiftSocket.SocketError error 3.)"
- * That names an errno and no more, so a refused port and an unreachable boat
- * looked identical on screen — and both got rediagnosed as broken hardware.
+ * The number in "(SwiftSocket.SocketError error 3.)" is NOT an errno.
  *
- * Shane 2026-08-28, on a gateway that pinged fine but refused 1456: "the nmea
- * will not connect. so we also need to fix that again." Error 3 is precisely
- * the informative case — the host ANSWERED and refused the port — and the UI
- * was throwing that away.
+ * It is the index of a Swift enum case, and `SocketError` has exactly four
+ * (Pods/SwiftSocket/Sources/Socket.swift): 0 queryFailed, 1 connectionClosed,
+ * 2 connectionTimeout, 3 unknownError. ytcpsocket.c maps a select() expiry to
+ * -3 (→ case 2) and ANY non-zero SO_ERROR to -4 (→ case 3), reading the errno
+ * and then discarding it.
+ *
+ * So ECONNREFUSED, EHOSTUNREACH and ENETUNREACH all arrive as the same
+ * "error 3" and cannot be told apart from this string. This file used to
+ * assert the opposite — that error 3 means the host "ANSWERED and refused the
+ * port" — and pinned it. On 2026-08-28 Shane left the house with the app
+ * pointed at a home-LAN address and was told his unreachable Pi had answered
+ * and refused the connection, and to go check a port and restart a server on
+ * a machine he had no route to.
+ *
+ * The old timeout and no-route cases were tested with English prose
+ * ('Operation timed out', 'No route to host') that this native stack never
+ * emits, which is exactly how the dead branches stayed green. Every case here
+ * now uses the real device strings.
  */
 import { describe, expect, it } from 'vitest';
 import { diagnoseConnectFailure } from '../services/NmeaListenerService';
 
 const HOST = '192.168.50.152';
-const PORT = 1456;
-const RAW3 = "The operation couldn't be completed. (SwiftSocket.SocketError error 3.)";
+const PORT = 10110;
+
+/** What the plugin actually hands JS, for SocketError case `n`. */
+const swiftSocket = (n: number) => `The operation couldn't be completed. (SwiftSocket.SocketError error ${n}.)`;
 
 describe('diagnoseConnectFailure', () => {
-    it('reads error 3 as "answered but refused the port", not as unreachable', () => {
-        const out = diagnoseConnectFailure(RAW3, HOST, PORT);
-        expect(out).toContain('refused the connection');
-        expect(out).toContain('nothing is listening on port 1456');
-        expect(out).not.toMatch(/no route|unreachable/i);
+    it('never claims an unreachable host "answered"', () => {
+        // The whole bug in one assertion. Case 3 is the errno-destroyed
+        // superset; asserting a refusal from it is a coin flip presented as
+        // a fact, and the wrong side sends the skipper to the boat.
+        const out = diagnoseConnectFailure(swiftSocket(3), HOST, PORT);
+        expect(out).not.toContain('answered but refused');
     });
 
-    it('always keeps the raw errno for support', () => {
-        // The plain-English half is what gets read; the errno is what gets
-        // pasted into a bug report.
-        expect(diagnoseConnectFailure(RAW3, HOST, PORT)).toContain(RAW3);
+    it('names both possibilities for case 3, since the errno is gone', () => {
+        const out = diagnoseConnectFailure(swiftSocket(3), HOST, PORT);
+        expect(out).toContain('nothing is listening on that port');
+        expect(out).toContain('no route to that network');
     });
 
-    it('separates a timeout from a refusal', () => {
-        const out = diagnoseConnectFailure('Operation timed out', HOST, PORT);
-        expect(out).toContain('No answer');
-        expect(out).not.toContain('refused the connection');
+    it('tells the skipper what to check about their own network', () => {
+        // The actionable half: this is the "I left the house" case.
+        const out = diagnoseConnectFailure(swiftSocket(3), HOST, PORT);
+        expect(out).toMatch(/boat's Wi-Fi/);
+        expect(out).toMatch(/VPN/);
     });
 
-    it('separates no-route from both', () => {
-        const out = diagnoseConnectFailure('No route to host', HOST, PORT);
-        expect(out).toContain('No route to 192.168.50.152');
-        expect(out).toContain('subnet router or VPN');
+    it('reads case 2 as the timeout it is', () => {
+        // Errno 60 is a Foundation string this stack never produces, so the
+        // old branch that matched it could never fire.
+        const out = diagnoseConnectFailure(swiftSocket(2), HOST, PORT);
+        expect(out).toContain('No answer from');
+        expect(out).not.toContain('answered but refused');
     });
 
-    it('names the TCP-slot exhaustion a Yacht Devices gateway actually hits', () => {
-        // The YDWG-02 serves a small fixed number of TCP clients; a capture or
-        // a second app holding them looks like a flapping connection.
-        const out = diagnoseConnectFailure('Connection reset by peer', HOST, PORT);
-        expect(out).toContain('TCP slots');
+    it('still says "answered but refused" when a transport genuinely reports a refusal', () => {
+        // Not reachable through SwiftSocket, but the WebSocket dev path and
+        // other transports do produce real refusals, and that wording is
+        // correct and useful there.
+        const out = diagnoseConnectFailure('connect ECONNREFUSED 192.168.50.152:10110', HOST, PORT);
+        expect(out).toContain('answered but refused the connection');
+    });
+
+    it('still names TCP-slot exhaustion on a reset', () => {
+        expect(diagnoseConnectFailure('Connection reset by peer', HOST, PORT)).toContain('TCP slots');
+    });
+
+    it('always keeps the raw string for support', () => {
+        expect(diagnoseConnectFailure(swiftSocket(3), HOST, PORT)).toContain(swiftSocket(3));
     });
 
     it('passes an unrecognised failure through unchanged rather than guessing', () => {
@@ -54,7 +80,6 @@ describe('diagnoseConnectFailure', () => {
     });
 
     it('names the host and port it actually tried', () => {
-        const out = diagnoseConnectFailure(RAW3, '10.0.0.9', 10110);
-        expect(out).toContain('10.0.0.9:10110');
+        expect(diagnoseConnectFailure(swiftSocket(3), '10.0.0.9', 1456)).toContain('10.0.0.9:1456');
     });
 });
