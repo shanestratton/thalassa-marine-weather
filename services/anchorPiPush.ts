@@ -214,8 +214,20 @@ export async function writeAnchorPiConfig(endpoint: string, token: string): Prom
     ]);
 }
 
+/**
+ * Forget the dashboard pairing, including anything still queued for it.
+ *
+ * The outbox goes too, and that is not tidiness: it holds ANCHOR POSITIONS —
+ * where the boat is lying — addressed to a device this handset is no longer
+ * paired with. Leaving them queued means the next successful flush sends one
+ * skipper's anchorage to another skipper's dashboard.
+ */
 export async function clearAnchorPiConfig(): Promise<void> {
-    await Promise.all([Preferences.remove({ key: ENDPOINT_KEY }), Preferences.remove({ key: TOKEN_KEY })]);
+    await Promise.all([
+        Preferences.remove({ key: ENDPOINT_KEY }),
+        Preferences.remove({ key: TOKEN_KEY }),
+        Preferences.remove({ key: OUTBOX_KEY }),
+    ]);
 }
 
 export type PushOutcome = 'sent' | 'unauthorised' | 'rejected' | 'unreachable' | 'not-configured';

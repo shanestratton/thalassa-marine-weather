@@ -12,6 +12,7 @@ import { PushNotificationService } from '../services/PushNotificationService';
 import { setUser as setSentryUser } from '../services/sentry';
 import { setAuthIdentityScope } from '../services/authIdentityScope';
 import { bindAppleCredentialUser, clearBoundAppleCredential } from '../services/auth/appleCredentialState';
+import { clearAnchorPiConfig } from '../services/anchorPiPush';
 import { initLocalDatabase } from '../services/vessel/LocalDatabase';
 
 interface AuthState {
@@ -138,6 +139,19 @@ export function handleNativeAppleCredentialRevocation(appleUserId: string): Prom
             clearBoundAppleCredential(),
             supabase?.auth.signOut({ scope: 'local' }) ?? Promise.resolve(),
             initLocalDatabase(null),
+            /*
+             * The anchor dashboard pairing is per-PERSON, not per-handset: a
+             * Bearer token and the endpoint of a device that receives where
+             * their boat is lying. Both were unscoped Preferences keys that
+             * survived sign-out, so the next account to sign in on this phone
+             * inherited them and pushed ITS anchor positions to the previous
+             * owner's dashboard (audit 2026-08-28).
+             *
+             * Cost of clearing: re-entering an endpoint and token once, on a
+             * screen built for exactly that. Cost of not clearing: telling a
+             * stranger where your boat is anchored.
+             */
+            clearAnchorPiConfig(),
         ]);
         for (const result of results) {
             if (result.status === 'rejected') {
