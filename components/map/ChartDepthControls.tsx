@@ -222,19 +222,34 @@ export function ChartDepthControls({
                         <span className="leading-snug">
                             {encCellCount === 0
                                 ? 'No verified ENC charts installed. Library imports are reference-only.'
-                                : 'No verified ENC coverage here — reference imports cannot verify it.'}
+                                : `You have ${encCellCount} ENC chart${encCellCount === 1 ? '' : 's'}, none covering here.`}
                         </span>
-                        <button
-                            type="button"
-                            onClick={() => {
-                                triggerHaptic('light');
-                                onOpenEncLibrary();
-                            }}
-                            className="min-h-[44px] shrink-0 rounded-xl border border-amber-400/35 bg-amber-400/15 px-3 text-[10px] font-black uppercase tracking-wider text-amber-200 transition-colors hover:bg-amber-400/25 active:scale-95"
-                            aria-label="Open on-device ENC Library"
-                        >
-                            ENC Library
-                        </button>
+                        {/* The Library button is offered ONLY when there are no
+                            charts at all.
+                            
+                            With charts installed but none covering the view,
+                            this used to send the skipper to a page that greets
+                            them with "No reference ENC cells are installed" —
+                            because the Library lists hand-imported REFERENCE
+                            packs, and every Pi and cloud import is tagged
+                            navigation. So the one banner shown to a punter who
+                            already owns charts led to an empty screen about a
+                            different kind of chart. Saying how many they have
+                            and where the gap is answers the question the banner
+                            actually raises. */}
+                        {encCellCount === 0 && (
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    triggerHaptic('light');
+                                    onOpenEncLibrary();
+                                }}
+                                className="min-h-[44px] shrink-0 rounded-xl border border-amber-400/35 bg-amber-400/15 px-3 text-[10px] font-black uppercase tracking-wider text-amber-200 transition-colors hover:bg-amber-400/25 active:scale-95"
+                                aria-label="Open on-device ENC Library"
+                            >
+                                ENC Library
+                            </button>
+                        )}
                     </div>
                 )}
         </>
