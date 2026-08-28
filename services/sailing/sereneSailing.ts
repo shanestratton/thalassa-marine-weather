@@ -1121,3 +1121,147 @@ export function trueWindFrom(
     twa = ((twa % 360) + 360) % 360;
     return { twa, tws };
 }
+
+/* --- SAIL PLAN STABILITY -------------------------------------------------
+ *
+ * Shane 2026-08-28, aged nearly sixty: "we need to make it so that we dont
+ * need to change the sail layout every 5 seconds… unless it actually requires
+ * a sail to go down or up, then I think we should be a little more lenient. I
+ * dont want to have to be running around like a blue assed fly trying to keep
+ * the boat trimmed perfectly."
+ *
+ * `sailPlanFor` is pure and has hard edges: `off >= from && off < to`, and
+ * `gust < row.to`. A 26-tonne ketch-rigged cutter yaws several degrees on
+ * every wave, so the true wind angle crosses a band edge constantly, and the
+ * recommendation flipped with it. Nothing was wrong with the advice; it was
+ * being asked the question far too often.
+ *
+ * Two mechanisms, because they fix different halves:
+ *
+ *   HYSTERESIS — the boat must actually sail out of the plan's envelope, past
+ *   the edge by a margin, before a different plan is even a candidate. This
+ *   kills the flicker of a boat sitting on a boundary.
+ *
+ *   DWELL — having left, it must STAY left for a while before the advice
+ *   changes. This kills the flicker of a boat genuinely wandering.
+ *
+ * The dwell is deliberately asymmetric, and that asymmetry is seamanship
+ * rather than tuning:
+ *
+ *   • REDUCING sail is the shortest wait. Being overpowered is not something
+ *     to sit on, and the cost of reefing thirty seconds early is nil.
+ *   • ADDING sail is the longest wait of the two sail cases. Shaking out into
+ *     a lull and rolling it all back in two minutes later is exactly the
+ *     running about he is asking not to do.
+ *   • TRIM ONLY — same main, same yankee, same staysail, just a different
+ *     band and its traveller and car positions — waits longest of all. This
+ *     is invariant 5 of the handover applied one level up: there is a perfect
+ *     car position for every puff, and chasing it is not practical sailing.
+ *
+ * None of this touches WHAT the advice says. Every string is still the
+ * handover's, verbatim. It only changes how often the question is asked.
+ */
+
+/** How far past a band edge she must actually sail before the band changes. */
+export const BAND_HYSTERESIS_DEG = 6;
+/** How far past a row edge the gust proxy must go before the row changes. */
+export const ROW_HYSTERESIS_KN = 1.5;
+/** Wait before calling for LESS sail. Short — being overpowered matters. */
+export const REDUCE_DWELL_MS = 30_000;
+/** Wait before calling for MORE sail. Long — shaking out early is the churn. */
+export const EASE_DWELL_MS = 120_000;
+/** Wait before changing advice that moves no sail at all. Longest. */
+export const TRIM_DWELL_MS = 180_000;
+
+/**
+ * How much canvas a row actually has up. Higher is more sail.
+ *
+ * Only the main and the yankee count. The staysail is a balance sail on this
+ * rig rather than a step on the reefing ladder — and anything that brings it
+ * in has to talk about the runners first (invariant 6), which is a different
+ * conversation from "are we over-canvassed".
+ */
+export function sailAreaRank(row: SailPlanRow): number {
+    const main = row.main.startsWith('Full')
+        ? 4
+        : row.main.startsWith('Reef 1')
+          ? 3
+          : row.main.startsWith('Reef 2')
+            ? 2
+            : row.main.startsWith('Reef 3')
+              ? 1
+              : 0; /* Down */
+    const yankee = row.yankee.startsWith('Full') ? 2 : row.yankee.startsWith('Rolled') ? 1 : 0; /* Furled */
+    return main + yankee;
+}
+
+/** Does moving between these two rows mean handling a sail at all? */
+export function movesASail(a: SailPlanRow, b: SailPlanRow): boolean {
+    return a.main !== b.main || a.yankee !== b.yankee || a.stay !== b.stay;
+}
+
+/** How long a wanted change must persist before it becomes the advice. */
+export function sailChangeDwellMs(from: SailPlanRow, to: SailPlanRow): number {
+    if (!movesASail(from, to)) return TRIM_DWELL_MS;
+    return sailAreaRank(to) < sailAreaRank(from) ? REDUCE_DWELL_MS : EASE_DWELL_MS;
+}
+
+export interface SailPlanHold {
+    /** What the skipper is being shown. */
+    plan: SailPlanChoice;
+    /** A different plan wanted continuously since this moment, or none. */
+    pending: { plan: SailPlanChoice; since: number } | null;
+}
+
+/**
+ * Has she genuinely sailed out of this plan's envelope, or is she just
+ * breathing around its edge? Margins are applied OUTWARDS from the held
+ * plan, so the plan owns a slightly larger box than it was chosen in.
+ */
+function hasLeftEnvelope(hold: SailPlanChoice, gustKn: number, off: number): boolean {
+    const bandLeft = off < hold.band.from - BAND_HYSTERESIS_DEG || off >= hold.band.to + BAND_HYSTERESIS_DEG;
+    const rows = hold.band.rows;
+    const i = rows.indexOf(hold.row);
+    /* The row's own window: [previous row's ceiling, this row's ceiling). */
+    const floor = i > 0 ? rows[i - 1].to : -Infinity;
+    const ceil = hold.row.to;
+    const rowLeft = gustKn >= ceil + ROW_HYSTERESIS_KN || gustKn < floor - ROW_HYSTERESIS_KN;
+    return bandLeft || rowLeft;
+}
+
+/**
+ * Advance the held sail plan by one observation. Pure: hand it the previous
+ * hold and the clock, keep what it returns.
+ */
+export function stabiliseSailPlan(
+    hold: SailPlanHold | null,
+    gustKn: number | null,
+    twa: number | null,
+    now: number,
+): SailPlanHold | null {
+    const candidate = sailPlanFor(gustKn, twa);
+    if (!candidate) return null;
+    /* Nothing held yet — the first answer is the answer. */
+    if (!hold) return { plan: candidate, pending: null };
+
+    const same = candidate.band.band === hold.plan.band.band && candidate.row === hold.plan.row;
+    if (same) return hold.pending ? { ...hold, pending: null } : hold;
+
+    /* Still inside the box, margins included: she is breathing, not moving. */
+    const off = candidate.off;
+    if (!hasLeftEnvelope(hold.plan, gustKn as number, off)) {
+        return hold.pending ? { ...hold, pending: null } : hold;
+    }
+
+    /* Out of the box. Start, or continue, the clock on this exact plan. */
+    const pending = hold.pending;
+    const continuing =
+        pending && pending.plan.band.band === candidate.band.band && pending.plan.row === candidate.row
+            ? pending
+            : { plan: candidate, since: now };
+
+    if (now - continuing.since >= sailChangeDwellMs(hold.plan.row, candidate.row)) {
+        return { plan: candidate, pending: null };
+    }
+    return { plan: hold.plan, pending: continuing };
+}
