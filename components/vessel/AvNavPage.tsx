@@ -17,6 +17,7 @@ import { LocationStore } from '../../stores/LocationStore';
 import { triggerHaptic } from '../../utils/system';
 import { PageHeader } from '../ui/PageHeader';
 import { EncCellManager } from './EncCellManager';
+import { RemoteAccessSection } from '../settings/RemoteAccessSection';
 import {
     getAuthIdentityScope,
     isAuthIdentityScopeCurrent,
@@ -619,10 +620,20 @@ const AvNavPageDevelopment: React.FC<AvNavPageProps> = ({ onBack }) => {
                     lines of raster-chart-downloader UI. */}
                 <EncCellManager />
 
-                {/* Remote access moved to the NMEA Gateway card (2026-08-28) —
-                    that is where a skipper is standing when "can I reach the
-                    boat?" actually matters. Still available in
-                    Settings → Boat Network. */}
+                {/* ═══ REMOTE ACCESS ═══
+                    Shane 2026-08-29: moved here from the Advanced settings
+                    tab. This page is the everyday "is the boat there?" glance,
+                    and "can I reach the Pi from away?" is the same question
+                    asked from further off — so it belongs beside discovery and
+                    the service badges rather than behind Settings → Advanced.
+
+                    It is about the PI, not the NMEA gateway. It briefly sat on
+                    the gateway card yesterday and was wrong there: it runs
+                    tailscale up on the Pi, while the YDWG is reached over the
+                    RUTX50's advertised subnet whether the Pi is on or off.
+
+                    Self-gating — renders nothing until the Pi is reachable. */}
+                <RemoteAccessSection />
             </div>
         </div>
     );
