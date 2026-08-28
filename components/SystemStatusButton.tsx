@@ -24,7 +24,6 @@ import { GpsService } from '../services/GpsService';
 import { piCache, type PiCacheStatus } from '../services/PiCacheService';
 import { n2kStatus, type N2kStatus } from '../services/n2kStatus';
 import { PI_INTEGRATION_ENABLED } from '../services/piPublicBetaBoundary';
-import { getLastFlightReport } from '../utils/flightRecorder';
 import { useFocusTrap } from '../hooks/useFocusTrap';
 
 // ── Types ──
@@ -168,44 +167,14 @@ const SystemStatusModal: React.FC<{
 
                 {/* Systems Grid */}
                 <div className="px-5 py-4 space-y-3">
-                    {/* ── Last flight — how the previous run ENDED ──
-                        Retired 2026-08-25 when the Musgrave hunt closed;
-                        un-retired the SAME DAY for the Mackay routing-page
-                        kill (Shane: "we need to do your trick in the i fab
-                        again, that was the way to go"). Crash at sea, reopen
-                        the app, tap the i-FAB, screenshot — no Mac, no cable.
-                        Rendered only when there is something to confess; a
-                        clean start says nothing, so it costs no punter-facing
-                        space between hunts. */}
-                    {(() => {
-                        const flight = getLastFlightReport();
-                        if (!flight || flight.verdict === 'clean-start') return null;
-                        const died = flight.verdict === 'process-died';
-                        const trail = flight.trail
-                            .map((c) => `${c.tag}${c.info ? `(${c.info})` : ''}@${Math.round(c.t / 1000)}s`)
-                            .join(' → ');
-                        return (
-                            <div
-                                className={`rounded-xl border p-3 ${
-                                    died ? 'border-red-500/30 bg-red-500/[0.07]' : 'border-white/10 bg-white/[0.03]'
-                                }`}
-                            >
-                                <p
-                                    className={`text-[11px] font-black uppercase tracking-widest ${
-                                        died ? 'text-red-400' : 'text-slate-400'
-                                    }`}
-                                >
-                                    Last flight · {flight.verdict.replace(/-/g, ' ')}
-                                </p>
-                                <p className="mt-1 text-[11px] leading-relaxed text-slate-300">{flight.summary}</p>
-                                {trail && (
-                                    <p className="mt-2 select-all break-words font-mono text-[10px] leading-relaxed text-slate-400">
-                                        {trail}
-                                    </p>
-                                )}
-                            </div>
-                        );
-                    })()}
+                    {/* The "Last flight" crash-forensics block lived here.
+                        It was a debugging affordance for the Musgrave and
+                        Mackay kill hunts — crash at sea, reopen, tap the
+                        i-FAB, screenshot, no Mac and no cable — and it is
+                        removed now those are closed (Shane 2026-08-28). The
+                        recorder itself stays: utils/flightRecorder still runs
+                        and ErrorBoundary still reads it, so re-adding this
+                        block is a paste job if another hunt starts. */}
                     {/* ── GPS Tracking (Passage) ── */}
                     <SystemRow
                         icon={
