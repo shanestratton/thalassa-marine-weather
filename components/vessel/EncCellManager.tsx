@@ -567,7 +567,11 @@ export const EncCellManager: React.FC = () => {
                     <div className="flex-1 text-left">
                         <p className="text-sm font-bold text-white">
                             ENC Charts{' '}
-                            <span className="text-[11px] text-sky-300 font-normal">(routing-grade vector)</span>
+                            {/* "routing-grade vector" told a punter what the
+                                data is; this tells them whether the card is
+                                for them. Importing needs GDAL, which is on the
+                                Pi and not on the phone. */}
+                            <span className="text-[11px] text-sky-300 font-normal">(needs the Pi to import)</span>
                         </p>
                         <p className="text-[11px] text-gray-400">
                             {cells.length === 0
@@ -806,11 +810,11 @@ export const EncCellManager: React.FC = () => {
                         {/* ── Imported cells list ── */}
                         <div className="space-y-2">
                             <p className="text-[11px] font-bold uppercase tracking-widest text-white/40">
-                                Imported Cells
+                                Charts on this phone
                             </p>
                             {cells.length === 0 ? (
                                 <p className="text-[11px] text-gray-500 italic">
-                                    No cells imported yet. Routing falls back to GEBCO bathymetry.
+                                    No charts on this phone yet. Routing falls back to GEBCO bathymetry.
                                 </p>
                             ) : (
                                 <div className="space-y-2">

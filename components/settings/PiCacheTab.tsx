@@ -418,7 +418,7 @@ const PiCacheTabDevelopment: React.FC<SettingsTabProps> = ({ settings, onSave })
             </div>
 
             {/* Main toggle */}
-            <Section title="Boat Network">
+            <Section title="Boat Pi">
                 {/* Identity warning — a paired Pi's key failed to verify. This
                 is the mDNS-spoof alarm: something is answering as your Pi but
                 can't prove it. */}

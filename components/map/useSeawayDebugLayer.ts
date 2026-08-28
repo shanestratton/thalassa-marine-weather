@@ -11,8 +11,7 @@
  *     missing edge is a visible fact, never a silent drop.
  *
  * Recompiles on debounced moveend + cell import/remove. When hidden,
- * sources are emptied (layers stay mounted — zero cost). Modeled on
- * useEncTestRouteLayer's idempotent-mount pattern.
+ * sources are emptied (layers stay mounted — zero cost).
  */
 import { useEffect, useRef } from 'react';
 import type mapboxgl from 'mapbox-gl';

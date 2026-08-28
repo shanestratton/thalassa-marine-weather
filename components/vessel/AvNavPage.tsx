@@ -334,11 +334,15 @@ const AvNavPageDevelopment: React.FC<AvNavPageProps> = ({ onBack }) => {
                         <span className="text-lg">{'\u2693'}</span>
                         <div className="flex-1">
                             <p className="text-sm font-bold text-white">Boat Network</p>
-                            <p className="text-[11px] text-gray-400">
-                                {piHost && network.services.length > 0
-                                    ? `Pi, charts, instruments & weather cache`
-                                    : 'Pi, charts, instruments & weather cache'}
-                            </p>
+                            {/* Both arms of the ternary this replaces were the
+                                same string, so the condition was dead code. And
+                                "charts" was the wrong word: the charts are on
+                                the phone (EncCellStore writes them to
+                                Directory.Data), and the Pi only converts a cell
+                                on import. Saying the boat network carries your
+                                charts is what makes a skipper wonder where they
+                                went when the Pi is ashore. */}
+                            <p className="text-[11px] text-gray-400">Pi, instruments &amp; weather cache</p>
                         </div>
                         {piHost && network.services.length > 0 && (
                             <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 shadow-lg shadow-emerald-400/50" />

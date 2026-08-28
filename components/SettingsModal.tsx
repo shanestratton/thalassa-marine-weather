@@ -365,8 +365,16 @@ const MENU_ITEMS: {
     },
     {
         id: 'boatNetwork',
-        label: 'Boat Network',
-        description: 'Pi cache, Signal K & AvNav',
+        /* Was also "Boat Network", with the same description as the Vessel-hub
+           row one hop away in the same menu. A punter who failed to find the
+           Pi on one tried the other, got the same failure in different words,
+           and concluded the app was broken. These are not redundant screens —
+           this one owns pairing, the security fingerprint, Forget, the
+           mDNS-spoof alarm, cache purge and the new-Pi wizard — so the fix is
+           to name them for what they each do. The everyday "is the boat
+           there?" glance keeps the name Boat Network. */
+        label: 'Boat Pi — setup & cache',
+        description: 'Pairing, install, cache & anchor',
         icon: (c) => (
             <svg className={c} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8}>
                 <path

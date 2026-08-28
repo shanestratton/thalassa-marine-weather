@@ -100,12 +100,13 @@ describe('ChartDepthControls', () => {
         expect(triggerHaptic).toHaveBeenCalledWith('light');
 
         rerender(<ChartDepthControls {...input} encHydration={{ total: 4, remaining: 0 }} encNoCoverage />);
-        expect(
-            screen.getByText('No verified ENC coverage here — reference imports cannot verify it.'),
-        ).toBeInTheDocument();
-        fireEvent.click(screen.getByRole('button', { name: 'Open on-device ENC Library' }));
-        expect(input.onOpenEncLibrary).toHaveBeenCalledOnce();
-        expect(triggerHaptic).toHaveBeenLastCalledWith('light');
+        // A skipper who OWNS charts is told how many and where the gap is.
+        expect(screen.getByText('You have 1 ENC chart, none covering here.')).toBeInTheDocument();
+        // And is NOT offered the reference Library, which would greet them
+        // with "No reference ENC cells are installed" — a different kind of
+        // chart entirely, and a dead end. That button is for the no-charts
+        // case, which the next test covers.
+        expect(screen.queryByRole('button', { name: 'Open on-device ENC Library' })).not.toBeInTheDocument();
     });
 
     it('makes an empty ENC inventory explicit and offers the working on-device importer', () => {

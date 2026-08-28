@@ -498,3 +498,34 @@ This proves:
 3. **ENC license terms storage** — do we ask the user to
    acknowledge they own the cells they're importing? Probably
    yes, one-time modal on first ENC import.
+
+---
+
+## Offshore backup strategy for encrypted o-charts
+
+_Salvaged 2026-08-28 from `components/settings/ChartServerSetupGuide.tsx` before
+that component was deleted. It was unreachable UI — nothing imported it — but
+this section existed nowhere else and is worth keeping._
+
+o-charts are locked to a hardware fingerprint (CPU serial + MAC address). Every
+Pi is unique, so swapping an SD card into a different Pi locks you out. Three
+ways to stay covered offshore, best first:
+
+1. **o-charts USB dongle (gold standard).** Buy the €19 dongle from
+   o-charts.org and assign one of your two chart licences to it rather than to
+   the Pi's own hardware. The licence then lives on the dongle, not the CPU: if
+   the Pi dies, plug the dongle and a cloned SD card into any spare Pi and the
+   charts decrypt immediately.
+2. **Register two systems.** o-charts allows two devices per purchase. Make
+   device #1 the USB dongle (for the Pi) and device #2 a laptop, so AvNav on
+   the laptop is a last resort if everything else fails.
+3. **Free government ENCs as a fallback.** Download the passage area as MBTiles
+   and keep them on a USB stick — no DRM, works on any device at any time. LINZ
+   covers the NZ/Fiji/Tonga triangle well; NOAA covers the Pacific.
+
+Thalassa itself always falls back to OpenSeaMap, and routing falls back to GEBCO
+bathymetry when no ENC cell covers the area.
+
+**Do not restore the deleted guide as it was.** Its "Path A" told the reader to
+copy chart files to `~/.signalk/charts/` under a heading that said AvNav, which
+conflates two different servers.
