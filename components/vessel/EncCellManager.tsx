@@ -42,7 +42,6 @@ import { getCoverage as getEncCoverage, removeCell as removeEncCell } from '../.
 import type { EncCell } from '../../services/enc/types';
 import { CATZOC_LABELS, isLowConfidenceCatzoc } from '../../services/enc/types';
 import { piCache } from '../../services/PiCacheService';
-import { EncPersonalCloudPanel } from './EncPersonalCloudPanel';
 import { requestMapFit } from '../../stores/MapFitTargetStore';
 import { useUI } from '../../context/UIContext';
 import { ModalSheet } from '../ui/ModalSheet';
@@ -777,7 +776,6 @@ export const EncCellManager: React.FC = () => {
                                 the Pi is unreachable from a browser ashore, so
                                 without this the planner on the web can only ever
                                 show the curated bucket. */}
-                            <EncPersonalCloudPanel />
 
                             {error && (
                                 <div className="px-3 py-2 rounded-xl bg-red-500/[0.06] border border-red-500/20">
