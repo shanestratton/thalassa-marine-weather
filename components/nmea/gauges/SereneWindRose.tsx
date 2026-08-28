@@ -107,6 +107,9 @@ export interface SereneWindRoseProps {
      */
     isLive?: boolean;
     className?: string;
+    /** Merged over the pinned palette — callers size the rose, never recolour
+     *  it: the shading depends on the whole token ladder agreeing. */
+    style?: React.CSSProperties;
 }
 
 export const SereneWindRose: React.FC<SereneWindRoseProps> = ({
@@ -117,6 +120,7 @@ export const SereneWindRose: React.FC<SereneWindRoseProps> = ({
     gaugeKey,
     isLive = true,
     className = '',
+    style,
 }) => {
     const has = angle !== null && Number.isFinite(angle);
     const hdg = heading !== null && heading !== undefined && Number.isFinite(heading) ? heading : null;
@@ -252,7 +256,7 @@ export const SereneWindRose: React.FC<SereneWindRoseProps> = ({
         <svg
             viewBox={`0 0 ${W} ${W}`}
             className={className}
-            style={isLive ? PALETTE : { ...PALETTE, opacity: 0.45 }}
+            style={{ ...PALETTE, ...(isLive ? null : { opacity: 0.45 }), ...style }}
             role="img"
             aria-label={
                 has

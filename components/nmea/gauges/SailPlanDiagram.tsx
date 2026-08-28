@@ -57,6 +57,25 @@ const TRAVELLER_POS: Record<string, number> = {
     Running: 0,
 };
 
+/**
+ * Where the yankee sheet actually leads, which is NOT the same question as
+ * where the car is — and the prose is emphatic about it. On the wind the car
+ * is left alone and sheet tension does the work. Reaching, the lead wants to
+ * go outboard and the track cannot do outboard, so it comes off to a snatch
+ * block on the toe rail. Running, the sail is poled to windward. Drawing a
+ * car sliding along a track through all of that would illustrate the
+ * opposite of the advice.
+ *
+ * `car` is the position along the track, 0 forward … 1 aft.
+ */
+const YANKEE_LEAD: Record<string, { car: number; mode: 'track' | 'rail' | 'poled' }> = {
+    Beating: { car: 0.42, mode: 'track' },
+    'Close reach': { car: 0.55, mode: 'track' },
+    'Beam reach': { car: 0.62, mode: 'rail' },
+    'Broad reach': { car: 0.62, mode: 'rail' },
+    Running: { car: 0.62, mode: 'poled' },
+};
+
 const PORT = '#ef5350';
 const STBD = '#25b167';
 const INK = '#ffffff';
@@ -104,6 +123,14 @@ export const SailPlanDiagram: React.FC<SailPlanDiagramProps> = ({
     const TRACK_HALF = 62;
     const TRACK_Y = MAST_Y + 58;
     const carX = CX + travel * TRACK_HALF;
+
+    // Yankee sheet track — fore-and-aft along the leeward side deck.
+    const lead = YANKEE_LEAD[band] ?? { car: 0.55, mode: 'track' as const };
+    const YT_FWD = 96;
+    const YT_AFT = 176;
+    const ytX = CX + lee * 44;
+    const ytCarY = YT_FWD + (YT_AFT - YT_FWD) * lead.car;
+    const railX = CX + lee * 62;
 
     return (
         <svg
@@ -212,6 +239,95 @@ export const SailPlanDiagram: React.FC<SailPlanDiagramProps> = ({
             >
                 TRAVELLER
             </text>
+
+            {/* ── yankee sheet lead ── */}
+            {yankeeSet && (
+                <g>
+                    <line
+                        x1={ytX.toFixed(1)}
+                        y1={YT_FWD}
+                        x2={ytX.toFixed(1)}
+                        y2={YT_AFT}
+                        stroke={GRID}
+                        strokeWidth={5}
+                        strokeLinecap="round"
+                    />
+                    {/* On the track the car IS the lead. Off it, the car is
+                        drawn hollow and parked — "the car itself stays put" —
+                        and the live lead is the block on the rail. */}
+                    <rect
+                        x={(ytX - 5).toFixed(1)}
+                        y={(ytCarY - 7).toFixed(1)}
+                        width={10}
+                        height={14}
+                        rx={2.5}
+                        fill={lead.mode === 'track' ? (windOnPort ? PORT : STBD) : 'none'}
+                        stroke={lead.mode === 'track' ? '#0d0d0d' : MUTED}
+                        strokeWidth={1.5}
+                    />
+                    {lead.mode === 'rail' && (
+                        <>
+                            <circle
+                                cx={railX.toFixed(1)}
+                                cy={ytCarY.toFixed(1)}
+                                r={5}
+                                fill={windOnPort ? PORT : STBD}
+                                stroke="#0d0d0d"
+                                strokeWidth={1}
+                            />
+                            <text
+                                x={railX.toFixed(1)}
+                                y={(ytCarY + 18).toFixed(1)}
+                                textAnchor="middle"
+                                fill={INK_2}
+                                fontSize={8}
+                                fontWeight={700}
+                                style={{ letterSpacing: '.08em' }}
+                            >
+                                RAIL BLOCK
+                            </text>
+                        </>
+                    )}
+                    {lead.mode === 'poled' && (
+                        <>
+                            {/* The pole goes to WINDWARD — the opposite side to
+                                everything else here, which is exactly why it is
+                                worth drawing rather than describing. */}
+                            <line
+                                x1={CX}
+                                y1={MAST_Y - 8}
+                                x2={(CX - lee * 74).toFixed(1)}
+                                y2={(MAST_Y - 44).toFixed(1)}
+                                stroke={INK}
+                                strokeWidth={3}
+                                strokeLinecap="round"
+                            />
+                            <text
+                                x={(CX - lee * 74).toFixed(1)}
+                                y={(MAST_Y - 52).toFixed(1)}
+                                textAnchor="middle"
+                                fill={INK_2}
+                                fontSize={8}
+                                fontWeight={700}
+                                style={{ letterSpacing: '.08em' }}
+                            >
+                                POLED
+                            </text>
+                        </>
+                    )}
+                    <text
+                        x={ytX.toFixed(1)}
+                        y={(YT_AFT + 14).toFixed(1)}
+                        textAnchor="middle"
+                        fill={MUTED}
+                        fontSize={8}
+                        fontWeight={700}
+                        style={{ letterSpacing: '.1em' }}
+                    >
+                        YANKEE CAR
+                    </text>
+                </g>
+            )}
 
             {/* ── flags for the two things that hurt people ── */}
             {prevent && (
