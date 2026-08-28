@@ -242,18 +242,60 @@ export const HeroSection = ({
         }
     }, []);
 
-    // FIX: Listen for global reset specifically for Vertical Scroll (Back to Today)
+    /*
+     * Vertical carousel reset — INSTANT, never smooth.
+     *
+     * Every day row is `h-full` inside this scroller, so a row-aligned
+     * position is exactly k × clientHeight in raw pixels. Collapsing to
+     * essential mode makes each row 81 px TALLER (glassLayout: the hero
+     * container's collapsed `top` sits 163 − 82 px higher) while scrollTop is
+     * left untouched — so a row-aligned offset instantly becomes fractional,
+     * and the page paints the bottom of one day above the top of the next.
+     *
+     * That is exactly what Shane photographed on 2026-08-28: the lower chrome
+     * of one radar card (wind chip, scrubber, RainViewer) stacked above the
+     * upper chrome of the next (LIVE pill, 300 nm ring, condition). One card
+     * cannot draw both ends and nothing between.
+     *
+     * The old reset was `scrollTo({ behavior: 'smooth' })`, and it is fired
+     * 10 ms into the container's 300 ms `transition-[top]`, on a box that the
+     * same render has just switched to overflow-hidden and stripped of
+     * scroll-snap. An animated scroll racing an animating height is not a
+     * thing to reason about — it is a thing to not do. WebKit has no scroll
+     * anchoring, so nothing re-snaps afterwards, and overflow-hidden means
+     * the skipper cannot drag it straight either.
+     */
+    const resetVertical = useCallback(() => {
+        if (scrollRef.current) scrollRef.current.scrollTop = 0;
+        activeIndexRef.current = 0;
+        setActiveIndex(0);
+        if (onDayChange) onDayChange(0);
+        if (onHourChange) onHourChange(0);
+        if (onSlideIndexChange) onSlideIndexChange(0);
+        if (onTimeSelect) onTimeSelect(undefined);
+    }, [onDayChange, onHourChange, onSlideIndexChange, onTimeSelect]);
+
     useEffect(() => {
-        const handleReset = () => {
-            if (scrollRef.current) {
-                scrollRef.current.scrollTo({ top: 0, behavior: 'smooth' });
-            }
-            if (onTimeSelect) onTimeSelect(undefined);
-        };
-        window.addEventListener('hero-reset-scroll', handleReset);
-        return () => window.removeEventListener('hero-reset-scroll', handleReset);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+        window.addEventListener('hero-reset-scroll', resetVertical);
+        return () => window.removeEventListener('hero-reset-scroll', resetVertical);
+    }, [resetVertical]);
+
+    /*
+     * The vertical mirror of HeroSlide's own essential-mode realign. Hero owns
+     * this rather than trusting the `hero-reset-scroll` event, because not
+     * every route into essential mode dispatches one: `isExpanded` is also
+     * derived from locationType, so a refresh that reclassifies the location
+     * flips the mode with no event at all.
+     *
+     * Re-asserted once after the 300 ms transition has settled, because the
+     * rows are still growing underneath the first call.
+     */
+    useEffect(() => {
+        if (!isEssentialMode) return;
+        resetVertical();
+        const t = setTimeout(resetVertical, 320);
+        return () => clearTimeout(t);
+    }, [isEssentialMode, resetVertical]);
 
     // PERF FIX: Pre-compute a stable array of per-slide onTimeSelect handlers.
     // Old approach: `createTimeSelectHandler(rIdx)` returned a NEW closure every render,
@@ -290,7 +332,12 @@ export const HeroSection = ({
                 role="region"
                 aria-roledescription="carousel"
                 aria-label="Daily forecast carousel — use up and down arrow keys to navigate between days"
-                className={`w-full h-full ${isEssentialMode ? 'overflow-hidden' : 'overflow-y-auto snap-y snap-mandatory'} no-scrollbar flex flex-col gap-0 focus:outline-none`}
+                /* Snap stays on in BOTH modes and only the overflow changes.
+                   Mandatory snap then re-resolves row alignment for free on any
+                   future height change — rotation, or the rain card growing
+                   when minutely data lands — while overflow-hidden still
+                   suppresses the swipe that essential mode is there to hide. */
+                className={`w-full h-full ${isEssentialMode ? 'overflow-hidden' : 'overflow-y-auto'} snap-y snap-mandatory no-scrollbar flex flex-col gap-0 focus:outline-none`}
                 style={{ overscrollBehavior: 'none' }}
             >
                 {/* Show skeleton while data is loading */}
