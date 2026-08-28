@@ -260,6 +260,46 @@ const HeroCompass: React.FC<{ value: number | null; isLive: boolean; accentColor
     );
 };
 
+/**
+ * FlankMetric — one number in the column beside the dial.
+ *
+ * Narrow on purpose: these live in the dead space either side of a round
+ * gauge, so they must never be wide enough to squeeze it. A missing value
+ * shows an em dash rather than a zero — with the boat on the hard most of
+ * these are legitimately absent, and a confident 0.0 for depth is the one
+ * number on this page that could put her aground.
+ */
+const FlankMetric: React.FC<{
+    label: string;
+    value: number | null;
+    unit: string;
+    digits?: number;
+    /** Bearings read as three padded digits, the way they are written and
+     *  spoken — and so a heading can never be misread as an angle. */
+    pad3?: boolean;
+    tone?: string;
+}> = ({ label, value, unit, digits = 1, pad3 = false, tone = 'text-white' }) => {
+    const has = value !== null && Number.isFinite(value);
+    const text = !has
+        ? '—'
+        : pad3
+          ? Math.round(value as number)
+                .toString()
+                .padStart(3, '0')
+          : (value as number).toFixed(digits);
+    return (
+        <div className="rounded-lg border border-white/[0.06] bg-white/[0.03] px-1 py-1.5 text-center">
+            <p className="text-[8px] font-black uppercase tracking-[0.14em] text-gray-500">{label}</p>
+            <p
+                className={`font-mono text-[15px] font-black tabular-nums leading-tight ${has ? tone : 'text-gray-600'}`}
+            >
+                {text}
+                {has && <span className="text-[8px] font-bold text-gray-500">{unit}</span>}
+            </p>
+        </div>
+    );
+};
+
 // ── HeroArcGauge — compact 240° arc gauge with self-contained digital readout ──
 interface HeroArcGaugeProps {
     value: number | null;
@@ -887,33 +927,66 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                 layout cost, and nothing is hidden. */}
                             <SectionPlate title="Wind" />
                             <div className="flex-1 min-h-0 flex flex-col items-center justify-evenly">
-                                <div
-                                    className="rounded-full p-[3px]"
-                                    style={{
-                                        background:
-                                            'conic-gradient(from 220deg, #71717a, #27272a, #52525b, #18181b, #71717a, #3f3f46, #71717a)',
-                                        boxShadow:
-                                            '0 0 30px rgba(0,0,0,0.9), 0 8px 24px rgba(0,0,0,0.6), inset 0 0 1px rgba(255,255,255,0.4)',
-                                    }}
-                                >
+                                {/* Three metrics down each side of the dial.
+                                    A round gauge in a rectangular panel leaves
+                                    two columns of dead space beside it, and the
+                                    numbers that were pushed off the bottom fit
+                                    there for free — so this costs no height at
+                                    all, which is the whole reason it works
+                                    (Shane 2026-08-28). Depth first: it is the
+                                    one that runs you aground. */}
+                                <div className="flex w-full items-center justify-center gap-2">
+                                    <div className="flex w-[68px] shrink-0 flex-col gap-1.5">
+                                        <FlankMetric
+                                            label="Depth"
+                                            value={depth.value}
+                                            unit="m"
+                                            digits={1}
+                                            tone="text-cyan-300"
+                                        />
+                                        <FlankMetric
+                                            label="SOG"
+                                            value={sog.value}
+                                            unit="kn"
+                                            digits={1}
+                                            tone="text-white"
+                                        />
+                                        <FlankMetric
+                                            label="COG"
+                                            value={cog.value}
+                                            unit="°"
+                                            digits={0}
+                                            pad3
+                                            tone="text-white"
+                                        />
+                                    </div>
                                     <div
-                                        className="rounded-full p-[2px]"
+                                        className="rounded-full p-[3px]"
                                         style={{
                                             background:
-                                                'linear-gradient(135deg, #3f3f46 0%, #18181b 50%, #3f3f46 100%)',
+                                                'conic-gradient(from 220deg, #71717a, #27272a, #52525b, #18181b, #71717a, #3f3f46, #71717a)',
+                                            boxShadow:
+                                                '0 0 30px rgba(0,0,0,0.9), 0 8px 24px rgba(0,0,0,0.6), inset 0 0 1px rgba(255,255,255,0.4)',
                                         }}
                                     >
                                         <div
-                                            className="rounded-full p-2"
+                                            className="rounded-full p-[2px]"
                                             style={{
                                                 background:
-                                                    'radial-gradient(circle at 30% 25%, rgba(30,41,59,0.95) 0%, rgba(2,6,23,0.98) 70%)',
-                                                boxShadow:
-                                                    'inset 0 4px 14px rgba(0,0,0,0.7), inset 0 0 30px rgba(0,0,0,0.5)',
-                                                border: '1px solid rgba(255,255,255,0.06)',
+                                                    'linear-gradient(135deg, #3f3f46 0%, #18181b 50%, #3f3f46 100%)',
                                             }}
                                         >
-                                            {/* Capped against viewport HEIGHT, not just a
+                                            <div
+                                                className="rounded-full p-2"
+                                                style={{
+                                                    background:
+                                                        'radial-gradient(circle at 30% 25%, rgba(30,41,59,0.95) 0%, rgba(2,6,23,0.98) 70%)',
+                                                    boxShadow:
+                                                        'inset 0 4px 14px rgba(0,0,0,0.7), inset 0 0 30px rgba(0,0,0,0.5)',
+                                                    border: '1px solid rgba(255,255,255,0.06)',
+                                                }}
+                                            >
+                                                {/* Capped against viewport HEIGHT, not just a
                                                 device bucket. The wind panel carries four
                                                 stacked blocks now — plate, this gauge, the
                                                 stat row and the two roses — and a fixed px
@@ -921,30 +994,55 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                                 roses off the bottom of a snap panel that
                                                 cannot scroll (Shane 2026-08-28). min() makes
                                                 the biggest element the one that yields. */}
-                                            <div
-                                                style={{
-                                                    width: `min(${heroGaugeSize}px, 24vh)`,
-                                                    height: `min(${heroGaugeSize}px, 24vh)`,
-                                                }}
-                                            >
-                                                <HeroArcGauge
-                                                    value={tws.value}
-                                                    min={0}
-                                                    max={60}
-                                                    unit="kts"
-                                                    label="TWS"
-                                                    accentColor="#ec4899"
-                                                    zones={[
-                                                        { from: 0, to: 15, color: '#22c55e' },
-                                                        { from: 15, to: 25, color: '#eab308' },
-                                                        { from: 25, to: 40, color: '#f97316' },
-                                                        { from: 40, to: 60, color: '#ef4444' },
-                                                    ]}
-                                                    majorTick={10}
-                                                    isLive={tws.value !== null && tws.freshness === 'live'}
-                                                />
+                                                <div
+                                                    style={{
+                                                        width: `min(${heroGaugeSize}px, 24vh)`,
+                                                        height: `min(${heroGaugeSize}px, 24vh)`,
+                                                    }}
+                                                >
+                                                    <HeroArcGauge
+                                                        value={tws.value}
+                                                        min={0}
+                                                        max={60}
+                                                        unit="kts"
+                                                        label="TWS"
+                                                        accentColor="#ec4899"
+                                                        zones={[
+                                                            { from: 0, to: 15, color: '#22c55e' },
+                                                            { from: 15, to: 25, color: '#eab308' },
+                                                            { from: 25, to: 40, color: '#f97316' },
+                                                            { from: 40, to: 60, color: '#ef4444' },
+                                                        ]}
+                                                        majorTick={10}
+                                                        isLive={tws.value !== null && tws.freshness === 'live'}
+                                                    />
+                                                </div>
                                             </div>
                                         </div>
+                                    </div>
+                                    <div className="flex w-[68px] shrink-0 flex-col gap-1.5">
+                                        <FlankMetric
+                                            label="HDG"
+                                            value={heading.value}
+                                            unit="°"
+                                            digits={0}
+                                            pad3
+                                            tone="text-white"
+                                        />
+                                        <FlankMetric
+                                            label="Helm"
+                                            value={rudder.value}
+                                            unit="°"
+                                            digits={1}
+                                            tone="text-amber-300"
+                                        />
+                                        <FlankMetric
+                                            label="Heel"
+                                            value={heel.value}
+                                            unit="°"
+                                            digits={1}
+                                            tone="text-violet-300"
+                                        />
                                     </div>
                                 </div>
                                 <div className="w-full grid grid-cols-3 gap-2 items-center">
