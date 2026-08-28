@@ -4,7 +4,7 @@
  * Shows connection status, configuration controls, and AIS Hub settings.
  * The "Instrument Panel" CTA navigates to the full multimeter dashboard.
  */
-import React, { useState, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { createLogger } from '../../utils/createLogger';
 
 const log = createLogger('NmeaPage');
@@ -24,14 +24,6 @@ import {
 } from '../../services/AisShareService';
 import { Toggle } from '../settings/SettingsPrimitives';
 import { useAuthStore } from '../../stores/authStore';
-import {
-    discoverGateways,
-    subnetPrefixOf,
-    isPrivateIpv4,
-    type GatewayCandidate,
-    type ScanPhase,
-} from '../../services/nmea/gatewayScan';
-import { nativeTcpProbe, detectSubnetPrefix } from '../../services/nmea/nativeTcpProbe';
 import { NMEA_DEVICE_PROFILES } from '../../services/NmeaDeviceProfiles';
 import { GpsReceiverStatusService, type GpsReceiverStatus } from '../../services/GpsReceiverStatusService';
 
@@ -43,13 +35,6 @@ import { Button } from '../ui/Button';
 interface NmeaPageProps {
     onBack: () => void;
     onNavigateToGlass?: () => void;
-}
-
-/** What the scan is doing right now, in the skipper's terms. */
-function scanPhaseLabel(phase: ScanPhase): string {
-    if (phase === 'default-ports') return 'Checking the usual gateway ports…';
-    if (phase === 'finding-devices') return 'Nothing on the usual ports — finding devices…';
-    return 'Checking those devices on other ports…';
 }
 
 /**
@@ -266,105 +251,21 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
         };
     }, []);
 
-    // ── Gateway scan ────────────────────────────────────────────────────
-    const [subnet, setSubnet] = useState(() => localStorage.getItem('nmea_scan_subnet') || '');
-    const [scanning, setScanning] = useState(false);
-    /** WHY the sweep ended — an empty network field is not "nothing found". */
-    const [scanOutcome, setScanOutcome] = useState<null | 'complete' | 'stopped' | 'invalid-network'>(null);
-    const [scanPhase, setScanPhase] = useState<ScanPhase>('default-ports');
-    const [scanProgress, setScanProgress] = useState(0);
-    const [scanHits, setScanHits] = useState<GatewayCandidate[]>([]);
-    const stopScanRef = useRef(false);
-
-    // Work out the network ourselves — WebRTC if iOS allows it, else by
-    // finding the router. The skipper should never have to go and read an IP
-    // off another screen just to start a scan.
-    const [detectingSubnet, setDetectingSubnet] = useState(false);
-    useEffect(() => {
-        if (subnet) return;
-        let cancelled = false;
-        setDetectingSubnet(true);
-        void detectSubnetPrefix({ shouldStop: () => cancelled })
-            .then((found) => {
-                if (!cancelled && found) setSubnet(found.prefix);
-            })
-            .catch(() => {})
-            .finally(() => {
-                if (!cancelled) setDetectingSubnet(false);
-            });
-        return () => {
-            cancelled = true;
-        };
-    }, [subnet]);
-
-    const stopScan = useCallback(() => {
-        stopScanRef.current = true;
-        setScanning(false);
-    }, []);
-
-    // The app unmounts pages on every tab switch, so without this a sweep the
-    // skipper walked away from keeps running invisibly — holding the plugin's
-    // serial native bridge and racing whatever the next page wants to do with
-    // it. There is no way to reach the Stop button once the page is gone.
-    useEffect(() => {
-        return () => {
-            stopScanRef.current = true;
-        };
-    }, []);
-
-    const startScan = useCallback(() => {
-        const prefix = subnet.trim().endsWith('.') ? subnet.trim() : `${subnet.trim()}.`;
-        // Use the validators that already exist and are already tested, rather
-        // than a looser regex that accepts 999.1.1. and would then sweep 254
-        // addresses that cannot exist. isPrivateIpv4 also keeps a mistyped
-        // public range from being scanned.
-        const canonical = subnetPrefixOf(`${prefix}1`);
-        if (!canonical || !isPrivateIpv4(`${canonical}1`)) {
-            setScanOutcome('invalid-network');
-            setScanHits([]);
-            return;
-        }
-        localStorage.setItem('nmea_scan_subnet', prefix);
-        triggerHaptic('medium');
-        stopScanRef.current = false;
-        setScanning(true);
-        setScanOutcome(null);
-        setScanHits([]);
-        setScanProgress(0);
-        setScanPhase('default-ports');
-
-        void discoverGateways({
-            subnetPrefix: prefix,
-            probe: nativeTcpProbe,
-            onPhase: setScanPhase,
-            onProgress: (done, total) => setScanProgress(total > 0 ? done / total : 0),
-            // Show each hit the moment it lands — on a 254-host sweep the
-            // skipper should not wait for the whole thing to finish.
-            onCandidate: (c) =>
-                setScanHits((prev) => (prev.some((p) => p.host === c.host && p.port === c.port) ? prev : [...prev, c])),
-            shouldStop: () => stopScanRef.current,
-        })
-            .then((all) => setScanHits(all))
-            .catch((e) => log.warn('gateway scan failed:', e))
-            .finally(() => {
-                setScanning(false);
-                setScanOutcome(stopScanRef.current ? 'stopped' : 'complete');
-            });
-    }, [subnet]);
-
-    const applyScanHit = useCallback((hit: GatewayCandidate) => {
-        triggerHaptic('light');
-        setHost(hit.host);
-        setPort(String(hit.port));
-        localStorage.setItem('nmea_host', hit.host);
-        localStorage.setItem('nmea_port', String(hit.port));
-        if (hit.profileId) {
-            setDevice(hit.profileId);
-            localStorage.setItem('nmea_device', hit.profileId);
-        }
-        setScanHits([]);
-        setScanOutcome(null);
-    }, []);
+    /*
+     * The gateway scan is gone (Shane 2026-08-28: "lets get rid of the network
+     * scan card, that is 5 parts useless").
+     *
+     * It was written after he sailed to Tangalooma without instruments because
+     * the gateway's IP had been forgotten — a real problem, but the scan was a
+     * poor answer to it. It offered any open port on a known gateway number as
+     * a 'likely' candidate, which is how a silent AvNav listener on the house
+     * Pi became his saved gateway; its probes could strand sockets in the
+     * YDWG's three slots; and the address it hunts for is printed on the
+     * device and set once in a boat's life.
+     *
+     * The default host is the YDWG-02's factory address, and the connection
+     * error now names what actually went wrong. That is the better answer.
+     */
 
     const handleConnect = useCallback(() => {
         triggerHaptic('medium');
@@ -406,7 +307,7 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
 
                 {/* Content — fills viewport */}
                 <div
-                    className="flex-1 px-4 min-h-0 overflow-y-auto"
+                    className="thalassa-keyboard-safe-page flex-1 px-4 min-h-0 overflow-y-auto"
                     style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}
                 >
                     {/* ═══ POSITION SOURCE ═══
@@ -561,8 +462,11 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
                                         ))}
                                     </select>
                                 </div>
-                                {/* Host + Port */}
-                                <div className="flex gap-2">
+                                {/* Host + Port. The scroll-margin keeps these
+                                    clear of the sticky header when the keyboard
+                                    shoves them up — they are the two fields on
+                                    this page anyone actually types into. */}
+                                <div className="thalassa-keyboard-safe-field flex gap-2">
                                     <div className="flex-1">
                                         <FormField
                                             label="Host IP"
@@ -584,109 +488,6 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
                                             inputMode="numeric"
                                         />
                                     </div>
-                                </div>
-
-                                {/* ═══ FIND IT FOR ME ═══
-                                    Shane sailed to Tangalooma without instruments
-                                    because the gateway's IP had been forgotten. The
-                                    address is discoverable — so discover it. */}
-                                <div className="rounded-xl border border-white/10 bg-black/20 p-3">
-                                    <div className="flex items-center justify-between gap-2">
-                                        <div className="min-w-0">
-                                            <div className="text-[11px] font-black uppercase tracking-widest text-gray-300">
-                                                Don’t know the IP?
-                                            </div>
-                                            <div className="mt-0.5 text-[11px] leading-snug text-gray-500">
-                                                {scanning
-                                                    ? scanPhaseLabel(scanPhase)
-                                                    : detectingSubnet
-                                                      ? 'Finding your network…'
-                                                      : 'Scans your boat’s network for the gateway.'}
-                                            </div>
-                                        </div>
-                                        <button
-                                            onClick={scanning ? stopScan : startScan}
-                                            className={`shrink-0 rounded-lg px-3 py-2 text-[11px] font-black uppercase tracking-widest active:scale-95 ${
-                                                scanning ? 'bg-white/10 text-gray-300' : 'bg-teal-500/20 text-teal-300'
-                                            }`}
-                                        >
-                                            {scanning ? 'Stop' : '🔍 Scan'}
-                                        </button>
-                                    </div>
-
-                                    <div className="mt-2">
-                                        <FormField
-                                            label="Network"
-                                            value={subnet}
-                                            onChange={setSubnet}
-                                            placeholder="192.168.1."
-                                            mono
-                                        />
-                                        <p className="px-0.5 pt-1 text-[10px] leading-snug text-gray-500">
-                                            The first three parts of your phone’s Wi-Fi address (iOS: Settings → Wi-Fi →
-                                            ⓘ). Detected automatically when possible.
-                                        </p>
-                                    </div>
-
-                                    {scanning && (
-                                        <div className="mt-2 h-1 overflow-hidden rounded-full bg-white/10">
-                                            <div
-                                                className="h-full rounded-full bg-teal-400 transition-[width] duration-200"
-                                                style={{ width: `${Math.round(scanProgress * 100)}%` }}
-                                            />
-                                        </div>
-                                    )}
-
-                                    {scanHits.length > 0 && (
-                                        <div className="mt-2 space-y-1.5">
-                                            {scanHits.map((hit) => (
-                                                <button
-                                                    key={`${hit.host}:${hit.port}`}
-                                                    onClick={() => applyScanHit(hit)}
-                                                    className="flex w-full items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-2.5 py-2 text-left active:scale-[0.98]"
-                                                >
-                                                    <span
-                                                        className={`h-2 w-2 shrink-0 rounded-full ${
-                                                            hit.confidence === 'confirmed'
-                                                                ? 'bg-emerald-400'
-                                                                : 'bg-amber-400'
-                                                        }`}
-                                                    />
-                                                    <span className="min-w-0 flex-1">
-                                                        <span className="block font-mono text-[12px] font-bold text-white">
-                                                            {hit.host}:{hit.port}
-                                                        </span>
-                                                        <span className="block text-[10px] text-gray-400">
-                                                            {hit.confidence === 'confirmed'
-                                                                ? `${hit.label} — live data`
-                                                                : `${hit.label} — open, but silent`}
-                                                        </span>
-                                                    </span>
-                                                    <span className="shrink-0 text-[10px] font-black uppercase tracking-widest text-teal-300">
-                                                        Use
-                                                    </span>
-                                                </button>
-                                            ))}
-                                        </div>
-                                    )}
-
-                                    {scanOutcome === 'invalid-network' && (
-                                        <p className="mt-2 text-[11px] leading-snug text-amber-300/80">
-                                            That doesn’t look like a local network address. It should be three numbers,
-                                            like <span className="font-mono">192.168.1.</span>
-                                        </p>
-                                    )}
-                                    {scanOutcome === 'stopped' && scanHits.length === 0 && (
-                                        <p className="mt-2 text-[11px] leading-snug text-gray-400">
-                                            Stopped — nothing found before you stopped it.
-                                        </p>
-                                    )}
-                                    {scanOutcome === 'complete' && scanHits.length === 0 && (
-                                        <p className="mt-2 text-[11px] leading-snug text-amber-300/80">
-                                            Nothing found on {subnet}x. Check you’re on the boat’s Wi-Fi, confirm the
-                                            network above, and make sure the gateway is powered.
-                                        </p>
-                                    )}
                                 </div>
                             </div>
                         )}

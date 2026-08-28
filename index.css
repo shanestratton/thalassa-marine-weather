@@ -3446,6 +3446,34 @@ body,
     }
 }
 
+/*
+ * Full PAGES, as distinct from bottom sheets.
+ *
+ * iOS runs with KeyboardResize.None, so the web view does not shrink when the
+ * keyboard opens: the page keeps its full height and WebKit scrolls the
+ * focused field into what IT thinks is the viewport — which is behind the
+ * keyboard, or jammed under a sticky header. Shane 2026-08-28, editing the
+ * gateway host and port: "when the keyboard pops up, it pushes both of those
+ * textboxes up under the heading".
+ *
+ * Two halves. The scroller gets the keyboard's height as bottom padding, so
+ * there is somewhere to scroll TO; and fields opt into a scroll-margin so
+ * WebKit stops them clear of the header rather than beneath it.
+ */
+.thalassa-keyboard-safe-page {
+    padding-bottom: var(--thalassa-keyboard-height, 0px);
+    transition: padding-bottom 180ms ease-out;
+}
+.thalassa-keyboard-safe-field {
+    scroll-margin-top: 5.5rem;
+    scroll-margin-bottom: 1.5rem;
+}
+@media (prefers-reduced-motion: reduce) {
+    .thalassa-keyboard-safe-page {
+        transition: none;
+    }
+}
+
 /* The one element in the pin sheet that can afford to give up space. It was
    a flat 320px, which alone pushed the note field below the fold on every
    phone — and the field is inside the sheet's own scroller, over a map that
