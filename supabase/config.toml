@@ -154,3 +154,15 @@ verify_jwt = false
 # or cron's legacy service-role JWT; the function then requires either its
 # bounded internal worker secret or the verified service_role claim.
 verify_jwt = true
+
+[functions.feedback-submission]
+# Public bug/feature form. The function enforces exact-origin CORS, a bounded
+# body, strict field/kind validation, honeypot discard, an HMAC-per-IP quota,
+# and a service-role-only idempotent database transaction.
+verify_jwt = false
+
+[functions.feedback-email-worker]
+# Privileged durable-outbox worker. The gateway verifies the fast wake's anon
+# JWT or cron's legacy service-role JWT; function code then requires the exact
+# bounded internal secret or the verified service_role claim.
+verify_jwt = true

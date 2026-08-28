@@ -354,6 +354,8 @@ describe('web release verification', () => {
     it('fails closed when an edge redirect, security header, or cache rule drifts', () => {
         const config = JSON.parse(read('vercel.json'));
         config.redirects = config.redirects.filter((rule: { source: string }) => rule.source !== '/float/:path*');
+        config.rewrites = config.rewrites.filter((rule: { source: string }) => rule.source !== '/feedback');
+        config.headers = config.headers.filter((rule: { source: string }) => rule.source !== '/feedback.html');
         const globalHeaders = config.headers.find((rule: { source: string }) => rule.source === '/(.*)').headers;
         globalHeaders.find((header: { key: string }) => header.key === 'X-Frame-Options').value = 'SAMEORIGIN';
         const assetHeaders = config.headers.find((rule: { source: string }) => rule.source === '/assets/(.*)').headers;
@@ -362,6 +364,8 @@ describe('web release verification', () => {
         expect(validateVercelConfig(config)).toEqual(
             expect.arrayContaining([
                 '/float/:path* must have one temporary redirect to /logs',
+                '/feedback must have one rewrite to /feedback.html',
+                `/feedback.html must use ${DOCUMENT_CACHE_CONTROL}`,
                 'global x-frame-options must equal DENY',
                 `/assets/(.*) must use ${IMMUTABLE_ASSET_CACHE_CONTROL}`,
             ]),
@@ -390,6 +394,11 @@ describe('web release verification', () => {
             file: 'beta.html',
             surface: 'beta',
         });
+        expect(localRouteExpectation('/feedback?source=settings')).toEqual({
+            kind: 'document',
+            file: 'feedback.html',
+            surface: 'feedback',
+        });
         expect(localRouteExpectation('/float/legacy-plan')).toEqual({ kind: 'redirect', destination: '/logs' });
         expect(localRouteExpectation('/assets/main-hash.js')).toEqual({ kind: 'asset' });
     });
@@ -406,6 +415,12 @@ describe('web release verification', () => {
             validateHtmlSurface(
                 '<title>Founding Skippers — Thalassa</title><div id="root"></div><script type="module" src="/assets/beta-release123.js"></script>',
                 'beta',
+            ),
+        ).toEqual([]);
+        expect(
+            validateHtmlSurface(
+                '<title>Feedback — Thalassa</title><div id="root"></div><script type="module" src="/assets/feedback-release123.js"></script>',
+                'feedback',
             ),
         ).toEqual([]);
         expect(validateHtmlSurface('<html><body>Deployment ready</body></html>', 'main')).toEqual(

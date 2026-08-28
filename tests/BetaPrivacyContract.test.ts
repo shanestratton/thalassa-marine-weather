@@ -34,7 +34,7 @@ describe('public-beta privacy contract', () => {
         const signIn = read('components/SignInScreen.tsx');
         const account = read('components/settings/AccountTab.tsx');
 
-        expect(terms).toContain('Version 2.7 · Public Beta');
+        expect(terms).toContain('Version 2.8 · Public Beta');
         expect(terms).toContain('supported account data syncs');
         expect(terms).toContain('may also be sent to');
         expect(terms).toContain('pseudonymous Thalassa account ID');

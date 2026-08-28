@@ -229,7 +229,7 @@
                 <img src="/thalassa-icon.png" alt="Thalassa" />
                 <h1>Terms & Privacy</h1>
                 <p class="subtitle">Thalassa Marine Weather</p>
-                <p class="effective">Effective Date: 28 August 2026 &nbsp;·&nbsp; Version 2.7 · Public Beta</p>
+                <p class="effective">Effective Date: 28 August 2026 &nbsp;·&nbsp; Version 2.8 · Public Beta</p>
             </div>
 
             <!-- Tabs -->
@@ -347,8 +347,8 @@
                         functions
                     </li>
                     <li>
-                        <strong>Resend</strong> — transactional Founding Skipper application receipt, acceptance, and
-                        operator notification emails
+                        <strong>Resend</strong> — transactional Founding Skipper application and Product Feedback
+                        receipts, acceptance messages, and operator notification emails
                     </li>
                     <li>
                         <strong>Twilio Verify</strong> — delivery and checking of one-time SMS codes used solely to
@@ -446,6 +446,52 @@
                     transactional application receipt and acceptance emails to the address you provide. Operator
                     notifications may arrive in the operator's private email inbox. Thalassa does not sell application
                     data or use it for advertising.
+                </p>
+
+                <h3>Product Feedback, Bug Reports &amp; Feature Requests</h3>
+                <p>
+                    If you use the public Product Feedback form, Thalassa collects the name and email address you
+                    provide, whether you are reporting a bug or requesting a feature, the area of Thalassa involved, a
+                    short title, your description, the impact you select, the form source, submission time, consent
+                    version, and a submission reference. A bug report may also include the steps to reproduce it, what
+                    you expected, what actually happened, and your device. A feature request may include the problem you
+                    want solved and what a good outcome would look like. We use these details only to investigate the
+                    report, improve Thalassa, reply about it when useful, and protect the form from abuse. We do not
+                    sell Product Feedback data or use it for advertising.
+                </p>
+                <p>
+                    When Thalassa opens the form, it may append the exact <code>appVersion</code>, <code>build</code>,
+                    and <code>platform</code> query parameters. The form stores their bounded values with every report
+                    as app version, app build, and app platform metadata; those fields are empty when Thalassa did not
+                    supply that context. This report metadata helps us identify the affected release and platform. It is
+                    caller-supplied context, not verified or trusted proof of a person's identity, account, device, or
+                    entitlement.
+                </p>
+                <p>
+                    Basic technical details are <strong>optional and off by default</strong>. If you deliberately
+                    include them with a bug report, the form sends the browser platform and user-agent description,
+                    screen and viewport sizes, language, online status, and the current page path. The page path
+                    excludes all query parameters, including the three app-context parameters above, and fragments.
+                    Apart from the separately stored app-context fields just described, arbitrary query parameters are
+                    not copied into the report. This optional diagnostic bundle does not include coordinates, account
+                    data, cookies, local-storage contents, device identifiers, URL parameters, or other pages from your
+                    browsing history. The form does not accept file attachments; if a screenshot would help, you may
+                    reply to the transactional receipt email after checking it for private details.
+                </p>
+                <p>
+                    To limit automated abuse, the server derives a keyed HMAC token from the request's network address
+                    and stores that token in a separate quota record. Thalassa does not store the raw network address
+                    with the submission or in that quota record. The token is not an address and cannot be reversed
+                    without Thalassa's private server-side key. Quota rows older than two days become eligible for
+                    opportunistic deletion as later quota requests are processed.
+                </p>
+                <p>
+                    Product Feedback details are also processed by <strong>Resend</strong>, Thalassa's transactional
+                    email provider, solely to send a receipt to the address you provide and notify the operator about
+                    the submission. The operator notification may arrive in the operator's private, monitored email
+                    inbox. Resend separately retains delivery information under its privacy terms. Do not put passwords,
+                    one-time codes, authentication tokens, private chart files, or another person's personal information
+                    in the form or in a screenshot you later email.
                 </p>
 
                 <h3>Crew List Phone Verification</h3>
@@ -610,6 +656,7 @@
                     <li>To generate weather forecasts for your requested locations</li>
                     <li>To provide AI, voice, mapping, sharing, and optional connected-account actions you request</li>
                     <li>To investigate crashes, security events, abuse reports, and service reliability</li>
+                    <li>To investigate Product Feedback, improve Thalassa, and reply about a submission when useful</li>
                     <li>To communicate important service updates</li>
                 </ul>
 
@@ -724,6 +771,14 @@
                     the beta and the relevant details become part of their account or an active tester record. You may
                     ask us to withdraw or delete an application sooner by emailing
                     <a href="mailto:privacy@thalassawx.com">privacy@thalassawx.com</a> from the address used to apply.
+                </p>
+                <p>
+                    Product Feedback submissions, including contact details and free text, are scheduled for automatic
+                    deletion within 365 days together with their Thalassa email-delivery bookkeeping. You may request
+                    deletion sooner by emailing
+                    <a href="mailto:privacy@thalassawx.com">privacy@thalassawx.com</a> from the address used to submit
+                    the form and including the submission reference from your receipt. Resend separately retains
+                    delivery information under its own privacy and retention terms.
                 </p>
 
                 <h2>6. Children's Privacy</h2>

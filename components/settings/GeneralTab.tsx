@@ -6,7 +6,7 @@ import React from 'react';
 import { Section, Row, type SettingsTabProps } from './SettingsPrimitives';
 import { CompassIcon, ArrowRightIcon, TrashIcon } from '../Icons';
 import type { LengthUnit, OffshoreModel } from '../../types';
-import { betaFeedbackUrl, openExternalUrl, THALASSA_TERMS_URL } from '../../services/externalLinks';
+import { openExternalUrl, openFeedbackDestination, THALASSA_TERMS_URL } from '../../services/externalLinks';
 import { canAccess } from '../../services/SubscriptionService';
 
 interface GeneralTabProps extends SettingsTabProps {
@@ -265,8 +265,8 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                 <div className="p-4">
                     <button
                         type="button"
-                        aria-label="Email Thalassa public beta feedback"
-                        onClick={() => void openExternalUrl(betaFeedbackUrl())}
+                        aria-label="Report a bug or request a feature"
+                        onClick={() => void openFeedbackDestination()}
                         className="flex w-full items-center gap-3 rounded-xl border border-sky-500/20 bg-sky-500/10 p-3 text-left transition-all hover:border-sky-400/30 hover:bg-sky-500/15 active:scale-[0.98]"
                     >
                         <div className="rounded-lg bg-sky-400/15 p-2 text-sky-300" aria-hidden="true">
