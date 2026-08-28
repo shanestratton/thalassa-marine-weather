@@ -40,6 +40,9 @@ describe('Crew profile-publication Edge contract', () => {
         expect(moderation).toMatch(/thinkingConfig: \{ thinkingBudget: 0 \}/);
         expect(moderation).toMatch(/maxOutputTokens: 256/);
         expect(moderation).toMatch(/responseMimeType: 'application\/json'/);
+        expect(moderation).toMatch(/responseJsonSchema:/);
+        expect(moderation).toContain('Short, sparse, humorous, boastful, informal');
+        expect(moderation).toContain('do not require the biography itself to mention sailing');
     });
 
     it('retries only bounded technical failures before the trusted finalizer', () => {
@@ -53,11 +56,16 @@ describe('Crew profile-publication Edge contract', () => {
         expect(retryCodes).toContain('moderation_incomplete');
         expect(retryCodes).toContain('moderation_unavailable');
         expect(retryCodes).toContain('provider_rate_limited');
-        expect(retryCodes).not.toMatch(/moderation_malformed|provider_blocked|unsafe_content|scam_signal/);
+        expect(retryCodes).not.toMatch(
+            /moderation_inconclusive|moderation_malformed|provider_blocked|unsafe_content|scam_signal/,
+        );
         expect(moderation).toMatch(/!isRetryableTechnicalModerationResult\(result\) \|\| retryDelay === undefined/);
         expect(moderation).toMatch(/finishReason === 'MAX_TOKENS'[\s\S]*?'moderation_incomplete'/);
         expect(moderation).toMatch(/PROVIDER_BLOCK_FINISH_REASONS[\s\S]*?'provider_blocked'/);
-        expect(moderation).toMatch(/safetyRatings\.some[\s\S]*?blocked === true[\s\S]*?'provider_blocked'/);
+        expect(moderation).toMatch(
+            /for \(const rating of candidateRecord\.safetyRatings\)[\s\S]*?ratingRecord\.blocked === true[\s\S]*?'provider_blocked'/,
+        );
+        expect(moderation).toMatch(/typeof ratingRecord\.blocked !== 'boolean'[\s\S]*?return malformed/);
 
         expect(index.match(/admin\.rpc\('begin_crew_profile_publication'/g)).toHaveLength(1);
         expect(index.match(/admin\.rpc\('finalize_crew_profile_publication'/g)).toHaveLength(1);
@@ -81,7 +89,8 @@ describe('Crew profile-publication Edge contract', () => {
             /record\.verdict === 'approved' && record\.reasonCode === 'clear'[\s\S]*?verdict: 'approved'/i,
         );
         expect(moderation).toMatch(/moderation_malformed/i);
-        expect(moderation).toMatch(/moderation_uncertain/i);
+        expect(moderation).toMatch(/moderation_inconclusive/i);
+        expect(moderation).toMatch(/content_uncertain/i);
         expect(moderation).toMatch(/Object\.keys\(record\)\.sort\(\)/i);
         expect(moderation).not.toMatch(/verdict: 'rejected'/i);
     });

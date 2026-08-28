@@ -268,7 +268,7 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                                   : reviewApproved
                                     ? '🔒 Profile approved but private. Publish again to complete the current safety checks.'
                                     : review.approval_status === 'pending' || review.verification_status === 'pending'
-                                      ? '⏳ A quick safety review is needed. Your profile stays private while we check it.'
+                                      ? '⏳ Your updated profile needs a closer look. Most clear profiles publish automatically; this one stays private for review.'
                                       : profile?.user_id
                                         ? 'Your private draft is saved. Complete the trust checks, then publish when ready.'
                                         : 'Your profile begins private. Once the trust and content checks pass, it can go live automatically.'}
@@ -277,7 +277,8 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                         <li>• Your first photo must be a clear headshot.</li>
                         <li>• Introductions are mutual before private chat.</li>
                         <li className="sm:col-span-2">
-                            • Publishing runs an automated content-safety check. No face matching or biometric template.
+                            • Most clear profiles publish automatically. Only safety flags need a person; no face
+                            matching or biometric template.
                         </li>
                     </ul>
                 </section>

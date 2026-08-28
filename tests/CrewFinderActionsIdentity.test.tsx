@@ -554,7 +554,9 @@ describe('Crew Finder async identity fencing', () => {
         await act(async () => rendered.result.current.actions.handleSaveProfile());
 
         expect(crewService.submitCrewProfileForReview).toHaveBeenCalledTimes(1);
-        expect(toastMocks.success).toHaveBeenCalledWith('Profile saved privately — it needs a quick safety review');
+        expect(toastMocks.success).toHaveBeenCalledWith(
+            'Changes saved privately — the safety check needs a closer look',
+        );
     });
 
     it('does not rerun publication for an unchanged profile that remains live', async () => {

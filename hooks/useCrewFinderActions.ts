@@ -665,7 +665,7 @@ export function useCrewFinderActions(
                     : result.value.outcome === 'published'
                       ? 'Crew List profile published — you are live'
                       : result.value.outcome === 'manual_review'
-                        ? 'Profile saved privately — it needs a quick safety review'
+                        ? 'Changes saved privately — the safety check needs a closer look'
                         : result.value.outcome === 'draft_saved'
                           ? 'Private draft saved — verify your email and mobile before publishing'
                           : 'Crew List profile saved',

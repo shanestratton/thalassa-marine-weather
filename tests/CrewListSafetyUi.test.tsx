@@ -178,7 +178,7 @@ describe('The Crew List safety-first profile UI', () => {
             crew_list_visibility: 'private',
         });
 
-        expect(screen.getByText(/quick safety review is needed/i)).toBeInTheDocument();
+        expect(screen.getByText(/updated profile needs a closer look/i)).toBeInTheDocument();
         expect(screen.queryByText(/live on the crew list/i)).not.toBeInTheDocument();
 
         rerender(
