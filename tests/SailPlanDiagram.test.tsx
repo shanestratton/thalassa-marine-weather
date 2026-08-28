@@ -76,3 +76,33 @@ describe('the warnings that hurt people are never silent', () => {
         expect(container.textContent).toContain('no wind angle');
     });
 });
+
+describe('the yankee lead, which is not the same as the car', () => {
+    it('shows the car live on its track while the advice is "leave the car alone"', () => {
+        const { container } = render(<SailPlanDiagram {...base} band="Beating" windAngle={45} yankee="Full" />);
+        expect(container.textContent).toContain('YANKEE CAR');
+        expect(container.textContent).not.toContain('RAIL BLOCK');
+    });
+
+    it('moves the lead to a rail block reaching, because the track cannot do outboard', () => {
+        const { container } = render(<SailPlanDiagram {...base} band="Beam reach" windAngle={45} yankee="Full" />);
+        expect(container.textContent).toContain('RAIL BLOCK');
+    });
+
+    it('poles it out running, and to WINDWARD — the opposite side to everything else', () => {
+        const { container } = render(<SailPlanDiagram {...base} band="Running" windAngle={45} yankee="Full" />);
+        expect(container.textContent).toContain('POLED');
+        // Wind on the starboard bow, so the rig is to port and the pole to
+        // starboard. Drawing the pole to leeward would be a gybe waiting.
+        const pole = Array.from(container.querySelectorAll('line')).find(
+            (l) => l.getAttribute('stroke-width') === '3',
+        ) as SVGLineElement;
+        expect(Number(pole.getAttribute('x2'))).toBeGreaterThan(150);
+    });
+
+    it('draws no yankee gear at all when the sail is furled', () => {
+        const { container } = render(<SailPlanDiagram {...base} band="Beam reach" windAngle={45} yankee="Furled" />);
+        expect(container.textContent).not.toContain('YANKEE CAR');
+        expect(container.textContent).not.toContain('RAIL BLOCK');
+    });
+});

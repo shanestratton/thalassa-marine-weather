@@ -20,6 +20,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useNmeaStore } from './useNmeaStore';
 import { SereneWindRose } from './gauges/SereneWindRose';
 import { SailPlanDiagram } from './gauges/SailPlanDiagram';
+import { SailPartsDiagram } from './gauges/SailPartsDiagram';
 import { useUnwrappedAngle } from './gauges/useUnwrappedAngle';
 import { triggerHaptic } from '../../utils/system';
 import { PageHeader } from '../ui/PageHeader';
@@ -912,7 +913,20 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                                 border: '1px solid rgba(255,255,255,0.06)',
                                             }}
                                         >
-                                            <div style={{ width: `${heroGaugeSize}px`, height: `${heroGaugeSize}px` }}>
+                                            {/* Capped against viewport HEIGHT, not just a
+                                                device bucket. The wind panel carries four
+                                                stacked blocks now — plate, this gauge, the
+                                                stat row and the two roses — and a fixed px
+                                                gauge simply took its size and pushed the
+                                                roses off the bottom of a snap panel that
+                                                cannot scroll (Shane 2026-08-28). min() makes
+                                                the biggest element the one that yields. */}
+                                            <div
+                                                style={{
+                                                    width: `min(${heroGaugeSize}px, 24vh)`,
+                                                    height: `min(${heroGaugeSize}px, 24vh)`,
+                                                }}
+                                            >
                                                 <HeroArcGauge
                                                     value={tws.value}
                                                     min={0}
@@ -985,7 +999,8 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                             speed={aws.value}
                                             unit="kn"
                                             isLive={windAvailable && !windStale}
-                                            className="block h-auto w-full"
+                                            className="mx-auto block h-auto w-full"
+                                            style={{ maxHeight: '22vh' }}
                                         />
                                         <p className="mt-0.5 text-center text-[9px] font-black uppercase tracking-[0.2em] text-gray-400">
                                             Apparent
@@ -999,7 +1014,8 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                             unit="kn"
                                             heading={heading.value}
                                             isLive={windAvailable && !windStale}
-                                            className="block h-auto w-full"
+                                            className="mx-auto block h-auto w-full"
+                                            style={{ maxHeight: '22vh' }}
                                         />
                                         <p className="mt-0.5 text-center text-[9px] font-black uppercase tracking-[0.2em] text-gray-400">
                                             True
@@ -1335,6 +1351,18 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                                         prevent={plan.row.prevent}
                                                         className="mx-auto mt-2 block h-auto w-full max-w-[260px]"
                                                     />
+                                                    {/* A reference, deliberately static: it reads
+                                                        nothing from the boat, so it cannot be wrong
+                                                        about the boat. The trim prose below leans on
+                                                        these words — leech telltale, luff breathing,
+                                                        the clew rising — and they are only useful if
+                                                        you can point at them. */}
+                                                    <details className="mt-2 rounded-xl border border-white/[0.06] bg-white/[0.02] p-2">
+                                                        <summary className="cursor-pointer text-[10px] font-black uppercase tracking-[0.18em] text-gray-500 [&::-webkit-details-marker]:hidden">
+                                                            Parts of a sail
+                                                        </summary>
+                                                        <SailPartsDiagram className="mx-auto mt-2 block h-auto w-full max-w-[260px]" />
+                                                    </details>
                                                     <div className="mt-2 space-y-2 text-[12px] leading-relaxed text-gray-300">
                                                         <p>
                                                             <b className="text-white">Traveller.</b>{' '}
