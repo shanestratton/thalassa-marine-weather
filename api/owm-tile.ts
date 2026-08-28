@@ -146,7 +146,11 @@ export default async function handler(request: Request): Promise<Response> {
     try {
         const response = await fetch(upstream, {
             method: 'GET',
-            redirect: 'error',
+            // Vercel's Edge fetch implementation is reliable with manual
+            // redirects; every non-200 (including 3xx) is rejected below, so
+            // the upstream host remains pinned without using a redirect mode
+            // that some Edge isolates reject before issuing the request.
+            redirect: 'manual',
             signal: controller.signal,
             headers: { accept: 'image/png' },
         });
