@@ -23,6 +23,9 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
+/** Charts shown before the list asks permission to keep going. */
+const CELL_PREVIEW_COUNT = 8;
+
 import { triggerHaptic } from '../../utils/system';
 import {
     pickEncFile,
@@ -232,6 +235,9 @@ const CellRow: React.FC<{
 
 export const EncCellManager: React.FC = () => {
     const [expanded, setExpanded] = useState(false);
+    /* The imported list is the one that ran long. The Pi picker below has been
+       capped and filterable for a while; this had neither. */
+    const [showAllCells, setShowAllCells] = useState(false);
     const [cells, setCells] = useState<EncCell[]>(() => getEncCoverage());
     const [progress, setProgress] = useState<EncImportProgress | null>(null);
     const [importing, setImporting] = useState(false);
@@ -533,18 +539,19 @@ export const EncCellManager: React.FC = () => {
         [refreshCells],
     );
 
-    // Auto-expand when there are cells on the Pi the device doesn't
-    // have yet — surfaces the Sync button immediately on page load
-    // instead of burying it behind a tap.
-    useEffect(() => {
-        if (piHasMoreThanLocal && !expanded) {
-            setExpanded(true);
-        }
-        // We intentionally only fire on piHasMoreThanLocal transitions,
-        // not on every render — if the user explicitly collapses after
-        // a sync, they get to keep it collapsed.
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [piHasMoreThanLocal]);
+    /*
+     * This used to auto-expand whenever the Pi held cells the phone did not,
+     * to put the Sync button in front of the skipper. The intent was right and
+     * the mechanism was wrong: it opened a list of every imported cell,
+     * unasked, every time the page was opened — which is what made this
+     * section feel like it scrolled forever (Shane 2026-08-28: "can we at
+     * least roll them up into a heading card, so they do not endlessly
+     * scroll").
+     *
+     * A summary line does that job without taking the screen: the collapsed
+     * header now says how many charts are on the phone AND how many more the
+     * Pi is holding, so there is something to act on without opening anything.
+     */
 
     return (
         <>
@@ -565,7 +572,8 @@ export const EncCellManager: React.FC = () => {
                         <p className="text-[11px] text-gray-400">
                             {cells.length === 0
                                 ? 'Import S-57 .000 cells from your hydrographic office'
-                                : `${cells.length} cell${cells.length === 1 ? '' : 's'} imported · used by routing engine`}
+                                : `${cells.length} chart${cells.length === 1 ? '' : 's'} on this phone` +
+                                  (piHasMoreThanLocal ? ` · ${missingOnDevice.length} more on the Pi` : '')}
                         </p>
                     </div>
                     <svg
@@ -806,7 +814,7 @@ export const EncCellManager: React.FC = () => {
                                 </p>
                             ) : (
                                 <div className="space-y-2">
-                                    {cells.map((cell) => (
+                                    {(showAllCells ? cells : cells.slice(0, CELL_PREVIEW_COUNT)).map((cell) => (
                                         <CellRow
                                             key={cell.id}
                                             cell={cell}
@@ -815,9 +823,30 @@ export const EncCellManager: React.FC = () => {
                                             busy={importing}
                                         />
                                     ))}
+                                    {cells.length > CELL_PREVIEW_COUNT && (
+                                        <button
+                                            onClick={() => {
+                                                triggerHaptic('light');
+                                                setShowAllCells((v) => !v);
+                                            }}
+                                            className="w-full min-h-[44px] text-[11px] font-bold uppercase tracking-widest text-sky-300/90 hover:text-sky-200"
+                                        >
+                                            {showAllCells ? 'Show fewer' : `Show all ${cells.length} charts`}
+                                        </button>
+                                    )}
                                 </div>
                             )}
                         </div>
+
+                        {/* Where the charts actually are. Worth one plain
+                            sentence: the Pi is a translator, not the place
+                            your charts live, and a skipper whose Pi is ashore
+                            should not be wondering whether their charts went
+                            with it (Shane 2026-08-28). */}
+                        <p className="text-[10px] text-gray-500 leading-relaxed px-1">
+                            Your charts are stored on this phone and keep working with the Pi switched off. The Pi is
+                            only used to convert a cell when you import one, and to hold spares you can pull down.
+                        </p>
 
                         {/* ── Source attribution / honesty note ── */}
                         <div className="px-3 py-2 rounded-xl bg-white/[0.02] border border-white/[0.04]">
