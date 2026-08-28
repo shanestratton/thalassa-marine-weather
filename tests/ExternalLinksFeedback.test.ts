@@ -6,6 +6,7 @@ import {
     feedbackDestination,
     feedbackPageUrl,
     THALASSA_FEEDBACK_URL,
+    THALASSA_TERMS_URL,
 } from '../services/externalLinks';
 
 describe('feedback app link', () => {
@@ -53,5 +54,30 @@ describe('feedback app link', () => {
         expect(decoded).toContain('App version: 1.2.0');
         expect(decoded).toContain('Build: 101');
         expect(decoded).toContain('Platform: ios');
+    });
+});
+
+/**
+ * Shane gave the address himself on 2026-08-28:
+ * "https://www.thalassawx.app/feedback - this is the new webpage for gripes
+ * and ideas claude, you know where it goes."
+ *
+ * It had been pointed at thalassawx.com/feedback, which 308s to exactly this
+ * with the query string intact. That worked — and it spent a redirect on
+ * every tap and left the button depending on a second domain staying
+ * registered and pointed at the first. The terms link has always used
+ * www.thalassawx.app.
+ */
+describe('the feedback address', () => {
+    it('is the canonical one, not the redirecting one', () => {
+        expect(THALASSA_FEEDBACK_URL).toBe('https://www.thalassawx.app/feedback');
+    });
+
+    it('shares a host with the terms link, so one domain carries both', () => {
+        expect(new URL(THALASSA_FEEDBACK_URL).host).toBe(new URL(THALASSA_TERMS_URL).host);
+    });
+
+    it('is https, since the punter is typing a bug report into it', () => {
+        expect(new URL(THALASSA_FEEDBACK_URL).protocol).toBe('https:');
     });
 });

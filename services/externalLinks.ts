@@ -4,7 +4,15 @@ import { Capacitor } from '@capacitor/core';
 
 export const THALASSA_TERMS_URL = 'https://www.thalassawx.app/terms.html';
 export const THALASSA_SUPPORT_EMAIL = 'privacy@thalassawx.com';
-export const THALASSA_FEEDBACK_URL = 'https://thalassawx.com/feedback';
+/*
+ * The canonical address Shane gave on 2026-08-28, pointed at directly.
+ *
+ * This was thalassawx.com/feedback, which 308s to the same place with the
+ * query string intact — so it worked, and it cost a redirect on every tap and
+ * left the button depending on a second domain staying registered and
+ * pointed. The terms link already uses www.thalassawx.app; this now matches.
+ */
+export const THALASSA_FEEDBACK_URL = 'https://www.thalassawx.app/feedback';
 
 export async function openExternalUrl(url: string): Promise<void> {
     if (/^mailto:/i.test(url)) {
@@ -109,6 +117,23 @@ export async function feedbackDestination(): Promise<string> {
     const offline = typeof navigator !== 'undefined' && navigator.onLine === false;
     if (offline) return betaFeedbackUrl(context);
     return feedbackUrl(context);
+}
+
+/**
+ * "1.4.2 (312) · ios" — the build actually running, for the info panel.
+ *
+ * Lives here because feedbackLaunchContext already resolves it from
+ * App.getInfo() with a bundle-stamp fallback, and a second copy of that logic
+ * would be a second thing to drift. Shane 2026-08-28: "we should show the
+ * version of thalassa on one line. so we always no what version we are on."
+ *
+ * He is not being fussy. Half of today went on "the wind goes stale", where
+ * the answer depended on whether the phone was running this morning's build
+ * or this afternoon's, and nothing on the screen could say.
+ */
+export async function appBuildLabel(): Promise<string> {
+    const context = await feedbackLaunchContext();
+    return `${context.appVersion} (${context.build}) · ${context.platform}`;
 }
 
 export async function openFeedbackDestination(): Promise<void> {

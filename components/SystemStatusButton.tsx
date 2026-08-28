@@ -25,6 +25,7 @@ import { piCache, type PiCacheStatus } from '../services/PiCacheService';
 import { n2kStatus, type N2kStatus } from '../services/n2kStatus';
 import { PI_INTEGRATION_ENABLED } from '../services/piPublicBetaBoundary';
 import { useFocusTrap } from '../hooks/useFocusTrap';
+import { appBuildLabel } from '../services/externalLinks';
 
 // ── Types ──
 
@@ -109,6 +110,22 @@ const SystemStatusModal: React.FC<{
         initialFocusRef: closeButtonRef,
         onEscape: onClose,
     });
+    /* Resolved once when the panel opens — App.getInfo() is a native round
+       trip and the answer cannot change while the app is running. */
+    const [buildLabel, setBuildLabel] = useState<string | null>(null);
+    useEffect(() => {
+        let alive = true;
+        void appBuildLabel()
+            .then((label) => {
+                if (alive) setBuildLabel(label);
+            })
+            .catch(() => {
+                /* a missing version is not worth an error in a status panel */
+            });
+        return () => {
+            alive = false;
+        };
+    }, []);
     const activeCount = [
         state.gpsTracking.active,
         state.anchorWatch.active,
@@ -429,6 +446,12 @@ const SystemStatusModal: React.FC<{
                             pulse={state.n2k.health === 'green'}
                         />
                     )}
+                    {/* What build this actually is. The last line, quiet, and
+                        always present — a version you have to go and find is a
+                        version nobody knows. */}
+                    <p className="pt-1 text-center text-[10px] font-medium tracking-wide text-slate-500">
+                        Thalassa {buildLabel ?? '…'}
+                    </p>
                 </div>
             </div>
         </div>,
