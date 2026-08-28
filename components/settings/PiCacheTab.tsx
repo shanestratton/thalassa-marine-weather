@@ -23,7 +23,6 @@ import {
     XIcon,
 } from '../Icons';
 import { piCache, type PiCacheStatus, type PiPairingEvent } from '../../services/PiCacheService';
-import { RemoteAccessSection } from './RemoteAccessSection';
 import { AnchorDashboardSection } from './AnchorDashboardSection';
 import {
     getPairing,
@@ -867,9 +866,10 @@ const PiCacheTabDevelopment: React.FC<SettingsTabProps> = ({ settings, onSave })
                 </Section>
             )}
 
-            {/* Remote access — reach the Pi away from the boat via the
-                skipper's own Tailscale account. */}
-            {isEnabled && status?.reachable && <RemoteAccessSection />}
+            {/* Remote access lives on the Vessel tab's Boat Network page now
+                (Shane 2026-08-29). That page is the everyday "is the boat
+                there?" glance; this tab owns pairing, the fingerprint, Forget
+                and the cache. One home each, and neither is behind Advanced. */}
 
             {/* Anchor dashboard. Deliberately NOT gated on the Pi cache being
                 enabled, paired or reachable, and not on PI_INTEGRATION_ENABLED

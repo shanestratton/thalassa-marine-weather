@@ -18,10 +18,22 @@
  * can this phone reach THIS gateway from where it is standing.
  */
 import { describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { join } from 'node:path';
 
 const nmea = readFileSync('components/vessel/NmeaPage.tsx', 'utf8');
 const piTab = readFileSync('components/settings/PiCacheTab.tsx', 'utf8');
+const avNav = readFileSync('components/vessel/AvNavPage.tsx', 'utf8');
+
+/** Every component file, so "exactly one mount" is a real sweep. */
+function sourceFiles(dir = 'components', out: string[] = []): string[] {
+    for (const entry of readdirSync(dir)) {
+        const p = join(dir, entry);
+        if (statSync(p).isDirectory()) sourceFiles(p, out);
+        else if (p.endsWith('.tsx') && !p.includes('.test.')) out.push(p);
+    }
+    return out;
+}
 
 describe('the Pi control is off the gateway card', () => {
     it('no longer renders remote access there', () => {
@@ -29,8 +41,23 @@ describe('the Pi control is off the gateway card', () => {
         expect(nmea).not.toContain('RemoteAccessSection');
     });
 
-    it('still has exactly one home, in the Boat Pi tab', () => {
-        expect(piTab).toContain('<RemoteAccessSection />');
+    it("still has exactly one home — the Vessel tab's Boat Network page", () => {
+        // Moved out of the Advanced settings tab on 2026-08-29 at Shane's
+        // request. That page is the everyday "is the boat there?" glance, and
+        // "can I reach the Pi from away?" is the same question from further
+        // off. The settings tab keeps pairing, the fingerprint and the cache.
+        //
+        // The invariant that matters is ONE mount, not which file: it had two
+        // for a day and that is how a single Pi setting ends up with two
+        // switches on two screens.
+        expect(avNav).toContain('<RemoteAccessSection />');
+        expect(piTab).not.toContain('<RemoteAccessSection />');
+        expect(piTab).not.toContain('import { RemoteAccessSection }');
+    });
+
+    it('is mounted exactly once across the whole app', () => {
+        const mounts = sourceFiles().filter((f) => readFileSync(f, 'utf8').includes('<RemoteAccessSection />'));
+        expect(mounts).toHaveLength(1);
     });
 });
 
