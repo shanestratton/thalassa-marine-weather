@@ -14,6 +14,7 @@ import { useSettings } from '../../context/SettingsContext';
 import { triggerHaptic } from '../../utils/system';
 import { PageHeader } from '../ui/PageHeader';
 import { prewarmSafetyMessage, speakSafetyMessage, type SafetyUtteranceHandle } from '../../services/voice/safetyTts';
+import { formatSpokenPosition, spellDigits, spokenCallSign, spokenMmsi } from '../../services/voice/radioPhrasing';
 import { authScopedStorageKey } from '../../services/authIdentityScope';
 
 interface MobPageProps {
@@ -85,47 +86,23 @@ function buildMaydayText(
     activatedAt: number,
     fixAccuracy: number,
 ): string {
-    // Commas, not spaces. A space between digits is not a pause to any TTS
-    // engine — it reads "5 0 3" as "five hundred and three" or races the run
-    // together (Shane 2026-08-28: "it reads the mmsi and call sign too
-    // quick"). A comma is a prosodic boundary in every engine we use, so the
-    // digits land separately and at radio cadence.
-    const spellDigits = (value: string): string => value.split('').join(', ');
-    const absLat = Math.abs(fixLat);
-    const latDeg = Math.floor(absLat);
-    const latMin = ((absLat - latDeg) * 60).toFixed(1);
-    const latDir = fixLat >= 0 ? 'North' : 'South';
-    const absLon = Math.abs(fixLon);
-    const lonDeg = Math.floor(absLon);
-    const lonMin = ((absLon - lonDeg) * 60).toFixed(1);
-    const lonDir = fixLon >= 0 ? 'East' : 'West';
     // Radio convention reads a time as digits — "two two four two", not
     // "twenty-two forty-two". TTS engines otherwise say the colon form as a
     // clock time or, worse, a decimal, and a misheard datum time on a MAYDAY
     // costs a search pattern.
     const utcDigits = new Date(activatedAt).toISOString().slice(11, 16).replace(':', '');
     const utc = `${spellDigits(utcDigits)}, U T C`;
-
-    // Spell the degree integers out digit-by-digit so TTS can't elide
-    // the leading digit on triple-digit longitudes. ElevenLabs has been
-    // observed reading "153 degrees" as "53 degrees" when racing through
-    // emergency comms — fatal for a position report. "one five three"
-    // is unambiguous and the same trick we already use for callsign +
-    // MMSI a few lines down.
-    const latDegSpoken = spellDigits(String(latDeg));
-    const lonDegSpoken = spellDigits(String(lonDeg));
     const vesselKind = spokenVesselKind(vesselType);
 
     let out = 'Mayday, Mayday, Mayday. ';
     out += vesselName
         ? `This is ${vesselKind} ${vesselName}, ${vesselName}, ${vesselName}. `
         : `This is ${vesselKind}. Say your vessel name three times now. `;
-    if (callSign) out += `Call sign ${spellDigits(callSign)}. `;
-    if (mmsi) out += `MMSI ${spellDigits(mmsi)}. `;
+    if (callSign) out += spokenCallSign(callSign);
+    if (mmsi) out += spokenMmsi(mmsi);
     out += 'Mayday. ';
     out += vesselName ? `This is ${vesselKind} ${vesselName}. ` : 'Say your vessel name once now. ';
-    out += `Man Overboard datum ${latDegSpoken} degrees ${latMin} minutes ${latDir}, `;
-    out += `${lonDegSpoken} degrees ${lonMin} minutes ${lonDir}. `;
+    out += `Man Overboard datum. ${formatSpokenPosition(fixLat, fixLon)}. `;
     if (fixAccuracy > MOB_PRECISE_FIX_ACCURACY_M) {
         out += `Position is approximate within ${Math.round(fixAccuracy)} metres. `;
     }

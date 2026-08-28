@@ -177,7 +177,10 @@ describe('RadioConsole emergency transcript honesty', () => {
         render(<RadioConsolePage onBack={vi.fn()} />);
         await waitFor(() => expect(screen.getByRole('button', { name: 'Speak transcript aloud' })).toBeEnabled());
         fireEvent.click(screen.getByRole('button', { name: 'Speak transcript aloud' }));
-        expect(lastSpokenText()).toContain('Course 0 degrees true');
+        // The subject is that a REAL due-north course survives rather than
+        // being dropped as "missing". Bearings are now spelled and padded to
+        // three figures like every other number in a position report.
+        expect(lastSpokenText()).toContain('Course. 0, 0, 0, degrees true');
     });
 
     it('uses motor-vessel wording for power-vessel radio scripts', async () => {
@@ -205,9 +208,15 @@ describe('RadioConsole emergency transcript honesty', () => {
 
         fireEvent.click(screen.getByRole('button', { name: 'Speak transcript aloud' }));
         const transcript = lastSpokenText();
-        expect(transcript).toContain('Current vessel position 2 7 degrees 30.0 minutes South');
-        expect(transcript).toContain('Man Overboard datum 2 7 degrees 15.0 minutes South');
-        expect(transcript).toContain('MOB marked at 03:04 UTC');
+        // The subject is that the two positions stay DISTINCT — the datum
+        // where the person went in, and where the vessel is now. Both are
+        // spoken at writing speed since 2026-08-28; the minutes and the
+        // datum time are spelled out rather than read as numbers.
+        expect(transcript).toContain('Current vessel position. 2, 7, degrees. 3, 0, decimal, 0, minutes. South');
+        expect(transcript).toContain('Man Overboard datum. 2, 7, degrees. 1, 5, decimal, 0, minutes. South');
+        expect(transcript).toContain('MOB marked at 0, 3, 0, 4, U T C');
+        // Still two different latitudes, which is the whole point of the test.
+        expect(transcript).not.toContain('Man Overboard datum. 2, 7, degrees. 3, 0, decimal, 0, minutes. South');
     });
 
     it('keeps MOB Mayday speak/copy actions available when current-vessel GPS is unavailable', async () => {

@@ -17,6 +17,14 @@ import { useSettings } from '../../context/SettingsContext';
 import { triggerHaptic } from '../../utils/system';
 import { PageHeader } from '../ui/PageHeader';
 import { speakSafetyMessage, type SafetyUtteranceHandle } from '../../services/voice/safetyTts';
+import {
+    formatSpokenPosition,
+    spellDigits,
+    spokenCallSign,
+    spokenBearing,
+    spokenMmsi,
+    spokenSpeedOverGround,
+} from '../../services/voice/radioPhrasing';
 import { GearIcon } from '../Icons';
 import { authScopedStorageKey } from '../../services/authIdentityScope';
 
@@ -106,9 +114,13 @@ function readMobIntent(raw: string | null): { matched: boolean; snapshot: MobSna
 }
 
 function mobDatumSpoken(snapshot: MobSnapshot): string {
-    const markedAt = new Date(snapshot.activatedAt).toISOString().slice(11, 16) + ' UTC';
-    let out = `Man Overboard datum ${formatSpokenPosition(snapshot.fixLat, snapshot.fixLon)}. `;
-    out += `MOB marked at ${markedAt}. `;
+    // Digits, not "11:20". An engine reads the colon form as a clock time or,
+    // worse, as a decimal, and a misheard datum time on a MAYDAY costs a
+    // search pattern. MobPage has said it this way for a while; this one had
+    // been left behind.
+    const markedAt = new Date(snapshot.activatedAt).toISOString().slice(11, 16).replace(':', '');
+    let out = `Man Overboard datum. ${formatSpokenPosition(snapshot.fixLat, snapshot.fixLon)}. `;
+    out += `MOB marked at ${spellDigits(markedAt)}, U T C. `;
     if (snapshot.fixAccuracy > MOB_PRECISE_FIX_ACCURACY_M) {
         out += `Datum is approximate within ${Math.round(snapshot.fixAccuracy)} metres. `;
     }
@@ -162,23 +174,6 @@ const NATURE_SPOKEN: Record<DistressNature, string> = {
     medical: 'medical emergency on board',
 };
 
-function formatSpokenPosition(lat: number, lon: number): string {
-    const absLat = Math.abs(lat);
-    const latDeg = Math.floor(absLat);
-    const latMin = ((absLat - latDeg) * 60).toFixed(1);
-    const latDir = lat >= 0 ? 'North' : 'South';
-    const absLon = Math.abs(lon);
-    const lonDeg = Math.floor(absLon);
-    const lonMin = ((absLon - lonDeg) * 60).toFixed(1);
-    const lonDir = lon >= 0 ? 'East' : 'West';
-    // Spell the degree integer digit-by-digit so TTS can't elide the
-    // leading digit on triple-digit longitudes (e.g. 153 → "53").
-    // Same approach used in MobPage.buildMaydayText.
-    const latDegSpoken = String(latDeg).split('').join(' ');
-    const lonDegSpoken = String(lonDeg).split('').join(' ');
-    return `${latDegSpoken} degrees ${latMin} minutes ${latDir}, ${lonDegSpoken} degrees ${lonMin} minutes ${lonDir}`;
-}
-
 /** Routine position readback (standard VHF position report). */
 function buildRoutineText(
     vesselName: string | undefined,
@@ -194,11 +189,11 @@ function buildRoutineText(
     const name = phoneticName || vesselName;
     const vesselKind = spokenVesselKind(vesselType);
     let report = name ? `This is ${vesselKind} ${name}. ` : `This is ${vesselKind}. Say your vessel name now. `;
-    if (callSign) report += `Call sign ${callSign.split('').join(' ')}. `;
-    if (mmsi) report += `MMSI ${mmsi.split('').join(' ')}. `;
-    report += `Position: ${formatSpokenPosition(lat, lon)}. `;
-    report += `Speed over ground ${sogKts.toFixed(1)} knots. `;
-    if (cogDeg !== null) report += `Course ${Math.round(cogDeg)} degrees true.`;
+    if (callSign) report += spokenCallSign(callSign);
+    if (mmsi) report += spokenMmsi(mmsi);
+    report += `Position. ${formatSpokenPosition(lat, lon)}. `;
+    report += spokenSpeedOverGround(sogKts);
+    if (cogDeg !== null) report += `Course. ${spokenBearing(cogDeg)}.`;
     return report.trim();
 }
 
@@ -219,9 +214,9 @@ function buildUrgencyText(
     out += vesselName
         ? `This is ${vesselKind} ${vesselName}, ${vesselName}, ${vesselName}. `
         : `This is ${vesselKind}. Say your vessel name three times now. `;
-    if (callSign) out += `Call sign ${callSign.split('').join(' ')}. `;
-    if (mmsi) out += `MMSI ${mmsi.split('').join(' ')}. `;
-    out += `Current vessel position ${formatSpokenPosition(lat, lon)}. `;
+    if (callSign) out += spokenCallSign(callSign);
+    if (mmsi) out += spokenMmsi(mmsi);
+    out += `Current vessel position. ${formatSpokenPosition(lat, lon)}. `;
     if (mobSnapshot) out += mobDatumSpoken(mobSnapshot);
     out += `${natureWords}. Requesting assistance. Over.`;
     return out;
@@ -243,12 +238,12 @@ function buildDistressText(
     out += vesselName
         ? `This is ${vesselKind} ${vesselName}, ${vesselName}, ${vesselName}. `
         : `This is ${vesselKind}. Say your vessel name three times now. `;
-    if (callSign) out += `Call sign ${callSign.split('').join(' ')}. `;
-    if (mmsi) out += `MMSI ${mmsi.split('').join(' ')}. `;
+    if (callSign) out += spokenCallSign(callSign);
+    if (mmsi) out += spokenMmsi(mmsi);
     out += 'Mayday. ';
     out += vesselName ? `This is ${vesselKind} ${vesselName}. ` : 'Say your vessel name once now. ';
     out += currentPosition
-        ? `Current vessel position ${formatSpokenPosition(currentPosition.lat, currentPosition.lon)}. `
+        ? `Current vessel position. ${formatSpokenPosition(currentPosition.lat, currentPosition.lon)}. `
         : 'Current vessel position is unavailable in this app. Say your current position from the chartplotter now. ';
     if (mobSnapshot) out += mobDatumSpoken(mobSnapshot);
     out += `Nature of distress: ${natureSpoken}. `;
