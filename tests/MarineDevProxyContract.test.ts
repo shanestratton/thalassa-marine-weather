@@ -16,4 +16,12 @@ describe('local marine publisher proxy', () => {
         expect(marineProxyBoundary.match(/\btarget:\s*/g) ?? []).toHaveLength(1);
         expect(viteConfig).toContain('...canonicalMarineDevProxy');
     });
+
+    it('routes local OWM tile QA through the deployed server-only proxy', () => {
+        const owmProxy = viteConfig.slice(viteConfig.indexOf("'/api/owm-tile'"), viteConfig.indexOf('// Same-origin'));
+        expect(owmProxy).toContain("target: 'https://thalassawx.vercel.app'");
+        expect(owmProxy).toContain('changeOrigin: true');
+        expect(owmProxy).not.toContain('appid');
+        expect(owmProxy).not.toContain('OWM_API_KEY');
+    });
 });

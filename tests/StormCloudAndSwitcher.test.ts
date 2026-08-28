@@ -88,8 +88,8 @@ describe('the storm cloud layer', () => {
         // isn't showing" had been reported three times and each round cost a
         // fresh read of the source. With one implementation and a tile that
         // carries real alpha, the remaining failure modes are a missing key
-        // and a throw — both of which say so.
-        expect(overlay).toContain('no OpenWeatherMap key');
+        // proxy rejection and a throw — both of which remain cosmetic.
+        expect(readFileSync('components/map/mapConstants.ts', 'utf8')).toContain('`${API_BASE}/owm-tile`');
         expect(overlay).toContain('Cloud overlay mount failed');
     });
 });

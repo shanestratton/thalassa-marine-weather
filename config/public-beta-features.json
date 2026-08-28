@@ -39,5 +39,5 @@
         "spoonacular-online-catalogue"
     ],
     "requiredAbsentClientConfig": [],
-    "requiredCredentialPresence": ["VITE_OWM_API_KEY", "VITE_SENTRY_DSN", "VITE_GOOGLE_OAUTH_CLIENT_ID"]
+    "requiredCredentialPresence": ["VITE_SENTRY_DSN", "VITE_GOOGLE_OAUTH_CLIENT_ID"]
 }

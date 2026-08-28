@@ -15,7 +15,7 @@
         "check:client-secrets": "node scripts/check-client-secrets.mjs",
         "check:web-release": "node scripts/verify-web-release.mjs",
         "preview": "vite preview",
-        "cap:sync": "LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 cap sync",
+        "cap:sync": "node scripts/cap-sync.mjs",
         "cap:ios": "cap open ios",
         "ship": "npm run build && npm run cap:sync && npm run check:client-secrets -- --artifacts",
         "ship:beta": "npm run check:beta && npm run build && npm run check:web-release && npm run check:bundle && npm run lint:routes && npm run cap:sync && npm run check:client-secrets -- --artifacts && node scripts/check-beta-readiness.mjs --artifacts",

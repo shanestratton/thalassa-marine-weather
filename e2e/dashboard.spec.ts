@@ -41,8 +41,19 @@ test.describe('Dashboard Navigation', () => {
     test('theme classes are applied to root', async ({ page }) => {
         await page.goto('/');
         await expect(page.getByRole('navigation', { name: 'Main' })).toBeVisible();
-        // ThemeProvider owns one wrapper with both the semantic data marker
-        // and its matching theme-onshore/theme-offshore CSS class.
-        await expect(page.locator('[data-theme][class*="theme-"]')).toHaveCount(1);
+        // ThemeProvider keeps its original wrapper for scoped styles and also
+        // mirrors the theme to <html> so body-portaled overlays inherit it.
+        const documentThemeRoot = page.locator('html[data-theme][class*="theme-"]');
+        const providerThemeRoot = page.locator('#root > [data-theme][class*="theme-"]');
+
+        await expect(documentThemeRoot).toHaveCount(1);
+        await expect(providerThemeRoot).toHaveCount(1);
+
+        const [documentTheme, providerTheme] = await Promise.all([
+            documentThemeRoot.getAttribute('data-theme'),
+            providerThemeRoot.getAttribute('data-theme'),
+        ]);
+        expect(documentTheme).toMatch(/^(onshore|offshore)$/);
+        expect(providerTheme).toBe(documentTheme);
     });
 });

@@ -2,7 +2,7 @@ name: CMEMS SST - Trusted Release
 
 on:
     schedule:
-        - cron: '0 15 * * *'
+        - cron: '17 3,15 * * *'
     workflow_dispatch:
 
 permissions: {}

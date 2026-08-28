@@ -64,6 +64,18 @@ describe('public-beta release gate contract', () => {
         expect(gate).toContain('CI enforces repository formatting');
     });
 
+    it('runs Capacitor sync with the Bundler version pinned by the iOS lockfile', () => {
+        const packageJson = JSON.parse(read('package.json'));
+        const syncRunner = read('scripts/cap-sync.mjs');
+
+        expect(packageJson.scripts['cap:sync']).toBe('node scripts/cap-sync.mjs');
+        expect(syncRunner).toContain("new URL('../ios/App/Gemfile.lock', import.meta.url)");
+        expect(syncRunner).toContain("'/opt/homebrew/opt/ruby/bin'");
+        expect(syncRunner).toContain("'/usr/local/opt/ruby/bin'");
+        expect(syncRunner).toContain("spawnSync(cap, ['sync']");
+        expect(syncRunner).toContain('PATH: [selectedRubyDirectory, currentPath]');
+    });
+
     it('pins every GitHub Action and hosted runner to a reviewed immutable release', () => {
         const gate = read('scripts/check-beta-readiness.mjs');
         const workflowNames = readdirSync(join(root, '.github/workflows')).filter((name) => /\.ya?ml$/i.test(name));

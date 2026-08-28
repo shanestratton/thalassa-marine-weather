@@ -29,6 +29,8 @@ describe('application shell CSP', () => {
         expect(indexHtml).not.toContain('generativelanguage.googleapis.com');
         expect(deployedCsp).not.toContain('api.spoonacular.com');
         expect(indexHtml).not.toContain('api.spoonacular.com');
+        expect(deployedCsp).not.toContain('tile.openweathermap.org');
+        expect(indexHtml).not.toContain('tile.openweathermap.org');
         expect(deployedCsp).toContain("object-src 'none'");
     });
 

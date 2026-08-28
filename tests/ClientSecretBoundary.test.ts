@@ -14,7 +14,7 @@ function sourceFiles(root: string): string[] {
 
 describe('browser paid-secret boundary', () => {
     it('does not resolve server-managed provider secrets from Vite client code', () => {
-        const roots = ['components', 'hooks', 'services', 'stores', 'utils'].map((folder) =>
+        const roots = ['components', 'hooks', 'services', 'src', 'stores', 'utils'].map((folder) =>
             join(process.cwd(), folder),
         );
         const forbidden = [
@@ -25,6 +25,7 @@ describe('browser paid-secret boundary', () => {
             'VITE_SPOONACULAR_KEY',
             'VITE_RAINBOW_API_KEY',
             'VITE_OPEN_METEO_API_KEY',
+            'VITE_OWM_API_KEY',
         ];
         const violations: string[] = [];
         for (const file of roots.flatMap(sourceFiles)) {

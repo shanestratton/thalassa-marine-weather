@@ -8,13 +8,12 @@ Every `VITE_` value is public: Vite embeds it in the browser or native WebView b
 | -------------------------------------------------------------- | ----------------------- | ---------------------------------------------------------------------------------------------------- |
 | `VITE_SUPABASE_URL` and publishable/anon key                   | Supabase project access | Row-Level Security, function authorization, bounded public quotas, and least-privilege database RPCs |
 | `VITE_MAPBOX_ACCESS_TOKEN`                                     | Maps and directions     | Public-scope token restricted to the production origins and required Mapbox APIs                     |
-| `VITE_OWM_API_KEY`                                             | Public weather tiles    | Provider-side origin/API restrictions and a deliberately low-privilege tile-only account             |
 | `VITE_LINZ_API_KEY`                                            | Public nautical charts  | Provider-side restrictions and no write/account privileges                                           |
 | `VITE_SENTRY_DSN`                                              | Error ingestion         | Ingest-only DSN, Sentry project filtering, and no confidential data in event payloads                |
 | `VITE_TRANSISTOR_LICENSE_KEY`                                  | Native background GPS   | Vendor/device restrictions; treat bundle extraction as possible                                      |
 | `VITE_GOOGLE_OAUTH_CLIENT_ID` and endpoint/feature-flag values | OAuth identity/config   | These are identifiers or configuration, not client secrets                                           |
 
-Paid/general-purpose credentials for Open-Meteo, StormGlass, WorldTides, Gemini, Rainbow.ai, Spoonacular, WeatherKit, voice providers, and similar services belong in server secrets. Active installed-app integrations reach them through bounded Supabase/worker proxies; provider keys are not accepted from the client. Native Pi integration uses a pinned HTTPS lane and a startup-constrained outbound policy; browser, old, and stripped native shells fail closed.
+Paid/general-purpose credentials for OpenWeatherMap, Open-Meteo, StormGlass, WorldTides, Gemini, Rainbow.ai, Spoonacular, WeatherKit, voice providers, and similar services belong in server secrets. OpenWeatherMap tiles use the bounded Vercel `/api/owm-tile` proxy; other active integrations use bounded Supabase/worker proxies. Provider keys are not accepted from the client. Native Pi integration uses a pinned HTTPS lane and a startup-constrained outbound policy; browser, old, and stripped native shells fail closed.
 
 Operationally:
 

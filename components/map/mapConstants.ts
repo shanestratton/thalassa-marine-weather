@@ -3,6 +3,7 @@
  */
 
 import { windBandForKt } from './windRamp';
+import { API_BASE } from '../../services/native/apiBase';
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -285,15 +286,7 @@ export function frameZoomForSelection(
 }
 
 // ── Tile sources ──
-function getOwmKey(): string {
-    try {
-        const env = import.meta.env;
-        if (env?.VITE_OWM_API_KEY) return env.VITE_OWM_API_KEY;
-    } catch {
-        /* SSR / non-Vite context */
-    }
-    return '';
-}
+const OWM_TILE_PROXY = `${API_BASE}/owm-tile`;
 
 // Xweather decommissioned 2026-04-22. Quota economics didn't work out
 // (single dev session burnt through the daily allowance, next subscription
@@ -314,13 +307,12 @@ export const STATIC_TILES: Record<string, string> = {
     satellite: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
 };
 
-/** Get tile URL for a layer — includes dynamic OWM-keyed layers */
+/** Get tile URL for a layer — paid OWM tiles stay behind the same-app proxy. */
 export function getTileUrl(layer: string): string | undefined {
     if (STATIC_TILES[layer]) return STATIC_TILES[layer];
-    const owmKey = getOwmKey();
-    if (!owmKey) return undefined;
-    if (layer === 'temperature') return `https://tile.openweathermap.org/map/temp_new/{z}/{x}/{y}.png?appid=${owmKey}`;
-    if (layer === 'clouds') return `https://tile.openweathermap.org/map/clouds_new/{z}/{x}/{y}.png?appid=${owmKey}`;
+    if (layer === 'temperature' || layer === 'clouds') {
+        return `${OWM_TILE_PROXY}?layer=${layer}&z={z}&x={x}&y={y}`;
+    }
 
     // Sea State (waves/currents/sst/chl/seaice/mld) — these are NOT served
     // via getTileUrl. They use dedicated WebGL custom layers fed by the
