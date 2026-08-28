@@ -705,11 +705,23 @@ class NmeaListenerServiceClass {
              */
             this.neverFedStreak++;
             if (this.neverFedStreak >= NEVER_FED_STREAK_BEFORE_BLAMING_SLOTS) {
-                this.lastError =
-                    `${this.host}:${this.port} accepts the connection then drops it without sending anything ` +
-                    `(${this.neverFedStreak} attempts). On a Yacht Devices gateway that means its three TCP ` +
-                    `slots are already taken — close other apps, chartplotters or captures using it, or ` +
-                    `power-cycle the gateway.`;
+                /*
+                 * Name the slots only where slots exist. A YDWG accepts every
+                 * connection and feeds three, so on ITS ports this pattern is
+                 * near-diagnostic. On any other port it is not: a silent
+                 * Python listener on the home LAN does exactly the same thing,
+                 * and "your gateway's three TCP slots are taken" would be a
+                 * confident wrong answer pointing at the wrong boat entirely.
+                 */
+                const looksLikeYdwg = this.port === 1456 || this.port === 1457;
+                this.lastError = looksLikeYdwg
+                    ? `${this.host}:${this.port} accepts the connection then drops it without sending anything ` +
+                      `(${this.neverFedStreak} attempts). On a Yacht Devices gateway that means its three TCP ` +
+                      `slots are already taken — close other apps, chartplotters or captures using it, or ` +
+                      `power-cycle the gateway.`
+                    : `${this.host}:${this.port} accepts the connection then drops it without sending anything ` +
+                      `(${this.neverFedStreak} attempts). Something is listening on that port, but it is not ` +
+                      `feeding NMEA. Check the address and port point at the gateway itself.`;
             }
         }
         if (this.enabled) {
@@ -731,7 +743,25 @@ class NmeaListenerServiceClass {
         const silentFor = Date.now() - this.lastDataAt;
         if (silentFor <= DATA_SILENCE_TIMEOUT_MS) return false;
         log.warn(`No NMEA data for ${Math.round(silentFor / 1000)}s — treating the socket as dead`);
-        this.lastError = 'Gateway stopped sending — reconnecting';
+        /*
+         * "Stopped sending" and "never started" are different faults with
+         * different fixes, and the socket knows which one this is.
+         *
+         * Stopped: the gateway was talking and went quiet — a bus problem, an
+         * instrument off, a gateway that needs a power cycle.
+         *
+         * Never started: the port is open and nothing has ever come out of it.
+         * That is usually not a gateway at all. Measured on Shane's home Pi
+         * 2026-08-28: 192.168.50.152:10110 accepts a connection and sends
+         * nothing, forever. Telling him his gateway "stopped sending" would
+         * have sent him looking at the boat for a fault that was a wrong
+         * address on his phone.
+         */
+        this.lastError = this.connectionFedData
+            ? 'Gateway stopped sending — reconnecting'
+            : `${this.host}:${this.port} accepted the connection but has never sent a sentence. ` +
+              `The port is open, so something is listening — but it is not sending NMEA. ` +
+              `Check this is the gateway's address and port, not another device on the network.`;
         return true;
     }
 
