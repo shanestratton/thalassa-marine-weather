@@ -43,12 +43,17 @@ export const RainForecastCard: React.FC<RainForecastCardProps> = ({
     status = 'loaded',
 }) => {
     // Label text for the provenance tag in the bottom-right corner.
-    const sourceLabel = (() => {
-        if (source === 'rainbow') return 'Rainbow.ai';
-        if (source === 'weatherkit') return 'Apple';
-        if (source === 'synthetic') return 'Estimated';
-        return '';
-    })();
+    //
+    // The vendor names are gone (Shane 2026-08-28: "get rid of the Rainbow.AI
+    // wording in the bottom right of the rain card"). Which API answered is a
+    // developer's question, and the card is read at a glance from a cockpit —
+    // it does not need to advertise a supplier.
+    //
+    // "Estimated" STAYS, and is not the same kind of label. It is not naming a
+    // vendor, it is warning that these numbers are modelled rather than
+    // observed, and a rain forecast that hides that is the one thing this card
+    // must never be. Provenance for the curious lives in the modal.
+    const sourceLabel = source === 'synthetic' ? 'Estimated' : '';
     const [isModalOpen, setIsModalOpen] = useState(false);
 
     // 60-second tick — forces re-evaluation of "Rain in X min" countdown
@@ -184,10 +189,8 @@ export const RainForecastCard: React.FC<RainForecastCardProps> = ({
                     )}
                 </div>
 
-                {/* Provenance tag — tiny bottom-right label so the skipper can
-                    confirm which API delivered the forecast (Rainbow vs Apple).
-                    Helpful for diagnosing "No Rain Expected" when it's clearly
-                    raining outside. */}
+                {/* Honesty tag — bottom-right, and only when the numbers are
+                    estimated rather than measured. */}
                 {sourceLabel && (
                     <span className="absolute bottom-1 right-2 text-[11px] font-semibold uppercase tracking-wider text-white/50 pointer-events-none select-none">
                         {sourceLabel}
@@ -197,7 +200,12 @@ export const RainForecastCard: React.FC<RainForecastCardProps> = ({
 
             {/* Expanded Modal */}
             {isModalOpen && (
-                <RainModal data={analysis.frames} analysis={analysis} onClose={() => setIsModalOpen(false)} />
+                <RainModal
+                    data={analysis.frames}
+                    analysis={analysis}
+                    source={source}
+                    onClose={() => setIsModalOpen(false)}
+                />
             )}
         </>
     );
@@ -209,15 +217,24 @@ interface ModalProps {
     /** Future-only frames — the same array analysis.peakIdx indexes into. */
     data: MinutelyRain[];
     analysis: RainAnalysis;
+    /** Which feed answered. Named here rather than on the card face. */
+    source?: 'rainbow' | 'weatherkit' | 'synthetic' | 'unknown';
     onClose: () => void;
 }
 
-const RainModal: React.FC<ModalProps> = ({ data, analysis, onClose }) => {
+const RainModal: React.FC<ModalProps> = ({ data, analysis, source = 'unknown', onClose }) => {
     const closeButtonRef = useRef<HTMLButtonElement>(null);
     const dialogRef = useFocusTrap<HTMLDivElement>(true, {
         initialFocusRef: closeButtonRef,
         onEscape: onClose,
     });
+
+    const feedProvenance = (() => {
+        if (source === 'rainbow') return 'Rainbow.ai nowcast · 1 km, 4 hours ahead';
+        if (source === 'weatherkit') return 'Apple WeatherKit · minute-by-minute, 1 hour ahead';
+        if (source === 'synthetic') return 'Estimated from the hourly forecast — not a live rain feed';
+        return null;
+    })();
 
     // Prevent body scroll when modal is open
     useEffect(() => {
@@ -739,6 +756,13 @@ const RainModal: React.FC<ModalProps> = ({ data, analysis, onClose }) => {
                                 <div className="text-sm font-bold text-white">{analysis.category.label}</div>
                             </div>
                         </div>
+                    )}
+
+                    {/* Which feed answered, and how far ahead it can see.
+                        Off the card face and in here, where someone standing
+                        in rain the card called dry comes looking for it. */}
+                    {feedProvenance && (
+                        <p className="mt-3 text-[10px] text-white/40 text-center leading-relaxed">{feedProvenance}</p>
                     )}
                 </div>
             </div>

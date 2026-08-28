@@ -977,7 +977,15 @@ const HeroSlideComponent = ({
 
                         // Day-overview landing card for forecast days (self-contained —
                         // does not touch the hourly card chrome below).
-                        if (slide.type === 'daily' && slide.daily) {
+                        //
+                        // NOT in essential mode. Essential collapses the whole
+                        // carousel to its first slide, so on a forecast day
+                        // this overview WAS that slide and the radar card the
+                        // mode exists to show could never be reached — the
+                        // second half of Shane's 2026-08-28 report. Falling
+                        // through hands the slide to the showMapInstead branch
+                        // below, which is the essential slot proper.
+                        if (slide.type === 'daily' && slide.daily && !showMapInstead) {
                             return (
                                 <div
                                     key={slideIdx}
@@ -1048,7 +1056,12 @@ const HeroSlideComponent = ({
                                     // so forecast days still show the map — the
                                     // anchor view is "right now", not "tomorrow at
                                     // 1400".
-                                    slideIdx === 0 ? (
+                                    //
+                                    // `slideIdx === 0` alone did not say that:
+                                    // every day row has a slide 0, so with the
+                                    // anchor down Thursday's card claimed to be
+                                    // an anchor watch. Both indices, or neither.
+                                    index === 0 && slideIdx === 0 ? (
                                         <EssentialAnchorView
                                             windSpeed={data.windSpeed}
                                             windDirection={data.windDirection}
