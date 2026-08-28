@@ -1061,6 +1061,18 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                                           dashboardMode: goingEssential ? 'essential' : 'full',
                                                       });
                                                       if (goingEssential) {
+                                                          /* Clear the REFS as well as the state. The
+                                                             rAF batches in handleDayChange /
+                                                             handleHourChange / handleActiveDataChange
+                                                             all re-assert setActiveDay(activeDayRef
+                                                             .current), and the reset itself provokes
+                                                             one — so setting state alone let the old
+                                                             day walk straight back in. That is why the
+                                                             header still read MON 31 AUG after a
+                                                             toggle that had just set day 0. */
+                                                          activeDayRef.current = 0;
+                                                          activeHourRef.current = 0;
+                                                          activeDayDataRef.current = null;
                                                           setActiveDay(0);
                                                           setActiveHour(0);
                                                           setActiveDayData(null);
