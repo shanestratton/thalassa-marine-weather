@@ -46,6 +46,23 @@ import { synthesise, type VoiceSettingsOverride } from './ttsClient';
 const SAFETY_TTS_BUDGET_MS = 4000;
 
 /**
+ * The budget for a report that is NOT an emergency.
+ *
+ * Four seconds exists so a distress transmission can never stall on a
+ * network. A routine position readback is a different act entirely: the
+ * skipper pressed a button and is waiting to hear their own position read
+ * back. Nothing is burning. Holding them to the distress budget bought the
+ * worst of both — the robot voice, every time, because a spelled-out
+ * position is too long to synthesise in four seconds (Shane 2026-08-28:
+ * "the text to voice for reading the location is u/s. not hal and speaks
+ * very fast and not in a manner that would suggest human talk").
+ *
+ * Callers that use this MUST show the skipper that something is happening,
+ * or a long wait is indistinguishable from a dead button.
+ */
+export const ROUTINE_TTS_BUDGET_MS = 12000;
+
+/**
  * PRE-SYNTHESISED SAFETY AUDIO.
  *
  * The budget above is the right call — a distress transmission must never
@@ -107,6 +124,18 @@ export interface SafetyUtteranceOptions {
     onPlaybackStart?: (engine: 'calypso' | 'native') => void;
     /** Fires when the selected playback path reports normal completion. */
     onPlaybackEnd?: () => void;
+    /**
+     * How long to wait for Calypso before falling back to the native voice.
+     * Defaults to the 4 s safety budget. Pass ROUTINE_TTS_BUDGET_MS for
+     * anything that is not an emergency — and show a pending state while it
+     * runs, because the skipper cannot tell waiting from broken.
+     */
+    budgetMs?: number;
+    /**
+     * Fires the moment the race starts, before either engine speaks. The
+     * hook for a "preparing" state on a longer budget.
+     */
+    onSynthesisStart?: () => void;
     /** Fires if both engines fail outright. UI can show a banner. */
     onError?: (err: Error) => void;
     /** Native-voice rate (0.5 - 2.0). Default 0.85 — a touch slower
@@ -349,8 +378,9 @@ export function speakSafetyMessage(text: string, opts: SafetyUtteranceOptions = 
         const synthPromise: Promise<string | null> = ready
             ? Promise.resolve(ready)
             : synthesise(trimmed, { voiceSettings: opts.voiceSettings });
+        if (!ready) opts.onSynthesisStart?.();
         const timeoutPromise = new Promise<null>((resolve) => {
-            setTimeout(() => resolve(null), SAFETY_TTS_BUDGET_MS);
+            setTimeout(() => resolve(null), opts.budgetMs ?? SAFETY_TTS_BUDGET_MS);
         });
         const audio_b64 = ready ?? (await Promise.race([synthPromise, timeoutPromise]));
 

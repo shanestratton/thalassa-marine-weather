@@ -16,7 +16,13 @@ import { MOB_PRECISE_FIX_ACCURACY_M, MobService, type MobSnapshot, type MobState
 import { useSettings } from '../../context/SettingsContext';
 import { triggerHaptic } from '../../utils/system';
 import { PageHeader } from '../ui/PageHeader';
-import { speakSafetyMessage, type SafetyUtteranceHandle } from '../../services/voice/safetyTts';
+import { createLogger } from '../../utils/createLogger';
+import {
+    ROUTINE_TTS_BUDGET_MS,
+    prewarmSafetyMessage,
+    speakSafetyMessage,
+    type SafetyUtteranceHandle,
+} from '../../services/voice/safetyTts';
 import {
     formatSpokenPosition,
     spellDigits,
@@ -159,6 +165,8 @@ const NATURE_LABEL: Record<DistressNature, string> = {
     medical: 'Medical Emergency',
 };
 
+const log = createLogger('RadioConsole');
+
 const NATURE_SPOKEN: Record<DistressNature, string> = {
     undesignated: 'undesignated distress',
     fire: 'fire on board',
@@ -284,6 +292,10 @@ export const RadioConsolePage: React.FC<RadioConsolePageProps> = ({ onBack, onNa
     const [position, setPosition] = useState<GpsPosition | null>(null);
     const [gpsAge, setGpsAge] = useState<string>('—');
     const [isSpeaking, setIsSpeaking] = useState(false);
+    /** Calypso is synthesising and nothing is audible yet. Only reachable on
+     *  the routine budget, which is long enough that silence would read as a
+     *  dead button. */
+    const [isPreparing, setIsPreparing] = useState(false);
     /** Engine that spoke the most-recent transcript — surfaced as a
      *  small caption so the skipper knows when they got the robotic
      *  fallback (network blip during a position report). */
@@ -464,7 +476,23 @@ export const RadioConsolePage: React.FC<RadioConsolePageProps> = ({ onBack, onNa
         // VHF; routine ones a touch faster.
         try {
             const handle = speakSafetyMessage(currentTranscript, {
-                nativeRate: dscMode === 'distress' ? 0.75 : 0.85,
+                /*
+                 * A routine position read is not a distress transmission.
+                 * Nothing is burning, the skipper pressed a button and is
+                 * waiting to hear their own position, so it can afford to
+                 * wait for the good voice. Holding it to the 4 s distress
+                 * budget bought the worst of both: a spelled-out position is
+                 * too long to synthesise that fast, so it fell to the robot
+                 * every single time. Mayday and Pan-Pan keep the short
+                 * budget — those must never stall — and are pre-warmed
+                 * instead, which skips the race altogether.
+                 */
+                budgetMs: dscMode === 'routine' ? ROUTINE_TTS_BUDGET_MS : undefined,
+                onSynthesisStart: () => setIsPreparing(true),
+                // 0.7 across the board. The old 0.85 raced through a string
+                // of single digits, which is the one thing this readout
+                // exists to make copyable.
+                nativeRate: dscMode === 'distress' ? 0.7 : 0.7,
                 nativePitch: 0.9,
                 // Calypso override: distress = extra-deliberate (slower
                 // + most stable), routine = slightly slower than default
@@ -474,11 +502,13 @@ export const RadioConsolePage: React.FC<RadioConsolePageProps> = ({ onBack, onNa
                 voiceSettings:
                     dscMode === 'distress' ? { speed: 0.875, stability: 0.8 } : { speed: 0.92, stability: 0.7 },
                 onPlaybackStart: (engine) => {
+                    setIsPreparing(false);
                     setIsSpeaking(true);
                     setLastVoiceEngine(engine);
                 },
                 onPlaybackEnd: () => setIsSpeaking(false),
                 onError: () => {
+                    setIsPreparing(false);
                     setIsSpeaking(false);
                     setSpeechError(
                         'Audio playback stopped or could not start. Read the visible transcript aloud; no complete playback was confirmed.',
@@ -486,13 +516,38 @@ export const RadioConsolePage: React.FC<RadioConsolePageProps> = ({ onBack, onNa
                 },
             });
             utteranceRef.current = handle;
-        } catch {
+        } catch (err) {
+            // The message below is deliberately about the SKIPPER's next
+            // action, not the fault — but swallowing the cause entirely is
+            // how a mocked-away export once looked like a dead button for an
+            // afternoon. Say what happened, then say what to do.
+            log.warn('[RadioConsole] speakSafetyMessage failed', err);
+            setIsPreparing(false);
             setIsSpeaking(false);
             setSpeechError(
                 'Audio playback stopped or could not start. Read the visible transcript aloud; no complete playback was confirmed.',
             );
         }
     }, [currentTranscript, isSpeaking, dscMode]);
+
+    /*
+     * Pre-synthesise the EMERGENCY scripts the moment the skipper selects
+     * that mode. Selecting Mayday or Pan-Pan is a deliberate act taken before
+     * the transmission, so the audio can be waiting by the time the button is
+     * pressed — and those two keep the 4 s budget, so without this they would
+     * fall to the robot exactly as the routine read did.
+     *
+     * Routine is deliberately NOT pre-warmed: its text moves with every GPS
+     * fix, so a warm cache would almost never be hit and every fix would cost
+     * an API call for a button that may never be pressed. It gets the long
+     * budget instead. Spend the quota where the seconds matter; spend the
+     * seconds where the quota does.
+     */
+    useEffect(() => {
+        if (dscMode === 'routine' || !currentTranscript) return;
+        const t = setTimeout(() => prewarmSafetyMessage(currentTranscript), 400);
+        return () => clearTimeout(t);
+    }, [dscMode, currentTranscript]);
 
     // Cancel any in-flight TTS on unmount so navigating away mid-
     // playback doesn't leave the report still talking.
@@ -776,9 +831,9 @@ export const RadioConsolePage: React.FC<RadioConsolePageProps> = ({ onBack, onNa
             >
                 <button
                     onClick={handleSpeak}
-                    disabled={!currentTranscript || isSpeaking}
+                    disabled={!currentTranscript || isSpeaking || isPreparing}
                     className={`flex-1 flex items-center justify-center gap-2.5 py-4 px-5 rounded-2xl text-[13px] font-extrabold uppercase tracking-wider transition-all border disabled:opacity-30 disabled:cursor-not-allowed active:scale-[0.97] ${
-                        isSpeaking
+                        isSpeaking || isPreparing
                             ? dscMode === 'distress'
                                 ? 'bg-red-500/30 border-red-400/60 text-red-100 animate-pulse'
                                 : dscMode === 'urgency'
@@ -801,18 +856,20 @@ export const RadioConsolePage: React.FC<RadioConsolePageProps> = ({ onBack, onNa
                     </svg>
                     <div className="flex flex-col items-start leading-tight">
                         <span>
-                            {isSpeaking
-                                ? 'Speaking…'
-                                : dscMode === 'distress'
-                                  ? 'Speak Mayday'
-                                  : dscMode === 'urgency'
-                                    ? 'Speak Pan-Pan'
-                                    : 'Read Position'}
+                            {isPreparing
+                                ? 'Preparing voice…'
+                                : isSpeaking
+                                  ? 'Speaking…'
+                                  : dscMode === 'distress'
+                                    ? 'Speak Mayday'
+                                    : dscMode === 'urgency'
+                                      ? 'Speak Pan-Pan'
+                                      : 'Read Position'}
                         </span>
                         {/* Engine indicator — only after first playback,
                          *  and only when not currently speaking. Keeps
                          *  the button compact during playback animation. */}
-                        {lastVoiceEngine && !isSpeaking && (
+                        {lastVoiceEngine && !isSpeaking && !isPreparing && (
                             <span
                                 className={`text-[9px] font-medium normal-case tracking-normal opacity-80 ${
                                     lastVoiceEngine === 'calypso' ? 'text-current' : 'text-amber-300'
