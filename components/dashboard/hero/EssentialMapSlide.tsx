@@ -29,6 +29,15 @@ interface EssentialMapSlideProps {
     slideIdx: number;
     isGolden: boolean;
     isCardDay: boolean;
+    /**
+     * Is this card sitting on a FORECAST day rather than today?
+     *
+     * The radar is always a live sweep — this component takes no date and
+     * planRadarFrames() opens at Date.now(). On today's card that is exactly
+     * right. On Thursday's card an unqualified "LIVE" badge is true about the
+     * frame and misleading about the day, so it has to say which.
+     */
+    isForecastDay?: boolean;
     coordinates?: { lat: number; lon: number };
     windSpeed?: number | null;
     windDirection?: number | null;
@@ -49,6 +58,7 @@ export const EssentialMapSlide: React.FC<EssentialMapSlideProps> = ({
     slideIdx: _slideIdx,
     isGolden,
     isCardDay,
+    isForecastDay = false,
     coordinates,
     windSpeed,
     windDirection,
@@ -692,6 +702,15 @@ export const EssentialMapSlide: React.FC<EssentialMapSlideProps> = ({
                                 className={`w-1.5 h-1.5 rounded-full bg-emerald-400 ${onScreen ? 'animate-pulse' : ''}`}
                             />
                             <span className="text-[11px] text-emerald-300/80 font-bold tracking-wider">LIVE</span>
+                        </div>
+                    )}
+                    {/* On a forecast day the sweep above is still NOW. Say so
+                        next to the badge that would otherwise be read as "this
+                        is what Thursday looks like". Amber, because it is a
+                        caution about what you are looking at. */}
+                    {isLive && isForecastDay && (
+                        <div className="px-1.5 py-0.5 rounded-md bg-amber-500/20 border border-amber-400/25">
+                            <span className="text-[11px] text-amber-300/90 font-bold tracking-wider">NOT FORECAST</span>
                         </div>
                     )}
                     {!isLive && activeFrame?.kind === 'forecast' && (
