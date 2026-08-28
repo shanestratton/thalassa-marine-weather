@@ -39,7 +39,8 @@ import {
     helmVerdict,
     kiteAdvice,
     reefDescribe,
-    sailPlanFor,
+    stabiliseSailPlan,
+    type SailPlanHold,
     shoalRate,
     type SailingWind,
 } from '../../services/sailing/sereneSailing';
@@ -700,7 +701,35 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
     };
     const helm = helmBalance(sailingWind);
     const helmWords = helmWindow ? helmVerdict(helmWindow.mean) : null;
-    const plan = isSereneSummer ? sailPlanFor(recentGust, twaUnsigned) : null;
+    /*
+     * The sail plan is HELD, not recomputed from scratch every tick.
+     *
+     * sailPlanFor is pure and has hard edges, and she yaws several degrees on
+     * every wave — so the recommendation flipped constantly while nothing
+     * about the sailing had changed (Shane 2026-08-28: "we need to make it so
+     * that we dont need to change the sail layout every 5 seconds"). The
+     * stabiliser adds hysteresis at the edges and an asymmetric dwell: quick
+     * to call for less sail, slow to call for more, slowest of all for a
+     * change that moves no sail at all.
+     *
+     * Re-evaluated on every reading AND on a slow tick, because a dwell can
+     * expire while the numbers sit perfectly still.
+     */
+    const [sailHold, setSailHold] = useState<SailPlanHold | null>(null);
+    const [holdTick, setHoldTick] = useState(0);
+    useEffect(() => {
+        if (!isSereneSummer) return;
+        const id = setInterval(() => setHoldTick((t) => t + 1), 5_000);
+        return () => clearInterval(id);
+    }, [isSereneSummer]);
+    useEffect(() => {
+        if (!isSereneSummer) return;
+        setSailHold((prev) => stabiliseSailPlan(prev, recentGust, twaUnsigned, Date.now()));
+        // holdTick is a deliberate dependency: it is what lets a dwell expire
+        // on a boat holding a steady course in a steady breeze.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isSereneSummer, recentGust, twaUnsigned, holdTick]);
+    const plan = sailHold?.plan ?? null;
     const kite = isSereneSummer ? kiteAdvice(recentGust, twaUnsigned, false) : null;
 
     // Snap-section registry for the dot rail.
