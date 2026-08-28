@@ -1,5 +1,12 @@
-export const CREW_PUBLICATION_RULES_VERSION = 'crew-publication-v1';
+export const CREW_PUBLICATION_RULES_VERSION = 'crew-publication-v2';
 export const CREW_PUBLICATION_MODEL = 'gemini-2.5-flash';
+
+/**
+ * Retry only provider/protocol failures that can become a complete verdict on
+ * a later request. Every retry still has to return the same exact, validated
+ * approval envelope before the database can publish anything.
+ */
+export const TECHNICAL_MODERATION_RETRY_DELAYS_MS = [500] as const;
 
 const MAX_TOTAL_IMAGE_BYTES = 8 * 1024 * 1024;
 const ALLOWED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
@@ -37,6 +44,39 @@ export interface ModerationImage {
 export interface AutomatedModerationResult {
     verdict: 'approved' | 'manual_review';
     reasonCode: string;
+}
+
+const RETRYABLE_TECHNICAL_REASON_CODES = new Set([
+    'moderation_incomplete',
+    'moderation_unavailable',
+    'provider_rate_limited',
+]);
+
+export function isRetryableTechnicalModerationResult(result: AutomatedModerationResult): boolean {
+    return result.verdict === 'manual_review' && RETRYABLE_TECHNICAL_REASON_CODES.has(result.reasonCode);
+}
+
+/**
+ * Make at most two classifier calls (the initial call plus one retry).
+ * Explicit content/safety signals never enter this loop a second time.
+ */
+export async function runCrewPublicationModerationWithRetry(
+    operation: () => Promise<AutomatedModerationResult>,
+    wait: (delayMs: number) => Promise<void> = (delayMs) => new Promise((resolve) => setTimeout(resolve, delayMs)),
+): Promise<AutomatedModerationResult> {
+    let result: AutomatedModerationResult = {
+        verdict: 'manual_review',
+        reasonCode: 'moderation_unavailable',
+    };
+
+    for (let attempt = 0; attempt <= TECHNICAL_MODERATION_RETRY_DELAYS_MS.length; attempt++) {
+        result = await operation();
+        const retryDelay = TECHNICAL_MODERATION_RETRY_DELAYS_MS[attempt];
+        if (!isRetryableTechnicalModerationResult(result) || retryDelay === undefined) return result;
+        await wait(retryDelay);
+    }
+
+    return result;
 }
 
 const SYSTEM_INSTRUCTION = `You are the fixed safety classifier for The Crew List, a sailing crew-introduction feature.
@@ -230,7 +270,12 @@ export function buildGeminiModerationRequest(
         contents: [{ parts }],
         generationConfig: {
             temperature: 0,
-            maxOutputTokens: 160,
+            // Gemini 2.5 Flash otherwise uses dynamic thinking by default. A
+            // tiny classification schema needs no hidden reasoning budget,
+            // and disabling it prevents thought tokens consuming the output
+            // cap before the required JSON verdict is emitted.
+            thinkingConfig: { thinkingBudget: 0 },
+            maxOutputTokens: 256,
             responseMimeType: 'application/json',
         },
     };
@@ -243,6 +288,16 @@ const MANUAL_REASON_CODES = new Set([
     'scam_signal',
     'contact_details',
     'uncertain',
+]);
+
+const PROVIDER_BLOCK_FINISH_REASONS = new Set([
+    'SAFETY',
+    'RECITATION',
+    'BLOCKLIST',
+    'PROHIBITED_CONTENT',
+    'SPII',
+    'IMAGE_SAFETY',
+    'IMAGE_PROHIBITED_CONTENT',
 ]);
 
 export function parseGeminiModerationResult(value: unknown): AutomatedModerationResult {
@@ -300,8 +355,28 @@ export function parseGeminiModerationEnvelope(value: unknown): AutomatedModerati
     const candidate = payload.candidates[0];
     if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return malformed;
     const candidateRecord = candidate as Record<string, unknown>;
+    if (typeof candidateRecord.finishReason !== 'string') return malformed;
+    if (Object.prototype.hasOwnProperty.call(candidateRecord, 'safetyRatings')) {
+        if (!Array.isArray(candidateRecord.safetyRatings)) return malformed;
+        if (
+            candidateRecord.safetyRatings.some((rating) =>
+                rating && typeof rating === 'object' && !Array.isArray(rating) &&
+                (rating as Record<string, unknown>).blocked === true
+            )
+        ) {
+            return { verdict: 'manual_review', reasonCode: 'provider_blocked' };
+        }
+    }
     if (candidateRecord.finishReason !== 'STOP') {
-        return { verdict: 'manual_review', reasonCode: 'moderation_incomplete' };
+        if (candidateRecord.finishReason === 'MAX_TOKENS') {
+            return { verdict: 'manual_review', reasonCode: 'moderation_incomplete' };
+        }
+        return {
+            verdict: 'manual_review',
+            reasonCode: PROVIDER_BLOCK_FINISH_REASONS.has(String(candidateRecord.finishReason))
+                ? 'provider_blocked'
+                : 'moderation_uncertain',
+        };
     }
 
     const content = candidateRecord.content;

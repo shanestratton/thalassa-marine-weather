@@ -10,6 +10,7 @@ import {
     normalizeModerationImage,
     parseCrewPublicationProfile,
     parseGeminiModerationEnvelope,
+    runCrewPublicationModerationWithRetry,
 } from './moderation.ts';
 
 const CORS_HEADERS: Record<string, string> = {
@@ -17,6 +18,8 @@ const CORS_HEADERS: Record<string, string> = {
     'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
+
+const MODERATION_REQUEST_TIMEOUT_MS = 15_000;
 
 type RpcRecord = Record<string, unknown>;
 
@@ -63,7 +66,7 @@ async function moderate(
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(requestBody),
             },
-            45_000,
+            MODERATION_REQUEST_TIMEOUT_MS,
         );
         const responseText = await readResponseTextLimited(response, 1_000_000);
         if (!response.ok || responseText === null) {
@@ -147,7 +150,9 @@ Deno.serve(async (req: Request) => {
         } else if (!geminiKey) {
             moderationResult = { verdict: 'manual_review', reasonCode: 'moderation_unavailable' };
         } else {
-            moderationResult = await moderate(geminiKey, moderationRequest);
+            moderationResult = await runCrewPublicationModerationWithRetry(() =>
+                moderate(geminiKey, moderationRequest)
+            );
         }
     } catch {
         // Once begin has committed, always attempt the fail-closed finalizer so
