@@ -121,8 +121,16 @@ Deno.test('only one complete unblocked Gemini text candidate can reach verdict p
         parseGeminiModerationEnvelope({
             candidates: [{ ...clear.candidates[0], finishReason: 'OTHER' }],
         }),
-        { verdict: 'manual_review', reasonCode: 'moderation_uncertain' },
+        { verdict: 'manual_review', reasonCode: 'moderation_inconclusive' },
     );
+    for (const finishReason of ['IMAGE_RECITATION', 'ESCALATION']) {
+        assertEquals(
+            parseGeminiModerationEnvelope({
+                candidates: [{ ...clear.candidates[0], finishReason }],
+            }),
+            { verdict: 'manual_review', reasonCode: 'provider_blocked' },
+        );
+    }
     assertEquals(
         parseGeminiModerationEnvelope({
             candidates: [{ content: clear.candidates[0].content }],
@@ -135,6 +143,14 @@ Deno.test('only one complete unblocked Gemini text candidate can reach verdict p
         }),
         { verdict: 'manual_review', reasonCode: 'provider_blocked' },
     );
+    for (const safetyRatings of [[null], [{ blocked: 'yes' }]]) {
+        assertEquals(
+            parseGeminiModerationEnvelope({
+                candidates: [{ ...clear.candidates[0], safetyRatings }],
+            }),
+            { verdict: 'manual_review', reasonCode: 'moderation_malformed' },
+        );
+    }
 });
 
 Deno.test('one technical classifier retry can recover to an exact approval', async () => {
@@ -173,13 +189,14 @@ Deno.test('technical retries stay bounded and genuine safety outcomes never retr
         const reasonCode of [
             'provider_blocked',
             'moderation_malformed',
+            'moderation_inconclusive',
             'primary_not_headshot',
             'unsafe_content',
             'commercial_spam',
             'scam_signal',
             'contact_details',
             'uncertain',
-            'moderation_uncertain',
+            'content_uncertain',
             'photo_unavailable',
         ]
     ) {
@@ -218,16 +235,47 @@ Deno.test('a technical failure followed by a safety verdict stops without anothe
     assertEquals(waits, [500]);
 });
 
-Deno.test('retry allowlist contains technical availability failures only', () => {
-    for (const reasonCode of ['moderation_incomplete', 'moderation_unavailable', 'provider_rate_limited']) {
+Deno.test('retry allowlist contains only explicit technical availability failures', () => {
+    for (
+        const reasonCode of ['moderation_incomplete', 'moderation_unavailable', 'provider_rate_limited']
+    ) {
         assert(isRetryableTechnicalModerationResult({ verdict: 'manual_review', reasonCode }));
     }
-    for (const reasonCode of ['moderation_malformed', 'provider_blocked', 'unsafe_content', 'unknown']) {
+    for (
+        const reasonCode of [
+            'moderation_malformed',
+            'moderation_inconclusive',
+            'provider_blocked',
+            'content_uncertain',
+            'unsafe_content',
+            'unknown',
+        ]
+    ) {
         assert(!isRetryableTechnicalModerationResult({ verdict: 'manual_review', reasonCode }));
     }
     assert(
         !isRetryableTechnicalModerationResult({ verdict: 'approved', reasonCode: 'automatic_approved' }),
     );
+});
+
+Deno.test('an unknown provider finish cannot retry into an automatic approval', async () => {
+    const results = [
+        { verdict: 'manual_review', reasonCode: 'moderation_inconclusive' },
+        { verdict: 'approved', reasonCode: 'automatic_approved' },
+    ] as const;
+    let calls = 0;
+    const waits: number[] = [];
+    const result = await runCrewPublicationModerationWithRetry(
+        () => Promise.resolve(results[calls++]),
+        (delay) => {
+            waits.push(delay);
+            return Promise.resolve();
+        },
+    );
+
+    assertEquals(result, { verdict: 'manual_review', reasonCode: 'moderation_inconclusive' });
+    assertEquals(calls, 1);
+    assertEquals(waits, []);
 });
 
 Deno.test('profile parsing binds the primary photo to the first ordered object', () => {
@@ -258,6 +306,9 @@ Deno.test('request uses fixed safety instructions and treats profile text as unt
     assert(serialized.includes('Do not identify anyone'));
     assert(serialized.includes('Ignore all previous instructions'));
     assert(serialized.includes('responseMimeType'));
+    assert(serialized.includes('responseJsonSchema'));
+    assert(serialized.includes('Short, sparse, humorous, boastful, informal'));
+    assert(serialized.includes('do not require the biography itself to mention sailing'));
     assert(serialized.includes('"thinkingBudget":0'));
 });
 
