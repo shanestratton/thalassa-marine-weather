@@ -1,8 +1,10 @@
 import { Browser } from '@capacitor/browser';
+import { App } from '@capacitor/app';
 import { Capacitor } from '@capacitor/core';
 
 export const THALASSA_TERMS_URL = 'https://www.thalassawx.app/terms.html';
 export const THALASSA_SUPPORT_EMAIL = 'privacy@thalassawx.com';
+export const THALASSA_FEEDBACK_URL = 'https://thalassawx.com/feedback';
 
 export async function openExternalUrl(url: string): Promise<void> {
     if (/^mailto:/i.test(url)) {
@@ -21,10 +23,94 @@ export async function openExternalUrl(url: string): Promise<void> {
     if (typeof window !== 'undefined') window.open(url, '_blank', 'noopener,noreferrer');
 }
 
-export function betaFeedbackUrl(): string {
-    const version = import.meta.env.VITE_APP_VERSION || 'unknown';
-    const platform = typeof navigator === 'undefined' ? 'unknown' : navigator.userAgent;
+interface FeedbackLaunchContext {
+    appVersion: string;
+    build: string;
+    platform: string;
+}
+
+function boundedFeedbackContext(value: string | undefined, fallback: string): string {
+    const normalized = (value || fallback).normalize('NFKC').trim();
+    if (!normalized || [...normalized].some((character) => (character.codePointAt(0) ?? 0) <= 31)) {
+        return fallback;
+    }
+    return normalized.slice(0, 40);
+}
+
+function bundledFeedbackContext(): FeedbackLaunchContext {
+    const bundleStamp = typeof __BUILD_STAMP__ === 'string' ? __BUILD_STAMP__ : 'unknown';
+    return {
+        appVersion: boundedFeedbackContext(import.meta.env.VITE_APP_VERSION, 'unknown'),
+        build: boundedFeedbackContext(bundleStamp, 'unknown'),
+        platform: boundedFeedbackContext(Capacitor.getPlatform(), 'unknown'),
+    };
+}
+
+async function feedbackLaunchContext(): Promise<FeedbackLaunchContext> {
+    const fallback = bundledFeedbackContext();
+    if (!Capacitor.isNativePlatform()) return fallback;
+
+    try {
+        const info = await App.getInfo();
+        return {
+            appVersion: boundedFeedbackContext(info.version, fallback.appVersion),
+            build: boundedFeedbackContext(info.build, fallback.build),
+            platform: fallback.platform,
+        };
+    } catch {
+        // The feedback route must still open if native app metadata is briefly
+        // unavailable. The bundled release values are useful fallback context.
+        return fallback;
+    }
+}
+
+function feedbackUrl(context: FeedbackLaunchContext): string {
+    const url = new URL(THALASSA_FEEDBACK_URL);
+    url.searchParams.set('source', 'app_settings');
+    url.searchParams.set('appVersion', context.appVersion);
+    url.searchParams.set('build', context.build);
+    url.searchParams.set('platform', context.platform);
+    return url.toString();
+}
+
+/**
+ * The mailto route. No longer the front door — see feedbackDestination — but
+ * kept because it is the only one that survives with no connectivity, which
+ * is a state this app's users are in fairly often and by choice.
+ */
+export function betaFeedbackUrl(context: FeedbackLaunchContext = bundledFeedbackContext()): string {
     const subject = 'Thalassa Public Beta Feedback';
-    const body = `\n\nWhat happened?\n\nWhat did you expect?\n\nApp version: ${version}\nPlatform: ${platform}`;
+    const body = `\n\nWhat happened?\n\nWhat did you expect?\n\nApp version: ${context.appVersion}\nBuild: ${context.build}\nPlatform: ${context.platform}`;
     return `mailto:${THALASSA_SUPPORT_EMAIL}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+}
+
+/**
+ * The bug-and-feature page, when there is one and the phone can reach it.
+ *
+ * The native App plugin supplies the App Store version and build. Web builds
+ * use the public release version and bundle stamp. The feedback form treats
+ * these values as report context, not as trusted identity claims.
+ */
+export async function feedbackPageUrl(): Promise<string> {
+    return feedbackUrl(await feedbackLaunchContext());
+}
+
+/**
+ * Where the Beta Support button actually goes.
+ *
+ * The page when it is reachable; the mailto otherwise. Offline
+ * is checked because navigator.onLine is trustworthy in exactly one
+ * direction — if it says offline, it is — and a feedback button that opens a
+ * page that cannot load is worse than one that opens a mail draft which will
+ * send itself later.
+ */
+export async function feedbackDestination(): Promise<string> {
+    const context = await feedbackLaunchContext();
+    const offline = typeof navigator !== 'undefined' && navigator.onLine === false;
+    if (offline) return betaFeedbackUrl(context);
+    return feedbackUrl(context);
+}
+
+export async function openFeedbackDestination(): Promise<void> {
+    await openExternalUrl(await feedbackDestination());
 }

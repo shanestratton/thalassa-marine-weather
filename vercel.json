@@ -41,6 +41,10 @@
             "destination": "/beta.html"
         },
         {
+            "source": "/feedback",
+            "destination": "/feedback.html"
+        },
+        {
             "source": "/((?!.*\\..*).*)",
             "destination": "/index.html"
         }
@@ -111,6 +115,15 @@
         },
         {
             "source": "/beta.html",
+            "headers": [
+                {
+                    "key": "Cache-Control",
+                    "value": "public, max-age=0, must-revalidate"
+                }
+            ]
+        },
+        {
+            "source": "/feedback.html",
             "headers": [
                 {
                     "key": "Cache-Control",

@@ -129,6 +129,7 @@ const DOCUMENT_HEADER_SOURCES = Object.freeze([
     '/index.html',
     '/logs.html',
     '/beta.html',
+    '/feedback.html',
     '/terms.html',
     '/voyage-log-api.html',
 ]);
@@ -141,6 +142,7 @@ const REQUIRED_REWRITES = Object.freeze([
     ['/plan/:path*', '/index.html'],
     ['/voyage-log-api', '/voyage-log-api.html'],
     ['/beta', '/beta.html'],
+    ['/feedback', '/feedback.html'],
     ['/((?!.*\\..*).*)', '/index.html'],
 ]);
 
@@ -153,6 +155,7 @@ const SURFACE_MARKERS = Object.freeze({
     main: ['<div id="root"></div>', '<title>Thalassa — Marine Weather & Passage Planning</title>'],
     logs: ['<div id="root"></div>', '<title>Voyage Log — Thalassa</title>'],
     beta: ['<div id="root"></div>', '<title>Founding Skippers — Thalassa</title>'],
+    feedback: ['<div id="root"></div>', '<title>Feedback — Thalassa</title>'],
     terms: ['<title>Thalassa Marine Weather — Terms & Privacy</title>'],
     api: ['<title>Voyage Log API — Thalassa</title>', '<h1>Voyage Log API</h1>'],
 });
@@ -271,7 +274,7 @@ export function validateHtmlSurface(html, surface) {
         if (!html.includes(marker)) failures.push(`${surface} document is missing ${marker}`);
     }
     if (
-        (surface === 'main' || surface === 'logs' || surface === 'beta') &&
+        (surface === 'main' || surface === 'logs' || surface === 'beta' || surface === 'feedback') &&
         !/\bsrc=["']\/assets\/[^"']+\.js["']/.test(html)
     ) {
         failures.push(`${surface} document does not boot a hashed production JavaScript asset`);
@@ -290,6 +293,7 @@ export function localRouteExpectation(pathname) {
         return { kind: 'document', file: 'voyage-log-api.html', surface: 'api' };
     }
     if (normalized === '/beta') return { kind: 'document', file: 'beta.html', surface: 'beta' };
+    if (normalized === '/feedback') return { kind: 'document', file: 'feedback.html', surface: 'feedback' };
     if (normalized === '/logs' || normalized.startsWith('/logs/')) {
         return { kind: 'document', file: 'logs.html', surface: 'logs' };
     }
@@ -332,6 +336,7 @@ function validateBuiltArtifacts() {
         ['index.html', 'main'],
         ['logs.html', 'logs'],
         ['beta.html', 'beta'],
+        ['feedback.html', 'feedback'],
         ['terms.html', 'terms'],
         ['voyage-log-api.html', 'api'],
     ];
@@ -578,6 +583,7 @@ async function verifyLocalPreview(artifacts) {
             '/release-verification/deep-route',
             '/logs/release-verification',
             '/beta',
+            '/feedback',
             '/terms',
             '/voyage-log-api',
         ];
@@ -974,6 +980,7 @@ async function verifyHostedDeployment(rawOrigin) {
         ['/release-verification/deep-route', 'main'],
         ['/logs/release-verification', 'logs'],
         ['/beta', 'beta'],
+        ['/feedback', 'feedback'],
         ['/terms', 'terms'],
         ['/voyage-log-api', 'api'],
     ];

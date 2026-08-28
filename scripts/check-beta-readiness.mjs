@@ -2982,7 +2982,9 @@ check(
         // the bounded abuse-prevention token retained after explicit removal.
         // v2.7 adds the server-side Crew List safety-classification flow, its
         // strict no-biometrics boundary, human fallback, and bounded audit.
-        'Version 2.7',
+        // v2.8 adds the public Product Feedback collection, optional browser
+        // diagnostics, abuse-token, transactional-email, and retention terms.
+        'Version 2.8',
         '28 August 2026',
         'destructive in-app deletion flow is temporarily unavailable during this beta',
         'mailto:privacy@thalassawx.com',
@@ -3006,6 +3008,11 @@ check(
         'content moderation, not identity verification',
         'does not reject or suspend a member by itself',
         'create a facial template or embedding',
+        'Product Feedback, Bug Reports &amp; Feature Requests',
+        'Basic technical details are <strong>optional and off by default</strong>',
+        'derives a keyed HMAC token',
+        'does not store the raw network address with the submission',
+        'deleted automatically within 365 days',
         'Sentry',
         'precise location',
         'syncs automatically',
