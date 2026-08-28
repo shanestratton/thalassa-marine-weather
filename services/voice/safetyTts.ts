@@ -46,23 +46,6 @@ import { synthesise, type VoiceSettingsOverride } from './ttsClient';
 const SAFETY_TTS_BUDGET_MS = 4000;
 
 /**
- * The budget for a report that is NOT an emergency.
- *
- * Four seconds exists so a distress transmission can never stall on a
- * network. A routine position readback is a different act entirely: the
- * skipper pressed a button and is waiting to hear their own position read
- * back. Nothing is burning. Holding them to the distress budget bought the
- * worst of both — the robot voice, every time, because a spelled-out
- * position is too long to synthesise in four seconds (Shane 2026-08-28:
- * "the text to voice for reading the location is u/s. not hal and speaks
- * very fast and not in a manner that would suggest human talk").
- *
- * Callers that use this MUST show the skipper that something is happening,
- * or a long wait is indistinguishable from a dead button.
- */
-export const ROUTINE_TTS_BUDGET_MS = 12000;
-
-/**
  * PRE-SYNTHESISED SAFETY AUDIO.
  *
  * The budget above is the right call — a distress transmission must never

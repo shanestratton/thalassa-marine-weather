@@ -64,9 +64,21 @@ describe('safety read-out is untouched', () => {
     const mob = read('components/vessel/MobPage.tsx');
     const radio = read('components/vessel/RadioConsolePage.tsx');
 
-    it('MOB and Radio still speak, through safetyTts', () => {
+    it('the MOB Mayday still speaks, through safetyTts', () => {
+        // The one read-out that survives. A Mayday is read while the skipper
+        // has their hands full, often in the dark, and often by someone who
+        // is not the skipper — that is worth a synthesised voice.
         expect(mob).toContain('speakSafetyMessage');
-        expect(radio).toContain('speakSafetyMessage');
+    });
+
+    it('the Radio console no longer speaks, and that was deliberate', () => {
+        // Shane 2026-08-28: "i am just not happy with the voice Claude, best
+        // we remove them. people will just have to read it out." The routine
+        // position report is read from the screen by whoever is holding the
+        // handset, so a voice buys nothing there and reads every digit out
+        // one at a time to do it. Pinned so it is not quietly reinstated.
+        expect(radio).not.toContain('speakSafetyMessage');
+        expect(radio).not.toContain('prewarmSafetyMessage');
     });
 
     it('neither is gated on the parked console', () => {
