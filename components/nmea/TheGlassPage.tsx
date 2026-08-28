@@ -269,6 +269,25 @@ const HeroCompass: React.FC<{ value: number | null; isLive: boolean; accentColor
  * these are legitimately absent, and a confident 0.0 for depth is the one
  * number on this page that could put her aground.
  */
+/**
+ * Position in degrees and decimal minutes — the form it is written in a log,
+ * read off a chart and passed over the radio.
+ *
+ * Three decimals, not the one that services/shiplog/helpers.ts uses: that
+ * formatter's output is STORED on log entries, so its precision is not mine
+ * to change, and a tenth of a minute is 185 m — fine as a log stamp, far too
+ * coarse for a live position readout.
+ */
+function formatFix(lat: number | null, lon: number | null): string | null {
+    if (lat === null || lon === null || !Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+    const dm = (v: number, pos: string, neg: string) => {
+        const a = Math.abs(v);
+        const d = Math.floor(a);
+        return `${d}°${((a - d) * 60).toFixed(3)}′${v >= 0 ? pos : neg}`;
+    };
+    return `${dm(lat, 'N', 'S')}  ${dm(lon, 'E', 'W')}`;
+}
+
 const FlankMetric: React.FC<{
     label: string;
     value: number | null;
@@ -595,6 +614,13 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
     const containerPx = pickByDevice(deviceClass, 'px-3', 'px-6');
     const containerGap = pickByDevice(deviceClass, 'gap-2', 'gap-4');
     const containerMb = pickByDevice(deviceClass, 'mb-2', 'mb-4');
+    /* Each snap section is exactly the scroller's height, and the scroller
+       runs UNDER the translucent tab bar — so without this the bottom of
+       every section sat behind the nav, which is what cut the wind roses off
+       (Shane 2026-08-28: "the two bottom roses are not entirely on the
+       screen"). Same 5.5rem clearance the rest of the app uses over that
+       bar. */
+    const sectionPb = 'pb-[calc(5.5rem+env(safe-area-inset-bottom))]';
     const cardPad = pickByDevice(deviceClass, 'p-3', 'p-5');
     const sogAwsValueClass = pickByDevice(deviceClass, 'text-3xl', 'text-5xl');
     const depthValueClass = pickByDevice(deviceClass, 'text-2xl', 'text-4xl');
@@ -622,6 +648,8 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
     const twd = resolveMetric(state.twd);
     const twaSigned = resolveMetric(state.twaSigned);
     const stw = resolveMetric(state.stw);
+    const latitude = resolveMetric(state.latitude);
+    const longitude = resolveMetric(state.longitude);
     const rudder = resolveMetric(state.rudder);
     // The 30-60s helm window the serene advice demands — null while it fills.
     const helmWindow = NmeaStore.helmWindow();
@@ -909,7 +937,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                     >
                         {/* ── SECTION: WIND ── */}
                         <section
-                            className={`w-full h-full snap-start snap-always shrink-0 overflow-hidden flex flex-col ${containerPx} pt-1`}
+                            className={`w-full h-full snap-start snap-always shrink-0 overflow-hidden flex flex-col ${containerPx} pt-1 ${sectionPb}`}
                         >
                             {/* The diagnosis and the "not reporting" list used
                                 to sit here as two stacked banners. On a
@@ -926,7 +954,13 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                 glance, and tapping it opens the detail. Zero
                                 layout cost, and nothing is hidden. */}
                             <SectionPlate title="Wind" />
-                            <div className="flex-1 min-h-0 flex flex-col items-center justify-evenly">
+                            {/* justify-between, not evenly: now the section
+                                reserves the tab bar there is less free space
+                                to spread, and evenly banked what was left into
+                                one gap above the dial ("there is ample space at
+                                the top"). Between pins the three blocks to top,
+                                middle and bottom. */}
+                            <div className="flex-1 min-h-0 flex flex-col items-center justify-between py-1">
                                 {/* Three metrics down each side of the dial.
                                     A round gauge in a rectangular panel leaves
                                     two columns of dead space beside it, and the
@@ -996,8 +1030,8 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                                 the biggest element the one that yields. */}
                                                 <div
                                                     style={{
-                                                        width: `min(${heroGaugeSize}px, 24vh)`,
-                                                        height: `min(${heroGaugeSize}px, 24vh)`,
+                                                        width: `min(${heroGaugeSize}px, 19vh)`,
+                                                        height: `min(${heroGaugeSize}px, 19vh)`,
                                                     }}
                                                 >
                                                     <HeroArcGauge
@@ -1044,6 +1078,26 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                             tone="text-violet-300"
                                         />
                                     </div>
+                                </div>
+                                {/* The fix, directly under the dial. Everything
+                                    else on this screen is relative — angles off
+                                    the bow, speed through water, depth under the
+                                    keel — and this is the one line that says
+                                    where she actually is. Monospaced and tabular
+                                    so the digits do not dance as she moves. */}
+                                <div className="w-full text-center">
+                                    <p className="text-[8px] font-black uppercase tracking-[0.2em] text-gray-500">
+                                        Position
+                                    </p>
+                                    <p
+                                        className={`font-mono text-[13px] font-black tabular-nums ${
+                                            formatFix(latitude.value, longitude.value)
+                                                ? 'text-emerald-300'
+                                                : 'text-gray-600'
+                                        }`}
+                                    >
+                                        {formatFix(latitude.value, longitude.value) ?? '— no fix —'}
+                                    </p>
                                 </div>
                                 <div className="w-full grid grid-cols-3 gap-2 items-center">
                                     <div className="rounded-xl bg-white/[0.03] border border-white/[0.06] p-2 text-center">
@@ -1098,7 +1152,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                             unit="kn"
                                             isLive={windAvailable && !windStale}
                                             className="mx-auto block h-auto w-full"
-                                            style={{ maxHeight: '22vh' }}
+                                            style={{ maxHeight: '19vh' }}
                                         />
                                         <p className="mt-0.5 text-center text-[9px] font-black uppercase tracking-[0.2em] text-gray-400">
                                             Apparent
@@ -1113,7 +1167,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                             heading={heading.value}
                                             isLive={windAvailable && !windStale}
                                             className="mx-auto block h-auto w-full"
-                                            style={{ maxHeight: '22vh' }}
+                                            style={{ maxHeight: '19vh' }}
                                         />
                                         <p className="mt-0.5 text-center text-[9px] font-black uppercase tracking-[0.2em] text-gray-400">
                                             True
@@ -1125,7 +1179,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
 
                         {/* ── SECTION: SPEED ── */}
                         <section
-                            className={`w-full h-full snap-start snap-always shrink-0 overflow-hidden flex flex-col ${containerPx} pt-1`}
+                            className={`w-full h-full snap-start snap-always shrink-0 overflow-hidden flex flex-col ${containerPx} pt-1 ${sectionPb}`}
                         >
                             <SectionPlate title="Speed" />
                             <div className="flex-1 min-h-0 flex flex-col justify-evenly">
@@ -1200,7 +1254,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
 
                         {/* ── SECTION: DEPTH ── */}
                         <section
-                            className={`w-full h-full snap-start snap-always shrink-0 overflow-hidden flex flex-col ${containerPx} pt-1`}
+                            className={`w-full h-full snap-start snap-always shrink-0 overflow-hidden flex flex-col ${containerPx} pt-1 ${sectionPb}`}
                         >
                             <SectionPlate title="Depth" />
                             <div className="flex-1 min-h-0 flex flex-col justify-evenly">
@@ -1258,7 +1312,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
 
                         {/* ── SECTION: HEADING ── */}
                         <section
-                            className={`w-full h-full snap-start snap-always shrink-0 overflow-hidden flex flex-col ${containerPx} pt-1`}
+                            className={`w-full h-full snap-start snap-always shrink-0 overflow-hidden flex flex-col ${containerPx} pt-1 ${sectionPb}`}
                         >
                             <SectionPlate title="Heading" />
                             <div className="flex-1 min-h-0 flex flex-col items-center justify-evenly">
@@ -1299,7 +1353,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
 
                         {/* ── SECTION: HELM ── */}
                         <section
-                            className={`w-full h-full snap-start snap-always shrink-0 overflow-hidden flex flex-col ${containerPx} pt-1`}
+                            className={`w-full h-full snap-start snap-always shrink-0 overflow-hidden flex flex-col ${containerPx} pt-1 ${sectionPb}`}
                         >
                             <SectionPlate title="Helm" />
                             <div className="flex-1 min-h-0 flex flex-col justify-evenly">
@@ -1394,7 +1448,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                         {/* ── SECTION: SAIL PLAN (Serene Summer only — her rig, her advice) ── */}
                         {isSereneSummer && (
                             <section
-                                className={`w-full h-full snap-start snap-always shrink-0 overflow-hidden flex flex-col ${containerPx} pt-1`}
+                                className={`w-full h-full snap-start snap-always shrink-0 overflow-hidden flex flex-col ${containerPx} pt-1 ${sectionPb}`}
                             >
                                 <SectionPlate title="Sail Plan" />
                                 <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar space-y-2 pb-2">
