@@ -52,10 +52,57 @@ function scanPhaseLabel(phase: ScanPhase): string {
     return 'Checking those devices on other ports…';
 }
 
+/**
+ * Clear the app's OLD factory defaults so the YDWG-02 ones take effect.
+ *
+ * Two things were wrong with the version of this that ran in the render body.
+ *
+ * It ran on EVERY render — a side effect during render, so React's StrictMode
+ * double-invoke ran it twice on mount and every subsequent re-render ran it
+ * again. "One-time migration" was in the comment and nowhere in the code.
+ *
+ * And it deleted any saved port of 10110, unconditionally. 10110 is not a
+ * stale default — it is the standard NMEA 0183 over TCP port, one this app's
+ * own scanner offers as a candidate and labels as such. So a skipper who
+ * deliberately configured a gateway on 10110 had that setting quietly removed
+ * and replaced with the 1456 default, while the HOST was left alone: a
+ * half-migration that manufactures a host/port pairing the user never chose.
+ * On Shane's setup that pairing was the house Pi on the YDWG's own port,
+ * which is the one combination that makes the app blame a Yacht Devices
+ * gateway for a Raspberry Pi in the spare room (found 2026-08-28).
+ *
+ * Now: once, ever, recorded by a flag; and only the old default PAIR, because
+ * a value is only a stale default if the value beside it is too.
+ */
+const LEGACY_DEFAULT_HOST = '192.168.1.1';
+const LEGACY_DEFAULT_PORT = '10110';
+const LEGACY_DEFAULTS_CLEARED_KEY = 'nmea_legacy_defaults_cleared';
+let legacyDefaultsCheckedThisSession = false;
+
+function clearLegacyGatewayDefaultsOnce(): void {
+    if (legacyDefaultsCheckedThisSession) return;
+    legacyDefaultsCheckedThisSession = true;
+    try {
+        if (localStorage.getItem(LEGACY_DEFAULTS_CLEARED_KEY)) return;
+        localStorage.setItem(LEGACY_DEFAULTS_CLEARED_KEY, '1');
+        const host = localStorage.getItem('nmea_host');
+        const port = localStorage.getItem('nmea_port');
+        // Only the pair. A host on 10110 that is not the old default host is
+        // a real configuration, and deleting half of it is worse than
+        // leaving all of it.
+        if (host === LEGACY_DEFAULT_HOST && (port === LEGACY_DEFAULT_PORT || port === null)) {
+            localStorage.removeItem('nmea_host');
+            localStorage.removeItem('nmea_port');
+        }
+    } catch {
+        /* storage unavailable — the defaults below still apply */
+    }
+}
+
 export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass }) => {
-    // One-time migrations: clear old defaults so new YDWG-02 defaults take effect
-    if (localStorage.getItem('nmea_host') === '192.168.1.1') localStorage.removeItem('nmea_host');
-    if (localStorage.getItem('nmea_port') === '10110') localStorage.removeItem('nmea_port');
+    // Idempotent and flag-guarded, so the render-phase call is safe under
+    // StrictMode's double-invoke — it does its work once per install.
+    clearLegacyGatewayDefaultsOnce();
     const [host, setHost] = useState(localStorage.getItem('nmea_host') || '192.168.1.151');
     const [port, setPort] = useState(localStorage.getItem('nmea_port') || '1456');
     const [device, setDevice] = useState(localStorage.getItem('nmea_device') || 'ydwg02');

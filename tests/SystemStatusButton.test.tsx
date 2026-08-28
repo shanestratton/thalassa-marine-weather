@@ -114,8 +114,27 @@ describe('SystemStatusButton', () => {
         fireEvent.click(screen.getByRole('button', { name: /System status: 1 active/ }));
 
         expect(screen.getByText('Following Route')).toBeInTheDocument();
-        fireEvent.click(screen.getByRole('button', { name: 'View signal propagation forecast' }));
+        // Named for the row it belongs to. Every SystemRow action button used
+        // to carry the same hard-coded "View signal propagation forecast",
+        // which described none of them and made two buttons share one
+        // accessible name.
+        fireEvent.click(screen.getByRole('button', { name: 'Stop Following Route' }));
         expect(followRouteState.stopFollowing).toHaveBeenCalledOnce();
+    });
+
+    it('gives every row action its own accessible name', () => {
+        followRouteState.isFollowing = true;
+        followRouteState.voyagePlan = { origin: 'Brisbane, QLD', destination: 'Gladstone, QLD' };
+
+        render(<SystemStatusButton currentView="dashboard" onNavigateAnchor={vi.fn()} />);
+        fireEvent.click(screen.getByRole('button', { name: /System status: 1 active/ }));
+
+        // The NMEA row offers a way to the page that can fix it; the route row
+        // offers Stop. Two buttons, two names — a screen reader can tell them
+        // apart, and so can a query.
+        expect(screen.getByRole('button', { name: 'Fix NMEA Backbone' })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Stop Following Route' })).toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: 'View signal propagation forecast' })).not.toBeInTheDocument();
     });
 
     it('contains the active-system modal and restores focus after Escape', () => {
