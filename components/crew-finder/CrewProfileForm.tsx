@@ -277,8 +277,8 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                         <li>• Your first photo must be a clear headshot.</li>
                         <li>• Introductions are mutual before private chat.</li>
                         <li className="sm:col-span-2">
-                            • Most clear profiles publish automatically. Only safety flags need a person; no face
-                            matching or biometric template.
+                            • Most clear profiles publish automatically. Only safety flags need a person.{' '}
+                            {'No face matching or biometric template.'}
                         </li>
                     </ul>
                 </section>
