@@ -12,10 +12,18 @@
  *    [[lesson_capacitorhttp_abortsignal_noop]]: the plugin cannot be told to
  *    stop, so the JS side stops waiting and disowns it.)
  *
- *  • A deadline that fires leaves the native connect in flight. Its client id
- *    arrives later with nobody holding it, so the resolve path records the id
- *    and a background sweep closes any that were abandoned — otherwise a full
- *    scan leaks ~250 native sockets.
+ *  • A deadline that fires leaves the native connect in flight, and its client
+ *    id arrives later with nobody holding it. This used to claim "a background
+ *    sweep closes any that were abandoned"; there was no such sweep anywhere
+ *    in the repo, and the `finally` could not help — when the deadline fires
+ *    we reach it with `clientId` still null, because the deadline firing IS
+ *    the statement that the `.then` has not run.
+ *
+ *    So the late resolver closes its own socket. This is not housekeeping: a
+ *    YDWG-02 serves exactly THREE TCP clients, and a sweep across 1455-1457
+ *    can take all three and hold them for the life of the process. The app
+ *    then reports the gateway's slots as full and blames a chartplotter for
+ *    sockets it is sitting on itself (measured on Serene Summer 2026-08-28).
  */
 import { withDeadline } from '../../utils/deadline';
 import { createLogger } from '../../utils/createLogger';
@@ -35,9 +43,15 @@ export async function nativeTcpProbe(host: string, port: number, timeoutMs: numb
     const { TcpSocket } = await import('capacitor-tcp-socket');
 
     let clientId: number | null = null;
+    /** Set the moment we stop waiting, so a late resolver knows it is alone. */
+    let disowned = false;
     try {
         const connect = TcpSocket.connect({ ipAddress: host, port }).then((r) => {
-            clientId = r.client; // recorded even if the deadline already fired
+            clientId = r.client;
+            // We gave up on this one already, and the `finally` below has
+            // been and gone with nothing to close. Nobody else will ever
+            // hold this socket, so it closes itself here or not at all.
+            if (disowned) void releaseProbeClient(r.client);
             return r;
         });
         const result = await withDeadline(connect, timeoutMs, `probe ${host}:${port}`);
@@ -65,20 +79,26 @@ export async function nativeTcpProbe(host: string, port: number, timeoutMs: numb
         }
         return { open: true, sample };
     } catch {
+        // Set BEFORE the finally runs, so the ordering the fix depends on is
+        // explicit: disown first, then let `finally` close anything we do
+        // actually hold. A connect that lands after this closes itself.
+        disowned = true;
         return { open: false };
     } finally {
-        if (clientId !== null) {
-            const id = clientId;
-            void (async () => {
-                try {
-                    const { TcpSocket: T } = await import('capacitor-tcp-socket');
-                    await T.disconnect({ client: id });
-                } catch {
-                    /* already gone */
-                }
-            })();
-        }
+        if (clientId !== null) releaseProbeClient(clientId);
     }
+}
+
+/** Hand one probe socket back. Never throws — the point is that we always ask. */
+function releaseProbeClient(client: number): void {
+    void (async () => {
+        try {
+            const { TcpSocket: T } = await import('capacitor-tcp-socket');
+            await T.disconnect({ client });
+        } catch {
+            /* already gone */
+        }
+    })();
 }
 
 /**

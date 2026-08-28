@@ -562,13 +562,30 @@ class BoatNetworkServiceClass {
         // ── NMEA / Signal K TCP ──
         if (options.nmea !== false) {
             const signalkNmea = services.find((s) => s.name === 'signalk-nmea');
-            const signalk = services.find((s) => s.name === 'signalk');
-            if (signalkNmea || signalk) {
-                const nmeaPort = signalkNmea ? signalkNmea.port : 10110;
+            if (signalkNmea) {
                 localStorage.setItem('nmea_host', host);
-                localStorage.setItem('nmea_port', String(nmeaPort));
+                localStorage.setItem('nmea_port', String(signalkNmea.port));
                 localStorage.setItem('nmea_device', 'signalk');
-                log.info(`NMEA configured: ${host}:${nmeaPort}`);
+                log.info(`NMEA configured: ${host}:${signalkNmea.port}`);
+            } else {
+                /*
+                 * A Signal K WEB server on :3000 is not evidence of an NMEA
+                 * stream, and this used to write port 10110 on that basis —
+                 * a port its own `signalk-nmea` probe had just failed to
+                 * confirm — while also repointing `nmea_host` at the Pi.
+                 *
+                 * On the house Pi that is AvNav listening on 10110 with no
+                 * input sources: a socket that opens and then stays silent
+                 * forever. So "Connect All", whose label promises charts and
+                 * cache, quietly made a home-LAN address the boat's gateway.
+                 * It looked connected at home, never delivered a sentence,
+                 * and vanished the moment Shane left the house
+                 * (diagnosed 2026-08-28).
+                 *
+                 * Guessing a port is worse than leaving the setting alone:
+                 * the skipper already had a working gateway configured.
+                 */
+                log.info('No NMEA stream discovered on the Pi — leaving the gateway config alone');
             }
         }
 

@@ -206,26 +206,46 @@ interface RawAccumulator {
  * Turn a raw socket failure into something a skipper can act on.
  *
  * The native layer surfaces strings like "The operation couldn't be completed.
- * (SwiftSocket.SocketError error 3.)", which names the errno and nothing else
- * — so a refused port and an unreachable boat looked identical on screen, and
- * both got rediagnosed as broken hardware. Error 3 in particular means the
- * host ANSWERED and refused the port, which is the single most useful thing
- * to know: the gateway is alive and the port is wrong or its server is down.
+ * (SwiftSocket.SocketError error 3.)". That number is NOT an errno — it is the
+ * index of a Swift enum case, and `SocketError` has exactly four
+ * (Socket.swift): 0 queryFailed, 1 connectionClosed, 2 connectionTimeout,
+ * 3 unknownError.
  *
- * The raw text is always kept on the end; support needs the errno even when
- * the plain-English half is what gets read.
+ * That matters more than it sounds. ytcpsocket.c maps a select() expiry to -3
+ * (→ case 2) and ANY non-zero SO_ERROR to -4 (→ case 3), reading the errno and
+ * then throwing it away. So ECONNREFUSED, EHOSTUNREACH and ENETUNREACH all
+ * arrive here as the same "error 3", and are not distinguishable by anything
+ * in this string.
+ *
+ * This function used to read "error 3" as a refusal and say the host "answered
+ * but refused the connection" — then send the skipper to check a port and
+ * restart a server on a machine they had no route to at all. That is what
+ * Shane saw on 2026-08-28 after leaving the house with the app pointed at a
+ * home-LAN address. Meanwhile the two branches that WOULD have been right
+ * matched on errnos 51 and 60, which this native stack cannot emit, so the
+ * correct answers were written down and dead.
+ *
+ * The rule now: only a literal refusal earns the word "answered". Where the
+ * errno was destroyed, name the whole superset and let the skipper pick — a
+ * true "one of these two" beats a confident wrong half.
+ *
+ * The raw text is always kept on the end; support needs it even when the
+ * plain-English half is what gets read.
  */
 export function diagnoseConnectFailure(raw: string, host: string, port: number): string {
     const s = raw.toLowerCase();
     const where = `${host}:${port}`;
-    if (/socketerror error 3\b|refused|econnrefused/.test(s)) {
+    // Only a transport that genuinely reports a refusal — never case 3.
+    if (/refused|econnrefused/.test(s)) {
         return `${where} answered but refused the connection — nothing is listening on port ${port}. Check the port, and that the gateway's NMEA server is running. (${raw})`;
     }
-    if (/timed ?out|etimedout|socketerror error 60\b/.test(s)) {
-        return `No answer from ${where} before the timeout — the gateway may be powered down, asleep, or on a network you are not currently on. (${raw})`;
+    if (/no route|enetunreach|ehostunreach|unreachable|socketerror error 3\b/.test(s)) {
+        return `Could not open ${where} — either nothing is listening on that port, or your phone has no route to that network right now. If ${host} is on the boat, check you are on the boat's Wi-Fi, or that the VPN carrying its network is up. (${raw})`;
     }
-    if (/no route|enetunreach|ehostunreach|unreachable|socketerror error 51\b/.test(s)) {
-        return `No route to ${host} — you are not on its network, and nothing is carrying it (subnet router or VPN). (${raw})`;
+    // Case index 2 is connectionTimeout. Errno 60 is a Foundation string this
+    // native stack never produces, so matching it made this branch dead code.
+    if (/timed ?out|etimedout|socketerror error 2\b/.test(s)) {
+        return `No answer from ${where} — the connection attempt went out and nothing came back. The gateway may be powered down, or you may not be on its network. (${raw})`;
     }
     if (/refused to connect|connection reset|econnreset/.test(s)) {
         return `${where} dropped the connection. On a Yacht Devices gateway this usually means its TCP slots are already taken — close other apps or captures using it. (${raw})`;
@@ -717,8 +737,9 @@ class NmeaListenerServiceClass {
                 this.lastError = looksLikeYdwg
                     ? `${this.host}:${this.port} accepts the connection then drops it without sending anything ` +
                       `(${this.neverFedStreak} attempts). On a Yacht Devices gateway that means its three TCP ` +
-                      `slots are already taken — close other apps, chartplotters or captures using it, or ` +
-                      `power-cycle the gateway.`
+                      `slots are already taken — possibly by this app, whose network scan can strand sockets. ` +
+                      `Try Disconnect then Connect first, then close other apps, chartplotters or captures ` +
+                      `using it, or power-cycle the gateway.`
                     : `${this.host}:${this.port} accepts the connection then drops it without sending anything ` +
                       `(${this.neverFedStreak} attempts). Something is listening on that port, but it is not ` +
                       `feeding NMEA. Check the address and port point at the gateway itself.`;
