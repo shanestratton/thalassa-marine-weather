@@ -247,3 +247,77 @@ export async function broadcastOnce(
 export function relayFingerprint(relayId: string): string {
     return createHash('sha256').update(relayId).digest('hex').slice(0, 8);
 }
+
+/* ── The running watch ──────────────────────────────────────────────────── */
+
+export interface RunnerDeps extends BroadcastDeps {
+    setIntervalImpl?: typeof setInterval;
+    clearIntervalImpl?: typeof clearInterval;
+    onOutcome?: (outcome: BroadcastOutcome) => void;
+}
+
+/**
+ * Holds at most ONE watch. A boat has one anchor down; accepting a second
+ * assignment replaces the first rather than running two loops that would
+ * report contradictory positions to the same shore device.
+ *
+ * The assignment is deliberately NOT persisted. If the Pi reboots mid-watch it
+ * comes back knowing nothing, and the app re-assigns on its next authorise
+ * sweep — which is the honest outcome, because a Pi that has just rebooted
+ * cannot vouch for what happened while it was down.
+ */
+export class AnchorWatchRunner {
+    private assignment: AnchorWatchAssignment | null = null;
+    private credential: RelayCredential | null = null;
+    private timer: ReturnType<typeof setInterval> | null = null;
+    private lastOutcome: BroadcastOutcome | null = null;
+
+    constructor(private readonly deps: RunnerDeps) {}
+
+    /** Replace whatever is running. Returns immediately; the first report is
+     *  sent on the next tick so a caller is never blocked on the network. */
+    start(assignment: AnchorWatchAssignment, credential: RelayCredential): void {
+        this.stop();
+        this.assignment = assignment;
+        this.credential = credential;
+        const setIntervalFn = this.deps.setIntervalImpl ?? setInterval;
+        this.timer = setIntervalFn(() => void this.tick(), BROADCAST_INTERVAL_MS);
+        void this.tick();
+    }
+
+    stop(): void {
+        if (this.timer) {
+            (this.deps.clearIntervalImpl ?? clearInterval)(this.timer);
+            this.timer = null;
+        }
+        this.assignment = null;
+        this.credential = null;
+    }
+
+    isRunning(): boolean {
+        return this.timer !== null;
+    }
+
+    /** Never includes the credential — this is safe to put in /status. */
+    describe(): { running: boolean; sessionCode: string | null; lastOutcome: BroadcastOutcome | null } {
+        return {
+            running: this.isRunning(),
+            sessionCode: this.assignment?.sessionCode ?? null,
+            lastOutcome: this.lastOutcome,
+        };
+    }
+
+    private async tick(): Promise<void> {
+        const assignment = this.assignment;
+        const credential = this.credential;
+        if (!assignment || !credential) return;
+        const outcome = await broadcastOnce(assignment, credential, this.deps);
+        this.lastOutcome = outcome;
+        this.deps.onOutcome?.(outcome);
+        // A credential the relay rejects outright will never start working, and
+        // retrying it every ten seconds is a stream of failed auth attempts
+        // against the skipper's own account. A LAPSED authorisation is
+        // different — the app renews it, so keep going.
+        if (outcome === 'unauthorised') this.stop();
+    }
+}
