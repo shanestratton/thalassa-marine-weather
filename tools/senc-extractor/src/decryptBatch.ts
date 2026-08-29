@@ -1,10 +1,11 @@
 #!/usr/bin/env node
-import { readdir, mkdir, writeFile, readFile, stat } from 'node:fs/promises';
+import { readdir, mkdir, readFile, stat } from 'node:fs/promises';
 import { basename, extname, join } from 'node:path';
 import { OexserverdClient } from './oexserverd.js';
 import { loadKeyFile } from './keyFile.js';
 import { parseSenc } from './featureParser.js';
 import { emitCell } from './geojsonEmitter.js';
+import { writeFileAtomic } from './atomicWrite.js';
 
 interface Args {
     chartDir: string;
@@ -235,7 +236,7 @@ async function main() {
                 // matches the wire format `EncImportService.syncEncFromPi`
                 // already understands. Plain mode emits the raw cell.
                 const json = args.piCacheStore ? JSON.stringify({ cells: [cell] }) : JSON.stringify(cell);
-                await writeFile(outPath, json);
+                await writeFileAtomic(outPath, json);
                 if (args.piCacheStore) {
                     upsertIndexEntry(piCacheIndex, {
                         cellId: cell.cellId,
@@ -352,7 +353,7 @@ async function loadPiCacheIndex(storeDir: string): Promise<InstalledIndex> {
 
 async function savePiCacheIndex(storeDir: string, index: InstalledIndex): Promise<void> {
     await mkdir(storeDir, { recursive: true });
-    await writeFile(join(storeDir, 'index.json'), JSON.stringify(index, null, 2), 'utf8');
+    await writeFileAtomic(join(storeDir, 'index.json'), JSON.stringify(index, null, 2));
 }
 
 function upsertIndexEntry(index: InstalledIndex, entry: InstalledCellMeta): void {
@@ -377,7 +378,7 @@ async function loadProcessedFiles(storeDir: string): Promise<ProcessedFilesRecor
 
 async function saveProcessedFiles(storeDir: string, record: ProcessedFilesRecord): Promise<void> {
     await mkdir(storeDir, { recursive: true });
-    await writeFile(join(storeDir, 'processed-files.json'), JSON.stringify(record, null, 2), 'utf8');
+    await writeFileAtomic(join(storeDir, 'processed-files.json'), JSON.stringify(record, null, 2));
 }
 
 main().catch((e) => {
