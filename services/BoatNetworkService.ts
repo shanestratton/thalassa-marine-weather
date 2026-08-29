@@ -174,10 +174,19 @@ const MDNS_HOSTS = [
     'calypso.local', // Shane's renamed Pi (boat-named after the yacht)
     // Raw-IP fallback: iOS mDNS (.local) resolution inside CapacitorHttp is
     // flaky — the Mac resolves calypso.local instantly while the phone times
-    // out (observed 2026-07-02, "pi wont connect"). Calypso's DHCP address on
-    // the boat LAN; harmless dead candidate elsewhere. If the lease ever
-    // moves, calypso.local above still wins first.
-    '192.168.50.150',
+    // out (observed 2026-07-02, "pi wont connect"). Calypso's address on the
+    // boat LAN behind the RUTX50; harmless dead candidate elsewhere. If the
+    // lease ever moves, calypso.local above still wins first.
+    //
+    // 2026-08-29: was 192.168.50.150 — the address the Pi held on the *home*
+    // LAN while it was being built. The stack has since moved to a different
+    // Pi living on the boat LAN, and aboard the yacht the phone could not find
+    // it at all: .local timed out on iOS exactly as this comment predicts, and
+    // the only raw-IP fallback pointed at another subnet entirely. The old
+    // address is deliberately not kept as a second candidate — that machine is
+    // being retired, and one still answering at home is a chance to pin the
+    // pairing record to the wrong Pi.
+    '192.168.1.180',
     'openplotter.local',
     'raspberrypi.local',
     'thalassa.local',
