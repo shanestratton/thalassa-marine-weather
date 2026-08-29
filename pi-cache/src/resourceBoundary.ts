@@ -104,8 +104,18 @@ export interface DownloadPolicy {
     diskCheckIntervalBytes: number;
 }
 
+/**
+ * The download-side twin of ENC_ARCHIVE_POLICY, and it must be raised WITH it.
+ *
+ * These limits come in pairs — one bounds the bytes arriving over the wire, the
+ * other bounds what the zip expands to — and on 2026-08-30 only the archive
+ * half was raised for the o-charts Australian base set. The install then failed
+ * before the zip was ever opened, with "Download exceeds the 314,572,800-byte
+ * limit", which is this constant. Same 1 GiB as CHARTWORLD_DOWNLOAD_POLICY, for
+ * the same reason its archive twin matches CHARTWORLD's.
+ */
 export const ENC_DOWNLOAD_POLICY: Readonly<DownloadPolicy> = Object.freeze({
-    maxBytes: 300 * MIB,
+    maxBytes: 1 * GIB,
     minimumFreeBytes: 512 * MIB,
     diskCheckIntervalBytes: 16 * MIB,
 });
