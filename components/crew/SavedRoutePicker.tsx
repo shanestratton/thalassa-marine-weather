@@ -12,28 +12,21 @@
  * ARIA: the trigger is a combobox (aria-haspopup=listbox, aria-expanded);
  * the sheet is a listbox of options with aria-selected. Selection goes
  * through the same handler the old <select> used.
+ *
+ * 2026-08-30: the ordering moved to services/savedRouteOrder and the row
+ * markup to components/routes/SavedRouteRows, so the PLAN tab's saved-routes
+ * modal and the cast-off "Following a route?" sheet can wear the same layout.
+ * This file keeps the trigger and the sheet chrome — the parts that are only
+ * true here.
  */
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useId, useMemo, useRef, useState } from 'react';
 import { OverlayPortal } from '../ui/OverlayPortal';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { triggerHaptic } from '../../utils/system';
+import { orderSavedRouteRows, type SavedRoutePickerRow } from '../../services/savedRouteOrder';
+import { SavedRouteList } from '../routes/SavedRouteRows';
 
-export interface SavedRoutePickerRow {
-    id: string;
-    name: string;
-    /** Trailing "(2nd Leg)" paint. Rendered OUTSIDE the truncating name span
-     *  so a long route name can never eat the badge on a narrow screen. */
-    legBadge?: string;
-    /** Secondary line — distance / legs / shared-by. */
-    detail: string | null;
-    kind: 'passage' | 'leg' | 'standalone';
-    /** 1-based within its trip; orders legs under their passage. */
-    legOrdinal?: number;
-    /** Group identity — a trip id for passage/leg rows, own id otherwise. */
-    groupKey: string;
-    /** Newest activity in the group decides group order (ms epoch). */
-    stamp: number;
-}
+export type { SavedRoutePickerRow };
 
 interface SavedRoutePickerProps {
     rows: SavedRoutePickerRow[];
@@ -41,32 +34,24 @@ interface SavedRoutePickerProps {
     onSelect: (id: string) => void;
 }
 
-const kindRank = (kind: SavedRoutePickerRow['kind']): number => (kind === 'passage' ? 0 : kind === 'leg' ? 1 : 2);
-
 export const SavedRoutePicker: React.FC<SavedRoutePickerProps> = ({ rows, selectedId, onSelect }) => {
     const [open, setOpen] = useState(false);
     const closeButtonRef = useRef<HTMLButtonElement>(null);
+    /* Generated, not a literal. A second surface mounting this list with a
+       hard-coded id would emit duplicate DOM ids and make a listbox query by
+       accessible name ambiguous. */
+    const listboxId = useId();
     const dialogRef = useFocusTrap<HTMLDivElement>(open, {
         initialFocusRef: closeButtonRef,
         onEscape: () => setOpen(false),
     });
 
-    const ordered = useMemo(() => {
-        const groupStamp = new Map<string, number>();
-        for (const row of rows) {
-            groupStamp.set(row.groupKey, Math.max(groupStamp.get(row.groupKey) ?? 0, row.stamp));
-        }
-        return [...rows].sort((a, b) => {
-            if (a.groupKey !== b.groupKey) {
-                const byStamp = (groupStamp.get(b.groupKey) ?? 0) - (groupStamp.get(a.groupKey) ?? 0);
-                if (byStamp !== 0) return byStamp;
-                return a.groupKey.localeCompare(b.groupKey);
-            }
-            const byKind = kindRank(a.kind) - kindRank(b.kind);
-            if (byKind !== 0) return byKind;
-            return (a.legOrdinal ?? 0) - (b.legOrdinal ?? 0);
-        });
-    }, [rows]);
+    const ordered = useMemo(() => orderSavedRouteRows(rows), [rows]);
+
+    const choose = (id: string) => {
+        setOpen(false);
+        onSelect(id);
+    };
 
     const selected = rows.find((row) => row.id === selectedId) ?? null;
 
@@ -78,7 +63,7 @@ export const SavedRoutePicker: React.FC<SavedRoutePickerProps> = ({ rows, select
                 aria-label="Saved Routes"
                 aria-haspopup="listbox"
                 aria-expanded={open}
-                aria-controls="saved-route-picker-listbox"
+                aria-controls={listboxId}
                 onClick={() => {
                     triggerHaptic('light');
                     setOpen(true);
@@ -134,103 +119,26 @@ export const SavedRoutePicker: React.FC<SavedRoutePickerProps> = ({ rows, select
                                     Close
                                 </button>
                             </div>
-                            <div
-                                id="saved-route-picker-listbox"
-                                role="listbox"
-                                aria-label="Saved Routes"
-                                className="flex-1 overflow-y-auto px-3 py-3 space-y-1.5"
-                                style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 12px)' }}
+                            <SavedRouteList
+                                rows={ordered}
+                                selectedId={selectedId}
+                                onSelect={choose}
+                                listboxId={listboxId}
                             >
-                                {
-                                    <button
-                                        type="button"
-                                        role="option"
-                                        aria-selected={false}
-                                        onClick={() => {
-                                            triggerHaptic('light');
-                                            setOpen(false);
-                                            onSelect('');
-                                        }}
-                                        className="w-full flex items-center gap-3 rounded-xl border border-white/[0.08] bg-white/[0.02] px-3 py-2.5 text-left text-xs font-bold text-gray-400 hover:bg-white/[0.05]"
-                                    >
-                                        <span aria-hidden="true">✕</span>
-                                        <span>Clear selection</span>
-                                    </button>
-                                }
-                                {ordered.map((row) => {
-                                    const isSelected = row.id === selectedId;
-                                    const isLeg = row.kind === 'leg';
-                                    if (row.kind === 'passage') {
-                                        // The whole-trip row is a HEADING, not a
-                                        // choice (Shane 2026-08-27: "the punter can
-                                        // not select the actual passage. it should
-                                        // just be there so the legs make sense") —
-                                        // the legs beneath are the sailable units.
-                                        return (
-                                            <div
-                                                key={row.id}
-                                                role="presentation"
-                                                className="flex items-center gap-3 rounded-xl border border-violet-400/25 bg-violet-500/[0.08] px-3 py-2.5"
-                                            >
-                                                <span aria-hidden="true" className="text-base leading-none">
-                                                    🧭
-                                                </span>
-                                                <span className="flex-1 min-w-0">
-                                                    <span className="block truncate text-sm font-black text-violet-100">
-                                                        {row.name}
-                                                    </span>
-                                                    {row.detail && (
-                                                        <span className="block text-[11px] text-violet-300/60">
-                                                            {row.detail}
-                                                        </span>
-                                                    )}
-                                                </span>
-                                                <span className="shrink-0 rounded-md border border-violet-400/30 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-[0.15em] text-violet-300">
-                                                    Passage
-                                                </span>
-                                            </div>
-                                        );
-                                    }
-                                    return (
-                                        <button
-                                            key={row.id}
-                                            type="button"
-                                            role="option"
-                                            aria-selected={isSelected}
-                                            onClick={() => {
-                                                triggerHaptic('light');
-                                                setOpen(false);
-                                                onSelect(row.id);
-                                            }}
-                                            className={`w-full flex items-center gap-3 rounded-xl border px-3 py-3 text-left transition-colors ${
-                                                isSelected
-                                                    ? 'bg-violet-500/[0.14] border-violet-400/40'
-                                                    : 'bg-white/[0.03] border-white/[0.08] hover:bg-white/[0.06]'
-                                            }`}
-                                        >
-                                            <span aria-hidden="true" className="text-base leading-none">
-                                                {isLeg ? '↳' : '📍'}
-                                            </span>
-                                            <span className="flex-1 min-w-0">
-                                                <span className="flex items-baseline gap-1.5 text-sm font-semibold text-slate-100">
-                                                    <span className="min-w-0 truncate">{row.name}</span>
-                                                    {row.legBadge && <span className="shrink-0">{row.legBadge}</span>}
-                                                </span>
-                                                {row.detail && (
-                                                    <span className="block text-[11px] text-gray-500">
-                                                        {row.detail}
-                                                    </span>
-                                                )}
-                                            </span>
-                                            {isSelected && (
-                                                <span aria-hidden="true" className="text-violet-300 font-black">
-                                                    ✓
-                                                </span>
-                                            )}
-                                        </button>
-                                    );
-                                })}
-                            </div>
+                                <button
+                                    type="button"
+                                    role="option"
+                                    aria-selected={false}
+                                    onClick={() => {
+                                        triggerHaptic('light');
+                                        choose('');
+                                    }}
+                                    className="w-full flex items-center gap-3 rounded-xl border border-white/[0.08] bg-white/[0.02] px-3 py-2.5 text-left text-xs font-bold text-gray-400 hover:bg-white/[0.05]"
+                                >
+                                    <span aria-hidden="true">✕</span>
+                                    <span>Clear selection</span>
+                                </button>
+                            </SavedRouteList>
                         </div>
                     </div>
                 </OverlayPortal>
