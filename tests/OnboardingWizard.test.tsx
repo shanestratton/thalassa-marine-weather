@@ -55,10 +55,6 @@ vi.mock('../services/weather', () => ({
     fetchWeatherByStrategy: vi.fn().mockResolvedValue(null),
 }));
 
-vi.mock('../components/WeatherMap', () => ({
-    WeatherMap: () => <div data-testid="weather-map">Map</div>,
-}));
-
 vi.mock('../components/settings/YachtDatabaseSearch', () => ({
     YachtDatabaseSearch: () => <div data-testid="yacht-search">YachtSearch</div>,
 }));

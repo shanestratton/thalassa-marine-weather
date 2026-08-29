@@ -31,10 +31,6 @@ vi.mock('./Advice', () => ({
     AdviceWidget: () => <div />,
 }));
 
-vi.mock('../ParticleEngine', () => ({
-    ParticleEngine: vi.fn(),
-}));
-
 // Mock useWeather context
 vi.mock('../../context/WeatherContext', () => ({
     useWeather: () => ({
