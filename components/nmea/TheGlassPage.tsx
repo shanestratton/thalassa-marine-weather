@@ -342,6 +342,13 @@ const FlankMetric: React.FC<{
           : (value as number).toFixed(digits);
     const shown = has ? Number(text) : null;
     const sideTone = sideColoured ? sideColour(shown) : null;
+    /* The sign is redundant once the colour carries the side, and it costs a
+       character of width in a 68px tile (Shane 2026-08-30: "now that we have
+       red for port and green for starboard, could we remove the negative
+       sign?"). Stripped only for a side-coloured tile, and only AFTER the
+       colour has been decided from the signed value — otherwise every reading
+       would be starboard green. */
+    const display = sideColoured && shown !== null ? Math.abs(shown).toFixed(digits) : text;
     return (
         <div className="rounded-lg border border-white/[0.06] bg-white/[0.03] px-1 py-1.5 text-center">
             <p className="text-[8px] font-black uppercase tracking-[0.14em] text-gray-500">{label}</p>
@@ -350,7 +357,7 @@ const FlankMetric: React.FC<{
                 style={sideTone ? { color: sideTone } : undefined}
                 className={`font-mono text-[15px] font-black tabular-nums leading-tight ${has ? tone : 'text-gray-600'}`}
             >
-                {text}
+                {display}
                 {has && <span className="text-[8px] font-bold text-gray-500">{unit}</span>}
             </p>
         </div>
@@ -1297,13 +1304,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                             digits={1}
                                             sideColoured
                                         />
-                                        <FlankMetric
-                                            label="Heel"
-                                            value={heel.value}
-                                            unit="°"
-                                            digits={1}
-                                            tone="text-violet-300"
-                                        />
+                                        <FlankMetric label="Heel" value={heel.value} unit="°" digits={1} sideColoured />
                                     </div>
                                 </div>
                                 {/* The fix, directly under the dial. Everything
