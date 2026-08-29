@@ -42,6 +42,7 @@ import { scrollInputAboveKeyboard } from '../utils/keyboardScroll';
 import { PageHeader } from './ui/PageHeader';
 import { RouteEnhancementChip } from './passage/RouteEnhancementChip';
 import { useFocusTrap } from '../hooks/useFocusTrap';
+import { demoteOrphanLegs, orderSavedRouteRows } from '../services/savedRouteOrder';
 import { useKeyboardOffset } from '../hooks/useKeyboardOffset';
 import {
     authScopedStorageKey,
@@ -58,6 +59,15 @@ interface RoutePickerItem {
     sub: string;
     go: () => void;
     remove?: () => Promise<boolean>;
+    /* Grouping identity, so this library can wear the same running order as
+       the Passage Planning picker — passages first, their legs beneath, day
+       sails after, groups newest first (Shane 2026-08-30: that layout is "the
+       gold standard"). The library items already carry tripId/legOrdinal;
+       nothing new is fetched. */
+    kind: 'passage' | 'leg' | 'standalone';
+    groupKey: string;
+    legOrdinal?: number;
+    stamp: number;
 }
 
 export const RoutePlanner: React.FC<{
@@ -247,7 +257,22 @@ export const RoutePlanner: React.FC<{
                                 day: 'numeric',
                                 month: 'short',
                             });
+                            const tripId =
+                                route.source === 'trip-passage'
+                                    ? route.tripId
+                                    : route.source === 'saved-trace'
+                                      ? route.tripId
+                                      : undefined;
                             return {
+                                kind:
+                                    route.source === 'trip-passage'
+                                        ? ('passage' as const)
+                                        : tripId
+                                          ? ('leg' as const)
+                                          : ('standalone' as const),
+                                groupKey: tripId ?? route.key,
+                                legOrdinal: route.source === 'saved-trace' ? route.legOrdinal : undefined,
+                                stamp: route.timestamp,
                                 key: route.key,
                                 title: route.label,
                                 sub:
@@ -330,7 +355,15 @@ export const RoutePlanner: React.FC<{
                     if (requestId !== routePickerRequestRef.current || !isAuthIdentityScopeCurrent(pickerScope)) {
                         return;
                     }
-                    const items = choices.map((c) => ({
+                    const items = choices.map((c, i) => ({
+                        /* This picker kind lists recorded sea voyages, which have
+                           no trip/leg structure — every row is standalone. The
+                           descending stamp preserves the order fetchSeaVoyageChoices
+                           returned them in; a constant would hand the ordering to
+                           the groupKey tiebreak and silently alphabetise the list. */
+                        kind: 'standalone' as const,
+                        groupKey: c.voyageId,
+                        stamp: choices.length - i,
                         key: c.voyageId,
                         title: c.label,
                         sub: c.sublabel,
@@ -1176,14 +1209,18 @@ export const RoutePlanner: React.FC<{
                                     </div>
                                 ) : (
                                     <>
-                                        {routePicker.items.map((it) => {
+                                        {demoteOrphanLegs(orderSavedRouteRows(routePicker.items)).map((it) => {
                                             const deleteArmed = routePickerDelete?.key === it.key;
                                             const deleteBusy = deleteArmed && routePickerDelete.busy;
                                             const anyDeleteBusy = routePickerDelete?.busy === true;
                                             return (
                                                 <div
                                                     key={it.key}
-                                                    className="flex w-full overflow-hidden rounded-xl border border-white/10 bg-white/5"
+                                                    className={`flex w-full overflow-hidden rounded-xl border ${
+                                                        it.kind === 'passage'
+                                                            ? 'border-violet-400/25 bg-violet-500/[0.08]'
+                                                            : 'border-white/10 bg-white/5'
+                                                    }`}
                                                 >
                                                     <button
                                                         type="button"
@@ -1194,15 +1231,48 @@ export const RoutePlanner: React.FC<{
                                                         }}
                                                         className="flex min-w-0 flex-1 items-center gap-3 p-3 text-left transition-transform active:scale-[0.98] disabled:cursor-wait disabled:opacity-60"
                                                     >
+                                                        {/* The same grammar the Passage Planning
+                                                            picker uses: a compass for a whole passage,
+                                                            the dog-leg arrow for a leg, a pin for a day
+                                                            sail. Legs sit FLUSH — the arrow marks them,
+                                                            not indentation (Shane 2026-08-27). */}
+                                                        <span aria-hidden="true" className="text-base leading-none">
+                                                            {it.kind === 'passage'
+                                                                ? '🧭'
+                                                                : it.kind === 'leg'
+                                                                  ? '↳'
+                                                                  : '📍'}
+                                                        </span>
                                                         <span className="min-w-0">
-                                                            <span className="block truncate text-sm font-bold text-gray-100">
+                                                            <span
+                                                                className={`block truncate text-sm ${
+                                                                    it.kind === 'passage'
+                                                                        ? 'font-black text-violet-100'
+                                                                        : 'font-bold text-gray-100'
+                                                                }`}
+                                                            >
                                                                 {it.title}
                                                             </span>
-                                                            <span className="block text-[11px] text-gray-400">
+                                                            <span
+                                                                className={`block text-[11px] ${
+                                                                    it.kind === 'passage'
+                                                                        ? 'text-violet-300/60'
+                                                                        : 'text-gray-400'
+                                                                }`}
+                                                            >
                                                                 {it.sub}
                                                             </span>
                                                         </span>
-                                                        <span className="ml-auto text-gray-500">›</span>
+                                                        {it.kind === 'passage' && (
+                                                            <span className="ml-auto shrink-0 rounded-md border border-violet-400/30 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-[0.15em] text-violet-300">
+                                                                Passage
+                                                            </span>
+                                                        )}
+                                                        <span
+                                                            className={`text-gray-500 ${it.kind === 'passage' ? 'ml-2' : 'ml-auto'}`}
+                                                        >
+                                                            ›
+                                                        </span>
                                                     </button>
                                                     {it.remove && (
                                                         <button
