@@ -22,6 +22,7 @@ import { AnchorWatchService } from '../services/AnchorWatchService';
 import { ChatService } from '../services/ChatService';
 import { useSettings } from '../context/SettingsContext';
 import { buildClaim, claimAgeLabel, holdsClaim, type SkipperClaim } from '../services/skipperDevice';
+import { NmeaGpsProvider } from '../services/NmeaGpsProvider';
 import { refreshSkipperClaim } from '../stores/settingsStore';
 import { useWeather } from '../context/WeatherContext';
 import { useUIStore } from '../stores/uiStore';
@@ -1333,6 +1334,30 @@ export const SkipperDeviceControl: React.FC<SkipperDeviceControlProps> = ({
     vesselName,
 }) => {
     const claimHeld = holdsClaim(claim);
+
+    /**
+     * Which GPS speaks for the boat.
+     *
+     * Shane's rule (2026-08-30): "if there is a pi connected, well stiff, that
+     * is the source of truth for gps, as long as it has got one that is." So
+     * the boat's own receiver wins whenever it is actually delivering a
+     * position, and the phone is what you fall back to — not a peer.
+     *
+     * getFeedStatus() is the honest test of "as long as it has got one":
+     * it reads NmeaStore directly and requires BOTH coordinates inside the
+     * usable window, so a gateway that is connected but has no GPS behind it
+     * reads as 'unavailable' and the card says Phone — rather than promising a
+     * boat fix that does not exist. Polled rather than subscribed because the
+     * interesting transition is the feed GOING AWAY, which emits nothing.
+     */
+    const [vesselGpsLive, setVesselGpsLive] = useState(() => NmeaGpsProvider.getFeedStatus() !== 'unavailable');
+    useEffect(() => {
+        const read = () => setVesselGpsLive(NmeaGpsProvider.getFeedStatus() !== 'unavailable');
+        read();
+        const id = setInterval(read, 2_000);
+        return () => clearInterval(id);
+    }, []);
+
     const statusDescription = claim
         ? claimHeld
             ? 'This device publishes the boat’s position to your public page.'
@@ -1443,9 +1468,28 @@ export const SkipperDeviceControl: React.FC<SkipperDeviceControlProps> = ({
                         </span>
                     )}
                 </div>
-                <p className="mb-2 h-4 truncate whitespace-nowrap text-[11px] leading-snug text-gray-400">
-                    {statusDescription}
-                </p>
+                {/* The GPS source rides on the EXISTING status line. The card
+                    is a fixed h-[120px] with overflow-hidden and four tests
+                    assert that height, so a new row would push the claim button
+                    out of the card rather than grow it. */}
+                <div className="mb-2 flex h-4 items-center gap-2">
+                    <p className="min-w-0 flex-1 truncate whitespace-nowrap text-[11px] leading-snug text-gray-400">
+                        {statusDescription}
+                    </p>
+                    <span
+                        data-testid="skipper-device-gps-source"
+                        title={
+                            vesselGpsLive
+                                ? 'The boat’s own GPS is live and is the source of truth for position.'
+                                : 'No position from the boat’s GPS — falling back to this phone.'
+                        }
+                        className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-black uppercase tracking-wide ${
+                            vesselGpsLive ? 'bg-emerald-500/15 text-emerald-300' : 'bg-amber-500/15 text-amber-300'
+                        }`}
+                    >
+                        {vesselGpsLive ? 'Boat GPS' : 'Phone GPS'}
+                    </span>
+                </div>
                 <button
                     type="button"
                     onClick={handleAction}
