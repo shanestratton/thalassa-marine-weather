@@ -150,3 +150,76 @@ describe('bearings are averaged circularly', () => {
         expect(Math.min(c, 360 - c)).toBeLessThan(3);
     });
 });
+
+/**
+ * VWR/VWT — the understudies that stop the wind panel going blank.
+ *
+ * Measured over 71.4 h of Serene Summer's own bus (8.3 M timestamped
+ * sentences, 2026-08-19 to 08-22): MWV gapped for more than 13 s on 783
+ * occasions, up to 78 s — roughly eleven blackouts an hour. VWR gapped 3 times
+ * and VWT 5, the same floor as HDG (3), RMC (4) and RSA (3). The wind was on
+ * the wire the whole time; the app listened only to the flakiest sentence
+ * carrying it. Sentences below are verbatim from that capture.
+ */
+describe('VWR / VWT as wind fallbacks', () => {
+    it('fills apparent wind from VWR when MWV is absent', async () => {
+        const s = await sampleFrom([nmea('YDVWR,100.1,R,7.6,N,3.9,M,14.0,K')]);
+        expect(s.awa).toBeCloseTo(100.1, 1);
+        expect(s.aws).toBeCloseTo(7.6, 2); // the knots field, not m/s or km/h
+    });
+
+    it('signs a PORT VWR angle so the needle draws the correct tack', async () => {
+        // VWR gives a 0-180 magnitude plus a side letter, unlike MWV's 0-360.
+        // 5,421 of the capture's VWR sentences are L-side, so this is not
+        // hypothetical — and a needle on the wrong tack is the one mistake a
+        // wind display must never make.
+        const s = await sampleFrom([nmea('YDVWR,45.0,L,6.0,N,3.1,M,11.1,K')]);
+        expect(s.awa).toBeCloseTo(-45, 1);
+    });
+
+    it('fills true wind from VWT, keeping twa unsigned for the polars', async () => {
+        const s = await sampleFrom([nmea('YDVWT,100.2,L,7.6,N,3.9,M,14.0,K')]);
+        expect(s.twa).toBeCloseTo(100.2, 1); // magnitude — SmartPolarStore buckets on it
+        expect(s.twaSigned).toBeCloseTo(-100.2, 1);
+        expect(s.tws).toBeCloseTo(7.6, 2);
+    });
+
+    it('lets MWV win when both arrive, rather than averaging two cadences', async () => {
+        // Serene Summer sends both. Averaging would double-weight whichever
+        // talker is faster; MWV stays primary and VWR only fills its gaps.
+        const s = await sampleFrom([nmea('YDMWV,114.9,R,3.8,M,A'), nmea('YDVWR,100.1,R,7.6,N,3.9,M,14.0,K')]);
+        expect(s.awa).toBeCloseTo(114.9, 1);
+        expect(s.aws).toBeCloseTo(3.8 * 1.94384, 2);
+    });
+
+    it('reads each speed by its UNIT TAG, not by position', async () => {
+        // A talker that omits the knots pair shifts every field after it.
+        // Reading field 3 regardless would scale km/h as knots.
+        const s = await sampleFrom([nmea('YDVWR,50.0,R,,,4.0,M,14.4,K')]);
+        expect(s.aws).toBeCloseTo(4.0 * 1.94384, 2);
+    });
+
+    it('drops a VWR whose side letter is missing', async () => {
+        const s = await sampleFrom([nmea('YDVWR,50.0,,7.6,N,3.9,M,14.0,K'), nmea('YDDPT,3.04,-1.79,')]);
+        expect(s.depth).not.toBeNull();
+        expect(s.awa).toBeNull();
+        expect(s.aws).toBeNull();
+    });
+});
+
+describe('wind speed units', () => {
+    it('refuses to guess at a unit it cannot scale', async () => {
+        // This used to fall through to "treat it as knots", which turns an
+        // unknown unit into a confidently wrong number. A blank rose is
+        // honest; a wrong wind speed is not.
+        const s = await sampleFrom([nmea('YDMWV,112.1,R,2.9,S,A'), nmea('YDDPT,3.04,-1.79,')]);
+        expect(s.depth).not.toBeNull();
+        expect(s.aws).toBeNull();
+        expect(s.awa).toBeNull();
+    });
+
+    it('still takes an empty unit as knots, as older talkers intend', async () => {
+        const s = await sampleFrom([nmea('YDMWV,112.1,R,9.0,,A')]);
+        expect(s.aws).toBeCloseTo(9.0, 2);
+    });
+});

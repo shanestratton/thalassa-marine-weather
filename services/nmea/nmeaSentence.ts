@@ -9,6 +9,16 @@ const SUPPORTED_INSTRUMENT_SENTENCES = new Set([
     // `$YDMWD,128.1,T,117.1,M,5.7,N,2.9,M` the whole time; it was rejected here
     // before it ever reached a parser (2026-08-08).
     'MWD',
+    // VWR/VWT carry the same wind as MWV and are the reason the wind panel
+    // stops going blank. Over 71.4 h of Serene Summer's bus (8.3 M sentences,
+    // 2026-08-19 to 08-22) MWV gapped past 13 s on 783 occasions — about
+    // eleven blackouts an hour, up to 78 s each — while VWR gapped 3 times and
+    // VWT 5, the same floor as HDG (3) and RMC (4). Five of the six wind
+    // metrics come from MWV alone, so one blink blanked the whole wind block
+    // while heading, which has four accepted sources, sailed on. The wind was
+    // on the wire the entire time, rejected here (2026-08-30).
+    'VWR',
+    'VWT',
     'VHW',
     'HDT',
     'HDG',
