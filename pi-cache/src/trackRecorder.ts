@@ -198,6 +198,17 @@ export function considerFix(
 ): { append: TrackPoint[]; state: RecorderState } {
     if (fix.gpsTimeMs === null) return { append: [], state };
 
+    /* The very first fix is ALWAYS recorded, even if she is already stopped.
+       Without this, switching the recorder on while the boat sits at anchor
+       writes nothing at all until she next moves — and a skipper checking
+       whether it works sees "0 points", which is indistinguishable from
+       broken. It also loses the one fact a long stop has: when it began.
+       Found on the boat 2026-08-30, on the hard with SOG reading 0.0. */
+    if (!state.last) {
+        const opening: TrackPoint = { ...fix, gpsTimeMs: fix.gpsTimeMs, reason: 'first' };
+        return { append: [opening], state: { last: opening, stopAnchor: null, stopLatest: null } };
+    }
+
     const stationary = isStationary(state.stopAnchor, fix, rules);
 
     if (stationary) {

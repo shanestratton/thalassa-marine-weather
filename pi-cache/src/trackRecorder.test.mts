@@ -158,3 +158,24 @@ test('the boat carries her instruments into the log', () => {
     assert.equal(p.waterTempC, 21.4);
     assert.equal(p.heelDeg, -6.5);
 });
+
+test('an opening point is written even when she is already stopped', () => {
+    // Switching the recorder on at anchor used to write nothing until the boat
+    // next moved. "0 points" is indistinguishable from a broken recorder, and
+    // it also loses when the stop began. Found on the boat 2026-08-30.
+    const { append, state } = considerFix(EMPTY_STATE, fix({ sogKts: 0 }));
+    assert.equal(append.length, 1);
+    assert.equal(append[0].reason, 'first');
+    assert.equal(state.last?.gpsTimeMs, T0);
+});
+
+test('the opening point does not disable stop suppression afterwards', () => {
+    // It must still go quiet once it has that first point, or a boat left at
+    // anchor would log every heartbeat for a week.
+    let state: RecorderState = considerFix(EMPTY_STATE, fix({ sogKts: 0 })).state;
+    for (let i = 1; i <= 50; i += 1) {
+        const out = considerFix(state, fix({ sogKts: 0, gpsTimeMs: T0 + i * 60_000 }));
+        assert.deepEqual(out.append, [], `minute ${i} should stay quiet`);
+        state = out.state;
+    }
+});
