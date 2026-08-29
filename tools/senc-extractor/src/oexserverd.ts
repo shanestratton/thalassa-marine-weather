@@ -1,5 +1,5 @@
 import { spawn, ChildProcess, execSync } from 'node:child_process';
-import { constants, existsSync, lstatSync, openSync, closeSync, writeSync } from 'node:fs';
+import { constants, existsSync, lstatSync, openSync, closeSync, writeSync, unlinkSync } from 'node:fs';
 import { open as fsOpen, unlink, readFile } from 'node:fs/promises';
 import { randomBytes } from 'node:crypto';
 import { tmpdir } from 'node:os';
@@ -40,6 +40,8 @@ export class OexserverdClient {
     private returnPipe: string;
     private returnPipeCreated = false;
     private spawnedBinary = false;
+    /** Why the last command-pipe probe failed; surfaced if startup times out. */
+    private lastPipeError: string | null = null;
 
     constructor(private readonly opts: OexserverdOptions = {}) {
         const randomSuffix = randomBytes(4).toString('hex');
@@ -49,7 +51,8 @@ export class OexserverdClient {
     /** Start the daemon if not already running and create the return FIFO. */
     async start(): Promise<void> {
         // Make the return FIFO. mkfifo isn't in node core, so shell out.
-        execSync(`mkfifo ${shellQuote(this.returnPipe)}`);
+        // 0600: this FIFO carries decrypted chart bytes back to us.
+        execSync(`mkfifo -m 600 ${shellQuote(this.returnPipe)}`);
         this.returnPipeCreated = true;
 
         if (await this.commandPipeWritable()) {
@@ -61,7 +64,19 @@ export class OexserverdClient {
             throw new Error(`oexserverd binary not found at ${binary}`);
         }
 
-        this.process = spawn(binary, [], { stdio: 'ignore', detached: false });
+        // oexserverd creates COMMAND_PIPE itself, at mode 0666 & ~umask. Under the
+        // usual Debian umask of 0002 that is a group-writable FIFO, which
+        // assertTrustedCommandPipe() rightly refuses. Give the daemon a private
+        // umask so the FIFO it makes is 0600, and clear a stale group-writable one
+        // first, since the daemon reuses an existing FIFO rather than recreating it.
+        this.clearUntrustedCommandPipe();
+
+        const previousUmask = process.umask(0o077);
+        try {
+            this.process = spawn(binary, [], { stdio: 'ignore', detached: false });
+        } finally {
+            process.umask(previousUmask);
+        }
         this.spawnedBinary = true;
 
         const deadline = Date.now() + (this.opts.startupTimeoutMs ?? 5000);
@@ -69,7 +84,9 @@ export class OexserverdClient {
             if (await this.commandPipeWritable()) return;
             await sleep(100);
         }
-        throw new Error('oexserverd did not start within timeout');
+        throw new Error(
+            `oexserverd did not start within timeout${this.lastPipeError ? ` (${this.lastPipeError})` : ''}`,
+        );
     }
 
     /**
@@ -118,13 +135,33 @@ export class OexserverdClient {
         }
     }
 
+    /**
+     * Remove a command FIFO from an earlier run that we own but that
+     * assertTrustedCommandPipe() would reject. Anything not ours, or not a FIFO,
+     * is left alone: that is a condition to report, not to clobber.
+     */
+    private clearUntrustedCommandPipe(): void {
+        try {
+            const stat = lstatSync(COMMAND_PIPE);
+            if (!stat.isFIFO()) return;
+            const uid = typeof process.getuid === 'function' ? process.getuid() : null;
+            if (uid !== null && stat.uid !== uid) return;
+            if ((stat.mode & 0o022) === 0) return;
+            unlinkSync(COMMAND_PIPE);
+        } catch {
+            // Absent, or not ours to remove: let the trust check report it.
+        }
+    }
+
     private async commandPipeWritable(): Promise<boolean> {
         try {
             assertTrustedCommandPipe();
             const fd = openSync(COMMAND_PIPE, constants.O_RDWR | constants.O_NONBLOCK | constants.O_NOFOLLOW);
             closeSync(fd);
+            this.lastPipeError = null;
             return true;
-        } catch {
+        } catch (err) {
+            this.lastPipeError = err instanceof Error ? err.message : String(err);
             return false;
         }
     }
