@@ -77,4 +77,9 @@ def main(path=PATH, write=True):
     return cfg
 
 if __name__ == '__main__':
-    main(sys.argv[1] if len(sys.argv) > 1 else PATH, write='--dry-run' not in sys.argv)
+    # Flags are not paths. The first version took argv[1] as the settings file
+    # outright, so `--dry-run` on its own — the obvious way to run this — was
+    # opened as a filename and died. Tested with the flag alone, with a path,
+    # and with both.
+    positional = [a for a in sys.argv[1:] if not a.startswith('-')]
+    main(positional[0] if positional else PATH, write='--dry-run' not in sys.argv)
