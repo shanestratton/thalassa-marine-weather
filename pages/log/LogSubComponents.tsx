@@ -190,19 +190,37 @@ export const FollowRouteChoice: React.FC<{
             // Blocked rows stay tappable because tapping is how you fix them.
             disabled={disabled || checking || (blocked && !onCheckRoute)}
             aria-busy={loading || checking}
-            className={`flex w-full items-start justify-between gap-3 rounded-xl border px-4 py-3 text-left active:scale-[0.99] disabled:cursor-wait disabled:opacity-60 ${
+            className={`flex w-full items-start gap-3 rounded-xl border px-4 py-3 text-left active:scale-[0.99] disabled:cursor-wait disabled:opacity-60 ${
                 blocked ? 'border-amber-500/25 bg-amber-500/[0.06]' : 'border-white/10 bg-slate-800/60'
             }`}
         >
+            {/* The saved-routes grammar, shared with the Passage Planning
+                picker and the PLAN library (Shane 2026-08-30: that layout is
+                "the gold standard"). The glyph is its own element rather than
+                a character inside the name, and the ⇄ badge sits OUTSIDE the
+                truncating span — it used to live inside it, so a long route
+                name could eat the one mark telling you a direction had been
+                chosen on your behalf.
+
+                A pin, not a compass: these rows are individual routes. The
+                compass is reserved for a whole passage, and this sheet has no
+                passages to show — VoyageSummary carries no tripId or
+                legOrdinal, so the passage/leg structure is not derivable here
+                without new data. */}
+            <span aria-hidden="true" className="shrink-0 text-base leading-none">
+                📍
+            </span>
             <span className="min-w-0 flex-1">
-                <span className={`block truncate text-[13px] font-bold ${blocked ? 'text-gray-400' : 'text-gray-100'}`}>
-                    🧭 {routeName}
+                <span
+                    className={`flex items-baseline gap-1.5 text-[13px] font-bold ${blocked ? 'text-gray-400' : 'text-gray-100'}`}
+                >
+                    <span className="min-w-0 truncate">{routeName}</span>
                     {/* The return leg is a separate saved voyage, folded into this
                         row. Marked rather than silently dropped — the direction shown
                         is the one starting nearest the boat, and a skipper should be
                         able to see that a choice was made on their behalf. */}
                     {reversible && (
-                        <span className="ml-1.5 text-[11px] font-black text-gray-500" title="Return leg also saved">
+                        <span className="shrink-0 text-[11px] font-black text-gray-500" title="Return leg also saved">
                             ⇄
                         </span>
                     )}
