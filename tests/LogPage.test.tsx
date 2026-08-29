@@ -134,6 +134,10 @@ vi.mock('../services/traceDirectUseGate', () => ({
     // seeded plan stays offered; the filter has its own suite.
     localTraceLinkByVoyageId: () => new Map<string, string>(),
     savedTraceFollowBlockReason: () => null,
+    // No trip grouping in these fixtures, so every offered route is a day sail
+    // and the sheet renders the flat shape these tests were written against.
+    // The grouping has its own suite.
+    tripIdentityByTraceId: () => new Map(),
 }));
 
 vi.mock('../hooks/useGpsHealth', () => ({

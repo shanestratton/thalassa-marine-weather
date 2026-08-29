@@ -157,6 +157,10 @@ export const FollowRouteChoice: React.FC<{
     checkingLabel?: string;
     loading?: boolean;
     disabled?: boolean;
+    /** This route is a LEG of a passage, sitting under its heading. Marked by
+     *  the dog-leg arrow alone — legs are flush, not indented (Shane
+     *  2026-08-27). */
+    isLeg?: boolean;
     onPick: () => void;
 }> = ({
     summary,
@@ -168,6 +172,7 @@ export const FollowRouteChoice: React.FC<{
     checkingLabel,
     loading = false,
     disabled = false,
+    isLeg = false,
     onPick,
 }) => {
     const first = summary.firstLat != null ? { latitude: summary.firstLat, longitude: summary.firstLon } : undefined;
@@ -208,7 +213,7 @@ export const FollowRouteChoice: React.FC<{
                 legOrdinal, so the passage/leg structure is not derivable here
                 without new data. */}
             <span aria-hidden="true" className="shrink-0 text-base leading-none">
-                📍
+                {isLeg ? '↳' : '📍'}
             </span>
             <span className="min-w-0 flex-1">
                 <span
