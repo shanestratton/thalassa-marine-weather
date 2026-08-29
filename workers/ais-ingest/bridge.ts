@@ -30,8 +30,21 @@ import { VesselDB } from './db.js';
 import { aivdoToAivdm, decodeAisSentence } from './aivdm.js';
 
 // ── Config ──
-const YDWG_HOST = process.env.YDWG_HOST || '192.168.1.151';
-const YDWG_PORT = parseInt(process.env.YDWG_PORT || '1457', 10);
+// Default to the Pi's own Signal K rebroadcast, NOT the gateway.
+//
+// The YDWG-02 has exactly THREE usable client slots: it accepts a fourth
+// connection and then resets it on first read. On 2026-08-29 all three were
+// held — Signal K, this bridge, and wind.py — so no phone aboard could get a
+// fix at all, and a backbone power-cycle left Signal K on a half-open socket
+// that reported ESTAB while delivering nothing for eight hours.
+//
+// Signal K holds the single gateway slot and rebroadcasts raw passthrough on
+// 10110, which serves unlimited clients (8 concurrent verified, byte-identical).
+// Defaulting here to the gateway meant a lost or unreadable .env would silently
+// re-take a scarce slot; defaulting to the rebroadcast makes that failure show
+// up as no data instead of as someone else's dropouts.
+const YDWG_HOST = process.env.YDWG_HOST || '127.0.0.1';
+const YDWG_PORT = parseInt(process.env.YDWG_PORT || '10110', 10);
 const AISHUB_HOST = process.env.AISHUB_HOST;
 const AISHUB_PORT = parseInt(process.env.AISHUB_PORT || '0', 10);
 const HEALTH_PORT = parseInt(process.env.PORT || '3002', 10);
