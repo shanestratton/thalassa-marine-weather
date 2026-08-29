@@ -11,6 +11,7 @@
  * No math required.
  */
 import React, { useState, useCallback, useEffect, useRef } from 'react';
+import { PiTrackRecorderCard } from './PiTrackRecorderCard';
 import { Section, Row, Toggle, type SettingsTabProps } from './SettingsPrimitives';
 import {
     LockIcon,
@@ -597,6 +598,11 @@ const PiCacheTabDevelopment: React.FC<SettingsTabProps> = ({ settings, onSave })
                                             : `Fell back to direct API (${visibleTestResult.ms}ms) — Pi may need Supabase config`}
                                     </div>
                                 )}
+                                {/* The always-on track sits with the Pi's other
+                                    controls because it is the Pi that does it —
+                                    it keeps recording whether or not the app is
+                                    running (Shane 2026-08-30). */}
+                                <PiTrackRecorderCard />
                             </div>
                         ) : (
                             <div className="space-y-3">
