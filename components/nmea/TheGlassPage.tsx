@@ -289,14 +289,25 @@ const HeroCompass: React.FC<{ value: number | null; isLive: boolean; accentColor
  * to change, and a tenth of a minute is 185 m — fine as a log stamp, far too
  * coarse for a live position readout.
  */
+function formatCoord(v: number | null, pos: string, neg: string): string | null {
+    if (v === null || !Number.isFinite(v)) return null;
+    const a = Math.abs(v);
+    const d = Math.floor(a);
+    return `${d}°${((a - d) * 60).toFixed(3)}′${v >= 0 ? pos : neg}`;
+}
+
+/** The two halves, for the Position page that shows them on separate lines.
+ *  Split out rather than reimplemented so one format serves both readouts —
+ *  two formatters would eventually disagree by a decimal place, and a position
+ *  that reads differently on two screens of the same app is a position you
+ *  cannot trust. */
+export const formatLatitude = (lat: number | null): string | null => formatCoord(lat, 'N', 'S');
+export const formatLongitude = (lon: number | null): string | null => formatCoord(lon, 'E', 'W');
+
 function formatFix(lat: number | null, lon: number | null): string | null {
-    if (lat === null || lon === null || !Number.isFinite(lat) || !Number.isFinite(lon)) return null;
-    const dm = (v: number, pos: string, neg: string) => {
-        const a = Math.abs(v);
-        const d = Math.floor(a);
-        return `${d}°${((a - d) * 60).toFixed(3)}′${v >= 0 ? pos : neg}`;
-    };
-    return `${dm(lat, 'N', 'S')}  ${dm(lon, 'E', 'W')}`;
+    const a = formatLatitude(lat);
+    const b = formatLongitude(lon);
+    return a === null || b === null ? null : `${a}  ${b}`;
 }
 
 const FlankMetric: React.FC<{
@@ -831,7 +842,11 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
     const scrollerRef = useRef<HTMLDivElement | null>(null);
     const [activeSection, setActiveSection] = useState(0);
     const sectionNames = useMemo(() => {
-        const base = ['Wind', 'Speed', 'Depth', 'Heading', 'Helm'];
+        /* MUST match the order the <section> elements are rendered in below —
+           the rail jumps by INDEX (scrollTop / clientHeight), so a name missing
+           here does not just lose a dot, it shifts every dot after it onto the
+           wrong instrument. */
+        const base = ['Wind', 'Position', 'Speed', 'Depth', 'Heading', 'Helm'];
         return isSereneSummer ? [...base, 'Sail Plan'] : base;
     }, [isSereneSummer]);
     const onPanelScroll = useCallback(() => {
@@ -1366,6 +1381,69 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                         </WindSwapSlot>
                                     ))}
                                 </div>
+                            </div>
+                        </section>
+
+                        {/* ── SECTION: POSITION ── */}
+                        {/* A page that does one thing (Shane 2026-08-30). The fix
+                            already appears under the wind dial, but small, beside
+                            four other numbers — and where she actually is deserves
+                            a screen of its own, big enough to read across a cockpit
+                            and to copy onto a chart or read over the radio without
+                            squinting. Second panel so it is one swipe from Wind.
+
+                            Degrees and decimal minutes to three places, from the
+                            same formatter the small readout uses — a position that
+                            reads differently on two screens of one app is a
+                            position you cannot trust.
+
+                            The no-fix state is a dash, never zeros. 0°0.000′N is a
+                            real place in the Gulf of Guinea, and a confident green
+                            reading of it is the worst thing this page could do. */}
+                        <section
+                            className={`w-full h-full snap-start snap-always shrink-0 overflow-hidden flex flex-col ${containerPx} pt-1 ${sectionPb}`}
+                        >
+                            <SectionPlate title="Position" />
+                            <div className="flex-1 min-h-0 flex flex-col items-center justify-center gap-7">
+                                {formatFix(latitude.value, longitude.value) ? (
+                                    <>
+                                        {(
+                                            [
+                                                ['Latitude', formatLatitude(latitude.value)],
+                                                ['Longitude', formatLongitude(longitude.value)],
+                                            ] as const
+                                        ).map(([label, text]) => (
+                                            <div key={label} className="w-full text-center">
+                                                <p className="mb-1 text-[10px] font-black uppercase tracking-[0.35em] text-gray-500">
+                                                    {label}
+                                                </p>
+                                                <p
+                                                    data-testid={`position-${label.toLowerCase()}`}
+                                                    className="font-mono font-black tabular-nums leading-none text-emerald-400"
+                                                    style={{
+                                                        /* Scales with the screen but capped, because the
+                                                           longest string here is 11 monospace characters
+                                                           and this section cannot scroll — an overflowing
+                                                           longitude would simply be cut off. */
+                                                        fontSize: 'clamp(1.75rem, 11vw, 3rem)',
+                                                        textShadow: '0 0 30px rgba(52, 211, 153, 0.35)',
+                                                    }}
+                                                >
+                                                    {text}
+                                                </p>
+                                            </div>
+                                        ))}
+                                        {latitude.freshness !== 'live' && (
+                                            <p className="text-[10px] font-black uppercase tracking-[0.25em] text-amber-400">
+                                                Last known — not live
+                                            </p>
+                                        )}
+                                    </>
+                                ) : (
+                                    <p className="font-mono text-2xl font-black tabular-nums text-gray-600">
+                                        — no fix —
+                                    </p>
+                                )}
                             </div>
                         </section>
 
