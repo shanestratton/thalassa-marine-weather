@@ -91,7 +91,10 @@ import {
     tracedRouteFollowGeometry,
     localTraceLinkByVoyageId,
     savedTraceFollowBlockReason,
+    tripIdentityByTraceId,
 } from '../services/traceDirectUseGate';
+import { orderSavedRouteRows } from '../services/savedRouteOrder';
+import { SavedRoutePassageHeading } from '../components/routes/SavedRouteRows';
 
 const NO_FOLLOWED_ROUTE: readonly RouteCoordinate[] = [];
 const FOLLOW_ROUTE_HYDRATION_TIMEOUT_MS = 10_000;
@@ -451,8 +454,47 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         (ReturnType<typeof collapseReversedRoutes<VoyageSummary>>[number] & {
             savedRouteId: string | null;
             blockReason: string | null;
+            /** Trip grouping, so this sheet can wear the Plan page's layout —
+             *  passages first with their legs beneath. Absent on a day sail. */
+            tripId?: string;
+            legOrdinal?: number;
+            tripName?: string;
         })[]
     >([]);
+    /**
+     * The sheet's running order: passages first with their legs beneath, day
+     * sails after, newest group first — the same arithmetic the Plan page and
+     * Passage Planning use, from services/savedRouteOrder.
+     *
+     * A heading is emitted when a group's first leg appears. Legs whose trip
+     * has no name resolved were already demoted to standalone upstream, so a
+     * dog-leg arrow can never sit under nothing.
+     */
+    const followPromptRows = React.useMemo(() => {
+        const ordered = orderSavedRouteRows(
+            followPromptChoices.map((choice) => ({
+                choice,
+                kind: choice.tripName ? ('leg' as const) : ('standalone' as const),
+                groupKey: choice.tripId ?? choice.summary.voyageId,
+                legOrdinal: choice.legOrdinal,
+                stamp: Date.parse(choice.summary.startedAt) || 0,
+            })),
+        );
+        const rows: Array<
+            | { type: 'passage'; key: string; name: string }
+            | { type: 'choice'; key: string; row: (typeof ordered)[number] }
+        > = [];
+        let openGroup: string | null = null;
+        for (const row of ordered) {
+            if (row.kind === 'leg' && row.groupKey !== openGroup) {
+                rows.push({ type: 'passage', key: `passage:${row.groupKey}`, name: row.choice.tripName as string });
+            }
+            openGroup = row.groupKey;
+            rows.push({ type: 'choice', key: row.choice.summary.voyageId, row });
+        }
+        return rows;
+    }, [followPromptChoices]);
+
     const followSelectionGenerationRef = React.useRef(0);
     /** One-shot guard for the pre-open "is this voyage already linked?"
      *  server check — instance-scoped ON PURPOSE (unlike the module Sets):
@@ -625,13 +667,21 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
      */
     const followSheetChoices = React.useMemo(() => {
         const traceLinks = localTraceLinkByVoyageId();
+        /* The sheet's rows are VoyageSummary, which carries no trip or leg
+           identity — which is why this list was flat while the Plan page showed
+           the same routes grouped. The trace store knows, and the row already
+           resolves to a trace id, so the grouping costs one lookup and no
+           guesswork (Shane 2026-08-30). */
+        const trips = tripIdentityByTraceId();
         return plannedChoices.map((choice) => {
             const vid = choice.summary.voyageId;
             const sid = plannedRouteLinkIds.get(vid) ?? traceLinks.get(vid);
+            const trip = sid ? trips.get(sid) : undefined;
             return {
                 ...choice,
                 savedRouteId: sid ?? null,
                 blockReason: sid ? savedTraceFollowBlockReason(sid) : null,
+                ...(trip ?? {}),
             };
         });
     }, [plannedChoices, plannedRouteLinkIds]);
@@ -3016,59 +3066,80 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                 </div>
                             )}
                             <div className="min-h-0 flex-1 space-y-1.5 overflow-y-auto px-3 py-3">
-                                {followPromptChoices.map(({ summary: s, reversible, blockReason, savedRouteId }) => (
-                                    <FollowRouteChoice
-                                        key={s.voyageId}
-                                        summary={s}
-                                        reversible={reversible}
-                                        blockReason={blockReason}
-                                        onCheckRoute={() => {
-                                            if (!savedRouteId) return;
-                                            // Second tap on a route the check
-                                            // could not decide alone goes to
-                                            // the tracer; the first tries here.
-                                            if (needsTracerRoutes.has(savedRouteId)) {
-                                                void openRouteInTracer(savedRouteId);
-                                            } else {
-                                                void recheckRoute(savedRouteId);
-                                            }
-                                        }}
-                                        checkLabel={
-                                            savedRouteId && needsTracerRoutes.has(savedRouteId)
-                                                ? 'Tap to open it in Route Tracer →'
-                                                : 'Tap to check this route now →'
-                                        }
-                                        checkingLabel={recheckProgress ?? undefined}
-                                        checking={recheckingRouteId !== null && recheckingRouteId === savedRouteId}
-                                        loading={followPromptLoadingId === s.voyageId}
-                                        disabled={followPromptLoadingId !== null}
-                                        onPick={() => {
-                                            const actionScope = identityScope;
-                                            if (!isAuthIdentityScopeCurrent(actionScope)) return;
-                                            if (preStartSheetOpen) {
-                                                // Answer parked; tracking starts NOW and the
-                                                // cast-off effect follows this route the moment
-                                                // the voyage id is real.
-                                                preStartAnswerRef.current = s;
-                                                setPreStartSheetOpen(false);
-                                                startTrackingVerifiedRef.current();
-                                                return;
-                                            }
-                                            void applyFollowPick(s, followPromptVoyageId).catch((error) => {
-                                                if (isAuthIdentityScopeCurrent(actionScope)) {
-                                                    log.warn('Could not start followed route:', error);
-                                                    const message =
-                                                        error instanceof Error &&
-                                                        error.message.startsWith(TRACE_ROUTE_USE_BLOCK_PREFIX)
-                                                            ? error.message.slice(TRACE_ROUTE_USE_BLOCK_PREFIX.length)
-                                                            : 'Couldn’t load this saved route — please try again';
-                                                    setFollowBlockNotice(message);
-                                                    setFollowPromptLoadingId(null);
+                                {followPromptRows.map((item) => {
+                                    if (item.type === 'passage') {
+                                        return (
+                                            <SavedRoutePassageHeading
+                                                key={item.key}
+                                                row={{
+                                                    id: item.key,
+                                                    name: item.name,
+                                                    detail: null,
+                                                    kind: 'passage',
+                                                    groupKey: item.key,
+                                                    stamp: 0,
+                                                }}
+                                            />
+                                        );
+                                    }
+                                    const { summary: s, reversible, blockReason, savedRouteId } = item.row.choice;
+                                    return (
+                                        <FollowRouteChoice
+                                            key={item.key}
+                                            summary={s}
+                                            isLeg={item.row.kind === 'leg'}
+                                            reversible={reversible}
+                                            blockReason={blockReason}
+                                            onCheckRoute={() => {
+                                                if (!savedRouteId) return;
+                                                // Second tap on a route the check
+                                                // could not decide alone goes to
+                                                // the tracer; the first tries here.
+                                                if (needsTracerRoutes.has(savedRouteId)) {
+                                                    void openRouteInTracer(savedRouteId);
+                                                } else {
+                                                    void recheckRoute(savedRouteId);
                                                 }
-                                            });
-                                        }}
-                                    />
-                                ))}
+                                            }}
+                                            checkLabel={
+                                                savedRouteId && needsTracerRoutes.has(savedRouteId)
+                                                    ? 'Tap to open it in Route Tracer →'
+                                                    : 'Tap to check this route now →'
+                                            }
+                                            checkingLabel={recheckProgress ?? undefined}
+                                            checking={recheckingRouteId !== null && recheckingRouteId === savedRouteId}
+                                            loading={followPromptLoadingId === s.voyageId}
+                                            disabled={followPromptLoadingId !== null}
+                                            onPick={() => {
+                                                const actionScope = identityScope;
+                                                if (!isAuthIdentityScopeCurrent(actionScope)) return;
+                                                if (preStartSheetOpen) {
+                                                    // Answer parked; tracking starts NOW and the
+                                                    // cast-off effect follows this route the moment
+                                                    // the voyage id is real.
+                                                    preStartAnswerRef.current = s;
+                                                    setPreStartSheetOpen(false);
+                                                    startTrackingVerifiedRef.current();
+                                                    return;
+                                                }
+                                                void applyFollowPick(s, followPromptVoyageId).catch((error) => {
+                                                    if (isAuthIdentityScopeCurrent(actionScope)) {
+                                                        log.warn('Could not start followed route:', error);
+                                                        const message =
+                                                            error instanceof Error &&
+                                                            error.message.startsWith(TRACE_ROUTE_USE_BLOCK_PREFIX)
+                                                                ? error.message.slice(
+                                                                      TRACE_ROUTE_USE_BLOCK_PREFIX.length,
+                                                                  )
+                                                                : 'Couldn’t load this saved route — please try again';
+                                                        setFollowBlockNotice(message);
+                                                        setFollowPromptLoadingId(null);
+                                                    }
+                                                });
+                                            }}
+                                        />
+                                    );
+                                })}
                             </div>
                             <div className="shrink-0 border-t border-white/10 px-5 py-3">
                                 <button

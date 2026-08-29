@@ -3,7 +3,7 @@
  * second route into follow/publication after MapHub itself was hardened. */
 
 import type { RouteOrTrack } from './shiplog/RoutesAndTracks';
-import { loadSavedTraces } from './routeTracer';
+import { buildTripPassageRollups, loadSavedTraces } from './routeTracer';
 import { normaliseTraceVerification, traceFollowBlockReason } from './traceVerification';
 import { useSettingsStore } from '../stores/settingsStore';
 import { vesselDraftIsAssumed, vesselDraftMetres } from './units';
@@ -116,6 +116,48 @@ export function localTraceLinkByVoyageId(): Map<string, string> {
         if (trace.passageVoyageId) links.set(trace.passageVoyageId, trace.id);
     }
     return links;
+}
+
+/**
+ * Trip identity for each saved trace, keyed by trace id.
+ *
+ * The cast-off "Following a route?" sheet lists VoyageSummary rows, which carry
+ * no trip or leg identity of their own — so on their own they can only be shown
+ * as a flat list, while the Plan page shows the same routes grouped into
+ * passages with their legs beneath (Shane 2026-08-30: give the follow sheet
+ * "the gold standard treatment").
+ *
+ * The link already exists and is an explicit id rather than a name match: a
+ * trace carries `plannedRouteId`, and the sheet already resolves each row to a
+ * `savedRouteId`. This turns that id into the grouping the Plan page uses,
+ * from the same trace store, so the two lists cannot describe the same trip
+ * differently.
+ *
+ * Only trips with two or more legs PRESENT get a passage name — a lone leg
+ * under no passage heading is an arrow pointing at nothing.
+ */
+export interface TraceTripIdentity {
+    tripId: string;
+    legOrdinal?: number;
+    /** "<origin> - <destination> (Passage)", absent for a one-leg trip. */
+    tripName?: string;
+}
+
+export function tripIdentityByTraceId(): Map<string, TraceTripIdentity> {
+    const traces = loadSavedTraces();
+    const nameByTrip = new Map<string, string>();
+    for (const rollup of buildTripPassageRollups(traces)) nameByTrip.set(rollup.tripId, rollup.name);
+
+    const out = new Map<string, TraceTripIdentity>();
+    for (const trace of traces) {
+        if (!trace.tripId) continue;
+        const tripName = nameByTrip.get(trace.tripId);
+        // No rollup means fewer than two legs are on this device; treat the
+        // trace as standalone rather than orphaning it under a missing heading.
+        if (!tripName) continue;
+        out.set(trace.id, { tripId: trace.tripId, legOrdinal: trace.legOrdinal, tripName });
+    }
+    return out;
 }
 
 export function savedTraceFollowBlockReason(savedRouteId: string, nowMs: number = Date.now()): string | null {
