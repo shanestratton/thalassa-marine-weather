@@ -166,9 +166,19 @@ export interface BroadcastDeps {
 
 export type BroadcastOutcome = 'sent' | 'no-fix' | 'stale-fix' | 'not-authorised' | 'unauthorised' | 'unreachable';
 
-/** Ask Signal K where the boat is. Null on anything that is not a usable fix. */
-export async function currentFix(deps: BroadcastDeps): Promise<VesselFix | null> {
-    const now = deps.now?.() ?? Date.now();
+/**
+ * Fetch Signal K's self document, following its own discovery endpoint.
+ *
+ * Exported so the always-on track recorder reads the bus through exactly this
+ * path rather than growing a second copy of the discovery dance — two
+ * implementations would eventually disagree about which Signal K they are
+ * talking to.
+ *
+ * Null covers every not-usable shape, including the ordinary ashore state: a
+ * 404 here means Signal K is up but nothing is feeding the bus, so there is no
+ * vessel document yet.
+ */
+export async function fetchSelfDocument(deps: BroadcastDeps): Promise<unknown | null> {
     let base: string;
     try {
         const discovery = await deps.fetchImpl(`${deps.signalkOrigin}${SIGNALK_DISCOVERY_PATH}`, {
@@ -188,13 +198,18 @@ export async function currentFix(deps: BroadcastDeps): Promise<VesselFix | null>
         const response = await deps.fetchImpl(`${base}${SELF_PATH}`, {
             signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
         });
-        // 404 here is the ordinary ashore state: Signal K is up, but nothing
-        // is feeding the bus so no vessel document exists yet.
         if (!response.ok) return null;
-        return readFix(await response.json(), now);
+        return (await response.json()) as unknown;
     } catch {
         return null;
     }
+}
+
+/** Ask Signal K where the boat is. Null on anything that is not a usable fix. */
+export async function currentFix(deps: BroadcastDeps): Promise<VesselFix | null> {
+    const now = deps.now?.() ?? Date.now();
+    const doc = await fetchSelfDocument(deps);
+    return doc === null ? null : readFix(doc, now);
 }
 
 /**
