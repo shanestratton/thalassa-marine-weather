@@ -8,18 +8,24 @@
  */
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { PORT_RED, STBD_GREEN, sideColour } from '../components/nmea/sideColour';
+import { PORT_RED, SIDE_DEAD_BAND, STBD_GREEN, sideColour } from '../components/nmea/sideColour';
 
 describe('port / starboard colour', () => {
+    it('matches the dead-band the Heading panel already used', () => {
+        expect(SIDE_DEAD_BAND).toBe(0.3);
+    });
+
     it('paints a negative helm PORT red', () => {
         expect(sideColour(-30.2)).toBe(PORT_RED);
-        expect(sideColour(-0.1)).toBe(PORT_RED);
         expect(sideColour(-90)).toBe(PORT_RED);
+        // -0.1 used to be red here. It is inside the dead-band added
+        // 2026-08-30, and a tenth of a degree of rudder is not a side.
+        expect(sideColour(-0.1)).toBeNull();
     });
 
     it('paints a positive helm STARBOARD green', () => {
         expect(sideColour(30.2)).toBe(STBD_GREEN);
-        expect(sideColour(0.1)).toBe(STBD_GREEN);
+        expect(sideColour(0.1)).toBeNull();
     });
 
     it('leaves amidships neutral rather than calling it a side', () => {
@@ -27,6 +33,23 @@ describe('port / starboard colour', () => {
         // put a red helm on a boat steering straight.
         expect(sideColour(0)).toBeNull();
         expect(sideColour(-0)).toBeNull();
+    });
+
+    it('dead-bands the jitter, so a still boat does not strobe red/green', () => {
+        // Taken from the heel readout on the Heading panel and its stated
+        // reason: an XDR that idles at 0.2° would otherwise flip PORT/STBD
+        // every second and look broken. A rudder sensor near centre does the
+        // same, so both use it.
+        expect(sideColour(0.3)).toBeNull();
+        expect(sideColour(-0.3)).toBeNull();
+        expect(sideColour(0.2)).toBeNull();
+        expect(sideColour(0.4)).toBe(STBD_GREEN);
+        expect(sideColour(-0.4)).toBe(PORT_RED);
+    });
+
+    it('lets a caller widen or disable the dead-band', () => {
+        expect(sideColour(0.2, 0)).toBe(STBD_GREEN);
+        expect(sideColour(2, 5)).toBeNull();
     });
 
     it('has no opinion when there is no reading', () => {
@@ -52,6 +75,20 @@ describe('the helm tile is wired to it', () => {
         const helm = source.slice(source.indexOf('label="Helm"'), source.indexOf('label="Helm"') + 260);
         expect(helm).toContain('sideColoured');
         expect(helm).not.toContain('text-amber-300');
+    });
+
+    it('colours Heel by side too, rather than a fixed violet', () => {
+        const heel = source.slice(source.indexOf('label="Heel"'), source.indexOf('label="Heel"') + 260);
+        expect(heel).toContain('sideColoured');
+        expect(heel).not.toContain('text-violet-300');
+    });
+
+    it('drops the minus sign, but only AFTER the colour is decided', () => {
+        // Stripping the sign first would make every reading starboard green.
+        const decideAt = source.indexOf('const sideTone = sideColoured ? sideColour(shown)');
+        const stripAt = source.indexOf('const display = sideColoured && shown !== null ? Math.abs(shown)');
+        expect(decideAt).toBeGreaterThan(-1);
+        expect(stripAt).toBeGreaterThan(decideAt);
     });
 
     it('decides from the DISPLAYED value, so colour cannot contradict the number', () => {
