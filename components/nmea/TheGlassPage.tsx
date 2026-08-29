@@ -19,6 +19,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useNmeaStore } from './useNmeaStore';
 import { SereneWindRose } from './gauges/SereneWindRose';
+import { sideColour } from './sideColour';
 import {
     isWindHeroId,
     TWS_ZONES,
@@ -307,7 +308,19 @@ const FlankMetric: React.FC<{
      *  spoken — and so a heading can never be misread as an angle. */
     pad3?: boolean;
     tone?: string;
-}> = ({ label, value, unit, digits = 1, pad3 = false, tone = 'text-white' }) => {
+    /**
+     * Colour the reading by which SIDE it is on: red to port, green to
+     * starboard, the same convention the wind rose uses (Shane 2026-08-30,
+     * watching the helm sit at -30.2 while the yard antifouled around a rudder
+     * hard over to port).
+     *
+     * The sign is taken from the DISPLAYED text, not the raw value, so the
+     * colour can never contradict the number printed beside it — a rudder
+     * reading 0.0 from a raw -0.04 is amidships on screen and must not be
+     * painted red. Exactly zero is neither side, so it stays neutral.
+     */
+    sideColoured?: boolean;
+}> = ({ label, value, unit, digits = 1, pad3 = false, tone = 'text-white', sideColoured = false }) => {
     const has = value !== null && Number.isFinite(value);
     const text = !has
         ? '—'
@@ -316,10 +329,14 @@ const FlankMetric: React.FC<{
                 .toString()
                 .padStart(3, '0')
           : (value as number).toFixed(digits);
+    const shown = has ? Number(text) : null;
+    const sideTone = sideColoured ? sideColour(shown) : null;
     return (
         <div className="rounded-lg border border-white/[0.06] bg-white/[0.03] px-1 py-1.5 text-center">
             <p className="text-[8px] font-black uppercase tracking-[0.14em] text-gray-500">{label}</p>
             <p
+                data-testid={`flank-${label.toLowerCase()}`}
+                style={sideTone ? { color: sideTone } : undefined}
                 className={`font-mono text-[15px] font-black tabular-nums leading-tight ${has ? tone : 'text-gray-600'}`}
             >
                 {text}
@@ -1263,7 +1280,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                             value={rudder.value}
                                             unit="°"
                                             digits={1}
-                                            tone="text-amber-300"
+                                            sideColoured
                                         />
                                         <FlankMetric
                                             label="Heel"
