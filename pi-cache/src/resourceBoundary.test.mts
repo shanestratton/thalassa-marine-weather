@@ -7,6 +7,7 @@ import { test } from 'node:test';
 import AdmZip from 'adm-zip';
 
 import {
+    CHART_ARCHIVE_POLICY,
     ENC_ARCHIVE_POLICY,
     PI_ARCHIVE_REJECTED_CODE,
     PI_DOWNLOAD_TOO_LARGE_CODE,
@@ -228,4 +229,49 @@ test('a successful bounded download replaces the destination only after completi
     });
     assert.equal(bytes, 9);
     assert.equal(await fs.readFile(destination, 'utf8'), 'new-chart');
+});
+
+/**
+ * The ENC envelope must fit a REAL commercial chart set, not just a handful of
+ * loose S-57 cells.
+ *
+ * Measured from the o-charts Australian base set on 2026-08-30 —
+ * `oeuSENC-AU-2026-1-31-base-sgl001FECD2.zip`, read straight off the download
+ * with a ranged request before committing to 707 MB over the boat's 4G. The
+ * previous envelope failed it three ways at once, and would have said so only
+ * after the download completed.
+ *
+ * These are the numbers that mattered, kept here so a future tightening has to
+ * argue with the archive rather than with a round number.
+ */
+const OCHARTS_AU_BASE = Object.freeze({
+    archiveBytes: 741_109_675, // 706.8 MB
+    entries: 5_020,
+    centralDirectoryBytes: 629_145, // 0.6 MB
+});
+
+test('the ENC policy admits the o-charts Australian base set', () => {
+    assert.ok(
+        OCHARTS_AU_BASE.archiveBytes <= ENC_ARCHIVE_POLICY.maxArchiveBytes,
+        `archive ${OCHARTS_AU_BASE.archiveBytes} exceeds maxArchiveBytes ${ENC_ARCHIVE_POLICY.maxArchiveBytes}`,
+    );
+    assert.ok(
+        OCHARTS_AU_BASE.entries <= ENC_ARCHIVE_POLICY.maxFiles,
+        `entries ${OCHARTS_AU_BASE.entries} exceeds maxFiles ${ENC_ARCHIVE_POLICY.maxFiles}`,
+    );
+    assert.ok(
+        OCHARTS_AU_BASE.entries <= ENC_ARCHIVE_POLICY.maxEntries,
+        `entries ${OCHARTS_AU_BASE.entries} exceeds maxEntries ${ENC_ARCHIVE_POLICY.maxEntries}`,
+    );
+    assert.ok(OCHARTS_AU_BASE.centralDirectoryBytes <= ENC_ARCHIVE_POLICY.maxCentralDirectoryBytes);
+});
+
+test('raising the ENC envelope did not weaken the zip-bomb guards', () => {
+    // Archive size and entry count bound bandwidth and disk. Decompression is
+    // bounded by these two, and they are unchanged — that is the whole
+    // argument for the raise being safe.
+    assert.equal(ENC_ARCHIVE_POLICY.maxCompressionRatio, 1_000);
+    assert.equal(ENC_ARCHIVE_POLICY.maxEntryBytes, 256 * 1024 * 1024);
+    // Uncompressed still bounded, and still below the raster chart allowance.
+    assert.ok(ENC_ARCHIVE_POLICY.maxUncompressedBytes <= CHART_ARCHIVE_POLICY.maxUncompressedBytes);
 });

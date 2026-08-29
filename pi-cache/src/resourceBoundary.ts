@@ -37,12 +37,34 @@ export interface ArchivePolicy {
     minimumFreeBytes: number;
 }
 
+/**
+ * Sized for a real commercial vector chart set, not a single S-57 cell.
+ *
+ * The original envelope (300 MiB, 4 096 files) fitted a handful of `.000`
+ * cells and nothing else. Measured against the o-charts Australian base set on
+ * 2026-08-30 — `oeuSENC-AU-2026-1-31-base-sgl001FECD2.zip` — it was short on
+ * three counts at once: the archive is 707 MB against a 300 MiB cap, and it
+ * holds 5 020 entries against caps of 4 096 files and 4 608 entries. The
+ * installer would have refused it AFTER the download finished.
+ *
+ * The raised numbers are CHARTWORLD_ARCHIVE_POLICY's, not invented ones. That
+ * envelope is already in production for ChartWorld S-63 distributions, which
+ * are the same class of payload — a large, commercially issued, encrypted
+ * vector chart set — so this adopts a reviewed limit rather than minting one.
+ *
+ * What is NOT loosened, deliberately: maxEntryBytes stays at 256 MiB, because
+ * an individual chart cell is kilobytes to a few megabytes and there is no
+ * evidence for a bigger one; and maxCompressionRatio stays at 1 000, which
+ * with maxUncompressedBytes is the actual zip-bomb guard. Archive size and
+ * entry count bound bandwidth and disk, not decompression, so raising them
+ * does not weaken what the ratio protects against.
+ */
 export const ENC_ARCHIVE_POLICY: Readonly<ArchivePolicy> = Object.freeze({
-    maxArchiveBytes: 300 * MIB,
-    maxFiles: 4_096,
-    maxEntries: 4_608,
+    maxArchiveBytes: 1 * GIB,
+    maxFiles: 8_192,
+    maxEntries: 9_216,
     maxEntryBytes: 256 * MIB,
-    maxUncompressedBytes: 1 * GIB,
+    maxUncompressedBytes: 2 * GIB,
     maxPathDepth: 8,
     maxNameBytes: 512,
     maxCentralDirectoryBytes: 32 * MIB,
