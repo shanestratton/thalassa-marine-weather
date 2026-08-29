@@ -31,6 +31,9 @@ import { createChartRoutes } from './routes/charts.js';
 import { createEncRoutes } from './routes/enc.js';
 import { createOsmRoutes } from './routes/osm.js';
 import { createDiaryRelayRoutes } from './routes/diary.js';
+import { createTrackRoutes } from './routes/track.js';
+import { TrackStore } from './trackStore.js';
+import { TrackRecorderRunner } from './trackRunner.js';
 import { cachedJsonFetch, cachedTileFetch } from './proxy.js';
 import { startScheduler, stopScheduler } from './scheduler.js';
 import { startEncWatcher, stopEncWatcher } from './encWatcher.js';
@@ -111,6 +114,21 @@ delete process.env[LEGACY_PROVIDER_ENV];
 
 const cache = new Cache(CACHE_DIR);
 const diaryRelayOutbox = new DiaryRelayOutbox(CACHE_DIR, { trustedSupabaseOrigin: SUPABASE_ORIGIN });
+
+/* The always-on track. Signal K on this same Pi is the source — reading the
+   gateway's TCP feed directly would burn one of the YDWG-02's three client
+   slots permanently, which is a cost this has no business paying. */
+const SIGNALK_ORIGIN = process.env.SIGNALK_ORIGIN || 'http://127.0.0.1:3000';
+const trackStore = new TrackStore(CACHE_DIR);
+const trackRecorder = new TrackRecorderRunner({
+    fetchImpl: fetch,
+    signalkOrigin: SIGNALK_ORIGIN,
+    store: trackStore,
+});
+/* Resume on boot if the skipper left it on. The promise is that the boat keeps
+   her own record; a Pi that forgot after every power cycle would fail exactly
+   the case it exists for — the phone flat, the app crashed, nobody watching. */
+if (trackStore.isEnabled()) trackRecorder.start();
 const app = express();
 
 app.use(
@@ -438,8 +456,9 @@ if (APP_API_ENABLED) {
     app.use('/api/osm', createOsmRoutes());
     app.use('/api/pair', createPairRoutes(identity));
     app.use('/api/diary', createDiaryRelayRoutes(diaryRelayOutbox));
+    app.use('/api/track', createTrackRoutes(trackStore, trackRecorder));
 } else {
-    for (const prefix of ['/api/enc', '/api/osm', '/api/pair', '/api/diary']) {
+    for (const prefix of ['/api/enc', '/api/osm', '/api/pair', '/api/diary', '/api/track']) {
         app.use(prefix, requireAppApi);
     }
 }

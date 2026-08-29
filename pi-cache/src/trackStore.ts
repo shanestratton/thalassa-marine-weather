@@ -70,6 +70,10 @@ export class TrackStore {
                 heel_deg     REAL
             );
             CREATE INDEX IF NOT EXISTS idx_track_at ON track_points(at_ms);
+            CREATE TABLE IF NOT EXISTS track_settings (
+                key   TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            );
         `);
         this.insertStmt = this.db.prepare(`
             INSERT INTO track_points
@@ -136,6 +140,30 @@ export class TrackStore {
             }
         }
         return total;
+    }
+
+    /**
+     * Is the recorder meant to be running?
+     *
+     * Persisted beside the track rather than held in memory, because the whole
+     * promise is that the boat keeps her own record — a Pi that forgot it was
+     * recording every time the panel was switched off would break exactly the
+     * case this exists for. Default false: it is off until asked.
+     */
+    isEnabled(): boolean {
+        const row = this.db.prepare(`SELECT value FROM track_settings WHERE key = 'enabled'`).get() as
+            | { value: string }
+            | undefined;
+        return row?.value === '1';
+    }
+
+    setEnabled(enabled: boolean): void {
+        this.db
+            .prepare(
+                `INSERT INTO track_settings (key, value) VALUES ('enabled', @v)
+                 ON CONFLICT(key) DO UPDATE SET value = @v`,
+            )
+            .run({ v: enabled ? '1' : '0' });
     }
 
     /** Fold the WAL back into the main file. Cheap, and worth doing on a timer
