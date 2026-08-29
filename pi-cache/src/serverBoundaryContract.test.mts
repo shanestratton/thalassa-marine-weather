@@ -37,22 +37,44 @@ test('the plaintext port is a signpost, never a data path or a redirect', () => 
     assert.doesNotMatch(signpost, /Location/);
 });
 
-test('every mutable Pi surface keeps the unsafe-admin gate', () => {
-    // These MUTATE the Pi or proxy arbitrary upstreams. They are administration
-    // in the real sense and stay behind the flag whose message says "isolated
-    // trusted boat LAN".
-    for (const route of [
-        "app.post('/api/configure', requireUnsafeAdmin",
-        "app.post('/cache/purge', requireUnsafeAdmin",
-        "app.get('/api/passthrough', requireUnsafeAdmin",
-        "app.get('/api/passthrough-tile', requireUnsafeAdmin",
-        "app.use('/api/misc/proxy', requireUnsafeAdmin)",
-    ]) {
-        assert.equal(source.includes(route), true, `${route} is not guarded`);
-    }
-    // Raster chart download/delete fetches arbitrary chart sets and removes
-    // files. The app never calls it, so it stays admin-side.
+test('only what the app never calls keeps the unsafe-admin gate', () => {
+    /* Rewritten 2026-08-30. This used to pin /api/configure, /cache/purge and
+       both passthroughs here too — but the APP calls every one of them, so the
+       flag could never be turned off, so it protected nothing while keeping the
+       surface below permanently reachable beside it. A gate that must always be
+       open is not a gate.
+
+       What stays is what the app genuinely never calls: a raw arbitrary-upstream
+       proxy, and download/delete of arbitrary chart sets. Both can now default
+       off on a stock Pi. */
+    assert.match(source, /app\.use\('\/api\/misc\/proxy', requireUnsafeAdmin\)/);
     assert.match(source, /app\.use\('\/api\/charts', requireUnsafeAdmin\)/);
+    // Hosting the built web app, and the 100 MB body limit that only the chart
+    // upload path needs, are administration too.
+    assert.match(source, /UNSAFE_ADMIN_API_ENABLED && fs\.existsSync/);
+    assert.match(source, /UNSAFE_ADMIN_API_ENABLED \? '100mb' : '64kb'/);
+});
+
+test('the endpoints the app calls are behind the APP gate, not the admin one', () => {
+    // Each of these has live call sites in the iOS app. Behind the unsafe flag
+    // they forced it on; behind the app gate they default on, which is what the
+    // app needs, and the unsafe flag is free to default off.
+    for (const route of [
+        "app.get('/api/admin/status', requireAppApi",
+        "app.post('/api/configure', requireAppApi",
+        "app.post('/cache/purge', requireAppApi",
+        "app.get('/api/passthrough', requireAppApi",
+        "app.get('/api/passthrough-tile', requireAppApi",
+        "app.use('/api/remote-access', requireAppApi",
+    ]) {
+        assert.equal(source.includes(route), true, `${route} is not on the app gate`);
+    }
+    // And none of them may quietly slide back onto the admin gate.
+    assert.doesNotMatch(
+        source,
+        /app\.(get|post|use)\('\/api\/(configure|passthrough|passthrough-tile|admin\/status|remote-access)', requireUnsafeAdmin/,
+    );
+    assert.doesNotMatch(source, /app\.post\('\/cache\/purge', requireUnsafeAdmin/);
 });
 
 test('app routes are gated separately from admin, and never left ungated', () => {

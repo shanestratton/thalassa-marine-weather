@@ -147,6 +147,29 @@ app.use(
 // so they aren't affected by this limit.
 app.use(express.json({ limit: UNSAFE_ADMIN_API_ENABLED ? '100mb' : '64kb' }));
 
+/**
+ * ── Which gate, and why ───────────────────────────────────────────────────────
+ *
+ * These are FEATURE FLAGS, not authentication. Neither identifies a caller; the
+ * real access control is THALASSA_PI_LAN_BIND (loopback by default) and the
+ * pinned TLS the app pairs with. What the two flags decide is DEFAULT SURFACE:
+ *
+ *   requireAppApi     THALASSA_PI_APP_API !== '0'  → defaults ON
+ *   requireUnsafeAdmin THALASSA_UNSAFE_ADMIN_API === '1' → defaults OFF
+ *
+ * Until 2026-08-30 the endpoints the APP ITSELF calls — /api/configure,
+ * /api/passthrough, /api/passthrough-tile, /api/admin/status, /cache/purge and
+ * /api/remote-access — all sat behind the unsafe flag. The app cannot work
+ * without them, so the flag was always on, so it protected nothing while
+ * keeping the genuinely dangerous surface permanently reachable alongside it.
+ * A gate that must always be open is not a gate.
+ *
+ * They now sit behind the app gate, and the unsafe flag keeps only what the app
+ * never calls: /api/misc/proxy (raw arbitrary-upstream proxy), /api/charts
+ * (download and delete arbitrary chart sets), serving the built web app, and
+ * the 100 MB body limit. Those can now default off on a stock Pi, which is the
+ * whole point of the split.
+ */
 const requireUnsafeAdmin: express.RequestHandler = (_req, res, next) => {
     if (UNSAFE_ADMIN_API_ENABLED) return next();
     return res.status(503).json(adminApiDisabledPayload());
@@ -175,7 +198,7 @@ app.get('/status', (_req, res) => {
 });
 
 /** Private development status. Never fold this detail back into /status. */
-app.get('/api/admin/status', requireUnsafeAdmin, (_req, res) => {
+app.get('/api/admin/status', requireAppApi, (_req, res) => {
     const diaryRelay = diaryRelayOutbox.getStats();
     res.json({
         status: 'ok',
@@ -287,7 +310,7 @@ function applyDiaryRelayConfiguration(body: Record<string, unknown>): void {
     diaryRelayOutbox.configure(input);
 }
 
-app.post('/api/configure', requireUnsafeAdmin, (req, res) => {
+app.post('/api/configure', requireAppApi, (req, res) => {
     const requestBody = configurationBody(req.body);
     let validated: ReturnType<typeof validatePiConfigurationFields>;
     try {
@@ -383,7 +406,7 @@ app.post('/api/configure', requireUnsafeAdmin, (req, res) => {
 });
 
 // Purge expired cache entries
-app.post('/cache/purge', requireUnsafeAdmin, (_req, res) => {
+app.post('/cache/purge', requireAppApi, (_req, res) => {
     const result = cache.purgeExpired();
     res.json({ purged: result });
 });
@@ -405,7 +428,7 @@ function singleQueryString(value: unknown): string | null {
     return typeof value === 'string' ? value : null;
 }
 
-app.get('/api/passthrough', requireUnsafeAdmin, async (req, res) => {
+app.get('/api/passthrough', requireAppApi, async (req, res) => {
     try {
         const url = singleQueryString(req.query.url);
         const ttl = parseInt(singleQueryString(req.query.ttl) || '900000', 10);
@@ -423,7 +446,7 @@ app.get('/api/passthrough', requireUnsafeAdmin, async (req, res) => {
     }
 });
 
-app.get('/api/passthrough-tile', requireUnsafeAdmin, async (req, res) => {
+app.get('/api/passthrough-tile', requireAppApi, async (req, res) => {
     try {
         const url = singleQueryString(req.query.url);
         const ttl = parseInt(singleQueryString(req.query.ttl) || '1800000', 10);
@@ -455,7 +478,7 @@ app.use('/api/misc', createMiscRoutes(cache, proxyConfig));
 // Remote access via the punter's own Tailscale account — device management,
 // so it sits behind the same gate as /api/configure. The transport is the
 // pinned pairing channel either way.
-app.use('/api/remote-access', requireUnsafeAdmin, createRemoteAccessRoutes());
+app.use('/api/remote-access', requireAppApi, createRemoteAccessRoutes());
 // ── App routes vs admin routes ──
 // These used to share ONE flag, which meant pairing a phone required also
 // exposing /api/misc/proxy, the raster-chart download/delete API and a 100 MB
