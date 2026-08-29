@@ -1,11 +1,6 @@
 import { act, cleanup, render, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import {
-    ensureWindHeatmapLayerOrder,
-    getWindHeatmapBeforeLayerId,
-    guardVelocityLayerStartup,
-    MapboxVelocityOverlay,
-} from '../components/map/MapboxVelocityOverlay';
+import { guardVelocityLayerStartup, MapboxVelocityOverlay } from '../components/map/MapboxVelocityOverlay';
 import type { VelocityGribRecord } from '../components/map/windVelocityFrame';
 import type { WindGrid } from '../services/weather/windGridEncoding';
 
@@ -257,40 +252,6 @@ afterEach(() => {
 });
 
 describe('MapboxVelocityOverlay React lifecycle', () => {
-    it('keeps the z3 static field above the opaque hybrid base after MapHub reorders imagery', () => {
-        const ids = ['water', 'place-label', 'wind-heatmap-layer', 'hybrid-base-layer', 'enc-vec-depth'];
-        const moveLayer = vi.fn((id: string, beforeId?: string) => {
-            const current = ids.indexOf(id);
-            if (current >= 0) ids.splice(current, 1);
-            const before = beforeId ? ids.indexOf(beforeId) : -1;
-            ids.splice(before >= 0 ? before : ids.length, 0, id);
-        });
-        const map = {
-            getLayer: (id: string) => (ids.includes(id) ? { id } : undefined),
-            getLayoutProperty: (id: string, property: string) =>
-                id === 'hybrid-base-layer' && property === 'visibility' ? 'visible' : undefined,
-            getStyle: () => ({
-                layers: ids.map((id) => ({
-                    id,
-                    type: id === 'place-label' ? 'symbol' : id === 'hybrid-base-layer' ? 'raster' : 'fill',
-                })),
-            }),
-            moveLayer,
-        };
-
-        // First-symbol anchoring would have returned place-label, which is
-        // underneath the Hybrid raster in this real MapHub ordering.
-        expect(getWindHeatmapBeforeLayerId(map as never)).toBe('enc-vec-depth');
-        ensureWindHeatmapLayerOrder(map as never);
-        expect(ids).toEqual(['water', 'place-label', 'hybrid-base-layer', 'wind-heatmap-layer', 'enc-vec-depth']);
-        expect(moveLayer).toHaveBeenCalledWith('wind-heatmap-layer', 'enc-vec-depth');
-
-        // The guarded reassertion is quiet once the ordering is correct, so
-        // MapHub's styledata healer cannot be turned into a feedback loop.
-        ensureWindHeatmapLayerOrder(map as never);
-        expect(moveLayer).toHaveBeenCalledTimes(1);
-    });
-
     it('does not let the velocity plugin stop before its delayed animation bucket exists', () => {
         const bucket = { clear: vi.fn() };
         const originalStop = vi.fn(() => {
@@ -469,12 +430,15 @@ describe('MapboxVelocityOverlay React lifecycle', () => {
         );
 
         expect(mocks.leaflet.map).toHaveBeenCalledTimes(mapCallsBefore);
-        // The static field renderer owns one style-load listener and one
-        // coalesced ordering listener. No Leaflet/particle listeners or
-        // overlay DOM are mounted while motion is disabled.
-        expect(mapbox.listenerCount('style.load')).toBe(1);
-        expect(mapbox.listenerCount('styledata')).toBe(1);
-        expect(mapbox.listeners.size).toBe(2);
+        // Nothing at all is attached while motion is disabled. This used to be
+        // two — a style-load listener and a coalesced ordering listener, both
+        // owned by the static heatmap underlay. That heatmap was removed on
+        // 2026-08-30 (Shane: colour the particles instead of washing the map
+        // beneath them), and with it went the only reason this overlay touched
+        // the map while the animation was off.
+        expect(mapbox.listenerCount('style.load')).toBe(0);
+        expect(mapbox.listenerCount('styledata')).toBe(0);
+        expect(mapbox.listeners.size).toBe(0);
         expect(mapbox.container.children).toHaveLength(0);
 
         view.rerender(
@@ -502,94 +466,14 @@ describe('MapboxVelocityOverlay React lifecycle', () => {
         );
 
         await waitFor(() => expect(leafletMap.remove).toHaveBeenCalledOnce());
-        expect(mapbox.listenerCount('style.load')).toBe(1);
-        expect(mapbox.listenerCount('styledata')).toBe(1);
-        expect(mapbox.listeners.size).toBe(2);
+        // Turning motion back off leaves nothing behind — see the note above:
+        // the two listeners this used to keep belonged to the removed heatmap.
+        expect(mapbox.listenerCount('style.load')).toBe(0);
+        expect(mapbox.listenerCount('styledata')).toBe(0);
+        expect(mapbox.listeners.size).toBe(0);
         expect(mapbox.container.children).toHaveLength(0);
 
         view.unmount();
         expect(mapbox.listeners.size).toBe(0);
-    });
-
-    it('keeps the static wind field behind directional flow at z3', async () => {
-        const canvasContext = () =>
-            ({
-                createImageData: (width: number, height: number) => ({
-                    data: new Uint8ClampedArray(width * height * 4),
-                }),
-                drawImage: vi.fn(),
-                imageSmoothingEnabled: false,
-                imageSmoothingQuality: 'low',
-                putImageData: vi.fn(),
-                scale: vi.fn(),
-                translate: vi.fn(),
-            }) as unknown as CanvasRenderingContext2D;
-        const getContext = vi
-            .spyOn(HTMLCanvasElement.prototype, 'getContext')
-            .mockImplementation(() => canvasContext());
-        const toDataUrl = vi
-            .spyOn(HTMLCanvasElement.prototype, 'toDataURL')
-            .mockReturnValue('data:image/png;base64,wind-field');
-
-        try {
-            const mapbox = createMapboxHarness(3);
-            const mapCallsBefore = mocks.leaflet.map.mock.calls.length;
-            const velocityCallsBefore = mocks.leaflet.velocityLayer.mock.calls.length;
-            const view = render(
-                <MapboxVelocityOverlay
-                    mapboxMap={mapbox.map as never}
-                    visible
-                    particlesEnabled
-                    windGrid={heatmapGrid()}
-                    windHour={0}
-                />,
-            );
-
-            await waitFor(() => expect(mapbox.sources.get('wind-heatmap-src')).toBeDefined());
-            expect(mapbox.layers.get('wind-heatmap-layer')).toMatchObject({
-                id: 'wind-heatmap-layer',
-                type: 'raster',
-            });
-            expect(mapbox.map.addLayer).toHaveBeenCalledWith(expect.any(Object), 'place-label');
-            await waitFor(() => expect(mocks.leaflet.map).toHaveBeenCalledTimes(mapCallsBefore + 1));
-            await waitFor(() => expect(mocks.leaflet.velocityLayer).toHaveBeenCalledTimes(velocityCallsBefore + 1));
-
-            const source = mapbox.sources.get('wind-heatmap-src');
-            if (!source) throw new Error('Expected the static wind source');
-            const sourceAdds = mapbox.map.addSource.mock.calls.length;
-            view.rerender(
-                <MapboxVelocityOverlay
-                    mapboxMap={mapbox.map as never}
-                    visible
-                    particlesEnabled
-                    windGrid={heatmapGrid()}
-                    windHour={1}
-                />,
-            );
-
-            await waitFor(() => expect(source.updateImage).toHaveBeenCalledOnce());
-            expect(mapbox.map.addSource).toHaveBeenCalledTimes(sourceAdds);
-
-            // A base-style change deletes custom sources/layers without
-            // changing the forecast grid. The z3 heatmap remains the stable
-            // speed read beneath the directional particle flow, so it must
-            // return on style.load rather than waiting for a later pan or
-            // scrubber update.
-            expect(mapbox.listenerCount('style.load')).toBe(1);
-            mapbox.layers.clear();
-            mapbox.sources.clear();
-            act(() => mapbox.emit('style.load'));
-            await waitFor(() => expect(mapbox.sources.get('wind-heatmap-src')).toBeDefined());
-            expect(mapbox.map.addSource).toHaveBeenCalledTimes(sourceAdds + 1);
-            expect(mocks.leaflet.map).toHaveBeenCalledTimes(mapCallsBefore + 1);
-
-            view.unmount();
-            expect(mapbox.sources.size).toBe(0);
-            expect(mapbox.layers.size).toBe(0);
-            expect(mapbox.listenerCount('style.load')).toBe(0);
-        } finally {
-            getContext.mockRestore();
-            toDataUrl.mockRestore();
-        }
     });
 });

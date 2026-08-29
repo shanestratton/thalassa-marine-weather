@@ -52,7 +52,9 @@ describe('foreground location privacy boundary', () => {
             'hooks/chat/usePinDrop.ts',
             'components/chat/PinMapViewer.tsx',
             'services/DiaryService.ts',
-            'components/WeatherMap.tsx',
+            // components/WeatherMap.tsx was on this list until 2026-08-30. It was
+            // deleted as dead code — nothing rendered it — so keeping it here
+            // would only make the boundary fail on a file that no longer runs.
             'components/AddEntryModal.tsx',
             'components/map/useVesselTracker.ts',
             'components/map/MapHub.tsx',
