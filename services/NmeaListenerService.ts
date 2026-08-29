@@ -1167,6 +1167,12 @@ class NmeaListenerServiceClass {
             case 'MWD':
                 this.parseMWD(parts);
                 break; // True wind direction
+            case 'VWR':
+                this.parseVWR(parts);
+                break; // Apparent wind — MWV's understudy
+            case 'VWT':
+                this.parseVWT(parts);
+                break; // True wind — MWV's understudy
             case 'VHW':
                 this.parseVHW(parts);
                 break; // Water speed
@@ -1208,10 +1214,20 @@ class NmeaListenerServiceClass {
 
     /** $xxMWV — Wind Speed and Angle */
     /** Wind speed in whatever unit the sentence declared → knots. */
-    private windSpeedToKnots(speed: number, unit: string): number {
+    private windSpeedToKnots(speed: number, unit: string): number | null {
         if (unit === 'K') return speed / 1.852; // km/h
         if (unit === 'M') return speed * 1.94384; // m/s
-        return speed; // 'N' — already knots
+        // 'N' is knots. An EMPTY unit is also taken as knots: older talkers
+        // omit it, and knots is the only thing a wind sentence has ever
+        // defaulted to.
+        if (unit === 'N' || unit === '') return speed;
+        // Anything else is a unit we do not know how to scale. This used to
+        // fall through to "treat it as knots", which is a wrong-number
+        // generator rather than a missing-number one — and a confidently wrong
+        // wind speed is worse than a blank, because nothing on screen admits
+        // it is guessing. Now that VWR/VWT give wind a second source, dropping
+        // an unscalable reading costs a sample, not the instrument.
+        return null;
     }
 
     private parseMWV(parts: string[]) {
@@ -1228,6 +1244,7 @@ class NmeaListenerServiceClass {
         const speed = parseNmeaNumber(parts[3]);
         if (angle === null || speed === null) return;
         const knots = this.windSpeedToKnots(speed, parts[4]);
+        if (knots === null) return;
 
         // Signed angle off the bow, negative to port. The 0–360 form the wire
         // uses cannot be averaged arithmetically and cannot be drawn without
@@ -1273,6 +1290,85 @@ class NmeaListenerServiceClass {
             if (knots !== null) this.accumulator.tws.push(knots);
             else if (ms !== null) this.accumulator.tws.push(ms * 1.94384);
         }
+    }
+
+    /**
+     * Speed out of a VWR/VWT triple: `...,4.5,N,2.3,M,8.3,K` carries the same
+     * wind in knots, m/s and km/h side by side.
+     *
+     * Each field is taken ONLY when its own unit tag is present, never by
+     * position. A talker that omits the knots pair shifts everything after it,
+     * and reading field 3 regardless would then scale km/h as knots — an 8.3
+     * kt breeze reported as 8.3 when it is really 4.5. Wrong numbers are worse
+     * than missing ones here: nothing on the rose admits to a guess.
+     */
+    private vwSpeedKnots(parts: string[]): number | null {
+        const knots = parts[4] === 'N' ? parseNmeaNumber(parts[3]) : null;
+        if (knots !== null) return knots;
+        const ms = parts[6] === 'M' ? parseNmeaNumber(parts[5]) : null;
+        if (ms !== null) return ms * 1.94384;
+        const kmh = parts[8] === 'K' ? parseNmeaNumber(parts[7]) : null;
+        return kmh !== null ? kmh / 1.852 : null;
+    }
+
+    /**
+     * $xxVWR — relative (apparent) wind. MWV's understudy, and the reason the
+     * wind panel stops going blank.
+     *
+     * Measured over 71.4 h of Serene Summer's own bus (8.3 M sentences): MWV
+     * gapped for more than 13 s on 783 occasions, up to 78 s at a time — about
+     * eleven blackouts an hour. Over the same capture VWR gapped 3 times and
+     * VWT 5, the same floor as HDG (3), RMC (4) and RSA (3). The wind never
+     * stopped; the app was simply listening to the single flakiest sentence on
+     * the bus and ignoring the steady one carrying the same measurement. Five
+     * of the six wind metrics come from MWV alone, so one blink took the whole
+     * block down while heading — which has four accepted sources — sailed on.
+     * That is exactly the screenshot Shane sent (2026-08-30): both roses "no
+     * data", HDG/SOG/COG/position all live.
+     *
+     * Angle here is a 0-180 MAGNITUDE plus a side letter, not the 0-360 MWV
+     * uses, so the side is what decides port from starboard. Getting it
+     * backwards would put the needle on the wrong tack, which is the one
+     * mistake a wind display must never make.
+     */
+    private parseVWR(parts: string[]) {
+        // MWV is primary. Averaging the same wind from two sentences at two
+        // cadences would double-weight whichever talker is faster, so this
+        // only fills a window MWV left empty — the same rule parseMWD applies
+        // to true-wind speed.
+        if (this.accumulator.awa.length > 0) return;
+
+        const magnitude = parseNmeaNumber(parts[1]);
+        const side = parts[2];
+        if (magnitude === null || magnitude < 0 || magnitude > 180) return;
+        if (side !== 'L' && side !== 'R') return;
+        const knots = this.vwSpeedKnots(parts);
+        if (knots === null) return;
+
+        this.accumulator.awa.push(side === 'L' ? -magnitude : magnitude);
+        this.accumulator.aws.push(knots);
+    }
+
+    /**
+     * $xxVWT — true wind relative to the bow. The true-wind half of the same
+     * understudy; see parseVWR for why it exists.
+     */
+    private parseVWT(parts: string[]) {
+        if (this.accumulator.twaSigned.length > 0) return;
+
+        const magnitude = parseNmeaNumber(parts[1]);
+        const side = parts[2];
+        if (magnitude === null || magnitude < 0 || magnitude > 180) return;
+        if (side !== 'L' && side !== 'R') return;
+        const knots = this.vwSpeedKnots(parts);
+        if (knots === null) return;
+
+        // `twa` stays an unsigned magnitude because SmartPolarStore buckets on
+        // it and polars are symmetric; the signed form is carried separately
+        // for anything that has to draw the wind. Same split parseMWV makes.
+        this.accumulator.twa.push(magnitude);
+        this.accumulator.twaSigned.push(side === 'L' ? -magnitude : magnitude);
+        if (this.accumulator.tws.length === 0) this.accumulator.tws.push(knots);
     }
 
     /** $xxVHW — Water Speed and Heading */
