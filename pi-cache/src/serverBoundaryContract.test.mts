@@ -264,3 +264,25 @@ test('the admin flag still guards what it should', () => {
     assert.match(source, /app\.use\('\/api\/misc\/proxy', requireUnsafeAdmin\)/);
     assert.match(source, /UNSAFE_ADMIN_API_ENABLED \? '100mb' : '64kb'/);
 });
+
+test('the passthrough reads its query params as strings, never casts them', () => {
+    // Express hands back a string, an ARRAY, or a nested object depending on the
+    // query syntax (?url=a&url=b, ?url[x]=y). Casting `as string` lets the
+    // validation and the later fetch disagree about what the value even is.
+    assert.match(source, /function singleQueryString\(value: unknown\): string \| null/);
+    assert.doesNotMatch(source, /req\.query\.url as string/);
+    assert.doesNotMatch(source, /\(req\.query\.ttl as string\)/);
+    for (const call of ['singleQueryString(req.query.url)', 'singleQueryString(req.query.ttl)']) {
+        assert.ok(source.includes(call), `${call} missing`);
+    }
+});
+
+test('binary upstream bodies are capped like the JSON ones', () => {
+    // The JSON path has streamed with a 16 MB cap since it was written; the
+    // three binary paths buffered res.arrayBuffer() with no limit at all, into
+    // the SQLite cache the boat relies on offshore.
+    const proxy = readFileSync(new URL('./proxy.ts', import.meta.url), 'utf8');
+    assert.match(proxy, /const MAX_BINARY_BYTES = /);
+    assert.match(proxy, /async function readCappedBody\(/);
+    assert.doesNotMatch(proxy, /await res\.arrayBuffer\(\)/);
+});

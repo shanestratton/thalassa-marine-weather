@@ -392,11 +392,24 @@ app.post('/cache/purge', requireUnsafeAdmin, (_req, res) => {
 // The app sends any URL here and the Pi caches the response.
 // This is the magic one — zero config, works for every API.
 
+/**
+ * A query parameter Express may hand back as a string, an ARRAY, or a nested
+ * object depending on the syntax used (`?url=a&url=b`, `?url[x]=y`). Casting it
+ * `as string` is a lie that lets a check and a later use disagree about what
+ * the value even is.
+ *
+ * Anything that is not a single string is refused rather than coerced, so the
+ * validation and the fetch always consume the identical value.
+ */
+function singleQueryString(value: unknown): string | null {
+    return typeof value === 'string' ? value : null;
+}
+
 app.get('/api/passthrough', requireUnsafeAdmin, async (req, res) => {
     try {
-        const url = req.query.url as string;
-        const ttl = parseInt((req.query.ttl as string) || '900000', 10);
-        const source = (req.query.source as string) || 'passthrough';
+        const url = singleQueryString(req.query.url);
+        const ttl = parseInt(singleQueryString(req.query.ttl) || '900000', 10);
+        const source = singleQueryString(req.query.source) || 'passthrough';
 
         if (!url) return res.status(400).json({ error: 'url parameter required' });
 
@@ -412,9 +425,9 @@ app.get('/api/passthrough', requireUnsafeAdmin, async (req, res) => {
 
 app.get('/api/passthrough-tile', requireUnsafeAdmin, async (req, res) => {
     try {
-        const url = req.query.url as string;
-        const ttl = parseInt((req.query.ttl as string) || '1800000', 10);
-        const contentType = (req.query.ct as string) || 'image/png';
+        const url = singleQueryString(req.query.url);
+        const ttl = parseInt(singleQueryString(req.query.ttl) || '1800000', 10);
+        const contentType = singleQueryString(req.query.ct) || 'image/png';
 
         if (!url) return res.status(400).json({ error: 'url parameter required' });
 

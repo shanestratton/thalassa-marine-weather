@@ -13,6 +13,31 @@ import Database from 'better-sqlite3';
 import fs from 'fs';
 import path from 'path';
 
+/**
+ * Hard ceiling on how long anything may live in this cache.
+ *
+ * `ttl` arrives from a query string on /api/passthrough and
+ * /api/passthrough-tile as a bare parseInt, and the purge only deletes rows
+ * whose expiry has already PASSED (`DELETE ... WHERE expires_at < now`), with
+ * no LRU behind it. So a single request naming a far-future ttl pinned that
+ * entry effectively for ever — a permanent, unpurgeable write into the cache
+ * the boat depends on offshore, from anyone who can reach the Pi.
+ *
+ * Clamped here rather than at the two route handlers on purpose: this is the
+ * chokepoint every writer passes through, so a future caller cannot reintroduce
+ * it by forgetting. A non-finite or negative ttl is treated as already expired
+ * rather than as forever.
+ *
+ * 90 days is far beyond any real use — the longest deliberate TTL in the app is
+ * offline tiles — while still being a horizon rather than a century.
+ */
+export const MAX_CACHE_TTL_MS = 90 * 24 * 60 * 60 * 1000;
+
+export function clampTtl(ttlMs: number): number {
+    if (!Number.isFinite(ttlMs) || ttlMs <= 0) return 0;
+    return Math.min(ttlMs, MAX_CACHE_TTL_MS);
+}
+
 export interface CacheEntry<T = unknown> {
     data: T;
     cachedAt: number;
@@ -96,6 +121,7 @@ export class Cache {
 
     set<T = unknown>(key: string, data: T, ttlMs: number, source = ''): void {
         const now = Date.now();
+        ttlMs = clampTtl(ttlMs);
         this.db
             .prepare(
                 'INSERT OR REPLACE INTO kv_cache (key, data, cached_at, expires_at, source) VALUES (?, ?, ?, ?, ?)',
@@ -125,6 +151,7 @@ export class Cache {
 
     setTile(key: string, data: Buffer, contentType: string, ttlMs: number): void {
         const now = Date.now();
+        ttlMs = clampTtl(ttlMs);
         this.db
             .prepare(
                 'INSERT OR REPLACE INTO tile_cache (key, data, content_type, cached_at, expires_at) VALUES (?, ?, ?, ?, ?)',

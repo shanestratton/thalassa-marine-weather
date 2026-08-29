@@ -85,6 +85,52 @@ interface JsonProxyOptions {
     staleWindowMs?: number;
 }
 
+/**
+ * Largest binary body this cache will accept from an upstream.
+ *
+ * The JSON path has streamed with a 16 MB cap since it was written; the three
+ * binary paths called `res.arrayBuffer()` with no limit at all, so an upstream
+ * response of any size was buffered whole and written into the SQLite cache the
+ * boat relies on offshore. Combined with a caller-supplied ttl, that was an
+ * unbounded write with a long life.
+ *
+ * 32 MB is generous for a map tile (kilobytes) while still bounding a chart
+ * export or a misbehaving upstream.
+ */
+const MAX_BINARY_BYTES = 32_000_000;
+
+/**
+ * Read a response body to a Buffer, refusing to buffer more than `maxBytes`.
+ *
+ * Streams rather than checking Content-Length, because an absent or dishonest
+ * Content-Length is exactly the case a cap exists for.
+ */
+async function readCappedBody(res: { body: unknown }, maxBytes = MAX_BINARY_BYTES): Promise<Buffer> {
+    const body = res.body as ReadableStream<Uint8Array> | null;
+    if (!body) throw new Error('Upstream returned an empty response');
+    const reader = body.getReader();
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+    try {
+        for (;;) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            total += value.byteLength;
+            if (total > maxBytes) {
+                await reader.cancel().catch(() => undefined);
+                throw new Error(`Upstream binary response exceeds ${maxBytes} bytes`);
+            }
+            chunks.push(value);
+        }
+    } finally {
+        reader.releaseLock();
+    }
+    return Buffer.concat(
+        chunks.map((c) => Buffer.from(c)),
+        total,
+    );
+}
+
 /** Perform the blocking upstream fetch and write to cache. Used both for
  *  cold loads (no cache) and for background revalidation of stale entries. */
 async function fetchAndCache(cache: Cache, opts: JsonProxyOptions): Promise<unknown> {
@@ -267,8 +313,7 @@ function revalidateTileInBackground(cache: Cache, opts: TileProxyOptions): void 
             });
             clearTimeout(timer);
             if (!res.ok) throw new Error(`Tile upstream ${res.status}`);
-            const arrayBuffer = await res.arrayBuffer();
-            const data = Buffer.from(arrayBuffer);
+            const data = await readCappedBody(res);
             const contentType = res.headers.get('content-type') || opts.contentType;
             cache.setTile(opts.cacheKey, data, contentType, opts.ttlMs);
         } catch (err) {
@@ -321,8 +366,7 @@ export async function cachedTileFetch(
             throw new Error(`Tile upstream ${res.status}: ${res.statusText}`);
         }
 
-        const arrayBuffer = await res.arrayBuffer();
-        const data = Buffer.from(arrayBuffer);
+        const data = await readCappedBody(res);
         const contentType = res.headers.get('content-type') || opts.contentType;
 
         cache.setTile(opts.cacheKey, data, contentType, opts.ttlMs);
@@ -391,8 +435,7 @@ export async function cachedBinaryPost(
             throw new Error(`Binary POST upstream ${res.status}: ${res.statusText}`);
         }
 
-        const arrayBuffer = await res.arrayBuffer();
-        const data = Buffer.from(arrayBuffer);
+        const data = await readCappedBody(res);
         const contentType = res.headers.get('content-type') || opts.contentType || 'application/octet-stream';
 
         cache.setTile(opts.cacheKey, data, contentType, opts.ttlMs);
