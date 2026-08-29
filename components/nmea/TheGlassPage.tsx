@@ -19,6 +19,15 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useNmeaStore } from './useNmeaStore';
 import { SereneWindRose } from './gauges/SereneWindRose';
+import {
+    isWindHeroId,
+    TWS_ZONES,
+    WIND_CAPTIONS,
+    WIND_HERO_STORAGE_KEY,
+    windBottomFor,
+    zoneColorFor,
+    type WindHeroId,
+} from './windHeroSlots';
 import { SailPlanDiagram } from './gauges/SailPlanDiagram';
 import { SailPartsDiagram } from './gauges/SailPartsDiagram';
 import { useUnwrappedAngle } from './gauges/useUnwrappedAngle';
@@ -317,6 +326,75 @@ const FlankMetric: React.FC<{
                 {has && <span className="text-[8px] font-bold text-gray-500">{unit}</span>}
             </p>
         </div>
+    );
+};
+
+// ── Wind panel: which instrument owns the hero bezel ──────────────────────────
+/**
+ * A long press on either bottom rose swaps it into the hero bezel and sends
+ * the TWS dial down to the slot it vacated; the choice sticks across launches.
+ * The slot arithmetic and the TWS bands live in ./windHeroSlots so they can be
+ * tested without mounting the panel — this file owns only the gesture, the
+ * storage and the rendering.
+ */
+const WIND_LONG_PRESS_MS = 500;
+
+const WindSwapSlot: React.FC<{
+    caption: string;
+    onPromote: () => void;
+    children: React.ReactNode;
+}> = ({ caption, onPromote, children }) => {
+    const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const [pressing, setPressing] = useState(false);
+
+    const cancel = useCallback(() => {
+        if (timerRef.current) {
+            clearTimeout(timerRef.current);
+            timerRef.current = null;
+        }
+        setPressing(false);
+    }, []);
+
+    const start = useCallback(() => {
+        cancel();
+        setPressing(true);
+        timerRef.current = setTimeout(() => {
+            timerRef.current = null;
+            setPressing(false);
+            onPromote();
+        }, WIND_LONG_PRESS_MS);
+    }, [cancel, onPromote]);
+
+    // A pending timer outliving the panel would fire into an unmounted tree.
+    useEffect(() => cancel, [cancel]);
+
+    return (
+        <button
+            type="button"
+            onTouchStart={start}
+            onTouchEnd={cancel}
+            onTouchMove={cancel}
+            onTouchCancel={cancel}
+            onMouseDown={start}
+            onMouseUp={cancel}
+            onMouseLeave={cancel}
+            onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    onPromote();
+                }
+            }}
+            onContextMenu={(e) => e.preventDefault()}
+            aria-label={`${caption} — press and hold to move it to the main dial`}
+            className={`w-full rounded-2xl border border-white/[0.06] bg-white/[0.03] p-1.5 transition-transform ${
+                pressing ? 'scale-[0.97]' : ''
+            }`}
+        >
+            {children}
+            <p className="mt-0.5 text-center text-[9px] font-black uppercase tracking-[0.2em] text-gray-400">
+                {caption}
+            </p>
+        </button>
     );
 };
 
@@ -843,6 +921,97 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
     const windStale =
         windAvailable && windMetrics.filter(metricIsAvailable).every((metric) => metric.freshness === 'stale');
 
+    /* Which instrument owns the hero bezel on the Wind panel. Read once from
+       storage so the panel opens the way it was left; a private-mode throw
+       just means the swap lasts the session. */
+    const [windHero, setWindHero] = useState<WindHeroId>(() => {
+        try {
+            const saved = localStorage.getItem(WIND_HERO_STORAGE_KEY);
+            return isWindHeroId(saved) ? saved : 'tws';
+        } catch {
+            return 'tws';
+        }
+    });
+
+    const promoteWindHero = useCallback((id: WindHeroId) => {
+        setWindHero(id);
+        try {
+            localStorage.setItem(WIND_HERO_STORAGE_KEY, id);
+        } catch {
+            /* private mode — the swap still holds for this session */
+        }
+    }, []);
+
+    /* Derived, never stored: whichever rose went up, the dial drops into the
+       slot it left. Deriving is what guarantees all three instruments appear
+       exactly once. */
+    const windBottom = useMemo<WindHeroId[]>(() => windBottomFor(windHero), [windHero]);
+
+    /* One renderer for both slots so an instrument carries identical data
+       wherever it sits — only its sizing changes.
+
+       gaugeKey stays bound to the INSTRUMENT, never to the slot. Every
+       gradient id inside the rose is namespaced with it and url(#id) resolves
+       document-wide, so a key that moved with the slot would let the two roses
+       collide on a swap and paint one with the other's needle — the wrong side
+       on opposite tacks. That is the exact failure the rose's own header
+       warns about. */
+    const renderWindInstrument = (id: WindHeroId, variant: 'hero' | 'cell') => {
+        const roseClass = variant === 'hero' ? 'block h-full w-full' : 'mx-auto block h-auto w-full';
+        const roseStyle = variant === 'hero' ? undefined : { maxHeight: '19vh' };
+
+        if (id === 'awa') {
+            return (
+                <SereneWindRose
+                    gaugeKey="glass-awa"
+                    angle={roseApparentAngle}
+                    speed={aws.value}
+                    unit="kn"
+                    isLive={windAvailable && !windStale}
+                    className={roseClass}
+                    style={roseStyle}
+                />
+            );
+        }
+        if (id === 'twa') {
+            return (
+                <SereneWindRose
+                    gaugeKey="glass-twa"
+                    angle={roseTrueAngle}
+                    speed={tws.value}
+                    unit="kn"
+                    heading={heading.value}
+                    isLive={windAvailable && !windStale}
+                    className={roseClass}
+                    style={roseStyle}
+                />
+            );
+        }
+        /* The dial is square by construction (a 200x200 viewBox), so in a
+           bottom cell it needs a square box to sit in — the roses get their
+           height from their own aspect ratio, the dial does not. */
+        const dial = (
+            <HeroArcGauge
+                value={tws.value}
+                min={0}
+                max={60}
+                unit="kts"
+                label="TWS"
+                accentColor={zoneColorFor(tws.value, TWS_ZONES, '#22c55e')}
+                zones={TWS_ZONES}
+                majorTick={10}
+                isLive={tws.value !== null && tws.freshness === 'live'}
+            />
+        );
+        return variant === 'hero' ? (
+            dial
+        ) : (
+            <div className="mx-auto aspect-square w-full" style={{ maxHeight: '19vh' }}>
+                {dial}
+            </div>
+        );
+    };
+
     // A connected socket is not itself evidence that the numbers are live.
     // If any retained (3–10s) reading is stale, label the whole panel Stale;
     // dead readings are masked. This conservative roll-up prevents a stale
@@ -1058,27 +1227,24 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                                 cannot scroll (Shane 2026-08-28). min() makes
                                                 the biggest element the one that yields. */}
                                                 <div
+                                                    className="relative"
                                                     style={{
                                                         width: `min(${heroGaugeSize}px, 19vh)`,
                                                         height: `min(${heroGaugeSize}px, 19vh)`,
                                                     }}
                                                 >
-                                                    <HeroArcGauge
-                                                        value={tws.value}
-                                                        min={0}
-                                                        max={60}
-                                                        unit="kts"
-                                                        label="TWS"
-                                                        accentColor="#ec4899"
-                                                        zones={[
-                                                            { from: 0, to: 15, color: '#22c55e' },
-                                                            { from: 15, to: 25, color: '#eab308' },
-                                                            { from: 25, to: 40, color: '#f97316' },
-                                                            { from: 40, to: 60, color: '#ef4444' },
-                                                        ]}
-                                                        majorTick={10}
-                                                        isLive={tws.value !== null && tws.freshness === 'live'}
-                                                    />
+                                                    {renderWindInstrument(windHero, 'hero')}
+                                                    {/* Only a promoted ROSE needs naming — the dial
+                                                        prints its own "TWS" inside its SVG. Absolutely
+                                                        positioned so it costs no layout height: this
+                                                        panel cannot scroll, and anything that adds
+                                                        height here pushes the bottom roses off the
+                                                        screen (Shane 2026-08-28). */}
+                                                    {windHero !== 'tws' && (
+                                                        <p className="pointer-events-none absolute inset-x-0 bottom-0 text-center text-[9px] font-black uppercase tracking-[0.2em] text-gray-400">
+                                                            {WIND_CAPTIONS[windHero]}
+                                                        </p>
+                                                    )}
                                                 </div>
                                             </div>
                                         </div>
@@ -1173,35 +1339,15 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                     one's needle — the WRONG SIDE on opposite
                                     tacks. */}
                                 <div className="grid w-full grid-cols-2 gap-2">
-                                    <div className="rounded-2xl bg-white/[0.03] border border-white/[0.06] p-1.5">
-                                        <SereneWindRose
-                                            gaugeKey="glass-awa"
-                                            angle={roseApparentAngle}
-                                            speed={aws.value}
-                                            unit="kn"
-                                            isLive={windAvailable && !windStale}
-                                            className="mx-auto block h-auto w-full"
-                                            style={{ maxHeight: '19vh' }}
-                                        />
-                                        <p className="mt-0.5 text-center text-[9px] font-black uppercase tracking-[0.2em] text-gray-400">
-                                            Apparent
-                                        </p>
-                                    </div>
-                                    <div className="rounded-2xl bg-white/[0.03] border border-white/[0.06] p-1.5">
-                                        <SereneWindRose
-                                            gaugeKey="glass-twa"
-                                            angle={roseTrueAngle}
-                                            speed={tws.value}
-                                            unit="kn"
-                                            heading={heading.value}
-                                            isLive={windAvailable && !windStale}
-                                            className="mx-auto block h-auto w-full"
-                                            style={{ maxHeight: '19vh' }}
-                                        />
-                                        <p className="mt-0.5 text-center text-[9px] font-black uppercase tracking-[0.2em] text-gray-400">
-                                            True
-                                        </p>
-                                    </div>
+                                    {windBottom.map((id) => (
+                                        <WindSwapSlot
+                                            key={id}
+                                            caption={WIND_CAPTIONS[id]}
+                                            onPromote={() => promoteWindHero(id)}
+                                        >
+                                            {renderWindInstrument(id, 'cell')}
+                                        </WindSwapSlot>
+                                    ))}
                                 </div>
                             </div>
                         </section>
