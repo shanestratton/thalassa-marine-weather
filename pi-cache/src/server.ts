@@ -509,14 +509,29 @@ server.listen(PORT, BIND_HOST, () => {
     );
     console.log(`   CORS:       ${CORS_ORIGINS.size > 0 ? [...CORS_ORIGINS].join(', ') : 'same-origin only'}\n`);
 
-    if (UNSAFE_ADMIN_API_ENABLED && SUPABASE_ANON_KEY) {
+    /* ── Background workers are NOT an admin API ──────────────────────────
+       Both of these used to require THALASSA_UNSAFE_ADMIN_API, which meant the
+       only way to have weather prefetch or automatic chart decryption was to
+       also expose an unbounded outbound proxy (/api/misc/proxy,
+       /api/passthrough), a config writer, a cache purge, remote access, and
+       arbitrary chart download/delete — on a machine holding the boat's charts,
+       its track history and its ChartWorld credentials.
+
+       That is a coupling, not a policy. Neither worker serves a request or
+       reads one; they poll and they write to disk. Each already had its own
+       honest gate — the scheduler needs a Supabase key to fetch anything, and
+       the watcher has an explicit ENC_WATCHER_ENABLED — so they now stand on
+       those alone, and the admin flag can go back to meaning what it says.
+       (Shane 2026-08-30, after a redeploy warned the unsafe API was live.) ── */
+    if (SUPABASE_ANON_KEY) {
         startScheduler(cache, proxyConfig);
     }
 
     // Close the chart-distribution loop: watch the user's o-charts download dir
     // for new .oesu files and auto-decrypt them into pi-cache's chart store.
-    // The iOS app's auto-sync picks them up on next launch.
-    if (UNSAFE_ADMIN_API_ENABLED && process.env.ENC_WATCHER_ENABLED === 'true') {
+    // Also starts the ChartWorld licence poller. The iOS app's auto-sync picks
+    // new cells up on next launch.
+    if (process.env.ENC_WATCHER_ENABLED === 'true') {
         startEncWatcher();
     }
 });
