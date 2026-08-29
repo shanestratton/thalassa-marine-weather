@@ -9,6 +9,7 @@ import AdmZip from 'adm-zip';
 import {
     CHART_ARCHIVE_POLICY,
     ENC_ARCHIVE_POLICY,
+    ENC_DOWNLOAD_POLICY,
     PI_ARCHIVE_REJECTED_CODE,
     PI_DOWNLOAD_TOO_LARGE_CODE,
     PiResourceBoundaryError,
@@ -274,4 +275,15 @@ test('raising the ENC envelope did not weaken the zip-bomb guards', () => {
     assert.equal(ENC_ARCHIVE_POLICY.maxEntryBytes, 256 * 1024 * 1024);
     // Uncompressed still bounded, and still below the raster chart allowance.
     assert.ok(ENC_ARCHIVE_POLICY.maxUncompressedBytes <= CHART_ARCHIVE_POLICY.maxUncompressedBytes);
+});
+
+test('the DOWNLOAD limit was raised with the archive limit, not after it', () => {
+    // These come in pairs. Raising only the archive half let the o-charts set
+    // fail with "Download exceeds the 314,572,800-byte limit" before the zip
+    // was opened at all — the limit had simply moved one layer earlier.
+    assert.ok(
+        OCHARTS_AU_BASE.archiveBytes <= ENC_DOWNLOAD_POLICY.maxBytes,
+        `archive ${OCHARTS_AU_BASE.archiveBytes} exceeds download maxBytes ${ENC_DOWNLOAD_POLICY.maxBytes}`,
+    );
+    assert.equal(ENC_DOWNLOAD_POLICY.maxBytes, ENC_ARCHIVE_POLICY.maxArchiveBytes);
 });
