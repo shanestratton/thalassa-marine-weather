@@ -1,6 +1,7 @@
-import { readFile, writeFile } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { CellOutput } from './geojsonEmitter.js';
+import { writeFileAtomic } from './atomicWrite.js';
 
 /**
  * Writers for pi-cache's chart store:
@@ -45,7 +46,7 @@ export async function loadPiCacheIndex(storeDir: string): Promise<InstalledIndex
 }
 
 export async function savePiCacheIndex(storeDir: string, index: InstalledIndex): Promise<void> {
-    await writeFile(join(storeDir, 'index.json'), JSON.stringify(index, null, 2));
+    await writeFileAtomic(join(storeDir, 'index.json'), JSON.stringify(index, null, 2));
 }
 
 export function upsertIndexEntry(index: InstalledIndex, entry: InstalledCellMeta): void {
