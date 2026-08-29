@@ -79,9 +79,25 @@ test('the app gate is a real gate — it can still refuse', () => {
     assert.match(source, /res\.status\(503\)\.json\(appApiDisabledPayload\(\)\)/);
 });
 
-test('ENC watcher and app hosting require unsafe opt-in', () => {
-    assert.match(source, /UNSAFE_ADMIN_API_ENABLED && process\.env\.ENC_WATCHER_ENABLED === 'true'/);
+test('app hosting requires unsafe opt-in; the ENC watcher keeps its OWN gate', () => {
+    /* Serving the built app off the Pi stays behind the unsafe flag — it is
+       hosting, and hosting is administration.
+
+       The ENC watcher used to be behind it too, and that was a public-beta
+       posture worth keeping: a punter's Pi should not run a filesystem watcher
+       spawning decrypt subprocesses unless asked. But the posture is
+       "default off", not "only available alongside a proxy" — and while the
+       two were welded together, the only way to have automatic chart
+       decryption was to ALSO expose /api/misc/proxy, /api/passthrough, a config
+       writer, a cache purge, remote access and arbitrary chart download/delete.
+       So the flag stayed on and the door stayed open (Shane 2026-08-30).
+
+       ENC_WATCHER_ENABLED is itself explicit and defaults off, so the beta
+       protection is intact — it now rests on its own gate instead of borrowing
+       one that carries far more with it. */
     assert.match(source, /UNSAFE_ADMIN_API_ENABLED && fs\.existsSync/);
+    assert.match(source, /if \(process\.env\.ENC_WATCHER_ENABLED === 'true'\) \{/);
+    assert.doesNotMatch(source, /UNSAFE_ADMIN_API_ENABLED && process\.env\.ENC_WATCHER_ENABLED/);
 });
 
 test('public status is built only from the redacted payload helper', () => {
@@ -216,4 +232,35 @@ test('diary relay endpoint and production transport inherit the startup Supabase
             new RegExp(`UPDATE ${table}`),
         );
     }
+});
+
+test('background workers are NOT behind the unsafe-admin gate', () => {
+    // The complement of the test above, and the reason it matters: while these
+    // two were gated on THALASSA_UNSAFE_ADMIN_API, the only way to have weather
+    // prefetch or automatic chart decryption was to ALSO expose an unbounded
+    // outbound proxy, a config writer, a cache purge, remote access and
+    // arbitrary chart download/delete — on the machine holding the boat's
+    // charts, its track history and its ChartWorld credentials. So the flag
+    // stayed on, and the door stayed open (Shane 2026-08-30).
+    //
+    // Neither worker serves a request or reads one. They poll and write to
+    // disk, and each has its own honest gate.
+    assert.match(source, /if \(SUPABASE_ANON_KEY\) \{\s*\n\s*startScheduler\(/);
+    assert.match(source, /if \(process\.env\.ENC_WATCHER_ENABLED === 'true'\) \{\s*\n\s*startEncWatcher\(/);
+
+    // Specifically: neither start call may mention the admin flag again.
+    for (const call of ['startScheduler(cache, proxyConfig);', 'startEncWatcher();']) {
+        const at = source.lastIndexOf(call);
+        assert.ok(at > -1, `${call} not found`);
+        const guard = source.slice(Math.max(0, at - 200), at);
+        assert.equal(guard.includes('UNSAFE_ADMIN_API_ENABLED'), false, `${call} is gated on the admin flag again`);
+    }
+});
+
+test('the admin flag still guards what it should', () => {
+    // Turning the workers loose must not have loosened the surface that
+    // genuinely mutates the Pi or proxies arbitrary upstreams.
+    assert.match(source, /const requireUnsafeAdmin/);
+    assert.match(source, /app\.use\('\/api\/misc\/proxy', requireUnsafeAdmin\)/);
+    assert.match(source, /UNSAFE_ADMIN_API_ENABLED \? '100mb' : '64kb'/);
 });
