@@ -3,11 +3,12 @@
  *
  * Layout (top → bottom):
  *   Hero band:           vessel name · voyage state · position fix · time-since-fix
- *   Quick Actions:       6-tile 2-up grid — log book, diary, anchor, guardian, MOB, radio
- *   Skipper device:      publishing authority
+ *   Watch Status:        4 pinned tiles — anchor, guardian, MOB, radio (never scrolls)
+ *   ── the scrolling area starts here (Shane 2026-08-30) ──
+ *   Diary + Scuttlebutt: the two read-most screens, so they lead
+ *   Skipper device:      publishing authority · which GPS speaks for the boat
  *   Passage Planning:    voyage prep, directly below Skipper device
  *   Boat Binder:         GPX import + inventory + reference
- *   (Diary now lives inside Quick Actions — see the 6-tile grid above.)
  *   Inventory & Maint.:  Stores · Equipment · Repairs & Maintenance
  *   Reference:           Checklists · Polars · Documents
  *   Atmosphere:          Music (Apple Music) — "music on watch", non-essential
@@ -1025,56 +1026,12 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                 above the persistent bottom safe-area padding instead of
                 letting content push the fixed operational deck away. */}
             <div className="flex-1 min-h-0 overflow-y-auto vessel-hub-no-scrollbar px-4 pt-4 stagger-in">
-                {/* ═══════════════════════════════════════════ */}
-                {/* ═══════════════════════════════════════════ */}
-                {/* SKIPPER DEVICE — who speaks for this boat    */}
-                {/* ═══════════════════════════════════════════ */}
-                {/* Two devices signed into one account both published track
-                    points under the same user_id, so the public page drew both
-                    and its boat marker jumped to whichever reported last (Shane
-                    2026-07-19: "which one will be the authority??"). The claim is
-                    exclusive; a second device must take it over deliberately.
-
-                    Takeover is always available, on purpose. A claim releasable
-                    only from the device holding it strands you the moment that
-                    device is overboard, soaked, flat or ashore — so this shows
-                    WHO holds it and WHEN they were last seen, and lets you take
-                    it rather than locking you out of your own boat. */}
-                <SkipperDeviceControl
-                    claim={skipperClaim}
-                    authenticatedUserId={authenticatedUserId}
-                    updateSettings={updateSettings}
-                    vesselName={vesselNameSet ? vesselName : undefined}
-                />
-
-                {/* PASSAGE PLANNING — deliberately one tap from the Vessel
-                    home, directly below the publishing-authority card. It used
-                    to be inside Boat Binder, which made an operational voyage
-                    workflow look like stored paperwork. Import GPX remains in
-                    the Binder; planning the voyage belongs on the live hub. */}
-                <div className="mb-4" style={PASSAGE_PLANNING_GROUP}>
-                    <OfficeRow
-                        icon={<CrewIcon color="#c4b5fd" />}
-                        label="Passage Planning"
-                        status={
-                            passageCrewCount > 0
-                                ? `${passageCrewCount} crew`
-                                : pendingCrewInvites > 0
-                                  ? `${pendingCrewInvites} Pending`
-                                  : 'Plan Your Voyage'
-                        }
-                        statusColor={pendingCrewInvites > 0 ? '#f59e0b' : '#a78bfa'}
-                        onClick={() => {
-                            triggerHaptic('light');
-                            onNavigate('crew');
-                        }}
-                        badge={pendingCrewInvites > 0 ? pendingCrewInvites : undefined}
-                    />
-                    {/* Saved Routes row removed (Shane 2026-08-04): the
-                        library is one tap away inside Passage Planning, so a
-                        second entry point here was noise. */}
-                </div>
-
+                {/* Diary + Scuttlebutt lead the scrolling area (Shane
+                    2026-08-30). They are the two things opened most often and
+                    the only ones here that are read rather than configured, so
+                    they come before the cards that answer "how is this boat set
+                    up" — Skipper Device, Passage Planning, Boat Binder — and
+                    before the menu headers below them. */}
                 {/* Diary + Scuttlebutt — permanently visible peer tiles. */}
                 <div className="mb-4">
                     <div className="grid grid-cols-2 gap-3">
@@ -1138,6 +1095,56 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                             </div>
                         </button>
                     </div>
+                </div>
+
+                {/* ═══════════════════════════════════════════ */}
+                {/* ═══════════════════════════════════════════ */}
+                {/* SKIPPER DEVICE — who speaks for this boat    */}
+                {/* ═══════════════════════════════════════════ */}
+                {/* Two devices signed into one account both published track
+                    points under the same user_id, so the public page drew both
+                    and its boat marker jumped to whichever reported last (Shane
+                    2026-07-19: "which one will be the authority??"). The claim is
+                    exclusive; a second device must take it over deliberately.
+
+                    Takeover is always available, on purpose. A claim releasable
+                    only from the device holding it strands you the moment that
+                    device is overboard, soaked, flat or ashore — so this shows
+                    WHO holds it and WHEN they were last seen, and lets you take
+                    it rather than locking you out of your own boat. */}
+                <SkipperDeviceControl
+                    claim={skipperClaim}
+                    authenticatedUserId={authenticatedUserId}
+                    updateSettings={updateSettings}
+                    vesselName={vesselNameSet ? vesselName : undefined}
+                />
+
+                {/* PASSAGE PLANNING — deliberately one tap from the Vessel
+                    home, directly below the publishing-authority card. It used
+                    to be inside Boat Binder, which made an operational voyage
+                    workflow look like stored paperwork. Import GPX remains in
+                    the Binder; planning the voyage belongs on the live hub. */}
+                <div className="mb-4" style={PASSAGE_PLANNING_GROUP}>
+                    <OfficeRow
+                        icon={<CrewIcon color="#c4b5fd" />}
+                        label="Passage Planning"
+                        status={
+                            passageCrewCount > 0
+                                ? `${passageCrewCount} crew`
+                                : pendingCrewInvites > 0
+                                  ? `${pendingCrewInvites} Pending`
+                                  : 'Plan Your Voyage'
+                        }
+                        statusColor={pendingCrewInvites > 0 ? '#f59e0b' : '#a78bfa'}
+                        onClick={() => {
+                            triggerHaptic('light');
+                            onNavigate('crew');
+                        }}
+                        badge={pendingCrewInvites > 0 ? pendingCrewInvites : undefined}
+                    />
+                    {/* Saved Routes row removed (Shane 2026-08-04): the
+                        library is one tap away inside Passage Planning, so a
+                        second entry point here was noise. */}
                 </div>
 
                 {/* ═══════════════════════════════════════════ */}
