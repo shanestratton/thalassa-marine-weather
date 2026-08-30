@@ -23,6 +23,7 @@ export const S63LicensingCard: React.FC = () => {
     const [status, setStatus] = useState<S63Status | null>(null);
     const [busy, setBusy] = useState<null | 'status' | 'fingerprint' | 'saving'>(null);
     const [message, setMessage] = useState<{ tone: 'ok' | 'bad'; text: string } | null>(null);
+    const [fingerprintName, setFingerprintName] = useState<string | null>(null);
     const [userPermit, setUserPermit] = useState('');
     const [installPermit, setInstallPermit] = useState('');
 
@@ -50,7 +51,8 @@ export const S63LicensingCard: React.FC = () => {
         try {
             triggerHaptic('light');
             const filename = await generateAndShareFingerprint();
-            setMessage({ tone: 'ok', text: `${filename} is ready — upload it at the o-charts shop.` });
+            setFingerprintName(filename);
+            setMessage(null);
         } catch (err) {
             // A cancelled share sheet is a decision, not a fault.
             const text = err instanceof Error ? err.message : String(err);
@@ -137,9 +139,15 @@ export const S63LicensingCard: React.FC = () => {
                             1 · Fingerprint this Pi
                         </p>
                         <p className="text-[11px] leading-relaxed text-gray-500">
-                            S-63 charts are licensed to one machine. This makes a small file that identifies this Pi,
-                            and hands it to the share sheet so you can send it to yourself and upload it at the o-charts
-                            shop. They send back two codes.
+                            S-63 charts are licensed to one machine. This makes a small file that identifies this Pi.
+                            Send it to yourself, upload it at the o-charts shop, and they send back the two codes for
+                            step 2.
+                        </p>
+                        <p className="text-[11px] leading-relaxed text-amber-300/80">
+                            When the share sheet opens choose <span className="font-bold">Save to Files</span>, or{' '}
+                            <span className="font-bold">AirDrop</span> it to a computer.{' '}
+                            <span className="font-bold">Do not email it</span> — mail apps reject this file type,
+                            because it is not a document they recognise.
                         </p>
                         <button
                             onClick={() => void onFingerprint()}
@@ -187,6 +195,20 @@ export const S63LicensingCard: React.FC = () => {
                             {busy === 'saving' ? 'Checking with the Pi…' : 'Check & save'}
                         </button>
                     </div>
+
+                    {fingerprintName && (
+                        <div className="space-y-1 rounded-xl border border-emerald-500/20 bg-emerald-500/[0.08] px-3 py-2.5">
+                            <p className="text-[11px] leading-relaxed text-emerald-300">
+                                Your fingerprint file is{' '}
+                                <span className="break-all font-mono font-bold">{fingerprintName}</span>
+                            </p>
+                            <p className="text-[11px] leading-relaxed text-emerald-300/80">
+                                That is the name to pick when the o-charts shop asks you to choose a file. Making
+                                another one costs nothing and changes nothing — tap the button again if you lose it. You
+                                only spend an InstallPermit when o-charts issues one.
+                            </p>
+                        </div>
+                    )}
 
                     {message && (
                         <p
