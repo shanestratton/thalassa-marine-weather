@@ -194,7 +194,7 @@ function section(heading: string, lines: (string | null | undefined)[]): string 
     return `${heading}\n${body.map((l) => `  ${l}`).join('\n')}`;
 }
 
-interface FloatPlanDocument {
+export interface FloatPlanDocument {
     input: FloatPlanInput;
     vesselName: string;
     identity: string;
@@ -237,7 +237,7 @@ function hasActionableRescueContact(value: string | null | undefined): boolean {
     return contact.length > 0 && digitCount >= 3;
 }
 
-function prepareFloatPlan(input: FloatPlanInput): FloatPlanDocument {
+export function prepareFloatPlan(input: FloatPlanInput): FloatPlanDocument {
     const { vessel, route } = input;
     const vesselName = oneLine(vessel?.name) || 'Unnamed vessel';
     const identity = joinParts([
@@ -509,9 +509,65 @@ function formatEmail(document: FloatPlanDocument): string {
             .filter(Boolean)
             .join('\n'),
         document.trackPoints.length > 0 ? ['INTENDED TRACK', ...trackLines(document)].join('\n') : '',
+        ['IF WE ARE OVERDUE — WHAT TO DO', ...emergencyGuideLines(document)].join('\n'),
         `Please reply RECEIVED so we know you have this plan.\nKeep it until we send a safe-arrival message.\n\nPrepared in Thalassa. Thalassa does not upload this plan. Verify the recipient before sending. All times ${document.timeZoneLabel}.`,
     ];
     return blocks.filter(Boolean).join('\n\n────────────────────\n\n');
+}
+
+/**
+ * What the holder actually does when we are overdue.
+ *
+ * This is the part that matters. The rest of the plan is reference; this is the
+ * only section anyone reads under stress, at 2am, half asleep, worried.
+ *
+ * The Coast Guard Auxiliary's own guide covers the same ground but does it as a
+ * seven-step flow of nested IF/THEN tables, which is hard to follow at the best
+ * of times. Ours is a ladder: one instruction per rung, each ending in a plain
+ * test for whether to climb the next. Written from scratch — theirs is
+ * copyrighted, and in any case a document read in a panic should be readable in
+ * a panic.
+ *
+ * Two things are deliberate. The first rung gives permission to do nothing
+ * before the overdue time, because a holder who panics early burns the goodwill
+ * that gets a real search started. And "say you do not know" is stated
+ * explicitly: a helpful guess sends aircraft to the wrong patch of sea.
+ */
+function emergencyGuideLines(document: FloatPlanDocument): string[] {
+    const { input } = document;
+    const lines: string[] = [
+        `Nothing needs doing before ${document.overdue} ${document.timeZoneLabel}. If you have not heard from`,
+        'us by then, work down this list. Stop as soon as you are no longer worried.',
+        '',
+        '1. Try us first.',
+    ];
+
+    lines.push(
+        input.contactAboard
+            ? `   ${oneLine(input.contactAboard)}`
+            : '   Use whatever number or radio you normally reach us on.',
+    );
+    lines.push('   If you get us, you are done — nothing else here applies.', '');
+
+    lines.push(
+        '2. Ask anyone else who might have heard from us.',
+        '   Marina, harbour office, family, another boat we were travelling with.',
+        '   If someone has had contact and you are satisfied, you are done.',
+        '',
+        '3. Still worried? Make the call.',
+        `   ${document.rescueContact}`,
+        '   Say: "I am reporting an overdue vessel." Then read them this plan from the top.',
+        '',
+        '4. Tell them only what is written here.',
+        '   If you do not know something, say you do not know. A guess is worse than a gap —',
+        '   it can send a search to the wrong stretch of coast.',
+        '',
+        '5. Stay reachable.',
+        '   Keep your phone free. They will ring back for more, and you are now the person',
+        '   who knows most about where we are.',
+    );
+
+    return lines;
 }
 
 function formatWhatsApp(document: FloatPlanDocument): string {
