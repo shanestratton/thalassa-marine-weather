@@ -832,6 +832,19 @@ async function runConversion(job: EncJob): Promise<void> {
     job.step = 'inspecting upload';
     const magic = await readMagicBytes(inputPath);
 
+    // A download that turns out to be markup is almost always a sign-in page:
+    // the link needed a session the Pi does not have. ChartWorld's ePORTAL
+    // downloads are behind a login, unlike the tokenised o-charts links. Say so
+    // here, rather than failing further down with a parser error about missing
+    // cell files that gives the skipper nothing to act on.
+    if (magic.length > 0 && magic[0] === 0x3c) {
+        throw new Error(
+            'That link returned a web page, not a chart file — it most likely requires being ' +
+                'signed in, so the Pi cannot fetch it. Download it in your browser, then import ' +
+                'the file from your device.',
+        );
+    }
+
     const outputBaseDir = path.join(job.workDir, 'out');
     await fs.mkdir(outputBaseDir, { recursive: true });
 
