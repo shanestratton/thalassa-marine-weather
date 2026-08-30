@@ -204,15 +204,20 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
 
     // Cast Off handoff — Passage Planning's Cast Off lands here immediately
     // and this page owns the honest GPS starting/failed state plus the
-    // route-check heads-up (Shane 2026-08-26: "act as though we went through
-    // that page"). Cleared automatically once GPS is confirmed and any
-    // heads-up has been acknowledged.
+    // starting/failed state (Shane 2026-08-26: "act as though we went through
+    // that page"). Cleared automatically once GPS is confirmed.
+    //
+    // The route-check heads-up that used to render here is gone (Shane
+    // 2026-08-30: "not necessary"). castOff() still computes its caution and
+    // returns it, so restoring the surface is a display change rather than a
+    // rewrite -- but nothing carries it into the handoff now, and it must stay
+    // out of the auto-clear gate below: a caution with no way to acknowledge it
+    // would pin the handoff open forever.
     const castOffHandoff = useSyncExternalStore(subscribeCastOffHandoff, peekCastOffHandoff, peekCastOffHandoff);
     useEffect(() => {
         if (
             castOffHandoff &&
             castOffHandoff.gps === 'confirmed' &&
-            !castOffHandoff.caution &&
             !castOffHandoff.followNote &&
             castOffHandoff.publishState !== 'skipped' &&
             castOffHandoff.publishState !== 'failed' &&
@@ -2208,26 +2213,6 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                         >
                                             Got it
                                         </button>
-                                    </div>
-                                )}
-                                {castOffHandoff.caution && (
-                                    <div className="rounded-xl border border-amber-400/25 bg-amber-500/10 px-3 py-2.5 space-y-1.5">
-                                        <p className="text-[11px] font-black uppercase tracking-[0.2em] text-amber-300">
-                                            Route check heads-up
-                                        </p>
-                                        <p className="text-sm text-amber-100">{castOffHandoff.caution}</p>
-                                        <div className="flex items-center justify-between gap-2">
-                                            <p className="text-xs text-amber-200/70">
-                                                This did not stop Cast Off. Worth a recheck when convenient.
-                                            </p>
-                                            <button
-                                                type="button"
-                                                onClick={() => updateCastOffHandoff({ caution: null })}
-                                                className="hit-target-44 shrink-0 rounded-lg border border-amber-300/20 px-2 py-1 text-xs font-black text-amber-200/80"
-                                            >
-                                                Got it
-                                            </button>
-                                        </div>
                                     </div>
                                 )}
                             </div>

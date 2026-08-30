@@ -193,10 +193,13 @@ describe('CastOffPanel', () => {
         // Handoff fires as soon as the voyage is active — no dwell.
         await vi.waitFor(() => expect(onCastOff).toHaveBeenCalledTimes(1));
         expect(screen.queryByText('Passage Active · GPS Log Off')).not.toBeInTheDocument();
+        // The caution is still returned by castOff(), but the Log page's
+        // heads-up was removed (Shane 2026-08-30), so it is deliberately not
+        // carried into the handoff any more.
         expect(peekCastOffHandoff()).toMatchObject({
             voyageId: voyage.id,
             gps: 'starting',
-            caution: 'The traced route changed after it was checked.',
+            caution: null,
         });
 
         await act(async () => resolveTracking());
