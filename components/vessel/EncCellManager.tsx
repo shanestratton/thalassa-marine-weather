@@ -348,7 +348,7 @@ export const EncCellManager: React.FC = () => {
         if (importing || urlInstallInFlight.current) return;
         const url = urlInput.trim();
         if (!url) {
-            setUrlError('Paste an ENC ZIP or .000 URL to continue.');
+            setUrlError('Paste a chart download link to continue.');
             return;
         }
 
@@ -884,9 +884,15 @@ export const EncCellManager: React.FC = () => {
                     }}
                 >
                     <p className="text-xs leading-relaxed text-gray-300">
-                        Paste the direct URL of an ENC ZIP or <span className="font-mono text-sky-300">.000</span> file.
-                        For free NOAA charts, choose a cell at charts.noaa.gov and copy its ZIP link. AHO chart files
-                        require a commercial licence.
+                        Paste a chart download link and the Pi does the rest — downloads it, unpacks it and installs it.
+                        Works for an ENC ZIP or a single <span className="font-mono text-sky-300">.000</span> file, an
+                        o-charts set, and ChartWorld S-63. For free NOAA charts, pick a cell at charts.noaa.gov and copy
+                        its ZIP link.
+                    </p>
+                    <p className="text-xs leading-relaxed text-gray-400">
+                        ChartWorld S-63 arrives in two parts and needs both: the exchange set from your order, and the
+                        permit bundle from My Installations. Paste them one after the other — the order does not matter,
+                        and the charts appear once both have landed.
                     </p>
                     <div>
                         <label

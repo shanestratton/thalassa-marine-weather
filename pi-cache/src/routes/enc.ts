@@ -57,6 +57,7 @@ import { normaliseOutboundHttpUrl, outboundFetch } from '../outboundHttp.js';
 import { sendSignedJson, routeRequestBinding } from './pair.js';
 import type { PiIdentity } from '../identity.js';
 import { validateInshoreRouteBoundary } from '../inshoreRouteBoundary.js';
+import { pollChartworldOnce } from '../chartworldSync.js';
 import {
     ENC_ARCHIVE_POLICY,
     ENC_DOWNLOAD_POLICY,
@@ -732,6 +733,58 @@ const SGLOCK_USB_VENDOR_ID = '1547';
 /** Chart directory the o-charts decrypt watcher polls (encWatcher's ENC_WATCH_DIR). */
 const OESU_CHART_DIR = process.env.ENC_WATCH_DIR || path.join(os.homedir(), 'Charts');
 
+const CHARTWORLD_INBOX = process.env.ENC_CHARTWORLD_DIR || path.join(os.homedir(), 'Charts', 'chartworld');
+
+/**
+ * Which half of a ChartWorld S-63 delivery this archive is, if either.
+ *
+ * S-63 arrives in two parts that are useless apart: an exchange set whose cells
+ * are encrypted, and a permit bundle that unlocks them. Neither can go through
+ * ogr2ogr.
+ *
+ * `SERIAL.ENC` is the S-63 media marker. A plain, unencrypted S-57 exchange set
+ * also carries ENC_ROOT and CATALOG.031, so neither of those distinguishes the
+ * two — and misrouting encrypted cells into the raw S-57 path fails with a
+ * parser error that says nothing at all about permits.
+ */
+export async function detectChartworldArchive(root: string): Promise<'permit' | 'exchange' | null> {
+    let entries;
+    try {
+        entries = await fs.readdir(root, { withFileTypes: true, recursive: true });
+    } catch {
+        return null;
+    }
+    const names = new Set(entries.filter((e) => e.isFile()).map((e) => e.name.toUpperCase()));
+    if (names.has('PERMIT.TXT')) return 'permit';
+    if (names.has('SERIAL.ENC')) return 'exchange';
+    return null;
+}
+
+/**
+ * Put the original archive where chartworldSync looks for it.
+ *
+ * The installer works from the zip rather than our unpacked copy, so that its
+ * own archive limits and extraction remain the only boundary the S-63 payload
+ * crosses. It selects files by extension, so the name has to match even when
+ * the download URL handed us something else entirely.
+ */
+async function dropIntoChartworldInbox(
+    archivePath: string,
+    filename: string,
+    kind: 'permit' | 'exchange',
+): Promise<string> {
+    await fs.mkdir(CHARTWORLD_INBOX, { recursive: true });
+    const safe = path.basename(filename).replace(/[^A-Za-z0-9._-]/g, '_');
+    const base =
+        safe
+            .replace(/\.S63\.zip$/i, '')
+            .replace(/\.prm\.zip$/i, '')
+            .replace(/\.zip$/i, '') || 'chartworld';
+    const target = path.join(CHARTWORLD_INBOX, kind === 'permit' ? `${base}.prm.zip` : `${base}.S63.ZIP`);
+    await fs.copyFile(archivePath, target);
+    return target;
+}
+
 /** How many `.oesu` files are in the tree — i.e. is this an o-charts set? */
 async function countOesuFiles(root: string): Promise<number> {
     const entries = await fs.readdir(root, { withFileTypes: true, recursive: true });
@@ -816,9 +869,30 @@ async function runConversion(job: EncJob): Promise<void> {
             return;
         }
 
+        // ChartWorld S-63 is a two-part delivery and neither half is any use on
+        // its own, so hand the archive to the installer that already knows how to
+        // pair an exchange set with the newest permit bundle. Dropping it into the
+        // same inbox means a link pasted into the app and a file copied in by hand
+        // take one identical path.
+        const chartworldKind = await detectChartworldArchive(unzipDir);
+        if (chartworldKind) {
+            const label = chartworldKind === 'permit' ? 'permit bundle' : 'S-63 exchange set';
+            job.step = `installing ChartWorld ${label}`;
+            const dropped = await dropIntoChartworldInbox(inputPath, job.filename, chartworldKind);
+            // This job already owns the single conversion lane — its lease was
+            // transferred in. Taking it again inside the poll would queue behind
+            // ourselves and never resolve.
+            const outcome = await pollChartworldOnce({ conversionLeaseHeld: true });
+            job.status = 'done';
+            job.progress = 1;
+            job.step = `ChartWorld ${label} accepted as ${path.basename(dropped)} — ${outcome}`;
+            job.completedAt = Date.now();
+            return;
+        }
+
         const cellPaths = await findEncCells(unzipDir);
         if (cellPaths.length === 0) {
-            throw new Error('No .000 or .oesu cell files found in ZIP');
+            throw new Error('No .000, .oesu or ChartWorld S-63 content found in ZIP');
         }
         job.cellCount = cellPaths.length;
         job.cellsDone = 0;
