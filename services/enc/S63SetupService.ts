@@ -82,12 +82,31 @@ export async function generateAndShareFingerprint(): Promise<string> {
     if (!filename || !base64) throw new Error('The Pi did not return a fingerprint file');
     log.info(`[S63] fingerprint ${filename} (${bytes} bytes)`);
 
+    // Documents, not Cache: with file sharing enabled this folder is browsable
+    // in Files under "On My iPhone → Thalassa", so the fingerprint can always be
+    // found again from a browser's file picker even if the share sheet was
+    // dismissed or saved somewhere forgettable.
+    //
+    // Clear older fingerprints first. They accumulate one per tap, and a folder
+    // holding three near-identical names is an invitation to upload the wrong
+    // one at the shop.
+    try {
+        const existing = await Filesystem.readdir({ path: '', directory: Directory.Documents });
+        await Promise.all(
+            existing.files
+                .filter((f) => f.name.toLowerCase().endsWith('.fpr') && f.name !== filename)
+                .map((f) => Filesystem.deleteFile({ path: f.name, directory: Directory.Documents })),
+        );
+    } catch {
+        // Nothing there yet, or the platform will not list it. Not worth failing over.
+    }
+
     // No `encoding` — Capacitor writes base64 as binary, which is what the shop
     // expects. The accepted .fpr is opaque binary; a text one is refused.
     const written = await Filesystem.writeFile({
         path: filename,
         data: base64,
-        directory: Directory.Cache,
+        directory: Directory.Documents,
     });
 
     const { Share } = await import('@capacitor/share');

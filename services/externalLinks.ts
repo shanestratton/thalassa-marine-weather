@@ -14,6 +14,15 @@ export const THALASSA_SUPPORT_EMAIL = 'privacy@thalassawx.com';
  */
 export const THALASSA_FEEDBACK_URL = 'https://www.thalassawx.app/feedback';
 
+/**
+ * The o-charts page that takes a fingerprint and issues an InstallPermit.
+ *
+ * Linked directly rather than sending people to the shop's front door: "now go
+ * and find the website" is a step that loses people, and this page is several
+ * clicks in behind a login.
+ */
+export const OCHARTS_USERPERMITS_URL = 'https://o-charts.org/shop/en/module/ocpermits/ocpermits';
+
 export async function openExternalUrl(url: string): Promise<void> {
     if (/^mailto:/i.test(url)) {
         if (typeof window !== 'undefined') window.location.href = url;
