@@ -58,6 +58,7 @@ import { sendSignedJson, routeRequestBinding } from './pair.js';
 import type { PiIdentity } from '../identity.js';
 import { validateInshoreRouteBoundary } from '../inshoreRouteBoundary.js';
 import { pollChartworldOnce } from '../chartworldSync.js';
+import { generateFingerprint, s63Status, savePermits } from '../s63Setup.js';
 import {
     ENC_ARCHIVE_POLICY,
     ENC_DOWNLOAD_POLICY,
@@ -1883,6 +1884,57 @@ export function createEncRoutes(identity?: PiIdentity): Router {
                 error: 'GDAL/ogr2ogr not installed. Run: sudo apt install gdal-bin',
                 detail: err instanceof Error ? err.message : String(err),
             });
+        }
+    });
+
+    /**
+     * S-63 licensing, for a skipper with no terminal.
+     *
+     * Encrypted charts identify a boat in two different ways and the difference
+     * decides what someone has to do: o-charts go by the SG-Lock dongle and are
+     * portable, while ChartWorld S-63 goes by a fingerprint of this machine and
+     * costs one of five InstallPermits to move. `status` says which world the Pi
+     * is in so nobody spends a permit to find out.
+     */
+    router.get('/s63/status', async (_req: Request, res: Response) => {
+        try {
+            return res.json(await s63Status());
+        } catch (err) {
+            return res.status(500).json({ error: (err as Error).message });
+        }
+    });
+
+    /**
+     * Make the fingerprint for this machine and hand it back, so it can reach
+     * the o-charts shop from a phone rather than over ssh.
+     */
+    router.post('/s63/fingerprint', async (_req: Request, res: Response) => {
+        try {
+            return res.json(await generateFingerprint());
+        } catch (err) {
+            return res.status(400).json({ error: (err as Error).message });
+        }
+    });
+
+    /**
+     * Store the two codes the shop gives back — but only after checking them
+     * against this machine, so a permit issued for different hardware is caught
+     * while the skipper is still looking at the screen rather than at chart-build
+     * time. Permits are never logged.
+     */
+    router.post('/s63/permits', async (req: Request, res: Response) => {
+        const body = req.body as { userPermit?: unknown; installPermit?: unknown };
+        const userPermit = typeof body?.userPermit === 'string' ? body.userPermit : '';
+        const installPermit = typeof body?.installPermit === 'string' ? body.installPermit : '';
+        if (!userPermit || !installPermit) {
+            return res.status(400).json({ error: 'Both a UserPermit and an InstallPermit are required.' });
+        }
+        try {
+            const result = await savePermits(userPermit, installPermit);
+            if (!result.valid) return res.status(400).json({ error: result.problem });
+            return res.json({ saved: true, ...(await s63Status()) });
+        } catch (err) {
+            return res.status(500).json({ error: (err as Error).message });
         }
     });
 
