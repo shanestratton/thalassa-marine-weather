@@ -3,6 +3,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { fetchS63Status, generateAndShareFingerprint, saveS63Permits } from '../../services/enc/S63SetupService';
 import type { S63Status } from '../../services/enc/S63SetupService';
 import { triggerHaptic } from '../../utils/system';
+import { OCHARTS_USERPERMITS_URL, openExternalUrl } from '../../services/externalLinks';
 
 /**
  * Licensing encrypted charts without a terminal.
@@ -156,6 +157,19 @@ export const S63LicensingCard: React.FC = () => {
                         >
                             {busy === 'fingerprint' ? 'Making fingerprint…' : 'Get fingerprint file'}
                         </button>
+                        <button
+                            onClick={() => {
+                                triggerHaptic('light');
+                                void openExternalUrl(OCHARTS_USERPERMITS_URL);
+                            }}
+                            className="w-full rounded-xl border border-white/10 bg-white/5 py-2.5 text-[11px] font-bold uppercase tracking-widest text-gray-300 transition-all active:scale-95"
+                        >
+                            Open the o-charts shop
+                        </button>
+                        <p className="text-[11px] leading-relaxed text-gray-500">
+                            Sign in there, choose your UserPermit, and upload the file. The two codes come back on that
+                            same page.
+                        </p>
                     </div>
 
                     {/* ── Step 2 ── */}

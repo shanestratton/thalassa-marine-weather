@@ -39,6 +39,14 @@
 	</array>
 	<key>TSLocationManagerLicense</key>
 	<string>eyJhbGciOiJFZERTQSIsImtpZCI6ImVkMjU1MTktbWFpbi12MSJ9.eyJvcyI6ImlvcyIsImFwcF9pZCI6ImNvbS50aGFsYXNzYS53ZWF0aGVyIiwib3JkZXJfbnVtYmVyIjoxNTQyOSwicmVuZXdhbF91cmwiOiJodHRwczovL3Nob3AudHJhbnNpc3RvcnNvZnQuY29tL2NhcnQvMzkzNjcwNzEyMzYxOTk6MT9ub3RlPTEwMjYzIiwiY3VzdG9tZXJfaWQiOjkzMzksInByb2R1Y3QiOiJjYXBhY2l0b3ItYmFja2dyb3VuZC1nZW9sb2NhdGlvbiIsImtleV92ZXJzaW9uIjoxLCJhbGxvd2VkX3N1ZmZpeGVzIjpbIi5kZXYiLCIuZGV2ZWxvcG1lbnQiLCIuc3RhZ2luZyIsIi5zdGFnZSIsIi5xYSIsIi51YXQiLCIudGVzdCIsIi5kZWJ1ZyJdLCJtYXhfYnVpbGRfc3RhbXAiOjIwMjcwODI4LCJncmFjZV9idWlsZHMiOjAsImVudGl0bGVtZW50cyI6WyJjb3JlIl0sImlhdCI6MTc4NTIwMDQ1Mn0.BXOLcZYe8B3kzNJojLt4i1E_vIYvjAkLtprDNZpQK1N1yCXWwPCnXYNtGq2icZpm6vz0q3M5bl6EyqXZm_IyAg</string>
+	<!-- Makes the app's Documents folder browsable in Files under
+	     "On My iPhone > Thalassa". The S-63 fingerprint is written there, so a
+	     skipper can always find it again from a browser's file picker rather
+	     than hunting for wherever the share sheet put it. -->
+	<key>UIFileSharingEnabled</key>
+	<true/>
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<true/>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleDisplayName</key>
