@@ -17,6 +17,7 @@ import { LocationStore } from '../../stores/LocationStore';
 import { triggerHaptic } from '../../utils/system';
 import { PageHeader } from '../ui/PageHeader';
 import { EncCellManager } from './EncCellManager';
+import { S63LicensingCard } from './S63LicensingCard';
 import { RemoteAccessSection } from '../settings/RemoteAccessSection';
 import {
     getAuthIdentityScope,
@@ -619,6 +620,10 @@ const AvNavPageDevelopment: React.FC<AvNavPageProps> = ({ onBack }) => {
                     routing engine and was previously buried under ~300
                     lines of raster-chart-downloader UI. */}
                 <EncCellManager />
+
+                {/* Licensing sits directly under the charts it unlocks, and leads
+                    with the dongle check: an o-charts skipper needs none of it. */}
+                <S63LicensingCard />
 
                 {/* ═══ REMOTE ACCESS ═══
                     Shane 2026-08-29: moved here from the Advanced settings
