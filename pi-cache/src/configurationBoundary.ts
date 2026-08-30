@@ -6,6 +6,7 @@ import {
     lstatSync,
     mkdirSync,
     openSync,
+    readFileSync,
     renameSync,
     unlinkSync,
     writeFileSync,
@@ -130,6 +131,70 @@ export function piEnvironmentLine(name: string, value: string | number, maxLengt
         throw new PiConfigurationValidationError(`${name} cannot be persisted safely`);
     }
     return `${name}=${text}`;
+}
+
+/**
+ * Environment names a config push owns and rewrites from the request body.
+ * Everything else already in .env belongs to the operator.
+ */
+export const APP_MANAGED_ENVIRONMENT_NAMES = new Set([
+    'PORT',
+    'CACHE_DIR',
+    'SUPABASE_URL',
+    'SUPABASE_ANON_KEY',
+    'PREFETCH_USER_ID',
+    'PREFETCH_LAT',
+    'PREFETCH_LON',
+    'PREFETCH_RADIUS',
+    'PREFETCH_INTERVAL',
+]);
+
+/**
+ * Lines for operator-owned settings that a config push must carry forward.
+ *
+ * A push rebuilds .env from the request, so every key it does not know about is
+ * lost unless copied over. This has now broken the Pi twice: on 2026-08-11 it
+ * dropped the THALASSA_* flags and the Pi came back loopback-only with the admin
+ * API off, and on 2026-08-30 it dropped ENC_WATCHER_ENABLED, which silently
+ * stopped chart imports until the next restart made the loss visible. Carrying
+ * only a known prefix just moves the next outage to the next prefix, so preserve
+ * every unmanaged key that is already on disk.
+ *
+ * The on-disk file, not process.env, is the source of truth for what the
+ * operator configured: process.env also holds PATH, HOME and the rest of the
+ * service environment, which must never be written into .env. THALASSA_* is read
+ * from process.env as well, since a unit file may set those without the file.
+ */
+export function operatorEnvironmentLines(filePath: string): string[] {
+    const seen = new Set<string>();
+    const lines: string[] = [];
+
+    const keep = (name: string, value: string | undefined): void => {
+        if (!name || !value) return;
+        if (APP_MANAGED_ENVIRONMENT_NAMES.has(name) || seen.has(name)) return;
+        seen.add(name);
+        lines.push(piEnvironmentLine(name, value, 2_048));
+    };
+
+    let existing = '';
+    try {
+        existing = readFileSync(filePath, 'utf8');
+    } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    }
+    for (const raw of existing.split('\n')) {
+        const line = raw.trim();
+        if (!line || line.startsWith('#')) continue;
+        const separator = line.indexOf('=');
+        if (separator <= 0) continue;
+        keep(line.slice(0, separator).trim(), line.slice(separator + 1));
+    }
+
+    for (const [name, value] of Object.entries(process.env)) {
+        if (name.startsWith('THALASSA_')) keep(name, value);
+    }
+
+    return lines;
 }
 
 /**
