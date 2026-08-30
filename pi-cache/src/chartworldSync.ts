@@ -1,7 +1,7 @@
 import { spawn, execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
-import { readFile, writeFile, mkdir, rename, rm, unlink } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, readdir, rename, rm, stat, unlink } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
@@ -87,6 +87,7 @@ interface SyncState {
 
 let timer: ReturnType<typeof setInterval> | null = null;
 let running = false;
+let ftpUnreachableReported = false;
 let lastResult = 'never run';
 
 async function loadConfig(): Promise<ChartworldConfig | null> {
@@ -145,6 +146,57 @@ function hasControlCharacter(value: string): boolean {
 }
 
 /** List the licence directory: names plus sizes, so a re-issued file is noticed. */
+/** Files already sitting in the download directory, whatever put them there. */
+export async function listLocal(): Promise<RemoteFile[]> {
+    const files: RemoteFile[] = [];
+    let names: string[];
+    try {
+        names = await readdir(DOWNLOAD_DIR);
+    } catch {
+        return files; // nothing dropped yet, or the directory does not exist
+    }
+    for (const name of names) {
+        if (!/\.S63\.ZIP$/i.test(name) && !/\.prm\.zip$/i.test(name)) continue;
+        if (name !== basename(name) || hasControlCharacter(name)) continue;
+        try {
+            const info = await stat(join(DOWNLOAD_DIR, name));
+            if (info.isFile()) files.push({ name, sizeBytes: info.size });
+        } catch {
+            // vanished between readdir and stat; it will be seen next poll
+        }
+    }
+    return files;
+}
+
+/**
+ * Everything available to install, by either arrival route.
+ *
+ * ChartWorld's licence FTP went away with the Teledyne migration:
+ * www.chartworld.com now resolves to Cloudflare, which carries no FTP at all,
+ * and the surviving service host rejects the licence credentials. Permits and
+ * exchange sets are downloaded from the ePORTAL by hand instead.
+ *
+ * So the download directory is now the primary source — anything dropped into
+ * it is installed exactly as an FTP-fetched file would be, through the same
+ * permit pairing, extraction and install path. FTP is still attempted whenever
+ * a host is configured, so this resumes working untouched if the service ever
+ * returns, but its absence is no longer an error. It is the expected state, and
+ * an hourly failure line would only train the eye to skip the log.
+ */
+async function listAvailable(cfg: ChartworldConfig): Promise<{ files: RemoteFile[]; ftp: 'ok' | 'unreachable' }> {
+    const local = await listLocal();
+    try {
+        const remote = await listRemote(cfg);
+        // Remote sizes win: a set reissued under the same name must still count
+        // as changed even if a stale copy of the old one is sitting on disk.
+        const byName = new Map(local.map((f) => [f.name, f]));
+        for (const f of remote) byName.set(f.name, f);
+        return { files: [...byName.values()], ftp: 'ok' };
+    } catch {
+        return { files: local, ftp: 'unreachable' };
+    }
+}
+
 async function listRemote(cfg: ChartworldConfig): Promise<RemoteFile[]> {
     // A bare listing gives names only; `-l` output carries the size we need to
     // spot a file that was reissued under the same name.
@@ -177,6 +229,15 @@ async function download(cfg: ChartworldConfig, remote: RemoteFile): Promise<stri
     }
     await mkdir(DOWNLOAD_DIR, { recursive: true });
     const dest = join(DOWNLOAD_DIR, name);
+    // Already here at the expected size — a previous poll fetched it, or it was
+    // downloaded from the ePORTAL by hand and dropped in. Nothing to fetch, and
+    // no FTP host needs to exist for the install to proceed.
+    try {
+        const present = await stat(dest);
+        if (present.isFile() && present.size === remote.sizeBytes) return dest;
+    } catch {
+        // not present; fall through and fetch it
+    }
     await assertDownloadDestinationCapacity(dest, remote.sizeBytes, CHARTWORLD_DOWNLOAD_POLICY);
     // curl streams with native backpressure. Bound it by both the global byte
     // policy and the bytes currently available above the disk reserve, so a
@@ -265,9 +326,17 @@ export async function pollChartworldOnce(): Promise<string> {
     let permitDir: string | null = null;
     try {
         const state = await loadState();
-        const remote = await listRemote(cfg);
+        const { files: remote, ftp } = await listAvailable(cfg);
+        if (ftp === 'unreachable' && !ftpUnreachableReported) {
+            ftpUnreachableReported = true;
+            console.log(
+                `[chartworld] licence FTP at ${cfg.host} is unreachable — installing from ` +
+                    `${DOWNLOAD_DIR} instead. Download permits and exchange sets from the ` +
+                    'ePORTAL and drop them there; they install the same way.',
+            );
+        }
         if (remote.length === 0) {
-            lastResult = 'listing was empty';
+            lastResult = `nothing to install — drop ePORTAL downloads into ${DOWNLOAD_DIR}`;
             return lastResult;
         }
 
