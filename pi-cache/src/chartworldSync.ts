@@ -316,7 +316,16 @@ function runInstall(exchangePath: string, permitPath: string): Promise<string> {
  * One poll. Safe to call concurrently — overlapping runs are skipped rather
  * than queued, since the next tick will pick anything up anyway.
  */
-export async function pollChartworldOnce(): Promise<string> {
+/**
+ * @param conversionLeaseHeld the caller already holds the single `conversion`
+ * lane and this poll must not try to take it again. The governor allows one
+ * active conversion, so a caller that admitted itself and then waited on this
+ * function would queue behind its own lease and deadlock. The install-from-url
+ * route is exactly that caller: it is already a conversion, doing this work.
+ */
+export async function pollChartworldOnce({
+    conversionLeaseHeld = false,
+}: { conversionLeaseHeld?: boolean } = {}): Promise<string> {
     if (running) return 'already running';
     const cfg = await loadConfig();
     if (!cfg) return 'not configured';
@@ -372,7 +381,9 @@ export async function pollChartworldOnce(): Promise<string> {
         // The listing is lightweight and should not make a conversion wait.
         // Reserve the lane immediately before the first download/extraction
         // and keep it through all installs in this poll.
-        workloadLease = await piWorkloadGovernor.admit('conversion').lease;
+        if (!conversionLeaseHeld) {
+            workloadLease = await piWorkloadGovernor.admit('conversion').lease;
+        }
         const permitPath = await download(cfg, permit);
         permitDir = await materialiseDownloadedArchive(permitPath);
         // A reissued permit bundle can unlock cells whose exchange set we
