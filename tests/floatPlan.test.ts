@@ -397,3 +397,49 @@ describe('advanced boat details stay optional (source tripwires)', () => {
         }
     });
 });
+
+describe('persons onboard roster', () => {
+    const base = {
+        vessel: { name: 'Serene Summer', type: 'sail' },
+        route: { from: 'Newport, QLD', to: 'Mooloolaba', waypoints: [] },
+        departureMs: 1788000000000,
+        overdueMs: 1788000000000 + 12 * 3600e3,
+        whoToCall: 'Marine Rescue Redcliffe — 07 3203 5522',
+        timeZone: 'Australia/Brisbane',
+    };
+
+    const brief = (roster: unknown) =>
+        createFloatPlanSharePayload({ ...base, personsRoster: roster } as never, 'email').text;
+
+    it('composes role, age and medical into one readable line', () => {
+        // A coordinator deciding what to send reads "Skipper, 62, on warfarin"
+        // very differently from a bare name.
+        const text = brief([{ name: 'Shane Stratton', role: 'Skipper', age: 62, medical: 'on warfarin' }]);
+        expect(text).toContain('1. Shane Stratton — Skipper, 62, on warfarin');
+    });
+
+    it('omits the parts that were left blank', () => {
+        const text = brief([{ name: 'Jane Stratton', role: 'First mate' }]);
+        expect(text).toContain('1. Jane Stratton — First mate');
+        expect(text).not.toMatch(/Jane Stratton — First mate,\s*,/);
+    });
+
+    it('still renders plans saved before role and age were separate fields', () => {
+        // Old plans carry one free-text note. They must not silently lose it.
+        const text = brief([{ name: 'Old Entry', note: 'Deckhand · 24 · asthma' }]);
+        expect(text).toContain('1. Old Entry — Deckhand · 24 · asthma');
+    });
+
+    it('drops an age of zero rather than printing it', () => {
+        // An untouched number input reads as 0, and "Cook, 0" is worse than "Cook".
+        const text = brief([{ name: 'No Age', role: 'Cook', age: 0 }]);
+        expect(text).toContain('1. No Age — Cook');
+        expect(text).not.toContain('Cook, 0');
+    });
+
+    it('ignores rows with no name at all', () => {
+        const text = brief([{ name: '   ', role: 'Crew', age: 30 }, { name: 'Real Person' }]);
+        expect(text).toContain('1. Real Person');
+        expect(text).not.toContain('Crew, 30');
+    });
+});
