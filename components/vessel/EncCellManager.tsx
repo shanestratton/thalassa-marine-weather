@@ -344,6 +344,30 @@ export const EncCellManager: React.FC = () => {
         setUrlDialogOpen(true);
     }, [importing]);
 
+    /**
+     * Fill the field from the clipboard.
+     *
+     * On a phone the link has just been copied out of a browser or an email, and
+     * long-pressing a text box to find "Paste" is the fiddliest part of the whole
+     * job. A clipboard read can be refused outright — Safari wants a gesture it
+     * recognises, and a denied permission throws rather than returning empty — so
+     * failure has to name the way round it rather than silently doing nothing.
+     */
+    const pasteFromClipboard = useCallback(async () => {
+        try {
+            const text = (await navigator.clipboard.readText()).trim();
+            if (!text) {
+                setUrlError('Clipboard is empty — copy the download link first.');
+                return;
+            }
+            triggerHaptic('light');
+            setUrlInput(text);
+            setUrlError(null);
+        } catch {
+            setUrlError('Could not read the clipboard — long-press the box above and paste.');
+        }
+    }, []);
+
     const handleInstallFromUrl = useCallback(async () => {
         if (importing || urlInstallInFlight.current) return;
         const url = urlInput.trim();
@@ -574,7 +598,7 @@ export const EncCellManager: React.FC = () => {
                         </p>
                         <p className="text-[11px] text-gray-400">
                             {cells.length === 0
-                                ? 'Import S-57 .000 cells from your hydrographic office'
+                                ? 'Paste a chart link — the Pi downloads and installs it'
                                 : `${cells.length} chart${cells.length === 1 ? '' : 's'} on this phone` +
                                   (piHasMoreThanLocal ? ` · ${missingOnDevice.length} more on the Pi` : '')}
                         </p>
@@ -592,26 +616,12 @@ export const EncCellManager: React.FC = () => {
 
                 {expanded && (
                     <div className="mt-4 space-y-4">
-                        {/* ── Import section ── */}
+                        {/* Paste-a-link is the whole point of having a Pi, so it is
+                    the first thing in the card rather than something to find
+                    below a paragraph about GDAL. The Pi downloads, converts and
+                    shares with every device aboard; the phone-side upload below
+                    is the fallback for a file you already have. */}
                         <div className="space-y-2">
-                            <p className="text-[11px] font-bold uppercase tracking-widest text-white/40">
-                                Import Cells
-                            </p>
-                            <p className="text-[11px] text-gray-500 leading-relaxed">
-                                Pick a raw S-57 cell (<span className="font-mono text-sky-300">.000</span>) or a full
-                                ENC <span className="font-mono text-sky-300">.zip</span> archive from your device. The
-                                file is sent to your boat&apos;s Pi for conversion (GDAL does the heavy lifting), then
-                                the converted vector data is stored on your phone and used by the routing validator
-                                instead of GEBCO bathymetry — surveyed depths, coastlines, obstructions and wrecks
-                                rather than 460&nbsp;m interpolated tiles.
-                            </p>
-
-                            {progress && (
-                                <div className="px-3 py-2 rounded-xl bg-white/[0.02] border border-white/[0.04]">
-                                    <ImportProgressBar progress={progress} />
-                                </div>
-                            )}
-
                             {/* Primary action: Pi-direct URL install — the
                             "best of the best" path. Pi downloads, Pi
                             converts, all devices on the boat share. */}
@@ -638,6 +648,32 @@ export const EncCellManager: React.FC = () => {
                                     </span>
                                 )}
                             </button>
+                            <p className="text-[11px] text-gray-500 leading-relaxed">
+                                Paste a chart download link and the Pi does the rest. Works for NOAA and other ENC
+                                archives, o-charts sets, and ChartWorld S-63 (paste the exchange set and the permit
+                                bundle, in either order).
+                            </p>
+                        </div>
+
+                        {/* ── Import section ── */}
+                        <div className="space-y-2">
+                            <p className="text-[11px] font-bold uppercase tracking-widest text-white/40">
+                                Import Cells
+                            </p>
+                            <p className="text-[11px] text-gray-500 leading-relaxed">
+                                Pick a raw S-57 cell (<span className="font-mono text-sky-300">.000</span>) or a full
+                                ENC <span className="font-mono text-sky-300">.zip</span> archive from your device. The
+                                file is sent to your boat&apos;s Pi for conversion (GDAL does the heavy lifting), then
+                                the converted vector data is stored on your phone and used by the routing validator
+                                instead of GEBCO bathymetry — surveyed depths, coastlines, obstructions and wrecks
+                                rather than 460&nbsp;m interpolated tiles.
+                            </p>
+
+                            {progress && (
+                                <div className="px-3 py-2 rounded-xl bg-white/[0.02] border border-white/[0.04]">
+                                    <ImportProgressBar progress={progress} />
+                                </div>
+                            )}
 
                             {/* Secondary: phone-side upload, kept for cells
                             that aren't online (e.g. you have the .000
@@ -922,6 +958,17 @@ export const EncCellManager: React.FC = () => {
                             placeholder="https://example.gov/charts/cell.zip"
                             className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-sm text-white outline-none placeholder:text-gray-400 focus:border-sky-400 disabled:opacity-60"
                         />
+                        <button
+                            type="button"
+                            onClick={() => void pasteFromClipboard()}
+                            disabled={importing}
+                            className="mt-2 w-full rounded-xl border border-sky-500/30 bg-sky-500/10 py-2.5 text-[11px] font-bold uppercase tracking-widest text-sky-300 transition-all active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                            <span className="flex items-center justify-center gap-2">
+                                <span>{'\u{1F4CB}'}</span>
+                                <span>Paste link</span>
+                            </span>
+                        </button>
                         <p id="enc-install-url-help" className="mt-2 text-[11px] text-gray-500">
                             Only direct HTTP or HTTPS downloads are supported.
                         </p>
