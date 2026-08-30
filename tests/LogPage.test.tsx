@@ -1433,7 +1433,25 @@ describe('LogPage — Cast Off handoff', () => {
         clearCastOffHandoff();
     });
 
-    it('shows the honest GPS-starting state instead of the slide, plus the route heads-up', async () => {
+    it('shows the honest GPS-starting state instead of the slide', async () => {
+        stashCastOffHandoff({
+            voyageId: 'voyage-handoff',
+            voyageName: 'Mackay → Airlie',
+            caution: null,
+        });
+        render(<LogPage />);
+
+        expect(await screen.findByText(/GPS voyage logging is starting for/)).toBeInTheDocument();
+        // The slide would mint a SECOND voyage while the cast-off one is
+        // still attaching its GPS log — it must not be offered.
+        expect(screen.queryByText('Slide to Start Tracking')).not.toBeInTheDocument();
+    });
+
+    it('never renders a route-check heads-up, even if a caution is somehow present', async () => {
+        // Removed 2026-08-30 ("not necessary"). castOff() still computes a
+        // caution, so this guards the surface staying gone rather than the value
+        // never existing — and a caution must not pin the handoff open, because
+        // there is no longer anything that could acknowledge it.
         stashCastOffHandoff({
             voyageId: 'voyage-handoff',
             voyageName: 'Mackay → Airlie',
@@ -1442,15 +1460,8 @@ describe('LogPage — Cast Off handoff', () => {
         render(<LogPage />);
 
         expect(await screen.findByText(/GPS voyage logging is starting for/)).toBeInTheDocument();
-        expect(screen.getByText('Route check heads-up')).toBeInTheDocument();
-        expect(screen.getByText('The traced route changed after it was checked.')).toBeInTheDocument();
-        // The slide would mint a SECOND voyage while the cast-off one is
-        // still attaching its GPS log — it must not be offered.
-        expect(screen.queryByText('Slide to Start Tracking')).not.toBeInTheDocument();
-
-        fireEvent.click(screen.getByRole('button', { name: 'Got it' }));
         expect(screen.queryByText('Route check heads-up')).not.toBeInTheDocument();
-        expect(peekCastOffHandoff()).toMatchObject({ caution: null });
+        expect(screen.queryByText('The traced route changed after it was checked.')).not.toBeInTheDocument();
     });
 
     it('auto-retries a failed GPS start once, then hands the skipper the Retry card', async () => {

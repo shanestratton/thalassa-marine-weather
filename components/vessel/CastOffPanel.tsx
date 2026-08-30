@@ -354,7 +354,11 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                 stashCastOffHandoff({
                     voyageId: activatedVoyage.id,
                     voyageName: activatedVoyage.voyage_name,
-                    caution: result.caution ?? null,
+                    // The Log page's route-check heads-up was removed (Shane
+                    // 2026-08-30: "not necessary"). castOff() still computes the
+                    // caution and returns it above; it simply is not carried into
+                    // the handoff, so nothing holds a value nothing renders.
+                    caution: null,
                     publishRoute: publishPublic,
                     // The selected row carries the backfilled canonical
                     // trace link even when the table row predates it.
