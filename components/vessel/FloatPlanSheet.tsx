@@ -19,6 +19,7 @@ import {
     type FloatPlanInput,
     type FloatPlanRoute,
 } from '../../services/floatPlan';
+import { shareFloatPlanPdf } from '../../services/floatPlanPdf';
 import { loadSavedTraces } from '../../services/routeTracer';
 import type { Voyage } from '../../services/VoyageService';
 import { useSettingsStore } from '../../stores/settingsStore';
@@ -228,6 +229,7 @@ export const FloatPlanSheet: React.FC<FloatPlanSheetProps> = ({ voyage, preset, 
     const [sharedChannel, setSharedChannel] = useState<FloatPlanChannel | null>(null);
     const [copied, setCopied] = useState(false);
     const [transferFailure, setTransferFailure] = useState<TransferFailure | null>(null);
+    const [pdfBusy, setPdfBusy] = useState(false);
 
     const savedWaypoints = useMemo(() => {
         if (preset?.route.waypoints) return preset.route.waypoints;
@@ -352,6 +354,32 @@ export const FloatPlanSheet: React.FC<FloatPlanSheetProps> = ({ voyage, preset, 
                 action: 'share',
                 message: 'Sharing was not completed. Try again, or select the plan text below and copy it manually.',
             });
+        }
+    };
+
+    /**
+     * The plan as a document rather than a message.
+     *
+     * A holder who is not comfortable with links, or who wants it on the fridge
+     * before we leave, needs something printable. It carries the same text as
+     * the email brief — including the overdue guide — so the two can never drift
+     * apart and leave a printed copy quietly out of date.
+     */
+    const sendPdf = async () => {
+        if (!canShare) return;
+        triggerHaptic('medium');
+        setTransferFailure(null);
+        setPdfBusy(true);
+        try {
+            await shareFloatPlanPdf(input);
+        } catch (error) {
+            log.warn('float plan pdf failed', error);
+            setTransferFailure({
+                action: 'share',
+                message: 'Could not build the PDF. The plan text below still works — copy it and send that instead.',
+            });
+        } finally {
+            setPdfBusy(false);
         }
     };
 
@@ -818,6 +846,17 @@ export const FloatPlanSheet: React.FC<FloatPlanSheetProps> = ({ voyage, preset, 
                     </a>
                 )}
             </div>
+
+            {/* A separate row on purpose. Copy and Share hand over a message; this
+                hands over a document someone can print and put on the fridge. */}
+            <button
+                type="button"
+                onClick={() => void sendPdf()}
+                disabled={!canShare || pdfBusy}
+                className="min-h-12 w-full rounded-xl border border-violet-500/25 bg-violet-500/10 px-4 text-xs font-black uppercase tracking-wide text-violet-200 transition hover:bg-violet-500/20 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-35"
+            >
+                {pdfBusy ? 'Building PDF…' : 'Send as PDF'}
+            </button>
 
             <div className="flex min-h-11 items-center justify-between gap-3">
                 <button

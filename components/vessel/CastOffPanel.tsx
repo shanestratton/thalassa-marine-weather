@@ -1284,6 +1284,35 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                             </button>
                         </div>
 
+                        {/* Float plan — between confirming the boat is ready and choosing who may
+                            watch. That is the order it happens in: settle the vessel, tell one
+                            person ashore what to do if you do not arrive, and only then decide
+                            whether strangers can follow along. Same shape as its neighbours on
+                            purpose: this is a normal part of leaving, not a ceremony. */}
+                        <button
+                            type="button"
+                            onClick={() => {
+                                triggerHaptic('light');
+                                setShowFloatPlan(true);
+                            }}
+                            className="flex min-h-[44px] w-full cursor-pointer items-center gap-3 rounded-xl border border-violet-500/15 bg-violet-500/[0.04] p-4 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400"
+                        >
+                            <span className="text-lg">📋</span>
+                            <div className="flex-1">
+                                <p className="text-xs font-bold text-violet-300">Float Plan</p>
+                                <p className="text-[11px] text-gray-500">
+                                    Tell one person ashore where you are going, and when to worry
+                                </p>
+                            </div>
+                            <span className="text-[11px] font-bold uppercase tracking-widest text-violet-300/70">
+                                Open
+                            </span>
+                        </button>
+
+                        {showFloatPlan && selected && (
+                            <FloatPlanSheet voyage={selected} onClose={() => setShowFloatPlan(false)} />
+                        )}
+
                         {error && (
                             <p role="alert" className="text-sm text-red-400 text-center">
                                 {error}
