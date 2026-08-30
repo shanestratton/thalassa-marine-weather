@@ -54,3 +54,37 @@ describe('overdue guide', () => {
         expect(guide).toMatch(/say you do not know/i);
     });
 });
+
+describe('every channel tells the holder what to do', () => {
+    // The guide shipped on the email brief only at first, which meant the most
+    // likely way this is actually sent — WhatsApp to a mate — carried the facts
+    // and no instruction. A holder with a plan and no idea what to do with it is
+    // the failure this whole feature exists to prevent.
+    const input = {
+        vessel: { name: 'Serene Summer', type: 'sail', shoreContact1: 'Jane — 0412 345 678' },
+        route: { from: 'Newport', to: 'Mooloolaba', waypoints: [] },
+        departureMs: NOW,
+        overdueMs: NOW + 12 * 3600e3,
+        personsOnBoard: 2,
+        whoToCall: 'Marine Rescue Redcliffe — 07 3203 5522',
+        contactAboard: 'Sat phone',
+        timeZone: 'Australia/Brisbane',
+    } as unknown as FloatPlanInput;
+
+    it.each(['email', 'whatsapp', 'generic'] as const)('%s carries the full ladder', (channel) => {
+        const text = createFloatPlanSharePayload(input, channel).text;
+        expect(text).toMatch(/IF WE ARE OVERDUE/i);
+        expect(text).toMatch(/Try us first/i);
+        expect(text).toContain('Marine Rescue Redcliffe — 07 3203 5522');
+    });
+
+    it('sms carries the escalation order without the full ladder', () => {
+        // Every line here is another segment, and a truncated guide is worse
+        // than a short one that is complete.
+        const text = createFloatPlanSharePayload(input, 'sms').text;
+        expect(text).toMatch(/IF OVERDUE/i);
+        expect(text).toMatch(/do not guess/i);
+        expect(text).toMatch(/OVERDUE:/);
+        expect(text).toMatch(/CALL:/);
+    });
+});

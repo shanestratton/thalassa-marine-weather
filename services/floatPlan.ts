@@ -451,6 +451,7 @@ export function composeFloatPlan(input: FloatPlanInput): string {
         section('SAFETY & SURVIVAL', safetyLines(document)),
         section('PERSONS ONBOARD', personsLines(document)),
         intendedTrack.length > 0 ? section('INTENDED TRACK', intendedTrack) : null,
+        section('IF WE ARE OVERDUE — WHAT TO DO', emergencyGuideLines(document)),
         `Please reply RECEIVED. Keep this plan until we send a safe-arrival message.\nPrepared in Thalassa. Thalassa does not upload this plan. Verify the recipients and audience in the destination app before sending. All times ${document.timeZoneLabel}.`,
     ];
 
@@ -646,6 +647,9 @@ function formatWhatsApp(document: FloatPlanDocument): string {
         track.length > 0 ? '📍 *INTENDED TRACK*' : '',
         ...track,
         '',
+        '🆘 *IF WE ARE OVERDUE*',
+        ...emergencyGuideLines(document).map((line) => whatsappSafe(line)),
+        '',
         '✅ *Please reply RECEIVED.*',
         '_Keep this plan until we send a safe-arrival message._',
         `_Prepared in Thalassa · Thalassa does not upload this plan · Verify the recipient before sending · All times ${whatsappSafe(document.timeZoneLabel)}_`,
@@ -679,6 +683,7 @@ function formatSms(document: FloatPlanDocument): string {
             vessel ? `VESSEL: ${vessel}` : '',
             safety ? `SAFETY: ${safety}` : 'SAFETY: not recorded',
             track.length > 0 ? `TRACK: ${track.join(' > ')}` : '',
+            'IF OVERDUE: try us first, then call the number above. Tell them only what is in this message; do not guess.',
             'Reply RECEIVED. Keep until safe-arrival message. Thalassa does not upload this plan. Check recipient before send.',
         ]
             .filter(Boolean)
