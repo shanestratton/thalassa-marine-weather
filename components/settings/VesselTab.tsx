@@ -1050,6 +1050,35 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                         className="w-full bg-white/5 border border-white/10 rounded-xl px-2.5 py-2.5 text-white text-sm font-medium outline-none transition-colors focus:border-rose-500"
                                     />
                                 </div>
+                                {/* The two people a shore contact rings before escalating. Named
+                                    people are the difference between "ask anyone who might have heard"
+                                    and something a frightened person can act on at 2am — and this is
+                                    the step that heads off most false alarms, because usually somebody
+                                    has already heard from the boat. Float plan only, never public. */}
+                                <div className="sm:col-span-2">
+                                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5">
+                                        Shore Contact 1
+                                    </label>
+                                    <input
+                                        type="text"
+                                        value={vessel?.shoreContact1 || ''}
+                                        onChange={(e) => updateVessel('shoreContact1', e.target.value)}
+                                        placeholder="Jane Stratton — 0412 345 678"
+                                        className="w-full bg-white/5 border border-white/10 rounded-xl px-2.5 py-2.5 text-white text-sm font-medium outline-none transition-colors focus:border-rose-500"
+                                    />
+                                </div>
+                                <div className="sm:col-span-2">
+                                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5">
+                                        Shore Contact 2
+                                    </label>
+                                    <input
+                                        type="text"
+                                        value={vessel?.shoreContact2 || ''}
+                                        onChange={(e) => updateVessel('shoreContact2', e.target.value)}
+                                        placeholder="Redcliffe Marina office — 07 3269 1234"
+                                        className="w-full bg-white/5 border border-white/10 rounded-xl px-2.5 py-2.5 text-white text-sm font-medium outline-none transition-colors focus:border-rose-500"
+                                    />
+                                </div>
                             </div>
                         </details>
                         <div className="mt-3">

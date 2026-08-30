@@ -88,6 +88,24 @@ export interface VesselProfile {
     /** Tender/dinghy, separate from the liferaft — "grey 2.6 m RIB,
      *  5 hp outboard". A boat found without its tender tells SAR a story. */
     tenderDescription?: string;
+    /**
+     * Two people ashore who would plausibly have heard from us — partner,
+     * family, the marina office. Name and number in one line: "Jane Stratton —
+     * 0412 345 678".
+     *
+     * These exist for the float plan's overdue guide. Without them the holder
+     * is told to "ask anyone else who might have heard", which is useless at
+     * 2am to someone frightened; with them it is a name and a number to ring
+     * before escalating. They are also the step that prevents most false
+     * alarms, because the usual answer is that someone has already heard from
+     * the boat.
+     *
+     * Same never-public rule as the SAR block above: these are third parties'
+     * contact details, and they ship only in the float plan, to one chosen
+     * person.
+     */
+    shoreContact1?: string;
+    shoreContact2?: string;
 }
 
 /** Ship's Stores item categories */
