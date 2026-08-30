@@ -131,9 +131,21 @@ export async function validatePermits(
         return { valid: false, problem: 'The InstallPermit should be 8 hexadecimal characters.' };
     }
 
+    // OCPNsenc's exit status cannot be trusted in either direction: it exits 254
+    // with the reason on stdout when a permit is rejected, and exits 1 on a
+    // perfectly successful fingerprint. What it printed is the real answer, so
+    // capture the output whichever way the call comes back.
     const run = async (args: string[]): Promise<string> => {
-        const { stdout, stderr } = await execFileAsync(SENC_UTIL, args, { timeout: EXEC_TIMEOUT_MS });
-        return `${stdout}\n${stderr}`;
+        try {
+            const { stdout, stderr } = await execFileAsync(SENC_UTIL, args, { timeout: EXEC_TIMEOUT_MS });
+            return `${stdout}\n${stderr}`;
+        } catch (err) {
+            const failure = err as { stdout?: string; stderr?: string };
+            if (typeof failure.stdout === 'string' || typeof failure.stderr === 'string') {
+                return `${failure.stdout ?? ''}\n${failure.stderr ?? ''}`;
+            }
+            throw err;
+        }
     };
 
     try {
@@ -172,7 +184,15 @@ export async function generateFingerprint(): Promise<{ filename: string; base64:
     await mkdir(OPENCPN_DIR, { recursive: true });
 
     const before = new Set(await listFprFiles());
-    const { stdout } = await execFileAsync(SENC_UTIL, ['-w', '-o', `${OPENCPN_DIR}/`], { timeout: EXEC_TIMEOUT_MS });
+    // Measured on the boat Pi: this exits 1 even when it has written the
+    // fingerprint and printed its path. Judge it by the file it produced, never
+    // by the status it returned.
+    let stdout = '';
+    try {
+        ({ stdout } = await execFileAsync(SENC_UTIL, ['-w', '-o', `${OPENCPN_DIR}/`], { timeout: EXEC_TIMEOUT_MS }));
+    } catch (err) {
+        stdout = (err as { stdout?: string }).stdout ?? '';
+    }
 
     // It prints `fpr file:<path>`, but fall back to diffing the directory rather
     // than trusting one line of output for the whole result.
