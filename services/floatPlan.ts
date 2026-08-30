@@ -549,11 +549,28 @@ function emergencyGuideLines(document: FloatPlanDocument): string[] {
     );
     lines.push('   If you get us, you are done — nothing else here applies.', '');
 
+    // Named people beat a category. "Ask anyone who might have heard" is
+    // useless at 2am; a name and a number is something a frightened person can
+    // actually do. This is also the rung that prevents most false alarms — the
+    // usual answer is that somebody has already heard from the boat.
+    const ashore = [input.vessel?.shoreContact1, input.vessel?.shoreContact2]
+        .map((entry) => oneLine(entry))
+        .filter(Boolean);
+
+    if (ashore.length > 0) {
+        lines.push('2. Ring the people ashore who might have heard from us.');
+        ashore.forEach((entry) => lines.push(`   ${entry}`));
+        lines.push('   If any of them has had contact and you are satisfied, you are done.', '');
+    } else {
+        lines.push(
+            '2. Ask anyone else who might have heard from us.',
+            '   Marina, harbour office, family, another boat we were travelling with.',
+            '   If someone has had contact and you are satisfied, you are done.',
+            '',
+        );
+    }
+
     lines.push(
-        '2. Ask anyone else who might have heard from us.',
-        '   Marina, harbour office, family, another boat we were travelling with.',
-        '   If someone has had contact and you are satisfied, you are done.',
-        '',
         '3. Still worried? Make the call.',
         `   ${document.rescueContact}`,
         '   Say: "I am reporting an overdue vessel." Then read them this plan from the top.',
