@@ -46,7 +46,16 @@ export interface FloatPlanInput {
     /** Optional per-person roster — the USCG persons-onboard table. Names
      * (and a short note each: role, age, medical) beat a bare count when a
      * coordinator is deciding what to send. */
-    personsRoster?: Array<{ name: string; note?: string }>;
+    personsRoster?: Array<{
+        name: string;
+        /** Skipper, First mate, Cook, Deckhand… */
+        role?: string;
+        age?: number;
+        /** Anything a coordinator would want known — "diabetic", "non-swimmer". */
+        medical?: string;
+        /** Legacy free text, kept so older saved plans still render. */
+        note?: string;
+    }>;
     /** Days of food and water aboard for the persons listed. */
     provisionsDays?: number;
     /** IANA zone used for every displayed time, e.g. Australia/Brisbane.
@@ -277,10 +286,21 @@ export function prepareFloatPlan(input: FloatPlanInput): FloatPlanDocument {
             ? `cruise ${Math.round(vessel.cruisingSpeed)} kn`
             : null,
     ]);
+    // Role, age and medical are separate fields rather than one free-text note:
+    // a coordinator deciding what to send reads "Skipper, 62, on warfarin"
+    // differently from a name alone, and a box labelled "Role · age · medical"
+    // gets filled in five different formats by five different skippers. `note`
+    // survives for plans saved before the split.
     const rosterLines = (input.personsRoster ?? [])
-        .map((person) => ({ name: oneLine(person.name), note: oneLine(person.note) }))
+        .map((person) => {
+            const age = Number.isFinite(person.age) && (person.age ?? 0) > 0 ? `${person.age}` : '';
+            const detail = [oneLine(person.role), age, oneLine(person.medical), oneLine(person.note)]
+                .filter(Boolean)
+                .join(', ');
+            return { name: oneLine(person.name), detail };
+        })
         .filter((person) => person.name.length > 0)
-        .map((person, index) => `${index + 1}. ${person.name}${person.note ? ` — ${person.note}` : ''}`);
+        .map((person, index) => `${index + 1}. ${person.name}${person.detail ? ` — ${person.detail}` : ''}`);
     const liferaft = joinParts(
         [
             typeof vessel?.liferaftCapacity === 'number' && vessel.liferaftCapacity > 0

@@ -54,6 +54,23 @@ interface FloatPlanSheetProps {
     onClose: () => void;
 }
 
+/**
+ * Roles a rescue coordinator would recognise, in the order they matter to one.
+ * A dropdown rather than free text: five skippers type five formats, and
+ * "who is in charge" is the first thing asked on the phone.
+ */
+const CREW_ROLES = [
+    'Skipper',
+    'First mate',
+    'Navigator',
+    'Engineer',
+    'Cook',
+    'Deckhand',
+    'Crew',
+    'Guest',
+    'Child',
+] as const;
+
 interface TransferFailure {
     action: 'copy' | 'share';
     message: string;
@@ -223,7 +240,9 @@ export const FloatPlanSheet: React.FC<FloatPlanSheetProps> = ({ voyage, preset, 
     );
     // USCG-style persons roster (2026-08-26): names beat a bare count when a
     // coordinator decides what to send. Optional — empty rows are dropped.
-    const [personsRoster, setPersonsRoster] = useState<Array<{ name: string; note: string }>>([]);
+    const [personsRoster, setPersonsRoster] = useState<
+        Array<{ name: string; role: string; age: string; medical: string }>
+    >([]);
     const [provisionsDays, setProvisionsDays] = useState<number>(0);
     const [channel, setChannel] = useState<FloatPlanChannel>('whatsapp');
     const [sharedChannel, setSharedChannel] = useState<FloatPlanChannel | null>(null);
@@ -283,7 +302,14 @@ export const FloatPlanSheet: React.FC<FloatPlanSheetProps> = ({ voyage, preset, 
             etaMs,
             overdueMs,
             personsOnBoard,
-            personsRoster: personsRoster.filter((person) => person.name.trim().length > 0),
+            personsRoster: personsRoster
+                .filter((person) => person.name.trim().length > 0)
+                .map((person) => ({
+                    name: person.name,
+                    role: person.role || undefined,
+                    age: person.age.trim() ? Number(person.age) : undefined,
+                    medical: person.medical || undefined,
+                })),
             provisionsDays: provisionsDays > 0 ? provisionsDays : undefined,
             whoToCall: whoToCall.trim() || undefined,
             contactAboard: contactAboard.trim() || undefined,
@@ -575,56 +601,112 @@ export const FloatPlanSheet: React.FC<FloatPlanSheetProps> = ({ voyage, preset, 
                 </div>
             </div>
 
-            <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4" data-testid="float-plan-roster">
+            <div
+                className="rounded-2xl border border-violet-500/20 bg-gradient-to-br from-violet-500/10 to-slate-900/30 p-4"
+                data-testid="float-plan-roster"
+            >
                 <div className="mb-2 flex items-center justify-between gap-2">
-                    <p className="text-xs font-black uppercase tracking-[0.14em] text-slate-300">Persons onboard</p>
+                    <p className="text-xs font-black uppercase tracking-[0.14em] text-violet-300">Persons onboard</p>
                     <span className="text-[11px] font-semibold text-slate-500">Names help a coordinator</span>
                 </div>
                 <div className="space-y-2">
                     {personsRoster.map((person, index) => (
-                        <div key={index} className="flex items-center gap-2">
+                        <div
+                            key={index}
+                            className="rounded-xl border border-violet-500/20 bg-violet-500/[0.05] p-3 space-y-2"
+                        >
+                            {/* Name gets its own line. Sharing a row with the
+                                details meant a half-width box for the one field
+                                a coordinator reads out loud. */}
+                            <div className="flex items-center gap-2">
+                                <span className="w-6 shrink-0 text-center text-[11px] font-black text-violet-300/70">
+                                    {index + 1}
+                                </span>
+                                <input
+                                    type="text"
+                                    aria-label={`Person ${index + 1} name`}
+                                    value={person.name}
+                                    onChange={(event) =>
+                                        setPersonsRoster((rows) =>
+                                            rows.map((row, i) =>
+                                                i === index ? { ...row, name: event.target.value } : row,
+                                            ),
+                                        )
+                                    }
+                                    placeholder="Full name"
+                                    className="min-h-11 flex-1 rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm font-semibold text-white outline-none placeholder:text-slate-500 focus:border-violet-400"
+                                />
+                                <button
+                                    type="button"
+                                    aria-label={`Remove person ${index + 1}`}
+                                    onClick={() => setPersonsRoster((rows) => rows.filter((_, i) => i !== index))}
+                                    className="flex h-11 w-9 shrink-0 items-center justify-center rounded-xl text-slate-400 hover:bg-white/5"
+                                >
+                                    ×
+                                </button>
+                            </div>
+                            <div className="flex gap-2 pl-8">
+                                <select
+                                    aria-label={`Person ${index + 1} role`}
+                                    value={person.role}
+                                    onChange={(event) =>
+                                        setPersonsRoster((rows) =>
+                                            rows.map((row, i) =>
+                                                i === index ? { ...row, role: event.target.value } : row,
+                                            ),
+                                        )
+                                    }
+                                    className="min-h-11 flex-1 rounded-xl border border-white/10 bg-slate-900/60 px-3 text-sm text-white [color-scheme:dark] outline-none focus:border-violet-400"
+                                >
+                                    <option value="">Role…</option>
+                                    {CREW_ROLES.map((role) => (
+                                        <option key={role} value={role}>
+                                            {role}
+                                        </option>
+                                    ))}
+                                </select>
+                                <input
+                                    type="number"
+                                    inputMode="numeric"
+                                    min={0}
+                                    max={120}
+                                    aria-label={`Person ${index + 1} age`}
+                                    value={person.age}
+                                    onChange={(event) =>
+                                        setPersonsRoster((rows) =>
+                                            rows.map((row, i) =>
+                                                i === index
+                                                    ? { ...row, age: event.target.value.replace(/[^0-9]/g, '') }
+                                                    : row,
+                                            ),
+                                        )
+                                    }
+                                    placeholder="Age"
+                                    className="min-h-11 w-20 rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white outline-none placeholder:text-slate-500 focus:border-violet-400"
+                                />
+                            </div>
                             <input
                                 type="text"
-                                aria-label={`Person ${index + 1} name`}
-                                value={person.name}
+                                aria-label={`Person ${index + 1} medical notes`}
+                                value={person.medical}
                                 onChange={(event) =>
                                     setPersonsRoster((rows) =>
                                         rows.map((row, i) =>
-                                            i === index ? { ...row, name: event.target.value } : row,
+                                            i === index ? { ...row, medical: event.target.value } : row,
                                         ),
                                     )
                                 }
-                                placeholder="Name"
-                                className="min-h-11 w-1/2 rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white outline-none placeholder:text-slate-500 focus:border-sky-400"
+                                placeholder="Medical or anything a coordinator should know (optional)"
+                                className="ml-8 min-h-11 w-[calc(100%-2rem)] rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white outline-none placeholder:text-slate-500 focus:border-violet-400"
                             />
-                            <input
-                                type="text"
-                                aria-label={`Person ${index + 1} note`}
-                                value={person.note}
-                                onChange={(event) =>
-                                    setPersonsRoster((rows) =>
-                                        rows.map((row, i) =>
-                                            i === index ? { ...row, note: event.target.value } : row,
-                                        ),
-                                    )
-                                }
-                                placeholder="Role · age · medical"
-                                className="min-h-11 flex-1 rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white outline-none placeholder:text-slate-500 focus:border-sky-400"
-                            />
-                            <button
-                                type="button"
-                                aria-label={`Remove person ${index + 1}`}
-                                onClick={() => setPersonsRoster((rows) => rows.filter((_, i) => i !== index))}
-                                className="flex h-11 w-9 items-center justify-center rounded-xl text-slate-400 hover:bg-white/5"
-                            >
-                                ×
-                            </button>
                         </div>
                     ))}
                     <button
                         type="button"
-                        onClick={() => setPersonsRoster((rows) => [...rows, { name: '', note: '' }])}
-                        className="min-h-11 w-full rounded-xl border border-dashed border-white/15 text-sm font-semibold text-slate-300 hover:bg-white/5"
+                        onClick={() =>
+                            setPersonsRoster((rows) => [...rows, { name: '', role: '', age: '', medical: '' }])
+                        }
+                        className="min-h-11 w-full rounded-xl border border-dashed border-violet-500/30 text-sm font-semibold text-violet-200 hover:bg-violet-500/10"
                     >
                         + Add person
                     </button>
@@ -648,9 +730,12 @@ export const FloatPlanSheet: React.FC<FloatPlanSheetProps> = ({ voyage, preset, 
                 </div>
             </div>
 
-            <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4" data-testid="float-plan-safety">
+            <div
+                className="rounded-2xl border border-emerald-500/20 bg-gradient-to-br from-emerald-500/10 to-slate-900/30 p-4"
+                data-testid="float-plan-safety"
+            >
                 <div className="mb-2 flex items-center justify-between gap-2">
-                    <p className="text-xs font-black uppercase tracking-[0.14em] text-slate-300">
+                    <p className="text-xs font-black uppercase tracking-[0.14em] text-emerald-300">
                         Safety details included
                     </p>
                     <span className="text-[11px] font-semibold text-slate-500">From Vessel settings</span>
@@ -711,7 +796,7 @@ export const FloatPlanSheet: React.FC<FloatPlanSheetProps> = ({ voyage, preset, 
             <div>
                 <div className="mb-2 flex items-end justify-between gap-2">
                     <div>
-                        <p className="text-xs font-black uppercase tracking-[0.14em] text-slate-300">Format for</p>
+                        <p className="text-xs font-black uppercase tracking-[0.14em] text-sky-300">Format for</p>
                         <p className="mt-0.5 text-[11px] text-slate-500">
                             The preview and wording change with the channel.
                         </p>
@@ -763,7 +848,7 @@ export const FloatPlanSheet: React.FC<FloatPlanSheetProps> = ({ voyage, preset, 
 
             <div data-testid="float-plan-preview">
                 <div className="mb-2 flex items-center justify-between gap-2">
-                    <p className="text-xs font-black uppercase tracking-[0.14em] text-slate-300">
+                    <p className="text-xs font-black uppercase tracking-[0.14em] text-sky-300">
                         {channelLabel} preview
                     </p>
                     <span className="text-[11px] tabular-nums text-slate-500">{payload.characterCount} characters</span>
