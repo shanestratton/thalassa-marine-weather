@@ -458,6 +458,32 @@ async function cancelDiary(req: Request, body: Record<string, unknown>): Promise
     return persistCancellation(admin, caller.userId, operationId);
 }
 
+/**
+ * A signed upload URL for ONE video object in the paired skipper's folder.
+ *
+ * The Pi holds a diary clip it received over the boat LAN and needs somewhere
+ * to put it when WAN returns. It authenticates exactly as it does to write a
+ * diary row, and the grant is as narrow as storage allows: one object, in the
+ * caller's own folder, in the diary-video bucket, with the URL's built-in
+ * expiry. The Pi never sees a credential it could reuse for anything else.
+ */
+async function videoUploadUrl(req: Request, body: Record<string, unknown>): Promise<Response> {
+    const relay = await authenticateRelay(req);
+    if (relay instanceof Response) return relay;
+
+    const path = typeof body.path === 'string' ? body.path : '';
+    if (!/^[0-9a-f-]{16,64}\/[0-9]{10,16}\.(mp4|mov)$/.test(path) || !path.startsWith(`${relay.ownerId}/`)) {
+        return json({ error: 'Video path must be a single object in your own folder' }, 400);
+    }
+
+    const { data, error } = await relay.admin.storage.from('diary-video').createSignedUploadUrl(path);
+    if (error || !data?.signedUrl) {
+        console.error('[diary-relay] signed upload URL failed:', error?.message);
+        return json({ error: 'Could not create an upload grant' }, 503);
+    }
+    return json({ url: data.signedUrl, path });
+}
+
 async function ingestRelay(req: Request, body: Record<string, unknown>): Promise<Response> {
     const relay = await authenticateRelay(req);
     if (relay instanceof Response) return relay;
@@ -477,5 +503,6 @@ Deno.serve(async (req: Request) => {
     if (body.action === 'pair') return pairRelay(req, body);
     if (body.action === 'upsert') return deviceUpsert(req, body);
     if (body.action === 'cancel' || body.action === 'delete') return cancelDiary(req, body);
+    if (body.action === 'video-upload-url') return videoUploadUrl(req, body);
     return ingestRelay(req, body);
 });

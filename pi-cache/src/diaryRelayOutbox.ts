@@ -587,6 +587,27 @@ export class DiaryRelayOutbox {
     }
 
     /** Persist Pi-local relay configuration. Never return the token. */
+    /**
+     * Lend the pairing credential to the video relay, and to nothing else.
+     *
+     * The video worker presents this to the SAME Edge Function the outbox
+     * writes through, which answers with a signed upload URL for one object in
+     * the owner's folder — so the strongest thing these credentials can ever
+     * do is what the diary relay could already do, plus place a file the
+     * caller named into the skipper's own video folder.
+     */
+    lendVideoCredentials(): { url: string; relayId: string; token: string; ownerId: string } | null {
+        const configured = this.readConfiguration();
+        const relay = relayFromParts(
+            this.trustedRelayEndpoint,
+            configured.url,
+            configured.relayId,
+            configured.token,
+            configured.ownerId,
+        );
+        return relay ? { url: relay.url, relayId: relay.relayId, token: relay.token, ownerId: relay.ownerId } : null;
+    }
+
     configure(input: DiaryRelayConfigInput): DiaryRelayPublicConfiguration {
         if (input.allowInternet !== undefined && typeof input.allowInternet !== 'boolean') {
             throw new DiaryRelayValidationError('allowInternet must be a boolean');

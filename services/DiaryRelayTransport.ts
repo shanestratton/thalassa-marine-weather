@@ -355,6 +355,88 @@ async function pairPiWhenCloudIsAvailable(scope: AuthIdentityScope, allowInterne
  * lose a skipper's words. Repeating the hand-off is intentional and is
  * deduplicated by `client_operation_id` on both the Pi and Supabase.
  */
+/** Base64 a slice without materialising a giant intermediate string. */
+function chunkToBase64(bytes: Uint8Array): string {
+    let binary = '';
+    const STEP = 0x8000;
+    for (let i = 0; i < bytes.length; i += STEP) {
+        binary += String.fromCharCode.apply(null, Array.from(bytes.subarray(i, i + STEP)));
+    }
+    return btoa(binary);
+}
+
+/**
+ * Lend the clip to the Pi: it uploads to Storage when the boat has WAN, long
+ * after this phone has gone to sleep. Returns true only when the Pi holds a
+ * checksum-verified copy — at which point the Pi owns the clip and the phone
+ * may delete its local blob. Any failure returns false and the caller falls
+ * back to the direct upload it would have done anyway.
+ *
+ * Chunked because the bridge cannot carry 200MB, and because boat WiFi drops
+ * mid-transfer as a matter of routine — a resend of one 4MB chunk beats a
+ * restart of the lot.
+ */
+export async function handoffVideoToPi(blob: Blob, clientOperationId: string, path: string): Promise<boolean> {
+    if (!PI_INTEGRATION_ENABLED || !piCache.isAvailable() || !validOperationId(clientOperationId)) return false;
+    const scope = getAuthIdentityScope();
+    if (!scope.userId || !isAuthIdentityScopeCurrent(scope)) return false;
+    const status = piCache.getStatus();
+    // Same owner rule as the diary rows: a crew member's clip must not park
+    // under the skipper's pairing.
+    if (!status.diaryRelayConfigured || status.diaryRelayOwnerId !== scope.userId) return false;
+
+    try {
+        const bytes = new Uint8Array(await blob.arrayBuffer());
+        const digest = await crypto.subtle.digest('SHA-256', bytes);
+        const sha256 = Array.from(new Uint8Array(digest))
+            .map((b) => b.toString(16).padStart(2, '0'))
+            .join('');
+
+        const begin = await pinnedPiRequest({
+            url: `${piCache.baseUrl}/api/diary/video/begin`,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            data: { client_operation_id: clientOperationId, path, total_bytes: bytes.length, sha256 },
+            connectTimeout: 5000,
+            readTimeout: 15000,
+            responseType: 'text',
+        });
+        if (begin.status < 200 || begin.status >= 300) return false;
+        const opened = (typeof begin.data === 'string' ? JSON.parse(begin.data) : begin.data) as { id?: string };
+        if (!opened.id) return false;
+
+        const CHUNK = 4 * 1024 * 1024;
+        for (let index = 0, offset = 0; offset < bytes.length; index++, offset += CHUNK) {
+            const piece = chunkToBase64(bytes.subarray(offset, offset + CHUNK));
+            const sent = await pinnedPiRequest({
+                url: `${piCache.baseUrl}/api/diary/video/chunk/${opened.id}/${index}`,
+                method: 'POST',
+                headers: { 'Content-Type': 'text/plain' },
+                data: piece,
+                connectTimeout: 5000,
+                readTimeout: 60000,
+                responseType: 'text',
+            });
+            if (sent.status < 200 || sent.status >= 300) return false;
+            if (!isAuthIdentityScopeCurrent(scope)) return false;
+        }
+
+        const done = await pinnedPiRequest({
+            url: `${piCache.baseUrl}/api/diary/video/finish/${opened.id}`,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            data: {},
+            connectTimeout: 5000,
+            readTimeout: 60000,
+            responseType: 'text',
+        });
+        return done.status >= 200 && done.status < 300;
+    } catch (error) {
+        log.warn('[DiaryVideo] Pi hand-off failed; falling back to direct upload', error);
+        return false;
+    }
+}
+
 export async function handoffDiaryToPi(entry: DiaryRelayEnvelope): Promise<PiDiaryRelayResult | null> {
     if (!PI_INTEGRATION_ENABLED || !entry.client_operation_id || !piCache.isAvailable()) return null;
     const scope = getAuthIdentityScope();
