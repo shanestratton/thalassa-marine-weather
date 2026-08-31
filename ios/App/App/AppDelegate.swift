@@ -7,6 +7,11 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     var window: UIWindow?
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
+        // Shake-to-undo is a menace afloat: the sea shakes the phone all
+        // day, and iOS answers every wave with an "Undo Typing" dialog on
+        // whatever screen is open (Shane, 2026-09-02: "it comes up every
+        // time i knock the phone"). Nothing in this app needs shake-to-edit.
+        application.applicationSupportsShakeToEdit = false
         return true
     }
 
