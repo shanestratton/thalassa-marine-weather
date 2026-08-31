@@ -3,6 +3,7 @@ import { createLogger } from '../utils/createLogger';
 const log = createLogger('DiaryPage');
 import { DiaryService, DiaryEntry, DiaryMood, DiaryWeatherData } from '../services/DiaryService';
 import { triggerHaptic } from '../utils/system';
+import { haversineMeters } from '../services/shiplog/GpsTrackBuffer';
 import { extractPhotoExif } from '../utils/exifGps';
 import { SlideToAction } from './ui/SlideToAction';
 import { AnchorWatchService, haversineDistance } from '../services/AnchorWatchService';
@@ -237,6 +238,13 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
     /** The one compose-owned clip, if any. Replaced or discarded, never leaked. */
     const unsavedVideoRef = useRef<string | null>(null);
     const [trimRequest, setTrimRequest] = useState<{ file: File; durationSec: number } | null>(null);
+    /** Set only when vessel and phone GPS disagree — the pub-vs-passage question. */
+    const [gpsConflict, setGpsConflict] = useState<{
+        vessel: { lat: number; lon: number };
+        phone: { lat: number; lon: number };
+        distanceM: number;
+    } | null>(null);
+    const [gpsSource, setGpsSource] = useState<'vessel' | 'phone' | null>(null);
     // A Save snapshots only the refs it is adopting. Account B can therefore
     // begin a clean compose after an A→B switch without Cancel racing A's bytes.
     const savingPhotoRefsRef = useRef<Set<string> | null>(null);
@@ -431,29 +439,83 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
             composeSessionRef.current === composeSession;
         if (locationFromPhotoRef.current) return;
         setGpsLoading(true);
-        const loc = await DiaryService.getCurrentLocation();
+        setGpsConflict(null);
+        setGpsSource(null);
+        // Two candidates, one honest rule: agree (or only one exists) → take
+        // it silently; disagree → only the skipper knows whether this entry is
+        // about the boat or about where they are standing, so ask. The 200m
+        // line keeps swing-at-anchor and GPS scatter from nagging anyone.
+        const candidates = await DiaryService.getPositionCandidates();
+        if (!operationIsCurrent()) return;
+        let loc: { lat: number; lon: number } | null = null;
+        const { vessel, phone } = candidates;
+        if (vessel && phone) {
+            const distanceM = haversineMeters(vessel.lat, vessel.lon, phone.lat, phone.lon);
+            if (distanceM >= 200) {
+                setGpsConflict({ vessel, phone, distanceM });
+                setGpsLoading(false);
+                return; // the modal resolves it; applyGpsChoice finishes the job
+            }
+            loc = vessel;
+            setGpsSource('vessel');
+        } else if (vessel) {
+            loc = vessel;
+            setGpsSource('vessel');
+        } else if (phone) {
+            loc = phone;
+            setGpsSource('phone');
+        }
         if (!operationIsCurrent()) return;
         // Re-check after the await — a photo may have been attached while
         // the fix was in flight (openCompose fires this async).
-        if (loc && !locationFromPhotoRef.current) {
-            setLat(loc.lat);
-            setLon(loc.lon);
-            // Check anchor watch first — if active, use depth info
-            const anchorSnap = AnchorWatchService.getSnapshot();
-            const isAnchored = anchorSnap.state === 'watching' || anchorSnap.state === 'alarm';
-            // Reverse geocode for a readable place name
-            const placeName = await DiaryService.reverseGeocode(loc.lat, loc.lon);
-            if (!operationIsCurrent()) return;
-            if (isAnchored) {
-                const depth = anchorSnap.config.waterDepth;
-                const prefix = `Anchored in ${depth}m of water`;
-                setLocationName(placeName ? `${prefix} — ${placeName}` : prefix);
-            } else {
-                setLocationName(placeName || formatCoord(loc.lat, loc.lon));
-            }
-        }
+        await applyResolvedPosition(loc, operationIsCurrent);
         if (operationIsCurrent()) setGpsLoading(false);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [setGpsLoading, setLat, setLocationName, setLon]);
+
+    /** Pin the compose form at a resolved position (from either source or the modal). */
+    const applyResolvedPosition = useCallback(
+        async (loc: { lat: number; lon: number } | null, operationIsCurrent: () => boolean) => {
+            if (loc && !locationFromPhotoRef.current) {
+                setLat(loc.lat);
+                setLon(loc.lon);
+                // Check anchor watch first — if active, use depth info
+                const anchorSnap = AnchorWatchService.getSnapshot();
+                const isAnchored = anchorSnap.state === 'watching' || anchorSnap.state === 'alarm';
+                // Reverse geocode for a readable place name
+                const placeName = await DiaryService.reverseGeocode(loc.lat, loc.lon);
+                if (!operationIsCurrent()) return;
+                if (isAnchored) {
+                    const depth = anchorSnap.config.waterDepth;
+                    const prefix = `Anchored in ${depth}m of water`;
+                    setLocationName(placeName ? `${prefix} — ${placeName}` : prefix);
+                } else {
+                    setLocationName(placeName || formatCoord(loc.lat, loc.lon));
+                }
+            }
+        },
+        [setLat, setLocationName, setLon],
+    );
+
+    /** The skipper answered the pub-vs-passage question. */
+    const applyGpsChoice = useCallback(
+        (source: 'vessel' | 'phone') => {
+            const conflict = gpsConflict;
+            if (!conflict) return;
+            setGpsConflict(null);
+            setGpsSource(source);
+            setGpsLoading(true);
+            const scope = getAuthIdentityScope();
+            const session = composeSessionRef.current;
+            const stillCurrent = () =>
+                pageActiveRef.current && isAuthIdentityScopeCurrent(scope) && composeSessionRef.current === session;
+            void (async () => {
+                await applyResolvedPosition(source === 'vessel' ? conflict.vessel : conflict.phone, stillCurrent);
+                if (stillCurrent()) setGpsLoading(false);
+            })();
+        },
+        [gpsConflict, applyResolvedPosition, setGpsLoading],
+    );
     // ── Compose (new) ──────────────────────────────────────────
     /** Build a weather snapshot one-liner from current weather data */
     const buildWeatherSnapshot = useCallback((): string => {
@@ -1057,6 +1119,63 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
     if (showCompose) {
         return (
             <>
+                {gpsConflict && (
+                    <div
+                        className="fixed inset-0 z-[1200] flex flex-col justify-end bg-black/80"
+                        role="dialog"
+                        aria-modal="true"
+                    >
+                        <div className="rounded-t-3xl border-t border-sky-500/25 bg-slate-950 p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+                            <p className="text-sm font-black uppercase tracking-[0.14em] text-sky-300">
+                                Two positions, skipper
+                            </p>
+                            <p className="mt-1 text-xs leading-relaxed text-gray-400">
+                                The boat and this phone are{' '}
+                                {gpsConflict.distanceM >= 1852
+                                    ? `${(gpsConflict.distanceM / 1852).toFixed(1)} NM`
+                                    : `${Math.round(gpsConflict.distanceM)} m`}{' '}
+                                apart. Where does this entry belong?
+                            </p>
+                            <div className="mt-4 space-y-2">
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        triggerHaptic('light');
+                                        applyGpsChoice('vessel');
+                                    }}
+                                    className="flex min-h-14 w-full items-center gap-3 rounded-xl border border-cyan-500/25 bg-cyan-500/10 px-4 text-left"
+                                >
+                                    <span className="text-xl">⚓</span>
+                                    <span>
+                                        <span className="block text-sm font-bold text-cyan-200">On the boat</span>
+                                        <span className="block text-[11px] text-gray-400">
+                                            Pin it at the vessel —{' '}
+                                            {formatCoord(gpsConflict.vessel.lat, gpsConflict.vessel.lon)}
+                                        </span>
+                                    </span>
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        triggerHaptic('light');
+                                        applyGpsChoice('phone');
+                                    }}
+                                    className="flex min-h-14 w-full items-center gap-3 rounded-xl border border-violet-500/25 bg-violet-500/10 px-4 text-left"
+                                >
+                                    <span className="text-xl">📱</span>
+                                    <span>
+                                        <span className="block text-sm font-bold text-violet-200">
+                                            Where I'm standing
+                                        </span>
+                                        <span className="block text-[11px] text-gray-400">
+                                            Pin it here — {formatCoord(gpsConflict.phone.lat, gpsConflict.phone.lon)}
+                                        </span>
+                                    </span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
                 {trimRequest && (
                     <VideoTrimmer
                         file={trimRequest.file}
@@ -1082,7 +1201,11 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                     uploading={uploading}
                     polishing={polishing}
                     gpsLoading={gpsLoading}
-                    coordsLabel={lat != null && lon != null ? formatCoord(lat, lon) : null}
+                    coordsLabel={
+                        lat != null && lon != null
+                            ? `${gpsSource === 'vessel' ? '⚓ ' : gpsSource === 'phone' ? '📱 ' : ''}${formatCoord(lat, lon)}`
+                            : null
+                    }
                     polishStyle={polishStyle}
                     onSetTitle={setTitle}
                     onSetBody={setBody}
