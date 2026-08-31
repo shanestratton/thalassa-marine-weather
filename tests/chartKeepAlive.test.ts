@@ -35,7 +35,10 @@ describe('chart keep-alive', () => {
     });
 
     it('hides with display:none rather than unmounting', () => {
-        expect(app).toMatch(/style=\{chartVisible \? undefined : \{ display: 'none' \}\}/);
+        // Since split view the style is a three-outfit ternary (fixed over the
+        // split frame / full-bleed / hidden), but the keep-alive half of the
+        // contract is unchanged: off-screen means display:none, NEVER unmount.
+        expect(app).toMatch(/chartVisible\s*\?\s*undefined\s*:\s*\{ display: 'none' \}/);
     });
 
     it('never lowers the latch — once alive, alive for the process', () => {
@@ -46,8 +49,10 @@ describe('chart keep-alive', () => {
 
     it('moves the main-content id with visibility, so it is never duplicated', () => {
         // Both <main> elements can now exist at once; two id="main-content"
-        // would break skip-links and any getElementById caller.
-        expect(app).toMatch(/id=\{chartVisible \? 'main-content' : undefined\}/);
+        // would break skip-links and any getElementById caller. In split the
+        // frames <main> renders too and owns the id, so the chart's claim is
+        // additionally gated on NOT being split.
+        expect(app).toMatch(/id=\{chartVisible && !splitChartActive \? 'main-content' : undefined\}/);
     });
 
     it('rebuilds on token PRESENCE, never on token value', () => {

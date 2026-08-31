@@ -32,6 +32,8 @@ const EXISTING_PROTECTED_FUNCTIONS = {
 
 const EXISTING_CREDENTIALLESS_ALLOWLIST = {
     'apple-server-notification': 'provider-signed Apple JWS webhook',
+    'diary-relay':
+        'Pi relay authenticates with its own relay token by design; pair/upsert/cancel verify user JWTs internally',
     'feedback-submission':
         'public feedback form with exact-origin CORS, HMAC per-client quota, strict validation, and service-role-only RPC',
     'float-plan': 'database-free tombstone for historical public links',

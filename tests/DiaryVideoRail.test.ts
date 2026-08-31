@@ -19,10 +19,18 @@ const migration = readFileSync(resolve(process.cwd(), 'supabase/migrations/20260
 describe('diary video rail', () => {
     it('the drain uploads the clip, adopts the ref, then deletes the local blob', () => {
         expect(service).toContain('if (videoUrl && isIdbVideo(videoUrl)) {');
-        // Pi-first, phone-fallback — the pair must stay together: park on the
-        // boat when it is there, spend the phone's uplink only when it is not.
-        expect(service).toContain("(await this._parkVideoOnPi(blob, entry.client_operation_id ?? '', scope)) ??");
-        expect(service).toContain('(await this._uploadVideoBlob(blob, scope));');
+        // Phone-first, Pi-fallback (Shane, 2026-08-31: "if the phone can
+        // upload direct, all the better. but if it cant, then pi first, as
+        // always. if it exists") — and the direct attempt is only impatient
+        // when a Pi is actually standing by to catch the clip.
+        expect(service).toContain('const piStandingBy = isPiVideoRelayAvailable(scope);');
+        // Whitespace-tolerant: prettier owns the line breaks, the ORDER is
+        // the contract — direct attempt first, Pi park second.
+        const drainFlat = service.replace(/\s+/g, ' ');
+        expect(drainFlat).toContain(
+            '(await this._uploadVideoBlob( blob, scope, piStandingBy ? directVideoBudgetMs(blob.size) : null, )) ??',
+        );
+        expect(drainFlat).toContain("(await this._parkVideoOnPi(blob, entry.client_operation_id ?? '', scope));");
         expect(service).toContain('adoptStorageRefs(VIDEO_BUCKET, [uploaded]);');
         expect(service).toContain('await this.discardUnsavedVideo(idbRef);');
         // An entry must never reach the server while its clip is still local.

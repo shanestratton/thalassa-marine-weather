@@ -376,6 +376,17 @@ function chunkToBase64(bytes: Uint8Array): string {
  * mid-transfer as a matter of routine — a resend of one 4MB chunk beats a
  * restart of the lot.
  */
+/**
+ * Cheap, no-network: is a paired Pi standing by to catch a video fallback?
+ * Mirrors handoffVideoToPi's own gate so the caller can decide how patient a
+ * DIRECT upload should be — with a Pi behind it, giving up early is safe.
+ */
+export function isPiVideoRelayAvailable(scope: AuthIdentityScope): boolean {
+    if (!PI_INTEGRATION_ENABLED || !piCache.isAvailable() || !scope.userId) return false;
+    const status = piCache.getStatus();
+    return Boolean(status.diaryRelayConfigured && status.diaryRelayOwnerId === scope.userId);
+}
+
 export async function handoffVideoToPi(blob: Blob, clientOperationId: string, path: string): Promise<boolean> {
     if (!PI_INTEGRATION_ENABLED || !piCache.isAvailable() || !validOperationId(clientOperationId)) return false;
     const scope = getAuthIdentityScope();

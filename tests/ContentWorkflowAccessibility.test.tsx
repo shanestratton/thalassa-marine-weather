@@ -384,7 +384,9 @@ describe('content workflow dialog accessibility', () => {
     });
 
     it('keeps the view private when Voyage Log setup is unavailable after saving publish intent', async () => {
-        serviceMocks.ensureEnabled.mockResolvedValueOnce(null);
+        // Two nulls: a single transient failure is absorbed by the automatic
+        // retry and never surfaces — the alert only appears when both fail.
+        serviceMocks.ensureEnabled.mockResolvedValueOnce(null).mockResolvedValueOnce(null);
         const onPublishChange = vi.fn();
         render(<DiaryPublishModal entry={diaryEntry} onClose={vi.fn()} onPublishChange={onPublishChange} />);
 
