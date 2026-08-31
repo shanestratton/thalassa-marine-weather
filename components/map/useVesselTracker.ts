@@ -1,16 +1,27 @@
 /**
  * useVesselTracker — Live vessel position layer using BgGeoManager.
  *
- * Shows a rotatable vessel icon on the map that updates in real-time
- * from the BackgroundGeolocation plugin. Includes heading indicator,
- * SOG display, accuracy ring, and a fading wake trail.
+ * Shows a rotatable vessel icon on the map that updates in real-time.
+ * Includes heading indicator, SOG display, accuracy ring, and a fading
+ * wake trail.
  *
- * Falls back to GpsService.watchPosition on web (no BgGeo).
+ * Position goes through the ownship arbiter — the NMEA feed while it is
+ * fresh, phone GPS as the fallback. This marker is literally labelled
+ * "vessel" and yet it watched only the phone, which parked the arrow on
+ * the skipper's HOUSE while the boat sat on her marina berth streaming
+ * her real position the whole time (Shane, 2026-08-31: "the obs is STILL
+ * showing my home"). When NMEA wins, the badge shows the boat's actual
+ * SOG and the arrow her COG — not the phone jiggling in a pocket.
  */
 import mapboxgl from 'mapbox-gl';
 import { useEffect, useRef, useCallback, type MutableRefObject } from 'react';
 import { BgGeoManager, type CachedPosition } from '../../services/BgGeoManager';
 import { GpsService } from '../../services/GpsService';
+import { NmeaGpsProvider } from '../../services/NmeaGpsProvider';
+import { NmeaListenerService } from '../../services/NmeaListenerService';
+import { NmeaStore } from '../../services/NmeaStore';
+import { resolveOwnshipPosition } from '../../services/ownshipPosition';
+import { LocationStore } from '../../stores/LocationStore';
 import { GPS_STALE_LIMIT_MS, GPS_VERY_STALE_MS } from '../../services/shiplog/PositionResolver';
 import { formatAge } from '../../services/GpsReceiverStatusService';
 import { createLogger } from '../../utils/createLogger';
@@ -243,7 +254,7 @@ export function useVesselTracker(mapRef: MutableRefObject<mapboxgl.Map | null>, 
     const lastFixAtRef = useRef<number | null>(null);
 
     const updateMarker = useCallback(
-        (pos: CachedPosition) => {
+        (pos: CachedPosition, viaVessel = false) => {
             const map = mapRef.current;
             if (!map || !visible) return;
 
@@ -275,6 +286,8 @@ export function useVesselTracker(mapRef: MutableRefObject<mapboxgl.Map | null>, 
             } else {
                 markerRef.current.setLngLat([longitude, latitude]);
             }
+            // A quiet tell for anyone debugging which truth the arrow is on.
+            if (elementRef.current) elementRef.current.dataset.source = viaVessel ? 'vessel' : 'phone';
 
             // Heading
             const arrowEl = elementRef.current?.querySelector('.vessel-arrow') as HTMLElement;
@@ -332,21 +345,64 @@ export function useVesselTracker(mapRef: MutableRefObject<mapboxgl.Map | null>, 
         }
         const map = mapRef.current;
 
+        // The NMEA store only ingests once something starts it. Boot claims
+        // it when a gateway is saved, but this marker must not depend on that
+        // ordering — same belt-and-braces as TheGlassPage and the location
+        // dot. Idempotent, and the config gate means a phone that has never
+        // met a gateway opens no sockets.
+        if (NmeaListenerService.getSavedConfig()) NmeaStore.start();
+
+        // Every paint goes through the ownship arbiter. The phone watch stays
+        // as both the fallback position and a repaint tick; NMEA repaints
+        // through its own subscription below.
+        const paint = (phone?: {
+            latitude: number;
+            longitude: number;
+            accuracy?: number | null;
+            altitude?: number | null;
+            heading?: number | null;
+            speed?: number | null;
+            timestamp?: number | null;
+        }) => {
+            const own = resolveOwnshipPosition(NmeaStore.getState(), LocationStore.getState());
+            if (own && own.source === 'nmea') {
+                updateMarker(
+                    {
+                        latitude: own.lat,
+                        longitude: own.lon,
+                        accuracy: 15,
+                        altitude: null,
+                        // COG of exactly 0 is also the arbiter's "unknown" —
+                        // keep the last heading rather than snapping north.
+                        heading: own.cog > 0 ? own.cog : null,
+                        // The arbiter speaks knots; the marker eats m/s.
+                        speed: own.sog / 1.94384,
+                        timestamp: own.timestamp,
+                        receivedAt: Date.now(),
+                    },
+                    true,
+                );
+                return;
+            }
+            if (!phone) return;
+            updateMarker({
+                latitude: phone.latitude,
+                longitude: phone.longitude,
+                accuracy: phone.accuracy ?? 50,
+                altitude: phone.altitude ?? null,
+                heading: phone.heading ?? null,
+                speed: phone.speed ?? 0,
+                timestamp: phone.timestamp ?? Date.now(),
+                receivedAt: Date.now(),
+            });
+        };
+
         // Passive foreground watch: it consumes an existing Location grant
         // but never initializes background tracking or raises permission UI
         // merely because the chart was restored at launch.
-        const unsub = GpsService.watchPosition((pos) => {
-            updateMarker({
-                latitude: pos.latitude,
-                longitude: pos.longitude,
-                accuracy: pos.accuracy ?? 50,
-                altitude: pos.altitude ?? null,
-                heading: pos.heading ?? null,
-                speed: pos.speed ?? 0,
-                timestamp: pos.timestamp ?? Date.now(),
-                receivedAt: Date.now(),
-            });
-        });
+        const unsub = GpsService.watchPosition((pos) => paint(pos));
+        const unsubNmea = NmeaGpsProvider.onPosition(() => paint());
+        paint();
 
         // Staleness ticker — the only path that can grey the marker once
         // fixes STOP arriving (see lastFixAtRef comment).
@@ -360,6 +416,7 @@ export function useVesselTracker(mapRef: MutableRefObject<mapboxgl.Map | null>, 
         return () => {
             window.clearInterval(staleTicker);
             unsub?.();
+            unsubNmea();
             if (markerRef.current) {
                 markerRef.current.remove();
                 markerRef.current = null;
@@ -373,6 +430,19 @@ export function useVesselTracker(mapRef: MutableRefObject<mapboxgl.Map | null>, 
     const flyToVessel = useCallback(() => {
         const map = mapRef.current;
         if (!map) return;
+
+        // The boat's own answer first — flying "to the vessel" must not mean
+        // flying to the phone while the NMEA feed is live.
+        const own = resolveOwnshipPosition(NmeaStore.getState(), LocationStore.getState());
+        if (own && own.source === 'nmea') {
+            map.flyTo({
+                center: [own.lon, own.lat],
+                zoom: 14,
+                duration: 1200,
+                essential: true,
+            });
+            return;
+        }
 
         const pos = BgGeoManager.getLastPosition();
         if (pos) {

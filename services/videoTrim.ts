@@ -215,6 +215,24 @@ export async function trimVideoLossless(source: Blob, startSec: number, windowSe
  * silently on big blobs, which left the trimmer looking like it "did not
  * load". mp4box reads the buffer directly and finds the index wherever it is.
  */
+/**
+ * Remux a clip into a genuine ISO-BMFF MP4 without touching a single frame.
+ *
+ * iPhone camera files are QuickTime containers (`ftyp` brand `qt`) even when
+ * the codecs inside are plain H.264 + AAC. Renaming one `.mp4` fools nobody:
+ * Chrome's demuxer rejects the `qt` brand outright, which is exactly how a
+ * perfectly good clip showed as a crossed-out play button on the public
+ * voyage log (Shane, 2026-08-31). The trim machinery already rebuilds a clean
+ * MP4 from raw samples, so a remux is just a trim whose window is the whole
+ * film — and it drops Apple's metadata tracks, including the embedded
+ * recording GPS, which has no business in a public file anyway.
+ */
+export async function remuxVideoLossless(source: Blob): Promise<TrimResult> {
+    const durationSec = await probeVideoDurationSeconds(source);
+    // Comfortably past the end — the cut keeps everything from frame one.
+    return trimVideoLossless(source, 0, (durationSec ?? 3600) + 2);
+}
+
 export async function probeVideoDurationSeconds(source: Blob): Promise<number | null> {
     try {
         const buffer = await source.arrayBuffer();

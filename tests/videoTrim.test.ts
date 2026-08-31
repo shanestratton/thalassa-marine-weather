@@ -12,7 +12,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-import { trimVideoLossless } from '../services/videoTrim';
+import { probeVideoDurationSeconds, remuxVideoLossless, trimVideoLossless } from '../services/videoTrim';
 
 const fixture = (name: string) => resolve(process.cwd(), 'tests/fixtures', name);
 const have = (name: string) => existsSync(fixture(name));
@@ -47,5 +47,37 @@ describe('trimVideoLossless', () => {
 
     it('refuses a file that is not a video, with words rather than a hang', async () => {
         await expect(trimVideoLossless(new Blob([new Uint8Array(4096)]), 0, 60)).rejects.toThrow();
+    });
+});
+
+describe('remuxVideoLossless', () => {
+    it.skipIf(!have('trim-hevc.mov'))('rebrands a QuickTime camera file as a real MP4', async () => {
+        const source = load('trim-hevc.mov');
+        // Precondition: the fixture really is what an iPhone hands over — a
+        // qt-brand container. If ffmpeg ever changes this, the test is void.
+        const srcBytes = new Uint8Array(await source.arrayBuffer());
+        expect(new TextDecoder().decode(srcBytes.slice(8, 12))).toBe('qt  ');
+
+        const result = await remuxVideoLossless(source);
+        const outBytes = new Uint8Array(await result.blob.arrayBuffer());
+        // Chrome rejects brand `qt` outright — the whole point of the remux
+        // (the public voyage log's crossed-out play button, 2026-08-31).
+        expect(new TextDecoder().decode(outBytes.slice(8, 12))).not.toBe('qt  ');
+        expect(result.blob.type).toBe('video/mp4');
+    });
+
+    it.skipIf(!have('trim-hevc.mov'))('keeps the whole film — same duration, roughly same bytes', async () => {
+        const source = new Blob([load('trim-hevc.mov')]);
+        const inDuration = await probeVideoDurationSeconds(source);
+        const result = await remuxVideoLossless(source);
+        const outDuration = await probeVideoDurationSeconds(result.blob);
+        expect(inDuration).not.toBeNull();
+        expect(outDuration).not.toBeNull();
+        // Keyframe snap at 0 keeps frame one; the tail is never cut.
+        expect(Math.abs((outDuration ?? 0) - (inDuration ?? 0))).toBeLessThan(1.5);
+        // Lossless: no re-encode means no meaningful size change either way.
+        const ratio = result.blob.size / source.size;
+        expect(ratio).toBeGreaterThan(0.85);
+        expect(ratio).toBeLessThan(1.1);
     });
 });

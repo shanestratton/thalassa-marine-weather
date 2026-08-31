@@ -776,7 +776,27 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
             URL.revokeObjectURL(probeUrl);
             setUploading(false);
         }
-        await adoptVideoBlob(file);
+        await adoptCameraVideo(file);
+    };
+    /**
+     * Camera files are QuickTime containers even when the codecs inside are
+     * web-friendly, and the public page hands them to browsers that reject the
+     * `qt` brand outright (Chrome; Safari sulks too) — so every accepted clip
+     * is remuxed into a real MP4 before adoption. Lossless: same frames, same
+     * audio, a container browsers recognise, minus Apple's embedded recording
+     * GPS. If the remux chokes on an exotic file the original still goes
+     * through — a clip that only plays in the app beats one silently lost.
+     */
+    const adoptCameraVideo = async (file: File) => {
+        setUploading(true);
+        let accepted: Blob = file;
+        try {
+            const { remuxVideoLossless } = await import('../services/videoTrim');
+            accepted = (await remuxVideoLossless(file)).blob;
+        } catch (err) {
+            log.warn('Video remux failed — adopting the original container', err);
+        }
+        await adoptVideoBlob(accepted);
     };
     /** Park an accepted clip (picked short, or freshly cut) as the entry's video. */
     const adoptVideoBlob = async (blob: Blob) => {

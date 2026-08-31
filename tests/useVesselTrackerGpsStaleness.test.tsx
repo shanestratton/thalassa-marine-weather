@@ -81,7 +81,19 @@ vi.mock('../services/BgGeoManager', () => ({
 // PositionResolver is imported for real (it owns THE app-wide staleness
 // thresholds this suite pins); its service imports resolve to the mocks
 // above plus this stub.
-vi.mock('../services/NmeaGpsProvider', () => ({ NmeaGpsProvider: {} }));
+// The tracker now paints through the ownship arbiter (2026-08-31: the arrow
+// sat on the house while the boat streamed from her berth). These stubs keep
+// this suite about the STALENESS clock: no saved gateway, an empty NMEA
+// state, so the arbiter always falls through to the mocked phone GPS.
+vi.mock('../services/NmeaGpsProvider', () => ({
+    NmeaGpsProvider: { onPosition: () => () => {}, start: vi.fn() },
+}));
+vi.mock('../services/NmeaListenerService', () => ({
+    NmeaListenerService: { getSavedConfig: () => null },
+}));
+vi.mock('../services/NmeaStore', () => ({
+    NmeaStore: { getState: () => ({}), start: vi.fn() },
+}));
 
 // The real GpsReceiverStatusService drags in the NMEA/native-receiver
 // stack. formatAge below mirrors the real export byte-for-byte
