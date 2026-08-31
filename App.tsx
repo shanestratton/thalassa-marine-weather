@@ -1099,7 +1099,14 @@ const App: React.FC = () => {
                                                         // where it expects. Using its own numbers, not guessed
                                                         // pixels, so it stays correct if the layout is retuned.
                                                         marginTop: `calc(-1 * (max(1rem, env(safe-area-inset-top)) + ${glassTopLayout.locationHeaderHeightPx}px))`,
-                                                        height: `calc(100% + max(1rem, env(safe-area-inset-top)) + ${glassTopLayout.locationHeaderHeightPx}px)`,
+                                                        // Same correction at the bottom: the Glass anchors its footer at
+                                                        // fixed bottom safe-inset+74px and its hero at +124px, clearing a
+                                                        // tab bar that — in split — the frame has already cleared. Extend
+                                                        // the pane past the frame bottom by that allowance (less 8px so
+                                                        // the badge row keeps a breath of margin); the frame clips the
+                                                        // rest. INSHORE/ECMWF land at the visible bottom and the tide
+                                                        // graph stretches to meet them, exactly as on the phone.
+                                                        height: `calc(100% + max(1rem, env(safe-area-inset-top)) + ${glassTopLayout.locationHeaderHeightPx}px + env(safe-area-inset-bottom) + 66px)`,
                                                     }}
                                                 >
                                                     {glassContent}
@@ -1113,62 +1120,81 @@ const App: React.FC = () => {
                                                     : 'absolute inset-0'
                                             }
                                         >
-                                            <PageTransition
-                                                pageKey={currentView}
-                                                direction={transitionDirection}
-                                                canSwipeBack={false}
-                                                onSwipeBack={() => setPage('vessel')}
+                                            {/* Every page pads its own bottom to clear the tab bar that floats
+                                                over it on the phone — but in split, the frame has already cleared
+                                                the bar, so that padding became a dead band (the Instrument
+                                                Panel's wind roses floated with "heaps of room" below them).
+                                                Stretch the pane's inner surface down by exactly the allowance
+                                                the container removed: pages behave as if the bar still overlaid
+                                                them, the frame clips the excess, and every page's own clearance
+                                                lands at the frame bottom. One rule, all pages. */}
+                                            <div
+                                                className="absolute inset-x-0 top-0"
+                                                style={
+                                                    splitActive
+                                                        ? {
+                                                              height: 'calc(100% + 4.5rem + env(safe-area-inset-bottom))',
+                                                          }
+                                                        : { height: '100%' }
+                                                }
                                             >
-                                                <div className="h-full overflow-y-auto overflow-x-hidden">
-                                                    {/* Dashboard — special case with error/loading states */}
-                                                    {currentView === 'dashboard' && glassContent}
+                                                <PageTransition
+                                                    pageKey={currentView}
+                                                    direction={transitionDirection}
+                                                    canSwipeBack={false}
+                                                    onSwipeBack={() => setPage('vessel')}
+                                                >
+                                                    <div className="h-full overflow-y-auto overflow-x-hidden">
+                                                        {/* Dashboard — special case with error/loading states */}
+                                                        {currentView === 'dashboard' && glassContent}
 
-                                                    {/* Registry-driven views — all non-dashboard/non-map pages */}
-                                                    {activeViewConfig &&
-                                                        (() => {
-                                                            const ViewComponent = activeViewConfig.component;
-                                                            const viewCtx: ViewContext = {
-                                                                setPage,
-                                                                previousView,
-                                                                setIsUpgradeOpen,
-                                                                settings: settings as unknown as Record<
-                                                                    string,
-                                                                    unknown
-                                                                >,
-                                                                updateSettings: updateSettings as unknown as (
-                                                                    u: Record<string, unknown>,
-                                                                ) => void,
-                                                                handleFavoriteSelect,
-                                                                weatherAlerts: weatherData?.alerts || [],
-                                                            };
-                                                            const viewProps =
-                                                                activeViewConfig.getProps?.(viewCtx) ?? {};
-                                                            const rendered = <ViewComponent {...viewProps} />;
-                                                            // If this view is gated, PaywallGate decides whether to
-                                                            // render the page or the upsell card based on the user's
-                                                            // subscription tier. See services/SubscriptionService for
-                                                            // the FEATURE_GATES table.
-                                                            const gated = activeViewConfig.gatedFeature ? (
-                                                                <PaywallGate
-                                                                    feature={activeViewConfig.gatedFeature}
-                                                                    onUpgrade={() => setIsUpgradeOpen(true)}
-                                                                    onBack={() => setPage('vessel')}
-                                                                >
-                                                                    {rendered}
-                                                                </PaywallGate>
-                                                            ) : (
-                                                                rendered
-                                                            );
-                                                            return (
-                                                                <ErrorBoundary
-                                                                    boundaryName={activeViewConfig.boundaryName}
-                                                                >
-                                                                    {gated}
-                                                                </ErrorBoundary>
-                                                            );
-                                                        })()}
-                                                </div>
-                                            </PageTransition>
+                                                        {/* Registry-driven views — all non-dashboard/non-map pages */}
+                                                        {activeViewConfig &&
+                                                            (() => {
+                                                                const ViewComponent = activeViewConfig.component;
+                                                                const viewCtx: ViewContext = {
+                                                                    setPage,
+                                                                    previousView,
+                                                                    setIsUpgradeOpen,
+                                                                    settings: settings as unknown as Record<
+                                                                        string,
+                                                                        unknown
+                                                                    >,
+                                                                    updateSettings: updateSettings as unknown as (
+                                                                        u: Record<string, unknown>,
+                                                                    ) => void,
+                                                                    handleFavoriteSelect,
+                                                                    weatherAlerts: weatherData?.alerts || [],
+                                                                };
+                                                                const viewProps =
+                                                                    activeViewConfig.getProps?.(viewCtx) ?? {};
+                                                                const rendered = <ViewComponent {...viewProps} />;
+                                                                // If this view is gated, PaywallGate decides whether to
+                                                                // render the page or the upsell card based on the user's
+                                                                // subscription tier. See services/SubscriptionService for
+                                                                // the FEATURE_GATES table.
+                                                                const gated = activeViewConfig.gatedFeature ? (
+                                                                    <PaywallGate
+                                                                        feature={activeViewConfig.gatedFeature}
+                                                                        onUpgrade={() => setIsUpgradeOpen(true)}
+                                                                        onBack={() => setPage('vessel')}
+                                                                    >
+                                                                        {rendered}
+                                                                    </PaywallGate>
+                                                                ) : (
+                                                                    rendered
+                                                                );
+                                                                return (
+                                                                    <ErrorBoundary
+                                                                        boundaryName={activeViewConfig.boundaryName}
+                                                                    >
+                                                                        {gated}
+                                                                    </ErrorBoundary>
+                                                                );
+                                                            })()}
+                                                    </div>
+                                                </PageTransition>
+                                            </div>
                                         </div>
                                     </div>
                                 </Suspense>
