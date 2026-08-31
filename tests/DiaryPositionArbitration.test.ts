@@ -56,6 +56,15 @@ describe('diary position arbitration — the pub-vs-passage question', () => {
         expect(page).toMatch(/loc = phone;\s*\n\s*setGpsSource\('phone'\);/);
     });
 
+    it('a GPS-tagged photo asks before moving ANY resolved pin — new entries included', () => {
+        // The silent photo-wins path is only for an entry with no pin at all.
+        // A new entry the arbiter just pinned to the boat must not be dragged
+        // ashore by a photo without the skipper agreeing (2026-09-01).
+        expect(page).toContain('const hasExistingPin = lat !== null && lon !== null;');
+        expect(page).not.toContain('editingId !== null && lat !== null');
+        expect(page).toContain('setPhotoPinPrompt({ lat: exif.lat, lon: exif.lon, movedM });');
+    });
+
     it('the modal offers exactly the two honest answers', () => {
         expect(page).toContain('Two positions, skipper');
         expect(page).toContain("applyGpsChoice('vessel')");

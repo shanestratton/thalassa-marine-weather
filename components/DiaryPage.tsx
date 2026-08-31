@@ -681,18 +681,20 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
         // where it was taken, pin the entry there instead of at the
         // compose-time device fix (the "photo shows at the start of the
         // track" bug: entries written up back at the berth pinned the
-        // story at the marina). First photo with GPS wins — but ONLY
-        // silently for a NEW entry or one with no position. An EXISTING
-        // pin is never moved without asking (Shane 2026-08-03: "editing
-        // shouldn't update the gps position") — a dinner photo added at
-        // home must not quietly re-pin a voyage entry to the house on a
-        // public page. The confirm keeps the deliberate repair path:
-        // re-attach the original photo, accept the prompt, pin fixed.
+        // story at the marina). First photo with GPS wins silently ONLY
+        // while the entry has no pin at all. ANY resolved pin — including
+        // a brand-new entry the arbiter just pinned to the BOAT — gets
+        // the question instead (Shane 2026-08-03: "editing shouldn't
+        // update the gps position"; and 2026-09-01: a mast photo taken
+        // ashore silently dragged a new entry off the yacht to Newport,
+        // past the whole vessel arbitration, with Signal K live). The
+        // confirm keeps the deliberate repair path: attach the original
+        // photo, accept the prompt, pin fixed.
         try {
             const exif = await extractPhotoExif(file);
             if (!operationIsCurrent()) return;
             if (exif && !locationFromPhotoRef.current) {
-                const hasExistingPin = editingId !== null && lat !== null && lon !== null;
+                const hasExistingPin = lat !== null && lon !== null;
                 if (hasExistingPin) {
                     const movedM = haversineDistance(lat, lon, exif.lat, exif.lon);
                     // Same spot (GPS scatter) — nothing worth asking about.
