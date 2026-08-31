@@ -2,6 +2,7 @@ import mapboxgl from 'mapbox-gl';
 import { useEffect, type MutableRefObject } from 'react';
 import { GpsService } from '../../services/GpsService';
 import { NmeaGpsProvider } from '../../services/NmeaGpsProvider';
+import { NmeaListenerService } from '../../services/NmeaListenerService';
 import { NmeaStore } from '../../services/NmeaStore';
 import { resolveOwnshipPosition } from '../../services/ownshipPosition';
 import { LocationStore } from '../../stores/LocationStore';
@@ -26,6 +27,15 @@ export function useLocationDot(
     useEffect(() => {
         const map = mapRef.current;
         if (!map || !mapReady) return;
+
+        // The NMEA store only ingests once something starts it, and until now
+        // that something was the Instrument Panel — so a skipper who launched
+        // the app straight into the chart got a phone-positioned dot while the
+        // boat streamed unheard (Shane, 2026-08-31: "instrument panel is
+        // correct, obs screen is incorrect"). Claim it here exactly the way
+        // TheGlassPage does: start() is idempotent, and the config gate means
+        // a phone that has never met a gateway opens no sockets.
+        if (NmeaListenerService.getSavedConfig()) NmeaStore.start();
 
         const place = (latitude: number, longitude: number, viaVessel: boolean) => {
             if (!locationDotRef.current) {
