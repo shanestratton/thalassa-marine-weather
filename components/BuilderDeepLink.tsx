@@ -4,10 +4,12 @@
  * Mounted once in App.tsx; renders nothing unless the session STARTED
  * on a builder URL (thalassawx.app/plan or /builder — the "Skipper"
  * link on every yacht's public voyage-log page). uiStore has already
- * booted the app straight onto the map view; this component owns the
- * auth step: wait for the boot session probe, require sign-in when
- * there's no session, then fire the pending tracer-open request MapHub
- * consumes.
+ * booted the app onto the PLANNER front door (Trip·Legs, departure,
+ * saved routes — the same pre-flight as the phone; 2026-09-02, so a
+ * new leg can actually be started on the web). This component owns
+ * only the auth step: wait for the boot session probe and require
+ * sign-in when there's no session. The tracer opens the normal way —
+ * the front door's slide.
  *
  * The gate is a WALL, not a door (Shane, 2026-07-28: "if a punter is
  * not signed in, then he should not be able to get to that page at
@@ -22,7 +24,7 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { isBuilderDeepLink, requestTracerOpen } from '../services/deepLink';
+import { isBuilderDeepLink } from '../services/deepLink';
 import { useAuthStore } from '../stores/authStore';
 import { SignInScreen } from './SignInScreen';
 
@@ -39,11 +41,10 @@ export const BuilderDeepLink: React.FC = () => {
         if (user) {
             if (done) return;
             // Session in hand (boot probe or a just-completed sign-in) —
-            // open the builder. MapHub's mount effect or the window
-            // event picks this up whichever mounts first.
+            // lower the wall. The planner front door is already on screen;
+            // its slide fires the tracer-open request itself.
             setDone(true);
             setShowSignIn(false);
-            requestTracerOpen();
         } else {
             // No session. This now covers an explicit sign-out from
             // PlanSignOutButton AFTER the gate had already passed, so `done`
