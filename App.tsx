@@ -1055,44 +1055,59 @@ const App: React.FC = () => {
                                 <Suspense
                                     fallback={currentView === 'dashboard' ? <SkeletonDashboard /> : <SkeletonPage />}
                                 >
-                                    <div className={`relative flex-1 overflow-hidden ${splitActive ? 'flex' : ''}`}>
+                                    <div
+                                        className={`relative flex-1 overflow-hidden ${
+                                            splitActive ? 'flex gap-2 bg-slate-950 p-2' : ''
+                                        }`}
+                                    >
                                         {splitActive && (
-                                            <aside
-                                                aria-label="The Glass"
-                                                // The Glass assumes it owns the viewport: its header is
-                                                // `position: fixed; width: 100%`, which ignores `relative`
-                                                // and painted straight over the right pane at full width.
-                                                // `contain: paint` makes this box a containing block for
-                                                // fixed descendants — the pane becomes the pane's viewport,
-                                                // which is exactly what a split needs, and it does it
-                                                // without touching the frozen Glass markup or forcing a
-                                                // compositing layer the way a transform hack would.
-                                                className="relative h-full w-1/2 shrink-0 overflow-y-auto overflow-x-hidden border-r border-white/10"
-                                                style={{
-                                                    contain: 'paint',
-                                                    // The Glass reserves `locationHeaderHeightPx` at its top —
-                                                    // the brand row plus the location card — because on a phone
-                                                    // that chrome sits inside its viewport. In split, App draws
-                                                    // that chrome ABOVE both panes, so the reservation is pure
-                                                    // dead space and the content floats in the middle with a
-                                                    // band above and the tide half off the bottom.
-                                                    //
-                                                    // The safe-area inset is double-counted for the same reason:
-                                                    // the header already cleared it. Pull the pane up by both,
-                                                    // give the height back, and the Glass's own arithmetic lands
-                                                    // where it expects. Using its own numbers, not guessed
-                                                    // pixels, so it stays correct if the layout is retuned.
-                                                    marginTop: `calc(-1 * (max(1rem, env(safe-area-inset-top)) + ${glassTopLayout.locationHeaderHeightPx}px))`,
-                                                    height: `calc(100% + max(1rem, env(safe-area-inset-top)) + ${glassTopLayout.locationHeaderHeightPx}px)`,
-                                                }}
+                                            <section
+                                                // The frame owns the border, the rounding and the clip;
+                                                // the aside inside keeps its negative-margin compensation
+                                                // and the frame's overflow-hidden clips the dead reserved
+                                                // band exactly as the app header used to cover it. The
+                                                // cyan edge marks the PINNED pane — the same neon the tab
+                                                // bar speaks — while the right pane stays neutral so the
+                                                // eye knows which side will change when a tab is pressed.
+                                                className="h-full min-w-0 flex-1 overflow-hidden rounded-2xl border border-cyan-400/25 bg-slate-950 shadow-[0_0_28px_rgba(34,211,238,0.10),inset_0_1px_0_rgba(255,255,255,0.06)]"
                                             >
-                                                {glassContent}
-                                            </aside>
+                                                <aside
+                                                    aria-label="The Glass"
+                                                    // The Glass assumes it owns the viewport: its header is
+                                                    // `position: fixed; width: 100%`, which ignores `relative`
+                                                    // and painted straight over the right pane at full width.
+                                                    // `contain: paint` makes this box a containing block for
+                                                    // fixed descendants — the pane becomes the pane's viewport,
+                                                    // which is exactly what a split needs, and it does it
+                                                    // without touching the frozen Glass markup or forcing a
+                                                    // compositing layer the way a transform hack would.
+                                                    className="relative h-full w-full overflow-y-auto overflow-x-hidden"
+                                                    style={{
+                                                        contain: 'paint',
+                                                        // The Glass reserves `locationHeaderHeightPx` at its top —
+                                                        // the brand row plus the location card — because on a phone
+                                                        // that chrome sits inside its viewport. In split, App draws
+                                                        // that chrome ABOVE both panes, so the reservation is pure
+                                                        // dead space and the content floats in the middle with a
+                                                        // band above and the tide half off the bottom.
+                                                        //
+                                                        // The safe-area inset is double-counted for the same reason:
+                                                        // the header already cleared it. Pull the pane up by both,
+                                                        // give the height back, and the Glass's own arithmetic lands
+                                                        // where it expects. Using its own numbers, not guessed
+                                                        // pixels, so it stays correct if the layout is retuned.
+                                                        marginTop: `calc(-1 * (max(1rem, env(safe-area-inset-top)) + ${glassTopLayout.locationHeaderHeightPx}px))`,
+                                                        height: `calc(100% + max(1rem, env(safe-area-inset-top)) + ${glassTopLayout.locationHeaderHeightPx}px)`,
+                                                    }}
+                                                >
+                                                    {glassContent}
+                                                </aside>
+                                            </section>
                                         )}
                                         <div
                                             className={
                                                 splitActive
-                                                    ? 'relative h-full w-1/2 overflow-hidden'
+                                                    ? 'relative h-full min-w-0 flex-1 overflow-hidden rounded-2xl border border-white/10 bg-slate-950 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]'
                                                     : 'absolute inset-0'
                                             }
                                         >
