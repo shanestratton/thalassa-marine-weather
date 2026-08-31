@@ -271,11 +271,14 @@ describe('DiaryService.setEntryPublished server confirmation', () => {
         relay.submitDiaryDirect
             .mockResolvedValueOnce(null)
             .mockImplementationOnce(async (payload: { client_operation_id: string; client_revision: number }) => ({
-                id: 'server-public',
-                user_id: userId,
-                is_public: true,
-                client_operation_id: payload.client_operation_id,
-                client_revision: payload.client_revision,
+                status: 'accepted',
+                entry: {
+                    id: 'server-public',
+                    user_id: userId,
+                    is_public: true,
+                    client_operation_id: payload.client_operation_id,
+                    client_revision: payload.client_revision,
+                },
             }));
         Object.defineProperty(globalThis.navigator, 'onLine', { value: true, configurable: true });
         setAuthIdentityScope(userId);
@@ -338,7 +341,7 @@ describe('DiaryService.setEntryPublished server confirmation', () => {
             is_public: false,
         };
         relay.handoffDiaryToPi.mockResolvedValue({ accepted: true, status: 'synced', entry: stale });
-        relay.submitDiaryDirect.mockResolvedValue(stale);
+        relay.submitDiaryDirect.mockResolvedValue({ status: 'accepted', entry: stale });
 
         await DiaryService.syncPending();
 
@@ -426,10 +429,13 @@ describe('DiaryService.setEntryPublished server confirmation', () => {
             ]),
         );
         relay.submitDiaryDirect.mockResolvedValue({
-            id: 'server-wrong-operation',
-            user_id: userId,
-            client_operation_id: 'diary_some_other_operation',
-            client_revision: 1,
+            status: 'accepted',
+            entry: {
+                id: 'server-wrong-operation',
+                user_id: userId,
+                client_operation_id: 'diary_some_other_operation',
+                client_revision: 1,
+            },
         });
 
         await DiaryService.syncPending();
@@ -450,11 +456,14 @@ describe('DiaryService.setEntryPublished server confirmation', () => {
         mockSupabase.current = createSupabaseMock(controls);
         relay.submitDiaryDirect.mockImplementation(
             async (payload: { client_operation_id: string; client_revision: number }) => ({
-                id: 'server-1',
-                user_id: userId,
-                is_public: false,
-                client_operation_id: payload.client_operation_id,
-                client_revision: payload.client_revision,
+                status: 'accepted',
+                entry: {
+                    id: 'server-1',
+                    user_id: userId,
+                    is_public: false,
+                    client_operation_id: payload.client_operation_id,
+                    client_revision: payload.client_revision,
+                },
             }),
         );
         Object.defineProperty(globalThis.navigator, 'onLine', { value: true, configurable: true });
@@ -490,11 +499,14 @@ describe('DiaryService.setEntryPublished server confirmation', () => {
         mockSupabase.current = createSupabaseMock(controls);
         relay.submitDiaryDirect.mockImplementation(
             async (payload: { client_operation_id: string; client_revision: number }) => ({
-                id: 'server-1',
-                user_id: userId,
-                is_public: true,
-                client_operation_id: payload.client_operation_id,
-                client_revision: payload.client_revision,
+                status: 'accepted',
+                entry: {
+                    id: 'server-1',
+                    user_id: userId,
+                    is_public: true,
+                    client_operation_id: payload.client_operation_id,
+                    client_revision: payload.client_revision,
+                },
             }),
         );
         Object.defineProperty(globalThis.navigator, 'onLine', { value: true, configurable: true });

@@ -52,6 +52,17 @@ export interface PiDiaryRelayResult {
     entry?: Record<string, unknown>;
 }
 
+export interface DiaryDirectDeliveryResult {
+    /**
+     * 'accepted' — this envelope is now the canonical row. 'stale' — the row
+     * already held an equal-or-higher revision, so this delivery LOST and
+     * `entry` is the WINNER'S payload, not what this device just sent. A
+     * stale result must never retire the local copy as if it had synced.
+     */
+    status: 'accepted' | 'stale';
+    entry: Record<string, unknown>;
+}
+
 interface PairedPi {
     relayId: string;
     pairedAt: number;
@@ -180,7 +191,7 @@ export async function syncPiDiaryRelayInternetPolicy(): Promise<boolean> {
 
 /** Submit a complete diary revision directly to Supabase through the same
  * monotonic/tombstone-aware Edge boundary that the Pi uses. */
-export async function submitDiaryDirect(entry: DiaryRelayEnvelope): Promise<Record<string, unknown> | null> {
+export async function submitDiaryDirect(entry: DiaryRelayEnvelope): Promise<DiaryDirectDeliveryResult | null> {
     if (
         !validOperationId(entry.client_operation_id) ||
         !Number.isInteger(entry.client_revision) ||
@@ -227,7 +238,13 @@ export async function submitDiaryDirect(entry: DiaryRelayEnvelope): Promise<Reco
         }
         if (!isAuthIdentityScopeCurrent(scope)) return null;
         const data: unknown = await response.json();
-        return isRecord(data) && data.ok === true && isRecord(data.entry) ? data.entry : null;
+        if (!isRecord(data) || data.ok !== true || !isRecord(data.entry)) return null;
+        // The Edge boundary names the outcome, and 'stale' is not a success:
+        // it means a competing envelope already owns this revision and `entry`
+        // carries THAT winner's content. Returning the bare row here used to
+        // make a losing delivery indistinguishable from a win, so the caller
+        // retired its local copy — and the skipper's words with it.
+        return { status: data.status === 'stale' ? 'stale' : 'accepted', entry: data.entry };
     } catch (error) {
         log.debug('Direct diary delivery deferred:', error);
         return null;

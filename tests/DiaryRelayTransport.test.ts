@@ -76,7 +76,7 @@ vi.mock('../utils/createLogger', () => ({
     createLogger: () => ({ debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }),
 }));
 
-import { handoffDiaryToPi, type DiaryRelayEnvelope } from '../services/DiaryRelayTransport';
+import { handoffDiaryToPi, submitDiaryDirect, type DiaryRelayEnvelope } from '../services/DiaryRelayTransport';
 
 const envelope: DiaryRelayEnvelope = {
     client_operation_id: 'diary_transport_1',
@@ -133,5 +133,41 @@ describe('DiaryRelayTransport paired Pi handoff', () => {
 
         expect(mocks.post).not.toHaveBeenCalled();
         expect(mocks.setPolicy).toHaveBeenCalledWith(false);
+    });
+});
+
+describe('submitDiaryDirect names the delivery outcome', () => {
+    beforeEach(() => {
+        mocks.satellite = false;
+        mocks.fetch.mockReset();
+        Object.defineProperty(globalThis.navigator, 'onLine', { value: true, configurable: true });
+        vi.stubGlobal('fetch', mocks.fetch);
+    });
+
+    it('returns the accepted status with the canonical row', async () => {
+        mocks.fetch.mockResolvedValue({
+            ok: true,
+            json: async () => ({ ok: true, status: 'accepted', entry: { id: 'srv-1', body: envelope.body } }),
+        });
+
+        await expect(submitDiaryDirect(envelope)).resolves.toEqual({
+            status: 'accepted',
+            entry: { id: 'srv-1', body: envelope.body },
+        });
+    });
+
+    it('surfaces a losing (stale) delivery instead of dressing the winner up as success', async () => {
+        // The Edge boundary returns HTTP 200 {ok:true, status:'stale'} with
+        // the WINNER's row when this envelope lost the revision race. That
+        // must reach the caller as a loss — collapsing it into a bare row is
+        // exactly how a losing phone copy used to get retired as 'synced'.
+        mocks.fetch.mockResolvedValue({
+            ok: true,
+            json: async () => ({ ok: true, status: 'stale', entry: { id: 'srv-1', body: 'the winner’s words' } }),
+        });
+
+        const result = await submitDiaryDirect(envelope);
+        expect(result?.status).toBe('stale');
+        expect(result?.entry).toMatchObject({ body: 'the winner’s words' });
     });
 });
