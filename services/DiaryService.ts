@@ -3319,28 +3319,62 @@ class DiaryServiceClass {
      */
     async getPositionCandidates(): Promise<{
         vessel: { lat: number; lon: number } | null;
-        phone: { lat: number; lon: number } | null;
+        phone: { lat: number; lon: number; accuracyM: number | null } | null;
     }> {
+        // The phone fetch starts FIRST and runs while the vessel side does
+        // its work, so the grace wait below costs no extra wall-clock.
+        //
+        // HIGH accuracy, and the accuracy radius rides along: the 2026-08-31
+        // entry pinned at Coolum Parade — a fresh low-accuracy indoor fix
+        // 2.3 km from the pontoon, adopted as gospel because this code asked
+        // for the cheap fix and then threw the blur radius away.
+        const phonePromise: Promise<{ lat: number; lon: number; accuracyM: number | null } | null> = (async () => {
+            try {
+                const { GpsService } = await import('./GpsService');
+                const pos = await GpsService.requestCurrentForegroundPosition({
+                    staleLimitMs: 10_000,
+                    timeoutSec: 15,
+                    enableHighAccuracy: true,
+                });
+                if (!pos) return null;
+                return {
+                    lat: pos.latitude,
+                    lon: pos.longitude,
+                    accuracyM: Number.isFinite(pos.accuracy) ? (pos.accuracy ?? null) : null,
+                };
+            } catch (e) {
+                log.warn('Phone GPS failed for diary candidates:', e);
+                return null;
+            }
+        })();
+
         let vessel: { lat: number; lon: number } | null = null;
         try {
+            const { NmeaListenerService } = await import('./NmeaListenerService');
+            const { NmeaStore } = await import('./NmeaStore');
             const { NmeaGpsProvider } = await import('./NmeaGpsProvider');
-            const fix = NmeaGpsProvider.getPosition();
-            if (fix) vessel = { lat: fix.latitude, lon: fix.longitude };
+            // Belt-and-braces store claim — any surface that asks "where is
+            // the boat" must also make sure the store is listening, or the
+            // arbitration is theatre (the chart learned this the hard way).
+            const hasGateway = Boolean(NmeaListenerService.getSavedConfig());
+            if (hasGateway) NmeaStore.start();
+            const read = () => {
+                const fix = NmeaGpsProvider.getPosition();
+                return fix ? { lat: fix.latitude, lon: fix.longitude } : null;
+            };
+            vessel = read();
+            // Grace for a socket mid-reconnect exactly as compose opens: with
+            // a gateway configured, give the feed a moment before deciding the
+            // boat has nothing to say. The phone fetch is already in flight,
+            // so this wait hides inside it.
+            for (let i = 0; !vessel && hasGateway && i < 12; i++) {
+                await new Promise((resolve) => setTimeout(resolve, 250));
+                vessel = read();
+            }
         } catch {
             /* no NMEA aboard — phone-only is the ordinary shoreside case */
         }
-        let phone: { lat: number; lon: number } | null = null;
-        try {
-            const { GpsService } = await import('./GpsService');
-            const pos = await GpsService.requestCurrentForegroundPosition({
-                staleLimitMs: 10_000,
-                timeoutSec: 15,
-            });
-            if (pos) phone = { lat: pos.latitude, lon: pos.longitude };
-        } catch (e) {
-            log.warn('Phone GPS failed for diary candidates:', e);
-        }
-        return { vessel, phone };
+        return { vessel, phone: await phonePromise };
     }
 
     async getCurrentLocation(): Promise<{ lat: number; lon: number } | null> {

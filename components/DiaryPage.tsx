@@ -451,7 +451,13 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
         const { vessel, phone } = candidates;
         if (vessel && phone) {
             const distanceM = haversineMeters(vessel.lat, vessel.lon, phone.lat, phone.lon);
-            if (distanceM >= 200) {
+            // The phone cannot disagree by less than its own blur: an indoor
+            // fix is honestly kilometres of fuzz, and a "conflict" inside
+            // that radius is the fuzz talking, not the skipper standing
+            // somewhere else (Coolum Parade, 2026-08-31). The boat's GPS
+            // knows exactly where it is — it wins silently.
+            const phoneBlurM = phone.accuracyM ?? 50;
+            if (distanceM >= 200 && distanceM > phoneBlurM * 1.5) {
                 setGpsConflict({ vessel, phone, distanceM });
                 setGpsLoading(false);
                 return; // the modal resolves it; applyGpsChoice finishes the job

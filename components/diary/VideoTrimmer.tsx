@@ -93,8 +93,18 @@ export const VideoTrimmer: React.FC<VideoTrimmerProps> = ({ file, durationSec, o
     }, [file, startSec, onDone]);
 
     return (
-        <div className="fixed inset-0 z-[1200] flex flex-col justify-end bg-black/80" role="dialog" aria-modal="true">
-            <div className="rounded-t-3xl border-t border-violet-500/25 bg-slate-950 p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+        // Centred, never a bottom sheet (Shane's standing rule, 2026-08-31:
+        // "it needs to a: be centred on the screen, and b: if it is too far
+        // down the screen, it needs to clear the menu area"). The overlay's
+        // bottom padding reserves the tab-bar band so even a tall card sits
+        // clear of the menu, and the card itself scrolls internally rather
+        // than ever pushing its buttons off-screen.
+        <div
+            className="fixed inset-0 z-[1200] flex items-center justify-center bg-black/80 p-4 pb-[calc(4rem+env(safe-area-inset-bottom)+1rem)] pt-[max(1rem,env(safe-area-inset-top))]"
+            role="dialog"
+            aria-modal="true"
+        >
+            <div className="w-full max-w-md max-h-full overflow-y-auto rounded-3xl border border-violet-500/25 bg-slate-950 p-4">
                 <p className="text-sm font-black uppercase tracking-[0.14em] text-violet-300">
                     That movie is {fmt(durationSec)}
                 </p>
