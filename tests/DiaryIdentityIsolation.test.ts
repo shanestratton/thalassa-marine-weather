@@ -168,10 +168,13 @@ beforeEach(() => {
     relay.submitDiaryDirect
         .mockReset()
         .mockImplementation(async (payload: { client_operation_id: string; client_revision: number }) => ({
-            id: `server-${payload.client_operation_id}`,
-            user_id: getAuthIdentityScope().userId,
-            client_operation_id: payload.client_operation_id,
-            client_revision: payload.client_revision,
+            status: 'accepted',
+            entry: {
+                id: `server-${payload.client_operation_id}`,
+                user_id: getAuthIdentityScope().userId,
+                client_operation_id: payload.client_operation_id,
+                client_revision: payload.client_revision,
+            },
         }));
     vi.stubGlobal(
         'fetch',
