@@ -313,7 +313,7 @@ export const DiaryComposeForm: React.FC<DiaryComposeFormProps> = React.memo(
                                     aria-label="Remove the video"
                                     onClick={onVideoRemove}
                                     disabled={saving}
-                                    className="absolute top-1.5 right-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-black/70 text-[12px] text-white disabled:cursor-not-allowed"
+                                    className="hit-target-44 absolute top-1.5 right-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-black/70 text-[12px] text-white disabled:cursor-not-allowed"
                                 >
                                     ✕
                                 </button>
