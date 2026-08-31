@@ -57,6 +57,11 @@ describe('diary video rail', () => {
     it('the relay Edge Function validates ownership of the video ref', () => {
         expect(edge).toContain("ownedStorageRef(raw.video_url, 'diary-video', ownerId)");
         expect(edge).toContain('video_url: videoUrl,');
+        // The validator must accept the PUBLIC-URL form video actually ships
+        // in — it silently nulled it once, and the row arrived video-less
+        // while the Pi's outbox proved the envelope carried the URL.
+        expect(edge).toContain('`${supabaseUrl}/storage/v1/object/public/${bucket}/${ownerId}/`');
+        expect(edge).toMatch(/bucket === 'diary-video'/);
     });
 
     it('the bucket caps size and MIME so a bad file dies at the door', () => {

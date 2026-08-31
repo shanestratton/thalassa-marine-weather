@@ -94,10 +94,27 @@ function validIso(value: unknown): string | null {
     return Number.isFinite(time) ? new Date(time).toISOString() : null;
 }
 
-function ownedStorageRef(value: unknown, bucket: 'diary-photos' | 'diary-audio', ownerId: string): string | null {
+function ownedStorageRef(
+    value: unknown,
+    bucket: 'diary-photos' | 'diary-audio' | 'diary-video',
+    ownerId: string,
+): string | null {
     if (typeof value !== 'string' || value.length > 2048) return null;
     const prefix = `storage:${bucket}:${ownerId}/`;
-    return value.startsWith(prefix) ? value : null;
+    if (value.startsWith(prefix)) return value;
+    // Video ships as its bucket's PUBLIC URL (the bucket is public, like
+    // photos were), so the owned form is the exact public path inside the
+    // caller's own folder on this project's origin. This validator silently
+    // nulling that form is why a synced entry's video_url arrived NULL while
+    // the Pi's outbox proved the envelope carried it — and Deno functions sit
+    // outside the app's typecheck, so handing it a bucket it did not know was
+    // never a compile error.
+    if (bucket === 'diary-video') {
+        const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
+        const publicPrefix = `${supabaseUrl}/storage/v1/object/public/${bucket}/${ownerId}/`;
+        if (supabaseUrl && value.startsWith(publicPrefix)) return value;
+    }
+    return null;
 }
 
 function weatherData(value: unknown): Record<string, unknown> | null {
