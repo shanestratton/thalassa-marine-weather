@@ -299,14 +299,19 @@ describe('useVoyageForm identity ownership', () => {
             rendered.result.current.setOrigin('Account B origin');
             rendered.result.current.setDestination('Account B destination');
         });
+        // A date the form's default (today) can never legitimately equal —
+        // the original sentinel '2026-09-01' detonated the day the calendar
+        // reached it, when "not applied" and "the default" became the same
+        // string (flaked 2026-09-01, of course).
+        const STALE_SENTINEL_DATE = '2031-01-15';
         await act(async () => {
             await staleCalculate();
-            await staleDateChange('2026-09-01');
+            await staleDateChange(STALE_SENTINEL_DATE);
         });
 
         expect(mocks.computeVoyagePlan).not.toHaveBeenCalled();
         expect(mocks.getDraftVoyages).not.toHaveBeenCalled();
-        expect(rendered.result.current.departureDate).not.toBe('2026-09-01');
+        expect(rendered.result.current.departureDate).not.toBe(STALE_SENTINEL_DATE);
         rendered.unmount();
     });
 
