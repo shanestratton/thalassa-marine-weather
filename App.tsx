@@ -1070,17 +1070,20 @@ const App: React.FC = () => {
                                                 className="relative h-full w-1/2 shrink-0 overflow-y-auto overflow-x-hidden border-r border-white/10"
                                                 style={{
                                                     contain: 'paint',
-                                                    // The Glass offsets its fixed children by
-                                                    // max(1rem, env(safe-area-inset-top)) because on a phone
-                                                    // it owns the screen and must clear the notch. In a pane
-                                                    // that inset has ALREADY been cleared by the header above,
-                                                    // so it gets counted twice and leaves a band of dead space
-                                                    // at the top — invisible in a browser, where the inset is
-                                                    // 0, and obvious on a real iPad. Pull the pane up by
-                                                    // exactly that amount and give the height back, so the
-                                                    // Glass's own maths lands where it expects to.
-                                                    marginTop: 'calc(-1 * max(1rem, env(safe-area-inset-top)))',
-                                                    height: 'calc(100% + max(1rem, env(safe-area-inset-top)))',
+                                                    // The Glass reserves `locationHeaderHeightPx` at its top —
+                                                    // the brand row plus the location card — because on a phone
+                                                    // that chrome sits inside its viewport. In split, App draws
+                                                    // that chrome ABOVE both panes, so the reservation is pure
+                                                    // dead space and the content floats in the middle with a
+                                                    // band above and the tide half off the bottom.
+                                                    //
+                                                    // The safe-area inset is double-counted for the same reason:
+                                                    // the header already cleared it. Pull the pane up by both,
+                                                    // give the height back, and the Glass's own arithmetic lands
+                                                    // where it expects. Using its own numbers, not guessed
+                                                    // pixels, so it stays correct if the layout is retuned.
+                                                    marginTop: `calc(-1 * (max(1rem, env(safe-area-inset-top)) + ${glassTopLayout.locationHeaderHeightPx}px))`,
+                                                    height: `calc(100% + max(1rem, env(safe-area-inset-top)) + ${glassTopLayout.locationHeaderHeightPx}px)`,
                                                 }}
                                             >
                                                 {glassContent}
