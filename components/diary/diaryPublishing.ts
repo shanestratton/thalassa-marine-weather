@@ -12,7 +12,9 @@ import { type VoyageLogConfig, VoyageLogService } from '../../services/VoyageLog
 
 export type DiaryPublishFailure = 'voyage-log' | 'entry';
 
-export type DiaryPublishResult = { ok: true; config: VoyageLogConfig } | { ok: false; reason: DiaryPublishFailure };
+export type DiaryPublishResult =
+    | { ok: true; config: VoyageLogConfig; deferred?: boolean }
+    | { ok: false; reason: DiaryPublishFailure };
 
 /**
  * Record the skipper's publication choice before doing any cloud-only Voyage
@@ -26,7 +28,7 @@ export const publishDiaryEntryToVoyageLog = async (entryId: string): Promise<Dia
     // cannot leave a first-time Voyage Log permanently unavailable.
     VoyageLogService.markEnableRequested(entryId);
 
-    let published = false;
+    let published: boolean | 'deferred' = false;
     try {
         published = await DiaryService.setEntryPublished(entryId, true);
     } catch {
@@ -53,13 +55,21 @@ export const publishDiaryEntryToVoyageLog = async (entryId: string): Promise<Dia
 
     if (!published) return { ok: false, reason: 'entry' };
 
+    // Deferred: the intent is durable and rides the entry's first server
+    // write — publishing an entry whose video is still draining is the
+    // ORDINARY flow, not an error (Shane hit the scary toast doing exactly
+    // that, 2026-08-31).
+    if (published === 'deferred') return { ok: true, config, deferred: true };
+
     return { ok: true, config };
 };
 
 /** A false result means the public state was not confirmed as changed. */
 export const unpublishDiaryEntryFromVoyageLog = async (entryId: string): Promise<boolean> => {
     try {
-        const unpublished = await DiaryService.setEntryPublished(entryId, false);
+        // Unpublishing can never defer ('deferred' is publish-only), so
+        // anything short of a confirmed server row is an honest false.
+        const unpublished = (await DiaryService.setEntryPublished(entryId, false)) === true;
         if (unpublished) VoyageLogService.clearEnableRequest(entryId);
         return unpublished;
     } catch {

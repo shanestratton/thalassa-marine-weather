@@ -37,6 +37,24 @@ describe('diary video rail', () => {
         expect(service).toContain('if (videoStillPending) {');
     });
 
+    it('an in-flight entry renders exactly once — pending wins over its synced twin', () => {
+        // The offline id and the server id are different, so id-dedupe alone
+        // shows both copies for a while ("it duplicates it for a little
+        // while", 2026-08-31). While the offline twin is pending, its server
+        // row stays hidden.
+        expect(service).toContain('const pendingIds = new Set(pending.map((e) => e.id));');
+        expect(service).toContain('.filter((r) => !pendingIds.has(r.offlineId))');
+    });
+
+    it('publishing a still-syncing entry defers, and defers is not an error', () => {
+        // publish_requested rides the envelope's first write (is_public
+        // derives from it), so a deferred publish is a promise that will be
+        // kept — the UI must say "on its way", never "failed".
+        expect(service).toContain("if (isPublic && idx >= 0) return 'deferred';");
+        const publishing = readFileSync(resolve(process.cwd(), 'components/diary/diaryPublishing.ts'), 'utf8');
+        expect(publishing).toContain("if (published === 'deferred') return { ok: true, config, deferred: true };");
+    });
+
     it('a phone-local clip blocks the early Pi relay, like every other local media', () => {
         expect(service).toContain('isIdbVideo(value!) ||');
         expect(service).toContain('isPhoneOnly(entry.video_url)');

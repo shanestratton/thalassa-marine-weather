@@ -20,7 +20,7 @@ describe('diary position arbitration — the pub-vs-passage question', () => {
         expect(service).toContain('if (hasGateway) NmeaStore.start();');
         // And a socket mid-reconnect gets a moment, hidden inside the
         // already-running phone fetch.
-        expect(service).toContain('for (let i = 0; !vessel && hasGateway && i < 12; i++) {');
+        expect(service).toContain('for (let i = 0; !vessel && hasGateway && i < 20; i++) {');
     });
 
     it('the phone candidate is a high-accuracy fix and carries its blur radius', () => {

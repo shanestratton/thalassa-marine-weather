@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
     clearEnableRequest: vi.fn(),
     setEntryPublished: vi.fn(),
     toastError: vi.fn(),
+    toastSuccess: vi.fn(),
 }));
 
 vi.mock('../services/DiaryService', () => ({
@@ -34,7 +35,7 @@ vi.mock('../services/VoyageLogService', () => ({
 }));
 
 vi.mock('../components/Toast', () => ({
-    toast: { error: mocks.toastError },
+    toast: { error: mocks.toastError, success: mocks.toastSuccess },
 }));
 
 vi.mock('../components/diary/AudioWidget', () => ({ AudioWidget: () => null }));
@@ -119,6 +120,22 @@ describe('DiaryEntryView Voyage Log publishing', () => {
         });
 
         await waitFor(() => expect(onPublishedChange).toHaveBeenCalledWith('entry-1', true));
+        expect(mocks.toastError).not.toHaveBeenCalled();
+    });
+
+    it('a deferred publish reads as success with an on-its-way toast, never an error', async () => {
+        // The entry's video is still draining: the intent is durable and
+        // rides the envelope's first write, so this is the ordinary
+        // publish-right-after-save flow — not a failure.
+        mocks.setEntryPublished.mockResolvedValueOnce('deferred');
+        const { onPublishedChange } = renderEntry();
+
+        fireEvent.click(screen.getByRole('switch', { name: 'Publish this entry to your voyage log' }));
+
+        await waitFor(() => expect(onPublishedChange).toHaveBeenCalledWith('entry-1', true));
+        expect(mocks.toastSuccess).toHaveBeenCalledWith(
+            expect.stringContaining('as soon as this entry finishes syncing'),
+        );
         expect(mocks.toastError).not.toHaveBeenCalled();
     });
 
