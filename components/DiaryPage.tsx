@@ -668,15 +668,35 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
         if (e.target) e.target.value = '';
         if (!file) return;
         const probeUrl = URL.createObjectURL(file);
+        setUploading(true);
         try {
-            const duration = await new Promise<number>((resolve) => {
+            // The element probe stalls SILENTLY on iOS for long camera files:
+            // their moov index lives at the END of the file and WKWebView's
+            // media loader gives up on big blobs without firing an error —
+            // which made an over-a-minute movie look like nothing happened at
+            // all. Give it five seconds, then read the container directly.
+            let duration = await new Promise<number>((resolve) => {
                 const probe = document.createElement('video');
+                const timer = setTimeout(() => resolve(NaN), 5000);
                 probe.preload = 'metadata';
-                probe.onloadedmetadata = () => resolve(probe.duration);
-                probe.onerror = () => resolve(NaN);
+                probe.muted = true;
+                probe.playsInline = true;
+                probe.onloadedmetadata = () => {
+                    clearTimeout(timer);
+                    resolve(probe.duration);
+                };
+                probe.onerror = () => {
+                    clearTimeout(timer);
+                    resolve(NaN);
+                };
                 probe.src = probeUrl;
+                probe.load();
             });
-            if (!Number.isFinite(duration)) {
+            if (!Number.isFinite(duration) || duration <= 0) {
+                const { probeVideoDurationSeconds } = await import('../services/videoTrim');
+                duration = (await probeVideoDurationSeconds(file)) ?? NaN;
+            }
+            if (!Number.isFinite(duration) || duration <= 0) {
                 alert('That file could not be read as a video.');
                 return;
             }
@@ -692,6 +712,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
             }
         } finally {
             URL.revokeObjectURL(probeUrl);
+            setUploading(false);
         }
         await adoptVideoBlob(file);
     };

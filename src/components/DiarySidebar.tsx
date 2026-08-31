@@ -65,6 +65,13 @@ const EntryDetail: React.FC<{
             </div>
 
             <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                {/* Video — preload metadata only: a follower on a phone must
+                    not pull 200MB per entry just to draw a poster frame. */}
+                {entry.video_url && (
+                    <div className="rounded-xl overflow-hidden border border-slate-700 bg-black">
+                        <video src={entry.video_url} controls playsInline preload="metadata" className="w-full" />
+                    </div>
+                )}
                 {/* Photos */}
                 {entry.photos.length > 0 && (
                     <div className="grid grid-cols-2 gap-2">
@@ -196,6 +203,11 @@ const EntryList: React.FC<{
                                 {entry.body && (
                                     <p className="text-xs text-slate-400 leading-relaxed line-clamp-2">{entry.body}</p>
                                 )}
+                                {entry.photos.length === 0 && entry.video_url && (
+                                    <span className="mt-2 inline-block text-[10px] font-bold text-slate-500">
+                                        🎥 video
+                                    </span>
+                                )}
                                 {entry.photos.length > 0 && (
                                     <div className="flex items-center gap-1.5 mt-2">
                                         <div className="flex -space-x-1.5">
@@ -211,6 +223,7 @@ const EntryList: React.FC<{
                                         </div>
                                         <span className="text-[10px] font-bold text-slate-500">
                                             📷 {entry.photos.length}
+                                            {entry.video_url ? ' · 🎥' : ''}
                                         </span>
                                     </div>
                                 )}

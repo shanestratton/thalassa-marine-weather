@@ -816,7 +816,7 @@ Deno.serve(async (req: Request) => {
         // filters *before* the 200-row cap; combined crew entries stay in the
         // All diary entries view because their local voyage ids are not a
         // trustworthy shared boat identity.
-        const diarySelect = 'id, user_id, title, body, mood, photos, location_name, latitude, longitude, ' +
+        const diarySelect = 'id, user_id, title, body, mood, photos, video_url, location_name, latitude, longitude, ' +
             'weather_summary, weather_data, tags, created_at, voyage_id';
         // Named for the same reason as the config row above: a concatenated
         // select string carries no column information for postgrest-js to infer.
@@ -827,6 +827,7 @@ Deno.serve(async (req: Request) => {
             body: string | null;
             mood: string | null;
             photos: unknown;
+            video_url: string | null;
             location_name: string | null;
             latitude: number | null;
             longitude: number | null;
@@ -860,6 +861,10 @@ Deno.serve(async (req: Request) => {
                 body: e.body,
                 mood: e.mood,
                 photos: await publicPhotos(supabase, e.photos, e.user_id as string),
+                // The video bucket is public (like photos before the signing
+                // change), and this query is already fenced to is_public rows —
+                // the URL passes through untouched.
+                video_url: typeof e.video_url === 'string' && e.video_url.startsWith('https://') ? e.video_url : null,
                 location_name: e.location_name,
                 latitude: e.latitude,
                 longitude: e.longitude,
