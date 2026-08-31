@@ -33,6 +33,65 @@ const formatFullDate = (iso: string): string =>
         year: 'numeric',
     });
 
+// ── Video: may still be crossing from the boat ─────────────────
+/**
+ * A clip parks on the boat's Pi and uploads whenever she next has internet,
+ * while the entry publishes immediately with the video's final URL — so a
+ * public entry can point at an object that is still an anchorage away. A dead
+ * player with a crossed-out button reads as "broken"; say what is actually
+ * happening instead. A HEAD probe separates "not ashore yet" (the bucket
+ * 404s) from a genuine can't-play-this-here failure.
+ */
+const EntryVideo: React.FC<{ url: string }> = ({ url }) => {
+    const [state, setState] = React.useState<'ok' | 'pending' | 'unplayable'>('ok');
+    const [attempt, setAttempt] = React.useState(0);
+
+    const onError = () => {
+        fetch(url, { method: 'HEAD' })
+            .then((res) => setState(res.ok ? 'unplayable' : 'pending'))
+            .catch(() => setState('pending'));
+    };
+    const retry = () => {
+        setState('ok');
+        setAttempt((n) => n + 1);
+    };
+
+    if (state === 'ok') {
+        return (
+            <div className="rounded-xl overflow-hidden border border-slate-700 bg-black">
+                <video
+                    key={attempt}
+                    src={url}
+                    controls
+                    playsInline
+                    preload="metadata"
+                    className="w-full"
+                    onError={onError}
+                />
+            </div>
+        );
+    }
+    return (
+        <div className="rounded-xl border border-slate-700 bg-slate-900/70 p-4 text-center space-y-2">
+            <div className="text-2xl" aria-hidden="true">
+                🎥
+            </div>
+            <p className="text-sm text-slate-300">
+                {state === 'pending'
+                    ? 'The video is still making its way ashore — it uploads from the boat when she next has internet.'
+                    : 'This video could not be played in this browser.'}
+            </p>
+            <button
+                type="button"
+                onClick={retry}
+                className="min-h-[44px] text-xs font-bold uppercase tracking-wider text-sky-300 border border-sky-400/40 rounded-full px-5 py-1.5 hover:bg-sky-500/15 transition-colors"
+            >
+                Check again
+            </button>
+        </div>
+    );
+};
+
 // ── Detail: a single entry, full content ───────────────────────
 const EntryDetail: React.FC<{
     entry: VoyageLogEntry;
@@ -67,11 +126,7 @@ const EntryDetail: React.FC<{
             <div className="flex-1 overflow-y-auto p-4 space-y-4">
                 {/* Video — preload metadata only: a follower on a phone must
                     not pull 200MB per entry just to draw a poster frame. */}
-                {entry.video_url && (
-                    <div className="rounded-xl overflow-hidden border border-slate-700 bg-black">
-                        <video src={entry.video_url} controls playsInline preload="metadata" className="w-full" />
-                    </div>
-                )}
+                {entry.video_url && <EntryVideo url={entry.video_url} />}
                 {/* Photos */}
                 {entry.photos.length > 0 && (
                     <div className="grid grid-cols-2 gap-2">

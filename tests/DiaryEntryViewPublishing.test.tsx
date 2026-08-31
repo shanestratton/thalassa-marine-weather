@@ -142,8 +142,22 @@ describe('DiaryEntryView Voyage Log publishing', () => {
         );
     });
 
-    it('keeps the view private when Voyage Log setup fails after saving publish intent', async () => {
+    it('publishes anyway when only the FIRST Voyage Log attempt fails (automatic retry)', async () => {
+        // One transient failure — the cold-radio case — must never reach the
+        // skipper: the automatic second attempt is the fix for "press publish
+        // again and it goes straight through".
         mocks.ensureEnabled.mockResolvedValueOnce(null);
+        const { onPublishedChange } = renderEntry();
+
+        fireEvent.click(screen.getByRole('switch', { name: 'Publish this entry to your voyage log' }));
+
+        await waitFor(() => expect(onPublishedChange).toHaveBeenCalledWith('entry-1', true));
+        expect(mocks.ensureEnabled).toHaveBeenCalledTimes(2);
+        expect(mocks.toastError).not.toHaveBeenCalled();
+    });
+
+    it('keeps the view private when Voyage Log setup fails after saving publish intent', async () => {
+        mocks.ensureEnabled.mockResolvedValueOnce(null).mockResolvedValueOnce(null);
         const { onPublishedChange } = renderEntry();
 
         fireEvent.click(screen.getByRole('switch', { name: 'Publish this entry to your voyage log' }));

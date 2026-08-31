@@ -34,11 +34,20 @@ export const publishDiaryEntryToVoyageLog = async (entryId: string): Promise<Dia
         // retain the ordinary failure flow below for a genuine service error.
     }
 
-    let config: VoyageLogConfig | null;
-    try {
-        config = await VoyageLogService.ensurePendingEnabled();
-    } catch {
-        return { ok: false, reason: 'voyage-log' };
+    // The first attempt after the app wakes rides a cold radio and a token
+    // refresh, and failing once then succeeding on the very next tap was a
+    // reliable ritual (Shane, 2026-08-31: "when i press publish again, it
+    // goes straight through and tells me everything is ok"). The app now
+    // presses the second time itself; everything underneath is idempotent —
+    // the pending-enable list only clears on success.
+    let config: VoyageLogConfig | null = null;
+    for (let attempt = 0; attempt < 2 && !config; attempt++) {
+        if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, 400));
+        try {
+            config = await VoyageLogService.ensurePendingEnabled();
+        } catch {
+            config = null;
+        }
     }
     if (!config) return { ok: false, reason: 'voyage-log' };
 

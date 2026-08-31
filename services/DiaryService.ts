@@ -33,6 +33,7 @@ import {
     submitDiaryDirect,
     syncPiDiaryRelayInternetPolicy,
     handoffVideoToPi,
+    isPiVideoRelayAvailable,
     type DiaryRelayEnvelope,
 } from './DiaryRelayTransport';
 import { onConnectionChange } from './ConnectionPriorityService';
@@ -137,6 +138,14 @@ const TABLE = 'diary_entries';
 const PHOTO_BUCKET = 'diary-photos';
 const AUDIO_BUCKET = 'diary-audio';
 const VIDEO_BUCKET = 'diary-video';
+/**
+ * How long a DIRECT video upload may take before the paired Pi takes over:
+ * one second per megabyte (~8 Mbit/s effective) with a one-minute floor. A
+ * solid connection finishes any clip comfortably inside this; a boat uplink
+ * does not, and that is the Pi's whole job. Only applied when a Pi is
+ * actually standing by — with no Pi the attempt gets open-ended patience.
+ */
+const directVideoBudgetMs = (sizeBytes: number): number => Math.max(60_000, Math.round(sizeBytes / 1_000_000) * 1000);
 const STORAGE_REF_PREFIX = 'storage:';
 const CACHE_KEY = 'thalassa_diary_entries_v2';
 const PENDING_KEY = 'thalassa_diary_pending_v2';
@@ -2213,15 +2222,26 @@ class DiaryServiceClass {
                         log.warn('IDB video missing, saving diary text without the clip:', idbRef);
                         videoUrl = null;
                     } else {
-                        // The boat first: over the Pi's LAN the hand-off takes
-                        // seconds and the Pi babysits the real upload over
-                        // whatever WAN eventually appears — the phone can go to
-                        // sleep, go ashore, or go flat. Only when the Pi is not
-                        // reachable (or not paired) does the phone spend its own
-                        // uplink on a direct upload.
+                        // The phone first: on real internet the clip is
+                        // public in seconds and the entry never points at a
+                        // video that has not come ashore. The Pi is the
+                        // BAD-uplink path, not the default (Shane,
+                        // 2026-08-31: "if the phone can upload direct, all
+                        // the better. but if it cant, then pi first, as
+                        // always. if it exists") — so when a Pi is paired
+                        // the direct attempt gets a size-scaled budget and
+                        // the Pi catches whatever cannot finish inside it.
+                        // With no Pi the attempt keeps its old open-ended
+                        // patience, and a clip that still fails stays in IDB
+                        // for the next drain — it sits on the phone until
+                        // internet is solid.
+                        const piStandingBy = isPiVideoRelayAvailable(scope);
                         const uploaded =
-                            (await this._parkVideoOnPi(blob, entry.client_operation_id ?? '', scope)) ??
-                            (await this._uploadVideoBlob(blob, scope));
+                            (await this._uploadVideoBlob(
+                                blob,
+                                scope,
+                                piStandingBy ? directVideoBudgetMs(blob.size) : null,
+                            )) ?? (await this._parkVideoOnPi(blob, entry.client_operation_id ?? '', scope));
                         if (uploaded) {
                             trackStorageRef(VIDEO_BUCKET, uploaded);
                             if (!isAuthIdentityScopeCurrent(scope)) return;
@@ -3538,7 +3558,38 @@ class DiaryServiceClass {
         }
     }
 
-    private async _uploadVideoBlob(blob: Blob, scope: AuthIdentityScope): Promise<string | null> {
+    /**
+     * With a budget (a paired Pi standing by), an attempt that cannot finish
+     * in time is abandoned: the fetch cannot be cancelled from here, so the
+     * in-flight request is left to its fate, but a late success deletes its
+     * own object — exactly one copy of the clip ever survives, and it is
+     * the one the entry references.
+     */
+    private async _uploadVideoBlob(
+        blob: Blob,
+        scope: AuthIdentityScope,
+        budgetMs: number | null = null,
+    ): Promise<string | null> {
+        const abandoned = { value: false };
+        const attempt = this._directVideoUpload(blob, scope, abandoned);
+        if (budgetMs == null) return attempt;
+        const winner = await Promise.race([
+            attempt,
+            new Promise<'budget'>((resolve) => setTimeout(() => resolve('budget'), budgetMs)),
+        ]);
+        if (winner !== 'budget') return winner;
+        log.info(
+            `[Diary] direct video upload over budget (${Math.round(budgetMs / 1000)}s) — the Pi takes it from here`,
+        );
+        abandoned.value = true;
+        return null;
+    }
+
+    private async _directVideoUpload(
+        blob: Blob,
+        scope: AuthIdentityScope,
+        abandoned: { value: boolean },
+    ): Promise<string | null> {
         if (!supabase || !scope.userId || !isAuthIdentityScopeCurrent(scope) || !canAttemptDiaryCloudDelivery())
             return null;
         const user = (await supabase.auth.getUser()).data.user;
@@ -3566,6 +3617,9 @@ class DiaryServiceClass {
             }
             uploadedPath = path;
             if (!isAuthIdentityScopeCurrent(scope)) return null;
+            // Abandoned while uploading: the Pi owns the clip now. Fall
+            // through to the finally, which deletes this stray copy.
+            if (abandoned.value) return null;
             handedOff = true;
             const publicUrl = supabase.storage.from(VIDEO_BUCKET).getPublicUrl(path).data.publicUrl;
             log.info(`[Diary] video uploaded: ${(blob.size / 1048576).toFixed(1)} MB → ${path}`);
