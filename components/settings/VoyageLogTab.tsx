@@ -925,6 +925,8 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = ({ settings, onSave }) =
                 </Section>
             )}
 
+            <CloudStorageSection />
+
             <Section title="API access">
                 <Row>
                     <div className="flex-1">
@@ -966,5 +968,74 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = ({ settings, onSave }) =
 
             {renderCrewSection()}
         </div>
+    );
+};
+
+// ── Cloud storage readout ────────────────────────────────────────
+// The measuring half of the quota system: bytes held per bucket, straight
+// from storage's own catalog via the diary_media_usage RPC. The 5 GB
+// paying-tier allowance (agreed 2026-09-01) gets enforced at the upload
+// chokepoints once the paywall exists — until then this is a readout only,
+// so a beta skipper filming a passage is never blocked by it.
+const formatBytes = (n: number): string => {
+    if (n >= 1e9) return `${(n / 1e9).toFixed(2)} GB`;
+    if (n >= 1e6) return `${(n / 1e6).toFixed(1)} MB`;
+    if (n >= 1e3) return `${(n / 1e3).toFixed(0)} KB`;
+    return `${n} B`;
+};
+
+const USAGE_LABELS: Record<string, string> = {
+    'diary-photos': 'Photos',
+    'diary-audio': 'Voice notes',
+    'diary-video': 'Video',
+};
+
+const CloudStorageSection: React.FC = () => {
+    const [usage, setUsage] = useState<{ bucket: string; bytes: number; objects: number }[] | null | 'loading'>(
+        'loading',
+    );
+    useEffect(() => {
+        let cancelled = false;
+        void (async () => {
+            const { DiaryService } = await import('../../services/DiaryService');
+            const rows = await DiaryService.getMediaUsage();
+            if (!cancelled) setUsage(rows);
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, []);
+
+    const total = Array.isArray(usage) ? usage.reduce((sum, r) => sum + r.bytes, 0) : 0;
+    return (
+        <Section title="Cloud storage">
+            {usage === 'loading' ? (
+                <Row>
+                    <span className="text-sm text-gray-400">Measuring…</span>
+                </Row>
+            ) : usage === null ? (
+                <Row>
+                    <span className="text-sm text-gray-400">Couldn't reach the cloud — try again later.</span>
+                </Row>
+            ) : (
+                <>
+                    {(['diary-photos', 'diary-audio', 'diary-video'] as const).map((bucket) => {
+                        const row = usage.find((r) => r.bucket === bucket);
+                        return (
+                            <Row key={bucket}>
+                                <span className="text-sm text-white">{USAGE_LABELS[bucket]}</span>
+                                <span className="text-sm text-gray-400 tabular-nums">
+                                    {row ? `${formatBytes(row.bytes)} · ${row.objects}` : '0 B'}
+                                </span>
+                            </Row>
+                        );
+                    })}
+                    <Row>
+                        <span className="text-sm font-bold text-white">Total</span>
+                        <span className="text-sm font-bold text-sky-300 tabular-nums">{formatBytes(total)}</span>
+                    </Row>
+                </>
+            )}
+        </Section>
     );
 };

@@ -40,3 +40,15 @@ describe('useSwipeable', () => {
         expect(first.onTouchStart).toBe(second.onTouchStart);
     });
 });
+
+describe('gesture ownership', () => {
+    it('declares touch-action: pan-y on the element it attaches to', () => {
+        // Newer iOS WKWebViews arbitrate pans before a non-passive touchmove
+        // fires; without this declaration the horizontal swipe loses and the
+        // release lands as an entry-opening tap (diary list, 2026-09-01).
+        const { result } = renderHook(() => useSwipeable());
+        const el = document.createElement('div');
+        act(() => result.current.ref(el));
+        expect(el.style.touchAction).toBe('pan-y');
+    });
+});
