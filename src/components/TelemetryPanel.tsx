@@ -20,8 +20,16 @@ const Stat: React.FC<{ label: string; value: string; tone: string }> = ({ label,
     </div>
 );
 
-/** Ashore card — what shows when the instruments have gone quiet. */
-const ChampagneCard: React.FC<{ lastSeen: string | null }> = ({ lastSeen }) => (
+/** Idle card — the boat is not making way. Two honest flavours: the
+ *  instruments may be QUIET (nothing heard lately) or LIVE but showing no
+ *  way on (berth, anchor, becalmed). The old copy said "Last under way
+ *  N min ago" for a boat that had never been under way — it was really
+ *  the time of the last report (Shane, 2026-09-01: "it said last underway
+ *  7 mins ago. but we have not got underway???"). */
+const ChampagneCard: React.FC<{ lastSeen: string | null; instrumentsLive: boolean }> = ({
+    lastSeen,
+    instrumentsLive,
+}) => (
     <div className="shrink-0 border-b border-slate-700 bg-slate-900/40 px-4 py-4">
         <div className="flex items-center gap-3">
             <span className="text-3xl" role="img" aria-label="champagne">
@@ -30,8 +38,13 @@ const ChampagneCard: React.FC<{ lastSeen: string | null }> = ({ lastSeen }) => (
             <div className="min-w-0">
                 <div className="text-sm font-bold text-amber-200">Champagne &amp; good times</div>
                 <div className="text-xs text-slate-400 mt-0.5 leading-relaxed">
-                    The instruments are quiet — the crew must be living it up.
-                    {lastSeen ? ` Last under way ${lastSeen}.` : ''}
+                    {instrumentsLive
+                        ? `No way on — lines ashore or swinging at anchor. Instruments live${
+                              lastSeen ? `, updated ${lastSeen}` : ''
+                          }.`
+                        : `The instruments are quiet — the crew must be living it up.${
+                              lastSeen ? ` Last heard from ${lastSeen}.` : ''
+                          }`}
                 </div>
             </div>
         </div>
@@ -66,7 +79,9 @@ export const TelemetryPanel: React.FC<TelemetryPanelProps> = ({
         return <ConnectionLostCard lastUpdate={formatPublicAge(lastSuccessfulAt, nowMs)} />;
     }
     const fresh = !!t && !t.is_last_known && isPublicPositionFresh(t.updated_at, nowMs);
-    if (!t || !fresh) return <ChampagneCard lastSeen={t ? formatPublicAge(t.updated_at, nowMs) : null} />;
+    if (!t || !fresh) {
+        return <ChampagneCard lastSeen={t ? formatPublicAge(t.updated_at, nowMs) : null} instrumentsLive={false} />;
+    }
 
     // Secondary readouts — everything the three dials don't already show.
     const stats: { label: string; value: string; tone: string }[] = [];
@@ -90,7 +105,7 @@ export const TelemetryPanel: React.FC<TelemetryPanelProps> = ({
     // is champagne & good times, however rich the weather snapshot is.
     const makingWay = t.sog != null && t.sog >= 0.5;
     if (!makingWay) {
-        return <ChampagneCard lastSeen={formatPublicAge(t.updated_at, nowMs)} />;
+        return <ChampagneCard lastSeen={formatPublicAge(t.updated_at, nowMs)} instrumentsLive={true} />;
     }
 
     return (

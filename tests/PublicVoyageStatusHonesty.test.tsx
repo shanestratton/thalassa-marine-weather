@@ -91,3 +91,23 @@ describe('public voyage status honesty', () => {
         expect(screen.queryByText('Live')).not.toBeInTheDocument();
     });
 });
+
+describe('champagne card honesty — idle is told truthfully, two ways', () => {
+    it('fresh instruments with no way on: live readings, no invented "under way"', () => {
+        // SOG 0.1 at the berth used to render "Last under way 7 min ago" for
+        // a boat that had never been under way (Shane, 2026-09-01) — the
+        // timestamp was really the last REPORT.
+        const t = { ...telemetry(), sog: 0.1 };
+        render(<TelemetryPanel telemetry={t} nowMs={NOW} connectionLost={false} lastSuccessfulAt={NOW} />);
+        expect(screen.getByText(/No way on/)).toBeInTheDocument();
+        expect(screen.queryByText(/under way/i)).toBeNull();
+    });
+
+    it('stale instruments: quiet copy with an honest last-heard-from time', () => {
+        const t = telemetry(new Date(NOW - PUBLIC_POSITION_FRESH_MS - 60_000).toISOString());
+        render(<TelemetryPanel telemetry={t} nowMs={NOW} connectionLost={false} lastSuccessfulAt={NOW} />);
+        expect(screen.getByText(/instruments are quiet/)).toBeInTheDocument();
+        expect(screen.getByText(/Last heard from/)).toBeInTheDocument();
+        expect(screen.queryByText(/under way/i)).toBeNull();
+    });
+});
