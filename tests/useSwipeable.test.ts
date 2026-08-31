@@ -52,3 +52,54 @@ describe('gesture ownership', () => {
         expect(el.style.touchAction).toBe('pan-y');
     });
 });
+
+describe('the release latch, under a simulated thumb', () => {
+    const fire = (el: HTMLElement, type: string, x: number, y: number) => {
+        const ev = new Event(type, { bubbles: true, cancelable: true });
+        Object.defineProperty(ev, 'touches', { value: [{ clientX: x, clientY: y }] });
+        el.dispatchEvent(ev);
+    };
+
+    const attach = () => {
+        const { result } = renderHook(() => useSwipeable());
+        const el = document.createElement('div');
+        act(() => result.current.ref(el));
+        return { result, el };
+    };
+
+    it('a quick 28px flick latches open instead of snapping shut', () => {
+        // The July half-threshold fix (40px) still ate natural flicks: the
+        // button showed under the finger and vanished on release (Shane
+        // 2026-09-01: "as soon as i release my finger it disappears").
+        const { result, el } = attach();
+        act(() => {
+            fire(el, 'touchstart', 200, 100);
+            fire(el, 'touchmove', 190, 100); // locks horizontal
+            fire(el, 'touchmove', 172, 100); // 28px reveal
+            fire(el, 'touchend', 172, 100);
+        });
+        expect(result.current.swipeOffset).toBe(80); // settled fully open
+    });
+
+    it('a 10px brush still closes — the latch is deliberate-only', () => {
+        const { result, el } = attach();
+        act(() => {
+            fire(el, 'touchstart', 200, 100);
+            fire(el, 'touchmove', 192, 100);
+            fire(el, 'touchmove', 190, 100);
+            fire(el, 'touchend', 190, 100);
+        });
+        expect(result.current.swipeOffset).toBe(0);
+    });
+
+    it('an OS touchcancel mid-reveal latches like a lift, never strands shut', () => {
+        const { result, el } = attach();
+        act(() => {
+            fire(el, 'touchstart', 200, 100);
+            fire(el, 'touchmove', 190, 100);
+            fire(el, 'touchmove', 170, 100); // 30px showing
+            fire(el, 'touchcancel', 170, 100);
+        });
+        expect(result.current.swipeOffset).toBe(80);
+    });
+});
