@@ -132,7 +132,7 @@ export type DiaryAction =
     | { type: 'SET_AUDIO_URL'; url: string | null }
     | { type: 'SET_VIDEO_URL'; url: string | null }
     | { type: 'SET_UPLOADING'; uploading: boolean }
-    | { type: 'SET_GPS'; lat: number | null; lon: number | null; locationName: string }
+    | { type: 'SET_GPS'; lat?: number | null; lon?: number | null; locationName?: string }
     | { type: 'SET_GPS_LOADING'; loading: boolean }
     | { type: 'SET_WEATHER_SUMMARY'; summary: string }
     | { type: 'SET_SAVING'; saving: boolean }
@@ -246,7 +246,21 @@ export function diaryReducer(state: DiaryState, action: DiaryAction): DiaryState
         case 'SET_UPLOADING':
             return { ...state, uploading: action.uploading };
         case 'SET_GPS':
-            return { ...state, lat: action.lat, lon: action.lon, locationName: action.locationName };
+            // Merge ONLY the fields the action carries. This used to replace
+            // all three from the payload, and the setter shims filled the
+            // missing ones from a stale render snapshot — so setLat(a);
+            // setLon(b) in one batched tick REVERTED lat, and a post-await
+            // setLocationName wiped both coordinates back to null. That
+            // shredder silently destroyed every pin writer — the vessel
+            // answer, the photo pin, the Move-pin confirm — and left the
+            // form at "No GPS fix" for the phone-only save fallback to fill
+            // (the week of wrong diary pins, found 2026-09-01).
+            return {
+                ...state,
+                lat: action.lat !== undefined ? action.lat : state.lat,
+                lon: action.lon !== undefined ? action.lon : state.lon,
+                locationName: action.locationName !== undefined ? action.locationName : state.locationName,
+            };
         case 'SET_GPS_LOADING':
             return { ...state, gpsLoading: action.loading };
         case 'SET_WEATHER_SUMMARY':
