@@ -783,6 +783,18 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                 return;
             }
             if (duration > 61) {
+                // The lossless cutter holds the WHOLE film in memory (~3× the
+                // file size) — a long 4K drone reel would Jetsam the webview
+                // before the trimmer even painted. Past 200MB, honest words
+                // beat a dead app: the Photos editor trims without the
+                // memory bill.
+                if (file.size > 200 * 1048576) {
+                    alert(
+                        'That movie is too big to cut inside Thalassa on this phone. ' +
+                            'Trim it to the best minute in the Photos app first, then attach the cut.',
+                    );
+                    return;
+                }
                 // Not a rejection any more — the trimmer opens with the whole
                 // movie and a one-minute window to drag to the best bit.
                 setTrimRequest({ file, durationSec: duration });
@@ -811,8 +823,22 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
         setUploading(true);
         let accepted: Blob = file;
         try {
-            const { remuxVideoLossless } = await import('../services/videoTrim');
-            accepted = (await remuxVideoLossless(file)).blob;
+            const { readContainerBrand, remuxVideoLossless } = await import('../services/videoTrim');
+            // Remux ONLY Apple qt-brand files — that is the remux's whole
+            // job. A DJI drone clip is already a standard isom MP4, and
+            // pushing 296MB of 4K60 through the in-memory remux (bytes +
+            // samples + rebuilt output ≈ 3× the file) got the WebContent
+            // process Jetsam-killed straight back to the boot page (Shane,
+            // 2026-09-01: "the app is crashing all the way back to the
+            // glass page"). And even a qt file has a ceiling: past 150MB
+            // the original goes up as-is — Safari plays it, and the public
+            // page's card explains itself to other browsers — because a
+            // clip that only plays in Safari beats a dead app.
+            const brand = await readContainerBrand(file);
+            const REMUX_MAX_BYTES = 150 * 1048576;
+            if (brand === 'qt  ' && file.size <= REMUX_MAX_BYTES) {
+                accepted = (await remuxVideoLossless(file)).blob;
+            }
         } catch (err) {
             log.warn('Video remux failed — adopting the original container', err);
         }
