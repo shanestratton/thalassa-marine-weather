@@ -37,6 +37,14 @@ describe('diary video rail', () => {
         expect(service).toContain('if (videoStillPending) {');
     });
 
+    it('the post-save prepend replaces, never duplicates', () => {
+        // The 8s poll racing a slow save delivered the same entry into the
+        // list before the prepend ran — two copies for a few seconds
+        // ("phantom entry", 2026-09-01).
+        const page = readFileSync(resolve(process.cwd(), 'components/DiaryPage.tsx'), 'utf8');
+        expect(page).toContain('[entry, ...prev.filter((e) => e.id !== entry.id)]');
+    });
+
     it('an in-flight entry renders exactly once — pending wins over its synced twin', () => {
         // The offline id and the server id are different, so id-dedupe alone
         // shows both copies for a while ("it duplicates it for a little

@@ -1020,7 +1020,13 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                 }
                 if (!operationIsCurrent()) return;
                 if (entry) {
-                    setEntries((prev) => [entry, ...prev]);
+                    // The 8s poll can land DURING a slow save (video probe,
+                    // geocode) and deliver this very entry from the pending
+                    // queue — a bare prepend then shows it twice until the
+                    // next poll collapses it (Shane, 2026-09-01: "we get a
+                    // phantom entry for a few seconds"). Replace, never
+                    // duplicate.
+                    setEntries((prev) => [entry, ...prev.filter((e) => e.id !== entry.id)]);
                     setShowCompose(false);
                     // Offer to publish it to the public Voyage Log.
                     setPublishPromptEntry(entry);
