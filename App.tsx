@@ -1,4 +1,4 @@
-import React, { Suspense, useState, useEffect, useRef } from 'react';
+import React, { Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { NIGHT_SCRIM_Z_INDEX } from './components/ui/OverlayPortal';
 import { useWeather } from './context/WeatherContext';
 import { useSettings } from './context/SettingsContext';
@@ -241,6 +241,73 @@ const App: React.FC = () => {
         handleTabDashboard,
         handleTabMap,
     } = useAppController();
+
+    // ── Tablet split view ──────────────────────────────────────────
+    // Long-press The Glass to pin it beside whatever else you are doing; the
+    // same tap closes it again. Gated on WIDTH rather than orientation because
+    // width is the thing that actually decides whether two panes fit — that
+    // gets iPad landscape and the desktop web build from one rule, and keeps
+    // it off a phone in landscape, where 900px split in two is two useless
+    // columns.
+    //
+    // The chart is excluded on purpose. It is a deliberate singleton kept
+    // alive hidden (see the keep-alive note above) because two Mapbox
+    // spin-ups in one process killed the WebContent process. Putting it in a
+    // pane is the pairing worth having, but it is not worth guessing at.
+    const [splitViewEnabled, setSplitViewEnabled] = useState(() => {
+        try {
+            return localStorage.getItem('thalassa_split_view') === '1';
+        } catch {
+            return false;
+        }
+    });
+    const [wideEnoughForSplit, setWideEnoughForSplit] = useState(
+        () => typeof window !== 'undefined' && window.matchMedia('(min-width: 1024px)').matches,
+    );
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+        const query = window.matchMedia('(min-width: 1024px)');
+        // Both, deliberately. The media query alone misses cases where the window
+        // is resized without the query firing a change the listener sees — iPad
+        // Split View and Slide Over resize the app without an orientation change,
+        // and it was measured going stale under viewport emulation too. Re-read
+        // `matches` on every signal rather than trusting the event payload, so
+        // whichever arrives first is enough and neither can leave a phone-width
+        // window rendering two panes.
+        const sync = () => setWideEnoughForSplit(query.matches);
+        sync();
+        query.addEventListener('change', sync);
+        window.addEventListener('resize', sync);
+        window.addEventListener('orientationchange', sync);
+        return () => {
+            query.removeEventListener('change', sync);
+            window.removeEventListener('resize', sync);
+            window.removeEventListener('orientationchange', sync);
+        };
+    }, []);
+
+    const rememberSplitView = useCallback((next: boolean) => {
+        setSplitViewEnabled(next);
+        try {
+            localStorage.setItem('thalassa_split_view', next ? '1' : '0');
+        } catch {
+            /* private mode — the preference just will not survive a restart */
+        }
+    }, []);
+
+    const splitActive = splitViewEnabled && wideEnoughForSplit && currentView !== 'dashboard' && currentView !== 'map';
+
+    const toggleSplitView = useCallback(() => {
+        if (!wideEnoughForSplit) return;
+        rememberSplitView(!splitViewEnabled);
+    }, [wideEnoughForSplit, splitViewEnabled, rememberSplitView]);
+
+    // Tapping The Glass while split collapses back to one view: the gesture
+    // that opened it closes it, so there is nothing new to learn.
+    const handleGlassTab = useCallback(() => {
+        if (splitViewEnabled) rememberSplitView(false);
+        handleTabDashboard();
+    }, [splitViewEnabled, rememberSplitView, handleTabDashboard]);
 
     // Compute display mode BEFORE any early returns — needed by useEffect below
     const isLight = effectiveMode === 'light';
@@ -489,6 +556,145 @@ const App: React.FC = () => {
     // SignInScreen is intentionally NOT removed from this file's
     // imports — it'll be rendered inline by save-point sheets and the
     // Settings → Account entry in subsequent PRs.
+
+    // The Glass, lifted out of the view tree so it can be rendered in two
+    // places without duplicating twenty props: its normal slot, and the left
+    // pane of the tablet split view. Extraction only — the markup below is
+    // byte-for-byte what was inline, because the Glass is frozen at
+    // glass-beta-1 and this is a layout change, not a Glass change.
+    const glassContent = (
+        <>
+            {error ? (
+                <div className="p-8 bg-red-500/20 border border-red-500/30 rounded-2xl text-center max-w-lg mx-auto mt-20">
+                    <h3 className="text-xl font-bold text-red-200 mb-2">Couldn't update conditions</h3>
+                    <p className="text-white/80">Check your connection and try again.</p>
+                    <p className="mt-2 text-xs text-white/40">{error}</p>
+                    <button
+                        aria-label="Retry loading weather data"
+                        onClick={() => fetchWeather(query || settings.defaultLocation || '')}
+                        className="mt-6 px-6 py-2 bg-white/10 hover:bg-white/20 rounded-full transition-colors active:scale-95"
+                    >
+                        Retry
+                    </button>
+                </div>
+            ) : !weatherData && !loading && !settings.defaultLocation ? (
+                // True empty state — no location set, nothing
+                // loading. Trust the OS GPS flow (one-tap
+                // "Use my location" → iOS permission prompt
+                // → reverse-geocode → live local weather) and
+                // give a manual "Choose a port" fallback. No
+                // dummy data, no Sydney conditions painted
+                // for a Brisbane user. This matches what
+                // Apple Weather / Windy / Predict Wind / Yr.no
+                // all do — empty-state-with-intent beats fake
+                // data every time.
+                <div className="flex-1 w-full h-full bg-slate-950 flex items-center justify-center px-6">
+                    <div className="max-w-sm w-full">
+                        <div className="text-center mb-8">
+                            <div className="text-5xl mb-3" aria-hidden="true">
+                                ⛵
+                            </div>
+                            <h2 className="text-xl font-bold text-white mb-2">Welcome aboard</h2>
+                            <p className="text-sm text-slate-400 leading-relaxed">
+                                Set your location to see live marine conditions — wind, tide, swell, weather.
+                            </p>
+                        </div>
+                        <div className="space-y-3">
+                            <button
+                                type="button"
+                                onClick={handleLocateLite}
+                                className="w-full h-12 rounded-xl bg-sky-500 hover:bg-sky-400 text-white font-semibold text-sm transition-colors shadow-lg flex items-center justify-center gap-2"
+                            >
+                                <svg
+                                    className="w-4 h-4"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth={2}
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                >
+                                    <circle cx="12" cy="12" r="3" />
+                                    <path d="M12 1v6m0 6v6M1 12h6m6 0h6" />
+                                </svg>
+                                {isOffline ? 'Use GPS offline' : 'Use my location'}
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    mapFromWxRef.current = true;
+                                    setMapPickerActive(true);
+                                    setPage('map');
+                                }}
+                                className="w-full h-12 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-white font-semibold text-sm transition-colors border border-white/10 flex items-center justify-center gap-2"
+                            >
+                                <MapIcon className="w-4 h-4 text-emerald-400" />
+                                Choose a port on the map
+                            </button>
+                        </div>
+                        <p className="text-[11px] text-center text-slate-500 mt-4 leading-relaxed">
+                            GPS works offline. Forecasts and place names update when connected, and coordinates are sent
+                            to the provider needed for that request.
+                        </p>
+                    </div>
+                </div>
+            ) : !weatherData && !loading ? (
+                <div className="flex-1 w-full h-full bg-slate-950 flex items-center justify-center px-6 text-center">
+                    <div className="max-w-sm space-y-4" role="status">
+                        <p className="text-sm text-slate-400">
+                            {isOffline
+                                ? 'Your location is saved, but no offline forecast is available yet.'
+                                : 'Weather data is not available for this location yet.'}
+                        </p>
+                        <div className="flex flex-col gap-2 sm:flex-row sm:justify-center">
+                            <button
+                                type="button"
+                                onClick={() => fetchWeather(query || settings.defaultLocation || '')}
+                                disabled={isOffline}
+                                className="rounded-xl bg-sky-500 px-5 py-2.5 text-sm font-bold text-white disabled:bg-slate-700 disabled:text-slate-400"
+                            >
+                                {isOffline ? 'Waiting for network' : 'Retry forecast'}
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    mapFromWxRef.current = true;
+                                    setMapPickerActive(true);
+                                    setPage('map');
+                                }}
+                                className="rounded-xl border border-white/10 bg-slate-800 px-5 py-2.5 text-sm font-bold text-white"
+                            >
+                                Choose another location
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            ) : (
+                weatherData && (
+                    <Dashboard
+                        onOpenMap={() => {
+                            mapFromWxRef.current = true;
+                            setMapPickerActive(true);
+                            setPage('map');
+                        }}
+                        onTriggerUpgrade={() => setIsUpgradeOpen(true)}
+                        displayTitle={displayTitle}
+                        timeZone={weatherData.timeZone}
+                        utcOffset={weatherData.utcOffset}
+                        timeDisplaySetting={settings.timeDisplay}
+                        onToggleFavorite={toggleFavorite}
+                        favorites={settings.savedLocations}
+                        isRefreshing={loading}
+                        isNightMode={effectiveMode === 'night'}
+                        isMobileLandscape={isMobileLandscape}
+                        viewMode={'overview'}
+                        mapboxToken={settings.mapboxToken}
+                        onLocationSelect={handleMapTargetSelect}
+                    />
+                )
+            )}
+        </>
+    );
 
     return (
         <div
@@ -835,214 +1041,79 @@ const App: React.FC = () => {
                                 <Suspense
                                     fallback={currentView === 'dashboard' ? <SkeletonDashboard /> : <SkeletonPage />}
                                 >
-                                    <div className="relative flex-1 overflow-hidden">
-                                        <PageTransition
-                                            pageKey={currentView}
-                                            direction={transitionDirection}
-                                            canSwipeBack={false}
-                                            onSwipeBack={() => setPage('vessel')}
+                                    <div className={`relative flex-1 overflow-hidden ${splitActive ? 'flex' : ''}`}>
+                                        {splitActive && (
+                                            <aside
+                                                aria-label="The Glass"
+                                                className="h-full w-1/2 shrink-0 overflow-y-auto overflow-x-hidden border-r border-white/10"
+                                            >
+                                                {glassContent}
+                                            </aside>
+                                        )}
+                                        <div
+                                            className={
+                                                splitActive
+                                                    ? 'relative h-full w-1/2 overflow-hidden'
+                                                    : 'absolute inset-0'
+                                            }
                                         >
-                                            <div className="h-full overflow-y-auto overflow-x-hidden">
-                                                {/* Dashboard — special case with error/loading states */}
-                                                {currentView === 'dashboard' && (
-                                                    <>
-                                                        {error ? (
-                                                            <div className="p-8 bg-red-500/20 border border-red-500/30 rounded-2xl text-center max-w-lg mx-auto mt-20">
-                                                                <h3 className="text-xl font-bold text-red-200 mb-2">
-                                                                    Couldn't update conditions
-                                                                </h3>
-                                                                <p className="text-white/80">
-                                                                    Check your connection and try again.
-                                                                </p>
-                                                                <p className="mt-2 text-xs text-white/40">{error}</p>
-                                                                <button
-                                                                    aria-label="Retry loading weather data"
-                                                                    onClick={() =>
-                                                                        fetchWeather(
-                                                                            query || settings.defaultLocation || '',
-                                                                        )
-                                                                    }
-                                                                    className="mt-6 px-6 py-2 bg-white/10 hover:bg-white/20 rounded-full transition-colors active:scale-95"
-                                                                >
-                                                                    Retry
-                                                                </button>
-                                                            </div>
-                                                        ) : !weatherData && !loading && !settings.defaultLocation ? (
-                                                            // True empty state — no location set, nothing
-                                                            // loading. Trust the OS GPS flow (one-tap
-                                                            // "Use my location" → iOS permission prompt
-                                                            // → reverse-geocode → live local weather) and
-                                                            // give a manual "Choose a port" fallback. No
-                                                            // dummy data, no Sydney conditions painted
-                                                            // for a Brisbane user. This matches what
-                                                            // Apple Weather / Windy / Predict Wind / Yr.no
-                                                            // all do — empty-state-with-intent beats fake
-                                                            // data every time.
-                                                            <div className="flex-1 w-full h-full bg-slate-950 flex items-center justify-center px-6">
-                                                                <div className="max-w-sm w-full">
-                                                                    <div className="text-center mb-8">
-                                                                        <div
-                                                                            className="text-5xl mb-3"
-                                                                            aria-hidden="true"
-                                                                        >
-                                                                            ⛵
-                                                                        </div>
-                                                                        <h2 className="text-xl font-bold text-white mb-2">
-                                                                            Welcome aboard
-                                                                        </h2>
-                                                                        <p className="text-sm text-slate-400 leading-relaxed">
-                                                                            Set your location to see live marine
-                                                                            conditions — wind, tide, swell, weather.
-                                                                        </p>
-                                                                    </div>
-                                                                    <div className="space-y-3">
-                                                                        <button
-                                                                            type="button"
-                                                                            onClick={handleLocateLite}
-                                                                            className="w-full h-12 rounded-xl bg-sky-500 hover:bg-sky-400 text-white font-semibold text-sm transition-colors shadow-lg flex items-center justify-center gap-2"
-                                                                        >
-                                                                            <svg
-                                                                                className="w-4 h-4"
-                                                                                viewBox="0 0 24 24"
-                                                                                fill="none"
-                                                                                stroke="currentColor"
-                                                                                strokeWidth={2}
-                                                                                strokeLinecap="round"
-                                                                                strokeLinejoin="round"
-                                                                            >
-                                                                                <circle cx="12" cy="12" r="3" />
-                                                                                <path d="M12 1v6m0 6v6M1 12h6m6 0h6" />
-                                                                            </svg>
-                                                                            {isOffline
-                                                                                ? 'Use GPS offline'
-                                                                                : 'Use my location'}
-                                                                        </button>
-                                                                        <button
-                                                                            type="button"
-                                                                            onClick={() => {
-                                                                                mapFromWxRef.current = true;
-                                                                                setMapPickerActive(true);
-                                                                                setPage('map');
-                                                                            }}
-                                                                            className="w-full h-12 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-white font-semibold text-sm transition-colors border border-white/10 flex items-center justify-center gap-2"
-                                                                        >
-                                                                            <MapIcon className="w-4 h-4 text-emerald-400" />
-                                                                            Choose a port on the map
-                                                                        </button>
-                                                                    </div>
-                                                                    <p className="text-[11px] text-center text-slate-500 mt-4 leading-relaxed">
-                                                                        GPS works offline. Forecasts and place names
-                                                                        update when connected, and coordinates are sent
-                                                                        to the provider needed for that request.
-                                                                    </p>
-                                                                </div>
-                                                            </div>
-                                                        ) : !weatherData && !loading ? (
-                                                            <div className="flex-1 w-full h-full bg-slate-950 flex items-center justify-center px-6 text-center">
-                                                                <div className="max-w-sm space-y-4" role="status">
-                                                                    <p className="text-sm text-slate-400">
-                                                                        {isOffline
-                                                                            ? 'Your location is saved, but no offline forecast is available yet.'
-                                                                            : 'Weather data is not available for this location yet.'}
-                                                                    </p>
-                                                                    <div className="flex flex-col gap-2 sm:flex-row sm:justify-center">
-                                                                        <button
-                                                                            type="button"
-                                                                            onClick={() =>
-                                                                                fetchWeather(
-                                                                                    query ||
-                                                                                        settings.defaultLocation ||
-                                                                                        '',
-                                                                                )
-                                                                            }
-                                                                            disabled={isOffline}
-                                                                            className="rounded-xl bg-sky-500 px-5 py-2.5 text-sm font-bold text-white disabled:bg-slate-700 disabled:text-slate-400"
-                                                                        >
-                                                                            {isOffline
-                                                                                ? 'Waiting for network'
-                                                                                : 'Retry forecast'}
-                                                                        </button>
-                                                                        <button
-                                                                            type="button"
-                                                                            onClick={() => {
-                                                                                mapFromWxRef.current = true;
-                                                                                setMapPickerActive(true);
-                                                                                setPage('map');
-                                                                            }}
-                                                                            className="rounded-xl border border-white/10 bg-slate-800 px-5 py-2.5 text-sm font-bold text-white"
-                                                                        >
-                                                                            Choose another location
-                                                                        </button>
-                                                                    </div>
-                                                                </div>
-                                                            </div>
-                                                        ) : (
-                                                            weatherData && (
-                                                                <Dashboard
-                                                                    onOpenMap={() => {
-                                                                        mapFromWxRef.current = true;
-                                                                        setMapPickerActive(true);
-                                                                        setPage('map');
-                                                                    }}
-                                                                    onTriggerUpgrade={() => setIsUpgradeOpen(true)}
-                                                                    displayTitle={displayTitle}
-                                                                    timeZone={weatherData.timeZone}
-                                                                    utcOffset={weatherData.utcOffset}
-                                                                    timeDisplaySetting={settings.timeDisplay}
-                                                                    onToggleFavorite={toggleFavorite}
-                                                                    favorites={settings.savedLocations}
-                                                                    isRefreshing={loading}
-                                                                    isNightMode={effectiveMode === 'night'}
-                                                                    isMobileLandscape={isMobileLandscape}
-                                                                    viewMode={'overview'}
-                                                                    mapboxToken={settings.mapboxToken}
-                                                                    onLocationSelect={handleMapTargetSelect}
-                                                                />
-                                                            )
-                                                        )}
-                                                    </>
-                                                )}
+                                            <PageTransition
+                                                pageKey={currentView}
+                                                direction={transitionDirection}
+                                                canSwipeBack={false}
+                                                onSwipeBack={() => setPage('vessel')}
+                                            >
+                                                <div className="h-full overflow-y-auto overflow-x-hidden">
+                                                    {/* Dashboard — special case with error/loading states */}
+                                                    {currentView === 'dashboard' && glassContent}
 
-                                                {/* Registry-driven views — all non-dashboard/non-map pages */}
-                                                {activeViewConfig &&
-                                                    (() => {
-                                                        const ViewComponent = activeViewConfig.component;
-                                                        const viewCtx: ViewContext = {
-                                                            setPage,
-                                                            previousView,
-                                                            setIsUpgradeOpen,
-                                                            settings: settings as unknown as Record<string, unknown>,
-                                                            updateSettings: updateSettings as unknown as (
-                                                                u: Record<string, unknown>,
-                                                            ) => void,
-                                                            handleFavoriteSelect,
-                                                            weatherAlerts: weatherData?.alerts || [],
-                                                        };
-                                                        const viewProps = activeViewConfig.getProps?.(viewCtx) ?? {};
-                                                        const rendered = <ViewComponent {...viewProps} />;
-                                                        // If this view is gated, PaywallGate decides whether to
-                                                        // render the page or the upsell card based on the user's
-                                                        // subscription tier. See services/SubscriptionService for
-                                                        // the FEATURE_GATES table.
-                                                        const gated = activeViewConfig.gatedFeature ? (
-                                                            <PaywallGate
-                                                                feature={activeViewConfig.gatedFeature}
-                                                                onUpgrade={() => setIsUpgradeOpen(true)}
-                                                                onBack={() => setPage('vessel')}
-                                                            >
-                                                                {rendered}
-                                                            </PaywallGate>
-                                                        ) : (
-                                                            rendered
-                                                        );
-                                                        return (
-                                                            <ErrorBoundary boundaryName={activeViewConfig.boundaryName}>
-                                                                {gated}
-                                                            </ErrorBoundary>
-                                                        );
-                                                    })()}
-                                            </div>
-                                        </PageTransition>
+                                                    {/* Registry-driven views — all non-dashboard/non-map pages */}
+                                                    {activeViewConfig &&
+                                                        (() => {
+                                                            const ViewComponent = activeViewConfig.component;
+                                                            const viewCtx: ViewContext = {
+                                                                setPage,
+                                                                previousView,
+                                                                setIsUpgradeOpen,
+                                                                settings: settings as unknown as Record<
+                                                                    string,
+                                                                    unknown
+                                                                >,
+                                                                updateSettings: updateSettings as unknown as (
+                                                                    u: Record<string, unknown>,
+                                                                ) => void,
+                                                                handleFavoriteSelect,
+                                                                weatherAlerts: weatherData?.alerts || [],
+                                                            };
+                                                            const viewProps =
+                                                                activeViewConfig.getProps?.(viewCtx) ?? {};
+                                                            const rendered = <ViewComponent {...viewProps} />;
+                                                            // If this view is gated, PaywallGate decides whether to
+                                                            // render the page or the upsell card based on the user's
+                                                            // subscription tier. See services/SubscriptionService for
+                                                            // the FEATURE_GATES table.
+                                                            const gated = activeViewConfig.gatedFeature ? (
+                                                                <PaywallGate
+                                                                    feature={activeViewConfig.gatedFeature}
+                                                                    onUpgrade={() => setIsUpgradeOpen(true)}
+                                                                    onBack={() => setPage('vessel')}
+                                                                >
+                                                                    {rendered}
+                                                                </PaywallGate>
+                                                            ) : (
+                                                                rendered
+                                                            );
+                                                            return (
+                                                                <ErrorBoundary
+                                                                    boundaryName={activeViewConfig.boundaryName}
+                                                                >
+                                                                    {gated}
+                                                                </ErrorBoundary>
+                                                            );
+                                                        })()}
+                                                </div>
+                                            </PageTransition>
+                                        </div>
                                     </div>
                                 </Suspense>
                             </ErrorBoundary>
@@ -1263,8 +1334,9 @@ const App: React.FC = () => {
                                     />
                                 }
                                 label="The Glass"
-                                active={currentView === 'dashboard'}
-                                onClick={handleTabDashboard}
+                                active={currentView === 'dashboard' || splitActive}
+                                onClick={handleGlassTab}
+                                onLongPress={wideEnoughForSplit ? toggleSplitView : undefined}
                             />
                             <NavButton
                                 icon={
