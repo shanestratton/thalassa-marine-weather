@@ -36,6 +36,8 @@ export const DiaryPublishModal: React.FC<DiaryPublishModalProps> = ({ entry, onC
     // What the last action did — drives the 'done' screen copy.
     const [result, setResult] = useState<'published' | 'unpublished' | null>(null);
     const [publicUrl, setPublicUrl] = useState<string | null>(null);
+    /** Publish accepted while the entry is still syncing (video draining). */
+    const [deferred, setDeferred] = useState(false);
     const [copied, setCopied] = useState(false);
     const [actionError, setActionError] = useState<string | null>(null);
     const titleId = useId();
@@ -92,6 +94,7 @@ export const DiaryPublishModal: React.FC<DiaryPublishModalProps> = ({ entry, onC
             setPhase('choose');
             return;
         }
+        setDeferred(publish.deferred === true);
 
         onPublishChange({ ...entry, is_public: true });
         setPublicUrl(voyageLogPublicUrl(publish.config.handle, publish.config.api_key));
@@ -140,8 +143,9 @@ export const DiaryPublishModal: React.FC<DiaryPublishModalProps> = ({ entry, onC
     if (phase === 'done' && result === 'published') {
         icon = '🌍';
         heading = 'Published to your Voyage Log';
-        blurb =
-            'This entry is public to anyone who has or guesses your handle. It may take up to a minute to appear for a fresh visitor.';
+        blurb = deferred
+            ? 'This entry is still syncing (a video takes a moment) — it will appear on your public page automatically as soon as it lands. Keep the app open.'
+            : 'This entry is public to anyone who has or guesses your handle. It may take up to a minute to appear for a fresh visitor.';
     } else if (phase === 'done' && result === 'unpublished') {
         icon = '🔒';
         heading = 'Removed from your Voyage Log';

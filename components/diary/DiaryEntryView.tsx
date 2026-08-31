@@ -92,6 +92,11 @@ export const DiaryEntryView: React.FC<DiaryEntryViewProps> = React.memo(
                         toast.error(diaryPublishFailureMessage(publish.reason));
                         return;
                     }
+                    if (publish.deferred) {
+                        toast.success(
+                            'Published — it will appear on your Voyage Log as soon as this entry finishes syncing.',
+                        );
+                    }
                 } else {
                     const unpublished = await unpublishDiaryEntryFromVoyageLog(e.id);
                     if (!unpublished) {

@@ -425,7 +425,16 @@ class DiaryServiceClass {
         // Purge stale entries from recently-synced buffer (>30s)
         const now = Date.now();
         this._recentlySynced = this._recentlySynced.filter((r) => now - r.syncedAt < 120_000);
-        const recentlySyncedEntries = this._recentlySynced.map((r) => r.entry);
+        // While an entry's offline twin is still in pending, its freshly
+        // synced server row must stay hidden — the two carry DIFFERENT ids,
+        // so the id-dedupe below cannot connect them, and showing both is the
+        // "it duplicates for a little while" flicker (Shane, 2026-08-31).
+        // Pending is the source of truth for anything still in flight; the
+        // server row takes over the moment pending lets go.
+        const pendingIds = new Set(pending.map((e) => e.id));
+        const recentlySyncedEntries = this._recentlySynced
+            .filter((r) => !pendingIds.has(r.offlineId))
+            .map((r) => r.entry);
 
         // Combine: pending first, then recently-synced, then cached (deduped)
         // This closes the gap where an entry has exited pending (sync succeeded)
@@ -755,7 +764,13 @@ class DiaryServiceClass {
      * under a real id by the time the user taps "Publish". This walks all
      * three cases so the server row reliably ends up with the right flag.
      */
-    async setEntryPublished(id: string, isPublic: boolean): Promise<boolean> {
+    /**
+     * `'deferred'` means the choice is durably recorded but the row is not on
+     * the server yet (usually a video still draining): the envelope's first
+     * write carries the intent, so the entry WILL go public when it lands —
+     * callers should say "on its way", not "failed".
+     */
+    async setEntryPublished(id: string, isPublic: boolean): Promise<boolean | 'deferred'> {
         const scope = getAuthIdentityScope();
         if (id.startsWith('offline-')) {
             // Public visibility is still server-confirmed in the UI, but an
@@ -799,7 +814,9 @@ class DiaryServiceClass {
 
             // Still pending/offline. The public intent is now durable and the
             // periodic device/Pi retry will honour it; keep the visual state
-            // private until a server row is proven.
+            // private until a server row is proven — but tell the caller the
+            // truth: this is a promise that will be kept, not a failure.
+            if (isPublic && idx >= 0) return 'deferred';
             return false;
         }
         return this._setPublishedOnServer(id, isPublic, scope);
@@ -3367,7 +3384,7 @@ class DiaryServiceClass {
             // a gateway configured, give the feed a moment before deciding the
             // boat has nothing to say. The phone fetch is already in flight,
             // so this wait hides inside it.
-            for (let i = 0; !vessel && hasGateway && i < 12; i++) {
+            for (let i = 0; !vessel && hasGateway && i < 20; i++) {
                 await new Promise((resolve) => setTimeout(resolve, 250));
                 vessel = read();
             }
