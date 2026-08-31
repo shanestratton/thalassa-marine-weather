@@ -1057,7 +1057,9 @@ const App: React.FC = () => {
                                 >
                                     <div
                                         className={`relative flex-1 overflow-hidden ${
-                                            splitActive ? 'flex gap-2 bg-slate-950 p-2' : ''
+                                            splitActive
+                                                ? 'flex gap-2 bg-black p-2 pb-[calc(4rem+env(safe-area-inset-bottom)+0.5rem)]'
+                                                : ''
                                         }`}
                                     >
                                         {splitActive && (
@@ -1069,7 +1071,7 @@ const App: React.FC = () => {
                                                 // cyan edge marks the PINNED pane — the same neon the tab
                                                 // bar speaks — while the right pane stays neutral so the
                                                 // eye knows which side will change when a tab is pressed.
-                                                className="h-full min-w-0 flex-1 overflow-hidden rounded-2xl border border-cyan-400/25 bg-slate-950 shadow-[0_0_28px_rgba(34,211,238,0.10),inset_0_1px_0_rgba(255,255,255,0.06)]"
+                                                className="h-full min-w-0 flex-1 overflow-hidden rounded-2xl border border-cyan-400/50 bg-slate-950 shadow-[0_0_32px_rgba(34,211,238,0.18),inset_0_1px_0_rgba(255,255,255,0.08)]"
                                             >
                                                 <aside
                                                     aria-label="The Glass"
@@ -1107,7 +1109,7 @@ const App: React.FC = () => {
                                         <div
                                             className={
                                                 splitActive
-                                                    ? 'relative h-full min-w-0 flex-1 overflow-hidden rounded-2xl border border-white/10 bg-slate-950 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]'
+                                                    ? 'relative h-full min-w-0 flex-1 overflow-hidden rounded-2xl border border-white/25 bg-slate-950 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]'
                                                     : 'absolute inset-0'
                                             }
                                         >
