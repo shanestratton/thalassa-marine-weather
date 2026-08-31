@@ -3281,6 +3281,48 @@ class DiaryServiceClass {
 
     // ── GPS ────────────────────────────────────────────────────
 
+    /**
+     * Both positions the app can honestly claim, for the compose pin.
+     *
+     * The two disagree exactly when the skipper is near the boat but not ON
+     * it — dinghied ashore, phone on the pub table, boat WiFi still in range.
+     * An entry written there is ABOUT the pub, and pinning it at the boat is
+     * wrong; an entry written mid-passage must pin at the boat even when the
+     * phone's own fix is a stale berth cache. Neither device can decide that —
+     * only the skipper knows which story the entry tells, so the compose UI
+     * asks precisely when the answer is ambiguous and never otherwise.
+     *
+     * The vessel candidate is LIVE NMEA only — the boat's actual electronics,
+     * reachable only on the boat network. The ship-log fix is deliberately not
+     * used here: while recording it follows whatever device feeds the track,
+     * which may be this same phone wearing a different hat.
+     */
+    async getPositionCandidates(): Promise<{
+        vessel: { lat: number; lon: number } | null;
+        phone: { lat: number; lon: number } | null;
+    }> {
+        let vessel: { lat: number; lon: number } | null = null;
+        try {
+            const { NmeaGpsProvider } = await import('./NmeaGpsProvider');
+            const fix = NmeaGpsProvider.getPosition();
+            if (fix) vessel = { lat: fix.latitude, lon: fix.longitude };
+        } catch {
+            /* no NMEA aboard — phone-only is the ordinary shoreside case */
+        }
+        let phone: { lat: number; lon: number } | null = null;
+        try {
+            const { GpsService } = await import('./GpsService');
+            const pos = await GpsService.requestCurrentForegroundPosition({
+                staleLimitMs: 10_000,
+                timeoutSec: 15,
+            });
+            if (pos) phone = { lat: pos.latitude, lon: pos.longitude };
+        } catch (e) {
+            log.warn('Phone GPS failed for diary candidates:', e);
+        }
+        return { vessel, phone };
+    }
+
     async getCurrentLocation(): Promise<{ lat: number; lon: number } | null> {
         // While a voyage is RECORDING, the track's own last accepted fix is
         // the most-trustworthy position in the app — it cleared the full
