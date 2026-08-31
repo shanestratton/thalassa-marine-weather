@@ -1121,11 +1121,14 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
             <>
                 {gpsConflict && (
                     <div
-                        className="fixed inset-0 z-[1200] flex flex-col justify-end bg-black/80"
+                        // Centred, not a bottom sheet: anchored low it slid its second
+                        // option under the tab bar, and a question with one visible answer
+                        // is not a question (Shane, 2026-08-31).
+                        className="fixed inset-0 z-[1200] flex items-center justify-center bg-black/80 p-6"
                         role="dialog"
                         aria-modal="true"
                     >
-                        <div className="rounded-t-3xl border-t border-sky-500/25 bg-slate-950 p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+                        <div className="w-full max-w-sm rounded-3xl border border-sky-500/25 bg-slate-950 p-5 shadow-[0_0_40px_rgba(56,189,248,0.15)]">
                             <p className="text-sm font-black uppercase tracking-[0.14em] text-sky-300">
                                 Two positions, skipper
                             </p>
