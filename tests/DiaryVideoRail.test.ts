@@ -19,7 +19,10 @@ const migration = readFileSync(resolve(process.cwd(), 'supabase/migrations/20260
 describe('diary video rail', () => {
     it('the drain uploads the clip, adopts the ref, then deletes the local blob', () => {
         expect(service).toContain('if (videoUrl && isIdbVideo(videoUrl)) {');
-        expect(service).toContain('const uploaded = await this._uploadVideoBlob(blob, scope);');
+        // Pi-first, phone-fallback — the pair must stay together: park on the
+        // boat when it is there, spend the phone's uplink only when it is not.
+        expect(service).toContain("(await this._parkVideoOnPi(blob, entry.client_operation_id ?? '', scope)) ??");
+        expect(service).toContain('(await this._uploadVideoBlob(blob, scope));');
         expect(service).toContain('adoptStorageRefs(VIDEO_BUCKET, [uploaded]);');
         expect(service).toContain('await this.discardUnsavedVideo(idbRef);');
         // An entry must never reach the server while its clip is still local.
@@ -60,5 +63,30 @@ describe('diary video rail', () => {
         expect(migration).toContain('524288000');
         expect(migration).toContain("'video/mp4', 'video/quicktime'");
         expect(migration).toContain('ADD COLUMN IF NOT EXISTS video_url');
+    });
+});
+
+describe('pi video hand-off', () => {
+    const transport = readFileSync(resolve(process.cwd(), 'services/DiaryRelayTransport.ts'), 'utf8');
+    const piRelay = readFileSync(resolve(process.cwd(), 'pi-cache/src/diaryVideoRelay.ts'), 'utf8');
+
+    it('the phone only parks on a Pi paired to the same owner', () => {
+        expect(transport).toContain('status.diaryRelayOwnerId !== scope.userId) return false;');
+        expect(transport).toContain('crypto.subtle.digest');
+    });
+
+    it('the Pi verifies the checksum before parking and refuses foreign folders', () => {
+        expect(piRelay).toContain('Checksum mismatch — upload discarded');
+        expect(piRelay).toContain('does not belong to the paired skipper');
+    });
+
+    it('the Pi uploads only to the trusted origin, via a per-object grant', () => {
+        expect(piRelay).toContain("action: 'video-upload-url'");
+        expect(piRelay).toContain('Signed URL points off the trusted origin');
+    });
+
+    it('the edge function grants a URL only inside the callers own folder', () => {
+        expect(edge).toContain("body.action === 'video-upload-url'");
+        expect(edge).toContain('Video path must be a single object in your own folder');
     });
 });

@@ -38,6 +38,7 @@ import { cachedJsonFetch, cachedTileFetch } from './proxy.js';
 import { startScheduler, stopScheduler } from './scheduler.js';
 import { startEncWatcher, stopEncWatcher } from './encWatcher.js';
 import { DiaryRelayOutbox, type DiaryRelayConfigInput, DiaryRelayValidationError } from './diaryRelayOutbox.js';
+import { DiaryVideoRelay } from './diaryVideoRelay.js';
 import { loadOrCreateIdentity, readIdentityPrivateKeyPem } from './identity.js';
 import { ensureIdentityTls } from './tlsIdentity.js';
 import { createPairRoutes } from './routes/pair.js';
@@ -115,6 +116,10 @@ delete process.env[LEGACY_PROVIDER_ENV];
 
 const cache = new Cache(CACHE_DIR);
 const diaryRelayOutbox = new DiaryRelayOutbox(CACHE_DIR, { trustedSupabaseOrigin: SUPABASE_ORIGIN });
+// The big-upload babysitter. Borrows the outbox's pairing credential; holds
+// clips on disk until WAN lets it redeem a signed upload URL per object.
+const diaryVideoRelay = new DiaryVideoRelay(CACHE_DIR, () => diaryRelayOutbox.lendVideoCredentials());
+diaryVideoRelay.start();
 
 /* The always-on track. Signal K on this same Pi is the source — reading the
    gateway's TCP feed directly would burn one of the YDWG-02's three client
@@ -486,7 +491,7 @@ if (APP_API_ENABLED) {
     app.use('/api/enc', createEncRoutes(identity));
     app.use('/api/osm', createOsmRoutes());
     app.use('/api/pair', createPairRoutes(identity));
-    app.use('/api/diary', createDiaryRelayRoutes(diaryRelayOutbox));
+    app.use('/api/diary', createDiaryRelayRoutes(diaryRelayOutbox, diaryVideoRelay));
     app.use('/api/track', createTrackRoutes(trackStore, trackRecorder));
 } else {
     for (const prefix of ['/api/enc', '/api/osm', '/api/pair', '/api/diary', '/api/track']) {

@@ -6,7 +6,7 @@
  * record to `synced`; an unavailable WAN remains a normal `queued` result.
  */
 
-import { Request, Response, Router } from 'express';
+import express, { Request, Response, Router } from 'express';
 import {
     DiaryRelayOperationCancelledError,
     DiaryRelayOperationConflictError,
@@ -14,6 +14,7 @@ import {
     DiaryRelayValidationError,
     type DiaryRelayEnvelope,
 } from '../diaryRelayOutbox.js';
+import type { DiaryVideoRelay } from '../diaryVideoRelay.js';
 
 function requestEnvelope(value: unknown): DiaryRelayEnvelope {
     if (value && typeof value === 'object' && !Array.isArray(value)) return value as DiaryRelayEnvelope;
@@ -37,7 +38,7 @@ function cancellationOperationId(value: unknown): string {
     return typeof body.client_operation_id === 'string' ? body.client_operation_id : '';
 }
 
-export function createDiaryRelayRoutes(outbox: DiaryRelayOutbox): Router {
+export function createDiaryRelayRoutes(outbox: DiaryRelayOutbox, videoRelay?: DiaryVideoRelay): Router {
     const router = Router();
 
     /**
@@ -97,6 +98,9 @@ export function createDiaryRelayRoutes(outbox: DiaryRelayOutbox): Router {
     router.post('/cancel', async (req: Request, res: Response) => {
         try {
             const operationId = cancellationOperationId(req.body);
+            // A deleted entry's parked clip must die with it, or the Pi
+            // uploads a video for a row that no longer exists.
+            if (videoRelay) void videoRelay.cancelOperation(operationId);
             const queued = outbox.cancel(operationId);
             const current = await outbox.attemptCancellation(operationId);
             const result = current ?? queued;
@@ -121,6 +125,63 @@ export function createDiaryRelayRoutes(outbox: DiaryRelayOutbox): Router {
      * be visible to other connected devices, so it never includes diary text,
      * media, the server row, relay URL, or scoped bearer credential.
      */
+    // ── Video hand-off: the phone lends the Pi the clip, chunk by chunk ──
+    if (videoRelay) {
+        router.post('/video/begin', async (req: Request, res: Response) => {
+            const body = requestEnvelope(req.body) as unknown as Record<string, unknown>;
+            const result = await videoRelay.begin({
+                operationId: typeof body.client_operation_id === 'string' ? body.client_operation_id : '',
+                path: typeof body.path === 'string' ? body.path : '',
+                totalBytes: typeof body.total_bytes === 'number' ? body.total_bytes : NaN,
+                sha256: typeof body.sha256 === 'string' ? body.sha256 : '',
+            });
+            if ('error' in result) return res.status(result.status).json({ error: result.error });
+            return res.json(result);
+        });
+
+        // Chunks arrive as base64 TEXT because the Capacitor bridge cannot
+        // carry a raw binary body — the same convention the ENC upload uses.
+        // The ~33% inflation is irrelevant on the boat LAN, and the 12mb
+        // ceiling holds a 8MB chunk with base64 overhead. The app-wide JSON
+        // parser's 64kb limit stays untouched for everything else.
+        router.post(
+            '/video/chunk/:id/:index',
+            express.text({ type: '*/*', limit: '12mb' }),
+            async (req: Request, res: Response) => {
+                const index = Number(req.params.index);
+                const body = typeof req.body === 'string' ? req.body : '';
+                if (!Number.isInteger(index) || index < 0 || body.length === 0) {
+                    return res.status(400).json({ error: 'A base64 chunk body and its index are required' });
+                }
+                let bytes: Buffer;
+                try {
+                    bytes = Buffer.from(body, 'base64');
+                    if (bytes.length === 0) throw new Error('empty');
+                } catch {
+                    return res.status(400).json({ error: 'Chunk body is not base64' });
+                }
+                const id = typeof req.params.id === 'string' ? req.params.id : '';
+                const result = await videoRelay.chunk(id, index, bytes);
+                if ('error' in result) return res.status(result.status).json({ error: result.error });
+                return res.json(result);
+            },
+        );
+
+        router.post('/video/finish/:id', async (req: Request, res: Response) => {
+            const result = await videoRelay.finish(typeof req.params.id === 'string' ? req.params.id : '');
+            if ('error' in result) return res.status(result.status).json({ error: result.error });
+            return res.json(result);
+        });
+
+        router.get('/video/status/:operationId', async (req: Request, res: Response) => {
+            const status = await videoRelay.status(
+                typeof req.params.operationId === 'string' ? req.params.operationId : '',
+            );
+            if (!status) return res.status(404).json({ error: 'No clip for that operation' });
+            return res.json(status);
+        });
+    }
+
     router.get('/status/:operationId', (req: Request, res: Response) => {
         const operationId = Array.isArray(req.params.operationId) ? req.params.operationId[0] : req.params.operationId;
         const record = outbox.getStatus(operationId ?? '');

@@ -32,6 +32,7 @@ import {
     handoffDiaryToPi,
     submitDiaryDirect,
     syncPiDiaryRelayInternetPolicy,
+    handoffVideoToPi,
     type DiaryRelayEnvelope,
 } from './DiaryRelayTransport';
 import { onConnectionChange } from './ConnectionPriorityService';
@@ -2212,7 +2213,15 @@ class DiaryServiceClass {
                         log.warn('IDB video missing, saving diary text without the clip:', idbRef);
                         videoUrl = null;
                     } else {
-                        const uploaded = await this._uploadVideoBlob(blob, scope);
+                        // The boat first: over the Pi's LAN the hand-off takes
+                        // seconds and the Pi babysits the real upload over
+                        // whatever WAN eventually appears — the phone can go to
+                        // sleep, go ashore, or go flat. Only when the Pi is not
+                        // reachable (or not paired) does the phone spend its own
+                        // uplink on a direct upload.
+                        const uploaded =
+                            (await this._parkVideoOnPi(blob, entry.client_operation_id ?? '', scope)) ??
+                            (await this._uploadVideoBlob(blob, scope));
                         if (uploaded) {
                             trackStorageRef(VIDEO_BUCKET, uploaded);
                             if (!isAuthIdentityScopeCurrent(scope)) return;
@@ -3457,6 +3466,34 @@ class DiaryServiceClass {
         }
         if (ref.startsWith('http://') || ref.startsWith('https://')) return ref;
         return null;
+    }
+
+    /**
+     * Lend the clip to the Pi and return the public URL it WILL have.
+     *
+     * The URL is minted before the object exists: the Pi holds a
+     * checksum-verified copy and uploads it when the boat has WAN, so the row
+     * can sync now and the video becomes playable when the Pi lands it. That
+     * window — entry visible, clip still in transit aboard — is the deliberate
+     * trade for "the phone can go over the side and the diary still completes".
+     */
+    private async _parkVideoOnPi(
+        blob: Blob,
+        clientOperationId: string,
+        scope: AuthIdentityScope,
+    ): Promise<string | null> {
+        if (!supabase || !scope.userId || !clientOperationId) return null;
+        try {
+            const path = `${scope.userId}/${Date.now()}.mp4`;
+            const parked = await handoffVideoToPi(blob, clientOperationId, path);
+            if (!parked || !isAuthIdentityScopeCurrent(scope)) return null;
+            const publicUrl = supabase.storage.from(VIDEO_BUCKET).getPublicUrl(path).data.publicUrl;
+            log.info(`[Diary] video parked on the Pi (${(blob.size / 1048576).toFixed(1)} MB) → ${path}`);
+            return publicUrl;
+        } catch (error) {
+            log.warn('[Diary] Pi video park failed; using the direct upload', error);
+            return null;
+        }
     }
 
     private async _uploadVideoBlob(blob: Blob, scope: AuthIdentityScope): Promise<string | null> {
