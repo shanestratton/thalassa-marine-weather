@@ -148,6 +148,16 @@ export function useSwipeable(options: UseSwipeableOptions = {}): UseSwipeableRet
 
             // Attach to new element
             if (node) {
+                // Declare gesture ownership to the OS, not just to the event
+                // loop: vertical panning stays native, horizontal is OURS.
+                // Newer iOS WKWebViews arbitrate pans before a non-passive
+                // touchmove gets its say, and without touch-action the
+                // horizontal swipe loses the race — the card never moves and
+                // the release lands as a tap that OPENS the entry instead
+                // (Shane, 2026-09-01: "swipe from right to left ... does not
+                // work"). The hook's own usage doc always prescribed pan-y;
+                // now the hook enforces it so no consumer can forget.
+                node.style.touchAction = 'pan-y';
                 node.addEventListener('touchstart', handleTouchStart, { passive: true });
                 // ★ passive: false is the critical fix for iOS
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any

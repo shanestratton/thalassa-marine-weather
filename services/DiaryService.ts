@@ -154,7 +154,9 @@ const IDMAP_KEY = 'thalassa_diary_idmap_v1';
 const MEDIA_OWNERS_KEY = 'thalassa_diary_media_owners_v1';
 const MEDIA_CLEANUP_KEY = 'thalassa_diary_media_cleanup_v1';
 const QUARANTINE_KEY = 'thalassa_diary_quarantine_v1';
+const REVISION_FLOOR_KEY = 'thalassa_diary_revision_floor_v1';
 const IDMAP_MAX = 300;
+const REVISION_FLOOR_MAX = 300;
 const MAX_PHOTO_SIZE = 1200;
 // Voice transcription and styling should never strand the compose screen on
 // a poor offshore connection. The raw dictated words remain available if an
@@ -178,6 +180,32 @@ function newDiaryOperationId(): string {
         return `diary_${crypto.randomUUID().replace(/-/g, '')}`;
     }
     return `diary_${Date.now()}_${Math.random().toString(36).slice(2, 14)}`;
+}
+
+/** Structural equality for JSON payloads — jsonb re-orders object keys, so a
+ * byte comparison of stringified forms would call identical payloads different. */
+function jsonValuesEqual(a: unknown, b: unknown): boolean {
+    if (a === b) return true;
+    if (Array.isArray(a) || Array.isArray(b)) {
+        return (
+            Array.isArray(a) &&
+            Array.isArray(b) &&
+            a.length === b.length &&
+            a.every((item, index) => jsonValuesEqual(item, b[index]))
+        );
+    }
+    if (a && b && typeof a === 'object' && typeof b === 'object') {
+        const left = a as Record<string, unknown>;
+        const right = b as Record<string, unknown>;
+        const keys = Object.keys(left);
+        return (
+            keys.length === Object.keys(right).length &&
+            keys.every(
+                (key) => Object.prototype.hasOwnProperty.call(right, key) && jsonValuesEqual(left[key], right[key]),
+            )
+        );
+    }
+    return false;
 }
 
 const fetchVoiceAiWithDeadline = async (url: string, init: RequestInit): Promise<Response> => {
@@ -579,6 +607,11 @@ class DiaryServiceClass {
         // of IDB promotions at worst — so this is safe to await.
         try {
             await this._addPending(localEntry, scope);
+            // Seed the mint floor so every later revision for this operation
+            // flows through the same monotonic number line.
+            if (localEntry.client_operation_id) {
+                this._recordRevisionFloor(localEntry.client_operation_id, 1, scope);
+            }
         } catch (e) {
             log.error('Failed to persist diary entry to pending queue:', e);
             // A false success here is worse than an error: the compose sheet
@@ -714,6 +747,7 @@ class DiaryServiceClass {
                   ? true
                   : undefined
             : current.publish_requested;
+        const operationId = validOperationId ?? newDiaryOperationId();
         const next: DiaryEntry = {
             ...current,
             ...updates,
@@ -724,8 +758,8 @@ class DiaryServiceClass {
             audio_url: nextAudio,
             is_public: targetId.startsWith('offline-') ? false : (updates.is_public ?? current.is_public),
             publish_requested: requestedPublic,
-            client_operation_id: validOperationId ?? newDiaryOperationId(),
-            client_revision: currentRevision + 1,
+            client_operation_id: operationId,
+            client_revision: this._mintClientRevision(operationId, currentRevision, scope),
             updated_at: new Date().toISOString(),
             _retirePhotos: retirePhotos.size > 0 ? [...retirePhotos] : undefined,
             _retireAudio: retireAudio.size > 0 ? [...retireAudio] : undefined,
@@ -781,16 +815,24 @@ class DiaryServiceClass {
             const pending = this._getPendingEntries(scope);
             const idx = pending.findIndex((e) => e.id === id);
             if (idx >= 0) {
+                const row = pending[idx];
+                const operationId =
+                    typeof row.client_operation_id === 'string' &&
+                    /^[A-Za-z0-9_-]{1,128}$/.test(row.client_operation_id)
+                        ? row.client_operation_id
+                        : newDiaryOperationId();
+                const observedRevision =
+                    typeof row.client_revision === 'number' &&
+                    Number.isSafeInteger(row.client_revision) &&
+                    row.client_revision >= 1
+                        ? row.client_revision
+                        : 1;
                 pending[idx] = {
-                    ...pending[idx],
+                    ...row,
                     is_public: false,
                     publish_requested: isPublic ? true : undefined,
-                    client_revision:
-                        typeof pending[idx].client_revision === 'number' &&
-                        Number.isSafeInteger(pending[idx].client_revision) &&
-                        pending[idx].client_revision >= 1
-                            ? pending[idx].client_revision + 1
-                            : 2,
+                    client_operation_id: operationId,
+                    client_revision: this._mintClientRevision(operationId, observedRevision, scope),
                     updated_at: new Date().toISOString(),
                 };
                 if (!this._savePending(pending, scope)) return false;
@@ -1438,7 +1480,9 @@ class DiaryServiceClass {
             Number.isSafeInteger(latest.client_revision) &&
             latest.client_revision >= 1
                 ? latest.client_revision
-                : 1;
+                : // A corrupted revision must not fall back to a number this
+                  // device already minted for different content — mint fresh.
+                  this._mintClientRevision(operationId, 0, scope);
         if (operationId === current && revision === latest.client_revision) return latest;
         const next = { ...latest, client_operation_id: operationId, client_revision: revision };
         pending[index] = next;
@@ -1533,7 +1577,11 @@ class DiaryServiceClass {
         const next: DiaryEntry = {
             ...latest,
             client_operation_id: operationId,
-            client_revision: Math.max(localRevision, canonicalRevision + 1),
+            client_revision: this._claimRevisionAtLeast(
+                operationId,
+                Math.max(localRevision, canonicalRevision + 1),
+                scope,
+            ),
             _requiresOperationClaim: undefined,
         };
         pending[index] = next;
@@ -1823,6 +1871,12 @@ class DiaryServiceClass {
         // otherwise; the Pi/Edge protocol will replace the stale snapshot.
         if (canonicalRevision < localRevision) return false;
 
+        // The confirmed row is this operation's new minimum. Recording it
+        // here is what stops a later edit — one that resolves through a stale
+        // cache or _recentlySynced snapshot after this queue row is retired —
+        // from re-minting a revision number the server has already bound.
+        this._recordRevisionFloor(expectedOperationId, canonicalRevision, scope);
+
         if (!this._queueRetiredMediaCleanup(latest, data, scope)) return false;
         const remaining = pending.filter((candidate) => candidate.id !== entry.id);
         if (!this._savePending(remaining, scope)) return false;
@@ -1854,6 +1908,124 @@ class DiaryServiceClass {
         });
         void this._drainRetiredMedia(scope);
         return true;
+    }
+
+    /**
+     * Field-by-field equality between the envelope this device submitted and
+     * a returned canonical row, under the relay RPC's own normalisations
+     * (COALESCE '' for text, NULLIF '' for urls/ids, default mood, jsonb
+     * key re-ordering). Used on a 'stale' delivery to tell "we lost to our
+     * own duplicate" from "we are about to lose the skipper's words".
+     */
+    private _deliveredRowMatchesEnvelope(envelope: DiaryRelayEnvelope, row: Record<string, unknown>): boolean {
+        const text = (value: unknown): string => (typeof value === 'string' ? value : '');
+        const url = (value: unknown): string | null => (typeof value === 'string' && value !== '' ? value : null);
+        const num = (value: unknown): number | null =>
+            typeof value === 'number' && Number.isFinite(value) ? value : null;
+        const list = (value: unknown): string[] =>
+            Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
+        const rowPhotos = list(row.photos);
+        const rowTags = list(row.tags);
+        return (
+            text(row.title) === envelope.title &&
+            text(row.body) === envelope.body &&
+            (text(row.mood) || 'neutral') === (envelope.mood || 'neutral') &&
+            rowPhotos.length === envelope.photos.length &&
+            rowPhotos.every((photo, index) => photo === envelope.photos[index]) &&
+            url(row.audio_url) === (envelope.audio_url || null) &&
+            url(row.video_url) === (envelope.video_url || null) &&
+            num(row.latitude) === (envelope.latitude ?? null) &&
+            num(row.longitude) === (envelope.longitude ?? null) &&
+            text(row.location_name) === envelope.location_name &&
+            text(row.weather_summary) === envelope.weather_summary &&
+            // JSON round-trip drops undefined-valued keys the wire never saw.
+            jsonValuesEqual(
+                row.weather_data ?? null,
+                JSON.parse(JSON.stringify(envelope.weather_data ?? null)) as unknown,
+            ) &&
+            url(row.voyage_id) === (envelope.voyage_id || null) &&
+            // A null envelope boat id lets the server keep/derive the binding.
+            (envelope.boat_id == null || url(row.boat_id) === envelope.boat_id) &&
+            rowTags.length === envelope.tags.length &&
+            rowTags.every((tag, index) => tag === envelope.tags[index]) &&
+            row.is_public === envelope.is_public
+        );
+    }
+
+    /**
+     * A 'stale' delivery LOST the revision race: the row already held an
+     * equal-or-higher revision and `winner` is that envelope's content, not
+     * ours. Losing is harmless when the winner is our own duplicate (the Pi
+     * or an earlier retry landed the identical payload first) and correct
+     * when a strictly newer revision superseded this draft — but at the SAME
+     * revision with different content, the local copy is the later save and
+     * must outbid with a bumped revision instead of being retired as synced.
+     */
+    private _reconcileStaleDelivery(
+        entry: DiaryEntry,
+        envelope: DiaryRelayEnvelope,
+        winner: Record<string, unknown>,
+        scope: AuthIdentityScope,
+    ): 'synced' | 'redeliver' | 'deferred' {
+        const pending = this._getPendingEntries(scope);
+        const index = pending.findIndex((candidate) => candidate.id === entry.id);
+        // Deleted or completed while the request was in flight — nothing left
+        // on this device for the stale response to protect or clobber.
+        if (index < 0) return 'deferred';
+        const latest = pending[index];
+        if (
+            latest.client_operation_id !== envelope.client_operation_id ||
+            winner.client_operation_id !== envelope.client_operation_id
+        ) {
+            return 'deferred';
+        }
+        const winnerRevision =
+            typeof winner.client_revision === 'number' && Number.isSafeInteger(winner.client_revision)
+                ? winner.client_revision
+                : 1;
+        const localRevision =
+            typeof latest.client_revision === 'number' && Number.isSafeInteger(latest.client_revision)
+                ? latest.client_revision
+                : 1;
+        // Whatever happens next, this operation's number line now starts at
+        // the winner: no future mint may reuse anything at or below it.
+        this._recordRevisionFloor(envelope.client_operation_id, winnerRevision, scope);
+
+        // A newer local edit is already queued; its own delivery outbids the
+        // winner without any help from this stale response.
+        if (localRevision > winnerRevision) return 'deferred';
+
+        if (this._deliveredRowMatchesEnvelope(envelope, winner)) {
+            // Losing to your own payload is a completion, and it is routine:
+            // the Pi and the direct path deliver the same envelope by design.
+            return this._completePendingWithServer(entry, winner, scope) ? 'synced' : 'deferred';
+        }
+
+        if (winnerRevision === localRevision) {
+            // Equal revision, different words: a pre-correction duplicate
+            // (typically one the Pi still held) won first-writer-wins for the
+            // number this device later reused. The local copy is the LATER
+            // save — bump it above the winner rather than retiring it.
+            log.warn(
+                `[Diary] entry "${latest.title || latest.id}" lost revision ${winnerRevision} to a divergent ` +
+                    'duplicate — outbidding with a bumped revision instead of discarding the local copy',
+            );
+            pending[index] = {
+                ...latest,
+                client_revision: this._mintClientRevision(envelope.client_operation_id, winnerRevision, scope),
+            };
+            return this._savePending(pending, scope) ? 'redeliver' : 'deferred';
+        }
+
+        // A strictly newer revision landed from somewhere else (another
+        // signed-in device, or a later edit that already drained). The
+        // revision protocol makes that row canonical; say so out loud rather
+        // than silently dropping — the newer words are in the timeline.
+        log.warn(
+            `[Diary] entry "${latest.title || latest.id}" was superseded by an already-synced newer revision ` +
+                `(${winnerRevision} > ${localRevision}); keeping the server copy`,
+        );
+        return this._completePendingWithServer(entry, winner, scope) ? 'synced' : 'deferred';
     }
 
     private async _runSyncPending(scope: AuthIdentityScope): Promise<void> {
@@ -2330,16 +2502,45 @@ class DiaryServiceClass {
                 // 4. Direct device -> Supabase. This shares the relay Edge
                 // Function's revision/tombstone boundary, so a direct retry
                 // and a late Pi retry can never overwrite one another.
-                const data = await submitDiaryDirect(
-                    this._relayEnvelope(entry, uploadedPhotos, audioUrl || null, videoUrl || null),
-                );
+                const envelope = this._relayEnvelope(entry, uploadedPhotos, audioUrl || null, videoUrl || null);
+                const delivery = await submitDiaryDirect(envelope);
 
                 if (!isAuthIdentityScopeCurrent(scope)) return;
 
-                if (data && this._completePendingWithServer(entry, data, scope)) {
+                if (delivery?.status === 'stale') {
+                    // The Edge boundary rejected this revision; delivery.entry
+                    // is the WINNER's row. Never retire the local copy on the
+                    // winner's say-so alone — reconcile first.
+                    const outcome = this._reconcileStaleDelivery(entry, envelope, delivery.entry, scope);
+                    if (outcome === 'synced') {
+                        syncedCount++;
+                        log.info(`✅ Synced entry (already canonical): ${entry.title || entry.id}`);
+                    } else if (outcome === 'redeliver') {
+                        // The bumped revision outbids the divergent duplicate.
+                        // One immediate re-send; losing again simply leaves
+                        // the entry queued for the periodic retry.
+                        const bumped = this._getPendingEntries(scope).find((candidate) => candidate.id === entry.id);
+                        const retry = bumped
+                            ? await submitDiaryDirect(
+                                  this._relayEnvelope(bumped, uploadedPhotos, audioUrl || null, videoUrl || null),
+                              )
+                            : null;
+                        if (!isAuthIdentityScopeCurrent(scope)) return;
+                        if (
+                            bumped &&
+                            retry?.status === 'accepted' &&
+                            this._completePendingWithServer(bumped, retry.entry, scope)
+                        ) {
+                            syncedCount++;
+                            log.info(`✅ Synced entry after outbidding a stale duplicate: ${entry.title || entry.id}`);
+                        } else {
+                            log.warn(`[Diary] Outbid redelivery deferred for "${entry.title}" — will retry`);
+                        }
+                    }
+                } else if (delivery && this._completePendingWithServer(entry, delivery.entry, scope)) {
                     syncedCount++;
                     log.info(`✅ Synced entry: ${entry.title || entry.id}`);
-                } else if (!data) {
+                } else if (!delivery) {
                     log.warn(`[Diary] Direct delivery deferred for "${entry.title}"`);
                 }
             } catch (e) {
@@ -2944,6 +3145,89 @@ class DiaryServiceClass {
         this._recentlyDrained.set(scope.key, recent);
     }
 
+    // ── Client revision floor ──────────────────────────────────
+    // Durable per-operation high-water mark of every client_revision this
+    // device has minted or seen confirmed. The pending queue row alone cannot
+    // carry it: a completion retires the row, and an edit that then resolves
+    // through a stale snapshot (cache, an old _recentlySynced hit) would
+    // re-mint a number the server may already bind to a DIFFERENT payload —
+    // a tie the relay RPC breaks first-writer-wins, silently discarding the
+    // later save. Every revision write flows through _mintClientRevision /
+    // _claimRevisionAtLeast so two divergent payloads can never share one.
+
+    private _readRevisionFloor(operationId: string, scope: AuthIdentityScope): number {
+        try {
+            const raw = localStorage.getItem(this._storageKey(REVISION_FLOOR_KEY, scope));
+            const parsed: unknown = raw ? JSON.parse(raw) : [];
+            if (!Array.isArray(parsed)) return 0;
+            for (const item of parsed) {
+                if (
+                    Array.isArray(item) &&
+                    item[0] === operationId &&
+                    typeof item[1] === 'number' &&
+                    Number.isSafeInteger(item[1]) &&
+                    item[1] >= 1
+                ) {
+                    return item[1];
+                }
+            }
+            return 0;
+        } catch {
+            return 0;
+        }
+    }
+
+    private _recordRevisionFloor(operationId: string, revision: number, scope: AuthIdentityScope): void {
+        if (!Number.isSafeInteger(revision) || revision < 1) return;
+        try {
+            const key = this._storageKey(REVISION_FLOOR_KEY, scope);
+            const raw = localStorage.getItem(key);
+            const parsed: unknown = raw ? JSON.parse(raw) : [];
+            const list = (Array.isArray(parsed) ? parsed : []).filter(
+                (item): item is [string, number] =>
+                    Array.isArray(item) &&
+                    typeof item[0] === 'string' &&
+                    typeof item[1] === 'number' &&
+                    Number.isSafeInteger(item[1]),
+            );
+            const existing = list.find(([id]) => id === operationId);
+            // Max-merge: the floor only ever rises, so recording is idempotent
+            // and a late writer cannot re-open a number the server has seen.
+            if (existing && existing[1] >= revision) return;
+            const next = list.filter(([id]) => id !== operationId);
+            next.push([operationId, revision]);
+            localStorage.setItem(key, JSON.stringify(next.slice(-REVISION_FLOOR_MAX)));
+        } catch (error) {
+            // Best effort: without the floor, minting degrades to the queue
+            // snapshot. Never block a save on this bookkeeping.
+            log.warn('Diary revision floor write failed:', error);
+        }
+    }
+
+    /**
+     * Mint the next client_revision for one logical entry. This is the single
+     * choke point for new revision numbers: synchronous from read to record,
+     * and floored by every revision this device has previously minted or seen
+     * confirmed — whichever snapshot the caller happened to start from.
+     */
+    private _mintClientRevision(operationId: string, observedRevision: number, scope: AuthIdentityScope): number {
+        const next = Math.max(observedRevision, this._readRevisionFloor(operationId, scope)) + 1;
+        this._recordRevisionFloor(operationId, next, scope);
+        return next;
+    }
+
+    /**
+     * Re-label an existing payload with a revision no lower than `candidate`
+     * or anything already minted for the operation, advancing the floor to
+     * the result. Unlike _mintClientRevision this does not force a bump —
+     * the payload is unchanged, only its number is being reconciled.
+     */
+    private _claimRevisionAtLeast(operationId: string, candidate: number, scope: AuthIdentityScope): number {
+        const revision = Math.max(candidate, this._readRevisionFloor(operationId, scope));
+        this._recordRevisionFloor(operationId, revision, scope);
+        return revision;
+    }
+
     // ── Offline→server id map ──────────────────────────────────
     // Written at sync time; lets a delete aimed at a STALE offline- id (the
     // 120s _recentlySynced buffer long gone, or the app relaunched) still
@@ -3452,6 +3736,33 @@ class DiaryServiceClass {
             return null;
         } catch (e) {
             log.warn('GPS location failed:', e);
+            return null;
+        }
+    }
+
+    /**
+     * How much diary media this punter holds in the cloud, straight from
+     * storage's own catalog — deliberately no ledger table to drift. The
+     * future 5 GB paying-tier quota (agreed 2026-09-01) will compare against
+     * this at the upload chokepoints; until the paywall exists this is a
+     * readout only.
+     */
+    async getMediaUsage(): Promise<{ bucket: string; bytes: number; objects: number }[] | null> {
+        const scope = getAuthIdentityScope();
+        if (!supabase || !scope.userId) return null;
+        try {
+            const { data, error } = await supabase.rpc('diary_media_usage');
+            if (error || !Array.isArray(data) || !isAuthIdentityScopeCurrent(scope)) return null;
+            const rows: { bucket: string; bytes: number; objects: number }[] = [];
+            for (const raw of data as unknown[]) {
+                if (!raw || typeof raw !== 'object') continue;
+                const r = raw as Record<string, unknown>;
+                if (typeof r.bucket !== 'string') continue;
+                rows.push({ bucket: r.bucket, bytes: Number(r.bytes) || 0, objects: Number(r.objects) || 0 });
+            }
+            return rows;
+        } catch (e) {
+            log.warn('Media usage unavailable:', e);
             return null;
         }
     }
