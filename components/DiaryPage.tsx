@@ -138,24 +138,13 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
     const sharedKeyboardHeight = useKeyboardOffset(showCompose);
     const setLoading = useCallback((v: boolean) => dispatch({ type: 'SET_LOADING', loading: v }), [dispatch]);
     const setGpsLoading = useCallback((v: boolean) => dispatch({ type: 'SET_GPS_LOADING', loading: v }), [dispatch]);
-    const setLat = useCallback(
-        (v: number | null) => {
-            dispatch({ type: 'SET_GPS', lat: v, lon: state.lon, locationName: state.locationName });
-        },
-        [dispatch, state.lon, state.locationName],
-    );
-    const setLon = useCallback(
-        (v: number | null) => {
-            dispatch({ type: 'SET_GPS', lat: state.lat, lon: v, locationName: state.locationName });
-        },
-        [dispatch, state.lat, state.locationName],
-    );
-    const setLocationName = useCallback(
-        (v: string) => {
-            dispatch({ type: 'SET_GPS', lat: state.lat, lon: state.lon, locationName: v });
-        },
-        [dispatch, state.lat, state.lon],
-    );
+    // Single-field dispatches — the reducer merges. These used to send all
+    // three fields with the missing ones from a stale render snapshot, which
+    // made consecutive-tick and post-await writes silently undo each other
+    // (the pin shredder, 2026-09-01). Never widen these back.
+    const setLat = useCallback((v: number | null) => dispatch({ type: 'SET_GPS', lat: v }), [dispatch]);
+    const setLon = useCallback((v: number | null) => dispatch({ type: 'SET_GPS', lon: v }), [dispatch]);
+    const setLocationName = useCallback((v: string) => dispatch({ type: 'SET_GPS', locationName: v }), [dispatch]);
     const setEditingId = useCallback((_v: string | null) => {
         /* handled by OPEN_COMPOSE/OPEN_EDIT/CLOSE_COMPOSE */
     }, []);
@@ -443,7 +432,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
             pageActiveRef.current &&
             isAuthIdentityScopeCurrent(operationScope) &&
             composeSessionRef.current === composeSession;
-        if (locationFromPhotoRef.current) return;
+        if (locationFromPhotoRef.current || gpsChoiceExplicitRef.current) return;
         setGpsLoading(true);
         setGpsConflict(null);
         setGpsSource(null);
@@ -517,6 +506,8 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
             setGpsConflict(null);
             setGpsSource(source);
             gpsChoiceExplicitRef.current = true;
+            // A pre-answer "Move this entry's pin?" question is moot now.
+            setPhotoPinPrompt(null);
             // The skipper's answer beats a photo pin REGARDLESS OF ORDER.
             // Photos attached BEFORE the modal set locationFromPhotoRef, and
             // applyResolvedPosition honours that flag — so an explicit ⚓ tap
@@ -900,13 +891,44 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
             let finalLon: number | null = lon;
             let finalLocationName = locationName;
             if (!editingId && (finalLat === null || finalLon === null)) {
-                const loc = await DiaryService.getCurrentLocation();
+                // The retry promised by "No GPS fix — will retry when you
+                // save" used to ask ONLY the phone (getCurrentLocation),
+                // never the boat — the one gate left with no arbitration. A
+                // webview reload mid-compose (screenshotting, a call, a
+                // memory kill) wipes an answered pin, and this gate then
+                // quietly pinned the entry at the phone while the vessel
+                // streamed live (Shane, 2026-09-01: "no GPX fix ?????
+                // ... that is where our problem is i think big Claude" —
+                // and he was right). Same rules as compose-open: vessel
+                // first, phone fallback, and a genuine conflict is a
+                // QUESTION — the card appears and the save steps aside.
+                const { vessel, phone } = await DiaryService.getPositionCandidates();
                 if (!operationIsCurrent()) return;
-                if (loc) {
-                    finalLat = loc.lat;
-                    finalLon = loc.lon;
+                let resolved: { lat: number; lon: number } | null = null;
+                if (vessel && phone) {
+                    const distanceM = haversineMeters(vessel.lat, vessel.lon, phone.lat, phone.lon);
+                    const phoneBlurM = phone.accuracyM ?? 50;
+                    if (distanceM >= 200 && distanceM > phoneBlurM * 1.5) {
+                        setGpsConflict({ vessel, phone, distanceM });
+                        toast.info('Two positions, skipper — answer the question, then Save again.');
+                        return; // the finally below unwinds the saving state
+                    }
+                    resolved = vessel;
+                    setGpsSource('vessel');
+                } else if (vessel) {
+                    resolved = vessel;
+                    setGpsSource('vessel');
+                } else if (phone) {
+                    resolved = phone;
+                    setGpsSource('phone');
+                }
+                if (resolved) {
+                    finalLat = resolved.lat;
+                    finalLon = resolved.lon;
+                    setLat(resolved.lat);
+                    setLon(resolved.lon);
                     if (!finalLocationName) {
-                        const placeName = await DiaryService.reverseGeocode(loc.lat, loc.lon);
+                        const placeName = await DiaryService.reverseGeocode(resolved.lat, resolved.lon);
                         if (!operationIsCurrent()) return;
                         if (placeName) finalLocationName = placeName;
                     }
@@ -1142,6 +1164,39 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
     // AudioWidget is now imported from ./diary/AudioWidget
     // SwipeableDiaryCard — extracted to components/diary/SwipeableDiaryCard.tsx (React.memo)
     // ── Render: Full Entry View ─────────────────────────────────
+    // Move-the-pin checkpoint — a GPS-tagged photo landed away from the
+    // current pin. Rendered in BOTH the compose branch and the timeline:
+    // it used to live only in the timeline return, so during compose the
+    // question could never appear — it popped after the form closed and
+    // wrote into dead state (found by the 2026-09-01 audit).
+    const photoPinDialog = (
+        <ConfirmDialog
+            isOpen={photoPinPrompt !== null}
+            title="Move this entry's pin?"
+            message={
+                photoPinPrompt
+                    ? `This photo was taken ${
+                          photoPinPrompt.movedM >= 1852
+                              ? `${(photoPinPrompt.movedM / 1852).toFixed(1)} NM`
+                              : `${Math.round(photoPinPrompt.movedM)} m`
+                      } from where this entry is pinned. Move the entry to the photo's location?`
+                    : ''
+            }
+            confirmLabel="Move pin"
+            onConfirm={async () => {
+                const p = photoPinPrompt;
+                setPhotoPinPrompt(null);
+                if (!p) return;
+                locationFromPhotoRef.current = true;
+                setLat(p.lat);
+                setLon(p.lon);
+                const placeName = await DiaryService.reverseGeocode(p.lat, p.lon);
+                setLocationName(placeName || formatCoord(p.lat, p.lon));
+            }}
+            onCancel={() => setPhotoPinPrompt(null)}
+        />
+    );
+
     if (selectedEntry) {
         return (
             <DiaryEntryView
@@ -1168,6 +1223,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
     if (showCompose) {
         return (
             <>
+                {photoPinDialog}
                 {gpsConflict && (
                     <div
                         // Centred, not a bottom sheet: anchored low it slid its second
@@ -1536,34 +1592,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                 onDismiss={handleDismissDelete}
                 duration={5000}
             />
-            {/* Move-the-pin checkpoint — a GPS-tagged photo was attached while
-                editing an entry that already has a position. Declining keeps
-                the pin exactly where it was. */}
-            <ConfirmDialog
-                isOpen={photoPinPrompt !== null}
-                title="Move this entry's pin?"
-                message={
-                    photoPinPrompt
-                        ? `This photo was taken ${
-                              photoPinPrompt.movedM >= 1852
-                                  ? `${(photoPinPrompt.movedM / 1852).toFixed(1)} NM`
-                                  : `${Math.round(photoPinPrompt.movedM)} m`
-                          } from where this entry is pinned. Move the entry to the photo's location?`
-                        : ''
-                }
-                confirmLabel="Move pin"
-                onConfirm={async () => {
-                    const p = photoPinPrompt;
-                    setPhotoPinPrompt(null);
-                    if (!p) return;
-                    locationFromPhotoRef.current = true;
-                    setLat(p.lat);
-                    setLon(p.lon);
-                    const placeName = await DiaryService.reverseGeocode(p.lat, p.lon);
-                    setLocationName(placeName || formatCoord(p.lat, p.lon));
-                }}
-                onCancel={() => setPhotoPinPrompt(null)}
-            />
+            {photoPinDialog}
             {/* Publish-to-Voyage-Log checkpoint — shown after saving a new or edited entry */}
             {publishPromptEntry && (
                 <DiaryPublishModal

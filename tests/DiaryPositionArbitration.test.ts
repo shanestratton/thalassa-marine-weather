@@ -87,6 +87,42 @@ describe('diary position arbitration — the pub-vs-passage question', () => {
         expect(resets.length).toBeGreaterThanOrEqual(3);
     });
 
+    it('the save-time GPS retry arbitrates like everyone else — and never phones it in', () => {
+        // "No GPS fix — will retry when you save" used to mean "ask only the
+        // phone". The last unguarded gate (found by Shane, 2026-09-01): a
+        // webview reload wiped the answered pin and this retry pinned the
+        // entry at the phone while the boat streamed live. It now runs the
+        // full candidates flow, and a real conflict raises the card and
+        // steps aside instead of guessing.
+        expect(page).not.toContain('DiaryService.getCurrentLocation()');
+        const gate = page.slice(page.indexOf('will retry when you'), page.indexOf('will retry when you') + 2600);
+        expect(gate).toContain('await DiaryService.getPositionCandidates();');
+        expect(gate).toContain('toast.info');
+        expect(gate).toContain('setGpsConflict({ vessel, phone, distanceM });');
+    });
+
+    it('the setter shims dispatch single fields — the shredder stays dead', () => {
+        // Each shim used to send all three GPS fields with the others from a
+        // stale snapshot; the reducer replaced everything. See
+        // DiaryGpsStateAtomicity.test.ts for the reducer half of this pin.
+        expect(page).toContain("dispatch({ type: 'SET_GPS', lat: v })");
+        expect(page).toContain("dispatch({ type: 'SET_GPS', lon: v })");
+        expect(page).toContain("dispatch({ type: 'SET_GPS', locationName: v })");
+        // And a re-fired grabGps can never clobber an explicit answer.
+        expect(page).toContain('if (locationFromPhotoRef.current || gpsChoiceExplicitRef.current) return;');
+    });
+
+    it('the Move-pin question can actually appear during compose', () => {
+        // It rendered only in the timeline branch, so during compose it never
+        // showed — it popped after the form closed, into dead state.
+        expect(page).toContain('const photoPinDialog = (');
+        const composeBranch = page.slice(page.indexOf('if (showCompose)'));
+        expect(composeBranch).toContain('{photoPinDialog}');
+        // An answered modal dismisses a pre-answer photo question.
+        const choice = page.slice(page.indexOf('const applyGpsChoice'), page.indexOf('const applyGpsChoice') + 1900);
+        expect(choice).toContain('setPhotoPinPrompt(null);');
+    });
+
     it('the modal offers exactly the two honest answers', () => {
         expect(page).toContain('Two positions, skipper');
         expect(page).toContain("applyGpsChoice('vessel')");
