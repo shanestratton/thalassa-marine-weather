@@ -16,6 +16,7 @@ import { SwipeableDiaryCard } from './diary/SwipeableDiaryCard';
 import { toast } from './Toast';
 import { DiaryEntryView } from './diary/DiaryEntryView';
 import { DiaryComposeForm } from './diary/DiaryComposeForm';
+import { VideoTrimmer } from './diary/VideoTrimmer';
 import { DiaryPublishModal } from './diary/DiaryPublishModal';
 import { useDiaryState } from '../hooks/useDiaryState';
 import { useKeyboardOffset } from '../hooks/useKeyboardOffset';
@@ -235,6 +236,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
     const unsavedPhotoRefs = useRef<Set<string>>(new Set());
     /** The one compose-owned clip, if any. Replaced or discarded, never leaked. */
     const unsavedVideoRef = useRef<string | null>(null);
+    const [trimRequest, setTrimRequest] = useState<{ file: File; durationSec: number } | null>(null);
     // A Save snapshots only the refs it is adopting. Account B can therefore
     // begin a clean compose after an A→B switch without Cancel racing A's bytes.
     const savingPhotoRefsRef = useRef<Set<string> | null>(null);
@@ -679,9 +681,9 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                 return;
             }
             if (duration > 61) {
-                alert(
-                    `That clip is ${Math.round(duration)}s — the diary takes up to 60 seconds. Trim it in Photos first.`,
-                );
+                // Not a rejection any more — the trimmer opens with the whole
+                // movie and a one-minute window to drag to the best bit.
+                setTrimRequest({ file, durationSec: duration });
                 return;
             }
             if (file.size > 550 * 1048576) {
@@ -691,8 +693,12 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
         } finally {
             URL.revokeObjectURL(probeUrl);
         }
+        await adoptVideoBlob(file);
+    };
+    /** Park an accepted clip (picked short, or freshly cut) as the entry's video. */
+    const adoptVideoBlob = async (blob: Blob) => {
         setUploading(true);
-        const ref = await DiaryService.saveVideoForEntry(file);
+        const ref = await DiaryService.saveVideoForEntry(blob);
         if (ref) {
             const previous = unsavedVideoRef.current;
             unsavedVideoRef.current = ref;
@@ -1029,42 +1035,55 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
     // ── Render: Compose / Edit ───────────────────────────────────
     if (showCompose) {
         return (
-            <DiaryComposeForm
-                isEditing={!!editingId}
-                title={title}
-                body={body}
-                mood={mood}
-                photos={photos}
-                audioUrl={audioUrl}
-                videoUrl={videoUrl}
-                locationName={locationName}
-                keyboardHeight={keyboardHeight}
-                saving={saving}
-                uploading={uploading}
-                polishing={polishing}
-                gpsLoading={gpsLoading}
-                coordsLabel={lat != null && lon != null ? formatCoord(lat, lon) : null}
-                polishStyle={polishStyle}
-                onSetTitle={setTitle}
-                onSetBody={setBody}
-                onSetMood={setMood}
-                onSetLocationName={setLocationName}
-                onSetPolishStyle={setPolishStyle}
-                onSave={handleSave}
-                onCancel={() => {
-                    if (saving || composeSaveInFlightRef.current) return;
-                    discardAllNewPhotos();
-                    invalidateComposeSession();
-                    setUploading(false);
-                    setShowCompose(false);
-                    setEditingId(null);
-                }}
-                onPolish={handlePolish}
-                onPhotoSelect={handlePhotoSelect}
-                onVideoSelect={handleVideoSelect}
-                onVideoRemove={removeVideo}
-                onPhotoRemove={removePhoto}
-            />
+            <>
+                {trimRequest && (
+                    <VideoTrimmer
+                        file={trimRequest.file}
+                        durationSec={trimRequest.durationSec}
+                        onCancel={() => setTrimRequest(null)}
+                        onDone={(blob) => {
+                            setTrimRequest(null);
+                            void adoptVideoBlob(blob);
+                        }}
+                    />
+                )}
+                <DiaryComposeForm
+                    isEditing={!!editingId}
+                    title={title}
+                    body={body}
+                    mood={mood}
+                    photos={photos}
+                    audioUrl={audioUrl}
+                    videoUrl={videoUrl}
+                    locationName={locationName}
+                    keyboardHeight={keyboardHeight}
+                    saving={saving}
+                    uploading={uploading}
+                    polishing={polishing}
+                    gpsLoading={gpsLoading}
+                    coordsLabel={lat != null && lon != null ? formatCoord(lat, lon) : null}
+                    polishStyle={polishStyle}
+                    onSetTitle={setTitle}
+                    onSetBody={setBody}
+                    onSetMood={setMood}
+                    onSetLocationName={setLocationName}
+                    onSetPolishStyle={setPolishStyle}
+                    onSave={handleSave}
+                    onCancel={() => {
+                        if (saving || composeSaveInFlightRef.current) return;
+                        discardAllNewPhotos();
+                        invalidateComposeSession();
+                        setUploading(false);
+                        setShowCompose(false);
+                        setEditingId(null);
+                    }}
+                    onPolish={handlePolish}
+                    onPhotoSelect={handlePhotoSelect}
+                    onVideoSelect={handleVideoSelect}
+                    onVideoRemove={removeVideo}
+                    onPhotoRemove={removePhoto}
+                />
+            </>
         );
     }
     // ── Render: Timeline ────────────────────────────────────────

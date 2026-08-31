@@ -8,7 +8,10 @@ describe('Diary compose media ownership contract', () => {
     it('owns only newly-uploaded photos and exact-discards them on remove or cancel', () => {
         expect(source.match(/unsavedPhotoRefs\.current\.add\(url\)/g)).toHaveLength(1);
         expect(source).toContain('if (ref) discardNewPhoto(ref);');
-        expect(source).toContain('discardAllNewPhotos();\n                    invalidateComposeSession();');
+        // Whitespace-tolerant: the pair being ADJACENT is the contract; their
+        // indentation is prettier's business (it re-flowed when the compose
+        // return gained a fragment wrapper for the video trimmer).
+        expect(source).toMatch(/discardAllNewPhotos\(\);\s*\n\s*invalidateComposeSession\(\);/);
         expect(source).toContain('await DiaryService.discardUnsavedPhoto(url);');
     });
 

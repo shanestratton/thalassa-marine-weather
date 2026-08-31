@@ -149,21 +149,26 @@ vi.mock('../services/supabase', () => ({
 }));
 
 // ── jsdom Gaps ──────────────────────────────────────────────────
+//
+// Guarded like the localStorage block below: a suite may pin
+// `@vitest-environment node` (videoTrim needs real Blob/ArrayBuffer), and
+// this shared setup must not assume a window exists.
 
 // matchMedia (used by media query hooks and responsive components)
-Object.defineProperty(window, 'matchMedia', {
-    writable: true,
-    value: vi.fn().mockImplementation((query: string) => ({
-        matches: false,
-        media: query,
-        onchange: null,
-        addListener: vi.fn(),
-        removeListener: vi.fn(),
-        addEventListener: vi.fn(),
-        removeEventListener: vi.fn(),
-        dispatchEvent: vi.fn(),
-    })),
-});
+if (typeof window !== 'undefined')
+    Object.defineProperty(window, 'matchMedia', {
+        writable: true,
+        value: vi.fn().mockImplementation((query: string) => ({
+            matches: false,
+            media: query,
+            onchange: null,
+            addListener: vi.fn(),
+            removeListener: vi.fn(),
+            addEventListener: vi.fn(),
+            removeEventListener: vi.fn(),
+            dispatchEvent: vi.fn(),
+        })),
+    });
 
 // IntersectionObserver (lazy loading, scroll triggers)
 class MockIntersectionObserver {
@@ -175,10 +180,11 @@ class MockIntersectionObserver {
     disconnect = vi.fn();
     takeRecords = vi.fn().mockReturnValue([]);
 }
-Object.defineProperty(window, 'IntersectionObserver', {
-    writable: true,
-    value: MockIntersectionObserver,
-});
+if (typeof window !== 'undefined')
+    Object.defineProperty(window, 'IntersectionObserver', {
+        writable: true,
+        value: MockIntersectionObserver,
+    });
 
 // ResizeObserver (layout measurement)
 class MockResizeObserver {
@@ -186,10 +192,11 @@ class MockResizeObserver {
     unobserve = vi.fn();
     disconnect = vi.fn();
 }
-Object.defineProperty(window, 'ResizeObserver', {
-    writable: true,
-    value: MockResizeObserver,
-});
+if (typeof window !== 'undefined')
+    Object.defineProperty(window, 'ResizeObserver', {
+        writable: true,
+        value: MockResizeObserver,
+    });
 
 // navigator.geolocation
 Object.defineProperty(navigator, 'geolocation', {
@@ -265,7 +272,10 @@ if (!globalThis.structuredClone) {
 // it natively takes over untouched.
 const StorageCtor = (globalThis as any).Storage as (undefined | (new () => Storage)) | undefined;
 
-if (StorageCtor && typeof (globalThis as any).localStorage === 'undefined') {
+// window-gated like everything above: Node ≥22 ships its own Storage whose
+// prototype properties are non-configurable, and redefining them throws. A
+// node-environment suite gets Node's storage story, not this shim.
+if (typeof window !== 'undefined' && StorageCtor && typeof (globalThis as any).localStorage === 'undefined') {
     const proto = StorageCtor.prototype as Storage & { __map?: Map<string, string> };
     const mapOf = (self: any): Map<string, string> => (self.__map ??= new Map<string, string>());
 
