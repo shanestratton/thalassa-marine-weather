@@ -65,6 +65,16 @@ describe('diary position arbitration — the pub-vs-passage question', () => {
         expect(page).toContain('setPhotoPinPrompt({ lat: exif.lat, lon: exif.lon, movedM });');
     });
 
+    it('the modal answer clears a photo pin set BEFORE it — order must not matter', () => {
+        // Photos attached before the modal raised locationFromPhotoRef, and
+        // applyResolvedPosition honours that flag — an explicit ⚓ tap was
+        // silently a no-op (2026-09-01). The choice handler now lowers the
+        // flag before applying.
+        const choice = page.slice(page.indexOf('const applyGpsChoice'), page.indexOf('const applyGpsChoice') + 1800);
+        expect(choice).toContain('gpsChoiceExplicitRef.current = true;');
+        expect(choice).toContain('locationFromPhotoRef.current = false;');
+    });
+
     it('an explicit modal answer outranks photo EXIF for the whole session', () => {
         // The skipper picked ⚓ or 📱 by hand; a photo's geotag — the
         // camera's last CACHED phone fix, hours stale on a bad day — must

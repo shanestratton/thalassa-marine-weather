@@ -517,6 +517,14 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
             setGpsConflict(null);
             setGpsSource(source);
             gpsChoiceExplicitRef.current = true;
+            // The skipper's answer beats a photo pin REGARDLESS OF ORDER.
+            // Photos attached BEFORE the modal set locationFromPhotoRef, and
+            // applyResolvedPosition honours that flag — so an explicit ⚓ tap
+            // was silently discarded and the pin stayed on the photo's EXIF
+            // (Shane, 2026-09-01: the same two photos, geotagged by a stale
+            // phone fix, re-attached in every test — identical wrong pin to
+            // the metre, with his answer thrown away each time).
+            locationFromPhotoRef.current = false;
             setGpsLoading(true);
             const scope = getAuthIdentityScope();
             const session = composeSessionRef.current;
