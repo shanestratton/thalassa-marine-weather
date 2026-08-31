@@ -40,6 +40,8 @@ import { MapBaseSelector, mapBaseVisibility, type MapBaseKind } from './MapBaseS
 import { ObsLayerLoadingPill } from './ObsLayerLoadingPill';
 import { RouteEnhancementChip } from '../passage/RouteEnhancementChip';
 import { GpsService } from '../../services/GpsService';
+import { NmeaStore } from '../../services/NmeaStore';
+import { resolveOwnshipPosition } from '../../services/ownshipPosition';
 
 import {
     type MapHubProps,
@@ -5380,6 +5382,20 @@ export const MapHub: React.FC<MapHubProps> = ({
                             // Exit full-screen overlay layers so user returns to base map
                             if (squallVisible) setSquallVisible(false);
                             if (cycloneVisible) setCycloneVisible(false);
+                            // "Locate me" on a boat means the BOAT: fresh NMEA
+                            // wins, the phone fetch is the shoreside fallback.
+                            // Same arbiter as the dot, Guardian, AIS and the Log.
+                            {
+                                const own = resolveOwnshipPosition(NmeaStore.getState(), LocationStore.getState());
+                                if (own && own.source === 'nmea') {
+                                    const map = mapRef.current;
+                                    if (map) {
+                                        map.flyTo({ center: [own.lon, own.lat], zoom: 12, duration: 1200 });
+                                    }
+                                    if (pickerMode) onLocationSelect?.(own.lat, own.lon);
+                                    return;
+                                }
+                            }
                             GpsService.requestCurrentForegroundPosition({ staleLimitMs: 30_000, timeoutSec: 10 }).then(
                                 (pos) => {
                                     if (!pos) return;

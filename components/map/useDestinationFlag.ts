@@ -22,6 +22,9 @@ import { useEffect, useRef } from 'react';
 import mapboxgl from 'mapbox-gl';
 import { useFollowRouteStore } from '../../stores/followRouteStore';
 import { GpsService } from '../../services/GpsService';
+import { NmeaStore } from '../../services/NmeaStore';
+import { resolveOwnshipPosition } from '../../services/ownshipPosition';
+import { LocationStore } from '../../stores/LocationStore';
 import { createLogger } from '../../utils/createLogger';
 import { calculateBearing, calculateDistance } from '../../utils/navigationCalculations';
 
@@ -161,8 +164,15 @@ export function useDestinationFlag(mapRef: React.MutableRefObject<mapboxgl.Map |
             if (now - lastGpsAt < 1000) return;
             lastGpsAt = now;
             if (!labelChipRef.current) return;
-            const nm = calculateDistance(pos.latitude, pos.longitude, dest.lat, dest.lon);
-            const bearing = calculateBearing(pos.latitude, pos.longitude, dest.lat, dest.lon);
+            // Distance-to-run is a question about the VESSEL. Fresh NMEA wins;
+            // this phone tick is the repaint clock and the shoreside fallback.
+            const own = resolveOwnshipPosition(NmeaStore.getState(), LocationStore.getState());
+            const from =
+                own && own.source === 'nmea'
+                    ? { lat: own.lat, lon: own.lon }
+                    : { lat: pos.latitude, lon: pos.longitude };
+            const nm = calculateDistance(from.lat, from.lon, dest.lat, dest.lon);
+            const bearing = calculateBearing(from.lat, from.lon, dest.lat, dest.lon);
             const dest_label = voyagePlan.destination || 'Destination';
             // Format: "Newport · 47 NM SE"
             const distLabel = nm < 10 ? nm.toFixed(1) : Math.round(nm).toString();
