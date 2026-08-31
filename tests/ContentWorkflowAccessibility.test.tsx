@@ -386,13 +386,15 @@ describe('content workflow dialog accessibility', () => {
     it('keeps the view private when Voyage Log setup is unavailable after saving publish intent', async () => {
         // Two nulls: a single transient failure is absorbed by the automatic
         // retry and never surfaces — the alert only appears when both fail.
-        serviceMocks.ensureEnabled.mockResolvedValueOnce(null).mockResolvedValueOnce(null);
+        serviceMocks.ensureEnabled.mockResolvedValueOnce(null).mockResolvedValueOnce(null).mockResolvedValueOnce(null);
         const onPublishChange = vi.fn();
         render(<DiaryPublishModal entry={diaryEntry} onClose={vi.fn()} onPublishChange={onPublishChange} />);
 
         fireEvent.click(screen.getByRole('button', { name: 'Publish this entry to your voyage log' }));
 
-        expect(await screen.findByRole('alert')).toHaveTextContent("We couldn't prepare your Voyage Log");
+        expect(await screen.findByRole('alert', {}, { timeout: 8000 })).toHaveTextContent(
+            "We couldn't prepare your Voyage Log",
+        );
         expect(serviceMocks.setEntryPublished).toHaveBeenCalledWith('entry-1', true);
         expect(onPublishChange).not.toHaveBeenCalled();
         expect(screen.queryByRole('heading', { name: 'Published to your Voyage Log' })).not.toBeInTheDocument();

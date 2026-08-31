@@ -42,14 +42,22 @@ export const publishDiaryEntryToVoyageLog = async (entryId: string): Promise<Dia
     // goes straight through and tells me everything is ok"). The app now
     // presses the second time itself; everything underneath is idempotent —
     // the pending-enable list only clears on success.
+    // Publishing usually happens seconds after saving — while the entry's
+    // own video is still saturating the uplink, which is exactly when these
+    // small preflight calls choke. One quick retry was not enough (Shane,
+    // 2026-08-31, still seeing the error with the manual second press
+    // working): climb a short ladder instead, long enough for a clip to
+    // finish crossing.
     let config: VoyageLogConfig | null = null;
-    for (let attempt = 0; attempt < 2 && !config; attempt++) {
-        if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, 400));
+    const retryDelaysMs = [0, 1_000, 3_000];
+    for (const delayMs of retryDelaysMs) {
+        if (delayMs > 0) await new Promise((resolve) => setTimeout(resolve, delayMs));
         try {
             config = await VoyageLogService.ensurePendingEnabled();
         } catch {
             config = null;
         }
+        if (config) break;
     }
     if (!config) return { ok: false, reason: 'voyage-log' };
 
