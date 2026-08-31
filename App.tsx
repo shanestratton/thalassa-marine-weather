@@ -295,7 +295,47 @@ const App: React.FC = () => {
         }
     }, []);
 
-    const splitActive = splitViewEnabled && wideEnoughForSplit && currentView !== 'dashboard' && currentView !== 'map';
+    // The chart is allowed in the split — but ONLY by repositioning the one
+    // kept-alive Mapbox instance over the right pane. It never mounts twice:
+    // two spin-ups in one process is the documented WebContent killer
+    // (JetsamEvent ~2.0 GB, sealed 2026-08-09), so the map node stays exactly
+    // where it lives in the DOM and CSS alone moves it.
+    const splitActive = splitViewEnabled && wideEnoughForSplit && currentView !== 'dashboard';
+
+    // Where the right frame ACTUALLY is, measured, because the header above
+    // it changes height with orientation and visibility. The chart overlays
+    // this rectangle with position:fixed; guessing it from CSS would couple
+    // this to every header tweak forever.
+    const splitRightFrameRef = useRef<HTMLDivElement | null>(null);
+    const [splitChartRect, setSplitChartRect] = useState<{
+        top: number;
+        left: number;
+        width: number;
+        height: number;
+    } | null>(null);
+    const splitChartActive = splitActive && currentView === 'map';
+    useEffect(() => {
+        if (!splitChartActive) {
+            setSplitChartRect(null);
+            return;
+        }
+        const frame = splitRightFrameRef.current;
+        if (!frame) return;
+        const measure = () => {
+            const r = frame.getBoundingClientRect();
+            // Inset by the frame's 1px border so its edge stays visible around
+            // the chart rather than being painted over.
+            setSplitChartRect({ top: r.top + 1, left: r.left + 1, width: r.width - 2, height: r.height - 2 });
+        };
+        measure();
+        const observer = new ResizeObserver(measure);
+        observer.observe(frame);
+        window.addEventListener('resize', measure);
+        return () => {
+            observer.disconnect();
+            window.removeEventListener('resize', measure);
+        };
+    }, [splitChartActive]);
 
     const toggleSplitView = useCallback(() => {
         if (!wideEnoughForSplit) return;
@@ -1042,10 +1082,14 @@ const App: React.FC = () => {
                 {/* System status now handled by SystemStatusButton in header */}
 
                 {/* MAIN CONTENT AREA */}
-                {currentView !== 'map' ? (
+                {currentView !== 'map' || splitActive ? (
                     <PullToRefresh
                         onRefresh={() => refreshData()}
-                        disabled={currentView === 'dashboard' || PULL_REFRESH_DISABLED_VIEWS.has(currentView)}
+                        disabled={
+                            currentView === 'dashboard' ||
+                            currentView === 'map' ||
+                            PULL_REFRESH_DISABLED_VIEWS.has(currentView)
+                        }
                     >
                         <main
                             id="main-content"
@@ -1114,6 +1158,7 @@ const App: React.FC = () => {
                                             </section>
                                         )}
                                         <div
+                                            ref={splitRightFrameRef}
                                             className={
                                                 splitActive
                                                     ? 'relative h-full min-w-0 flex-1 overflow-hidden rounded-2xl border border-white/25 bg-slate-950 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]'
@@ -1208,9 +1253,34 @@ const App: React.FC = () => {
                     while both mains exist. */}
                 {(chartKeepAlive || chartVisible) && (
                     <main
-                        id={chartVisible ? 'main-content' : undefined}
-                        className="flex-grow w-full relative bg-slate-900 overflow-hidden"
-                        style={chartVisible ? undefined : { display: 'none' }}
+                        // In split, the OTHER main also renders (it draws the
+                        // frames), and it owns the main-content id — two
+                        // elements with one id is how skip-links break.
+                        id={chartVisible && !splitChartActive ? 'main-content' : undefined}
+                        className={
+                            splitChartActive && splitChartRect
+                                ? 'overflow-hidden rounded-2xl bg-slate-900'
+                                : 'flex-grow w-full relative bg-slate-900 overflow-hidden'
+                        }
+                        style={
+                            // One node, three outfits. Full-bleed on the phone;
+                            // display:none while kept alive; and in split, FIXED
+                            // over the measured right frame — repositioned, never
+                            // remounted, because a second Mapbox spin-up is the
+                            // documented process killer.
+                            splitChartActive && splitChartRect
+                                ? {
+                                      position: 'fixed',
+                                      top: splitChartRect.top,
+                                      left: splitChartRect.left,
+                                      width: splitChartRect.width,
+                                      height: splitChartRect.height,
+                                      zIndex: 40,
+                                  }
+                                : chartVisible
+                                  ? undefined
+                                  : { display: 'none' }
+                        }
                     >
                         <ErrorBoundary boundaryName="MapView">
                             <Suspense
