@@ -82,6 +82,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
         mood,
         photos,
         audioUrl,
+        videoUrl,
         uploading,
         lat,
         lon,
@@ -171,6 +172,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
         [dispatch, state.photos],
     );
     const setAudioUrl = useCallback((v: string | null) => dispatch({ type: 'SET_AUDIO_URL', url: v }), [dispatch]);
+    const setVideoUrl = useCallback((v: string | null) => dispatch({ type: 'SET_VIDEO_URL', url: v }), [dispatch]);
     const setUploading = useCallback((v: boolean) => dispatch({ type: 'SET_UPLOADING', uploading: v }), [dispatch]);
     const setWeatherSummary = useCallback(
         (v: string) => dispatch({ type: 'SET_WEATHER_SUMMARY', summary: v }),
@@ -231,6 +233,8 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
     // Photos returned by uploadPhoto are still compose-owned until a confirmed
     // create/update adopts them. Existing edit photos never enter this set.
     const unsavedPhotoRefs = useRef<Set<string>>(new Set());
+    /** The one compose-owned clip, if any. Replaced or discarded, never leaked. */
+    const unsavedVideoRef = useRef<string | null>(null);
     // A Save snapshots only the refs it is adopting. Account B can therefore
     // begin a clean compose after an A→B switch without Cancel racing A's bytes.
     const savingPhotoRefsRef = useRef<Set<string> | null>(null);
@@ -270,6 +274,9 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
         const refs = [...unsavedPhotoRefs.current];
         unsavedPhotoRefs.current.clear();
         for (const ref of refs) void DiaryService.discardUnsavedPhoto(ref);
+        const videoRef = unsavedVideoRef.current;
+        unsavedVideoRef.current = null;
+        if (videoRef) void DiaryService.discardUnsavedVideo(videoRef);
     }, []);
 
     /** Detach an abandoned compose without touching refs an active Save owns. */
@@ -280,6 +287,9 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
         for (const ref of refs) {
             if (!savingRefs.has(ref)) void DiaryService.discardUnsavedPhoto(ref);
         }
+        const videoRef = unsavedVideoRef.current;
+        unsavedVideoRef.current = null;
+        if (videoRef) void DiaryService.discardUnsavedVideo(videoRef);
     }, []);
 
     // Keep the compose reducer in sync with the shared native/web keyboard
@@ -644,6 +654,64 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
         if (operationIsCurrent()) setUploading(false);
         if (fileRef.current) fileRef.current.value = '';
     };
+    /**
+     * One clip per entry, a minute at most. The duration gate reads metadata
+     * from a temporary object URL rather than trusting the picker, because the
+     * Photos app will happily hand over a nine-minute 4K file — and at ~200MB a
+     * minute the size is worth saying OUT LOUD before it rides a boat uplink,
+     * which is the whole reason this exists.
+     */
+    const handleVideoSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (e.target) e.target.value = '';
+        if (!file) return;
+        const probeUrl = URL.createObjectURL(file);
+        try {
+            const duration = await new Promise<number>((resolve) => {
+                const probe = document.createElement('video');
+                probe.preload = 'metadata';
+                probe.onloadedmetadata = () => resolve(probe.duration);
+                probe.onerror = () => resolve(NaN);
+                probe.src = probeUrl;
+            });
+            if (!Number.isFinite(duration)) {
+                alert('That file could not be read as a video.');
+                return;
+            }
+            if (duration > 61) {
+                alert(
+                    `That clip is ${Math.round(duration)}s — the diary takes up to 60 seconds. Trim it in Photos first.`,
+                );
+                return;
+            }
+            if (file.size > 550 * 1048576) {
+                alert('That clip is over 550MB, which the storage bucket will refuse. Trim or re-encode it first.');
+                return;
+            }
+        } finally {
+            URL.revokeObjectURL(probeUrl);
+        }
+        setUploading(true);
+        const ref = await DiaryService.saveVideoForEntry(file);
+        if (ref) {
+            const previous = unsavedVideoRef.current;
+            unsavedVideoRef.current = ref;
+            if (previous) void DiaryService.discardUnsavedVideo(previous);
+            setVideoUrl(ref);
+        } else {
+            alert('Could not store the video on this device — check free space.');
+        }
+        setUploading(false);
+    };
+    const removeVideo = () => {
+        if (saving || composeSaveInFlightRef.current) return;
+        const ref = videoUrl;
+        setVideoUrl(null);
+        if (ref && unsavedVideoRef.current === ref) {
+            unsavedVideoRef.current = null;
+            void DiaryService.discardUnsavedVideo(ref);
+        }
+    };
     const removePhoto = (idx: number) => {
         if (saving || composeSaveInFlightRef.current) return;
         const ref = photos[idx];
@@ -730,6 +798,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                 if (updateResult.ok) {
                     mediaAdopted = true;
                     for (const ref of savePhotoRefs) unsavedPhotoRefs.current.delete(ref);
+                    if (videoUrl && unsavedVideoRef.current === videoUrl) unsavedVideoRef.current = null;
                 }
                 if (!operationIsCurrent()) return;
                 if (updateResult.ok) {
@@ -761,6 +830,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                 let entry: DiaryEntry | null = null;
                 try {
                     entry = await DiaryService.createEntry({
+                        video_url: videoUrl,
                         title: title.trim() || formatDate(new Date().toISOString()),
                         body: body.trim(),
                         mood,
@@ -786,6 +856,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                 if (entry) {
                     mediaAdopted = true;
                     for (const ref of savePhotoRefs) unsavedPhotoRefs.current.delete(ref);
+                    if (videoUrl && unsavedVideoRef.current === videoUrl) unsavedVideoRef.current = null;
                 }
                 if (!operationIsCurrent()) return;
                 if (entry) {
@@ -965,6 +1036,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                 mood={mood}
                 photos={photos}
                 audioUrl={audioUrl}
+                videoUrl={videoUrl}
                 locationName={locationName}
                 keyboardHeight={keyboardHeight}
                 saving={saving}
@@ -989,6 +1061,8 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                 }}
                 onPolish={handlePolish}
                 onPhotoSelect={handlePhotoSelect}
+                onVideoSelect={handleVideoSelect}
+                onVideoRemove={removeVideo}
                 onPhotoRemove={removePhoto}
             />
         );

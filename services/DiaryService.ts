@@ -47,6 +47,10 @@ import {
     loadAudio as idbLoadAudio,
     deleteAudio as idbDeleteAudio,
     isIdbAudio,
+    saveVideo as idbSaveVideo,
+    loadVideo as idbLoadVideo,
+    deleteVideo as idbDeleteVideo,
+    isIdbVideo,
 } from './diaryPhotoStore';
 const log = createLogger('Diary');
 
@@ -71,6 +75,8 @@ export interface DiaryEntry {
     mood: DiaryMood;
     photos: string[]; // Public URLs (or data: URIs when offline)
     audio_url: string | null; // Voice memo URL (or idb-audio: ref while offline)
+    /** Short video clip URL (or idb-video: ref while it waits for upload). */
+    video_url?: string | null;
     latitude: number | null;
     longitude: number | null;
     location_name: string;
@@ -129,6 +135,7 @@ export const MOOD_CONFIG: Record<DiaryMood, { emoji: string; label: string; colo
 const TABLE = 'diary_entries';
 const PHOTO_BUCKET = 'diary-photos';
 const AUDIO_BUCKET = 'diary-audio';
+const VIDEO_BUCKET = 'diary-video';
 const STORAGE_REF_PREFIX = 'storage:';
 const CACHE_KEY = 'thalassa_diary_entries_v2';
 const PENDING_KEY = 'thalassa_diary_pending_v2';
@@ -225,6 +232,7 @@ interface DiaryTombstone {
     client_operation_id?: string | null;
     photos: string[];
     audio?: string | null;
+    video?: string | null;
     deletedAt: number;
     readonly owner_user_id: string | null;
 }
@@ -246,7 +254,7 @@ interface DiaryMediaCleanupJob {
     id: string;
     entryId: string;
     readonly owner_user_id: string;
-    refs: Array<{ bucket: typeof PHOTO_BUCKET | typeof AUDIO_BUCKET; ref: string }>;
+    refs: Array<{ bucket: typeof PHOTO_BUCKET | typeof AUDIO_BUCKET | typeof VIDEO_BUCKET; ref: string }>;
     createdAt: number;
 }
 
@@ -274,6 +282,7 @@ class DiaryServiceClass {
     // Cache mapping idb: references → short-lived blob URLs for <img> rendering.
     // Avoids re-reading IndexedDB on every render.
     private _idbRefToBlobUrl = new Map<string, string>();
+    private _idbVideoRefToBlobUrl = new Map<string, string>();
     // Same cache for voice memos stored in IndexedDB while an entry waits to sync.
     private _idbAudioRefToBlobUrl = new Map<string, string>();
     private _signedUrlCache = new Map<string, { url: string; expiresAt: number }>();
@@ -473,6 +482,7 @@ class DiaryServiceClass {
         mood: DiaryMood;
         photos?: string[];
         audio_url?: string | null;
+        video_url?: string | null;
         latitude?: number | null;
         longitude?: number | null;
         location_name?: string;
@@ -485,7 +495,7 @@ class DiaryServiceClass {
         is_public?: boolean;
     }): Promise<DiaryEntry> {
         const scope = getAuthIdentityScope();
-        if (!this._submittedMediaBelongsToScope(entry.photos, entry.audio_url, scope, true)) {
+        if (!this._submittedMediaBelongsToScope(entry.photos, entry.audio_url, scope, true, entry.video_url)) {
             throw new Error('Diary media is not owned by the active account');
         }
         const now = new Date().toISOString();
@@ -521,6 +531,7 @@ class DiaryServiceClass {
             mood: entry.mood,
             photos: entry.photos || [],
             audio_url: entry.audio_url ?? null,
+            video_url: entry.video_url ?? null,
             latitude: entry.latitude ?? null,
             longitude: entry.longitude ?? null,
             location_name: entry.location_name || '',
@@ -864,6 +875,9 @@ class DiaryServiceClass {
             if (entry?.audio_url && isIdbAudio(entry.audio_url)) {
                 await this.discardUnsavedAudio(entry.audio_url);
             }
+            if (entry?.video_url && isIdbVideo(entry.video_url)) {
+                await this.discardUnsavedVideo(entry.video_url);
+            }
             this._savePending(
                 pending.filter((e) => e.id !== id),
                 scope,
@@ -887,6 +901,7 @@ class DiaryServiceClass {
                     synced.entry.audio_url,
                     scope,
                     synced.entry.client_operation_id,
+                    synced.entry.video_url ?? null,
                 );
             }
             // Synced longer ago (the 120s buffer purged, or the app relaunched):
@@ -900,6 +915,7 @@ class DiaryServiceClass {
                     twin?.audio_url,
                     scope,
                     twin?.client_operation_id,
+                    twin?.video_url ?? null,
                 );
             }
             return true;
@@ -911,7 +927,14 @@ class DiaryServiceClass {
             this._getCachedEntries(scope).find((e) => e.id === id) ??
             this._recentlySynced.find((r) => r.entry.id === id)?.entry ??
             null;
-        return this._commitLocalDelete(id, local?.photos ?? [], local?.audio_url, scope, local?.client_operation_id);
+        return this._commitLocalDelete(
+            id,
+            local?.photos ?? [],
+            local?.audio_url,
+            scope,
+            local?.client_operation_id,
+            local?.video_url ?? null,
+        );
     }
 
     /** Tombstone + scrub local caches, then push to the server best-effort. */
@@ -921,8 +944,9 @@ class DiaryServiceClass {
         audio: string | null | undefined,
         scope: AuthIdentityScope,
         clientOperationId?: string | null,
+        video?: string | null,
     ): boolean {
-        this._addTombstone(id, photos, audio, scope, clientOperationId);
+        this._addTombstone(id, photos, audio, scope, clientOperationId, video);
         if (clientOperationId) void cancelDiaryOnPi(clientOperationId);
         this._saveCachedEntries(
             this._getCachedEntries(scope).filter((e) => e.id !== id),
@@ -977,6 +1001,7 @@ class DiaryServiceClass {
                 tombstone.audio,
                 tombstone.client_operation_id,
                 scope,
+                tombstone.video,
             );
             if (!isAuthIdentityScopeCurrent(scope)) return;
             if (ok) {
@@ -997,25 +1022,28 @@ class DiaryServiceClass {
         audio: string | null | undefined,
         clientOperationId: string | null | undefined,
         scope: AuthIdentityScope,
+        video?: string | null,
     ): Promise<boolean> {
         if (!supabase || !scope.userId || !isAuthIdentityScopeCurrent(scope)) return false;
         try {
             let operationId = clientOperationId;
             let photoUrls = photos;
             let audioUrl = audio ?? null;
+            let videoUrl = video ?? null;
             // A cold local cache can lack the operation id even though an old
             // Pi still holds the corresponding create. Learn it from the
             // authoritative row before deleting so this otherwise ordinary
             // delete still lays down the anti-resurrection tombstone.
-            if (!operationId || (photoUrls.length === 0 && !audioUrl)) {
+            if (!operationId || (photoUrls.length === 0 && !audioUrl && !videoUrl)) {
                 const { data } = await supabase
                     .from(TABLE)
-                    .select('photos, audio_url, client_operation_id')
+                    .select('photos, audio_url, video_url, client_operation_id')
                     .eq('id', id)
                     .maybeSingle();
                 if (!isAuthIdentityScopeCurrent(scope)) return false;
                 photoUrls = photoUrls.length > 0 ? photoUrls : ((data?.photos as string[] | null) ?? []);
                 audioUrl = audioUrl ?? (data?.audio_url as string | null) ?? null;
+                videoUrl = videoUrl ?? (data?.video_url as string | null) ?? null;
                 const fetchedOperationId = data?.client_operation_id;
                 if (
                     !operationId &&
@@ -1074,6 +1102,14 @@ class DiaryServiceClass {
                 const { error: storageError } = await supabase.storage.from(AUDIO_BUCKET).remove([audioPath]);
                 if (storageError) {
                     log.warn('Diary audio cleanup failed — will retry with the tombstone:', storageError.message);
+                    return false;
+                }
+            }
+            const videoPath = videoUrl ? this._extractStoragePath(videoUrl, VIDEO_BUCKET) : null;
+            if (videoPath && isAuthIdentityScopeCurrent(scope)) {
+                const { error: storageError } = await supabase.storage.from(VIDEO_BUCKET).remove([videoPath]);
+                if (storageError) {
+                    log.warn('Diary video cleanup failed — will retry with the tombstone:', storageError.message);
                     return false;
                 }
             }
@@ -1481,7 +1517,12 @@ class DiaryServiceClass {
             : null;
     }
 
-    private _relayEnvelope(entry: DiaryEntry, photos = entry.photos, audioUrl = entry.audio_url): DiaryRelayEnvelope {
+    private _relayEnvelope(
+        entry: DiaryEntry,
+        photos = entry.photos,
+        audioUrl = entry.audio_url,
+        videoUrl = entry.video_url ?? null,
+    ): DiaryRelayEnvelope {
         return {
             client_operation_id: entry.client_operation_id || newDiaryOperationId(),
             client_revision:
@@ -1495,6 +1536,7 @@ class DiaryServiceClass {
             mood: entry.mood,
             photos,
             audio_url: audioUrl,
+            video_url: videoUrl,
             latitude: entry.latitude,
             longitude: entry.longitude,
             location_name: entry.location_name,
@@ -1522,22 +1564,31 @@ class DiaryServiceClass {
     private _hasPhoneOnlyRelayMedia(entry: DiaryEntry): boolean {
         const isPhoneOnly = (value: string | null | undefined) =>
             Boolean(value) &&
-            (isIdbPhoto(value!) || isIdbAudio(value!) || value!.startsWith('blob:') || value!.startsWith('data:'));
-        return entry.photos.some((photo) => isPhoneOnly(photo)) || isPhoneOnly(entry.audio_url);
+            (isIdbPhoto(value!) ||
+                isIdbAudio(value!) ||
+                isIdbVideo(value!) ||
+                value!.startsWith('blob:') ||
+                value!.startsWith('data:'));
+        return (
+            entry.photos.some((photo) => isPhoneOnly(photo)) ||
+            isPhoneOnly(entry.audio_url) ||
+            isPhoneOnly(entry.video_url)
+        );
     }
 
-    private _mediaRefKey(ref: string, bucket: typeof PHOTO_BUCKET | typeof AUDIO_BUCKET): string {
+    private _mediaRefKey(ref: string, bucket: typeof PHOTO_BUCKET | typeof AUDIO_BUCKET | typeof VIDEO_BUCKET): string {
         const path = this._extractStoragePath(ref, bucket);
         return path ? `${bucket}:${path}` : `${bucket}:${ref}`;
     }
 
     private _cleanupRefBelongsToScope(
         ref: string,
-        bucket: typeof PHOTO_BUCKET | typeof AUDIO_BUCKET,
+        bucket: typeof PHOTO_BUCKET | typeof AUDIO_BUCKET | typeof VIDEO_BUCKET,
         scope: AuthIdentityScope,
     ): boolean {
         if (bucket === PHOTO_BUCKET && isIdbPhoto(ref)) return true;
         if (bucket === AUDIO_BUCKET && isIdbAudio(ref)) return true;
+        if (bucket === VIDEO_BUCKET && isIdbVideo(ref)) return true;
         if (ref.startsWith('blob:') || ref.startsWith('data:')) return true;
         return this._managedStorageRefBelongsToScope(ref, bucket, scope) === true;
     }
@@ -1607,6 +1658,7 @@ class DiaryServiceClass {
         const canonicalKeys = new Set([
             ...(canonical.photos ?? []).map((ref) => this._mediaRefKey(ref, PHOTO_BUCKET)),
             ...(canonical.audio_url ? [this._mediaRefKey(canonical.audio_url, AUDIO_BUCKET)] : []),
+            ...(canonical.video_url ? [this._mediaRefKey(canonical.video_url, VIDEO_BUCKET)] : []),
         ]);
         const refs = [
             ...(local._retirePhotos ?? []).map((ref) => ({ bucket: PHOTO_BUCKET, ref }) as const),
@@ -1652,11 +1704,14 @@ class DiaryServiceClass {
 
         const user = (await supabase.auth.getUser()).data.user;
         if (!isAuthIdentityScopeCurrent(scope) || user?.id !== scope.userId) return;
-        let serverRows: Array<Pick<DiaryEntry, 'photos' | 'audio_url'>>;
+        let serverRows: Array<Pick<DiaryEntry, 'photos' | 'audio_url' | 'video_url'>>;
         try {
-            const { data, error } = await supabase.from(TABLE).select('photos,audio_url').eq('user_id', scope.userId);
+            const { data, error } = await supabase
+                .from(TABLE)
+                .select('photos,audio_url,video_url')
+                .eq('user_id', scope.userId);
             if (error || !isAuthIdentityScopeCurrent(scope)) return;
-            serverRows = (data ?? []) as Array<Pick<DiaryEntry, 'photos' | 'audio_url'>>;
+            serverRows = (data ?? []) as Array<Pick<DiaryEntry, 'photos' | 'audio_url' | 'video_url'>>;
         } catch (error) {
             log.warn('Could not reconcile retired diary media:', error);
             return;
@@ -1666,6 +1721,7 @@ class DiaryServiceClass {
         for (const row of serverRows) {
             for (const ref of row.photos ?? []) referenced.add(this._mediaRefKey(ref, PHOTO_BUCKET));
             if (row.audio_url) referenced.add(this._mediaRefKey(row.audio_url, AUDIO_BUCKET));
+            if (row.video_url) referenced.add(this._mediaRefKey(row.video_url, VIDEO_BUCKET));
         }
 
         const remaining: DiaryMediaCleanupJob[] = [];
@@ -1681,6 +1737,8 @@ class DiaryServiceClass {
                 try {
                     if (item.bucket === PHOTO_BUCKET && isIdbPhoto(item.ref)) {
                         await idbDeletePhoto(item.ref);
+                    } else if (item.bucket === VIDEO_BUCKET && isIdbVideo(item.ref)) {
+                        await idbDeleteVideo(item.ref);
                     } else if (item.bucket === AUDIO_BUCKET && isIdbAudio(item.ref)) {
                         await idbDeleteAudio(item.ref);
                     } else if (item.ref.startsWith('blob:')) {
@@ -2140,6 +2198,57 @@ class DiaryServiceClass {
                     } else audioStillPending = true;
                 }
                 if (!isAuthIdentityScopeCurrent(scope)) return;
+
+                // 2b. Upload a parked video clip the same way. IDB-only: video
+                // is never a data: URI (a 200MB base64 string would kill the
+                // WebView long before it killed the uplink).
+                let videoUrl = entry.video_url ?? null;
+                let videoStillPending = false;
+                if (videoUrl && isIdbVideo(videoUrl)) {
+                    const idbRef = videoUrl;
+                    const blob = await idbLoadVideo(idbRef);
+                    if (!isAuthIdentityScopeCurrent(scope)) return;
+                    if (!blob) {
+                        log.warn('IDB video missing, saving diary text without the clip:', idbRef);
+                        videoUrl = null;
+                    } else {
+                        const uploaded = await this._uploadVideoBlob(blob, scope);
+                        if (uploaded) {
+                            trackStorageRef(VIDEO_BUCKET, uploaded);
+                            if (!isAuthIdentityScopeCurrent(scope)) return;
+                            const pendingNow = this._getPendingEntries(scope);
+                            const idx = pendingNow.findIndex((e) => e.id === entry.id);
+                            if (idx >= 0) {
+                                pendingNow[idx] = { ...pendingNow[idx], video_url: uploaded };
+                                this._savePending(pendingNow, scope);
+                                const durableEntry = this._getPendingEntries(scope).find(
+                                    (candidate) => candidate.id === entry.id,
+                                );
+                                if (durableEntry?.video_url === uploaded) {
+                                    adoptStorageRefs(VIDEO_BUCKET, [uploaded]);
+                                    entry = durableEntry;
+                                    videoUrl = uploaded;
+                                    await this.discardUnsavedVideo(idbRef);
+                                    if (!isAuthIdentityScopeCurrent(scope)) return;
+                                } else {
+                                    videoStillPending = true;
+                                }
+                            } else {
+                                videoStillPending = true;
+                            }
+                        } else {
+                            videoStillPending = true;
+                        }
+                    }
+                }
+                if (!isAuthIdentityScopeCurrent(scope)) return;
+                if (videoStillPending) {
+                    log.warn(
+                        `[Diary] entry "${entry.title || entry.id}" deferred — ` +
+                            `video not uploaded. It will retry, and stays local until it lands.`,
+                    );
+                    continue;
+                }
                 if (audioStillPending) {
                     // Same silent-park shape as the photo gate above, and until
                     // 20260728120000 this was reachable on format alone: the
@@ -2160,7 +2269,7 @@ class DiaryServiceClass {
                 // the Pi now has the final text + storage refs and can finish
                 // the database write when ordinary internet returns.
                 const finalPiResult = await handoffDiaryToPi(
-                    this._relayEnvelope(entry, uploadedPhotos, audioUrl || null),
+                    this._relayEnvelope(entry, uploadedPhotos, audioUrl || null, videoUrl || null),
                 );
                 if (!isAuthIdentityScopeCurrent(scope)) return;
                 if (
@@ -2175,7 +2284,9 @@ class DiaryServiceClass {
                 // 4. Direct device -> Supabase. This shares the relay Edge
                 // Function's revision/tombstone boundary, so a direct retry
                 // and a late Pi retry can never overwrite one another.
-                const data = await submitDiaryDirect(this._relayEnvelope(entry, uploadedPhotos, audioUrl || null));
+                const data = await submitDiaryDirect(
+                    this._relayEnvelope(entry, uploadedPhotos, audioUrl || null, videoUrl || null),
+                );
 
                 if (!isAuthIdentityScopeCurrent(scope)) return;
 
@@ -2301,7 +2412,7 @@ class DiaryServiceClass {
      */
     private _managedStorageRefBelongsToScope(
         ref: string,
-        bucket: typeof PHOTO_BUCKET | typeof AUDIO_BUCKET,
+        bucket: typeof PHOTO_BUCKET | typeof AUDIO_BUCKET | typeof VIDEO_BUCKET,
         scope: AuthIdentityScope,
     ): boolean | null {
         const path = this._extractStoragePath(ref, bucket);
@@ -2334,9 +2445,14 @@ class DiaryServiceClass {
         audioUrl: string | null | undefined,
         scope: AuthIdentityScope,
         validateAudio: boolean,
+        videoUrl?: string | null,
     ): boolean {
         if (photos && !photos.every((ref) => this._photoRefBelongsToScope(ref, scope))) return false;
         if (validateAudio && audioUrl && !this._audioRefBelongsToScope(audioUrl, scope)) return false;
+        // A video ref is either the phone's own IDB clip or a storage/public
+        // URL judged by the same ownership rule as the other buckets.
+        if (videoUrl && !(isIdbVideo(videoUrl) || this._cleanupRefBelongsToScope(videoUrl, VIDEO_BUCKET, scope)))
+            return false;
         return true;
     }
 
@@ -2720,6 +2836,7 @@ class DiaryServiceClass {
         audio?: string | null,
         scope: AuthIdentityScope = getAuthIdentityScope(),
         clientOperationId?: string | null,
+        video?: string | null,
     ): void {
         const tomb: DiaryTombstone = {
             id,
@@ -2729,6 +2846,7 @@ class DiaryServiceClass {
                     : null,
             photos,
             audio: audio ?? null,
+            video: video ?? null,
             deletedAt: Date.now(),
             owner_user_id: scope.userId,
         };
@@ -2965,7 +3083,7 @@ class DiaryServiceClass {
         if (entry.owner_user_id !== scope.userId || !isAuthIdentityScopeCurrent(scope)) {
             throw new Error('Diary entry owner changed before persistence');
         }
-        if (!this._submittedMediaBelongsToScope(entry.photos, entry.audio_url, scope, true)) {
+        if (!this._submittedMediaBelongsToScope(entry.photos, entry.audio_url, scope, true, entry.video_url)) {
             throw new Error('Diary media is not owned by the active account');
         }
         const prepared = await this._prepareDurablePhotoRefs(entry.photos, scope);
@@ -3285,6 +3403,104 @@ class DiaryServiceClass {
     }
 
     /** Discard an unsaved IndexedDB voice memo (safe to call repeatedly). */
+    /**
+     * Park a freshly-picked video clip locally. IDB-first for the same reason
+     * as photos and memos: the durable outbox owns the ref before any Storage
+     * object exists, so abandoning the compose form cannot orphan a cloud
+     * object — and at ~200MB a minute, an orphaned video is the expensive kind.
+     */
+    async saveVideoForEntry(blob: Blob): Promise<string | null> {
+        if (!blob.size) return null;
+        const scope = getAuthIdentityScope();
+        try {
+            const ref = await idbSaveVideo(blob);
+            if (!isAuthIdentityScopeCurrent(scope)) {
+                await idbDeleteVideo(ref);
+                return null;
+            }
+            this._registerMediaRef(ref, scope);
+            return ref;
+        } catch (error) {
+            log.warn('Could not persist diary video locally:', error);
+            return null;
+        }
+    }
+
+    async discardUnsavedVideo(ref: string | null | undefined): Promise<void> {
+        if (!ref || !isIdbVideo(ref)) return;
+        await idbDeleteVideo(ref);
+        const cachedUrl = this._idbVideoRefToBlobUrl.get(ref);
+        if (cachedUrl) {
+            URL.revokeObjectURL(cachedUrl);
+            this._idbVideoRefToBlobUrl.delete(ref);
+        }
+    }
+
+    /** Resolve a diary video reference to something a <video src> can play. */
+    async resolveVideoUrl(ref: string): Promise<string | null> {
+        const scope = getAuthIdentityScope();
+        if (!ref) return null;
+        if (!this._ownsMediaRef(ref, scope)) return null;
+        if (ref.startsWith('blob:')) return ref;
+        if (isIdbVideo(ref)) {
+            const cached = this._idbVideoRefToBlobUrl.get(ref);
+            if (cached) return cached;
+            const blob = await idbLoadVideo(ref);
+            if (!blob || !isAuthIdentityScopeCurrent(scope)) return null;
+            const url = URL.createObjectURL(blob);
+            this._idbVideoRefToBlobUrl.set(ref, url);
+            return url;
+        }
+        const storagePath = this._extractStoragePath(ref, VIDEO_BUCKET);
+        if (storagePath && supabase) {
+            return this._createSignedStorageUrl(VIDEO_BUCKET, storagePath, ref, scope);
+        }
+        if (ref.startsWith('http://') || ref.startsWith('https://')) return ref;
+        return null;
+    }
+
+    private async _uploadVideoBlob(blob: Blob, scope: AuthIdentityScope): Promise<string | null> {
+        if (!supabase || !scope.userId || !isAuthIdentityScopeCurrent(scope) || !canAttemptDiaryCloudDelivery())
+            return null;
+        const user = (await supabase.auth.getUser()).data.user;
+        if (!isAuthIdentityScopeCurrent(scope) || user?.id !== scope.userId) return null;
+
+        let uploadedPath: string | null = null;
+        let handedOff = false;
+        try {
+            // iPhone hands over video/quicktime (.mov) or video/mp4; the bucket
+            // allows exactly those two, so anything else is refused here with
+            // the type in the message rather than dying opaquely at the bucket.
+            const mimeType = blob.type === 'video/quicktime' ? 'video/quicktime' : 'video/mp4';
+            const ext = mimeType === 'video/quicktime' ? 'mov' : 'mp4';
+            const path = `${scope.userId}/${Date.now()}.${ext}`;
+            // No Promise.race timeout here, unlike audio: a 200MB clip on a
+            // boat uplink legitimately takes minutes, and abandoning a live
+            // upload half-way just to retry it from zero is how a passage
+            // burns its data allowance twice.
+            const { error } = await supabase.storage
+                .from(VIDEO_BUCKET)
+                .upload(path, blob, { contentType: mimeType, upsert: false });
+            if (error) {
+                log.warn(`[Diary] video upload rejected (${VIDEO_BUCKET}, ${mimeType}): ${error.message}`);
+                return null;
+            }
+            uploadedPath = path;
+            if (!isAuthIdentityScopeCurrent(scope)) return null;
+            handedOff = true;
+            const publicUrl = supabase.storage.from(VIDEO_BUCKET).getPublicUrl(path).data.publicUrl;
+            log.info(`[Diary] video uploaded: ${(blob.size / 1048576).toFixed(1)} MB → ${path}`);
+            return publicUrl;
+        } catch (e) {
+            log.error('Video blob upload failed:', e);
+            return null;
+        } finally {
+            if (uploadedPath && !handedOff) {
+                await this._removeUncommittedStorageObject(VIDEO_BUCKET, uploadedPath);
+            }
+        }
+    }
+
     async discardUnsavedAudio(ref: string | null | undefined): Promise<void> {
         if (!ref || !isIdbAudio(ref)) return;
         await idbDeleteAudio(ref);
