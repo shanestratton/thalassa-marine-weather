@@ -3385,22 +3385,30 @@ class DiaryServiceClass {
         try {
             const { NmeaListenerService } = await import('./NmeaListenerService');
             const { NmeaStore } = await import('./NmeaStore');
-            const { NmeaGpsProvider } = await import('./NmeaGpsProvider');
+            const { resolveOwnshipPosition } = await import('./ownshipPosition');
+            const { LocationStore } = await import('../stores/LocationStore');
             // Belt-and-braces store claim — any surface that asks "where is
             // the boat" must also make sure the store is listening, or the
             // arbitration is theatre (the chart learned this the hard way).
             const hasGateway = Boolean(NmeaListenerService.getSavedConfig());
             if (hasGateway) NmeaStore.start();
+            // THE SAME DOOR AS THE CHART. This used to ask NmeaGpsProvider,
+            // whose extra gates (the TCP listener's connectionStatus at that
+            // exact instant, its own cache) could say "no boat" while the OBS
+            // arrow — reading the store's metrics through the arbiter — sat
+            // happily on the vessel (Shane, 2026-08-31: "i am still receiving
+            // signal k data straight from the pi??", and he was). One arbiter,
+            // one answer; only the live-NMEA branch may claim to be the boat.
             const read = () => {
-                const fix = NmeaGpsProvider.getPosition();
-                return fix ? { lat: fix.latitude, lon: fix.longitude } : null;
+                const own = resolveOwnshipPosition(NmeaStore.getState(), LocationStore.getState());
+                return own && own.source === 'nmea' ? { lat: own.lat, lon: own.lon } : null;
             };
             vessel = read();
-            // Grace for a socket mid-reconnect exactly as compose opens: with
-            // a gateway configured, give the feed a moment before deciding the
-            // boat has nothing to say. The phone fetch is already in flight,
-            // so this wait hides inside it.
-            for (let i = 0; !vessel && hasGateway && i < 20; i++) {
+            // Grace for a socket mid-reconnect exactly as compose opens: a
+            // foregrounded app needs the TCP handshake plus the listener's 5s
+            // sample batch before the store fills — 8s covers both. The phone
+            // fetch is already in flight, so this wait hides inside it.
+            for (let i = 0; !vessel && hasGateway && i < 32; i++) {
                 await new Promise((resolve) => setTimeout(resolve, 250));
                 vessel = read();
             }

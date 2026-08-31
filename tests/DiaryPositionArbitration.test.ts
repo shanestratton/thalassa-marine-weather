@@ -11,8 +11,12 @@ describe('diary position arbitration — the pub-vs-passage question', () => {
         // be this same phone wearing a different hat. Live NMEA first; when
         // the bus is switched off, the Pi's own at-rest fix (her berth) —
         // still the boat's electronics, just asleep.
-        expect(service).toContain("await import('./NmeaGpsProvider')");
-        expect(service).toContain('NmeaGpsProvider.getPosition()');
+        // The SAME door as the chart's arrow — resolveOwnshipPosition on the
+        // store's own metrics, nmea branch only. NmeaGpsProvider's extra
+        // gates made the diary and the arrow disagree on the same device at
+        // the same second (2026-08-31).
+        expect(service).toContain("await import('./ownshipPosition')");
+        expect(service).toContain("own && own.source === 'nmea' ? { lat: own.lat, lon: own.lon } : null");
         expect(service).toContain("await import('./piTrackRecorder')");
         expect(service).toContain('if (!vessel) vessel = await restingPromise;');
     });
@@ -29,7 +33,7 @@ describe('diary position arbitration — the pub-vs-passage question', () => {
         expect(service).toContain('if (hasGateway) NmeaStore.start();');
         // And a socket mid-reconnect gets a moment, hidden inside the
         // already-running phone fetch.
-        expect(service).toContain('for (let i = 0; !vessel && hasGateway && i < 20; i++) {');
+        expect(service).toContain('for (let i = 0; !vessel && hasGateway && i < 32; i++) {');
     });
 
     it('the phone candidate is a high-accuracy fix and carries its blur radius', () => {
