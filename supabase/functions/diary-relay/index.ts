@@ -154,6 +154,7 @@ function normalizeEntry(value: unknown, ownerId: string): NormalizedDiaryEntry |
         .map((photo) => ownedStorageRef(photo, 'diary-photos', ownerId))
         .filter((photo): photo is string => Boolean(photo));
     const audioUrl = ownedStorageRef(raw.audio_url, 'diary-audio', ownerId);
+    const videoUrl = ownedStorageRef(raw.video_url, 'diary-video', ownerId);
     const createdAt = validIso(raw.created_at) ?? new Date().toISOString();
 
     return {
@@ -165,6 +166,7 @@ function normalizeEntry(value: unknown, ownerId: string): NormalizedDiaryEntry |
         mood: MOODS.has(mood) ? mood : 'neutral',
         photos,
         audio_url: audioUrl,
+        video_url: videoUrl,
         latitude,
         longitude,
         location_name: boundedString(raw.location_name, 1_000),

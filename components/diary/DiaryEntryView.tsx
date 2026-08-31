@@ -8,6 +8,7 @@ import React, { useState } from 'react';
 import { DiaryEntry, MOOD_CONFIG } from '../../services/DiaryService';
 import { AudioWidget } from './AudioWidget';
 import { DiaryPhoto } from './DiaryPhoto';
+import { DiaryVideo } from './DiaryVideo';
 import { UndoToast } from '../ui/UndoToast';
 import { toast } from '../Toast';
 import {
@@ -214,6 +215,11 @@ export const DiaryEntryView: React.FC<DiaryEntryViewProps> = React.memo(
                         )}
 
                         {/* 5. Voice Memo */}
+                        {e.video_url && (
+                            <div className="rounded-xl overflow-hidden border border-white/10">
+                                <DiaryVideo src={e.video_url} className="w-full bg-black" />
+                            </div>
+                        )}
                         {e.audio_url && (
                             <AudioWidget
                                 url={e.audio_url}

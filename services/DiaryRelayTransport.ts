@@ -31,6 +31,8 @@ export interface DiaryRelayEnvelope {
     mood: string;
     photos: string[];
     audio_url: string | null;
+    /** Storage/public URL only — the relay never carries phone-local media. */
+    video_url?: string | null;
     latitude: number | null;
     longitude: number | null;
     location_name: string;

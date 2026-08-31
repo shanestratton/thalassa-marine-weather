@@ -36,6 +36,7 @@ export interface DiaryState {
     mood: DiaryMood;
     photos: string[];
     audioUrl: string | null;
+    videoUrl: string | null;
     uploading: boolean;
     lat: number | null;
     lon: number | null;
@@ -79,6 +80,7 @@ export const initialDiaryState: DiaryState = {
     mood: 'epic',
     photos: [],
     audioUrl: null,
+    videoUrl: null,
     uploading: false,
     lat: null,
     lon: null,
@@ -128,6 +130,7 @@ export type DiaryAction =
     | { type: 'ADD_PHOTO'; url: string }
     | { type: 'REMOVE_PHOTO'; idx: number }
     | { type: 'SET_AUDIO_URL'; url: string | null }
+    | { type: 'SET_VIDEO_URL'; url: string | null }
     | { type: 'SET_UPLOADING'; uploading: boolean }
     | { type: 'SET_GPS'; lat: number | null; lon: number | null; locationName: string }
     | { type: 'SET_GPS_LOADING'; loading: boolean }
@@ -197,6 +200,7 @@ export function diaryReducer(state: DiaryState, action: DiaryAction): DiaryState
                 mood: 'epic',
                 photos: [],
                 audioUrl: null,
+                videoUrl: null,
                 lat: null,
                 lon: null,
                 locationName: '',
@@ -213,6 +217,7 @@ export function diaryReducer(state: DiaryState, action: DiaryAction): DiaryState
                 mood: action.entry.mood,
                 photos: action.entry.photos || [],
                 audioUrl: action.entry.audio_url || null,
+                videoUrl: action.entry.video_url || null,
                 lat: action.entry.latitude,
                 lon: action.entry.longitude,
                 locationName: action.locationDisplay,
@@ -236,6 +241,8 @@ export function diaryReducer(state: DiaryState, action: DiaryAction): DiaryState
             return { ...state, photos: state.photos.filter((_, i) => i !== action.idx) };
         case 'SET_AUDIO_URL':
             return { ...state, audioUrl: action.url };
+        case 'SET_VIDEO_URL':
+            return { ...state, videoUrl: action.url };
         case 'SET_UPLOADING':
             return { ...state, uploading: action.uploading };
         case 'SET_GPS':

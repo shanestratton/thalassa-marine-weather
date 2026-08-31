@@ -13,6 +13,7 @@ import { DiaryMood, MOOD_CONFIG } from '../../services/DiaryService';
 import { scrollInputAboveKeyboard } from '../../utils/keyboardScroll';
 import { triggerHaptic } from '../../utils/system';
 import { DiaryPhoto } from './DiaryPhoto';
+import { DiaryVideo } from './DiaryVideo';
 import { OfflineBadge } from '../ui/OfflineBadge';
 import { Button } from '../ui/Button';
 import { POLISH_LABEL, type PolishStyle } from '../../types/settings';
@@ -25,6 +26,7 @@ interface DiaryComposeFormProps {
     mood: DiaryMood;
     photos: string[];
     audioUrl: string | null;
+    videoUrl: string | null;
     locationName: string;
     keyboardHeight: number;
     saving: boolean;
@@ -47,6 +49,8 @@ interface DiaryComposeFormProps {
     onPolish: () => void;
     onPhotoSelect: (e: React.ChangeEvent<HTMLInputElement>) => void;
     onPhotoRemove: (idx: number) => void;
+    onVideoSelect: (e: React.ChangeEvent<HTMLInputElement>) => void;
+    onVideoRemove: () => void;
 }
 
 export const DiaryComposeForm: React.FC<DiaryComposeFormProps> = React.memo(
@@ -57,6 +61,7 @@ export const DiaryComposeForm: React.FC<DiaryComposeFormProps> = React.memo(
         mood,
         photos,
         audioUrl,
+        videoUrl,
         locationName,
         keyboardHeight,
         saving,
@@ -75,8 +80,11 @@ export const DiaryComposeForm: React.FC<DiaryComposeFormProps> = React.memo(
         onPolish,
         onPhotoSelect,
         onPhotoRemove,
+        onVideoSelect,
+        onVideoRemove,
     }) => {
         const fileRef = useRef<HTMLInputElement>(null);
+        const videoRef = useRef<HTMLInputElement>(null);
         const bodyRef = useRef<HTMLTextAreaElement>(null);
 
         // FIRST-TAP RACE (Shane 2026-08-25: "still doing the scroll up thing,
@@ -294,6 +302,34 @@ export const DiaryComposeForm: React.FC<DiaryComposeFormProps> = React.memo(
                             ))}
                         </div>
                     </div>
+                    {/* Video — one clip, a minute at most. The preview plays the
+                        local blob so the skipper can check the clip BEFORE it
+                        costs anything; upload happens on save via the drain. */}
+                    <div className="shrink-0">
+                        {videoUrl ? (
+                            <div className="relative rounded-xl overflow-hidden border border-violet-500/20">
+                                <DiaryVideo src={videoUrl} className="w-full max-h-48 bg-black" />
+                                <button
+                                    aria-label="Remove the video"
+                                    onClick={onVideoRemove}
+                                    disabled={saving}
+                                    className="absolute top-1.5 right-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-black/70 text-[12px] text-white disabled:cursor-not-allowed"
+                                >
+                                    ✕
+                                </button>
+                            </div>
+                        ) : (
+                            <button
+                                aria-label="Add a video clip"
+                                onClick={() => videoRef.current?.click()}
+                                disabled={saving || uploading}
+                                className="flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed border-white/10 py-2 text-xs font-semibold text-gray-400 transition-colors hover:border-violet-500/30 hover:text-violet-300 disabled:opacity-30"
+                            >
+                                <span>🎥</span>
+                                <span>Add a video — up to 1 minute</span>
+                            </button>
+                        )}
+                    </div>
                     {/* Polishing indicator */}
                     {polishing && (
                         <div className="shrink-0 flex items-center justify-center gap-2 px-3 py-2 bg-purple-500/10 border border-purple-500/15 rounded-xl">
@@ -353,6 +389,7 @@ export const DiaryComposeForm: React.FC<DiaryComposeFormProps> = React.memo(
                 </div>
 
                 <input ref={fileRef} type="file" accept="image/*" onChange={onPhotoSelect} className="hidden" />
+                <input ref={videoRef} type="file" accept="video/*" onChange={onVideoSelect} className="hidden" />
             </div>
         );
     },

@@ -1,0 +1,64 @@
+/**
+ * The diary video rail — the invariants that keep a 200MB clip from becoming
+ * a leak, a lie, or a surprise bill.
+ *
+ * Source-contract style, like DiaryComposeMediaOwnershipContract: the sync
+ * machinery is too interwoven to unit-drive here, but every load-bearing line
+ * the video rail added can be pinned so a later refactor cannot silently drop
+ * one half of a mirrored pair.
+ */
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { describe, expect, it } from 'vitest';
+
+const service = readFileSync(resolve(process.cwd(), 'services/DiaryService.ts'), 'utf8');
+const page = readFileSync(resolve(process.cwd(), 'components/DiaryPage.tsx'), 'utf8');
+const edge = readFileSync(resolve(process.cwd(), 'supabase/functions/diary-relay/index.ts'), 'utf8');
+const migration = readFileSync(resolve(process.cwd(), 'supabase/migrations/20260831120000_diary_video.sql'), 'utf8');
+
+describe('diary video rail', () => {
+    it('the drain uploads the clip, adopts the ref, then deletes the local blob', () => {
+        expect(service).toContain('if (videoUrl && isIdbVideo(videoUrl)) {');
+        expect(service).toContain('const uploaded = await this._uploadVideoBlob(blob, scope);');
+        expect(service).toContain('adoptStorageRefs(VIDEO_BUCKET, [uploaded]);');
+        expect(service).toContain('await this.discardUnsavedVideo(idbRef);');
+        // An entry must never reach the server while its clip is still local.
+        expect(service).toContain('if (videoStillPending) {');
+    });
+
+    it('a phone-local clip blocks the early Pi relay, like every other local media', () => {
+        expect(service).toContain('isIdbVideo(value!) ||');
+        expect(service).toContain('isPhoneOnly(entry.video_url)');
+    });
+
+    it('deleting an entry cleans the video bucket, via the tombstone if offline', () => {
+        expect(service).toContain('video: video ?? null,');
+        expect(service).toContain('tombstone.video,');
+        expect(service).toContain('this._extractStoragePath(videoUrl, VIDEO_BUCKET)');
+        expect(service).toContain('supabase.storage.from(VIDEO_BUCKET).remove([videoPath])');
+    });
+
+    it('the orphan sweep knows video refs, so a crashed save cannot strand 200MB', () => {
+        expect(service).toContain("select('photos,audio_url,video_url')");
+        expect(service).toContain('this._mediaRefKey(row.video_url, VIDEO_BUCKET)');
+        expect(service).toContain('item.bucket === VIDEO_BUCKET && isIdbVideo(item.ref)');
+    });
+
+    it('the compose page gates duration and size before the clip costs anything', () => {
+        expect(page).toContain('if (duration > 61) {');
+        expect(page).toContain('550 * 1048576');
+        // Replacing a clip discards the old one — two parked clips is a leak.
+        expect(page).toContain('if (previous) void DiaryService.discardUnsavedVideo(previous);');
+    });
+
+    it('the relay Edge Function validates ownership of the video ref', () => {
+        expect(edge).toContain("ownedStorageRef(raw.video_url, 'diary-video', ownerId)");
+        expect(edge).toContain('video_url: videoUrl,');
+    });
+
+    it('the bucket caps size and MIME so a bad file dies at the door', () => {
+        expect(migration).toContain('524288000');
+        expect(migration).toContain("'video/mp4', 'video/quicktime'");
+        expect(migration).toContain('ADD COLUMN IF NOT EXISTS video_url');
+    });
+});

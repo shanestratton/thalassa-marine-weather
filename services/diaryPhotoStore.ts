@@ -15,14 +15,17 @@ import { createLogger } from '../utils/createLogger';
 const log = createLogger('diaryPhotoStore');
 
 const DB_NAME = 'thalassa-diary';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 const PHOTO_STORE = 'photos';
 const AUDIO_STORE = 'audio';
+const VIDEO_STORE = 'videos';
 
 /** URL prefix used in DiaryEntry.photos[] to reference an IndexedDB blob. */
 export const IDB_PHOTO_PREFIX = 'idb:';
 /** URL prefix used in DiaryEntry.audio_url for an IndexedDB voice memo. */
 export const IDB_AUDIO_PREFIX = 'idb-audio:';
+/** URL prefix used in DiaryEntry.video_url for a locally-held video clip. */
+export const IDB_VIDEO_PREFIX = 'idb-video:';
 
 let _dbPromise: Promise<IDBDatabase> | null = null;
 
@@ -38,6 +41,7 @@ function openDb(): Promise<IDBDatabase> {
             const db = req.result;
             if (!db.objectStoreNames.contains(PHOTO_STORE)) db.createObjectStore(PHOTO_STORE);
             if (!db.objectStoreNames.contains(AUDIO_STORE)) db.createObjectStore(AUDIO_STORE);
+            if (!db.objectStoreNames.contains(VIDEO_STORE)) db.createObjectStore(VIDEO_STORE);
         };
         req.onsuccess = () => resolve(req.result);
         req.onerror = () => reject(req.error);
@@ -143,5 +147,44 @@ export async function deleteAudio(ref: string): Promise<void> {
         await tx(AUDIO_STORE, 'readwrite', (store) => store.delete(ref));
     } catch (e) {
         log.warn('deleteAudio failed:', e);
+    }
+}
+
+// ── Video ──────────────────────────────────────────────────────
+//
+// Same lifecycle as audio, sized differently: a minute of 4K off an iPhone is
+// roughly 200MB, so exactly one clip should ever be parked here at a time and
+// the sync drain deletes it the moment the storage upload is adopted. IDB
+// quota on WKWebView is proportional to free disk, so one clip is safe where
+// a library of them would not be.
+
+export function isIdbVideo(ref: string): boolean {
+    return typeof ref === 'string' && ref.startsWith(IDB_VIDEO_PREFIX);
+}
+
+export async function saveVideo(blob: Blob): Promise<string> {
+    const key = `${IDB_VIDEO_PREFIX}${crypto.randomUUID()}`;
+    await tx(VIDEO_STORE, 'readwrite', (store) => store.put(blob, key));
+    log.info(`[VideoStore] saved ${key} (${(blob.size / 1048576).toFixed(1)} MB)`);
+    return key;
+}
+
+export async function loadVideo(ref: string): Promise<Blob | null> {
+    if (!isIdbVideo(ref)) return null;
+    try {
+        const result = await tx<Blob | undefined>(VIDEO_STORE, 'readonly', (store) => store.get(ref));
+        return result instanceof Blob ? result : null;
+    } catch (e) {
+        log.warn('[VideoStore] load failed:', e);
+        return null;
+    }
+}
+
+export async function deleteVideo(ref: string): Promise<void> {
+    if (!isIdbVideo(ref)) return;
+    try {
+        await tx(VIDEO_STORE, 'readwrite', (store) => store.delete(ref));
+    } catch (e) {
+        log.warn('[VideoStore] delete failed:', e);
     }
 }
