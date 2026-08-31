@@ -42,24 +42,29 @@ export const publishDiaryEntryToVoyageLog = async (entryId: string): Promise<Dia
     // goes straight through and tells me everything is ok"). The app now
     // presses the second time itself; everything underneath is idempotent —
     // the pending-enable list only clears on success.
-    // Publishing usually happens seconds after saving — while the entry's
-    // own video is still saturating the uplink, which is exactly when these
-    // small preflight calls choke. One quick retry was not enough (Shane,
-    // 2026-08-31, still seeing the error with the manual second press
-    // working): climb a short ladder instead, long enough for a clip to
-    // finish crossing.
+    // ensureEnabled DIRECTLY — never ensurePendingEnabled here. The pending
+    // list is a crash-durability net, and a background drain races this very
+    // tap: it consumes the list and CLEARS it, so the interactive call found
+    // it empty and returned null — which the modal read as failure, every
+    // first tap, deterministically, while the entry quietly published anyway
+    // (Shane, 2026-08-31: "i still get this error, but it still publishes
+    // once i press the publish button again????"). No retry ladder can fix a
+    // semantic null; the ladder below is for genuine network flakes only.
     let config: VoyageLogConfig | null = null;
     const retryDelaysMs = [0, 1_000, 3_000];
     for (const delayMs of retryDelaysMs) {
         if (delayMs > 0) await new Promise((resolve) => setTimeout(resolve, delayMs));
         try {
-            config = await VoyageLogService.ensurePendingEnabled();
+            config = await VoyageLogService.ensureEnabled();
         } catch {
             config = null;
         }
         if (config) break;
     }
     if (!config) return { ok: false, reason: 'voyage-log' };
+    // The config is confirmed enabled; this entry's durable enable-request
+    // has served its purpose whichever path delivered it.
+    VoyageLogService.clearEnableRequest(entryId);
 
     if (!published) return { ok: false, reason: 'entry' };
 

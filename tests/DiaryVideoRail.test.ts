@@ -46,6 +46,18 @@ describe('diary video rail', () => {
         expect(service).toContain('.filter((r) => !pendingIds.has(r.offlineId))');
     });
 
+    it('the interactive publish never walks through the pending-list door', () => {
+        // ensurePendingEnabled is the background drain's recovery call: it
+        // consumes and CLEARS the pending list, and it RACES the publish tap
+        // itself — the interactive call then found the list empty, read null
+        // as failure, and showed the error while the entry published anyway
+        // (every first tap, deterministically, 2026-08-31).
+        const publishing = readFileSync(resolve(process.cwd(), 'components/diary/diaryPublishing.ts'), 'utf8');
+        expect(publishing).toContain('await VoyageLogService.ensureEnabled()');
+        expect(publishing).not.toContain('VoyageLogService.ensurePendingEnabled()');
+        expect(publishing).toContain('VoyageLogService.clearEnableRequest(entryId);');
+    });
+
     it('publishing a still-syncing entry defers, and defers is not an error', () => {
         // publish_requested rides the envelope's first write (is_public
         // derives from it), so a deferred publish is a promise that will be
