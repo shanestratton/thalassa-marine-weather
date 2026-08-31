@@ -90,3 +90,34 @@ describe('pi video hand-off', () => {
         expect(edge).toContain('Video path must be a single object in your own folder');
     });
 });
+
+describe('video reaches the row and the public page', () => {
+    const upsert = readFileSync(
+        resolve(process.cwd(), 'supabase/migrations/20260831190000_diary_video_in_relay_upsert.sql'),
+        'utf8',
+    );
+    const voyageLog = readFileSync(resolve(process.cwd(), 'supabase/functions/voyage-log/index.ts'), 'utf8');
+    const sidebar = readFileSync(resolve(process.cwd(), 'src/components/DiarySidebar.tsx'), 'utf8');
+
+    it('the relay upsert writes and updates video_url', () => {
+        // The original omission: the Edge Function sent video_url faithfully
+        // and this column list dropped it — then the NULL row overwrote the
+        // phone. All three appearances must exist or the bug is back.
+        expect(upsert).toContain('        video_url,');
+        expect(upsert).toContain("NULLIF(p_entry ->> 'video_url', '')");
+        expect(upsert).toContain('video_url = EXCLUDED.video_url,');
+        // And the function must keep its privileges intact end to end.
+        expect(upsert).toMatch(/GRANT EXECUTE ON FUNCTION public\.diary_relay_upsert_entry.*TO service_role;/);
+    });
+
+    it('the public voyage log selects and passes the video through', () => {
+        expect(voyageLog).toContain('photos, video_url, location_name');
+        expect(voyageLog).toMatch(/video_url: typeof e\.video_url === 'string'/);
+    });
+
+    it('the public page plays it, and video-only entries advertise in the list', () => {
+        expect(sidebar).toContain('entry.video_url && (');
+        expect(sidebar).toContain('preload="metadata"');
+        expect(sidebar).toContain('🎥 video');
+    });
+});

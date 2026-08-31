@@ -45,6 +45,7 @@ export interface VoyageLogEntry {
     body: string;
     mood: DiaryMood;
     photos: string[];
+    video_url?: string | null;
     location_name: string;
     latitude: number | null;
     longitude: number | null;

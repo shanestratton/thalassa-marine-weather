@@ -206,3 +206,33 @@ export async function trimVideoLossless(source: Blob, startSec: number, windowSe
     );
     return { blob: new Blob([buffer], { type: 'video/mp4' }), actualStartSec, durationSec: windowSec };
 }
+
+/**
+ * Duration by reading the container header directly.
+ *
+ * The <video> element probe stalls on iOS for long camera files — their moov
+ * index sits at the END of the file, and WKWebView's media loader gives up
+ * silently on big blobs, which left the trimmer looking like it "did not
+ * load". mp4box reads the buffer directly and finds the index wherever it is.
+ */
+export async function probeVideoDurationSeconds(source: Blob): Promise<number | null> {
+    try {
+        const buffer = await source.arrayBuffer();
+        return await new Promise<number | null>((resolve) => {
+            const file = createFile();
+            const timer = setTimeout(() => resolve(null), 10_000);
+            file.onError = () => {
+                clearTimeout(timer);
+                resolve(null);
+            };
+            file.onReady = (info: Movie) => {
+                clearTimeout(timer);
+                resolve(info.timescale > 0 ? info.duration / info.timescale : null);
+            };
+            file.appendBuffer(MP4BoxBuffer.fromArrayBuffer(buffer, 0));
+            file.flush();
+        });
+    } catch {
+        return null;
+    }
+}
