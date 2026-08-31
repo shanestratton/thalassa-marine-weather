@@ -39,7 +39,14 @@ export function isBuilderDeepLink(): boolean {
 /** Initial view for uiStore's boot state; null → the normal dashboard. */
 export function initialViewFromUrl(): string | null {
     try {
-        if (isBuilderDeepLink()) return 'map';
+        // The planner FRONT DOOR, not the bare chart: booting /plan straight
+        // onto the map skipped the Trip·Legs picker, departure time and the
+        // saved-route/past-voyage entries — there was no way to start a new
+        // leg on the web (Shane, 2026-09-02: "we need something like this at
+        // the beginning otherwise we cannot start a new leg"). The pre-flight
+        // is fully pointer-driven, and its slide hands off to the tracer
+        // exactly as on the phone.
+        if (isBuilderDeepLink()) return 'voyage';
         const v = new URLSearchParams(window.location.search).get('view');
         if (v && VIEW_PARAM_ALLOWLIST.has(v)) return v;
     } catch {

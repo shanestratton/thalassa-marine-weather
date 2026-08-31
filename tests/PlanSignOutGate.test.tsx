@@ -1,4 +1,6 @@
 import React from 'react';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -49,7 +51,11 @@ describe('/plan session gate', () => {
         authState = { ...authState, user: { id: 'skipper' } };
         const { rerender } = render(<BuilderDeepLink />);
         expect(screen.queryByTestId('sign-in-wall')).not.toBeInTheDocument();
-        expect(requestTracerOpen).toHaveBeenCalled();
+        // The wall only lowers now — it never fires the tracer itself. The
+        // planner front door (Trip·Legs, departure, saved routes) is what
+        // the boot lands on, and ITS slide opens the tracer (2026-09-02:
+        // "otherwise we cannot start a new leg").
+        expect(requestTracerOpen).not.toHaveBeenCalled();
 
         // Signing out from the planner must not leave a signed-out builder
         // running: charted depth is account-gated, so tide/depth checks
@@ -97,5 +103,12 @@ describe('/plan session gate', () => {
         fireEvent.click(button);
         fireEvent.click(button);
         await waitFor(() => expect(logout).toHaveBeenCalledTimes(1));
+    });
+});
+
+describe('the /plan boot destination', () => {
+    it('lands on the planner front door, not the bare chart', () => {
+        const src = readFileSync(resolve(process.cwd(), 'services/deepLink.ts'), 'utf8');
+        expect(src).toContain("if (isBuilderDeepLink()) return 'voyage';");
     });
 });
