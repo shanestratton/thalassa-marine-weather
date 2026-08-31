@@ -1068,7 +1068,20 @@ const App: React.FC = () => {
                                                 // without touching the frozen Glass markup or forcing a
                                                 // compositing layer the way a transform hack would.
                                                 className="relative h-full w-1/2 shrink-0 overflow-y-auto overflow-x-hidden border-r border-white/10"
-                                                style={{ contain: 'paint' }}
+                                                style={{
+                                                    contain: 'paint',
+                                                    // The Glass offsets its fixed children by
+                                                    // max(1rem, env(safe-area-inset-top)) because on a phone
+                                                    // it owns the screen and must clear the notch. In a pane
+                                                    // that inset has ALREADY been cleared by the header above,
+                                                    // so it gets counted twice and leaves a band of dead space
+                                                    // at the top — invisible in a browser, where the inset is
+                                                    // 0, and obvious on a real iPad. Pull the pane up by
+                                                    // exactly that amount and give the height back, so the
+                                                    // Glass's own maths lands where it expects to.
+                                                    marginTop: 'calc(-1 * max(1rem, env(safe-area-inset-top)))',
+                                                    height: 'calc(100% + max(1rem, env(safe-area-inset-top)))',
+                                                }}
                                             >
                                                 {glassContent}
                                             </aside>
