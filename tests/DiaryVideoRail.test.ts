@@ -37,6 +37,19 @@ describe('diary video rail', () => {
         expect(service).toContain('if (videoStillPending) {');
     });
 
+    it('the remux touches only qt-brand files inside the memory ceiling', () => {
+        // A 296MB isom DJI reel through the in-memory remux (≈3× the file)
+        // Jetsam-killed the webview back to the boot page (2026-09-01). The
+        // brand is read from 32 bytes; isom-family files upload as-is, and
+        // even qt files past 150MB skip the remux rather than die trying.
+        const page = readFileSync(resolve(process.cwd(), 'components/DiaryPage.tsx'), 'utf8');
+        expect(page).toContain("brand === 'qt  ' && file.size <= REMUX_MAX_BYTES");
+        expect(page).toContain('const REMUX_MAX_BYTES = 150 * 1048576;');
+        // And the trimmer never opens with a memory bomb — words instead.
+        expect(page).toContain('if (file.size > 200 * 1048576) {');
+        expect(page).toContain('Trim it to the best minute in the Photos app first');
+    });
+
     it('the post-save prepend replaces, never duplicates', () => {
         // The 8s poll racing a slow save delivered the same entry into the
         // list before the prepend ran — two copies for a few seconds

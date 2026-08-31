@@ -227,6 +227,24 @@ export async function trimVideoLossless(source: Blob, startSec: number, windowSe
  * film — and it drops Apple's metadata tracks, including the embedded
  * recording GPS, which has no business in a public file anyway.
  */
+/**
+ * The container brand, from the ftyp box in the first bytes — costs nothing.
+ * 'qt  ' is an Apple QuickTime file (the reason the remux exists); DJI
+ * drones and most cameras write standard isom-family MP4s that browsers
+ * already play.
+ */
+export async function readContainerBrand(source: Blob): Promise<string | null> {
+    try {
+        const head = new Uint8Array(await source.slice(0, 32).arrayBuffer());
+        if (head.length < 12) return null;
+        const tag = String.fromCharCode(head[4], head[5], head[6], head[7]);
+        if (tag !== 'ftyp') return null;
+        return String.fromCharCode(head[8], head[9], head[10], head[11]);
+    } catch {
+        return null;
+    }
+}
+
 export async function remuxVideoLossless(source: Blob): Promise<TrimResult> {
     const durationSec = await probeVideoDurationSeconds(source);
     // Comfortably past the end — the cut keeps everything from frame one.

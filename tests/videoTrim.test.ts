@@ -12,7 +12,12 @@ import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-import { probeVideoDurationSeconds, remuxVideoLossless, trimVideoLossless } from '../services/videoTrim';
+import {
+    probeVideoDurationSeconds,
+    readContainerBrand,
+    remuxVideoLossless,
+    trimVideoLossless,
+} from '../services/videoTrim';
 
 const fixture = (name: string) => resolve(process.cwd(), 'tests/fixtures', name);
 const have = (name: string) => existsSync(fixture(name));
@@ -79,5 +84,35 @@ describe('remuxVideoLossless', () => {
         const ratio = result.blob.size / source.size;
         expect(ratio).toBeGreaterThan(0.85);
         expect(ratio).toBeLessThan(1.1);
+    });
+});
+
+describe('readContainerBrand', () => {
+    const ftyp = (brand: string): Blob => {
+        const bytes = new Uint8Array(32);
+        const dv = new DataView(bytes.buffer);
+        dv.setUint32(0, 32); // box size
+        for (let i = 0; i < 4; i++) bytes[4 + i] = 'ftyp'.charCodeAt(i);
+        for (let i = 0; i < 4; i++) bytes[8 + i] = brand.charCodeAt(i);
+        return new Blob([bytes]);
+    };
+
+    it('names the brand from the first bytes without reading the file', async () => {
+        // The whole point: a 296MB DJI reel is classified from 32 bytes,
+        // never loaded — the in-memory remux was Jetsam-killing the app on
+        // files that never needed it (2026-09-01).
+        expect(await readContainerBrand(ftyp('isom'))).toBe('isom');
+        expect(await readContainerBrand(ftyp('qt  '))).toBe('qt  ');
+        expect(await readContainerBrand(ftyp('mp42'))).toBe('mp42');
+    });
+
+    it('returns null for a non-video file rather than guessing', async () => {
+        expect(await readContainerBrand(new Blob([new Uint8Array(64)]))).toBeNull();
+        expect(await readContainerBrand(new Blob([new Uint8Array(4)]))).toBeNull();
+    });
+
+    it.skipIf(!have('trim-hevc.mov'))('agrees with the real fixtures', async () => {
+        expect(await readContainerBrand(load('trim-hevc.mov'))).toBe('qt  ');
+        expect(await readContainerBrand(load('trim-h264.mp4'))).toBe('isom');
     });
 });
