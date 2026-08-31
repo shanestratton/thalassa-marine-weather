@@ -392,6 +392,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
             setPhotoPinPrompt(null);
             setDeletedItem(null);
             locationFromPhotoRef.current = false;
+            gpsChoiceExplicitRef.current = false;
             pendingDeleteIdsRef.current.clear();
             dispatch({ type: 'EXIT_SELECT_MODE' });
             dispatch({ type: 'OPEN_COMPOSE', weatherSummary: '' });
@@ -430,6 +431,11 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
     // it up (which is the berth — i.e. the start of every track). An
     // openCompose reset or a fresh compose clears it.
     const locationFromPhotoRef = useRef(false);
+    /** The skipper ANSWERED "Two positions, skipper" this compose session.
+     *  An explicit answer outranks photo EXIF entirely: photos shot aboard
+     *  carry the camera's last CACHED phone fix, and on 2026-09-01 that
+     *  stale tag silently dragged a deliberate ⚓ choice back to the house. */
+    const gpsChoiceExplicitRef = useRef(false);
     const grabGps = useCallback(async () => {
         const operationScope = getAuthIdentityScope();
         const composeSession = composeSessionRef.current;
@@ -510,6 +516,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
             if (!conflict) return;
             setGpsConflict(null);
             setGpsSource(source);
+            gpsChoiceExplicitRef.current = true;
             setGpsLoading(true);
             const scope = getAuthIdentityScope();
             const session = composeSessionRef.current;
@@ -572,6 +579,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
         setShowCompose(true);
         triggerHaptic('light');
         locationFromPhotoRef.current = false;
+        gpsChoiceExplicitRef.current = false;
         grabGps();
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [invalidateComposeSession, grabGps, buildWeatherSnapshot, buildWeatherData, dispatch]);
@@ -584,6 +592,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
             // pinned at the berth — re-attach the original photo and the
             // pin moves to where it was taken).
             locationFromPhotoRef.current = false;
+            gpsChoiceExplicitRef.current = false;
             const locationDisplay =
                 entry.location_name ||
                 (entry.latitude && entry.longitude ? formatCoord(entry.latitude, entry.longitude) : '');
@@ -693,7 +702,11 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
         try {
             const exif = await extractPhotoExif(file);
             if (!operationIsCurrent()) return;
-            if (exif && !locationFromPhotoRef.current) {
+            // The skipper has already answered which place this entry is
+            // about — a photo does not reopen the question, silently or
+            // with a prompt. (Its EXIF is only the phone's cached idea of
+            // where the camera was, and this phone's cache lies.)
+            if (exif && !locationFromPhotoRef.current && !gpsChoiceExplicitRef.current) {
                 const hasExistingPin = lat !== null && lon !== null;
                 if (hasExistingPin) {
                     const movedM = haversineDistance(lat, lon, exif.lat, exif.lon);

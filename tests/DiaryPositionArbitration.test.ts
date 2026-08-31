@@ -65,6 +65,18 @@ describe('diary position arbitration — the pub-vs-passage question', () => {
         expect(page).toContain('setPhotoPinPrompt({ lat: exif.lat, lon: exif.lon, movedM });');
     });
 
+    it('an explicit modal answer outranks photo EXIF for the whole session', () => {
+        // The skipper picked ⚓ or 📱 by hand; a photo's geotag — the
+        // camera's last CACHED phone fix, hours stale on a bad day — must
+        // not reopen or silently reverse that answer (2026-09-01).
+        expect(page).toContain('gpsChoiceExplicitRef.current = true;');
+        expect(page).toContain('!locationFromPhotoRef.current && !gpsChoiceExplicitRef.current');
+        // Cleared with every compose/edit session reset, alongside the
+        // photo-pin flag.
+        const resets = page.match(/gpsChoiceExplicitRef\.current = false;/g) ?? [];
+        expect(resets.length).toBeGreaterThanOrEqual(3);
+    });
+
     it('the modal offers exactly the two honest answers', () => {
         expect(page).toContain('Two positions, skipper');
         expect(page).toContain("applyGpsChoice('vessel')");
