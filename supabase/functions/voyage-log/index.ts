@@ -587,12 +587,51 @@ Deno.serve(async (req: Request) => {
         const latestCatalogueVoyageId = typeof latestCatalogueLive?.voyage_id === 'string'
             ? latestCatalogueLive.voyage_id.trim()
             : '';
+
+        // THE PICKER MUST NOT DEPEND ON THE LIVE TRICKLE. Cast Off writes
+        // the voyage row server-side the moment a passage starts, so it is a
+        // trip from that moment — live sharing off, GPS still acquiring, or
+        // a start path that forgot to arm the trickle included (Shane,
+        // 2026-09-01: "the route shows, but the viewing box says no trip
+        // started yet" — a Cast-Off departure; a Log-page start was fine).
+        // Zombie guard: an 'active' row is trusted only while its departure
+        // is recent — a crashed voyage's stale status must not resurrect as
+        // a live trip a week later.
+        const ACTIVE_ROW_FRESH_MS = 7 * 24 * 3_600_000;
+        let activeRowVoyageId: string | null = null;
+        let activeRowStartedAtIso: string | null = null;
+        {
+            const { data: activeRow, error: activeRowError } = await supabase
+                .from('voyages')
+                .select('id, departure_time, created_at')
+                .eq('user_id', ownerId)
+                .eq('status', 'active')
+                .maybeSingle();
+            if (activeRowError) {
+                console.warn('voyage-log: active-voyage row fetch failed:', activeRowError.message);
+            }
+            const id = typeof activeRow?.id === 'string' ? activeRow.id : '';
+            const startedIso = typeof activeRow?.departure_time === 'string'
+                ? activeRow.departure_time
+                : typeof activeRow?.created_at === 'string'
+                ? activeRow.created_at
+                : null;
+            const startedTs = startedIso ? Date.parse(startedIso) : Number.NaN;
+            if (
+                id && !hiddenVoyageIds.has(id) && startedIso &&
+                Number.isFinite(startedTs) && liveNow - startedTs < ACTIVE_ROW_FRESH_MS
+            ) {
+                activeRowVoyageId = id;
+                activeRowStartedAtIso = startedIso;
+            }
+        }
+
         const currentVoyageId = latestCatalogueVoyageId &&
                 Number.isFinite(latestCatalogueLiveTs) &&
                 latestCatalogueLiveTs <= liveNow + 60_000 &&
                 liveNow - latestCatalogueLiveTs < LIVE_VOYAGE_FRESH_MS
             ? latestCatalogueVoyageId
-            : null;
+            : activeRowVoyageId;
 
         const planIdByVoyageId = new Map<string, string>();
         const catalogueMetadataByVoyageId = new Map<string, CatalogueMetadata>();
@@ -684,6 +723,18 @@ Deno.serve(async (req: Request) => {
         }
         const activeLiveCounts = new Map<string, number>();
         if (currentVoyageId) activeLiveCounts.set(currentVoyageId, activeLivePoints.length);
+        // A passage with no vetted fix yet (or no live sharing) still enters
+        // the picker: seed it with its own departure moment.
+        if (
+            currentVoyageId && activeRowStartedAtIso &&
+            !cataloguePoints.some((point) => point.voyage_id === currentVoyageId)
+        ) {
+            cataloguePoints.push({
+                voyage_id: currentVoyageId,
+                timestamp: activeRowStartedAtIso,
+                cumulative_distance_nm: null,
+            });
+        }
         const trips = [
             ...buildPublicTripCatalogue(cataloguePoints, currentVoyageId, new Set(planIdByVoyageId.keys())).map(
                 (trip) => {

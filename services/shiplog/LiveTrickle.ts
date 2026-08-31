@@ -348,9 +348,25 @@ function tick(session: TrickleSession): Promise<void> {
 }
 
 /** Throttled heartbeat, optionally bound to the capture owner's scope. */
-export function noteLiveTrickleHeartbeat(expectedScope: AuthIdentityScope = getAuthIdentityScope()): void {
+export function noteLiveTrickleHeartbeat(
+    expectedScope: AuthIdentityScope = getAuthIdentityScope(),
+    activeVoyageId?: string | null,
+    boatId?: string,
+): void {
     const session = activeSession;
-    if (!session || !session.running || !sameScope(session.scope, expectedScope) || !sessionIsCurrent(session)) {
+    const healthy =
+        !!session && session.running && sameScope(session.scope, expectedScope) && sessionIsCurrent(session);
+    const wrongVoyage = healthy && activeVoyageId ? session.voyageId !== activeVoyageId : false;
+    if (!healthy || wrongVoyage) {
+        // SELF-HEAL (2026-09-01): a recording that captures fixes must have
+        // a trickle session whenever the caller can name its voyage. A
+        // Cast-Off departure reached the Log page recording with no session
+        // armed — planned route on the public page, no live tail, "No trip
+        // started yet" — while a Log-page start was fine. Whichever start
+        // path forgets to arm (or a WebView reload drops the session), the
+        // first captured fix re-arms it. The liveTrackShare gate stays
+        // inside the tick, so sharing-off punters trickle nothing.
+        if (activeVoyageId) startLiveTrickle(activeVoyageId, expectedScope, boatId);
         return;
     }
     const now = Date.now();

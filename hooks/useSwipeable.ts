@@ -114,14 +114,17 @@ export function useSwipeable(options: UseSwipeableOptions = {}): UseSwipeableRet
         directionLocked.current = null;
         setIsSwiping(false);
 
-        // Latch at HALF-reveal, settle at full. The delete button is
-        // visible from the first pixel of swipe, but the old latch
-        // demanded the full `threshold` (80 px) — a natural 50-70 px
-        // swipe showed the button under the finger and then snapped it
-        // shut on release (Shane 2026-07-10: "it disappears when I let
-        // go"). Native list convention: past halfway = it stays open.
+        // Latch at ANY deliberate reveal, settle at full. This has been
+        // tightened twice: full-threshold (80px) snapped shut on natural
+        // 50-70px swipes (Shane 2026-07-10), and the half-threshold fix
+        // (40px) STILL snapped shut on a quick flick — 25-35px of travel
+        // with the button already showing under the finger (Shane
+        // 2026-09-01: "the red button comes up but as soon as i release
+        // my finger it disappears"). 24px is comfortably past the 6px
+        // direction lock, so nothing that survives the lock is an
+        // accident — and a wrong latch is one right-swipe to undo.
         const final = offsetRef.current;
-        if (final >= threshold * 0.5) {
+        if (final >= Math.min(threshold * 0.5, 24)) {
             setSwipeOffset(threshold);
             offsetRef.current = threshold;
             onSwipeComplete?.();

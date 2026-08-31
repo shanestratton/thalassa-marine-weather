@@ -139,7 +139,7 @@ export async function saveEntryOnlineOrOffline(
         // background JS timers are suspended but native GPS callbacks keep
         // arriving, so this is what keeps the public "live tail" moving on
         // passage. Throttled + read-only inside; no-op unless sharing is on.
-        noteLiveTrickleHeartbeat(scope);
+        noteLiveTrickleHeartbeat(scope, entry.voyageId ?? null, entry.boatId ?? undefined);
         return queued;
     }
 
