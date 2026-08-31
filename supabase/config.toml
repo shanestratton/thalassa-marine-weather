@@ -31,6 +31,18 @@ verify_jwt = true
 # audience before writing a service-role-only pending event.
 verify_jwt = false
 
+[functions.diary-relay]
+# The gateway must NOT demand a JWT here: the Pi relay authenticates with the
+# per-pairing relay token (X-Thalassa-Pi-Relay-*) and holds no user JWT by
+# design — that is the whole point of the pairing. With the default in force,
+# every Pi-originated call (entry relay, cancellation, video upload grants)
+# died at the gateway with UNAUTHORIZED_NO_AUTH_HEADER while the phone's
+# direct path silently did all the work and masked it. The function's own
+# code is the real gate: pair/upsert/cancel authenticate the user JWT
+# internally via requireAuthenticatedQuota, and relay ingestion + video
+# grants authenticate the relay token against its stored hash.
+verify_jwt = false
+
 [functions.voyage-log]
 # The public voyage log. src/voyageLogApi.ts:206 fetches this with a bare
 # `fetch(url)` — no apikey, no Authorization — because the page is meant to
