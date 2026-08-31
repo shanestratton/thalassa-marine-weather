@@ -299,8 +299,22 @@ const App: React.FC = () => {
 
     const toggleSplitView = useCallback(() => {
         if (!wideEnoughForSplit) return;
-        rememberSplitView(!splitViewEnabled);
-    }, [wideEnoughForSplit, splitViewEnabled, rememberSplitView]);
+        if (splitViewEnabled) {
+            rememberSplitView(false);
+            return;
+        }
+        rememberSplitView(true);
+        // Turning it on from The Glass would otherwise do NOTHING VISIBLE: the
+        // split needs a second page for the right pane, and The Glass is already
+        // the left one. Holding the tab you are looking at is the obvious way to
+        // try this, so it has to land somewhere — the page you came from if that
+        // still makes sense, the log otherwise. The chart is skipped because it
+        // is excluded from the split entirely.
+        if (currentView === 'dashboard' || currentView === 'map') {
+            const back = previousView && previousView !== 'dashboard' && previousView !== 'map' ? previousView : null;
+            setPage(back ?? 'details');
+        }
+    }, [wideEnoughForSplit, splitViewEnabled, rememberSplitView, currentView, previousView, setPage]);
 
     // Tapping The Glass while split collapses back to one view: the gesture
     // that opened it closes it, so there is nothing new to learn.
@@ -1045,7 +1059,16 @@ const App: React.FC = () => {
                                         {splitActive && (
                                             <aside
                                                 aria-label="The Glass"
-                                                className="h-full w-1/2 shrink-0 overflow-y-auto overflow-x-hidden border-r border-white/10"
+                                                // The Glass assumes it owns the viewport: its header is
+                                                // `position: fixed; width: 100%`, which ignores `relative`
+                                                // and painted straight over the right pane at full width.
+                                                // `contain: paint` makes this box a containing block for
+                                                // fixed descendants — the pane becomes the pane's viewport,
+                                                // which is exactly what a split needs, and it does it
+                                                // without touching the frozen Glass markup or forcing a
+                                                // compositing layer the way a transform hack would.
+                                                className="relative h-full w-1/2 shrink-0 overflow-y-auto overflow-x-hidden border-r border-white/10"
+                                                style={{ contain: 'paint' }}
                                             >
                                                 {glassContent}
                                             </aside>
