@@ -6,12 +6,21 @@ const page = readFileSync(resolve(process.cwd(), 'components/DiaryPage.tsx'), 'u
 const service = readFileSync(resolve(process.cwd(), 'services/DiaryService.ts'), 'utf8');
 
 describe('diary position arbitration — the pub-vs-passage question', () => {
-    it('the vessel candidate is live NMEA only, never the ship-log fix', () => {
+    it("the vessel candidate is the boat's own electronics, never the phone's ship-log", () => {
         // The ship-log fix follows whatever device feeds the track — which may
-        // be this same phone wearing a different hat. Only the boat's own
-        // electronics may claim to be the boat.
+        // be this same phone wearing a different hat. Live NMEA first; when
+        // the bus is switched off, the Pi's own at-rest fix (her berth) —
+        // still the boat's electronics, just asleep.
         expect(service).toContain("await import('./NmeaGpsProvider')");
         expect(service).toContain('NmeaGpsProvider.getPosition()');
+        expect(service).toContain("await import('./piTrackRecorder')");
+        expect(service).toContain('if (!vessel) vessel = await restingPromise;');
+    });
+
+    it('the resting fix is gated: recent, and stationary when last heard', () => {
+        const recorder = readFileSync(resolve(process.cwd(), 'services/piTrackRecorder.ts'), 'utf8');
+        expect(recorder).toContain('if (Date.now() - lastMs > maxAgeMs) return null;');
+        expect(recorder).toContain('if (sog !== null && sog > 0.5) return null;');
     });
 
     it('the candidates surface claims the NMEA store — arbitration is never theatre', () => {

@@ -168,19 +168,25 @@ describe('DiaryEntryView Voyage Log publishing', () => {
 
         fireEvent.click(screen.getByRole('switch', { name: 'Publish this entry to your voyage log' }));
 
-        await waitFor(() => expect(onPublishedChange).toHaveBeenCalledWith('entry-1', true));
+        await waitFor(() => expect(onPublishedChange).toHaveBeenCalledWith('entry-1', true), { timeout: 5000 });
         expect(mocks.ensureEnabled).toHaveBeenCalledTimes(2);
         expect(mocks.toastError).not.toHaveBeenCalled();
     });
 
     it('keeps the view private when Voyage Log setup fails after saving publish intent', async () => {
-        mocks.ensureEnabled.mockResolvedValueOnce(null).mockResolvedValueOnce(null);
+        // Three nulls: the whole ladder (0s, 1s, 3s) must fail before the
+        // skipper hears about it.
+        mocks.ensureEnabled.mockResolvedValueOnce(null).mockResolvedValueOnce(null).mockResolvedValueOnce(null);
         const { onPublishedChange } = renderEntry();
 
         fireEvent.click(screen.getByRole('switch', { name: 'Publish this entry to your voyage log' }));
 
-        await waitFor(() =>
-            expect(mocks.toastError).toHaveBeenCalledWith(expect.stringContaining("couldn't prepare your Voyage Log")),
+        await waitFor(
+            () =>
+                expect(mocks.toastError).toHaveBeenCalledWith(
+                    expect.stringContaining("couldn't prepare your Voyage Log"),
+                ),
+            { timeout: 8000 },
         );
         expect(mocks.setEntryPublished).toHaveBeenCalledWith('entry-1', true);
         expect(onPublishedChange).not.toHaveBeenCalled();

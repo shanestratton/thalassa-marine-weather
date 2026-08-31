@@ -3365,6 +3365,22 @@ class DiaryServiceClass {
             }
         })();
 
+        // The Pi's answer to "where is she lying?" — fired NOW so it rides
+        // alongside the grace loop and the phone fetch, awaited only if the
+        // live feed stays quiet. A boat with her bus switched off for the
+        // night has not moved; her last at-rest fix from her own computer IS
+        // the boat (Shane, 2026-08-31: "it STILL shows home and not the boats
+        // location" — instruments off since 22:12).
+        const restingPromise: Promise<{ lat: number; lon: number } | null> = (async () => {
+            try {
+                const { getPiLastRestingFix } = await import('./piTrackRecorder');
+                const resting = await getPiLastRestingFix();
+                return resting ? { lat: resting.lat, lon: resting.lon } : null;
+            } catch {
+                return null; // Pi asleep, ashore, unpaired — the ordinary case
+            }
+        })();
+
         let vessel: { lat: number; lon: number } | null = null;
         try {
             const { NmeaListenerService } = await import('./NmeaListenerService');
@@ -3391,6 +3407,8 @@ class DiaryServiceClass {
         } catch {
             /* no NMEA aboard — phone-only is the ordinary shoreside case */
         }
+        // Live NMEA outranks the log; the log outranks nothing at all.
+        if (!vessel) vessel = await restingPromise;
         return { vessel, phone: await phonePromise };
     }
 
