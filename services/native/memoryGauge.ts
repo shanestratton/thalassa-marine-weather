@@ -43,12 +43,16 @@ function armWarningListener(): void {
     listenerArmed = true;
     void MemoryGauge.addListener('warning', () => {
         warningUntil = Date.now() + WARNING_HOLD_MS;
-        // iOS says the ceiling is close: parked route grids are the
-        // biggest thing we can shed instantly (up to ~48 MB of typed
-        // arrays; the Airlie Jetsam hunt, 2026-09-02). Dynamic import so
-        // this display-layer module never pulls the routing engine into
-        // bundles that only wanted a gauge.
+        // iOS says the ceiling is close: shed every pound of droppable
+        // ballast at once (the Airlie Jetsam hunt, 2026-09-02 — the field
+        // trail showed death at 87s of Whitsundays merge churn with these
+        // parked underneath). Route grids: up to 48 MB of typed arrays.
+        // ENC hazard indexes: ~100-190 MB of geometry, rebuilt lazily on
+        // the next query — a browse hiccup, never a break. Dynamic imports
+        // so this display-layer module never pulls the routing engine or
+        // ENC machinery into bundles that only wanted a gauge.
         void import('../engine/navGrid').then(({ trimNavGridCache }) => trimNavGridCache(0)).catch(() => {});
+        void import('../enc/encIndexCache').then(({ clearIndexCache }) => clearIndexCache()).catch(() => {});
     }).catch(() => {
         // Plugin absent (old native build) — the gauge stays silent and the
         // brake keeps its historical no-op behaviour rather than guessing.
