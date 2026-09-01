@@ -27,7 +27,6 @@ const VESSEL_CHILDREN = new Set([
     'glass',
     'avnav',
     'encLibrary',
-    'notices',
     'gpx-import',
     'equipment',
     'documents',

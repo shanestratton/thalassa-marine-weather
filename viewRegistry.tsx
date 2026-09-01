@@ -193,10 +193,10 @@ const EncLibraryPage = lazyRetry(
     () => import('./components/vessel/EncLibraryPage').then((m) => ({ default: m.EncLibraryPage })),
     'EncLibraryPage',
 );
-const NoticesPage = lazyRetry(
-    () => import('./components/vessel/NoticesPage').then((m) => ({ default: m.NoticesPage })),
-    'NoticesPage',
-);
+// NoticesPage retired with its route (binder review 2026-09-02):
+// notices live on the OBS chart layer (useNoticeLayer) — perishable,
+// spatial data has no standalone drawer. components/vessel/NoticesPage.tsx
+// remains on disk for git history only.
 const GpxImportPage = lazyRetry(
     () => import('./components/vessel/GpxImportPage').then((m) => ({ default: m.GpxImportPage })),
     'GpxImportPage',
@@ -407,12 +407,6 @@ export const VIEW_REGISTRY: Record<string, ViewConfig> = {
             onBack: () => ctx.setPage('vessel'),
             onOpenMap: () => ctx.setPage('map'),
         }),
-    },
-    notices: {
-        component: NoticesPage,
-        boundaryName: 'Notices',
-        group: 'vessel',
-        getProps: (ctx) => ({ onBack: () => ctx.setPage('vessel') }),
     },
     'gpx-import': {
         component: GpxImportPage,
