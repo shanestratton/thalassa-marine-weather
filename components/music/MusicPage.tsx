@@ -1292,11 +1292,8 @@ const PlaylistDetailSheet: React.FC<PlaylistDetailSheetProps> = ({
 
     return (
         <OverlayPortal
-            className="flex flex-col"
+            className="flex items-center justify-center p-4 pb-[calc(4rem+env(safe-area-inset-bottom)+1rem)] pt-[max(1rem,env(safe-area-inset-top))]"
             aria-hidden={covered || undefined}
-            // The body portal already sits above app navigation. Only the
-            // device safe area belongs below the blocking sheet.
-            style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
         >
             {/* Backdrop — absolute inset-0 so it still covers the
              *  full viewport (including the padding zone behind the nav). */}
@@ -1307,20 +1304,21 @@ const PlaylistDetailSheet: React.FC<PlaylistDetailSheetProps> = ({
                     mounted ? 'opacity-100' : 'opacity-0'
                 }`}
             />
-            {/* Sheet — min-h-[55vh] gives empty playlists visual
+            {/* Centred per the standing modal rule (Shane 2026-09-02: "all modal boxes centered on the punters screen"). */}
+            {/* Card — min-h-[55vh] gives empty playlists visual
              *  presence (Play + Add tracks land mid-screen instead of
-             *  squashed at the bottom). */}
+             *  squashed at the bottom). Slide-up swapped for a fade now
+             *  that the card is centred. */}
             <div
                 ref={focusTrapRef}
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby={titleId}
-                className={`relative mt-auto flex flex-col rounded-t-[2rem] border-t border-sky-300/15 bg-gradient-to-b from-slate-900 via-slate-950 to-slate-950 shadow-2xl transition-transform duration-300 ease-out ${
-                    mounted ? 'translate-y-0' : 'translate-y-full'
+                className={`relative w-full max-w-lg max-h-full flex flex-col rounded-[2rem] border border-sky-300/15 bg-gradient-to-b from-slate-900 via-slate-950 to-slate-950 shadow-2xl transition-opacity duration-300 ease-out ${
+                    mounted ? 'opacity-100' : 'opacity-0'
                 }`}
                 style={{
                     minHeight: '55vh',
-                    maxHeight: 'calc(92dvh - env(safe-area-inset-bottom))',
                 }}
             >
                 {/* Drag handle + close button */}

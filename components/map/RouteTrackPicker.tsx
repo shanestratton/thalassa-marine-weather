@@ -117,7 +117,11 @@ export const RouteTrackPicker: React.FC<RouteTrackPickerProps> = ({
     if (!visible) return null;
 
     return (
-        <OverlayPortal className="pointer-events-auto" role="presentation">
+        <OverlayPortal
+            className="pointer-events-auto flex items-center justify-center p-4 pb-[calc(4rem+env(safe-area-inset-bottom)+1rem)] pt-[max(1rem,env(safe-area-inset-top))]"
+            role="presentation"
+        >
+            {/* Centred per the standing modal rule (Shane 2026-09-02: "all modal boxes centered on the punters screen"). */}
             <div
                 ref={wrapRef}
                 // z-[710]: above the radial helm menu (z-700). The menu now rolls up
@@ -125,9 +129,8 @@ export const RouteTrackPicker: React.FC<RouteTrackPickerProps> = ({
                 // this is the second line of defence, because a sheet that loses a
                 // stacking fight is invisible-but-modal: taps close things the
                 // punter cannot see, which reads as "routes cannot be exited".
-                className="absolute left-1/2 z-[710] chart-chip-centered pointer-events-auto chart-chip-in flex flex-col"
+                className="z-[710] pointer-events-auto chart-chip-in flex flex-col max-h-full"
                 style={{
-                    top: 'max(56px, calc(env(safe-area-inset-top) + 56px))',
                     background: 'rgba(15, 23, 42, 0.94)',
                     backdropFilter: 'blur(24px)',
                     WebkitBackdropFilter: 'blur(24px)',
@@ -136,7 +139,7 @@ export const RouteTrackPicker: React.FC<RouteTrackPickerProps> = ({
                     boxShadow: '0 12px 32px rgba(0,0,0,0.5)',
                     minWidth: sheetMinWidth,
                     maxWidth: `min(${sheetMaxWidth}px, calc(100vw - 24px))`,
-                    maxHeight: 'min(560px, calc(100vh - 140px))',
+                    maxHeight: 'min(560px, 100%)',
                 }}
                 role="dialog"
                 aria-modal="true"

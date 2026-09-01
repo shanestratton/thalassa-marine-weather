@@ -597,14 +597,15 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
  */
 const ConsentSheet: React.FC<{ onAccept: () => void; onDismiss: () => void }> = ({ onAccept, onDismiss }) => (
     <div
-        className="fixed inset-0 z-[200] flex items-end justify-center bg-black/70 p-0 sm:items-center sm:p-4"
+        className="fixed inset-0 z-[200] flex items-center justify-center bg-black/70 p-4 pb-[calc(4rem+env(safe-area-inset-bottom)+1rem)] pt-[max(1rem,env(safe-area-inset-top))]"
         role="dialog"
         aria-modal="true"
         aria-label="Share what you hear"
         onClick={onDismiss}
     >
+        {/* Centred per the standing modal rule (Shane 2026-09-02: "all modal boxes centered on the punters screen"). */}
         <div
-            className="max-h-[88vh] w-full max-w-md overflow-y-auto rounded-t-3xl border border-white/10 bg-slate-900 p-5 pb-8 sm:rounded-3xl"
+            className="max-h-full w-full max-w-md overflow-y-auto rounded-3xl border border-white/10 bg-slate-900 p-5 pb-8"
             onClick={(e) => e.stopPropagation()}
         >
             <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-white/20" />

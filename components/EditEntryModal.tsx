@@ -50,15 +50,16 @@ export const EditEntryModal: React.FC<EditEntryModalProps> = ({ isOpen, entry, o
 
     return (
         <OverlayPortal
-            className="flex items-end sm:items-center justify-center bg-black/80"
+            className="flex items-center justify-center bg-black/80 p-4 pb-[calc(4rem+env(safe-area-inset-bottom)+1rem)] pt-[max(1rem,env(safe-area-inset-top))]"
             onClick={onClose}
             role="dialog"
             aria-modal="true"
             aria-labelledby="edit-entry-title"
             ref={focusTrapRef}
         >
+            {/* Centred per the standing modal rule (Shane 2026-09-02: "all modal boxes centered on the punters screen"). */}
             <div
-                className="bg-slate-900 border border-white/20 rounded-t-2xl sm:rounded-2xl p-4 w-full sm:max-w-md sm:mx-4 shadow-2xl"
+                className="bg-slate-900 border border-white/20 rounded-2xl p-4 w-full max-w-md shadow-2xl max-h-full overflow-y-auto"
                 onClick={(e) => e.stopPropagation()}
             >
                 {/* Header */}

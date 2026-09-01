@@ -1146,15 +1146,15 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
             {showSetup && (
                 <OverlayPortal
                     role="presentation"
-                    className="bg-black/80 backdrop-blur-sm flex items-end justify-center animate-in fade-in duration-200"
+                    className="bg-black/80 backdrop-blur-sm flex items-center justify-center animate-in fade-in duration-200 p-4 pb-[calc(4rem+env(safe-area-inset-bottom)+1rem)] pt-[max(1rem,env(safe-area-inset-top))]"
                 >
+                    {/* Centred per the standing modal rule (Shane 2026-09-02: "all modal boxes centered on the punters screen"). */}
                     <div
                         ref={setupDialogRef}
                         role="dialog"
                         aria-modal="true"
                         aria-labelledby="guardian-profile-title"
-                        className="w-full max-w-lg bg-slate-900 border-t border-white/10 rounded-t-3xl p-6 animate-in slide-in-from-bottom duration-300 max-h-[85vh] overflow-y-auto"
-                        style={{ marginBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}
+                        className="w-full max-w-lg bg-slate-900 border border-white/10 rounded-3xl p-6 max-h-full overflow-y-auto"
                     >
                         <div className="flex items-center justify-between mb-6">
                             <h2 id="guardian-profile-title" className="text-lg font-black text-white">
@@ -1252,16 +1252,16 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
             {showReport && (
                 <OverlayPortal
                     role="presentation"
-                    className="bg-black/80 backdrop-blur-sm flex items-end justify-center animate-in fade-in duration-200"
+                    className="bg-black/80 backdrop-blur-sm flex items-center justify-center animate-in fade-in duration-200 p-4 pb-[calc(4rem+env(safe-area-inset-bottom)+1rem)] pt-[max(1rem,env(safe-area-inset-top))]"
                 >
+                    {/* Centred per the standing modal rule (Shane 2026-09-02: "all modal boxes centered on the punters screen"). */}
                     <div
                         ref={reportDialogRef}
                         role="dialog"
                         aria-modal="true"
                         aria-labelledby="guardian-report-title"
                         aria-describedby="guardian-report-description"
-                        className="w-full max-w-lg bg-slate-900 border-t border-red-500/20 rounded-t-3xl p-6 animate-in slide-in-from-bottom duration-300"
-                        style={{ marginBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}
+                        className="w-full max-w-lg bg-slate-900 border border-red-500/20 rounded-3xl p-6 max-h-full overflow-y-auto"
                     >
                         {/* Header with back chevron */}
                         <div className="flex items-center gap-3 mb-4">
@@ -1332,16 +1332,16 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
             {showWeather && (
                 <OverlayPortal
                     role="presentation"
-                    className="bg-black/80 backdrop-blur-sm flex items-end justify-center animate-in fade-in duration-200"
+                    className="bg-black/80 backdrop-blur-sm flex items-center justify-center animate-in fade-in duration-200 p-4 pb-[calc(4rem+env(safe-area-inset-bottom)+1rem)] pt-[max(1rem,env(safe-area-inset-top))]"
                 >
+                    {/* Centred per the standing modal rule (Shane 2026-09-02: "all modal boxes centered on the punters screen"). */}
                     <div
                         ref={weatherDialogRef}
                         role="dialog"
                         aria-modal="true"
                         aria-labelledby="guardian-weather-title"
                         aria-describedby="guardian-weather-description"
-                        className="w-full max-w-lg bg-slate-900 border-t border-sky-500/20 rounded-t-3xl p-6 animate-in slide-in-from-bottom duration-300"
-                        style={{ marginBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}
+                        className="w-full max-w-lg bg-slate-900 border border-sky-500/20 rounded-3xl p-6 max-h-full overflow-y-auto"
                     >
                         {/* Header with back chevron */}
                         <div className="flex items-center gap-3 mb-4">
@@ -1407,15 +1407,16 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
             {showHail && (
                 <OverlayPortal
                     role="presentation"
-                    className="bg-black/80 backdrop-blur-sm flex items-end justify-center animate-in fade-in duration-200"
+                    className="bg-black/80 backdrop-blur-sm flex items-center justify-center animate-in fade-in duration-200 p-4 pb-[calc(4rem+env(safe-area-inset-bottom)+1rem)] pt-[max(1rem,env(safe-area-inset-top))]"
                 >
+                    {/* Centred per the standing modal rule (Shane 2026-09-02: "all modal boxes centered on the punters screen"). */}
                     <div
                         ref={hailDialogRef}
                         role="dialog"
                         aria-modal="true"
                         aria-labelledby="guardian-hail-title"
                         aria-describedby="guardian-hail-description"
-                        className="w-full max-w-lg bg-slate-900 border-t border-emerald-500/20 rounded-t-3xl p-6 animate-in slide-in-from-bottom duration-300"
+                        className="w-full max-w-lg bg-slate-900 border border-emerald-500/20 rounded-3xl p-6 max-h-full overflow-y-auto"
                     >
                         <h2
                             id="guardian-hail-title"

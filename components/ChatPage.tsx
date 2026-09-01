@@ -774,13 +774,14 @@ export const ChatPage: React.FC<{ onBack?: () => void }> = React.memo(({ onBack 
                     {/* ══════ JOIN REQUEST MODAL ══════ */}
                     {joinRequestChannel && (
                         <OverlayPortal
-                            className="flex items-end justify-center bg-black/70"
+                            className="flex items-center justify-center bg-black/70 p-4 pb-[calc(4rem+env(safe-area-inset-bottom)+1rem)] pt-[max(1rem,env(safe-area-inset-top))]"
                             onClick={() => setJoinRequestChannel(null)}
                             role="presentation"
                         >
+                            {/* Centred per the standing modal rule (Shane 2026-09-02: "all modal boxes centered on the punters screen"). */}
                             <div
                                 ref={joinRequestDialogRef}
-                                className="w-full max-w-lg bg-slate-950 border-t border-purple-500/20 rounded-t-3xl shadow-2xl p-5 space-y-4"
+                                className="w-full max-w-lg bg-slate-950 border border-purple-500/20 rounded-3xl shadow-2xl p-5 space-y-4 max-h-full overflow-y-auto"
                                 onClick={(e) => e.stopPropagation()}
                                 role="dialog"
                                 aria-modal="true"

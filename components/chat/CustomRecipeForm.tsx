@@ -539,22 +539,24 @@ export const CustomRecipeForm: React.FC<CustomRecipeFormProps> = ({ onSaved, onC
     return (
         <OverlayPortal
             layer="nested"
-            className="flex items-start justify-center bg-black/70 backdrop-blur-sm animate-in fade-in duration-200 pt-[max(1rem,env(safe-area-inset-top))]"
+            className="flex items-center justify-center bg-black/70 backdrop-blur-sm animate-in fade-in duration-200 p-4 pb-[calc(4rem+env(safe-area-inset-bottom)+1rem)] pt-[max(1rem,env(safe-area-inset-top))]"
             onClick={onClose}
             role="presentation"
             // Reserve space for the iOS keyboard at the bottom of the
             // modal's containing flex region. When keyboardHeight > 0,
-            // adding it as bottom padding shrinks the available area
-            // so the modal's max-h-[85dvh] gets clamped above the
-            // keyboard rather than being covered by it.
+            // adding it as bottom padding (inline style wins over the
+            // pb-[] class) shrinks the available area so the modal's
+            // max-height gets clamped above the keyboard rather than
+            // being covered by it.
             style={keyboardHeight > 0 ? { paddingBottom: `${keyboardHeight}px` } : undefined}
         >
+            {/* Centred per the standing modal rule (Shane 2026-09-02: "all modal boxes centered on the punters screen"). */}
             <div
                 ref={dialogRef}
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby="custom-recipe-title"
-                className="w-[calc(100%-1.5rem)] max-w-lg bg-slate-900 border border-white/[0.1] rounded-3xl max-h-[85dvh] flex flex-col shadow-2xl animate-in slide-in-from-bottom-4 duration-300 transition-[max-height] duration-200"
+                className="w-full max-w-lg bg-slate-900 border border-white/[0.1] rounded-3xl max-h-full flex flex-col shadow-2xl animate-in fade-in duration-300 transition-[max-height] duration-200"
                 onClick={(e) => e.stopPropagation()}
             >
                 {/* Header — back chevron at top-left matches iOS
