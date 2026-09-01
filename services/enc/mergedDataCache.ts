@@ -30,7 +30,19 @@ const cache = new Map<string, EncMergedVectorData>();
 // hardest memory ceiling and (until the native gauge landed) no working
 // brake. Two slots hold the newest merge plus one neighbour — the
 // z11↔z13 excursion re-pays one merge instead of dying.
-const MAX_ENTRIES = Capacitor.isNativePlatform() ? 2 : 4;
+//
+// …and 2 → 3 on phones (Airlie kill #31, 2026-09-02): the OTHER horn.
+// With two slots, a zoom expansion over the Whitsundays interleaved
+// three key-variants of the SAME four cells with two bigger windows —
+// A,B,C,A,… — and every return to A was an eviction miss: the trail
+// shows three full 9.2 MB parses of identical cells inside six seconds,
+// each towing a glaze worker job, and the process died at 64 s. The
+// third slot breaks that cycle AT NO WORST-CASE COST: since 2026-08-10
+// the binding constraint is MAX_PINNED_TEXT_BYTES below (shared cells
+// count once, and same-water key variants share nearly all their
+// cells), so the count cap only ever binds for small merges. Raising it
+// trades nothing for the re-parse churn that was the actual killer.
+const MAX_ENTRIES = Capacitor.isNativePlatform() ? 3 : 4;
 
 /**
  * Cell ids each cached merge holds geometry for.
