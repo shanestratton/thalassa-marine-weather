@@ -26,7 +26,19 @@
             /* Lift the satellite basemap out of "goth" — affects only the
                raster canvas, not markers/popups/labels (those are HTML). */
             .voyage-log-sat-bright .mapboxgl-canvas {
-                filter: brightness(1.18) saturate(1.12) contrast(1.02);
+                /* Shane 2026-09-02: "the map seems to have a milky layer over
+                   it." This was it — not a map layer at all, a filter over the
+                   whole canvas. brightness(1.18) against contrast(1.02) lifts
+                   the blacks without restoring any separation, which is the
+                   textbook recipe for a washed-out image.
+
+                   It was compensating for the old flat MapTiler ocean tint,
+                   which used to darken the imagery at every zoom. That tint
+                   now fades with zoom, so the compensation had become pure
+                   haze over the photography it was meant to rescue. What is
+                   left is a touch of saturation for punch and a little real
+                   contrast to put the blacks back. */
+                filter: saturate(1.08) contrast(1.06);
             }
             /* Provider logo and attribution controls deliberately remain
                visible. They are required map provenance, including when the
