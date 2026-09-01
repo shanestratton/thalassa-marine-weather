@@ -690,7 +690,25 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                             badge={overdueCount > 0 ? overdueCount : undefined}
                             badgeUrgent={overdueCount > 0}
                         />
+                        <ListDivider />
+                        <OfficeRow
+                            icon={<DocShieldIcon color={expiringDocsCount > 0 ? '#ef4444' : '#cbd5e1'} />}
+                            label="Documents"
+                            status={expiringDocsCount > 0 ? `${expiringDocsCount} Expiring` : 'Legal'}
+                            statusColor={expiringDocsCount > 0 ? '#ef4444' : '#94a3b8'}
+                            onClick={() => {
+                                triggerHaptic('light');
+                                navigateFromBinder('documents');
+                            }}
+                            badge={expiringDocsCount > 0 ? expiringDocsCount : undefined}
+                            badgeUrgent={expiringDocsCount > 0}
+                        />
                     </div>
+
+                    {/* Documents moved here from Reference (Shane 2026-09-02,
+                        binder review): the ship's papers live with the ship's
+                        stores — everything the vessel CARRIES in one group,
+                        tools-you-consult in the other. */}
 
                     {/* — Reference subgroup — */}
                     <BinderSubLabel>Reference</BinderSubLabel>
@@ -732,19 +750,6 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                 navigateFromBinder('polars');
                             }}
                             disabled={isObserver}
-                        />
-                        <ListDivider />
-                        <OfficeRow
-                            icon={<DocShieldIcon color={expiringDocsCount > 0 ? '#ef4444' : '#cbd5e1'} />}
-                            label="Documents"
-                            status={expiringDocsCount > 0 ? `${expiringDocsCount} Expiring` : 'Legal'}
-                            statusColor={expiringDocsCount > 0 ? '#ef4444' : '#94a3b8'}
-                            onClick={() => {
-                                triggerHaptic('light');
-                                navigateFromBinder('documents');
-                            }}
-                            badge={expiringDocsCount > 0 ? expiringDocsCount : undefined}
-                            badgeUrgent={expiringDocsCount > 0}
                         />
                         {/* Notices to Mariners culled from the binder (Shane
                             2026-09-02): "wrong spot for them. we have them on
