@@ -2875,6 +2875,11 @@ check(
 );
 check(
     'Pi server defaults to loopback with private routes and ENC watcher disabled',
+    // Needles refreshed 2026-09-01: 6fae9bee moved the endpoints the app
+    // itself calls (/api/configure, /cache/purge, /api/passthrough) onto
+    // requireAppApi so the unsafe-admin flag can default off, and the ENC
+    // watcher now stands on its own ENC_WATCHER_ENABLED flag (absent = off).
+    // The misc proxy stays behind requireUnsafeAdmin.
     includesAll(piServerBoundary, [
         "return env[LAN_BIND_FLAG] === '1' ? '0.0.0.0' : '127.0.0.1'",
         "return env[UNSAFE_ADMIN_FLAG] === '1'",
@@ -2884,11 +2889,11 @@ check(
         includesAll(piServer, [
             'https.createServer(',
             'server.listen(PORT, BIND_HOST',
-            "app.post('/api/configure', requireUnsafeAdmin",
-            "app.post('/cache/purge', requireUnsafeAdmin",
-            "app.get('/api/passthrough', requireUnsafeAdmin",
+            "app.post('/api/configure', requireAppApi",
+            "app.post('/cache/purge', requireAppApi",
+            "app.get('/api/passthrough', requireAppApi",
             "app.use('/api/misc/proxy', requireUnsafeAdmin)",
-            "UNSAFE_ADMIN_API_ENABLED && process.env.ENC_WATCHER_ENABLED === 'true'",
+            "if (process.env.ENC_WATCHER_ENABLED === 'true')",
         ]),
 );
 
@@ -3012,7 +3017,8 @@ check(
         'Basic technical details are <strong>optional and off by default</strong>',
         'derives a keyed HMAC token',
         'does not store the raw network address with the submission',
-        'deleted automatically within 365 days',
+        // Needle refreshed 2026-09-01 to the wording v2.8 actually shipped.
+        'scheduled for automatic deletion within 365 days',
         'Sentry',
         'precise location',
         'syncs automatically',
