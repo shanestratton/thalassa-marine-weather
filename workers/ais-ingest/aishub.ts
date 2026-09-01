@@ -32,15 +32,27 @@ export interface AishubStats {
     enabled: boolean;
     polls: number;
     pollErrors: number;
+    /** Polls refused for cadence. Counted apart from pollErrors: being told
+     *  to slow down is the ration working, not the feed failing. */
+    rateLimited: number;
     lastPollAt: number | null;
     lastRecords: number;
     lastAccepted: number;
+}
+
+/** MEASURED 2026-09-02 against the live service with a real key: a too-soon
+ *  poll answers HTTP 200 with a normal ERROR envelope reading
+ *  "Too frequent requests!" — NOT the empty body the docs describe. Both
+ *  shapes are handled; this matches the real one. */
+export function isRateLimitMessage(message: string): boolean {
+    return /too frequent/i.test(message);
 }
 
 const stats: AishubStats = {
     enabled: false,
     polls: 0,
     pollErrors: 0,
+    rateLimited: 0,
     lastPollAt: null,
     lastRecords: 0,
     lastAccepted: 0,
@@ -216,10 +228,11 @@ export function startAishubPoller(db: VesselDB, opts: AishubPollerOptions): () =
             }
             const bodyText = await response.text();
             if (!bodyText.trim()) {
-                // Their documented rate-limit response is an EMPTY body at
-                // HTTP 200 — not an error envelope. With the 60 s floor this
-                // should never fire; if it does, clocks drifted or another
-                // consumer shares the key. Skip the cycle, keep cadence.
+                // The DOCUMENTED rate-limit response: an empty body at HTTP
+                // 200. Kept as a defensive path — the live service actually
+                // answers with an ERROR envelope instead (see below), but a
+                // documented behaviour that costs one branch stays handled.
+                stats.rateLimited++;
                 console.warn('[AISHUB] Empty body — rate-limited; skipping this cycle');
                 return;
             }
@@ -233,6 +246,16 @@ export function startAishubPoller(db: VesselDB, opts: AishubPollerOptions): () =
             }
             const parsed = parseAishubResponse(json);
             if ('error' in parsed) {
+                // A cadence refusal is not a fault. With the 60 s floor one
+                // instance cannot cause it, so if this climbs the cause is
+                // outside this process: a second worker sharing the key, or a
+                // restart re-polling immediately after the previous instance.
+                // Counted separately so /health does not cry outage over it.
+                if (isRateLimitMessage(parsed.error)) {
+                    stats.rateLimited++;
+                    console.warn('[AISHUB] Rate-limited by the aggregate; skipping this cycle');
+                    return;
+                }
                 stats.pollErrors++;
                 console.warn(`[AISHUB] API error: ${parsed.error}`);
                 return;
