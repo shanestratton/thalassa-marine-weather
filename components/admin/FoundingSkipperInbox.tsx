@@ -321,7 +321,7 @@ export const FoundingSkipperInbox: React.FC<FoundingSkipperInboxProps> = ({
                 onCancel={() => setPendingReview(null)}
             />
 
-            <div className="px-4 pt-4 pb-3 border-b border-white/[0.06] bg-slate-950/95 sticky top-0 z-[5]">
+            <div className="px-4 pt-4 pb-3 border-b border-white/6 bg-slate-950/95 sticky top-0 z-5">
                 <div className="flex items-start gap-3">
                     <div className="flex-1 min-w-0">
                         <p className="text-[11px] font-black uppercase tracking-[0.2em] text-cyan-300/60">
@@ -338,22 +338,22 @@ export const FoundingSkipperInbox: React.FC<FoundingSkipperInboxProps> = ({
                         type="button"
                         onClick={() => loadApplications(false)}
                         disabled={loading}
-                        className="min-h-[44px] px-4 rounded-xl border border-cyan-400/20 bg-cyan-400/[0.08] text-xs font-bold text-cyan-200 disabled:opacity-50"
+                        className="min-h-[44px] px-4 rounded-xl border border-cyan-400/20 bg-cyan-400/8 text-xs font-bold text-cyan-200 disabled:opacity-50"
                     >
                         {loading ? 'Refreshing…' : '↻ Refresh'}
                     </button>
                 </div>
 
                 <div className="grid grid-cols-3 gap-2 mt-4" aria-label="Loaded application summary">
-                    <div className="rounded-xl border border-white/[0.06] bg-white/[0.025] px-3 py-2.5">
+                    <div className="rounded-xl border border-white/6 bg-white/2.5 px-3 py-2.5">
                         <p className="text-lg font-black text-white">{applications.length}</p>
                         <p className="text-[11px] uppercase tracking-wider text-white/40">Loaded</p>
                     </div>
-                    <div className="rounded-xl border border-cyan-400/15 bg-cyan-400/[0.05] px-3 py-2.5">
+                    <div className="rounded-xl border border-cyan-400/15 bg-cyan-400/5 px-3 py-2.5">
                         <p className="text-lg font-black text-cyan-300">{newCount}</p>
                         <p className="text-[11px] uppercase tracking-wider text-cyan-300/50">New</p>
                     </div>
-                    <div className="rounded-xl border border-emerald-400/15 bg-emerald-400/[0.05] px-3 py-2.5">
+                    <div className="rounded-xl border border-emerald-400/15 bg-emerald-400/5 px-3 py-2.5">
                         <p className="text-lg font-black text-emerald-300">{acceptedCount}</p>
                         <p className="text-[11px] uppercase tracking-wider text-emerald-300/50">Accepted</p>
                     </div>
@@ -369,7 +369,7 @@ export const FoundingSkipperInbox: React.FC<FoundingSkipperInboxProps> = ({
                             className={`shrink-0 min-h-[44px] px-3.5 rounded-xl border text-xs font-bold transition-colors ${
                                 statusFilter === status
                                     ? 'border-cyan-300/35 bg-cyan-300/10 text-cyan-200'
-                                    : 'border-white/[0.07] bg-white/[0.025] text-white/45'
+                                    : 'border-white/[0.07] bg-white/2.5 text-white/45'
                             }`}
                         >
                             {status === 'all' ? 'All' : STATUS_LABELS[status]}
@@ -383,13 +383,13 @@ export const FoundingSkipperInbox: React.FC<FoundingSkipperInboxProps> = ({
                         onChange={(event) => setSearch(event.target.value)}
                         aria-label="Search Founding Skipper applications"
                         placeholder="Search name, email or home waters"
-                        className="min-h-[44px] w-full rounded-xl border border-white/10 bg-white/[0.05] px-3.5 text-sm text-white placeholder:text-white/30 outline-none focus:border-cyan-400/35"
+                        className="min-h-[44px] w-full rounded-xl border border-white/10 bg-white/5 px-3.5 text-sm text-white placeholder:text-white/30 outline-hidden focus:border-cyan-400/35"
                     />
                     <select
                         value={sourceFilter}
                         onChange={(event) => setSourceFilter(event.target.value)}
                         aria-label="Filter applications by source"
-                        className="min-h-[44px] w-full rounded-xl border border-white/10 bg-slate-900 px-3 text-sm text-white/70 outline-none focus:border-cyan-400/35"
+                        className="min-h-[44px] w-full rounded-xl border border-white/10 bg-slate-900 px-3 text-sm text-white/70 outline-hidden focus:border-cyan-400/35"
                     >
                         <option value="all">All sources</option>
                         {sources.map((source) => (
@@ -442,7 +442,7 @@ export const FoundingSkipperInbox: React.FC<FoundingSkipperInboxProps> = ({
                                     className={`w-full text-left rounded-2xl border p-3.5 transition-colors min-h-[104px] ${
                                         isSelected
                                             ? 'border-cyan-300/30 bg-cyan-300/[0.07]'
-                                            : 'border-white/[0.07] bg-white/[0.025] hover:bg-white/[0.045]'
+                                            : 'border-white/[0.07] bg-white/2.5 hover:bg-white/4.5'
                                     }`}
                                 >
                                     <div className="flex items-start gap-3">
@@ -483,10 +483,10 @@ export const FoundingSkipperInbox: React.FC<FoundingSkipperInboxProps> = ({
 
                     {selected && (
                         <article
-                            className="rounded-2xl border border-white/[0.08] bg-white/[0.025] overflow-hidden lg:sticky lg:top-[272px]"
+                            className="rounded-2xl border border-white/8 bg-white/2.5 overflow-hidden lg:sticky lg:top-[272px]"
                             aria-label={`${selected.name} application details`}
                         >
-                            <div className="p-4 border-b border-white/[0.06]">
+                            <div className="p-4 border-b border-white/6">
                                 <div className="flex items-start gap-3">
                                     <div className="flex-1 min-w-0">
                                         <p className="text-[11px] uppercase tracking-[0.17em] text-cyan-300/55">
@@ -551,7 +551,7 @@ export const FoundingSkipperInbox: React.FC<FoundingSkipperInboxProps> = ({
                                     {selected.interests.map((interest) => (
                                         <span
                                             key={interest}
-                                            className="rounded-lg border border-cyan-300/15 bg-cyan-300/[0.05] px-2.5 py-1.5 text-xs text-cyan-100/75"
+                                            className="rounded-lg border border-cyan-300/15 bg-cyan-300/5 px-2.5 py-1.5 text-xs text-cyan-100/75"
                                         >
                                             {INTEREST_LABELS[interest] ?? sourceLabel(interest)}
                                         </span>
@@ -561,7 +561,7 @@ export const FoundingSkipperInbox: React.FC<FoundingSkipperInboxProps> = ({
 
                             <div className="px-4 pb-4">
                                 <p className="text-[11px] uppercase tracking-wider text-white/35">Notes</p>
-                                <p className="mt-2 rounded-xl border border-white/[0.06] bg-black/15 p-3 text-sm leading-relaxed text-white/70 whitespace-pre-wrap">
+                                <p className="mt-2 rounded-xl border border-white/6 bg-black/15 p-3 text-sm leading-relaxed text-white/70 whitespace-pre-wrap">
                                     {selected.notes || 'No notes supplied.'}
                                 </p>
                             </div>
@@ -573,9 +573,9 @@ export const FoundingSkipperInbox: React.FC<FoundingSkipperInboxProps> = ({
                                 <time dateTime={selected.expires_at}>{formatDate(selected.expires_at)}</time>
                             </div>
 
-                            <div className="p-4 border-t border-white/[0.06] bg-black/10">
+                            <div className="p-4 border-t border-white/6 bg-black/10">
                                 {selected.status === 'withdrawn' ? (
-                                    <p className="mt-3 rounded-xl border border-slate-400/15 bg-slate-400/[0.05] p-3 text-center text-xs leading-relaxed text-slate-300/70">
+                                    <p className="mt-3 rounded-xl border border-slate-400/15 bg-slate-400/5 p-3 text-center text-xs leading-relaxed text-slate-300/70">
                                         Withdrawn applications are locked. A fresh application is required to reopen
                                         contact.
                                     </p>

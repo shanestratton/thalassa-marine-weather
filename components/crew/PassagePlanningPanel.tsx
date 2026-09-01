@@ -42,7 +42,7 @@ export const PassagePlanningPanel: React.FC<PassagePlanningPanelProps> = ({
     onCancel,
 }) => {
     return (
-        <div className="bg-white/[0.02] border border-violet-500/15 rounded-xl p-4 space-y-3 animate-in slide-in-from-top-2 duration-200">
+        <div className="bg-white/2 border border-violet-500/15 rounded-xl p-4 space-y-3 animate-in slide-in-from-top-2 duration-200">
             {/* Crew count badge (read-only) */}
             <div className="flex items-center justify-between">
                 <span className="text-[11px] font-black text-violet-400/60 uppercase tracking-widest">
@@ -64,7 +64,7 @@ export const PassagePlanningPanel: React.FC<PassagePlanningPanelProps> = ({
                         value={planDeparture ? planDeparture.slice(0, 10) : ''}
                         onChange={(e) => onDepartureChange(e.target.value ? e.target.value + 'T08:00' : '')}
                         onFocus={scrollInputAboveKeyboard}
-                        className="w-full bg-white/[0.04] border border-white/[0.08] rounded-lg px-2 py-2 text-[11px] text-white focus:outline-none focus:border-violet-500/40 [color-scheme:dark]"
+                        className="w-full bg-white/4 border border-white/8 rounded-lg px-2 py-2 text-[11px] text-white focus:outline-hidden focus:border-violet-500/40 scheme-dark"
                     />
                 </div>
                 <div className="min-w-0">
@@ -76,7 +76,7 @@ export const PassagePlanningPanel: React.FC<PassagePlanningPanelProps> = ({
                         value={planEta ? planEta.slice(0, 10) : ''}
                         onChange={(e) => onEtaChange(e.target.value ? e.target.value + 'T18:00' : '')}
                         onFocus={scrollInputAboveKeyboard}
-                        className="w-full bg-white/[0.04] border border-white/[0.08] rounded-lg px-2 py-2 text-[11px] text-white focus:outline-none focus:border-violet-500/40 [color-scheme:dark]"
+                        className="w-full bg-white/4 border border-white/8 rounded-lg px-2 py-2 text-[11px] text-white focus:outline-hidden focus:border-violet-500/40 scheme-dark"
                     />
                 </div>
             </div>
@@ -93,7 +93,7 @@ export const PassagePlanningPanel: React.FC<PassagePlanningPanelProps> = ({
                         onChange={(e) => onDeparturePortChange(e.target.value)}
                         onFocus={scrollInputAboveKeyboard}
                         placeholder="Departure port"
-                        className="w-full bg-white/[0.04] border border-white/[0.08] rounded-lg px-2.5 py-2 text-xs text-white placeholder-gray-600 focus:outline-none focus:border-violet-500/40"
+                        className="w-full bg-white/4 border border-white/8 rounded-lg px-2.5 py-2 text-xs text-white placeholder-gray-600 focus:outline-hidden focus:border-violet-500/40"
                     />
                 </div>
                 <div>
@@ -106,7 +106,7 @@ export const PassagePlanningPanel: React.FC<PassagePlanningPanelProps> = ({
                         onChange={(e) => onDestPortChange(e.target.value)}
                         onFocus={scrollInputAboveKeyboard}
                         placeholder="Destination"
-                        className="w-full bg-white/[0.04] border border-white/[0.08] rounded-lg px-2.5 py-2 text-xs text-white placeholder-gray-600 focus:outline-none focus:border-violet-500/40"
+                        className="w-full bg-white/4 border border-white/8 rounded-lg px-2.5 py-2 text-xs text-white placeholder-gray-600 focus:outline-hidden focus:border-violet-500/40"
                     />
                 </div>
             </div>
@@ -122,7 +122,7 @@ export const PassagePlanningPanel: React.FC<PassagePlanningPanelProps> = ({
                     onFocus={scrollInputAboveKeyboard}
                     placeholder="Weather windows, tidal constraints, fuel stops…"
                     rows={2}
-                    className="w-full bg-white/[0.04] border border-white/[0.08] rounded-lg px-2.5 py-2 text-xs text-white placeholder-gray-600 focus:outline-none focus:border-violet-500/40 resize-none"
+                    className="w-full bg-white/4 border border-white/8 rounded-lg px-2.5 py-2 text-xs text-white placeholder-gray-600 focus:outline-hidden focus:border-violet-500/40 resize-none"
                 />
             </div>
 

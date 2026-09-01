@@ -306,7 +306,7 @@ export const PiSetupWizard: React.FC<Props> = ({ isOpen, onClose }) => {
     return (
         <OverlayPortal
             ref={dialogRef}
-            className="flex flex-col bg-gradient-to-b from-slate-900 via-slate-950 to-black"
+            className="flex flex-col bg-linear-to-b from-slate-900 via-slate-950 to-black"
             role="dialog"
             aria-modal="true"
             aria-labelledby="pi-setup-title"
@@ -317,7 +317,7 @@ export const PiSetupWizard: React.FC<Props> = ({ isOpen, onClose }) => {
                 tabIndex={-1}
                 aria-label={`Setup step: ${stepLabel(state.step)}`}
                 aria-live="polite"
-                className="flex-1 overflow-y-auto px-5 py-6 outline-none"
+                className="flex-1 overflow-y-auto px-5 py-6 outline-hidden"
             >
                 {state.step === 'intro' && <IntroPanel onContinue={() => advance('join-ap')} />}
                 {state.step === 'join-ap' && (
@@ -437,7 +437,10 @@ const JoinApPanel: React.FC<{ apPassword: string; onContinue: () => void }> = ({
             </li>
             <li>
                 Enter the password{' '}
-                <span className="font-mono px-2 py-0.5 rounded bg-white/5 text-sky-200 select-all">{apPassword}</span>.
+                <span className="font-mono px-2 py-0.5 rounded-sm bg-white/5 text-sky-200 select-all">
+                    {apPassword}
+                </span>
+                .
             </li>
             <li>Come back here and tap below.</li>
         </ol>
@@ -523,7 +526,7 @@ const SignalIndicator: React.FC<{ bars: number }> = ({ bars }) => (
         {[1, 2, 3, 4].map((i) => (
             <span
                 key={i}
-                className={`w-1 rounded-sm ${i <= bars ? 'bg-sky-400' : 'bg-white/10'}`}
+                className={`w-1 rounded-xs ${i <= bars ? 'bg-sky-400' : 'bg-white/10'}`}
                 style={{ height: `${4 + i * 3}px` }}
             />
         ))}
@@ -547,7 +550,7 @@ const PasswordPanel: React.FC<{
             autoFocus
             autoCapitalize="off"
             autoCorrect="off"
-            className="w-full px-4 py-3 rounded-full bg-white/5 border border-white/10 text-white placeholder:text-gray-500 text-sm focus:outline-none focus:border-sky-500/50"
+            className="w-full px-4 py-3 rounded-full bg-white/5 border border-white/10 text-white placeholder:text-gray-500 text-sm focus:outline-hidden focus:border-sky-500/50"
         />
         <p className="text-xs text-gray-500">
             The password is sent only to your Pi over the local network — it never leaves the boat.
@@ -565,7 +568,7 @@ const PasswordPanel: React.FC<{
             <button
                 onClick={onSubmit}
                 disabled={password.length < 8}
-                className="flex-[2] px-6 py-3 rounded-full bg-sky-500 hover:bg-sky-400 disabled:opacity-40 text-white font-bold transition-colors"
+                className="flex-2 px-6 py-3 rounded-full bg-sky-500 hover:bg-sky-400 disabled:opacity-40 text-white font-bold transition-colors"
             >
                 Connect
             </button>

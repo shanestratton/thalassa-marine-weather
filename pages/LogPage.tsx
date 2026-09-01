@@ -1994,9 +1994,9 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                             <div className="shrink-0 px-4 pb-3">
                                 <div className="grid grid-cols-3 gap-2.5">
                                     {/* ── NM Sailed ── */}
-                                    <div className="relative rounded-2xl overflow-hidden border border-sky-500/15 bg-gradient-to-br from-sky-500/[0.10] via-sky-500/[0.04] to-transparent p-3.5 shadow-[0_2px_12px_-4px_rgba(56,189,248,0.15)]">
+                                    <div className="relative rounded-2xl overflow-hidden border border-sky-500/15 bg-linear-to-br from-sky-500/10 via-sky-500/4 to-transparent p-3.5 shadow-[0_2px_12px_-4px_rgba(56,189,248,0.15)]">
                                         {/* Soft top-edge highlight */}
-                                        <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-sky-400/40 to-transparent" />
+                                        <div className="absolute top-0 left-0 right-0 h-px bg-linear-to-r from-transparent via-sky-400/40 to-transparent" />
                                         {/* Compass-needle icon, top-right */}
                                         <svg
                                             className="absolute top-2.5 right-2.5 w-4 h-4 text-sky-400/40"
@@ -2032,8 +2032,8 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                         </div>
                                     </div>
                                     {/* ── At Sea ── */}
-                                    <div className="relative rounded-2xl overflow-hidden border border-emerald-500/15 bg-gradient-to-br from-emerald-500/[0.10] via-emerald-500/[0.04] to-transparent p-3.5 shadow-[0_2px_12px_-4px_rgba(16,185,129,0.15)]">
-                                        <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-emerald-400/40 to-transparent" />
+                                    <div className="relative rounded-2xl overflow-hidden border border-emerald-500/15 bg-linear-to-br from-emerald-500/10 via-emerald-500/4 to-transparent p-3.5 shadow-[0_2px_12px_-4px_rgba(16,185,129,0.15)]">
+                                        <div className="absolute top-0 left-0 right-0 h-px bg-linear-to-r from-transparent via-emerald-400/40 to-transparent" />
                                         {/* Clock-like circle-with-tick icon */}
                                         <svg
                                             className="absolute top-2.5 right-2.5 w-4 h-4 text-emerald-400/40"
@@ -2061,8 +2061,8 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                         </div>
                                     </div>
                                     {/* ── Voyages ── */}
-                                    <div className="relative rounded-2xl overflow-hidden border border-amber-500/15 bg-gradient-to-br from-amber-500/[0.10] via-amber-500/[0.04] to-transparent p-3.5 shadow-[0_2px_12px_-4px_rgba(245,158,11,0.15)]">
-                                        <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-amber-400/40 to-transparent" />
+                                    <div className="relative rounded-2xl overflow-hidden border border-amber-500/15 bg-linear-to-br from-amber-500/10 via-amber-500/4 to-transparent p-3.5 shadow-[0_2px_12px_-4px_rgba(245,158,11,0.15)]">
+                                        <div className="absolute top-0 left-0 right-0 h-px bg-linear-to-r from-transparent via-amber-400/40 to-transparent" />
                                         {/* Anchor icon */}
                                         <svg
                                             className="absolute top-2.5 right-2.5 w-4 h-4 text-amber-400/40"
@@ -2230,7 +2230,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                 the REGION must exist the whole time regardless. */}
                             {!currentVoyageId && (
                                 <div className="flex-1 flex flex-col rounded-2xl bg-slate-900/40 border border-white/5 p-4">
-                                    <div className="h-3 w-32 bg-white/10 rounded mb-3 animate-pulse" />
+                                    <div className="h-3 w-32 bg-white/10 rounded-sm mb-3 animate-pulse" />
                                     <div className="mt-3 flex-1 min-h-[100px] rounded-xl bg-[#0b1220] border border-white/5" />
                                 </div>
                             )}
@@ -2258,7 +2258,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                             ? speeds.reduce((s, e) => s + (e.speedKts || 0), 0) / speeds.length
                                             : 0;
                                     return (
-                                        <div className="flex-1 min-h-0 flex flex-col rounded-2xl bg-gradient-to-br from-emerald-500/10 to-slate-900/80 border border-emerald-500/20 p-4 mx-4 mt-2 mb-2">
+                                        <div className="flex-1 min-h-0 flex flex-col rounded-2xl bg-linear-to-br from-emerald-500/10 to-slate-900/80 border border-emerald-500/20 p-4 mx-4 mt-2 mb-2">
                                             <div className="flex items-center gap-2 mb-3 shrink-0">
                                                 <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
                                                 <span className="text-xs font-bold text-red-400 uppercase tracking-wider">
@@ -2351,7 +2351,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                                         type="button"
                                                         aria-label="Expand live map"
                                                         onClick={openLiveMap}
-                                                        className="absolute bottom-2 right-2 z-10 flex h-11 w-11 items-center justify-center rounded-full border border-white/15 bg-slate-900/85 text-white/80 shadow-lg backdrop-blur-sm transition-transform active:scale-95"
+                                                        className="absolute bottom-2 right-2 z-10 flex h-11 w-11 items-center justify-center rounded-full border border-white/15 bg-slate-900/85 text-white/80 shadow-lg backdrop-blur-xs transition-transform active:scale-95"
                                                     >
                                                         <svg
                                                             className="h-4 w-4"
@@ -2389,12 +2389,12 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                                         isLive={true}
                                                         freeZoom={true}
                                                         onTap={closeLiveMap}
-                                                        className="!rounded-none !border-0"
+                                                        className="rounded-none! border-0!"
                                                     />
 
                                                     {/* Top info bar — same stats as the card */}
                                                     <div
-                                                        className="absolute top-0 left-0 right-0 z-[1001] px-4 pointer-events-none"
+                                                        className="absolute top-0 left-0 right-0 z-1001 px-4 pointer-events-none"
                                                         style={{ paddingTop: 'max(16px, env(safe-area-inset-top))' }}
                                                     >
                                                         <div className="flex items-center gap-2">
@@ -2425,7 +2425,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                                         type="button"
                                                         aria-label="Shrink map"
                                                         onClick={closeLiveMap}
-                                                        className="absolute right-4 z-[1001] w-10 h-10 rounded-full bg-slate-900/80 border border-white/10 text-white/80 flex items-center justify-center active:scale-95 transition-transform"
+                                                        className="absolute right-4 z-1001 w-10 h-10 rounded-full bg-slate-900/80 border border-white/10 text-white/80 flex items-center justify-center active:scale-95 transition-transform"
                                                         style={{ top: 'max(16px, env(safe-area-inset-top))' }}
                                                     >
                                                         <svg
@@ -2514,7 +2514,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                     <button
                                         aria-label="Add log entry"
                                         onClick={() => dispatch({ type: 'SHOW_ADD_MODAL', show: true })}
-                                        className="flex-1 h-14 px-4 rounded-2xl font-extrabold text-sm uppercase tracking-wider transition-all flex items-center justify-center gap-2 bg-gradient-to-r from-sky-500 to-sky-600 hover:from-sky-400 hover:to-sky-500 text-white shadow-lg shadow-sky-500/25 active:scale-[0.98]"
+                                        className="flex-1 h-14 px-4 rounded-2xl font-extrabold text-sm uppercase tracking-wider transition-all flex items-center justify-center gap-2 bg-linear-to-r from-sky-500 to-sky-600 hover:from-sky-400 hover:to-sky-500 text-white shadow-lg shadow-sky-500/25 active:scale-[0.98]"
                                     >
                                         <PlusIcon className="w-5 h-5" />
                                         New Log Entry
@@ -2550,9 +2550,9 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                                 key={i}
                                                 className="rounded-2xl bg-slate-900/40 border border-white/5 p-4 animate-pulse"
                                             >
-                                                <div className="h-3 w-28 bg-white/10 rounded mb-3" />
-                                                <div className="h-2.5 w-44 bg-white/5 rounded mb-2" />
-                                                <div className="h-2.5 w-36 bg-white/5 rounded" />
+                                                <div className="h-3 w-28 bg-white/10 rounded-sm mb-3" />
+                                                <div className="h-2.5 w-44 bg-white/5 rounded-sm mb-2" />
+                                                <div className="h-2.5 w-36 bg-white/5 rounded-sm" />
                                             </div>
                                         ))}
                                     </div>
@@ -2794,7 +2794,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                 buttons work; sits above the bottom nav. */}
             {showPropNudge && propConflict.suggested && (
                 <div
-                    className="fixed inset-x-0 z-[10000] flex justify-center px-4 animate-in fade-in slide-in-from-bottom-4 duration-300"
+                    className="fixed inset-x-0 z-10000 flex justify-center px-4 animate-in fade-in slide-in-from-bottom-4 duration-300"
                     style={{ bottom: 'calc(4rem + env(safe-area-inset-bottom) + 76px)' }}
                     role="alert"
                 >
@@ -3006,7 +3006,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                 createPortal(
                     <div
                         role="presentation"
-                        className="fixed inset-0 z-[10055] flex items-center justify-center bg-black/60 px-3 py-[max(1rem,env(safe-area-inset-bottom))]"
+                        className="fixed inset-0 z-10055 flex items-center justify-center bg-black/60 px-3 py-[max(1rem,env(safe-area-inset-bottom))]"
                         onClick={dismissFollowPrompt}
                     >
                         <div
@@ -3032,7 +3032,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                             {followBlockNotice && (
                                 <div
                                     role="alert"
-                                    className="mx-3 mt-3 flex items-start gap-2.5 rounded-xl border border-amber-500/25 bg-amber-500/[0.08] px-3 py-2.5"
+                                    className="mx-3 mt-3 flex items-start gap-2.5 rounded-xl border border-amber-500/25 bg-amber-500/8 px-3 py-2.5"
                                 >
                                     <span aria-hidden="true" className="mt-px text-[13px] leading-none text-amber-300">
                                         {'\u26A0\uFE0F'}

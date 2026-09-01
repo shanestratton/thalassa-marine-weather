@@ -211,7 +211,7 @@ export const MedicalFirstAidCard: React.FC<MedicalFirstAidCardProps> = ({ voyage
     return (
         <div className="space-y-4">
             {/* ── Medical Checklist ── */}
-            <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4">
+            <div className="bg-white/3 border border-white/6 rounded-xl p-4">
                 <h4 className="text-xs font-bold text-white uppercase tracking-widest mb-3 flex items-center gap-2">
                     🏥 Medical & Emergency
                     <span
@@ -236,7 +236,7 @@ export const MedicalFirstAidCard: React.FC<MedicalFirstAidCardProps> = ({ voyage
                                         ? 'bg-emerald-500/10 border border-emerald-500/20'
                                         : item.critical
                                           ? 'bg-red-500/5 border border-red-500/15 hover:bg-red-500/10'
-                                          : 'bg-white/[0.02] border border-white/[0.06] hover:bg-white/[0.05]'
+                                          : 'bg-white/2 border border-white/6 hover:bg-white/5'
                                 }`}
                             >
                                 <div
@@ -290,7 +290,7 @@ export const MedicalFirstAidCard: React.FC<MedicalFirstAidCardProps> = ({ voyage
             </div>
 
             {/* ── Kit Classification Selector ── */}
-            <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4">
+            <div className="bg-white/3 border border-white/6 rounded-xl p-4">
                 <h4 className="text-xs font-bold text-white uppercase tracking-widest mb-1">
                     🧰 First Aid Kit Classification
                 </h4>
@@ -303,13 +303,13 @@ export const MedicalFirstAidCard: React.FC<MedicalFirstAidCardProps> = ({ voyage
                         const colorMap: Record<string, string> = {
                             sky: isSelected
                                 ? 'bg-sky-500/15 border-sky-500/30 text-sky-300'
-                                : 'bg-white/[0.03] border-white/[0.08] text-gray-400',
+                                : 'bg-white/3 border-white/8 text-gray-400',
                             amber: isSelected
                                 ? 'bg-amber-500/15 border-amber-500/30 text-amber-300'
-                                : 'bg-white/[0.03] border-white/[0.08] text-gray-400',
+                                : 'bg-white/3 border-white/8 text-gray-400',
                             red: isSelected
                                 ? 'bg-red-500/15 border-red-500/30 text-red-300'
-                                : 'bg-white/[0.03] border-white/[0.08] text-gray-400',
+                                : 'bg-white/3 border-white/8 text-gray-400',
                         };
                         return (
                             <button
@@ -332,19 +332,19 @@ export const MedicalFirstAidCard: React.FC<MedicalFirstAidCardProps> = ({ voyage
                         if (!cat) return null;
                         const colorStyles: Record<string, { bg: string; border: string; text: string; dot: string }> = {
                             sky: {
-                                bg: 'bg-sky-500/[0.04]',
+                                bg: 'bg-sky-500/4',
                                 border: 'border-sky-500/15',
                                 text: 'text-sky-400',
                                 dot: 'bg-sky-400',
                             },
                             amber: {
-                                bg: 'bg-amber-500/[0.04]',
+                                bg: 'bg-amber-500/4',
                                 border: 'border-amber-500/15',
                                 text: 'text-amber-400',
                                 dot: 'bg-amber-400',
                             },
                             red: {
-                                bg: 'bg-red-500/[0.04]',
+                                bg: 'bg-red-500/4',
                                 border: 'border-red-500/15',
                                 text: 'text-red-400',
                                 dot: 'bg-red-400',
@@ -369,7 +369,7 @@ export const MedicalFirstAidCard: React.FC<MedicalFirstAidCardProps> = ({ voyage
             </div>
 
             {/* ── Telemedical Contact ── */}
-            <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4">
+            <div className="bg-white/3 border border-white/6 rounded-xl p-4">
                 <h4 className="text-xs font-bold text-white uppercase tracking-widest mb-1 flex items-center gap-2">
                     📞 Telemedical Advice (TMAS)
                 </h4>
@@ -381,7 +381,7 @@ export const MedicalFirstAidCard: React.FC<MedicalFirstAidCardProps> = ({ voyage
                     value={telemedNumber}
                     onChange={(e) => updateTelemedNumber(e.target.value)}
                     placeholder="+__ ___ ___ ____"
-                    className="w-full px-3 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.08] text-white text-sm font-mono placeholder:text-gray-500 focus:outline-none focus:border-sky-500/30 focus:bg-sky-500/[0.03] transition-all"
+                    className="w-full px-3 py-2.5 rounded-xl bg-white/4 border border-white/8 text-white text-sm font-mono placeholder:text-gray-500 focus:outline-hidden focus:border-sky-500/30 focus:bg-sky-500/3 transition-all"
                 />
                 <div className="flex flex-wrap gap-1.5 mt-2">
                     {[
@@ -399,7 +399,7 @@ export const MedicalFirstAidCard: React.FC<MedicalFirstAidCardProps> = ({ voyage
                             className={`px-2 py-1 min-h-[44px] rounded-lg text-[11px] font-bold uppercase tracking-wider border transition-all active:scale-[0.97] ${
                                 telemedNumber === preset.number
                                     ? 'bg-sky-500/15 border-sky-500/30 text-sky-300'
-                                    : 'bg-white/[0.03] border-white/[0.08] text-gray-500 hover:text-gray-300'
+                                    : 'bg-white/3 border-white/8 text-gray-500 hover:text-gray-300'
                             }`}
                         >
                             {preset.label}

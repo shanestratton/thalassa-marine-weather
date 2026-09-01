@@ -132,7 +132,7 @@ export const PassageKitPrompt: React.FC = () => {
 
     return (
         <div
-            className="fixed left-4 right-4 z-[9991] animate-slide-up"
+            className="fixed left-4 right-4 z-9991 animate-slide-up"
             style={{ bottom: 'calc(9rem + env(safe-area-inset-bottom))' }}
         >
             <div className="bg-slate-900 border border-amber-500/40 rounded-2xl px-4 py-3 shadow-2xl shadow-black/50">

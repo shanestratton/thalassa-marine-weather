@@ -186,7 +186,7 @@ const offshoreColors: ThemeColors = {
         subtle: 'border border-white/5',
         default: 'border border-white/10',
         strong: 'border border-white/20',
-        glass: 'border border-white/[0.06]',
+        glass: 'border border-white/6',
     },
 };
 
@@ -266,7 +266,7 @@ const onshoreColors: ThemeColors = {
         subtle: 'border border-white/5',
         default: 'border border-white/10',
         strong: 'border border-white/20',
-        glass: 'border border-white/[0.06]',
+        glass: 'border border-white/6',
     },
 };
 
@@ -395,8 +395,8 @@ function buildTheme(colors: ThemeColors, env: Environment): ThemeTokens {
         button: {
             primary:
                 env === 'offshore'
-                    ? 'px-5 py-3.5 bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 rounded-xl text-white text-base font-black transition-all active:scale-[0.98] shadow-lg shadow-amber-900/30 disabled:opacity-50 disabled:cursor-wait flex items-center justify-center gap-2'
-                    : 'px-5 py-3.5 bg-gradient-to-r from-emerald-700 to-emerald-600 hover:from-emerald-600 hover:to-emerald-500 rounded-xl text-white text-base font-black transition-all active:scale-[0.98] shadow-lg shadow-emerald-900/30 disabled:opacity-50 disabled:cursor-wait flex items-center justify-center gap-2',
+                    ? 'px-5 py-3.5 bg-linear-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 rounded-xl text-white text-base font-black transition-all active:scale-[0.98] shadow-lg shadow-amber-900/30 disabled:opacity-50 disabled:cursor-wait flex items-center justify-center gap-2'
+                    : 'px-5 py-3.5 bg-linear-to-r from-emerald-700 to-emerald-600 hover:from-emerald-600 hover:to-emerald-500 rounded-xl text-white text-base font-black transition-all active:scale-[0.98] shadow-lg shadow-emerald-900/30 disabled:opacity-50 disabled:cursor-wait flex items-center justify-center gap-2',
             /* The house secondary button, measured rather than invented:
              * bg-white/5 + border-white/10 + rounded-xl is the single most
              * common combination across the app's ~1,100 buttons. The token
@@ -404,13 +404,13 @@ function buildTheme(colors: ThemeColors, env: Environment): ThemeTokens {
              * adopting it would have made every converted button clash with
              * the cards around it. */
             secondary: `px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 ${radii.card} text-sm font-bold transition-all active:scale-[0.97] flex items-center justify-center gap-2`,
-            danger: `px-4 py-2 bg-red-500/[0.08] backdrop-blur border border-red-500/20 ${radii.card} text-red-400 text-sm font-bold transition-all active:scale-[0.97] hover:bg-red-500/[0.12] flex items-center justify-center gap-2`,
+            danger: `px-4 py-2 bg-red-500/8 backdrop-blur-sm border border-red-500/20 ${radii.card} text-red-400 text-sm font-bold transition-all active:scale-[0.97] hover:bg-red-500/12 flex items-center justify-center gap-2`,
             ghost: `px-3 py-1.5 bg-white/5 hover:bg-white/10 ${radii.control} text-sm font-bold transition-all active:scale-95 flex items-center justify-center gap-2`,
             toggleOff: `flex-1 py-1.5 ${radii.control} text-sm font-bold ${colors.bg.insetDeep} ${colors.border.subtle} ${colors.text.muted}`,
         },
 
         modal: {
-            backdrop: `fixed inset-0 z-[9999] flex items-center justify-center ${colors.bg.overlay} p-6`,
+            backdrop: `fixed inset-0 z-9999 flex items-center justify-center ${colors.bg.overlay} p-6`,
             panel: `w-full max-w-sm ${colors.bg.elevated}/95 backdrop-blur-xl border border-white/15 ${radii.modal} shadow-2xl overflow-hidden`,
             header: 'flex items-center justify-between px-5 pt-5 pb-3',
             body: 'px-5 pb-5 space-y-4',
@@ -429,16 +429,16 @@ function buildTheme(colors: ThemeColors, env: Environment): ThemeTokens {
             // strings. Interpolating the colour family (`via-${env}-950/90`)
             // purged every gradient stop, so this header rendered flat on
             // device. Branch on full literal strings so both variants survive.
-            glass: `shrink-0 px-4 py-2.5 bg-gradient-to-r ${
+            glass: `shrink-0 px-4 py-2.5 bg-linear-to-r ${
                 env === 'offshore'
                     ? 'from-slate-900/80 via-slate-950/90 to-slate-900/80'
                     : 'from-stone-900/80 via-stone-950/90 to-stone-900/80'
-            } backdrop-blur-xl border-b border-white/[0.06]`,
+            } backdrop-blur-xl border-b border-white/6`,
         },
 
         input: {
-            base: `${colors.bg.insetDeep} ${colors.border.default} ${radii.control} px-3 py-2 text-white focus:border-sky-500 focus:outline-none`,
-            code: `${colors.bg.insetDeep} border border-white/10 ${radii.control} px-3 py-2.5 text-white text-center font-mono tracking-[0.3em] placeholder-slate-700 focus:border-sky-500 focus:outline-none`,
+            base: `${colors.bg.insetDeep} ${colors.border.default} ${radii.control} px-3 py-2 text-white focus:border-sky-500 focus:outline-hidden`,
+            code: `${colors.bg.insetDeep} border border-white/10 ${radii.control} px-3 py-2.5 text-white text-center font-mono tracking-[0.3em] placeholder-slate-700 focus:border-sky-500 focus:outline-hidden`,
             slider: `w-full h-1.5 ${env === 'offshore' ? 'bg-slate-800' : 'bg-stone-800'} rounded-full appearance-none cursor-pointer`,
         },
     };

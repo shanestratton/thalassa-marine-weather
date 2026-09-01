@@ -43,7 +43,7 @@ export const YachtDatabaseSearch: React.FC<YachtDatabaseSearchProps> = ({
     );
 
     return (
-        <div className="bg-white/[0.03] border border-white/[0.06] rounded-2xl p-4">
+        <div className="bg-white/3 border border-white/6 rounded-2xl p-4">
             <div className="flex items-center gap-2 mb-4">
                 <div className="w-1 h-4 rounded-full bg-sky-500" />
                 <span className="text-xs font-bold text-sky-400 uppercase tracking-widest">Select Your Yacht</span>
@@ -62,7 +62,7 @@ export const YachtDatabaseSearch: React.FC<YachtDatabaseSearchProps> = ({
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
                     placeholder="Search by model or manufacturer…"
-                    className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white text-sm placeholder-gray-500 outline-none focus:border-sky-500 transition-colors"
+                    className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white text-sm placeholder-gray-500 outline-hidden focus:border-sky-500 transition-colors"
                 />
                 <svg
                     aria-hidden="true"
@@ -103,7 +103,7 @@ export const YachtDatabaseSearch: React.FC<YachtDatabaseSearchProps> = ({
                                         className={`w-full flex items-center justify-between p-3 rounded-xl text-left transition-all ${
                                             localSelected === entry.model
                                                 ? 'bg-sky-500/15 border border-sky-500/30 text-white'
-                                                : 'bg-white/[0.02] border border-transparent text-gray-300 hover:bg-white/[0.05] hover:border-white/10'
+                                                : 'bg-white/2 border border-transparent text-gray-300 hover:bg-white/5 hover:border-white/10'
                                         }`}
                                     >
                                         <div className="flex items-center gap-3">

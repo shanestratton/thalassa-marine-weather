@@ -97,7 +97,7 @@ const CalypsoParkedPage: React.FC<{ onBack: () => void }> = ({ onBack }) => (
             <button
                 type="button"
                 onClick={onBack}
-                className="mt-5 min-h-[44px] rounded-xl border border-white/10 bg-white/[0.06] px-5 text-sm font-bold text-white"
+                className="mt-5 min-h-[44px] rounded-xl border border-white/10 bg-white/6 px-5 text-sm font-bold text-white"
             >
                 Back
             </button>
@@ -125,7 +125,7 @@ const HeldMusicPage: React.FC<{ onBack: () => void }> = ({ onBack }) => (
             <button
                 type="button"
                 onClick={onBack}
-                className="mt-5 min-h-[44px] rounded-xl border border-white/10 bg-white/[0.06] px-5 text-sm font-bold text-white"
+                className="mt-5 min-h-[44px] rounded-xl border border-white/10 bg-white/6 px-5 text-sm font-bold text-white"
             >
                 Back
             </button>
@@ -172,7 +172,7 @@ const GuardianBetaHoldPage: React.FC<{ onBack: () => void }> = ({ onBack }) => (
             <button
                 type="button"
                 onClick={onBack}
-                className="mt-5 min-h-[44px] rounded-xl border border-white/10 bg-white/[0.06] px-5 text-sm font-bold text-white"
+                className="mt-5 min-h-[44px] rounded-xl border border-white/10 bg-white/6 px-5 text-sm font-bold text-white"
             >
                 Back to vessel
             </button>

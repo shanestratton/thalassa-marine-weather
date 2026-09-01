@@ -674,7 +674,7 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                 {/* ── Step 1: Active Voyage Warning ── */}
                 {step === 'active' && activeVoyage && (
                     <div className="p-5 pt-2 space-y-4">
-                        <div className="p-4 rounded-2xl bg-emerald-500/[0.06] border border-emerald-500/15 space-y-3">
+                        <div className="p-4 rounded-2xl bg-emerald-500/6 border border-emerald-500/15 space-y-3">
                             <div className="flex items-center gap-2">
                                 <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
                                 <span className="text-xs font-bold uppercase tracking-widest text-emerald-400">
@@ -695,7 +695,7 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                                     rather than silently hidden. These feed the
                                     float plan's From/To, so getting them right
                                     matters beyond cosmetics. */}
-                                <div className="p-2 rounded-lg bg-white/[0.03] border border-white/[0.06]">
+                                <div className="p-2 rounded-lg bg-white/3 border border-white/6">
                                     <label htmlFor="voyage-from" className="text-gray-500">
                                         From{currentLeg ? ` · Leg ${currentLeg.leg_number}` : ''}
                                     </label>
@@ -707,10 +707,10 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                                         onBlur={persistPorts}
                                         onFocus={scrollInputAboveKeyboard}
                                         placeholder="Departure port"
-                                        className="mt-0.5 w-full bg-transparent text-white font-bold outline-none placeholder-gray-600 border-b border-transparent focus:border-sky-500/40 transition-colors"
+                                        className="mt-0.5 w-full bg-transparent text-white font-bold outline-hidden placeholder-gray-600 border-b border-transparent focus:border-sky-500/40 transition-colors"
                                     />
                                 </div>
-                                <div className="p-2 rounded-lg bg-white/[0.03] border border-white/[0.06]">
+                                <div className="p-2 rounded-lg bg-white/3 border border-white/6">
                                     <label htmlFor="voyage-to" className="text-gray-500">
                                         To
                                     </label>
@@ -722,10 +722,10 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                                         onBlur={persistPorts}
                                         onFocus={scrollInputAboveKeyboard}
                                         placeholder="Destination"
-                                        className="mt-0.5 w-full bg-transparent text-white font-bold outline-none placeholder-gray-600 border-b border-transparent focus:border-sky-500/40 transition-colors"
+                                        className="mt-0.5 w-full bg-transparent text-white font-bold outline-hidden placeholder-gray-600 border-b border-transparent focus:border-sky-500/40 transition-colors"
                                     />
                                 </div>
-                                <div className="p-2 rounded-lg bg-white/[0.03] border border-white/[0.06]">
+                                <div className="p-2 rounded-lg bg-white/3 border border-white/6">
                                     <span className="text-gray-500">Crew</span>
                                     {/* Editable like From/To: legacy rows carry a
                                         creation-time crew snapshot (often the old
@@ -737,7 +737,7 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                                             type="button"
                                             aria-label="Decrease crew"
                                             onClick={() => void persistCrew(displayedCrewCount - 1)}
-                                            className="w-6 h-6 min-h-[44px] min-w-[44px] rounded-md bg-white/[0.06] text-white font-bold leading-none"
+                                            className="w-6 h-6 min-h-[44px] min-w-[44px] rounded-md bg-white/6 text-white font-bold leading-none"
                                         >
                                             −
                                         </button>
@@ -746,14 +746,14 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                                             type="button"
                                             aria-label="Increase crew"
                                             onClick={() => void persistCrew(displayedCrewCount + 1)}
-                                            className="w-6 h-6 min-h-[44px] min-w-[44px] rounded-md bg-white/[0.06] text-white font-bold leading-none"
+                                            className="w-6 h-6 min-h-[44px] min-w-[44px] rounded-md bg-white/6 text-white font-bold leading-none"
                                         >
                                             +
                                         </button>
                                     </div>
                                 </div>
                                 {activeVoyage.departure_time && (
-                                    <div className="p-2 rounded-lg bg-white/[0.03] border border-white/[0.06]">
+                                    <div className="p-2 rounded-lg bg-white/3 border border-white/6">
                                         <span className="text-gray-500">Departed</span>
                                         <p className="text-white font-bold">
                                             {new Date(activeVoyage.departure_time).toLocaleString([], {
@@ -786,7 +786,7 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                                     return (
                                         <div
                                             key={leg.id}
-                                            className="p-2.5 rounded-xl bg-white/[0.02] border border-white/[0.04] flex items-center gap-2.5"
+                                            className="p-2.5 rounded-xl bg-white/2 border border-white/4 flex items-center gap-2.5"
                                         >
                                             <span className="w-6 h-6 rounded-full bg-emerald-500/10 text-emerald-400 text-[11px] font-black flex items-center justify-center shrink-0">
                                                 {summary.legNumber}
@@ -913,7 +913,7 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                                 onChange={(e) => setArrivalPort(e.target.value)}
                                 onFocus={scrollInputAboveKeyboard}
                                 placeholder="e.g. Nouméa, New Caledonia"
-                                className="w-full bg-white/[0.03] border border-white/[0.08] rounded-xl px-4 py-3 text-sm text-white placeholder-gray-600 focus:border-sky-500/40 outline-none transition-colors"
+                                className="w-full bg-white/3 border border-white/8 rounded-xl px-4 py-3 text-sm text-white placeholder-gray-600 focus:border-sky-500/40 outline-hidden transition-colors"
                                 autoFocus
                             />
                         </div>
@@ -922,7 +922,7 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                             <button
                                 onClick={handleConfirmArrival}
                                 disabled={!arrivalPort.trim()}
-                                className="w-full py-3.5 bg-gradient-to-r from-sky-500 to-sky-500 rounded-xl text-sm font-black text-white uppercase tracking-[0.15em] transition-all active:scale-[0.97] disabled:opacity-20 shadow-lg shadow-sky-500/20"
+                                className="w-full py-3.5 bg-linear-to-r from-sky-500 to-sky-500 rounded-xl text-sm font-black text-white uppercase tracking-[0.15em] transition-all active:scale-[0.97] disabled:opacity-20 shadow-lg shadow-sky-500/20"
                             >
                                 ⚓ Confirm Arrival
                             </button>
@@ -949,7 +949,7 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
 
                         {/* Quick leg summary */}
                         {completedLegs.length > 0 && (
-                            <div className="p-3 rounded-xl bg-emerald-500/[0.04] border border-emerald-500/10">
+                            <div className="p-3 rounded-xl bg-emerald-500/4 border border-emerald-500/10">
                                 {completedLegs.map((leg) => {
                                     const s = getLegSummary(leg);
                                     return (
@@ -973,7 +973,7 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                         <div className="space-y-2">
                             <button
                                 onClick={handleDepartNextLeg}
-                                className="w-full py-4 bg-gradient-to-r from-amber-500 to-orange-500 rounded-xl text-base font-black text-black uppercase tracking-[0.15em] transition-all active:scale-[0.96] shadow-lg shadow-amber-500/20"
+                                className="w-full py-4 bg-linear-to-r from-amber-500 to-orange-500 rounded-xl text-base font-black text-black uppercase tracking-[0.15em] transition-all active:scale-[0.96] shadow-lg shadow-amber-500/20"
                             >
                                 🚢 Depart — Start Leg {completedLegs.length + 1}
                             </button>
@@ -1023,7 +1023,7 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                                         // keep the prompt so it can be retried.
                                     }
                                 }}
-                                className="flex-[2] rounded-lg bg-emerald-500/20 py-2 text-[11px] font-black uppercase tracking-wide text-emerald-200 active:scale-95"
+                                className="flex-2 rounded-lg bg-emerald-500/20 py-2 text-[11px] font-black uppercase tracking-wide text-emerald-200 active:scale-95"
                             >
                                 Send &ldquo;we&rsquo;re in&rdquo;
                             </button>
@@ -1053,7 +1053,7 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                                         key={v.id}
                                         onClick={() => void handleSelect(v)}
                                         disabled={selectingId !== null}
-                                        className="w-full p-4 rounded-xl bg-white/[0.03] border border-white/[0.06] text-left hover:bg-white/[0.05] hover:border-amber-500/20 transition-all active:scale-[0.98] disabled:opacity-50 group"
+                                        className="w-full p-4 rounded-xl bg-white/3 border border-white/6 text-left hover:bg-white/5 hover:border-amber-500/20 transition-all active:scale-[0.98] disabled:opacity-50 group"
                                     >
                                         <div className="flex items-start justify-between">
                                             <div>
@@ -1107,7 +1107,7 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                                 onChange={(e) => setNewName(e.target.value)}
                                 onFocus={scrollInputAboveKeyboard}
                                 placeholder="e.g. Tangalooma Day Trip"
-                                className="w-full bg-white/[0.03] border border-white/[0.08] rounded-xl px-4 py-3 text-sm text-white placeholder-gray-600 focus:border-amber-500/40 outline-none transition-colors"
+                                className="w-full bg-white/3 border border-white/8 rounded-xl px-4 py-3 text-sm text-white placeholder-gray-600 focus:border-amber-500/40 outline-hidden transition-colors"
                                 autoFocus
                             />
                         </div>
@@ -1123,7 +1123,7 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                                     onChange={(e) => setNewFrom(e.target.value)}
                                     onFocus={scrollInputAboveKeyboard}
                                     placeholder="Departure port"
-                                    className="w-full bg-white/[0.03] border border-white/[0.08] rounded-xl px-3 py-2.5 text-xs text-white placeholder-gray-600 focus:border-amber-500/40 outline-none transition-colors"
+                                    className="w-full bg-white/3 border border-white/8 rounded-xl px-3 py-2.5 text-xs text-white placeholder-gray-600 focus:border-amber-500/40 outline-hidden transition-colors"
                                 />
                             </div>
                             <div>
@@ -1136,7 +1136,7 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                                     onChange={(e) => setNewTo(e.target.value)}
                                     onFocus={scrollInputAboveKeyboard}
                                     placeholder="Destination"
-                                    className="w-full bg-white/[0.03] border border-white/[0.08] rounded-xl px-3 py-2.5 text-xs text-white placeholder-gray-600 focus:border-amber-500/40 outline-none transition-colors"
+                                    className="w-full bg-white/3 border border-white/8 rounded-xl px-3 py-2.5 text-xs text-white placeholder-gray-600 focus:border-amber-500/40 outline-hidden transition-colors"
                                 />
                             </div>
                         </div>
@@ -1149,7 +1149,7 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                                 <button
                                     onClick={() => setNewCrew((c) => Math.max(1, c - 1))}
                                     aria-label="Decrease crew"
-                                    className="w-11 h-11 rounded-lg bg-white/[0.06] border border-white/[0.08] flex items-center justify-center text-white hover:bg-white/[0.1] active:scale-90"
+                                    className="w-11 h-11 rounded-lg bg-white/6 border border-white/8 flex items-center justify-center text-white hover:bg-white/10 active:scale-90"
                                 >
                                     −
                                 </button>
@@ -1159,7 +1159,7 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                                 <button
                                     onClick={() => setNewCrew((c) => Math.min(20, c + 1))}
                                     aria-label="Increase crew"
-                                    className="w-11 h-11 rounded-lg bg-white/[0.06] border border-white/[0.08] flex items-center justify-center text-white hover:bg-white/[0.1] active:scale-90"
+                                    className="w-11 h-11 rounded-lg bg-white/6 border border-white/8 flex items-center justify-center text-white hover:bg-white/10 active:scale-90"
                                 >
                                     +
                                 </button>
@@ -1176,7 +1176,7 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                             <button
                                 onClick={handleCreateVoyage}
                                 disabled={!newName.trim() || creating}
-                                className="w-full py-3.5 bg-gradient-to-r from-amber-500 to-orange-500 rounded-xl text-sm font-black text-black uppercase tracking-[0.15em] transition-all active:scale-[0.97] disabled:opacity-30 shadow-lg shadow-amber-500/20"
+                                className="w-full py-3.5 bg-linear-to-r from-amber-500 to-orange-500 rounded-xl text-sm font-black text-black uppercase tracking-[0.15em] transition-all active:scale-[0.97] disabled:opacity-30 shadow-lg shadow-amber-500/20"
                             >
                                 {creating ? '⏳ Creating…' : '✨ Create Draft Voyage'}
                             </button>
@@ -1243,13 +1243,13 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                         )}
 
                         {/* Safety Confirm */}
-                        <div className="p-4 rounded-xl bg-amber-500/[0.04] border border-amber-500/15">
+                        <div className="p-4 rounded-xl bg-amber-500/4 border border-amber-500/15">
                             <button
                                 type="button"
                                 role="checkbox"
                                 aria-checked={safetyConfirmed}
                                 aria-label="Confirm Safety — vessel is ready to depart for this voyage"
-                                className="flex min-h-[44px] w-full cursor-pointer items-center gap-3 rounded-lg text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+                                className="flex min-h-[44px] w-full cursor-pointer items-center gap-3 rounded-lg text-left focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-amber-400"
                                 onClick={() => {
                                     setSafetyConfirmed((v) => !v);
                                     triggerHaptic('medium');
@@ -1299,7 +1299,7 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                                 triggerHaptic('light');
                                 setShowFloatPlan(true);
                             }}
-                            className="flex min-h-[44px] w-full cursor-pointer items-center gap-3 rounded-xl border border-violet-500/15 bg-violet-500/[0.04] p-4 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400"
+                            className="flex min-h-[44px] w-full cursor-pointer items-center gap-3 rounded-xl border border-violet-500/15 bg-violet-500/4 p-4 text-left focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-violet-400"
                         >
                             <span className="text-lg">📋</span>
                             <div className="flex-1">
@@ -1330,7 +1330,7 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                             aria-checked={publishPublic}
                             aria-label="Show this passage on the public page"
                             onClick={togglePublishPublic}
-                            className="flex min-h-[44px] w-full cursor-pointer items-center gap-3 rounded-xl border border-cyan-500/15 bg-cyan-500/[0.04] p-4 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"
+                            className="flex min-h-[44px] w-full cursor-pointer items-center gap-3 rounded-xl border border-cyan-500/15 bg-cyan-500/4 p-4 text-left focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-cyan-400"
                         >
                             <span
                                 aria-hidden="true"
@@ -1355,7 +1355,7 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                             <button
                                 onClick={handleCastOff}
                                 disabled={!safetyConfirmed || casting}
-                                className="w-full py-4 bg-gradient-to-r from-amber-500 to-orange-500 rounded-xl text-base font-black text-black uppercase tracking-[0.2em] transition-all active:scale-[0.96] disabled:opacity-20 disabled:cursor-not-allowed shadow-lg shadow-amber-500/20"
+                                className="w-full py-4 bg-linear-to-r from-amber-500 to-orange-500 rounded-xl text-base font-black text-black uppercase tracking-[0.2em] transition-all active:scale-[0.96] disabled:opacity-20 disabled:cursor-not-allowed shadow-lg shadow-amber-500/20"
                             >
                                 {casting ? '⏳ Casting Off…' : '⚓ CAST OFF'}
                             </button>

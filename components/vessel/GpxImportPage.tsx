@@ -279,7 +279,7 @@ export const GpxImportPage: React.FC<GpxImportPageProps> = ({ onBack }) => {
                             {/* Drop zone / file picker */}
                             <button
                                 onClick={() => fileInputRef.current?.click()}
-                                className="w-full py-12 rounded-2xl border-2 border-dashed border-white/10 hover:border-emerald-500/40 bg-white/[0.02] hover:bg-emerald-500/[0.03] transition-all group"
+                                className="w-full py-12 rounded-2xl border-2 border-dashed border-white/10 hover:border-emerald-500/40 bg-white/2 hover:bg-emerald-500/3 transition-all group"
                             >
                                 <div className="flex flex-col items-center gap-3">
                                     <div className="w-16 h-16 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center group-hover:scale-110 transition-transform">
@@ -347,7 +347,7 @@ export const GpxImportPage: React.FC<GpxImportPageProps> = ({ onBack }) => {
                             )}
 
                             {/* Compatibility info */}
-                            <div className="rounded-2xl bg-white/[0.02] border border-white/5 p-4">
+                            <div className="rounded-2xl bg-white/2 border border-white/5 p-4">
                                 <p className="text-[11px] font-bold text-white/60 uppercase tracking-widest mb-3">
                                     Compatible Software
                                 </p>
@@ -362,7 +362,7 @@ export const GpxImportPage: React.FC<GpxImportPageProps> = ({ onBack }) => {
                                     ].map((app) => (
                                         <div
                                             key={app.name}
-                                            className="flex items-center gap-2 px-3 py-2 rounded-xl bg-white/[0.02]"
+                                            className="flex items-center gap-2 px-3 py-2 rounded-xl bg-white/2"
                                         >
                                             <div className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
                                             <div className="flex-1 min-w-0">
@@ -377,7 +377,7 @@ export const GpxImportPage: React.FC<GpxImportPageProps> = ({ onBack }) => {
                             </div>
 
                             {/* Format info */}
-                            <div className="rounded-2xl bg-white/[0.02] border border-white/5 p-4 space-y-3">
+                            <div className="rounded-2xl bg-white/2 border border-white/5 p-4 space-y-3">
                                 <p className="text-[11px] font-bold text-white/60 uppercase tracking-widest">
                                     What Gets Imported
                                 </p>
@@ -429,7 +429,7 @@ export const GpxImportPage: React.FC<GpxImportPageProps> = ({ onBack }) => {
                     {state === 'previewing' && preview && (
                         <>
                             {/* File info card */}
-                            <div className="rounded-2xl bg-white/[0.03] border border-white/10 p-4">
+                            <div className="rounded-2xl bg-white/3 border border-white/10 p-4">
                                 <div className="flex items-start gap-3">
                                     <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center shrink-0">
                                         <svg
@@ -488,7 +488,7 @@ export const GpxImportPage: React.FC<GpxImportPageProps> = ({ onBack }) => {
 
                             {/* Bounds display */}
                             {preview.stats.bounds && (
-                                <div className="rounded-2xl bg-white/[0.02] border border-white/5 p-4">
+                                <div className="rounded-2xl bg-white/2 border border-white/5 p-4">
                                     <p className="text-[11px] font-bold text-white/60 uppercase tracking-widest mb-2">
                                         Coverage Area
                                     </p>
@@ -522,7 +522,7 @@ export const GpxImportPage: React.FC<GpxImportPageProps> = ({ onBack }) => {
                             )}
 
                             {/* Sample entries */}
-                            <div className="rounded-2xl bg-white/[0.02] border border-white/5 p-4">
+                            <div className="rounded-2xl bg-white/2 border border-white/5 p-4">
                                 <p className="text-[11px] font-bold text-white/60 uppercase tracking-widest mb-3">
                                     Preview ({Math.min(5, preview.entries.length)} of {preview.entries.length} entries)
                                 </p>
@@ -530,7 +530,7 @@ export const GpxImportPage: React.FC<GpxImportPageProps> = ({ onBack }) => {
                                     {preview.entries.slice(0, 5).map((entry, i) => (
                                         <div
                                             key={i}
-                                            className="flex items-center gap-3 px-3 py-2 rounded-xl bg-white/[0.02]"
+                                            className="flex items-center gap-3 px-3 py-2 rounded-xl bg-white/2"
                                         >
                                             <div
                                                 className={`w-2 h-2 rounded-full ${entry.entryType === 'waypoint' ? 'bg-purple-400' : 'bg-emerald-400'}`}

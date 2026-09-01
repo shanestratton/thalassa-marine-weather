@@ -33,7 +33,7 @@ describe('OverlayPortal', () => {
 
         expect(overlay?.parentElement).toBe(document.body);
         expect(overlay).toHaveStyle({ zIndex: OVERLAY_Z_INDEX.critical });
-        expect(overlay).toHaveClass('z-[2147483000]');
+        expect(overlay).toHaveClass('z-2147483000');
         expect(OVERLAY_Z_INDEX.critical).toBeGreaterThan(100_000);
         expect(OVERLAY_Z_INDEX.critical).toBeGreaterThan(OVERLAY_Z_INDEX.modal);
     });

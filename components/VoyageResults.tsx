@@ -66,7 +66,7 @@ const _SystemSwitch = React.memo<{ label: string; checked: boolean; onChange: ()
                 className={`w-8 h-4 rounded-full relative transition-colors ${checked ? 'bg-sky-500' : 'bg-slate-700'} shadow-inner`}
             >
                 <div
-                    className={`absolute top-0.5 left-0.5 w-3 h-3 bg-white rounded-full transition-transform shadow-sm ${checked ? 'translate-x-4' : 'translate-x-0'}`}
+                    className={`absolute top-0.5 left-0.5 w-3 h-3 bg-white rounded-full transition-transform shadow-xs ${checked ? 'translate-x-4' : 'translate-x-0'}`}
                 ></div>
             </div>
         </button>
@@ -491,7 +491,7 @@ export const VoyageResults: React.FC<VoyageResultsProps> = React.memo(
                                                 <span className="text-sm font-bold text-red-100 uppercase tracking-wider">
                                                     {h.name}
                                                 </span>
-                                                <span className="text-[11px] font-bold px-1.5 py-0.5 bg-red-500/20 text-red-300 rounded border border-red-500/20 shadow-sm whitespace-nowrap">
+                                                <span className="text-[11px] font-bold px-1.5 py-0.5 bg-red-500/20 text-red-300 rounded-sm border border-red-500/20 shadow-xs whitespace-nowrap">
                                                     {h.severity}
                                                 </span>
                                             </div>

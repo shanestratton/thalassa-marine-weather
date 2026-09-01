@@ -752,7 +752,7 @@ const App: React.FC = () => {
 
     return (
         <div
-            className={`relative h-screen supports-[height:100dvh]:h-[100dvh] w-full overflow-hidden font-sans transition-colors duration-500 ${containerClasses} ${isLight ? 'display-light' : ''} flex flex-col`}
+            className={`relative h-screen supports-[height:100dvh]:h-dvh w-full overflow-hidden font-sans transition-colors duration-500 ${containerClasses} ${isLight ? 'display-light' : ''} flex flex-col`}
         >
             {/* MODALS & OVERLAYS */}
             {/* Desktop-builder front door: only ever visible when the
@@ -795,7 +795,7 @@ const App: React.FC = () => {
                         className="absolute inset-0 h-full w-full scale-105 object-cover transition-all duration-1000"
                     />
                     <div className="absolute inset-0 bg-black/30"></div>
-                    <div className="absolute inset-0 bg-gradient-to-b from-slate-900/90 via-slate-900/40 to-slate-900/90"></div>
+                    <div className="absolute inset-0 bg-linear-to-b from-slate-900/90 via-slate-900/40 to-slate-900/90"></div>
                 </div>
             ) : (
                 <div className={`absolute inset-0 z-0 ${isLight ? 'bg-slate-200' : 'bg-slate-950'}`}></div>
@@ -888,7 +888,7 @@ const App: React.FC = () => {
                 {/* HEADER */}
                 {showHeader && (
                     <header
-                        className={`px-4 md:px-6 flex flex-col justify-between pointer-events-none shrink-0 ${isDashboard ? `fixed top-0 left-0 right-0 z-[105] ${isLight ? 'bg-slate-200' : 'bg-black'}` : `${isMobileLandscape ? 'py-1' : 'py-2'}`} pt-[max(1rem,env(safe-area-inset-top))]`}
+                        className={`px-4 md:px-6 flex flex-col justify-between pointer-events-none shrink-0 ${isDashboard ? `fixed top-0 left-0 right-0 z-105 ${isLight ? 'bg-slate-200' : 'bg-black'}` : `${isMobileLandscape ? 'py-1' : 'py-2'}`} pt-[max(1rem,env(safe-area-inset-top))]`}
                         style={{ paddingBottom: isDashboard ? 0 : undefined, gap: `${GLASS_TOP_CARD_GAP_PX}px` }}
                     >
                         {/* Logo row — same style on all pages */}
@@ -927,11 +927,11 @@ const App: React.FC = () => {
                                                at ~26px — inside the text-xl wordmark's own
                                                line box, so the brand row height and the
                                                truncating h2 beside it are untouched. */
-                                            <span className="flex shrink-0 flex-col items-center whitespace-nowrap rounded border border-amber-300/30 bg-amber-400/15 px-1.5 py-0.5 text-amber-100 shadow-lg">
+                                            <span className="flex shrink-0 flex-col items-center whitespace-nowrap rounded-sm border border-amber-300/30 bg-amber-400/15 px-1.5 py-0.5 text-amber-100 shadow-lg">
                                                 <span className="text-[10px] font-bold uppercase leading-none tracking-wider">
                                                     Skipper
                                                 </span>
-                                                <span className="mt-[1px] text-[7px] font-semibold uppercase leading-none tracking-wide text-amber-200/70">
+                                                <span className="mt-px text-[7px] font-semibold uppercase leading-none tracking-wide text-amber-200/70">
                                                     Beta · Free
                                                 </span>
                                             </span>
@@ -939,8 +939,8 @@ const App: React.FC = () => {
                                             <span
                                                 className={`px-1.5 py-0.5 rounded text-[11px] font-bold text-white uppercase tracking-wider shadow-lg ${
                                                     settings.subscriptionTier === 'owner'
-                                                        ? 'bg-gradient-to-r from-amber-500 to-orange-500'
-                                                        : 'bg-gradient-to-r from-cyan-500 to-blue-600'
+                                                        ? 'bg-linear-to-r from-amber-500 to-orange-500'
+                                                        : 'bg-linear-to-r from-cyan-500 to-blue-600'
                                                 }`}
                                             >
                                                 {TIER_INFO[settings.subscriptionTier].badge}
@@ -1014,7 +1014,7 @@ const App: React.FC = () => {
                                 className={`flex w-full items-center gap-3 md:w-auto ${isDashboard ? '' : isMobileLandscape ? 'h-8' : 'h-12'} pointer-events-auto`}
                                 style={isDashboard ? { height: `${glassTopLayout.locationCardHeightPx}px` } : undefined}
                             >
-                                <div className="relative flex-grow md:w-96 group h-full">
+                                <div className="relative grow md:w-96 group h-full">
                                     <form onSubmit={(e) => e.preventDefault()} className="relative w-full h-full">
                                         <input
                                             type="text"
@@ -1028,7 +1028,7 @@ const App: React.FC = () => {
                                             // invisible). The offline state is communicated via
                                             // the amber wifi-off chip on the left, so the bar
                                             // itself doesn't need to shout.
-                                            className={`w-full h-full text-white placeholder-gray-400 rounded-2xl pl-12 pr-12 outline-none transition-all shadow-2xl font-bold text-xl tracking-tight cursor-default bg-slate-900/60 border ${isOffline ? 'border-amber-500/40' : 'border-white/10'}`}
+                                            className={`w-full h-full text-white placeholder-gray-400 rounded-2xl pl-12 pr-12 outline-hidden transition-all shadow-2xl font-bold text-xl tracking-tight cursor-default bg-slate-900/60 border ${isOffline ? 'border-amber-500/40' : 'border-white/10'}`}
                                         />
                                         {/* Left adornment: swap between the usual search icon
                                             and a wifi-off glyph when offline. Keeps the layout
@@ -1093,7 +1093,7 @@ const App: React.FC = () => {
                     >
                         <main
                             id="main-content"
-                            className={`flex-grow relative flex flex-col ${isLight ? 'bg-slate-200' : 'bg-slate-950'} ${!showHeader ? 'pt-[max(2rem,env(safe-area-inset-top))]' : 'pt-0'} ${['settings', 'warnings'].includes(currentView) ? 'overflow-y-auto' : 'overflow-hidden'}`}
+                            className={`grow relative flex flex-col ${isLight ? 'bg-slate-200' : 'bg-slate-950'} ${!showHeader ? 'pt-[max(2rem,env(safe-area-inset-top))]' : 'pt-0'} ${['settings', 'warnings'].includes(currentView) ? 'overflow-y-auto' : 'overflow-hidden'}`}
                         >
                             <ErrorBoundary boundaryName="MainContent">
                                 <Suspense
@@ -1260,7 +1260,7 @@ const App: React.FC = () => {
                         className={
                             splitChartActive && splitChartRect
                                 ? 'overflow-hidden rounded-2xl bg-slate-900'
-                                : 'flex-grow w-full relative bg-slate-900 overflow-hidden'
+                                : 'grow w-full relative bg-slate-900 overflow-hidden'
                         }
                         style={
                             // One node, three outfits. Full-bleed on the phone;
@@ -1314,7 +1314,7 @@ const App: React.FC = () => {
                             on every other page. */}
                         {isOffline && (
                             <div
-                                className="absolute z-[601] pointer-events-auto flex items-center gap-1.5 px-2 py-1.5 bg-amber-500/15 border border-amber-500/25 rounded-lg backdrop-blur-md text-amber-400"
+                                className="absolute z-601 pointer-events-auto flex items-center gap-1.5 px-2 py-1.5 bg-amber-500/15 border border-amber-500/25 rounded-lg backdrop-blur-md text-amber-400"
                                 style={{
                                     top: 'calc(env(safe-area-inset-top) + 8px)',
                                     // The zoom readout now shares this top row.
@@ -1348,7 +1348,7 @@ const App: React.FC = () => {
                         {/* Calypso mic (Skipper-tier) + System status ℹ — paired top-right on map view.
                             The mic steps aside while the Route Tracer is open (declutter 2026-07-17). */}
                         <div
-                            className="absolute z-[601] pointer-events-auto flex items-center gap-2"
+                            className="absolute z-601 pointer-events-auto flex items-center gap-2"
                             style={{
                                 top: 'calc(env(safe-area-inset-top) + 8px)',
                                 right: '16px',
@@ -1379,7 +1379,7 @@ const App: React.FC = () => {
                             </Suspense>
                         </div>
                         {/* Back chevron — middle-left of screen */}
-                        <div className="absolute z-[601] px-3" style={{ top: '50%', transform: 'translateY(-50%)' }}>
+                        <div className="absolute z-601 px-3" style={{ top: '50%', transform: 'translateY(-50%)' }}>
                             <button
                                 onClick={() => {
                                     // Clear pin-view state when leaving map
@@ -1446,7 +1446,7 @@ const App: React.FC = () => {
                         onClick={() => setLandscapeNavOpen((v) => !v)}
                         aria-label={landscapeNavOpen ? 'Hide navigation' : 'Show navigation'}
                         aria-expanded={landscapeNavOpen}
-                        className="press fixed bottom-2 left-2 z-[901] flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl border border-sky-500/25 bg-slate-950/90 text-sky-400 backdrop-blur"
+                        className="press fixed bottom-2 left-2 z-901 flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl border border-sky-500/25 bg-slate-950/90 text-sky-400 backdrop-blur-sm"
                         style={{ marginBottom: 'env(safe-area-inset-bottom)' }}
                     >
                         <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -1461,7 +1461,7 @@ const App: React.FC = () => {
 
                 {(!isMobileLandscape || landscapeNavOpen) && !isStandalonePlan && (
                     <nav
-                        className="fixed bottom-0 left-0 right-0 z-[900] border-t pb-[env(safe-area-inset-bottom)]"
+                        className="fixed bottom-0 left-0 right-0 z-900 border-t pb-[env(safe-area-inset-bottom)]"
                         style={{
                             background: 'rgba(10, 15, 20, 0.95)',
                             backdropFilter: 'blur(10px)',
@@ -1607,7 +1607,7 @@ const App: React.FC = () => {
             </div>
 
             {/* NIGHT-VISION SCRIM — must be the TOPMOST layer in the app.
-                It sat at z-[9999] and lost to twelve overlays at z >= 10000:
+                It sat at z-9999 and lost to twelve overlays at z >= 10000:
                 the Chart depth controls (10060), the trip leg picker (10060),
                 the Plan-on-web hint (10070), the departure prompt (10055), the
                 trace report (10050), onboarding (10000) and more. Every one of

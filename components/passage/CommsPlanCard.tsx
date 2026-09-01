@@ -127,7 +127,7 @@ export const CommsPlanCard: React.FC<CommsPlanCardProps> = ({ voyageId, onReview
                         ? 'bg-emerald-500/10 border border-emerald-500/20'
                         : item.critical
                           ? 'bg-red-500/5 border border-red-500/15 hover:bg-red-500/10'
-                          : 'bg-white/[0.02] border border-white/[0.06] hover:bg-white/[0.05]'
+                          : 'bg-white/2 border border-white/6 hover:bg-white/5'
                 }`}
             >
                 <div
@@ -173,7 +173,7 @@ export const CommsPlanCard: React.FC<CommsPlanCardProps> = ({ voyageId, onReview
     return (
         <div className="space-y-4">
             {/* ── Critical Comms ── */}
-            <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4">
+            <div className="bg-white/3 border border-white/6 rounded-xl p-4">
                 <h4 className="text-xs font-bold text-white uppercase tracking-widest mb-3 flex items-center gap-2">
                     🚨 Essential Communications
                     <span
@@ -190,7 +190,7 @@ export const CommsPlanCard: React.FC<CommsPlanCardProps> = ({ voyageId, onReview
             </div>
 
             {/* ── Optional Comms ── */}
-            <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4">
+            <div className="bg-white/3 border border-white/6 rounded-xl p-4">
                 <h4 className="text-xs font-bold text-white uppercase tracking-widest mb-3 flex items-center gap-2">
                     📋 Additional Communications
                     <span className="ml-auto px-2 py-0.5 rounded-full text-[11px] font-bold bg-sky-500/10 border border-sky-500/20 text-sky-400">

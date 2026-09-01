@@ -115,12 +115,12 @@ export const VoyageLogTable: React.FC<VoyageLogTableProps> = React.memo(
                                 <td className="py-3.5">
                                     <div className="flex flex-col gap-1">
                                         {(wp.windSpeed || 0) > 20 && (
-                                            <span className="text-[11px] font-bold text-amber-400 px-1.5 py-0.5 bg-amber-500/10 rounded w-fit border border-amber-500/20">
+                                            <span className="text-[11px] font-bold text-amber-400 px-1.5 py-0.5 bg-amber-500/10 rounded-sm w-fit border border-amber-500/20">
                                                 HIGH WIND
                                             </span>
                                         )}
                                         {(wp.waveHeight || 0) > (waveLabel === 'm' ? 1.2 : 4) && (
-                                            <span className="text-[11px] font-bold text-sky-400 px-1.5 py-0.5 bg-sky-500/10 rounded w-fit border border-sky-500/20">
+                                            <span className="text-[11px] font-bold text-sky-400 px-1.5 py-0.5 bg-sky-500/10 rounded-sm w-fit border border-sky-500/20">
                                                 ROUGH SEAS
                                             </span>
                                         )}

@@ -9,7 +9,7 @@ export type MapLayer = 'wind' | 'rain' | 'global-wind' | 'velocity';
 export const MapLegend = ({ layer }: { layer: MapLayer }) => {
     if (layer === 'wind') {
         return (
-            <div className="absolute bottom-32 right-6 z-[800] bg-slate-900/95 border-2 border-white/30 p-4 rounded-2xl shadow-2xl pointer-events-none select-none">
+            <div className="absolute bottom-32 right-6 z-800 bg-slate-900/95 border-2 border-white/30 p-4 rounded-2xl shadow-2xl pointer-events-none select-none">
                 <div className="text-xs font-bold text-white uppercase mb-3 flex items-center gap-2">
                     <WindIcon className="w-4 h-4 text-sky-400" /> Wind Speed (kts)
                 </div>
@@ -56,7 +56,7 @@ export const MapLegend = ({ layer }: { layer: MapLayer }) => {
     }
     if (layer === 'rain') {
         return (
-            <div className="absolute bottom-32 right-6 z-[800] bg-slate-900/95 border-2 border-white/30 p-4 rounded-2xl shadow-2xl pointer-events-none select-none">
+            <div className="absolute bottom-32 right-6 z-800 bg-slate-900/95 border-2 border-white/30 p-4 rounded-2xl shadow-2xl pointer-events-none select-none">
                 <div className="text-xs font-bold text-white uppercase mb-3 flex items-center gap-2">
                     <RainIcon className="w-4 h-4 text-sky-400" /> Precipitation
                 </div>
@@ -75,29 +75,29 @@ export const MapLegend = ({ layer }: { layer: MapLayer }) => {
     }
     if (layer === 'global-wind') {
         return (
-            <div className="absolute bottom-32 right-6 z-[800] bg-slate-900/95 border-2 border-white/30 p-4 rounded-2xl shadow-2xl pointer-events-none select-none">
+            <div className="absolute bottom-32 right-6 z-800 bg-slate-900/95 border-2 border-white/30 p-4 rounded-2xl shadow-2xl pointer-events-none select-none">
                 <div className="text-xs font-bold text-white uppercase mb-3 flex items-center gap-2">
                     <WindIcon className="w-4 h-4 text-sky-400" /> Global Winds
                 </div>
                 <div className="flex flex-col gap-2">
                     <div className="text-[11px] text-gray-400 mb-1">Streamlines</div>
                     <div className="flex items-center gap-3 text-xs text-white font-mono">
-                        <div className="w-4 h-1 bg-[rgb(239,68,68)] rounded shadow-[0_0_6px_rgba(239,68,68,0.8)]"></div>
+                        <div className="w-4 h-1 bg-[rgb(239,68,68)] rounded-sm shadow-[0_0_6px_rgba(239,68,68,0.8)]"></div>
                         <span className="font-bold">60+ kts</span>
                         <span className="text-gray-300 ml-auto">Jet</span>
                     </div>
                     <div className="flex items-center gap-3 text-xs text-white font-mono">
-                        <div className="w-4 h-1 bg-[rgb(249,115,22)] rounded shadow-[0_0_5px_rgba(249,115,22,0.7)]"></div>
+                        <div className="w-4 h-1 bg-[rgb(249,115,22)] rounded-sm shadow-[0_0_5px_rgba(249,115,22,0.7)]"></div>
                         <span className="font-bold">30-60</span>
                         <span className="text-gray-300 ml-auto">Strong</span>
                     </div>
                     <div className="flex items-center gap-3 text-xs text-white font-mono">
-                        <div className="w-4 h-1 bg-[rgb(234,179,8)] rounded shadow-[0_0_5px_rgba(234,179,8,0.7)]"></div>
+                        <div className="w-4 h-1 bg-[rgb(234,179,8)] rounded-sm shadow-[0_0_5px_rgba(234,179,8,0.7)]"></div>
                         <span className="font-bold">20-30</span>
                         <span className="text-gray-300 ml-auto">Mod</span>
                     </div>
                     <div className="flex items-center gap-3 text-xs text-white font-mono">
-                        <div className="w-4 h-1 bg-[rgb(59,130,246)] opacity-60 rounded shadow-[0_0_4px_rgba(59,130,246,0.6)]"></div>
+                        <div className="w-4 h-1 bg-[rgb(59,130,246)] opacity-60 rounded-sm shadow-[0_0_4px_rgba(59,130,246,0.6)]"></div>
                         <span className="font-bold">0-20</span>
                         <span className="text-gray-300 ml-auto">Light</span>
                     </div>
@@ -138,7 +138,7 @@ export const StopDetailView = ({ waypoint, onClose }: { waypoint: Waypoint; onCl
 
     return (
         <div
-            className="absolute inset-0 z-[1100] flex items-center justify-center p-4 bg-black/60 animate-in fade-in duration-300"
+            className="absolute inset-0 z-1100 flex items-center justify-center p-4 bg-black/60 animate-in fade-in duration-300"
             onClick={onClose}
         >
             <div
@@ -154,7 +154,7 @@ export const StopDetailView = ({ waypoint, onClose }: { waypoint: Waypoint; onCl
                             className="absolute inset-0 h-full w-full object-cover opacity-60"
                         />
                     )}
-                    <div className="absolute inset-0 bg-gradient-to-t from-[#0f172a] to-transparent"></div>
+                    <div className="absolute inset-0 bg-linear-to-t from-[#0f172a] to-transparent"></div>
                     <button
                         aria-label="Close dialog"
                         onClick={onClose}
@@ -202,14 +202,14 @@ export const StopDetailView = ({ waypoint, onClose }: { waypoint: Waypoint; onCl
                                 </h4>
                                 <div className="flex flex-wrap gap-2">
                                     {details.fuelAvailable && (
-                                        <span className="px-2 py-1 rounded bg-amber-500/10 text-amber-300 text-[11px] font-bold border border-amber-500/20">
+                                        <span className="px-2 py-1 rounded-sm bg-amber-500/10 text-amber-300 text-[11px] font-bold border border-amber-500/20">
                                             FUEL DOCK
                                         </span>
                                     )}
                                     {details.marinaFacilities?.slice(0, 6).map((f, i) => (
                                         <span
                                             key={i}
-                                            className="px-2 py-1 rounded bg-white/5 text-gray-300 text-[11px] font-medium border border-white/10"
+                                            className="px-2 py-1 rounded-sm bg-white/5 text-gray-300 text-[11px] font-medium border border-white/10"
                                         >
                                             {f}
                                         </span>

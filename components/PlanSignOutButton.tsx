@@ -49,21 +49,21 @@ export const PlanSignOutButton: React.FC = () => {
     };
 
     return (
-        <div className="fixed right-3 top-[calc(env(safe-area-inset-top)+12px)] z-[800] flex max-w-[min(22rem,calc(100vw-1.5rem))] flex-col items-end gap-2">
+        <div className="fixed right-3 top-[calc(env(safe-area-inset-top)+12px)] z-800 flex max-w-[min(22rem,calc(100vw-1.5rem))] flex-col items-end gap-2">
             <button
                 type="button"
                 onClick={handleSignOut}
                 disabled={busy}
                 data-testid="plan-sign-out"
                 aria-label="Sign out of the passage builder"
-                className="hit-target-44 rounded-full border border-white/15 bg-slate-900/80 px-3 py-1.5 text-[11px] font-black uppercase tracking-wide text-slate-200 backdrop-blur transition-colors active:brightness-110 disabled:opacity-50"
+                className="hit-target-44 rounded-full border border-white/15 bg-slate-900/80 px-3 py-1.5 text-[11px] font-black uppercase tracking-wide text-slate-200 backdrop-blur-sm transition-colors active:brightness-110 disabled:opacity-50"
             >
                 {busy ? 'Signing out…' : 'Sign out'}
             </button>
             {error && (
                 <div
                     role="alert"
-                    className="rounded-xl border border-red-400/40 bg-slate-950/95 px-3 py-2 text-xs font-semibold leading-relaxed text-red-200 shadow-xl backdrop-blur"
+                    className="rounded-xl border border-red-400/40 bg-slate-950/95 px-3 py-2 text-xs font-semibold leading-relaxed text-red-200 shadow-xl backdrop-blur-sm"
                 >
                     {error}
                 </div>

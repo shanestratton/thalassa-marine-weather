@@ -50,7 +50,7 @@ export const WindModelFieldSelector: React.FC<WindModelFieldSelectorProps> = mem
     ({ model, onModelChange, embedded = false }) => {
         return (
             <div
-                className="absolute z-[500]"
+                className="absolute z-500"
                 // 152px, was 132px. The scrubber below is anchored at 80px and
                 // stands ~60px tall (44px play button + 8px padding each side),
                 // so its top edge is ~140px — the row was OVERLAPPING it by
@@ -58,7 +58,7 @@ export const WindModelFieldSelector: React.FC<WindModelFieldSelectorProps> = mem
                 // a deliberate 12px gap so the two read as separate controls.
                 style={{ left: 12, bottom: embedded ? 70 : 'calc(152px + env(safe-area-inset-bottom))' }}
             >
-                <div className="bg-slate-900/90 border border-white/[0.08] rounded-2xl px-2 py-1.5 flex flex-col gap-1.5 shadow-lg shadow-black/30">
+                <div className="bg-slate-900/90 border border-white/8 rounded-2xl px-2 py-1.5 flex flex-col gap-1.5 shadow-lg shadow-black/30">
                     {/* Model chips (horizontally scrollable) */}
                     {/* Narrower (Shane 2026-07-22). Was max-w-[88vw], which
                         sprawled the row across almost the whole chart. The
@@ -78,7 +78,7 @@ export const WindModelFieldSelector: React.FC<WindModelFieldSelectorProps> = mem
                                         'min-h-[44px] min-w-[44px] shrink-0 px-2 py-1 rounded-lg text-[10px] font-black uppercase tracking-wide transition-colors active:scale-95 ' +
                                         (active
                                             ? 'bg-sky-500/25 border border-sky-400/40 text-sky-200'
-                                            : 'bg-white/[0.04] border border-white/[0.06] text-gray-400')
+                                            : 'bg-white/4 border border-white/6 text-gray-400')
                                     }
                                 >
                                     {m.label}

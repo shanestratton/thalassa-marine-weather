@@ -81,7 +81,7 @@ export const CompactErrorFallback: React.FC<{ message?: string }> = ({ message }
         className="flex items-center gap-2 p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-sm"
         aria-live="assertive"
     >
-        <AlertTriangleIcon className="w-4 h-4 flex-shrink-0" />
+        <AlertTriangleIcon className="w-4 h-4 shrink-0" />
         <span>{message || 'Error loading widget'}</span>
     </div>
 );

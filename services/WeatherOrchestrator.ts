@@ -500,11 +500,11 @@ export class WeatherOrchestrator {
             // decisions and the user needs a clear "hold, updating" cue.
             const shouldBlur = cachedAge >= BLUR_THRESHOLD_MS;
             log.info(
-                `[WeatherOrchestrator] Cache stale (${Math.round(cachedAge / 60000)}m old) — ${shouldBlur ? 'blur + ' : ''}background refresh`,
+                `[WeatherOrchestrator] Cache stale (${Math.round(cachedAge / 60000)}m old) — ${shouldBlur ? 'blur-sm + ' : ''}background refresh`,
             );
             addBreadcrumb({
                 category: 'weather',
-                message: shouldBlur ? 'Cache very stale, blur + refresh' : 'Cache stale, silent refresh',
+                message: shouldBlur ? 'Cache very stale, blur-sm + refresh' : 'Cache stale, silent refresh',
                 level: 'info',
                 data: { ageMinutes: Math.round(cachedAge / 60000) },
             });

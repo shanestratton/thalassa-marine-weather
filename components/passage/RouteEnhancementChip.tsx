@@ -130,7 +130,7 @@ export const RouteEnhancementChip: React.FC = () => {
 
     return (
         <div
-            className="pointer-events-none fixed inset-x-0 z-[2500] flex justify-center animate-in fade-in slide-in-from-top-2 duration-200"
+            className="pointer-events-none fixed inset-x-0 z-2500 flex justify-center animate-in fade-in slide-in-from-top-2 duration-200"
             style={{ top: 'calc(env(safe-area-inset-top) + 8px)' }}
             role="status"
             aria-live="polite"

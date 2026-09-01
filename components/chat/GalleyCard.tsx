@@ -395,17 +395,17 @@ export const GalleyCard: React.FC<GalleyCardProps> = ({
                 className={`w-full flex items-center gap-3 p-3 rounded-2xl border transition-all ${
                     expanded
                         ? provisioned
-                            ? 'bg-gradient-to-r from-emerald-500/10 to-teal-500/10 border-emerald-500/20'
-                            : 'bg-gradient-to-r from-red-500/10 to-orange-500/10 border-red-500/20'
+                            ? 'bg-linear-to-r from-emerald-500/10 to-teal-500/10 border-emerald-500/20'
+                            : 'bg-linear-to-r from-red-500/10 to-orange-500/10 border-red-500/20'
                         : provisioned
-                          ? 'bg-gradient-to-r from-emerald-500/[0.06] to-teal-500/[0.03] border-emerald-500/15 hover:from-emerald-500/[0.1] hover:to-teal-500/[0.06]'
-                          : 'bg-gradient-to-r from-red-500/[0.06] to-orange-500/[0.03] border-red-500/15 hover:from-red-500/[0.1] hover:to-orange-500/[0.06]'
+                          ? 'bg-linear-to-r from-emerald-500/6 to-teal-500/3 border-emerald-500/15 hover:from-emerald-500/10 hover:to-teal-500/6'
+                          : 'bg-linear-to-r from-red-500/6 to-orange-500/3 border-red-500/15 hover:from-red-500/10 hover:to-orange-500/6'
                 }`}
                 aria-expanded={expanded}
                 aria-label="Voyage Provisioning"
             >
                 <div
-                    className={`w-11 h-11 rounded-xl bg-gradient-to-br ${provisioned ? 'from-emerald-500/20 to-teal-600/10 border-emerald-500/20' : 'from-red-500/20 to-orange-500/10 border-red-500/20'} border flex items-center justify-center text-xl flex-shrink-0`}
+                    className={`w-11 h-11 rounded-xl bg-linear-to-br ${provisioned ? 'from-emerald-500/20 to-teal-600/10 border-emerald-500/20' : 'from-red-500/20 to-orange-500/10 border-red-500/20'} border flex items-center justify-center text-xl shrink-0`}
                 >
                     {provisioned ? '✅' : '⛵'}
                 </div>
@@ -499,7 +499,7 @@ export const GalleyCard: React.FC<GalleyCardProps> = ({
                                     <p
                                         id="galley-shopping-permission-note"
                                         role="note"
-                                        className="rounded-lg border border-sky-500/20 bg-sky-500/[0.08] px-3 py-2 text-[11px] font-semibold text-sky-100"
+                                        className="rounded-lg border border-sky-500/20 bg-sky-500/8 px-3 py-2 text-[11px] font-semibold text-sky-100"
                                     >
                                         Ship&apos;s Stores are read-only. Open the Grocery List to review what is
                                         needed.
@@ -522,9 +522,9 @@ export const GalleyCard: React.FC<GalleyCardProps> = ({
                                             {shoppingSummary.purchased}/{shoppingSummary.total}
                                         </span>
                                     </div>
-                                    <div className="h-1.5 rounded-full bg-white/[0.06] overflow-hidden">
+                                    <div className="h-1.5 rounded-full bg-white/6 overflow-hidden">
                                         <div
-                                            className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-emerald-400 transition-all duration-500"
+                                            className="h-full rounded-full bg-linear-to-r from-emerald-500 to-emerald-400 transition-all duration-500"
                                             style={{
                                                 width: `${shoppingSummary.total > 0 ? (shoppingSummary.purchased / shoppingSummary.total) * 100 : 0}%`,
                                             }}
@@ -569,14 +569,14 @@ export const GalleyCard: React.FC<GalleyCardProps> = ({
                                                                         ? undefined
                                                                         : 'galley-shopping-permission-note'
                                                                 }
-                                                                className="w-full flex items-center gap-2.5 p-2.5 rounded-xl bg-white/[0.03] border border-white/[0.06] hover:bg-emerald-500/[0.06] hover:border-emerald-500/20 transition-all active:scale-[0.98] text-left disabled:cursor-not-allowed disabled:opacity-50"
+                                                                className="w-full flex items-center gap-2.5 p-2.5 rounded-xl bg-white/3 border border-white/6 hover:bg-emerald-500/6 hover:border-emerald-500/20 transition-all active:scale-[0.98] text-left disabled:cursor-not-allowed disabled:opacity-50"
                                                                 aria-label={`Mark ${item.ingredient_name} as purchased`}
                                                             >
-                                                                <div className="w-5 h-5 rounded-md border-2 border-gray-600 flex items-center justify-center flex-shrink-0" />
+                                                                <div className="w-5 h-5 rounded-md border-2 border-gray-600 flex items-center justify-center shrink-0" />
                                                                 <span className="text-xs font-bold text-white flex-1 truncate">
                                                                     {item.ingredient_name}
                                                                 </span>
-                                                                <span className="text-[11px] font-bold text-emerald-400 tabular-nums flex-shrink-0">
+                                                                <span className="text-[11px] font-bold text-emerald-400 tabular-nums shrink-0">
                                                                     {purchase.matched
                                                                         ? `${purchase.packageCount} × ${purchase.packageLabel}`
                                                                         : `${Math.round(item.required_qty * 10) / 10} ${item.unit}`}
@@ -632,7 +632,7 @@ export const GalleyCard: React.FC<GalleyCardProps> = ({
                         className={`w-full flex items-center gap-3 p-3 rounded-xl border transition-all active:scale-[0.98] ${
                             provisioned
                                 ? 'bg-emerald-500/10 border-emerald-500/20'
-                                : 'bg-white/[0.02] border-white/[0.06] hover:bg-white/[0.04]'
+                                : 'bg-white/2 border-white/6 hover:bg-white/4'
                         }`}
                     >
                         <div

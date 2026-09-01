@@ -49,7 +49,7 @@ export const CrewDetailView: React.FC<CrewDetailViewProps> = React.memo(
 
                 {/* Profile header */}
                 <div className="text-center mb-6">
-                    <div className="w-28 h-28 mx-auto rounded-2xl overflow-hidden border-3 border-white/[0.08] shadow-2xl mb-4">
+                    <div className="w-28 h-28 mx-auto rounded-2xl overflow-hidden border-3 border-white/8 shadow-2xl mb-4">
                         {selectedCard.avatar_url ? (
                             <SafeImage
                                 src={selectedCard.avatar_url}
@@ -58,7 +58,7 @@ export const CrewDetailView: React.FC<CrewDetailViewProps> = React.memo(
                                 className="w-full h-full object-cover"
                             />
                         ) : (
-                            <div className="w-full h-full bg-gradient-to-br from-emerald-500/15 to-sky-500/15 flex items-center justify-center">
+                            <div className="w-full h-full bg-linear-to-br from-emerald-500/15 to-sky-500/15 flex items-center justify-center">
                                 <span className="text-3xl">
                                     {selectedCard.listing_type === 'seeking_crew' ? '🚢' : '⛵'}
                                 </span>
@@ -67,7 +67,7 @@ export const CrewDetailView: React.FC<CrewDetailViewProps> = React.memo(
                     </div>
                     <h2 className="text-2xl font-black text-white/90 mb-0.5">{selectedCard.display_name}</h2>
                     {isApprovedForCrewList && (
-                        <p className="mt-1 inline-flex items-center gap-1.5 rounded-full border border-sky-400/20 bg-sky-500/[0.10] px-2.5 py-1 text-[11px] font-semibold text-sky-100/85">
+                        <p className="mt-1 inline-flex items-center gap-1.5 rounded-full border border-sky-400/20 bg-sky-500/10 px-2.5 py-1 text-[11px] font-semibold text-sky-100/85">
                             <span aria-hidden="true">✓</span> Approved for Crew List
                         </p>
                     )}
@@ -85,7 +85,7 @@ export const CrewDetailView: React.FC<CrewDetailViewProps> = React.memo(
                     {/* Quick facts */}
                     <div className="grid grid-cols-2 gap-2">
                         {broadArea && (
-                            <div className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.05]">
+                            <div className="p-3 rounded-xl bg-white/2 border border-white/5">
                                 <p className="text-[11px] font-bold uppercase tracking-wider text-white/40 mb-0.5">
                                     Broad Area
                                 </p>
@@ -93,7 +93,7 @@ export const CrewDetailView: React.FC<CrewDetailViewProps> = React.memo(
                             </div>
                         )}
                         {selectedCard.sailing_region && (
-                            <div className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.05]">
+                            <div className="p-3 rounded-xl bg-white/2 border border-white/5">
                                 <p className="text-[11px] font-bold uppercase tracking-wider text-white/40 mb-0.5">
                                     Region
                                 </p>
@@ -101,7 +101,7 @@ export const CrewDetailView: React.FC<CrewDetailViewProps> = React.memo(
                             </div>
                         )}
                         {selectedCard.sailing_experience && (
-                            <div className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.05]">
+                            <div className="p-3 rounded-xl bg-white/2 border border-white/5">
                                 <p className="text-[11px] font-bold uppercase tracking-wider text-white/40 mb-0.5">
                                     Experience
                                 </p>
@@ -192,7 +192,7 @@ export const CrewDetailView: React.FC<CrewDetailViewProps> = React.memo(
                         </div>
                     )}
 
-                    <aside className="rounded-2xl border border-sky-400/15 bg-sky-500/[0.06] p-3 text-xs leading-relaxed text-sky-100/70">
+                    <aside className="rounded-2xl border border-sky-400/15 bg-sky-500/6 p-3 text-xs leading-relaxed text-sky-100/70">
                         <p className="font-bold text-sky-100/85">Privacy first</p>
                         <p className="mt-1">
                             Exact vessel location and contact details remain private. Send an introduction first;
@@ -207,7 +207,7 @@ export const CrewDetailView: React.FC<CrewDetailViewProps> = React.memo(
                         <button
                             aria-label={`View accepted introduction with ${selectedCard.display_name}`}
                             onClick={onOpenIntroductions}
-                            className="w-full py-4 rounded-2xl bg-gradient-to-r from-emerald-500 to-sky-600 text-base font-bold text-white shadow-xl shadow-emerald-500/20 transition-all active:scale-[0.97]"
+                            className="w-full py-4 rounded-2xl bg-linear-to-r from-emerald-500 to-sky-600 text-base font-bold text-white shadow-xl shadow-emerald-500/20 transition-all active:scale-[0.97]"
                         >
                             ✓ Connected · View introduction
                         </button>
@@ -219,7 +219,7 @@ export const CrewDetailView: React.FC<CrewDetailViewProps> = React.memo(
                                     : `Send introduction to ${selectedCard.display_name}`
                             }
                             onClick={() => onLike(selectedCard)}
-                            className={`w-full py-4 rounded-2xl text-base font-bold transition-all active:scale-[0.97] ${likedUsers.has(selectedCard.user_id) ? 'border border-emerald-400/20 bg-emerald-500/[0.10] text-emerald-100' : 'bg-gradient-to-r from-emerald-500 to-sky-600 text-white shadow-xl shadow-emerald-500/20'}`}
+                            className={`w-full py-4 rounded-2xl text-base font-bold transition-all active:scale-[0.97] ${likedUsers.has(selectedCard.user_id) ? 'border border-emerald-400/20 bg-emerald-500/10 text-emerald-100' : 'bg-linear-to-r from-emerald-500 to-sky-600 text-white shadow-xl shadow-emerald-500/20'}`}
                         >
                             {likedUsers.has(selectedCard.user_id)
                                 ? '✓ Introduction sent — awaiting their choice'

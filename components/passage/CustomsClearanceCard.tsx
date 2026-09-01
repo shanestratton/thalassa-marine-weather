@@ -128,7 +128,7 @@ export const CustomsClearanceCard: React.FC<CustomsClearanceCardProps> = ({
     return (
         <div className="space-y-4">
             {/* ── Country Tabs ── */}
-            <div className="flex gap-2 bg-white/[0.03] rounded-xl p-1 border border-white/[0.06]">
+            <div className="flex gap-2 bg-white/3 rounded-xl p-1 border border-white/6">
                 {departInput && (
                     <button
                         aria-label={`Departing ${departLabel}`}
@@ -209,7 +209,7 @@ export const CustomsClearanceCard: React.FC<CustomsClearanceCardProps> = ({
                     </div>
 
                     {/* ── Step-by-Step Procedure ── */}
-                    <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4">
+                    <div className="bg-white/3 border border-white/6 rounded-xl p-4">
                         <h4 className="text-xs font-bold text-white uppercase tracking-widest mb-3 flex items-center gap-2">
                             📋 {activeTab === 'depart' ? 'Departure' : 'Arrival'} Clearance Steps
                         </h4>
@@ -242,7 +242,7 @@ export const CustomsClearanceCard: React.FC<CustomsClearanceCardProps> = ({
                                     target="_blank"
                                     rel="noopener noreferrer"
                                     referrerPolicy="no-referrer"
-                                    className="mt-3 flex items-center gap-2 w-fit px-4 py-2.5 bg-gradient-to-r from-sky-500/20 to-indigo-500/20 hover:from-sky-500/30 hover:to-indigo-500/30 border border-sky-500/30 rounded-xl text-xs font-bold text-sky-300 hover:text-white transition-all active:scale-[0.98] shadow-lg shadow-sky-500/10"
+                                    className="mt-3 flex items-center gap-2 w-fit px-4 py-2.5 bg-linear-to-r from-sky-500/20 to-indigo-500/20 hover:from-sky-500/30 hover:to-indigo-500/30 border border-sky-500/30 rounded-xl text-xs font-bold text-sky-300 hover:text-white transition-all active:scale-[0.98] shadow-lg shadow-sky-500/10"
                                 >
                                     <ShareIcon className="w-3.5 h-3.5" />
                                     {activeData.guideLabel || 'View Complete Guide'}
@@ -258,7 +258,7 @@ export const CustomsClearanceCard: React.FC<CustomsClearanceCardProps> = ({
                             target="_blank"
                             rel="noopener noreferrer"
                             referrerPolicy="no-referrer"
-                            className="flex items-center gap-2 w-fit px-4 py-2.5 bg-gradient-to-r from-sky-500/20 to-indigo-500/20 hover:from-sky-500/30 hover:to-indigo-500/30 border border-sky-500/30 rounded-xl text-xs font-bold text-sky-300 hover:text-white transition-all active:scale-[0.98]"
+                            className="flex items-center gap-2 w-fit px-4 py-2.5 bg-linear-to-r from-sky-500/20 to-indigo-500/20 hover:from-sky-500/30 hover:to-indigo-500/30 border border-sky-500/30 rounded-xl text-xs font-bold text-sky-300 hover:text-white transition-all active:scale-[0.98]"
                         >
                             <ShareIcon className="w-3.5 h-3.5" />
                             {activeData.guideLabel || 'View Complete Guide'}
@@ -266,7 +266,7 @@ export const CustomsClearanceCard: React.FC<CustomsClearanceCardProps> = ({
                     )}
 
                     {/* ── Required Documents (Checklist) ── */}
-                    <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4">
+                    <div className="bg-white/3 border border-white/6 rounded-xl p-4">
                         <h4 className="text-xs font-bold text-white uppercase tracking-widest mb-3 flex items-center gap-2">
                             📄 Required Documents
                             <span className="ml-auto px-2 py-0.5 rounded-full text-[11px] font-bold bg-sky-500/10 border border-sky-500/20 text-sky-400">
@@ -290,7 +290,7 @@ export const CustomsClearanceCard: React.FC<CustomsClearanceCardProps> = ({
                                                 ? 'bg-emerald-500/10 border border-emerald-500/20'
                                                 : doc.critical
                                                   ? 'bg-amber-500/5 border border-amber-500/15 hover:bg-amber-500/10'
-                                                  : 'bg-white/5 border border-white/5 hover:bg-white/[0.08]'
+                                                  : 'bg-white/5 border border-white/5 hover:bg-white/8'
                                         }`}
                                     >
                                         <div
@@ -342,7 +342,7 @@ export const CustomsClearanceCard: React.FC<CustomsClearanceCardProps> = ({
                     </div>
 
                     {/* ── Contacts ── */}
-                    <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4">
+                    <div className="bg-white/3 border border-white/6 rounded-xl p-4">
                         <h4 className="text-xs font-bold text-white uppercase tracking-widest mb-3 flex items-center gap-2">
                             📞 Key Contacts — {activeCountryName}
                         </h4>
@@ -400,7 +400,7 @@ export const CustomsClearanceCard: React.FC<CustomsClearanceCardProps> = ({
                     </div>
 
                     {/* ── Ports of Entry ── */}
-                    <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4">
+                    <div className="bg-white/3 border border-white/6 rounded-xl p-4">
                         <h4 className="text-xs font-bold text-white uppercase tracking-widest mb-2 flex items-center gap-2">
                             <MapPinIcon className="w-3.5 h-3.5 text-emerald-400" /> Designated Ports of Entry
                         </h4>
@@ -463,7 +463,7 @@ export const CustomsClearanceCard: React.FC<CustomsClearanceCardProps> = ({
                     </div>
 
                     {activeTab === 'depart' && customs?.departureProcedures && (
-                        <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4">
+                        <div className="bg-white/3 border border-white/6 rounded-xl p-4">
                             <h4 className="text-xs font-bold text-white uppercase tracking-widest mb-2">
                                 Departure Procedures — {departLabel}
                             </h4>
@@ -472,7 +472,7 @@ export const CustomsClearanceCard: React.FC<CustomsClearanceCardProps> = ({
                     )}
 
                     {activeTab === 'arrive' && customs?.procedures && (
-                        <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4">
+                        <div className="bg-white/3 border border-white/6 rounded-xl p-4">
                             <h4 className="text-xs font-bold text-white uppercase tracking-widest mb-2">
                                 Arrival Procedures — {arriveLabel}
                             </h4>
@@ -481,7 +481,7 @@ export const CustomsClearanceCard: React.FC<CustomsClearanceCardProps> = ({
                     )}
 
                     {customs?.contactPhone && (
-                        <div className="bg-white/5 border border-white/[0.06] rounded-xl px-4 py-3">
+                        <div className="bg-white/5 border border-white/6 rounded-xl px-4 py-3">
                             <div className="flex items-center gap-2 text-emerald-400">
                                 <PhoneIcon className="w-3.5 h-3.5" />
                                 <a

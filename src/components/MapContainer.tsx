@@ -627,7 +627,7 @@ export default function MapContainer({
                     <Marker key={`wp-${i}`} longitude={w.lon} latitude={w.lat} anchor="center">
                         <div className="flex flex-col items-center pointer-events-none select-none">
                             <span className="w-2.5 h-2.5 rotate-45 bg-amber-300 border border-amber-100 shadow-[0_0_6px_rgba(251,191,36,0.7)]" />
-                            <span className="mt-0.5 px-1 rounded bg-slate-900/80 text-amber-200 text-[9px] font-bold leading-tight whitespace-nowrap">
+                            <span className="mt-0.5 px-1 rounded-sm bg-slate-900/80 text-amber-200 text-[9px] font-bold leading-tight whitespace-nowrap">
                                 {w.name}
                             </span>
                         </div>
@@ -653,7 +653,7 @@ export default function MapContainer({
                             {/* Not pinging, and captioned: a stale fix should not
                                 animate like a boat under way. */}
                             {lastKnownAgeLabel && (
-                                <span className="mt-1 whitespace-nowrap rounded bg-slate-900/85 px-1.5 py-0.5 text-[10px] font-bold text-slate-300 shadow">
+                                <span className="mt-1 whitespace-nowrap rounded-sm bg-slate-900/85 px-1.5 py-0.5 text-[10px] font-bold text-slate-300 shadow-sm">
                                     {lastKnownAgeLabel}
                                 </span>
                             )}
@@ -664,7 +664,7 @@ export default function MapContainer({
                 {/* Diary entry pins — camera badge if it carries photos.
                     When the entry is the one selected in the sidebar, the
                     pin gets a pulsing mood-coloured halo (camera badge
-                    variant) or an intensified drop-shadow (emoji variant)
+                    variant) or an intensified drop-shadow-sm (emoji variant)
                     so the viewer can quickly spot where on the route the
                     story happened. */}
                 {pinnedEntries.map((entry) => {
@@ -773,7 +773,7 @@ export default function MapContainer({
                                     <img
                                         src={popupVessel.thumbnail_url}
                                         alt=""
-                                        className="w-8 h-8 rounded object-cover shrink-0 border border-white/10"
+                                        className="w-8 h-8 rounded-sm object-cover shrink-0 border border-white/10"
                                     />
                                 ) : (
                                     <span

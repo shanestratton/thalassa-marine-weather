@@ -23,14 +23,14 @@ interface ConsensusMatrixProps {
 const ScatterBar: React.FC<{ models: ModelPoint[]; maxScale?: number }> = ({ models, maxScale = 50 }) => {
     // Scale: 0 kts at left, maxScale at right
     return (
-        <div className="relative h-8 bg-white/[0.03] rounded-lg border border-white/[0.06] overflow-hidden">
+        <div className="relative h-8 bg-white/3 rounded-lg border border-white/6 overflow-hidden">
             {/* Scale ticks */}
             {[0, 10, 20, 30, 40, 50]
                 .filter((v) => v <= maxScale)
                 .map((v) => (
                     <div
                         key={v}
-                        className="absolute top-0 bottom-0 w-px bg-white/[0.05]"
+                        className="absolute top-0 bottom-0 w-px bg-white/5"
                         style={{ left: `${(v / maxScale) * 100}%` }}
                     />
                 ))}
@@ -72,10 +72,10 @@ const ConsensusRowView: React.FC<{
     rowRef?: React.RefObject<HTMLDivElement>;
 }> = ({ row, onIntersect: _onIntersect, rowRef }) => {
     const bgClass = row.exceedsComfort
-        ? 'bg-red-500/[0.06] border-red-500/20'
+        ? 'bg-red-500/6 border-red-500/20'
         : row.confidence === 'low'
-          ? 'bg-amber-500/[0.04] border-amber-500/15'
-          : 'bg-transparent border-white/[0.04]';
+          ? 'bg-amber-500/4 border-amber-500/15'
+          : 'bg-transparent border-white/4';
 
     return (
         <div
@@ -107,7 +107,7 @@ const ConsensusRowView: React.FC<{
 
                     {/* No-Go flag */}
                     {row.exceedsComfort && (
-                        <span className="px-1.5 py-0.5 rounded bg-red-500/20 text-red-400 text-[11px] font-black uppercase tracking-widest animate-pulse">
+                        <span className="px-1.5 py-0.5 rounded-sm bg-red-500/20 text-red-400 text-[11px] font-black uppercase tracking-widest animate-pulse">
                             🚫 NO-GO
                         </span>
                     )}
@@ -164,7 +164,7 @@ const ConsensusRowView: React.FC<{
             {row.spreadKts > 3 && (
                 <div className="mt-1.5 flex items-center gap-2">
                     <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">Spread</span>
-                    <div className="flex-1 h-1 rounded-full bg-white/[0.04] overflow-hidden">
+                    <div className="flex-1 h-1 rounded-full bg-white/4 overflow-hidden">
                         <div
                             className={`h-full rounded-full transition-all ${
                                 row.confidence === 'high'
@@ -229,12 +229,12 @@ export const ConsensusMatrix: React.FC<ConsensusMatrixProps> = ({ data, onScrubP
     }, [handleScroll]);
 
     return (
-        <div className="h-full flex flex-col bg-slate-950 border-l border-white/[0.06]">
+        <div className="h-full flex flex-col bg-slate-950 border-l border-white/6">
             {/* Header */}
-            <div className="px-4 pt-4 pb-3 border-b border-white/[0.08] shrink-0">
+            <div className="px-4 pt-4 pb-3 border-b border-white/8 shrink-0">
                 <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-2">
-                        <div className="w-2 h-2 rounded-full bg-gradient-to-r from-sky-400 to-purple-400 animate-pulse" />
+                        <div className="w-2 h-2 rounded-full bg-linear-to-r from-sky-400 to-purple-400 animate-pulse" />
                         <h2 className="text-[11px] font-black text-white uppercase tracking-[0.15em]">
                             Consensus Matrix
                         </h2>
@@ -242,7 +242,7 @@ export const ConsensusMatrix: React.FC<ConsensusMatrixProps> = ({ data, onScrubP
                     {onClose && (
                         <button
                             onClick={onClose}
-                            className="w-9 h-9 flex items-center justify-center rounded-xl border border-white/10 bg-white/[0.05] hover:bg-white/10 transition-colors active:scale-95"
+                            className="w-9 h-9 flex items-center justify-center rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 transition-colors active:scale-95"
                             aria-label="Close consensus matrix"
                         >
                             <svg
@@ -318,7 +318,7 @@ export const ConsensusMatrix: React.FC<ConsensusMatrixProps> = ({ data, onScrubP
             {/* Scrollable rows */}
             <div ref={scrollRef} className="flex-1 overflow-y-auto overscroll-contain">
                 {/* Scale header */}
-                <div className="sticky top-0 z-10 bg-slate-950/95 backdrop-blur-sm px-4 py-1.5 border-b border-white/[0.06]">
+                <div className="sticky top-0 z-10 bg-slate-950/95 backdrop-blur-xs px-4 py-1.5 border-b border-white/6">
                     <div className="flex justify-between text-[11px] font-bold text-gray-500 uppercase tracking-wider">
                         <span>0 kts</span>
                         <span>10</span>

@@ -154,7 +154,7 @@ export const LonelyHeartsPage: React.FC = () => {
     return (
         <div className="flex flex-col">
             {/* Tab bar */}
-            <div className="flex-shrink-0 sticky top-0 z-10 flex border-b border-white/[0.04] bg-slate-950">
+            <div className="shrink-0 sticky top-0 z-10 flex border-b border-white/4 bg-slate-950">
                 {(
                     [
                         { key: 'my_profile' as FCView, label: 'My profile', Icon: EditIcon },
@@ -205,7 +205,7 @@ export const LonelyHeartsPage: React.FC = () => {
                         <tab.Icon className="w-4 h-4" />
                         <span>{tab.label}</span>
                         {view === tab.key && (
-                            <div className="absolute bottom-0 left-1/4 right-1/4 h-0.5 bg-gradient-to-r from-emerald-500 to-sky-500 rounded-full" />
+                            <div className="absolute bottom-0 left-1/4 right-1/4 h-0.5 bg-linear-to-r from-emerald-500 to-sky-500 rounded-full" />
                         )}
                     </button>
                 ))}

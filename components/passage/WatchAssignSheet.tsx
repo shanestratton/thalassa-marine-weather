@@ -84,7 +84,7 @@ export const WatchAssignSheet: React.FC<WatchAssignSheetProps> = ({
     return (
         <OverlayPortal className="flex items-center justify-center p-4">
             {/* Backdrop */}
-            <div role="presentation" onClick={onClose} className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
+            <div role="presentation" onClick={onClose} className="absolute inset-0 bg-black/70 backdrop-blur-xs" />
 
             {/* Sheet — now a centered modal (was a bottom sheet). User
                 wanted the box visible in the middle of the page rather
@@ -97,7 +97,7 @@ export const WatchAssignSheet: React.FC<WatchAssignSheetProps> = ({
                 className="relative w-full max-w-2xl max-h-[85vh] flex flex-col bg-slate-950 border border-white/10 rounded-3xl shadow-2xl animate-in fade-in zoom-in-95 duration-200"
             >
                 {/* Header */}
-                <div className="flex-shrink-0 px-5 pt-4 pb-4 border-b border-white/5">
+                <div className="shrink-0 px-5 pt-4 pb-4 border-b border-white/5">
                     <div className="flex items-start justify-between gap-3">
                         <div className="flex-1 min-w-0">
                             <h2 id="watch-assign-title" className="text-base font-bold text-white">
@@ -139,7 +139,7 @@ export const WatchAssignSheet: React.FC<WatchAssignSheetProps> = ({
                             className={`w-full text-left px-3 py-3 rounded-xl border transition-all active:scale-[0.98] mb-1.5 ${
                                 currentEmail === skipperEmail
                                     ? 'bg-amber-500/15 border-amber-500/35'
-                                    : 'bg-white/[0.02] border-white/10 hover:bg-white/[0.05]'
+                                    : 'bg-white/2 border-white/10 hover:bg-white/5'
                             }`}
                         >
                             <div className="flex items-center gap-3">
@@ -175,7 +175,7 @@ export const WatchAssignSheet: React.FC<WatchAssignSheetProps> = ({
                                 className={`w-full text-left px-3 py-3 rounded-xl border transition-all active:scale-[0.98] mb-1.5 ${
                                     selected
                                         ? 'bg-sky-500/15 border-sky-500/35'
-                                        : 'bg-white/[0.02] border-white/10 hover:bg-white/[0.05]'
+                                        : 'bg-white/2 border-white/10 hover:bg-white/5'
                                 }`}
                             >
                                 <div className="flex items-center gap-3">

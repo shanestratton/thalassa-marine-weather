@@ -418,7 +418,7 @@ export const FloatPlanSheet: React.FC<FloatPlanSheetProps> = ({ voyage, preset, 
 
     return (
         <section className="space-y-4" data-testid="float-plan-sheet" aria-label="Float plan sharing">
-            <div className="relative overflow-hidden rounded-2xl border border-sky-500/20 bg-gradient-to-br from-slate-900 via-slate-900 to-sky-950/80 p-4 shadow-xl shadow-black/20">
+            <div className="relative overflow-hidden rounded-2xl border border-sky-500/20 bg-linear-to-br from-slate-900 via-slate-900 to-sky-950/80 p-4 shadow-xl shadow-black/20">
                 <div
                     className="absolute -right-8 -top-10 h-28 w-28 rounded-full bg-sky-400/10 blur-2xl"
                     aria-hidden="true"
@@ -463,7 +463,7 @@ export const FloatPlanSheet: React.FC<FloatPlanSheetProps> = ({ voyage, preset, 
                     </span>
                 </div>
 
-                <div className="relative mt-4 grid grid-cols-[1fr_auto_1fr] items-center gap-2 rounded-xl border border-white/[0.06] bg-black/20 px-3 py-3">
+                <div className="relative mt-4 grid grid-cols-[1fr_auto_1fr] items-center gap-2 rounded-xl border border-white/6 bg-black/20 px-3 py-3">
                     <div className="min-w-0">
                         <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">From</p>
                         <p className="truncate text-sm font-bold text-white">{routeFrom}</p>
@@ -495,7 +495,7 @@ export const FloatPlanSheet: React.FC<FloatPlanSheetProps> = ({ voyage, preset, 
                 </div>
             </div>
 
-            <div className="rounded-2xl border border-amber-400/30 bg-gradient-to-br from-amber-500/[0.12] to-red-500/[0.05] p-4 shadow-lg shadow-amber-950/10">
+            <div className="rounded-2xl border border-amber-400/30 bg-linear-to-br from-amber-500/12 to-red-500/5 p-4 shadow-lg shadow-amber-950/10">
                 <div className="mb-3 flex items-start gap-3">
                     <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-400/15 text-amber-300">
                         <svg
@@ -531,7 +531,7 @@ export const FloatPlanSheet: React.FC<FloatPlanSheetProps> = ({ voyage, preset, 
                         const value = new Date(event.target.value).getTime();
                         if (Number.isFinite(value)) setOverdueMs(value);
                     }}
-                    className="min-h-11 w-full rounded-xl border border-amber-300/20 bg-black/30 px-3 py-2.5 text-sm font-bold text-white outline-none [color-scheme:dark] focus:border-amber-300"
+                    className="min-h-11 w-full rounded-xl border border-amber-300/20 bg-black/30 px-3 py-2.5 text-sm font-bold text-white outline-hidden scheme-dark focus:border-amber-300"
                 />
                 <p className="mt-1.5 text-[11px] leading-relaxed text-amber-100/70">
                     {passageMs
@@ -550,7 +550,7 @@ export const FloatPlanSheet: React.FC<FloatPlanSheetProps> = ({ voyage, preset, 
                     placeholder="Marine Rescue Bundaberg · 07 4159 4600"
                     aria-describedby="float-who-help"
                     required
-                    className="min-h-11 w-full rounded-xl border border-amber-300/20 bg-black/30 px-3 py-2.5 text-sm text-white outline-none placeholder:text-slate-500 focus:border-amber-300"
+                    className="min-h-11 w-full rounded-xl border border-amber-300/20 bg-black/30 px-3 py-2.5 text-sm text-white outline-hidden placeholder:text-slate-500 focus:border-amber-300"
                 />
                 <p id="float-who-help" className="mt-1.5 text-[11px] leading-relaxed text-amber-100/70">
                     Enter the exact local number to call, for example “Marine Rescue Bundaberg · 07 4159 4600” or “Call
@@ -569,7 +569,7 @@ export const FloatPlanSheet: React.FC<FloatPlanSheetProps> = ({ voyage, preset, 
                         value={contactAboard}
                         onChange={(event) => setContactAboard(event.target.value)}
                         placeholder="VHF 16 · sat phone · mobile"
-                        className="min-h-11 w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white outline-none placeholder:text-slate-500 focus:border-sky-400"
+                        className="min-h-11 w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white outline-hidden placeholder:text-slate-500 focus:border-sky-400"
                     />
                 </div>
                 <div>
@@ -602,7 +602,7 @@ export const FloatPlanSheet: React.FC<FloatPlanSheetProps> = ({ voyage, preset, 
             </div>
 
             <div
-                className="rounded-2xl border border-violet-500/20 bg-gradient-to-br from-violet-500/10 to-slate-900/30 p-4"
+                className="rounded-2xl border border-violet-500/20 bg-linear-to-br from-violet-500/10 to-slate-900/30 p-4"
                 data-testid="float-plan-roster"
             >
                 <div className="mb-2 flex items-center justify-between gap-2">
@@ -613,7 +613,7 @@ export const FloatPlanSheet: React.FC<FloatPlanSheetProps> = ({ voyage, preset, 
                     {personsRoster.map((person, index) => (
                         <div
                             key={index}
-                            className="rounded-xl border border-violet-500/20 bg-violet-500/[0.05] p-3 space-y-2"
+                            className="rounded-xl border border-violet-500/20 bg-violet-500/5 p-3 space-y-2"
                         >
                             {/* Name gets its own line. Sharing a row with the
                                 details meant a half-width box for the one field
@@ -634,7 +634,7 @@ export const FloatPlanSheet: React.FC<FloatPlanSheetProps> = ({ voyage, preset, 
                                         )
                                     }
                                     placeholder="Full name"
-                                    className="min-h-11 flex-1 rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm font-semibold text-white outline-none placeholder:text-slate-500 focus:border-violet-400"
+                                    className="min-h-11 flex-1 rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm font-semibold text-white outline-hidden placeholder:text-slate-500 focus:border-violet-400"
                                 />
                                 <button
                                     type="button"
@@ -656,7 +656,7 @@ export const FloatPlanSheet: React.FC<FloatPlanSheetProps> = ({ voyage, preset, 
                                             ),
                                         )
                                     }
-                                    className="min-h-11 flex-1 rounded-xl border border-white/10 bg-slate-900/60 px-3 text-sm text-white [color-scheme:dark] outline-none focus:border-violet-400"
+                                    className="min-h-11 flex-1 rounded-xl border border-white/10 bg-slate-900/60 px-3 text-sm text-white scheme-dark outline-hidden focus:border-violet-400"
                                 >
                                     <option value="">Role…</option>
                                     {CREW_ROLES.map((role) => (
@@ -682,7 +682,7 @@ export const FloatPlanSheet: React.FC<FloatPlanSheetProps> = ({ voyage, preset, 
                                         )
                                     }
                                     placeholder="Age"
-                                    className="min-h-11 w-20 rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white outline-none placeholder:text-slate-500 focus:border-violet-400"
+                                    className="min-h-11 w-20 rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white outline-hidden placeholder:text-slate-500 focus:border-violet-400"
                                 />
                             </div>
                             <input
@@ -697,7 +697,7 @@ export const FloatPlanSheet: React.FC<FloatPlanSheetProps> = ({ voyage, preset, 
                                     )
                                 }
                                 placeholder="Medical or anything a coordinator should know (optional)"
-                                className="ml-8 min-h-11 w-[calc(100%-2rem)] rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white outline-none placeholder:text-slate-500 focus:border-violet-400"
+                                className="ml-8 min-h-11 w-[calc(100%-2rem)] rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white outline-hidden placeholder:text-slate-500 focus:border-violet-400"
                             />
                         </div>
                     ))}
@@ -725,13 +725,13 @@ export const FloatPlanSheet: React.FC<FloatPlanSheetProps> = ({ voyage, preset, 
                             setProvisionsDays(Number.isFinite(parsed) ? Math.min(365, parsed) : 0);
                         }}
                         placeholder="—"
-                        className="min-h-11 w-20 rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-center text-sm text-white outline-none placeholder:text-slate-500 focus:border-sky-400"
+                        className="min-h-11 w-20 rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-center text-sm text-white outline-hidden placeholder:text-slate-500 focus:border-sky-400"
                     />
                 </div>
             </div>
 
             <div
-                className="rounded-2xl border border-emerald-500/20 bg-gradient-to-br from-emerald-500/10 to-slate-900/30 p-4"
+                className="rounded-2xl border border-emerald-500/20 bg-linear-to-br from-emerald-500/10 to-slate-900/30 p-4"
                 data-testid="float-plan-safety"
             >
                 <div className="mb-2 flex items-center justify-between gap-2">
@@ -746,7 +746,7 @@ export const FloatPlanSheet: React.FC<FloatPlanSheetProps> = ({ voyage, preset, 
                         .map((item) => (
                             <span
                                 key={item.label}
-                                className="rounded-lg border border-emerald-400/15 bg-emerald-400/[0.08] px-2.5 py-1.5 text-[11px] leading-snug text-emerald-100"
+                                className="rounded-lg border border-emerald-400/15 bg-emerald-400/8 px-2.5 py-1.5 text-[11px] leading-snug text-emerald-100"
                             >
                                 <strong>{item.label}</strong> · {item.value}
                             </span>
@@ -778,7 +778,7 @@ export const FloatPlanSheet: React.FC<FloatPlanSheetProps> = ({ voyage, preset, 
 
             {validation.warnings.length > 0 && (
                 <div
-                    className="rounded-xl border border-amber-400/25 bg-amber-500/[0.08] px-3 py-3"
+                    className="rounded-xl border border-amber-400/25 bg-amber-500/8 px-3 py-3"
                     role="status"
                     aria-label="Float plan safety warnings"
                 >
@@ -829,7 +829,7 @@ export const FloatPlanSheet: React.FC<FloatPlanSheetProps> = ({ voyage, preset, 
                                     setCopied(false);
                                     setTransferFailure(null);
                                 }}
-                                className={`min-h-[58px] rounded-xl border px-3 py-2.5 text-left transition active:scale-[0.98] ${active ? activeClass : 'border-white/10 bg-white/[0.03] text-slate-400 hover:bg-white/[0.06]'}`}
+                                className={`min-h-[58px] rounded-xl border px-3 py-2.5 text-left transition active:scale-[0.98] ${active ? activeClass : 'border-white/10 bg-white/3 text-slate-400 hover:bg-white/6'}`}
                             >
                                 <span className="flex items-center gap-2">
                                     {channelIcon(option.id)}
@@ -856,7 +856,7 @@ export const FloatPlanSheet: React.FC<FloatPlanSheetProps> = ({ voyage, preset, 
                 <FloatPlanPreview channel={channel} title={payload.title} text={payload.text} />
             </div>
 
-            <div className="rounded-xl border border-sky-400/15 bg-sky-400/[0.06] px-3 py-2.5 text-[11px] leading-relaxed text-sky-100/80">
+            <div className="rounded-xl border border-sky-400/15 bg-sky-400/6 px-3 py-2.5 text-[11px] leading-relaxed text-sky-100/80">
                 Ask your shore contact to reply <strong className="text-white">RECEIVED</strong>. Opening a share app
                 does not confirm delivery.
             </div>
@@ -888,12 +888,12 @@ export const FloatPlanSheet: React.FC<FloatPlanSheetProps> = ({ voyage, preset, 
                         value={payload.text}
                         onFocus={(event) => event.currentTarget.select()}
                         rows={8}
-                        className="w-full resize-y rounded-lg border border-red-200/20 bg-black/30 p-2 font-mono text-xs leading-relaxed text-white outline-none focus:border-red-200/50"
+                        className="w-full resize-y rounded-lg border border-red-200/20 bg-black/30 p-2 font-mono text-xs leading-relaxed text-white outline-hidden focus:border-red-200/50"
                     />
                 </div>
             )}
 
-            <div className="grid grid-cols-[auto_1fr] gap-2 border-t border-white/[0.06] pt-1">
+            <div className="grid grid-cols-[auto_1fr] gap-2 border-t border-white/6 pt-1">
                 <button
                     type="button"
                     onClick={copyPlan}
@@ -907,7 +907,7 @@ export const FloatPlanSheet: React.FC<FloatPlanSheetProps> = ({ voyage, preset, 
                         type="button"
                         onClick={shareMore}
                         disabled={!canShare}
-                        className="min-h-12 rounded-xl bg-gradient-to-r from-sky-500 to-cyan-400 px-4 text-xs font-black uppercase tracking-[0.1em] text-slate-950 shadow-lg shadow-sky-500/20 transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-35"
+                        className="min-h-12 rounded-xl bg-linear-to-r from-sky-500 to-cyan-400 px-4 text-xs font-black uppercase tracking-widest text-slate-950 shadow-lg shadow-sky-500/20 transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-35"
                     >
                         Share formatted plan
                     </button>
@@ -925,7 +925,7 @@ export const FloatPlanSheet: React.FC<FloatPlanSheetProps> = ({ voyage, preset, 
                             triggerHaptic('medium');
                             setSharedChannel(channel);
                         }}
-                        className={`flex min-h-12 items-center justify-center rounded-xl px-4 text-xs font-black uppercase tracking-[0.1em] shadow-lg transition active:scale-[0.98] ${canShare ? 'bg-gradient-to-r from-sky-500 to-cyan-400 text-slate-950 shadow-sky-500/20' : 'pointer-events-none bg-white/10 text-slate-500 shadow-none'}`}
+                        className={`flex min-h-12 items-center justify-center rounded-xl px-4 text-xs font-black uppercase tracking-widest shadow-lg transition active:scale-[0.98] ${canShare ? 'bg-linear-to-r from-sky-500 to-cyan-400 text-slate-950 shadow-sky-500/20' : 'pointer-events-none bg-white/10 text-slate-500 shadow-none'}`}
                     >
                         {directAction}
                     </a>

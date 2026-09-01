@@ -238,7 +238,7 @@ export const CustomRecipeForm: React.FC<CustomRecipeFormProps> = ({ onSaved, onC
                     value={title}
                     onChange={(e) => setTitle(e.target.value)}
                     placeholder="e.g. Mum's Spaghetti Bolognese"
-                    className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-4 py-3 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-amber-500/30"
+                    className="w-full bg-white/4 border border-white/8 rounded-xl px-4 py-3 text-sm text-white placeholder-gray-500 focus:outline-hidden focus:border-amber-500/30"
                 />
             </div>
 
@@ -259,7 +259,7 @@ export const CustomRecipeForm: React.FC<CustomRecipeFormProps> = ({ onSaved, onC
                         <SafeImage
                             src={photoPreview}
                             alt="Recipe preview"
-                            className="w-full h-40 object-cover rounded-xl border border-white/[0.08]"
+                            className="w-full h-40 object-cover rounded-xl border border-white/8"
                         />
                         <button
                             onClick={() => {
@@ -275,7 +275,7 @@ export const CustomRecipeForm: React.FC<CustomRecipeFormProps> = ({ onSaved, onC
                 ) : (
                     <button
                         onClick={() => fileInputRef.current?.click()}
-                        className="w-full h-32 rounded-xl border-2 border-dashed border-white/[0.1] bg-white/[0.02] flex flex-col items-center justify-center gap-2 text-gray-500 hover:text-gray-300 hover:border-white/[0.2] transition-colors"
+                        className="w-full h-32 rounded-xl border-2 border-dashed border-white/10 bg-white/2 flex flex-col items-center justify-center gap-2 text-gray-500 hover:text-gray-300 hover:border-white/20 transition-colors"
                     >
                         <span className="text-2xl">📸</span>
                         <span className="text-[11px] font-medium">Tap to add a photo</span>
@@ -291,18 +291,18 @@ export const CustomRecipeForm: React.FC<CustomRecipeFormProps> = ({ onSaved, onC
                 <div className="flex items-center gap-3">
                     <button
                         onClick={() => setReadyInMinutes(Math.max(5, readyInMinutes - 5))}
-                        className="w-10 h-10 rounded-xl bg-white/[0.06] border border-white/[0.1] text-white font-bold text-lg flex items-center justify-center active:scale-95"
+                        className="w-10 h-10 rounded-xl bg-white/6 border border-white/10 text-white font-bold text-lg flex items-center justify-center active:scale-95"
                         aria-label="Decrease cook time by 5 minutes"
                     >
                         −
                     </button>
-                    <span className="text-xl font-bold text-white min-w-[4rem] text-center">
+                    <span className="text-xl font-bold text-white min-w-16 text-center">
                         {readyInMinutes}
                         <span className="text-sm text-gray-500 ml-1">min</span>
                     </span>
                     <button
                         onClick={() => setReadyInMinutes(readyInMinutes + 5)}
-                        className="w-10 h-10 rounded-xl bg-white/[0.06] border border-white/[0.1] text-white font-bold text-lg flex items-center justify-center active:scale-95"
+                        className="w-10 h-10 rounded-xl bg-white/6 border border-white/10 text-white font-bold text-lg flex items-center justify-center active:scale-95"
                         aria-label="Increase cook time by 5 minutes"
                     >
                         +
@@ -332,7 +332,7 @@ export const CustomRecipeForm: React.FC<CustomRecipeFormProps> = ({ onSaved, onC
                             className={`px-2.5 py-1.5 min-h-[44px] rounded-lg text-[11px] font-bold transition-all active:scale-95 ${
                                 selectedTags.has(tag.id)
                                     ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-                                    : 'bg-white/[0.03] text-gray-500 border border-white/[0.06]'
+                                    : 'bg-white/3 text-gray-500 border border-white/6'
                             }`}
                         >
                             {tag.emoji} {tag.label}
@@ -349,7 +349,7 @@ export const CustomRecipeForm: React.FC<CustomRecipeFormProps> = ({ onSaved, onC
     const renderIngredients = () => (
         <div className="space-y-3">
             {/* Info banner */}
-            <div className="flex items-start gap-2 p-3 rounded-xl bg-sky-500/[0.08] border border-sky-500/20">
+            <div className="flex items-start gap-2 p-3 rounded-xl bg-sky-500/8 border border-sky-500/20">
                 <span className="text-base mt-0.5">ℹ️</span>
                 <p className="text-[11px] text-sky-300/90 leading-relaxed">
                     Enter ingredients for <strong>1 person</strong>. Thalassa will automatically scale for your crew
@@ -364,7 +364,7 @@ export const CustomRecipeForm: React.FC<CustomRecipeFormProps> = ({ onSaved, onC
                         value={ing.name}
                         onChange={(e) => updateIngredient(ing.key, 'name', e.target.value)}
                         placeholder="Ingredient"
-                        className="flex-1 min-w-0 bg-white/[0.04] border border-white/[0.08] rounded-lg px-2.5 py-2 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-amber-500/30"
+                        className="flex-1 min-w-0 bg-white/4 border border-white/8 rounded-lg px-2.5 py-2 text-xs text-white placeholder-gray-500 focus:outline-hidden focus:border-amber-500/30"
                     />
                     <input
                         value={ing.amount}
@@ -373,12 +373,12 @@ export const CustomRecipeForm: React.FC<CustomRecipeFormProps> = ({ onSaved, onC
                         type="number"
                         inputMode="decimal"
                         step="0.1"
-                        className="w-16 bg-white/[0.04] border border-white/[0.08] rounded-lg px-2 py-2 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-amber-500/30 text-center"
+                        className="w-16 bg-white/4 border border-white/8 rounded-lg px-2 py-2 text-xs text-white placeholder-gray-500 focus:outline-hidden focus:border-amber-500/30 text-center"
                     />
                     <select
                         value={ing.unit}
                         onChange={(e) => updateIngredient(ing.key, 'unit', e.target.value)}
-                        className="w-20 bg-white/[0.04] border border-white/[0.08] rounded-lg px-1.5 py-2 text-xs text-white focus:outline-none focus:border-amber-500/30 appearance-none"
+                        className="w-20 bg-white/4 border border-white/8 rounded-lg px-1.5 py-2 text-xs text-white focus:outline-hidden focus:border-amber-500/30 appearance-none"
                     >
                         {UNIT_OPTIONS.map((u) => (
                             <option key={u} value={u} className="bg-slate-900 text-white">
@@ -398,7 +398,7 @@ export const CustomRecipeForm: React.FC<CustomRecipeFormProps> = ({ onSaved, onC
 
             <button
                 onClick={addIngredient}
-                className="w-full py-2.5 rounded-xl border border-dashed border-amber-500/20 text-[11px] font-bold text-amber-400/70 hover:bg-amber-500/[0.06] transition-colors"
+                className="w-full py-2.5 rounded-xl border border-dashed border-amber-500/20 text-[11px] font-bold text-amber-400/70 hover:bg-amber-500/6 transition-colors"
             >
                 + Add Ingredient
             </button>
@@ -419,7 +419,7 @@ export const CustomRecipeForm: React.FC<CustomRecipeFormProps> = ({ onSaved, onC
                         onChange={(e) => updateDirection(i, e.target.value)}
                         placeholder={`Step ${i + 1}…`}
                         rows={2}
-                        className="flex-1 bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-amber-500/30 resize-none"
+                        className="flex-1 bg-white/4 border border-white/8 rounded-xl px-3 py-2 text-xs text-white placeholder-gray-500 focus:outline-hidden focus:border-amber-500/30 resize-none"
                     />
                     <button
                         onClick={() => removeDirection(i)}
@@ -433,7 +433,7 @@ export const CustomRecipeForm: React.FC<CustomRecipeFormProps> = ({ onSaved, onC
 
             <button
                 onClick={addDirection}
-                className="w-full py-2.5 rounded-xl border border-dashed border-amber-500/20 text-[11px] font-bold text-amber-400/70 hover:bg-amber-500/[0.06] transition-colors"
+                className="w-full py-2.5 rounded-xl border border-dashed border-amber-500/20 text-[11px] font-bold text-amber-400/70 hover:bg-amber-500/6 transition-colors"
             >
                 + Add Step
             </button>
@@ -443,7 +443,7 @@ export const CustomRecipeForm: React.FC<CustomRecipeFormProps> = ({ onSaved, onC
     const renderSave = () => (
         <div className="space-y-4">
             {/* Recipe summary */}
-            <div className="flex items-center gap-3 p-3 rounded-xl bg-white/[0.03] border border-white/[0.06]">
+            <div className="flex items-center gap-3 p-3 rounded-xl bg-white/3 border border-white/6">
                 {photoPreview ? (
                     <SafeImage src={photoPreview} alt="" className="w-14 h-14 rounded-lg object-cover" />
                 ) : (
@@ -469,8 +469,8 @@ export const CustomRecipeForm: React.FC<CustomRecipeFormProps> = ({ onSaved, onC
                         onClick={() => setVisibility('private')}
                         className={`w-full flex items-center gap-3 p-3 rounded-xl border transition-all ${
                             visibility === 'private'
-                                ? 'border-amber-500/40 bg-amber-500/[0.06]'
-                                : 'border-white/[0.06] bg-white/[0.02] hover:border-white/[0.15]'
+                                ? 'border-amber-500/40 bg-amber-500/6'
+                                : 'border-white/6 bg-white/2 hover:border-white/15'
                         }`}
                     >
                         <span className="text-lg">🔒</span>
@@ -489,8 +489,8 @@ export const CustomRecipeForm: React.FC<CustomRecipeFormProps> = ({ onSaved, onC
                         onClick={() => setVisibility('community')}
                         className={`w-full flex items-center gap-3 p-3 rounded-xl border transition-all ${
                             visibility === 'community'
-                                ? 'border-sky-500/40 bg-sky-500/[0.06]'
-                                : 'border-white/[0.06] bg-white/[0.02] hover:border-white/[0.15]'
+                                ? 'border-sky-500/40 bg-sky-500/6'
+                                : 'border-white/6 bg-white/2 hover:border-white/15'
                         }`}
                     >
                         <span className="text-lg">👥</span>
@@ -510,7 +510,7 @@ export const CustomRecipeForm: React.FC<CustomRecipeFormProps> = ({ onSaved, onC
                     <div
                         id="private-recipe-photo-notice"
                         role="alert"
-                        className="mt-3 rounded-xl border border-amber-500/30 bg-amber-500/[0.08] p-3"
+                        className="mt-3 rounded-xl border border-amber-500/30 bg-amber-500/8 p-3"
                     >
                         <p className="text-xs font-bold text-amber-200">Private photos are not available in beta</p>
                         <p className="mt-1 text-[11px] leading-relaxed text-amber-100/70">
@@ -539,7 +539,7 @@ export const CustomRecipeForm: React.FC<CustomRecipeFormProps> = ({ onSaved, onC
     return (
         <OverlayPortal
             layer="nested"
-            className="flex items-center justify-center bg-black/70 backdrop-blur-sm animate-in fade-in duration-200 p-4 pb-[calc(4rem+env(safe-area-inset-bottom)+1rem)] pt-[max(1rem,env(safe-area-inset-top))]"
+            className="flex items-center justify-center bg-black/70 backdrop-blur-xs animate-in fade-in duration-200 p-4 pb-[calc(4rem+env(safe-area-inset-bottom)+1rem)] pt-[max(1rem,env(safe-area-inset-top))]"
             onClick={onClose}
             role="presentation"
             // Reserve space for the iOS keyboard at the bottom of the
@@ -556,7 +556,7 @@ export const CustomRecipeForm: React.FC<CustomRecipeFormProps> = ({ onSaved, onC
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby="custom-recipe-title"
-                className="w-full max-w-lg bg-slate-900 border border-white/[0.1] rounded-3xl max-h-full flex flex-col shadow-2xl animate-in fade-in duration-300 transition-[max-height] duration-200"
+                className="w-full max-w-lg bg-slate-900 border border-white/10 rounded-3xl max-h-full flex flex-col shadow-2xl animate-in fade-in duration-300 transition-[max-height] duration-200"
                 onClick={(e) => e.stopPropagation()}
             >
                 {/* Header — back chevron at top-left matches iOS
@@ -564,11 +564,11 @@ export const CustomRecipeForm: React.FC<CustomRecipeFormProps> = ({ onSaved, onC
                     reaching for. The previous ✕ at top-right was the
                     only close affordance and didn't match where the
                     user's muscle memory points. */}
-                <div className="flex items-center gap-2 p-4 border-b border-white/[0.06]">
+                <div className="flex items-center gap-2 p-4 border-b border-white/6">
                     <button
                         type="button"
                         onClick={onClose}
-                        className="p-2 -ml-2 rounded-xl hover:bg-white/[0.06] active:scale-90 transition-all flex items-center justify-center min-w-[44px] min-h-[44px]"
+                        className="p-2 -ml-2 rounded-xl hover:bg-white/6 active:scale-90 transition-all flex items-center justify-center min-w-[44px] min-h-[44px]"
                         aria-label="Back to Recipe Library"
                     >
                         <svg
@@ -598,7 +598,7 @@ export const CustomRecipeForm: React.FC<CustomRecipeFormProps> = ({ onSaved, onC
                             <div
                                 key={i}
                                 className={`h-1 flex-1 rounded-full transition-all duration-300 ${
-                                    i <= step ? 'bg-amber-500' : 'bg-white/[0.08]'
+                                    i <= step ? 'bg-amber-500' : 'bg-white/8'
                                 }`}
                             />
                         ))}
@@ -614,11 +614,11 @@ export const CustomRecipeForm: React.FC<CustomRecipeFormProps> = ({ onSaved, onC
                 </div>
 
                 {/* Footer navigation */}
-                <div className="flex items-center gap-2 p-4 border-t border-white/[0.06]">
+                <div className="flex items-center gap-2 p-4 border-t border-white/6">
                     {step > 0 && (
                         <button
                             onClick={() => setStep(step - 1)}
-                            className="px-5 py-2.5 rounded-xl bg-white/[0.06] border border-white/[0.08] text-xs font-bold text-gray-300 hover:bg-white/[0.1] transition-colors"
+                            className="px-5 py-2.5 rounded-xl bg-white/6 border border-white/8 text-xs font-bold text-gray-300 hover:bg-white/10 transition-colors"
                         >
                             Back
                         </button>
@@ -637,7 +637,7 @@ export const CustomRecipeForm: React.FC<CustomRecipeFormProps> = ({ onSaved, onC
                             onClick={handleSave}
                             disabled={saving || !canAdvance() || privatePhotoBlocked}
                             aria-describedby={privatePhotoBlocked ? 'private-recipe-photo-notice' : undefined}
-                            className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 text-xs font-bold text-black shadow-lg shadow-amber-500/20 disabled:opacity-30 transition-all active:scale-95 flex items-center gap-2"
+                            className="px-6 py-2.5 rounded-xl bg-linear-to-r from-amber-500 to-orange-500 text-xs font-bold text-black shadow-lg shadow-amber-500/20 disabled:opacity-30 transition-all active:scale-95 flex items-center gap-2"
                         >
                             {saving ? <>⏳ Saving...</> : <>✨ Save Recipe</>}
                         </button>

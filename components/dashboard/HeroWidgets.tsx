@@ -668,7 +668,7 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
             }}
         >
             <div
-                className={`relative w-full rounded-xl overflow-hidden bg-white/[0.08] border border-white/[0.15] shadow-2xl ${isOffshore ? 'cursor-pointer active:scale-[0.995] transition-transform' : ''}`}
+                className={`relative w-full rounded-xl overflow-hidden bg-white/8 border border-white/15 shadow-2xl ${isOffshore ? 'cursor-pointer active:scale-[0.995] transition-transform' : ''}`}
                 role="region"
                 aria-label={
                     isOffshore ? 'Offshore weather metrics — tap to compare models' : 'Weather metrics dashboard'
@@ -682,7 +682,7 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                 overheated phones on long voyages; the iteration-count
                 cap is the fix. See index.css → "METRIC GRID ICON
                 ANIMATIONS" for the full keyframe details. */}
-                <div className="w-full grid grid-cols-5 divide-x divide-white/[0.12] h-[80px]">
+                <div className="w-full grid grid-cols-5 divide-x divide-white/12 h-[80px]">
                     {/* Wind Speed — or TEMP if wind is pinned to hero */}
                     <DraggableMetricCell id={heroMetric === 'wind' ? 'temp' : 'wind'}>
                         {heroMetric === 'wind' ? (
@@ -795,10 +795,10 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                 </div>
 
                 {/* Horizontal divider between rows */}
-                <div className="w-full h-px bg-white/[0.12]" />
+                <div className="w-full h-px bg-white/12" />
 
                 {/* BOTTOM ROW: UV, Vis, HPA, Hum, Rain */}
-                <div className="w-full grid grid-cols-5 divide-x divide-white/[0.12] h-[80px]">
+                <div className="w-full grid grid-cols-5 divide-x divide-white/12 h-[80px]">
                     {/* UV — or TEMP if pinned */}
                     <DraggableMetricCell id={heroMetric === 'uv' ? 'temp' : 'uv'}>
                         {heroMetric === 'uv' ? (

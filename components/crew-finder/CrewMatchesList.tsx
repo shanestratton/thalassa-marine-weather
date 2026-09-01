@@ -52,7 +52,7 @@ export const CrewMatchesList: React.FC<CrewMatchesListProps> = React.memo(
             <div className="px-4 py-5">
                 <section
                     aria-labelledby="crew-list-introductions-title"
-                    className="mb-4 rounded-3xl border border-sky-400/15 bg-gradient-to-br from-sky-500/[0.08] to-emerald-500/[0.06] p-4"
+                    className="mb-4 rounded-3xl border border-sky-400/15 bg-linear-to-br from-sky-500/8 to-emerald-500/6 p-4"
                 >
                     <p className="text-[11px] font-black uppercase tracking-[0.18em] text-sky-200/65">The Crew List</p>
                     <h2 id="crew-list-introductions-title" className="mt-1 text-base font-black text-white">
@@ -82,10 +82,10 @@ export const CrewMatchesList: React.FC<CrewMatchesListProps> = React.memo(
                                 return (
                                     <article
                                         key={introduction.request.id}
-                                        className="rounded-2xl border border-amber-400/15 bg-amber-500/[0.045] p-4 shadow-lg shadow-slate-950/20"
+                                        className="rounded-2xl border border-amber-400/15 bg-amber-500/4.5 p-4 shadow-lg shadow-slate-950/20"
                                     >
                                         <div className="flex items-center gap-3">
-                                            <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-amber-400/20 bg-slate-950/40">
+                                            <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-amber-400/20 bg-slate-950/40">
                                                 {sailor?.avatar_url ? (
                                                     <SafeImage
                                                         src={sailor.avatar_url}
@@ -105,7 +105,7 @@ export const CrewMatchesList: React.FC<CrewMatchesListProps> = React.memo(
                                             </div>
                                         </div>
                                         {introduction.request.message && (
-                                            <p className="mt-3 rounded-xl border border-white/[0.05] bg-slate-950/30 px-3 py-2.5 text-sm leading-relaxed text-white/65">
+                                            <p className="mt-3 rounded-xl border border-white/5 bg-slate-950/30 px-3 py-2.5 text-sm leading-relaxed text-white/65">
                                                 {introduction.request.message}
                                             </p>
                                         )}
@@ -124,7 +124,7 @@ export const CrewMatchesList: React.FC<CrewMatchesListProps> = React.memo(
                                                 onClick={() =>
                                                     onRespondIntroduction(introduction.request.id, 'accepted')
                                                 }
-                                                className="min-h-[44px] rounded-xl border border-emerald-400/20 bg-emerald-500/[0.16] px-3 py-2.5 text-sm font-bold text-emerald-100 transition-colors hover:bg-emerald-500/[0.23] active:scale-[0.98]"
+                                                className="min-h-[44px] rounded-xl border border-emerald-400/20 bg-emerald-500/16 px-3 py-2.5 text-sm font-bold text-emerald-100 transition-colors hover:bg-emerald-500/23 active:scale-[0.98]"
                                             >
                                                 Accept &amp; connect
                                             </button>
@@ -162,7 +162,7 @@ export const CrewMatchesList: React.FC<CrewMatchesListProps> = React.memo(
                                         <button
                                             aria-label={`Withdraw introduction to ${name}`}
                                             onClick={() => onWithdrawIntroduction(introduction.request.id)}
-                                            className="min-h-[38px] rounded-xl px-2.5 text-xs font-bold text-sky-100/65 transition-colors hover:bg-white/[0.05]"
+                                            className="min-h-[38px] rounded-xl px-2.5 text-xs font-bold text-sky-100/65 transition-colors hover:bg-white/5"
                                         >
                                             Withdraw
                                         </button>
@@ -197,10 +197,10 @@ export const CrewMatchesList: React.FC<CrewMatchesListProps> = React.memo(
                                 return (
                                     <article
                                         key={counterpartId(introduction)}
-                                        className="rounded-2xl border border-emerald-400/12 bg-white/[0.025] p-4 shadow-lg shadow-slate-950/20"
+                                        className="rounded-2xl border border-emerald-400/12 bg-white/2.5 p-4 shadow-lg shadow-slate-950/20"
                                     >
                                         <div className="flex items-center gap-3">
-                                            <div className="flex h-14 w-14 flex-shrink-0 items-center justify-center overflow-hidden rounded-2xl border-2 border-emerald-400/20 bg-gradient-to-br from-emerald-500/10 to-sky-500/10">
+                                            <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-2xl border-2 border-emerald-400/20 bg-linear-to-br from-emerald-500/10 to-sky-500/10">
                                                 {sailor?.avatar_url ? (
                                                     <SafeImage
                                                         src={sailor.avatar_url}
@@ -228,7 +228,7 @@ export const CrewMatchesList: React.FC<CrewMatchesListProps> = React.memo(
                                         </div>
 
                                         {sailor && (sailor.sailing_experience || sailor.interests.length > 0) && (
-                                            <div className="mt-3 border-t border-white/[0.05] pt-3">
+                                            <div className="mt-3 border-t border-white/5 pt-3">
                                                 {sailor.sailing_experience && (
                                                     <p className="text-xs text-white/55">
                                                         🧭 {sailor.sailing_experience}
@@ -239,13 +239,13 @@ export const CrewMatchesList: React.FC<CrewMatchesListProps> = React.memo(
                                                         {sailor.interests.slice(0, 4).map((interest) => (
                                                             <span
                                                                 key={interest}
-                                                                className="rounded-full border border-sky-400/10 bg-sky-500/[0.08] px-2.5 py-1 text-[11px] text-sky-100/70"
+                                                                className="rounded-full border border-sky-400/10 bg-sky-500/8 px-2.5 py-1 text-[11px] text-sky-100/70"
                                                             >
                                                                 {interest}
                                                             </span>
                                                         ))}
                                                         {sailor.interests.length > 4 && (
-                                                            <span className="rounded-full bg-white/[0.03] px-2.5 py-1 text-[11px] text-white/40">
+                                                            <span className="rounded-full bg-white/3 px-2.5 py-1 text-[11px] text-white/40">
                                                                 +{sailor.interests.length - 4}
                                                             </span>
                                                         )}
@@ -257,7 +257,7 @@ export const CrewMatchesList: React.FC<CrewMatchesListProps> = React.memo(
                                         <button
                                             aria-label={`Open private conversation with ${name}`}
                                             onClick={() => onOpenConversation(introduction)}
-                                            className="mt-3 w-full rounded-2xl bg-gradient-to-r from-emerald-500 to-sky-600 py-3 text-sm font-bold text-white shadow-lg shadow-emerald-950/25 transition-all active:scale-[0.98]"
+                                            className="mt-3 w-full rounded-2xl bg-linear-to-r from-emerald-500 to-sky-600 py-3 text-sm font-bold text-white shadow-lg shadow-emerald-950/25 transition-all active:scale-[0.98]"
                                         >
                                             💬 Open private conversation
                                         </button>

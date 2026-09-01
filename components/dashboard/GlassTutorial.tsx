@@ -166,7 +166,7 @@ export const GlassTutorial: React.FC = () => {
     return (
         <OverlayPortal
             role="presentation"
-            className="flex items-center justify-center bg-black/80 backdrop-blur-sm p-6"
+            className="flex items-center justify-center bg-black/80 backdrop-blur-xs p-6"
         >
             <div className="w-full max-w-sm animate-in fade-in zoom-in-95 duration-300">
                 <div
@@ -180,7 +180,7 @@ export const GlassTutorial: React.FC = () => {
                     {/* Visual area — gradient backdrop with the animated illustration */}
                     <div
                         aria-hidden="true"
-                        className={`relative h-48 bg-gradient-to-br ${slide.gradient} flex items-center justify-center`}
+                        className={`relative h-48 bg-linear-to-br ${slide.gradient} flex items-center justify-center`}
                     >
                         {slide.visual}
                     </div>
@@ -248,7 +248,7 @@ export const GlassTutorial: React.FC = () => {
  */
 function ChevronVisual() {
     return (
-        <div className="relative flex items-center gap-3 px-4 py-3 rounded-xl bg-white/[0.08] border border-white/10 shadow-xl">
+        <div className="relative flex items-center gap-3 px-4 py-3 rounded-xl bg-white/8 border border-white/10 shadow-xl">
             {/* LEFT: big temp */}
             <span className="text-4xl font-mono font-bold text-white leading-none">22°</span>
 
@@ -304,7 +304,7 @@ function ChevronVisual() {
  */
 function HorizontalSwipeVisual() {
     return (
-        <div className="relative w-56 h-28 rounded-xl bg-white/[0.06] border border-white/10 shadow-xl overflow-hidden">
+        <div className="relative w-56 h-28 rounded-xl bg-white/6 border border-white/10 shadow-xl overflow-hidden">
             {/* Hour labels along the top */}
             <div className="absolute inset-x-0 top-2 flex justify-around text-[9px] font-mono text-white/40 font-bold">
                 <span>09</span>
@@ -379,7 +379,7 @@ function OffshoreModelsVisual() {
         { color: '#f472b6', d: 'M6 34 Q30 22 60 28 T120 18 T180 12', label: 'UKMO' }, // pink
     ];
     return (
-        <div className="relative w-56 h-28 rounded-xl bg-white/[0.06] border border-white/10 shadow-xl overflow-hidden">
+        <div className="relative w-56 h-28 rounded-xl bg-white/6 border border-white/10 shadow-xl overflow-hidden">
             {/* Param tabs at top */}
             <div className="absolute inset-x-0 top-2 flex items-center justify-center gap-1">
                 {['WIND', 'GUST', 'WAVE', 'HPA'].map((p, i) => (
@@ -437,7 +437,7 @@ function OffshoreModelsVisual() {
  */
 function VerticalSwipeVisual() {
     return (
-        <div className="relative w-56 h-32 rounded-xl bg-white/[0.06] border border-white/10 shadow-xl overflow-hidden">
+        <div className="relative w-56 h-32 rounded-xl bg-white/6 border border-white/10 shadow-xl overflow-hidden">
             {/* Day labels down the left side */}
             <div className="absolute left-2 inset-y-3 flex flex-col justify-between text-[9px] font-mono text-white/40 font-bold">
                 <span>MON</span>

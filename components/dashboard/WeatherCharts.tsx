@@ -524,7 +524,7 @@ export const DailyWidget = ({
                 })}
 
                 {!isPro && (
-                    <div className="absolute bottom-0 left-0 right-0 h-64 bg-gradient-to-t from-[#0f172a] via-[#0f172a]/90 to-transparent flex items-end justify-center pb-8 z-20">
+                    <div className="absolute bottom-0 left-0 right-0 h-64 bg-linear-to-t from-[#0f172a] via-[#0f172a]/90 to-transparent flex items-end justify-center pb-8 z-20">
                         <button
                             aria-label="Trigger Upgrade"
                             onClick={onTriggerUpgrade}
@@ -552,7 +552,7 @@ export const MapWidget = ({ onOpenMap }: { onOpenMap: () => void }) => (
             />
 
             {/* Gradient Overlay */}
-            <div className="absolute inset-0 bg-gradient-to-t from-slate-900 via-slate-900/50 to-transparent"></div>
+            <div className="absolute inset-0 bg-linear-to-t from-slate-900 via-slate-900/50 to-transparent"></div>
 
             {/* Content */}
             <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center z-10">

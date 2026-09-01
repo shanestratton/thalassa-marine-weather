@@ -20,7 +20,7 @@ const BackButton: React.FC<{ onClick: () => void }> = ({ onClick }) => (
 );
 
 const Shell: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-    <div className="flex flex-col h-full min-h-screen bg-gradient-to-b from-slate-950 to-slate-900 text-slate-100">
+    <div className="flex flex-col h-full min-h-screen bg-linear-to-b from-slate-950 to-slate-900 text-slate-100">
         {children}
     </div>
 );
@@ -39,7 +39,7 @@ const CardDetail: React.FC<{ card: ReferenceCard; onBack: () => void }> = ({ car
 
         <div className="flex-1 overflow-y-auto px-4 pb-28 pt-3 space-y-3">
             {card.steps.map((step) => (
-                <div key={step.num} className="rounded-2xl border border-white/10 bg-white/[0.03] p-3.5">
+                <div key={step.num} className="rounded-2xl border border-white/10 bg-white/3 p-3.5">
                     <div className="flex items-baseline gap-2.5">
                         <span className="inline-flex items-center justify-center w-5 h-5 shrink-0 rounded-full bg-sky-500/20 text-sky-300 text-[11px] font-black">
                             {step.num}
@@ -49,7 +49,7 @@ const CardDetail: React.FC<{ card: ReferenceCard; onBack: () => void }> = ({ car
                         </h2>
                     </div>
                     <div
-                        className="mt-2 pl-[30px] text-[13px] leading-relaxed text-slate-300 [&_strong]:font-semibold [&_strong]:text-white [&_em]:italic [&_em]:text-slate-200 [&_code]:font-mono [&_code]:text-[12px] [&_code]:bg-white/10 [&_code]:px-1 [&_code]:py-0.5 [&_code]:rounded"
+                        className="mt-2 pl-[30px] text-[13px] leading-relaxed text-slate-300 [&_strong]:font-semibold [&_strong]:text-white [&_em]:italic [&_em]:text-slate-200 [&_code]:font-mono [&_code]:text-[12px] [&_code]:bg-white/10 [&_code]:px-1 [&_code]:py-0.5 [&_code]:rounded-sm"
                         // Authored, trusted, constant marine-met copy (services/reference/skipperReferenceCards.ts) — not user input.
                         dangerouslySetInnerHTML={{ __html: step.bodyHtml }}
                     />
@@ -57,7 +57,7 @@ const CardDetail: React.FC<{ card: ReferenceCard; onBack: () => void }> = ({ car
             ))}
 
             {/* Callout — the cautionary / auto-no-go checklist */}
-            <div className="rounded-2xl border border-amber-400/30 bg-amber-500/[0.08] p-3.5">
+            <div className="rounded-2xl border border-amber-400/30 bg-amber-500/8 p-3.5">
                 <h2 className="text-[11px] font-bold uppercase tracking-wider text-amber-300">{card.callout.label}</h2>
                 <ul className="mt-2 space-y-1.5">
                     {card.callout.items.map((item, i) => (
@@ -123,7 +123,7 @@ export const SkipperReference: React.FC<{ onBack: () => void }> = ({ onBack }) =
                             triggerHaptic('light');
                             setOpenId(card.id);
                         }}
-                        className="w-full text-left rounded-2xl border border-white/10 bg-white/[0.03] p-4 flex items-center gap-3.5 hover:bg-white/[0.06] active:scale-[0.99] transition-all"
+                        className="w-full text-left rounded-2xl border border-white/10 bg-white/3 p-4 flex items-center gap-3.5 hover:bg-white/6 active:scale-[0.99] transition-all"
                     >
                         <div className="text-2xl shrink-0" aria-hidden>
                             {card.emoji}

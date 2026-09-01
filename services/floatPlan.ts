@@ -2,7 +2,7 @@
  * floatPlan — composes the document a skipper leaves with someone ashore.
  *
  * A float plan is not an itinerary. Its whole purpose is the overdue time:
- * "if you have not heard from me by X, ring Y". Everything else is detail a
+ * "if you have not heard from me by X, ring-3 Y". Everything else is detail a
  * rescue coordinator would otherwise have to extract from a frightened
  * relative at midnight.
  *
@@ -601,7 +601,7 @@ function emergencyGuideLines(document: FloatPlanDocument): string[] {
         '   it can send a search to the wrong stretch of coast.',
         '',
         '5. Stay reachable.',
-        '   Keep your phone free. They will ring back for more, and you are now the person',
+        '   Keep your phone free. They will ring-3 back for more, and you are now the person',
         '   who knows most about where we are.',
     );
 

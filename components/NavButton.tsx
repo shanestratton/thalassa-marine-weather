@@ -118,14 +118,14 @@ export const NavButton: React.FC<NavButtonProps> = ({
                     //
                     // History
                     // -------
-                    //   v1 (original): brightness 1.2 + sea-foam drop-shadow
+                    //   v1 (original): brightness 1.2 + sea-foam drop-shadow-sm
                     //      6 px @ 0.5 + scale 1.1. Three competing signals
                     //      yelling at the same time.
                     //   v2 (earlier today): brightness 1.08 + cyan drop-
                     //      shadow 3 px @ 0.35 + scale 1.04. Cleaner, but
                     //      still read brighter than intended on iOS where
                     //      the OLED contrast makes glow halos punchier.
-                    //   v3 (here): drop the drop-shadow entirely. Keep
+                    //   v3 (here): drop the drop-shadow-sm entirely. Keep
                     //      JUST brightness + scale. The icon's inherent
                     //      cyan colour (set by the parent NavBar when
                     //      active) IS the "you are here" signal — it

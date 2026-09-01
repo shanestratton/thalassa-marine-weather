@@ -36,7 +36,7 @@ export const SourceLegend: React.FC<{ className?: string }> = ({ className = '' 
 
             {/* Expandable Legend */}
             {isOpen && (
-                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-72 bg-black border border-white/30 rounded-xl shadow-2xl p-4 z-[200] animate-in fade-in slide-in-from-bottom-2 duration-200">
+                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-72 bg-black border border-white/30 rounded-xl shadow-2xl p-4 z-200 animate-in fade-in slide-in-from-bottom-2 duration-200">
                     {/* Header */}
                     <div className="flex items-center justify-between mb-3 pb-2 border-b border-white/10">
                         <h3 className="text-sm font-bold text-white">Data Source Colors</h3>
@@ -53,7 +53,7 @@ export const SourceLegend: React.FC<{ className?: string }> = ({ className = '' 
                     <div className="space-y-3">
                         {/* Emerald: Apple Weather */}
                         <div className="flex items-start gap-3">
-                            <div className="flex-shrink-0 w-3 h-3 rounded-full bg-emerald-400 mt-0.5 shadow-lg shadow-emerald-400/50" />
+                            <div className="shrink-0 w-3 h-3 rounded-full bg-emerald-400 mt-0.5 shadow-lg shadow-emerald-400/50" />
                             <div className="flex-1">
                                 <div className="text-sm font-bold text-emerald-400 mb-0.5">
                                     Apple Weather (Observed)
@@ -67,7 +67,7 @@ export const SourceLegend: React.FC<{ className?: string }> = ({ className = '' 
 
                         {/* Amber: StormGlass Model */}
                         <div className="flex items-start gap-3">
-                            <div className="flex-shrink-0 w-3 h-3 rounded-full bg-amber-400 mt-0.5 shadow-lg shadow-amber-400/50" />
+                            <div className="shrink-0 w-3 h-3 rounded-full bg-amber-400 mt-0.5 shadow-lg shadow-amber-400/50" />
                             <div className="flex-1">
                                 <div className="text-sm font-bold text-amber-400 mb-0.5">StormGlass (Model)</div>
                                 <div className="text-sm text-white/70 leading-relaxed">
@@ -79,7 +79,7 @@ export const SourceLegend: React.FC<{ className?: string }> = ({ className = '' 
 
                         {/* White: Forecast */}
                         <div className="flex items-start gap-3">
-                            <div className="flex-shrink-0 w-3 h-3 rounded-full bg-white mt-0.5 shadow-lg shadow-white/50" />
+                            <div className="shrink-0 w-3 h-3 rounded-full bg-white mt-0.5 shadow-lg shadow-white/50" />
                             <div className="flex-1">
                                 <div className="text-sm font-bold text-white mb-0.5">Forecast (Future)</div>
                                 <div className="text-sm text-white/70 leading-relaxed">

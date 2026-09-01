@@ -141,7 +141,7 @@ export function MapWeatherControls({
                 <LegendDock layers={legendWeatherLayers} embedded={embedded} />
                 {stackedCmemsStatuses.length > 0 && (
                     <div
-                        className="absolute z-[501] min-w-44 rounded-xl border border-white/10 bg-slate-950/85 px-3 py-2 text-white shadow-lg backdrop-blur-xl"
+                        className="absolute z-501 min-w-44 rounded-xl border border-white/10 bg-slate-950/85 px-3 py-2 text-white shadow-lg backdrop-blur-xl"
                         style={{ left: 12, bottom: embedded ? 64 : 'calc(132px + env(safe-area-inset-bottom))' }}
                         role={stackedCmemsStatuses.some(({ phase }) => phase === 'error') ? 'alert' : 'status'}
                         aria-live="polite"
@@ -230,7 +230,7 @@ export function MapWeatherControls({
             // exactly the distinction that matters here.
             //
             // Read imperatively rather than subscribed: this component
-            // early-returns above on `!visible`, so a hook here would be a
+            // early-returns above on `visible!`, so a hook here would be a
             // conditional-hook violation. The pill re-renders on every rain
             // state change and on tap, which is often enough for a label.
             const rainOffline = useUIStore.getState().isOffline;
@@ -493,7 +493,7 @@ export function MapWeatherControls({
                 <button
                     type="button"
                     onClick={() => weather.retryRain()}
-                    className="absolute z-[500] flex min-h-12 min-w-40 items-center gap-2 rounded-2xl border border-white/10 bg-slate-950/80 px-4 py-2 text-left text-white shadow-lg backdrop-blur-xl active:bg-slate-800/80"
+                    className="absolute z-500 flex min-h-12 min-w-40 items-center gap-2 rounded-2xl border border-white/10 bg-slate-950/80 px-4 py-2 text-left text-white shadow-lg backdrop-blur-xl active:bg-slate-800/80"
                     style={{ left: 12, bottom: embedded ? 12 : 'calc(80px + env(safe-area-inset-bottom))' }}
                     aria-label={
                         rainOffline
@@ -515,7 +515,7 @@ export function MapWeatherControls({
                 </button>
             ) : showInlineLoading ? (
                 <div
-                    className="absolute z-[500] flex min-h-12 min-w-40 items-center gap-2 rounded-2xl border border-white/10 bg-slate-950/80 px-4 py-2 text-white shadow-lg backdrop-blur-xl"
+                    className="absolute z-500 flex min-h-12 min-w-40 items-center gap-2 rounded-2xl border border-white/10 bg-slate-950/80 px-4 py-2 text-white shadow-lg backdrop-blur-xl"
                     style={{ left: 12, bottom: embedded ? 12 : 'calc(80px + env(safe-area-inset-bottom))' }}
                     role={isLoading ? 'status' : 'alert'}
                     aria-live="polite"
@@ -571,7 +571,7 @@ export function MapWeatherControls({
                 moved to the far corner, away from the scrubber thumb path. */}
             {showRainViewerAttribution && (
                 <div
-                    className="absolute right-2 z-[509] flex items-center gap-1 rounded-md bg-slate-950/70 px-2 py-1 backdrop-blur-sm"
+                    className="absolute right-2 z-509 flex items-center gap-1 rounded-md bg-slate-950/70 px-2 py-1 backdrop-blur-xs"
                     style={{
                         bottom: controlsHidden
                             ? 'calc(84px + env(safe-area-inset-bottom))'
@@ -600,7 +600,7 @@ export function MapWeatherControls({
                 <button
                     type="button"
                     onClick={() => onControlsHiddenChange(false)}
-                    className="absolute left-1/2 -translate-x-1/2 z-[510] flex min-h-[44px] items-center gap-1.5 px-3 py-2 rounded-full bg-slate-900/85 border border-white/10 backdrop-blur-md shadow-lg text-[12px] font-bold text-slate-200"
+                    className="absolute left-1/2 -translate-x-1/2 z-510 flex min-h-[44px] items-center gap-1.5 px-3 py-2 rounded-full bg-slate-900/85 border border-white/10 backdrop-blur-md shadow-lg text-[12px] font-bold text-slate-200"
                     style={{ bottom: 'calc(80px + env(safe-area-inset-bottom))' }}
                     aria-label="Show weather controls"
                 >
@@ -619,7 +619,7 @@ export function MapWeatherControls({
                     // the scrubber... or better still inline with the models
                     // directly above it (JMA)"). The min() keeps it on-screen
                     // if a narrow viewport ever compresses the rows.
-                    className="absolute z-[510] flex h-12 w-12 items-center justify-center rounded-full bg-slate-900/85 border border-white/10 backdrop-blur-md shadow-lg text-slate-300"
+                    className="absolute z-510 flex h-12 w-12 items-center justify-center rounded-full bg-slate-900/85 border border-white/10 backdrop-blur-md shadow-lg text-slate-300"
                     style={{
                         left: 'min(304px, calc(100vw - 64px))',
                         bottom: embedded ? 12 : 'calc(80px + env(safe-area-inset-bottom))',

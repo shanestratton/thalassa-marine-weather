@@ -48,7 +48,7 @@ export const ZoomLevelFab: React.FC<ZoomLevelFabProps> = React.memo(({ mapRef, m
     if (zoomLevel === null) return null;
     return (
         <div
-            className="absolute left-4 z-[700] h-12 min-w-[3rem] rounded-full border border-white/[0.10] bg-slate-900/85 px-2.5 shadow-lg backdrop-blur-md pointer-events-none flex items-center justify-center select-none"
+            className="absolute left-4 z-700 h-12 min-w-12 rounded-full border border-white/10 bg-slate-900/85 px-2.5 shadow-lg backdrop-blur-md pointer-events-none flex items-center justify-center select-none"
             style={{ top: 'calc(env(safe-area-inset-top) + 8px)' }}
             aria-label={`Map zoom level ${zoomLevel.toFixed(1)}`}
             title="Map zoom level"

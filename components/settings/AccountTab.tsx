@@ -96,7 +96,7 @@ const StatusRow = ({
                     <button
                         aria-label="Test push notification delivery"
                         onClick={onTest}
-                        className="hit-target-44 px-2 py-1 rounded bg-white/5 border border-white/10 text-[11px] font-bold text-white uppercase"
+                        className="hit-target-44 px-2 py-1 rounded-sm bg-white/5 border border-white/10 text-[11px] font-bold text-white uppercase"
                     >
                         Test
                     </button>
@@ -186,11 +186,11 @@ export const AccountTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => 
             )}
 
             {/* Account Connection Hero */}
-            <div className="bg-gradient-to-br from-slate-800 to-slate-900 border border-white/10 rounded-2xl p-6 mb-8 shadow-2xl relative overflow-hidden">
+            <div className="bg-linear-to-br from-slate-800 to-slate-900 border border-white/10 rounded-2xl p-6 mb-8 shadow-2xl relative overflow-hidden">
                 <div className="absolute top-0 right-0 p-32 bg-sky-500/10 rounded-full blur-3xl pointer-events-none -translate-y-1/2 translate-x-1/2"></div>
                 <div className="flex flex-col items-center gap-4 relative z-10 text-center">
                     <div
-                        className={`w-16 h-16 rounded-2xl flex items-center justify-center shadow-xl ${user ? 'bg-gradient-to-br from-emerald-500 to-emerald-600 shadow-emerald-500/30' : 'bg-gradient-to-br from-slate-600 to-slate-700'}`}
+                        className={`w-16 h-16 rounded-2xl flex items-center justify-center shadow-xl ${user ? 'bg-linear-to-br from-emerald-500 to-emerald-600 shadow-emerald-500/30' : 'bg-linear-to-br from-slate-600 to-slate-700'}`}
                     >
                         <CloudIcon className={`w-8 h-8 ${user ? 'text-white' : 'text-gray-400'}`} />
                     </div>
@@ -208,7 +208,7 @@ export const AccountTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => 
                         <button
                             aria-label="Auth Open"
                             onClick={() => setAuthOpen(true)}
-                            className="bg-gradient-to-r from-sky-500 to-sky-600 hover:from-sky-400 hover:to-sky-500 text-white font-bold py-3 px-8 rounded-xl text-xs uppercase tracking-wider transition-all shadow-lg shadow-sky-500/30 active:scale-95"
+                            className="bg-linear-to-r from-sky-500 to-sky-600 hover:from-sky-400 hover:to-sky-500 text-white font-bold py-3 px-8 rounded-xl text-xs uppercase tracking-wider transition-all shadow-lg shadow-sky-500/30 active:scale-95"
                         >
                             Sign In with Email
                         </button>
@@ -264,7 +264,7 @@ export const AccountTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => 
             {/* Satellite Mode */}
             <Section title="Network Mode">
                 <div
-                    className={`mx-3 mt-2 mb-3 rounded-xl border p-4 transition-all duration-500 ${settings.satelliteMode ? 'bg-gradient-to-br from-amber-500/15 to-orange-500/10 border-amber-500/30 shadow-[0_0_20px_rgba(245,158,11,0.1)]' : 'bg-white/[0.03] border-white/5'}`}
+                    className={`mx-3 mt-2 mb-3 rounded-xl border p-4 transition-all duration-500 ${settings.satelliteMode ? 'bg-linear-to-br from-amber-500/15 to-orange-500/10 border-amber-500/30 shadow-[0_0_20px_rgba(245,158,11,0.1)]' : 'bg-white/3 border-white/5'}`}
                 >
                     <div className="flex items-center justify-between">
                         <div className="flex items-center gap-3">
@@ -425,7 +425,7 @@ export const AccountTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => 
                         ) : (
                             <div
                                 role="status"
-                                className="w-full rounded-xl border border-amber-400/25 bg-amber-400/[0.08] p-4"
+                                className="w-full rounded-xl border border-amber-400/25 bg-amber-400/8 p-4"
                             >
                                 <p className="text-sm font-bold text-amber-200">
                                     Account deletion temporarily unavailable

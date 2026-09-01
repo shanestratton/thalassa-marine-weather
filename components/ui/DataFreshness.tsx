@@ -131,12 +131,12 @@ export const DataFreshness: React.FC<DataFreshnessProps> = ({
     // surface so the pill blends with whatever it's pinned to.
     const tone =
         mode === 'error'
-            ? { bg: 'bg-red-500/[0.08]', border: 'border-red-500/30', text: 'text-red-300' }
+            ? { bg: 'bg-red-500/8', border: 'border-red-500/30', text: 'text-red-300' }
             : mode === 'stale'
-              ? { bg: 'bg-amber-500/[0.08]', border: 'border-amber-500/30', text: 'text-amber-300' }
+              ? { bg: 'bg-amber-500/8', border: 'border-amber-500/30', text: 'text-amber-300' }
               : mode === 'loading'
-                ? { bg: 'bg-sky-500/[0.06]', border: 'border-sky-500/25', text: 'text-sky-300' }
-                : { bg: 'bg-white/[0.03]', border: 'border-white/[0.06]', text: 'text-slate-400' };
+                ? { bg: 'bg-sky-500/6', border: 'border-sky-500/25', text: 'text-sky-300' }
+                : { bg: 'bg-white/3', border: 'border-white/6', text: 'text-slate-400' };
 
     const label =
         mode === 'error'

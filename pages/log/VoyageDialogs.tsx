@@ -22,7 +22,7 @@ export const VoyageChoiceDialog: React.FC<VoyageChoiceDialogProps> = React.memo(
         return (
             <OverlayPortal
                 role="presentation"
-                className="bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 modal-backdrop-enter"
+                className="bg-black/70 backdrop-blur-xs flex items-center justify-center p-4 modal-backdrop-enter"
             >
                 <div
                     ref={dialogRef}
@@ -106,7 +106,7 @@ export const StopVoyageDialog: React.FC<StopVoyageDialogProps> = React.memo(({ o
     return (
         <OverlayPortal
             role="presentation"
-            className="bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 modal-backdrop-enter"
+            className="bg-black/70 backdrop-blur-xs flex items-center justify-center p-4 modal-backdrop-enter"
         >
             <div
                 ref={dialogRef}

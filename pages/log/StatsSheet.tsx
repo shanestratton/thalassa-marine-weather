@@ -109,7 +109,7 @@ export const StatsSheet: React.FC<StatsSheetProps> = ({
                             onShowStats();
                             onClose();
                         }}
-                        className="w-full flex items-center gap-4 p-5 rounded-2xl bg-gradient-to-r from-amber-500/15 to-amber-600/5 border border-amber-500/20 hover:border-amber-400/40 active:scale-[0.98] transition-all"
+                        className="w-full flex items-center gap-4 p-5 rounded-2xl bg-linear-to-r from-amber-500/15 to-amber-600/5 border border-amber-500/20 hover:border-amber-400/40 active:scale-[0.98] transition-all"
                     >
                         <div className="w-14 h-14 rounded-xl bg-amber-500/20 flex items-center justify-center shrink-0">
                             <svg
@@ -148,7 +148,7 @@ export const StatsSheet: React.FC<StatsSheetProps> = ({
                             onShowStats();
                             onClose();
                         }}
-                        className="w-full flex items-center gap-4 p-5 rounded-2xl bg-gradient-to-r from-purple-500/15 to-purple-600/5 border border-purple-500/20 hover:border-purple-400/40 active:scale-[0.98] transition-all"
+                        className="w-full flex items-center gap-4 p-5 rounded-2xl bg-linear-to-r from-purple-500/15 to-purple-600/5 border border-purple-500/20 hover:border-purple-400/40 active:scale-[0.98] transition-all"
                     >
                         <div className="w-14 h-14 rounded-xl bg-purple-500/20 flex items-center justify-center shrink-0">
                             <svg

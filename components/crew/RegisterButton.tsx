@@ -21,7 +21,7 @@ export const RegisterButton: React.FC<RegisterButtonProps> = ({ reg, selected, o
         className={`p-3 rounded-xl border text-left transition-all active:scale-95 ${
             selected
                 ? 'bg-sky-500/15 border-sky-500/40 shadow-lg shadow-sky-500/5'
-                : 'bg-white/[0.03] border-white/[0.06] hover:bg-white/[0.05]'
+                : 'bg-white/3 border-white/6 hover:bg-white/5'
         }`}
     >
         <div className="flex items-center gap-2">

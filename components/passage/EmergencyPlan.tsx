@@ -150,7 +150,7 @@ export const EmergencyPlan: React.FC<EmergencyPlanProps> = ({ voyagePlan, vessel
                             Pre-planned safety options for this passage
                         </p>
                     </div>
-                    <div className="text-[11px] font-mono text-red-400 bg-red-500/10 px-2.5 py-1 rounded border border-red-500/20 uppercase tracking-widest font-bold">
+                    <div className="text-[11px] font-mono text-red-400 bg-red-500/10 px-2.5 py-1 rounded-sm border border-red-500/20 uppercase tracking-widest font-bold">
                         Safety Critical
                     </div>
                 </div>
@@ -300,7 +300,7 @@ export const EmergencyPlan: React.FC<EmergencyPlanProps> = ({ voyagePlan, vessel
                         {diversionScenarios.map((scenario, idx) => (
                             <div
                                 key={idx}
-                                className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-3 hover:bg-white/[0.06] transition-colors"
+                                className="bg-white/3 border border-white/6 rounded-xl p-3 hover:bg-white/6 transition-colors"
                             >
                                 <div className="flex items-start gap-2">
                                     <span className="text-base mt-0.5">{scenario.icon}</span>
@@ -333,7 +333,7 @@ export const EmergencyPlan: React.FC<EmergencyPlanProps> = ({ voyagePlan, vessel
 
 /* ── Contact Card micro-component ─────────────────────────────── */
 const ContactCard: React.FC<{ contact: EmergencyContact }> = ({ contact }) => (
-    <div className="bg-white/5 border border-white/[0.06] rounded-xl px-3 py-2.5">
+    <div className="bg-white/5 border border-white/6 rounded-xl px-3 py-2.5">
         <h5 className="text-[11px] font-bold text-white mb-1.5 truncate">{contact.service}</h5>
         <div className="space-y-1">
             {contact.frequency && (

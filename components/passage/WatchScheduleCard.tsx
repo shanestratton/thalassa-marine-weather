@@ -729,7 +729,7 @@ export const WatchScheduleCard: React.FC<WatchScheduleCardProps> = ({
     return (
         <div className="space-y-4">
             {/* ── Schedule Info ── */}
-            <div className="bg-gradient-to-r from-indigo-500/[0.06] to-purple-500/[0.03] border border-indigo-500/15 rounded-xl p-4">
+            <div className="bg-linear-to-r from-indigo-500/6 to-purple-500/3 border border-indigo-500/15 rounded-xl p-4">
                 <div className="flex items-center gap-3 mb-3">
                     <span className="text-2xl">⏰</span>
                     <div>
@@ -750,7 +750,7 @@ export const WatchScheduleCard: React.FC<WatchScheduleCardProps> = ({
                     )}
                 </div>
 
-                <label className="mb-3 flex items-center gap-3 rounded-lg border border-white/[0.08] bg-slate-950/30 px-3 py-2.5">
+                <label className="mb-3 flex items-center gap-3 rounded-lg border border-white/8 bg-slate-950/30 px-3 py-2.5">
                     <span className="shrink-0 text-[10px] font-bold uppercase tracking-widest text-gray-400">
                         Watch system
                     </span>
@@ -763,7 +763,7 @@ export const WatchScheduleCard: React.FC<WatchScheduleCardProps> = ({
                         onChange={(event) => void handleWatchSystemChange(event.target.value)}
                         disabled={systemChanging}
                         aria-label="Watch system"
-                        className="min-w-0 flex-1 cursor-pointer touch-manipulation rounded-md border border-indigo-400/20 bg-slate-900/60 px-2.5 py-2 text-right text-xs font-bold text-indigo-200 outline-none transition-colors focus:border-indigo-300/60 disabled:cursor-wait disabled:opacity-50 [color-scheme:dark]"
+                        className="min-w-0 flex-1 cursor-pointer touch-manipulation rounded-md border border-indigo-400/20 bg-slate-900/60 px-2.5 py-2 text-right text-xs font-bold text-indigo-200 outline-hidden transition-colors focus:border-indigo-300/60 disabled:cursor-wait disabled:opacity-50 scheme-dark"
                     >
                         {WATCH_SYSTEM_OPTIONS.map((option) => {
                             const unavailable = effectiveCrewCount < option.minCrew;
@@ -783,7 +783,7 @@ export const WatchScheduleCard: React.FC<WatchScheduleCardProps> = ({
                 </label>
 
                 {isSoloSystem && (
-                    <div className="mb-3 rounded-lg border border-amber-500/20 bg-amber-500/[0.06] px-3 py-2.5 text-[11px] leading-relaxed text-amber-100/80">
+                    <div className="mb-3 rounded-lg border border-amber-500/20 bg-amber-500/6 px-3 py-2.5 text-[11px] leading-relaxed text-amber-100/80">
                         Solo passages use a continuous lookout rather than a rotating roster. Complete the solo checks
                         below to mark this plan ready.
                     </div>
@@ -795,7 +795,7 @@ export const WatchScheduleCard: React.FC<WatchScheduleCardProps> = ({
                     WatchAlarmService for the current user's
                     assigned watches. */}
                 {!isSoloSystem && voyageId && departureTimeIso && (
-                    <div className="mb-3 px-3 py-2.5 rounded-lg bg-amber-500/[0.06] border border-amber-500/20 flex items-center gap-3 flex-wrap">
+                    <div className="mb-3 px-3 py-2.5 rounded-lg bg-amber-500/6 border border-amber-500/20 flex items-center gap-3 flex-wrap">
                         <button
                             type="button"
                             role="switch"
@@ -831,7 +831,7 @@ export const WatchScheduleCard: React.FC<WatchScheduleCardProps> = ({
                                 value={alarmLeadMin}
                                 onChange={(e) => setAlarmLeadMin(parseInt(e.target.value, 10))}
                                 aria-label="Alarm lead time in minutes"
-                                className="shrink-0 bg-slate-900/60 border border-amber-500/20 rounded-md px-2 py-1 text-[11px] font-bold text-amber-200 outline-none focus:border-amber-500"
+                                className="shrink-0 bg-slate-900/60 border border-amber-500/20 rounded-md px-2 py-1 text-[11px] font-bold text-amber-200 outline-hidden focus:border-amber-500"
                             >
                                 {ALARM_LEAD_OPTIONS.map((m) => (
                                     <option key={m} value={m}>
@@ -848,7 +848,7 @@ export const WatchScheduleCard: React.FC<WatchScheduleCardProps> = ({
                     repeating pattern. Two taps to fill an entire
                     multi-week rotation. Dismissed flag is per-voyage. */}
                 {detectedPattern && !autofillDismissed && (
-                    <div className="mb-2 rounded-xl border border-sky-500/25 bg-sky-500/[0.06] px-3 py-2.5 flex items-center gap-3">
+                    <div className="mb-2 rounded-xl border border-sky-500/25 bg-sky-500/6 px-3 py-2.5 flex items-center gap-3">
                         <span className="text-lg shrink-0">🔁</span>
                         <p className="flex-1 text-[11px] text-sky-200 leading-tight">
                             Detected a {detectedPattern.cycleLength}-watch rotation. Apply to the remaining{' '}
@@ -901,7 +901,7 @@ export const WatchScheduleCard: React.FC<WatchScheduleCardProps> = ({
                                     className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg border text-left transition-all ${
                                         isAssigned
                                             ? 'bg-indigo-500/15 border-indigo-500/30 hover:bg-indigo-500/20 active:scale-[0.98]'
-                                            : 'bg-white/[0.03] border-white/[0.04] hover:bg-white/[0.05] active:scale-[0.98]'
+                                            : 'bg-white/3 border-white/4 hover:bg-white/5 active:scale-[0.98]'
                                     } ${!voyageId ? 'opacity-50 cursor-default' : ''}`}
                                 >
                                     <div
@@ -939,7 +939,7 @@ export const WatchScheduleCard: React.FC<WatchScheduleCardProps> = ({
                             disabled={publishing || assignedCount === 0}
                             className={`w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs uppercase tracking-wider transition-all active:scale-[0.98] ${
                                 assignedCount === 0
-                                    ? 'bg-white/[0.03] border border-white/10 text-gray-500 cursor-not-allowed'
+                                    ? 'bg-white/3 border border-white/10 text-gray-500 cursor-not-allowed'
                                     : publishing
                                       ? 'bg-violet-500/20 border border-violet-500/30 text-violet-300'
                                       : 'bg-violet-500/15 hover:bg-violet-500/25 border border-violet-500/30 text-violet-200'
@@ -978,7 +978,7 @@ export const WatchScheduleCard: React.FC<WatchScheduleCardProps> = ({
             </div>
 
             {/* ── Briefing Checklist ── */}
-            <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4">
+            <div className="bg-white/3 border border-white/6 rounded-xl p-4">
                 <h4 className="text-xs font-bold text-white uppercase tracking-widest mb-3 flex items-center gap-2">
                     {isSoloSystem ? '🧭 Solo Watch Readiness' : '✅ Watch Briefing'}
                     <span
@@ -1001,7 +1001,7 @@ export const WatchScheduleCard: React.FC<WatchScheduleCardProps> = ({
                                 className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-all active:scale-[0.98] ${
                                     isChecked
                                         ? 'bg-emerald-500/10 border border-emerald-500/20'
-                                        : 'bg-white/[0.02] border border-white/[0.06] hover:bg-white/[0.05]'
+                                        : 'bg-white/2 border border-white/6 hover:bg-white/5'
                                 }`}
                             >
                                 <div

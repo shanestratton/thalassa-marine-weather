@@ -4,7 +4,7 @@ import { createPortal } from 'react-dom';
 export type OverlayLayer = 'modal' | 'nested' | 'critical';
 
 /**
- * App chrome sits at z-[900] and several map/planning tools legitimately use
+ * App chrome sits at z-900 and several map/planning tools legitimately use
  * five-digit z-index bands. Keep ordinary blocking overlays above the chrome,
  * while reserving a near-maximum layer for alarms that must outrank every
  * other in-app surface. Leave a little headroom below the CSS integer ceiling
@@ -21,14 +21,14 @@ export const OVERLAY_Z_INDEX: Record<OverlayLayer, number> = {
  * `critical` so an alarm still punches through at full brightness on a night
  * watch. Derived rather than hard-coded: the scrim's job is defined by its
  * relationship to the alarm tier, not by a magic number, and it previously sat
- * at z-[9999] where a dozen five-digit overlays painted straight over it.
+ * at z-9999 where a dozen five-digit overlays painted straight over it.
  */
 export const NIGHT_SCRIM_Z_INDEX = OVERLAY_Z_INDEX.critical - 1000;
 
 export const OVERLAY_LAYER_CLASS: Record<OverlayLayer, string> = {
-    modal: 'z-[1100]',
-    nested: 'z-[1200]',
-    critical: 'z-[2147483000]',
+    modal: 'z-1100',
+    nested: 'z-1200',
+    critical: 'z-2147483000',
 };
 
 interface OverlayPortalProps extends React.HTMLAttributes<HTMLDivElement> {

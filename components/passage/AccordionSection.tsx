@@ -112,7 +112,7 @@ export const AccordionSection: React.FC<AccordionSectionProps> = React.memo(
                 <button
                     aria-label={`${isOpen ? 'Collapse' : 'Expand'} ${title}`}
                     onClick={() => setIsOpen((o) => !o)}
-                    className="w-full flex items-center gap-3 px-5 py-4 text-left group relative z-10 transition-colors hover:bg-white/[0.03]"
+                    className="w-full flex items-center gap-3 px-5 py-4 text-left group relative z-10 transition-colors hover:bg-white/3"
                     aria-expanded={isOpen}
                 >
                     {/* Icon */}
@@ -162,7 +162,7 @@ export const AccordionSection: React.FC<AccordionSectionProps> = React.memo(
 
                 {/* Collapsible Content */}
                 <div
-                    className="transition-[max-height,opacity] duration-500 ease-[cubic-bezier(0.4,0,0.2,1)] overflow-hidden"
+                    className="transition-[max-height,opacity] duration-500 ease-in-out overflow-hidden"
                     style={{
                         maxHeight: isOpen ? `${contentHeight + 32}px` : '0px',
                         opacity: isOpen ? 1 : 0,

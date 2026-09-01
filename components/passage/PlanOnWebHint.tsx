@@ -108,7 +108,7 @@ export const PlanOnWebHint: React.FC = () => {
 
     return createPortal(
         <div
-            className="pointer-events-none fixed inset-0 z-[10070] flex items-center justify-center bg-black/70 px-4 py-[max(1rem,env(safe-area-inset-bottom))]"
+            className="pointer-events-none fixed inset-0 z-10070 flex items-center justify-center bg-black/70 px-4 py-[max(1rem,env(safe-area-inset-bottom))]"
             role="presentation"
         >
             <div

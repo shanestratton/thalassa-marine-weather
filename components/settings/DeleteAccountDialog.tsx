@@ -105,7 +105,7 @@ export const DeleteAccountDialog: React.FC<DeleteAccountDialogProps> = ({
                         autoComplete="off"
                         spellCheck={false}
                         disabled={busy}
-                        className="w-full rounded-xl border border-white/15 bg-black/30 px-4 py-3 font-mono text-white outline-none transition focus:border-red-400 focus:ring-2 focus:ring-red-400/30 disabled:opacity-60"
+                        className="w-full rounded-xl border border-white/15 bg-black/30 px-4 py-3 font-mono text-white outline-hidden transition focus:border-red-400 focus:ring-2 focus:ring-red-400/30 disabled:opacity-60"
                     />
 
                     {error && (

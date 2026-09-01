@@ -105,7 +105,7 @@ export const renderHeroWidget = (
                         </span>
                         <span className={`${subSize} md:text-sm font-medium text-gray-400 pb-1`}>{units.speed}</span>
                         <div
-                            className={`flex items-center gap-0.5 bg-white/5 px-1 py-0.5 rounded ${subSize} font-bold text-sky-300 border border-white/5 ml-1`}
+                            className={`flex items-center gap-0.5 bg-white/5 px-1 py-0.5 rounded-sm ${subSize} font-bold text-sky-300 border border-white/5 ml-1`}
                         >
                             <CompassIcon rotation={data.windDegree || 0} className="w-2.5 h-2.5" />
                             <span>{data.windDirection || 'VAR'}</span>
@@ -135,7 +135,7 @@ export const renderHeroWidget = (
                         </span>
                         <span className={`${subSize} md:text-sm font-medium text-gray-400 pb-1`}>{units.speed}</span>
                         <div
-                            className={`flex items-center gap-0.5 bg-white/5 px-1 py-0.5 rounded ${subSize} font-bold text-amber-300 border border-white/5 ml-1`}
+                            className={`flex items-center gap-0.5 bg-white/5 px-1 py-0.5 rounded-sm ${subSize} font-bold text-amber-300 border border-white/5 ml-1`}
                         >
                             <span>Max</span>
                         </div>
@@ -167,7 +167,7 @@ export const renderHeroWidget = (
                         </span>
                         <span className={`${subSize} md:text-sm font-medium text-gray-400 pb-1`}>{units.length}</span>
                         <div
-                            className={`flex items-center gap-0.5 bg-white/5 px-1 py-0.5 rounded ${subSize} font-bold text-sky-300 border border-white/5 ml-1`}
+                            className={`flex items-center gap-0.5 bg-white/5 px-1 py-0.5 rounded-sm ${subSize} font-bold text-sky-300 border border-white/5 ml-1`}
                         >
                             <ClockIcon className="w-2.5 h-2.5" />
                             <span>PER. {period}</span>
@@ -613,7 +613,7 @@ export const renderHeroWidget = (
                         </span>
                         <span className={`${subSize} font-medium text-gray-400 pb-0.5`}>°</span>
                         <div
-                            className={`flex items-center gap-0.5 bg-white/5 px-1 py-0.5 rounded ${subSize} font-bold text-purple-300 border border-white/5 ml-1`}
+                            className={`flex items-center gap-0.5 bg-white/5 px-1 py-0.5 rounded-sm ${subSize} font-bold text-purple-300 border border-white/5 ml-1`}
                         >
                             <span>{cogCardinal}</span>
                         </div>
@@ -629,7 +629,7 @@ export const renderHeroWidget = (
 
 // --- STATIC WIDGET CLASS ---
 export const STATIC_WIDGET_CLASS =
-    'flex-1 min-w-[32%] md:min-w-[30%] bg-white/[0.06] border border-white/10 rounded-xl p-2 md:p-4 relative flex flex-col justify-center min-h-[90px] md:min-h-[100px] shrink-0';
+    'flex-1 min-w-[32%] md:min-w-[30%] bg-white/6 border border-white/10 rounded-xl p-2 md:p-4 relative flex flex-col justify-center min-h-[90px] md:min-h-[100px] shrink-0';
 
 // --- SOURCE COLOR HELPER ---
 export const getSourceIndicatorColor = (sourceColor?: 'emerald' | 'amber' | 'sky' | 'white'): string => {

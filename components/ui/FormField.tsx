@@ -61,8 +61,8 @@ export const FormField: React.FC<FormFieldProps> = ({
     const isTextarea = type === 'textarea';
     const borderClass = error ? 'border-red-500/40 focus:border-red-500/60' : 'border-white/10 focus:border-sky-500/30';
     const baseClass = isDate
-        ? `w-full max-w-full min-w-0 mt-0.5 bg-white/5 border ${borderClass} rounded-xl px-3 py-2 text-sm text-white outline-none transition-colors [color-scheme:dark] box-border`
-        : `w-full min-w-0 mt-0.5 bg-white/5 border ${borderClass} rounded-xl px-3 py-2 text-white text-sm outline-none transition-colors placeholder:text-gray-400`;
+        ? `w-full max-w-full min-w-0 mt-0.5 bg-white/5 border ${borderClass} rounded-xl px-3 py-2 text-sm text-white outline-hidden transition-colors scheme-dark box-border`
+        : `w-full min-w-0 mt-0.5 bg-white/5 border ${borderClass} rounded-xl px-3 py-2 text-white text-sm outline-hidden transition-colors placeholder:text-gray-400`;
     const inputClass = `${baseClass}${mono ? ' font-mono' : ''} ${className}`.trim();
 
     // Combined focus handler: auto keyboard scroll + optional custom handler

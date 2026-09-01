@@ -159,7 +159,7 @@ export const HazardReportPanel: React.FC<HazardReportPanelProps> = ({ visible, o
 
     return (
         <div
-            className="absolute z-[600] right-3"
+            className="absolute z-600 right-3"
             style={{
                 top: 'calc(env(safe-area-inset-top) + 96px)',
                 maxWidth: 'min(320px, calc(100vw - 24px))',
@@ -239,7 +239,7 @@ export const HazardReportPanel: React.FC<HazardReportPanelProps> = ({ visible, o
                                 key={`${entry.cellId}-${entry.representativePoint.lat}-${entry.representativePoint.lon}-${i}`}
                                 className={`w-full text-left py-1.5 border-b border-amber-500/10 last:border-b-0 ${
                                     interactive
-                                        ? 'cursor-pointer hover:bg-amber-500/[0.04] active:bg-amber-500/[0.08] active:scale-[0.99] transition-colors -mx-1 px-1 rounded'
+                                        ? 'cursor-pointer hover:bg-amber-500/4 active:bg-amber-500/8 active:scale-[0.99] transition-colors -mx-1 px-1 rounded-sm'
                                         : ''
                                 }`}
                                 role="listitem"

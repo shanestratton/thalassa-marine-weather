@@ -24,14 +24,14 @@ export const MapActionFabs: React.FC<MapActionFabsProps> = ({ onLocateMe, onRece
             // right-[16px] (= right-4) aligns with the right-rail FAB column
             // and the ConnectivityChip so every right-edge element on the
             // chart screen sits on the same vertical gridline.
-            className="absolute right-[16px] z-[500] flex flex-row gap-2"
+            className="absolute right-[16px] z-500 flex flex-row gap-2"
             style={{ bottom: 'calc(80px + env(safe-area-inset-bottom))' }}
         >
             {/* GPS Locate Me — fly to device position */}
             <button
                 aria-label="Locate me"
                 onClick={onLocateMe}
-                className="w-12 h-12 bg-slate-900/90 border border-white/[0.08] rounded-2xl flex items-center justify-center shadow-2xl hover:bg-slate-800/90 transition-all active:scale-95"
+                className="w-12 h-12 bg-slate-900/90 border border-white/8 rounded-2xl flex items-center justify-center shadow-2xl hover:bg-slate-800/90 transition-all active:scale-95"
             >
                 <svg
                     className="w-5 h-5 text-emerald-400"
@@ -51,7 +51,7 @@ export const MapActionFabs: React.FC<MapActionFabsProps> = ({ onLocateMe, onRece
                     aria-label="Recenter on weather location"
                     onClick={onRecenter}
                     disabled={recenterDisabled}
-                    className="w-12 h-12 bg-slate-900/90 border border-white/[0.08] rounded-2xl flex items-center justify-center shadow-2xl hover:bg-slate-800/90 transition-all active:scale-95"
+                    className="w-12 h-12 bg-slate-900/90 border border-white/8 rounded-2xl flex items-center justify-center shadow-2xl hover:bg-slate-800/90 transition-all active:scale-95"
                 >
                     <svg
                         className="w-5 h-5 text-white"

@@ -97,7 +97,7 @@ export const PhotoLightbox: React.FC<PhotoLightboxProps> = ({ photos, startIndex
             role="dialog"
             aria-modal="true"
             aria-label="Photo viewer"
-            className="fixed inset-0 z-[80] flex flex-col bg-black/95 backdrop-blur-sm"
+            className="fixed inset-0 z-80 flex flex-col bg-black/95 backdrop-blur-xs"
             onClick={onClose}
             onKeyDown={(event) => {
                 if (photos.length <= 1) return;

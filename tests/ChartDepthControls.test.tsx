@@ -161,7 +161,7 @@ describe('ChartDepthControls', () => {
         render(<ChartDepthControls {...props({ surfaceVisible: false, chartKeyVisible: true, plotting: true })} />);
 
         const key = screen.getByRole('button', { name: /chart colours/ });
-        expect(key).toHaveClass('left-3', 'w-72', 'z-[9996]');
+        expect(key).toHaveClass('left-3', 'w-72', 'z-9996');
         // 9.2rem since 2026-08-25 — centred between the tracer card and scrubber.
         expect(key).toHaveStyle({ bottom: 'calc(9.2rem + env(safe-area-inset-bottom))' });
     });
@@ -188,7 +188,7 @@ describe('ChartKeyPanel', () => {
     it('stacks above the Plan tracer card and compass rose', () => {
         render(<ChartKeyPanel visible imageryOn={false} tideDepthMode={false} draftConfigured onClose={vi.fn()} />);
 
-        expect(screen.getByRole('region', { name: 'Nautical chart key' })).toHaveClass('z-[9997]');
+        expect(screen.getByRole('region', { name: 'Nautical chart key' })).toHaveClass('z-9997');
     });
 });
 

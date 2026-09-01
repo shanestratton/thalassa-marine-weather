@@ -66,7 +66,7 @@ export const UpgradeModal: React.FC<UpgradeModalProps> = ({ isOpen, onClose }) =
                 </div>
 
                 <div className="space-y-4 p-5">
-                    <div className="space-y-2 rounded-2xl border border-white/[0.07] bg-white/[0.03] p-4">
+                    <div className="space-y-2 rounded-2xl border border-white/[0.07] bg-white/3 p-4">
                         {BETA_BENEFITS.map((benefit) => (
                             <div key={benefit} className="flex items-start gap-2.5 text-sm text-slate-200">
                                 <CheckIcon className="mt-0.5 h-4 w-4 shrink-0 text-teal-300" />

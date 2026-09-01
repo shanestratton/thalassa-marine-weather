@@ -144,7 +144,7 @@ export const WindRose: React.FC<WindRoseProps> = ({ twd, twaSigned, awa, heading
             </svg>
 
             <div className="mt-1 grid w-full grid-cols-2 gap-1">
-                <div className="rounded-lg bg-white/[0.04] px-1.5 py-1 text-center">
+                <div className="rounded-lg bg-white/4 px-1.5 py-1 text-center">
                     <div className="text-[8px] font-black uppercase tracking-widest" style={{ color: TRUE_COLOR }}>
                         True
                     </div>
@@ -157,7 +157,7 @@ export const WindRose: React.FC<WindRoseProps> = ({ twd, twaSigned, awa, heading
                         {twd !== null ? ` · ${Math.round(twd)}°T` : ''}
                     </div>
                 </div>
-                <div className="rounded-lg bg-white/[0.04] px-1.5 py-1 text-center">
+                <div className="rounded-lg bg-white/4 px-1.5 py-1 text-center">
                     <div className="text-[8px] font-black uppercase tracking-widest" style={{ color: APPARENT_COLOR }}>
                         Apparent
                     </div>

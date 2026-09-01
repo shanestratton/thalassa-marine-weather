@@ -26,7 +26,7 @@ export function ChartKeyPanel({ visible, imageryOn, tideDepthMode, draftConfigur
             // Tracer card = 9995 and compass rose = 9996. The key is an
             // explicitly-opened planning reference, so it must sit above both
             // while remaining below blocking sheets/modals (10050+).
-            className="absolute bottom-44 right-2 z-[9997] w-64 max-h-[calc(100dvh-12rem)] overflow-y-auto overscroll-contain rounded-2xl border border-white/10 bg-slate-900/95 p-3 shadow-2xl"
+            className="absolute bottom-44 right-2 z-9997 w-64 max-h-[calc(100dvh-12rem)] overflow-y-auto overscroll-contain rounded-2xl border border-white/10 bg-slate-900/95 p-3 shadow-2xl"
         >
             <div className="mb-2 flex items-center justify-between">
                 <span className="text-[11px] font-black uppercase tracking-widest text-amber-300">Chart key</span>
@@ -158,14 +158,14 @@ export function ChartKeyPanel({ visible, imageryOn, tideDepthMode, draftConfigur
                                 </span>
                             ) : kind === 'sector' ? (
                                 <span
-                                    className="inline-block h-2.5 w-5 shrink-0 rounded-sm border border-white/25"
+                                    className="inline-block h-2.5 w-5 shrink-0 rounded-xs border border-white/25"
                                     style={{
                                         background: `linear-gradient(90deg,${LIGHT_COLOUR_HEX.green ?? '#22c55e'} 34%,${LIGHT_COLOUR_HEX.white ?? '#f0e030'} 34%,${LIGHT_COLOUR_HEX.white ?? '#f0e030'} 66%,${LIGHT_COLOUR_HEX.red ?? '#ef4444'} 66%)`,
                                     }}
                                 />
                             ) : (
                                 <span
-                                    className="inline-block h-2.5 w-5 shrink-0 rounded-sm border border-white/25"
+                                    className="inline-block h-2.5 w-5 shrink-0 rounded-xs border border-white/25"
                                     style={{ background: key }}
                                 />
                             )}

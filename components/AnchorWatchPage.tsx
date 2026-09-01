@@ -597,7 +597,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                         <button
                             aria-label={authedUser ? 'Open Shore Watch join' : 'Sign in to use Shore Watch'}
                             onClick={() => (authedUser ? setShowShoreModal(true) : setShowShoreSignIn(true))}
-                            className="min-h-11 px-3 rounded-lg text-xs font-bold text-slate-400 bg-slate-800/60 border border-white/[0.06] hover:text-slate-300 transition-colors"
+                            className="min-h-11 px-3 rounded-lg text-xs font-bold text-slate-400 bg-slate-800/60 border border-white/6 hover:text-slate-300 transition-colors"
                         >
                             {authedUser ? 'Shore' : 'Shore · Sign in'}
                         </button>
@@ -619,7 +619,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                         slide-to-arm gesture. Hides permanently after
                         the user successfully arms once. */}
                     {typeof window !== 'undefined' && !localStorage.getItem('thalassa_anchor_watch_armed_once') && (
-                        <div className="shrink-0 mx-4 mt-2 mb-1 rounded-xl bg-sky-500/[0.06] border border-sky-500/15 px-3 py-2.5">
+                        <div className="shrink-0 mx-4 mt-2 mb-1 rounded-xl bg-sky-500/6 border border-sky-500/15 px-3 py-2.5">
                             <p className="text-[12px] text-sky-200 leading-relaxed">
                                 <span className="font-bold text-sky-300">Drop anchor, then arm the watch.</span> Set
                                 your <span className="font-semibold text-white">water depth</span>,{' '}
@@ -654,7 +654,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                                     className={`flex-1 min-h-11 rounded-xl text-sm font-bold transition-all ${
                                         rodeType === type
                                             ? 'bg-amber-500/20 border border-amber-500/40 text-amber-400 shadow-[0_0_12px_rgba(245,158,11,0.1)]'
-                                            : 'bg-slate-800/40 border border-white/[0.06] text-slate-400 hover:text-slate-400'
+                                            : 'bg-slate-800/40 border border-white/6 text-slate-400 hover:text-slate-400'
                                     }`}
                                 >
                                     {type === 'chain' ? '⛓' : type === 'rope' ? '🪢' : '🔗'}
@@ -713,7 +713,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                         </div>
 
                         {/* ── Context Strip — weather + safety ── */}
-                        <div className="flex items-center gap-2 bg-slate-800/30 border border-white/[0.04] rounded-xl px-3 py-2">
+                        <div className="flex items-center gap-2 bg-slate-800/30 border border-white/4 rounded-xl px-3 py-2">
                             {/* Weather left */}
                             <button
                                 aria-label="Rode Length"
@@ -740,7 +740,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                             </button>
 
                             {/* Divider */}
-                            <div className="w-px h-6 bg-white/[0.06]" />
+                            <div className="w-px h-6 bg-white/6" />
 
                             {/* Safety status right */}
                             <div className="flex items-center gap-1.5">
@@ -977,7 +977,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                     action={
                         <button
                             onClick={handleStopWatch}
-                            className="px-3 py-1.5 bg-red-500/[0.08] border border-red-500/20 rounded-lg text-red-400 text-sm font-bold transition-all active:scale-95"
+                            className="px-3 py-1.5 bg-red-500/8 border border-red-500/20 rounded-lg text-red-400 text-sm font-bold transition-all active:scale-95"
                             aria-label="Stop Watch"
                         >
                             Leave
@@ -993,8 +993,8 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                         className={`shrink-0 mx-3 mt-1 px-3 py-2.5 flex items-center gap-2 rounded-xl border ${
                             shoreDisconnectedWithKnownData ||
                             (!syncState?.peerConnected && syncState?.peerDisconnectedAt)
-                                ? 'bg-red-500/[0.08] border-red-500/25'
-                                : 'bg-amber-500/[0.08] border-amber-500/25'
+                                ? 'bg-red-500/8 border-red-500/25'
+                                : 'bg-amber-500/8 border-amber-500/25'
                         }`}
                     >
                         <span
@@ -1148,19 +1148,19 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                                         {formatDistance(shoreData.swingRadius)}
                                     </div>
                                 </div>
-                                <div className="bg-slate-800/50 rounded-xl p-3 text-center border border-white/[0.04]">
+                                <div className="bg-slate-800/50 rounded-xl p-3 text-center border border-white/4">
                                     <div className={t.typography.label}>Rode</div>
                                     <div className="text-lg font-bold text-amber-400">
                                         {shoreData.config.rodeLength.toFixed(1)}m
                                     </div>
                                 </div>
-                                <div className="bg-slate-800/50 rounded-xl p-3 text-center border border-white/[0.04]">
+                                <div className="bg-slate-800/50 rounded-xl p-3 text-center border border-white/4">
                                     <div className={t.typography.label}>Depth</div>
                                     <div className="text-lg font-bold text-sky-400">
                                         {shoreData.config.waterDepth.toFixed(1)}m
                                     </div>
                                 </div>
-                                <div className="bg-slate-800/50 rounded-xl p-3 text-center border border-white/[0.04]">
+                                <div className="bg-slate-800/50 rounded-xl p-3 text-center border border-white/4">
                                     <div className={t.typography.label}>
                                         {shoreDataFresh ? 'Last Update' : 'Last-Known Update'}
                                     </div>
@@ -1219,10 +1219,10 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                             <div
                                 className={`px-2 py-1 rounded-lg text-[11px] font-bold uppercase tracking-wider flex items-center gap-1 border ${
                                     snapshot.guardianStatus === 'armed' || snapshot.guardianStatus === 'already_armed'
-                                        ? 'bg-emerald-500/[0.08] border-emerald-500/20 text-emerald-400'
+                                        ? 'bg-emerald-500/8 border-emerald-500/20 text-emerald-400'
                                         : snapshot.guardianStatus === 'arming'
-                                          ? 'bg-sky-500/[0.08] border-sky-500/20 text-sky-400'
-                                          : 'bg-red-500/[0.08] border-red-500/20 text-red-400'
+                                          ? 'bg-sky-500/8 border-sky-500/20 text-sky-400'
+                                          : 'bg-red-500/8 border-red-500/20 text-red-400'
                                 }`}
                             >
                                 <span
@@ -1295,7 +1295,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                         {foreignAccountRecovery ? 'Previous account — cleanup only' : 'Blocked recovery — cleanup only'}
                     </div>
                 ) : syncState?.connected ? (
-                    <div className="flex-1 flex items-center justify-center gap-2 py-3 bg-sky-500/[0.08] border border-sky-500/20 rounded-xl">
+                    <div className="flex-1 flex items-center justify-center gap-2 py-3 bg-sky-500/8 border border-sky-500/20 rounded-xl">
                         <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse shadow-[0_0_4px_rgba(16,185,129,0.5)]" />
                         <span className="text-sm text-sky-400 font-mono font-bold tracking-wider">
                             {syncState.sessionCode}
@@ -1305,7 +1305,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                 ) : (
                     <button
                         onClick={handleCreateSession}
-                        className="flex-1 py-3 bg-sky-500/[0.08] border border-sky-500/20 rounded-xl text-sm text-sky-400 font-bold transition-all active:scale-[0.97] hover:bg-sky-500/[0.12]"
+                        className="flex-1 py-3 bg-sky-500/8 border border-sky-500/20 rounded-xl text-sm text-sky-400 font-bold transition-all active:scale-[0.97] hover:bg-sky-500/12"
                         aria-label="Create Session"
                     >
                         <span className="inline-flex items-center gap-2 justify-center">
@@ -1329,8 +1329,8 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                     disabled={monitoringBlocked}
                     className={`py-3 px-3 border rounded-xl text-sm font-bold transition-all active:scale-[0.97] disabled:hidden ${
                         showAisOnRadar
-                            ? 'bg-sky-500/[0.12] border-sky-500/30 text-sky-400'
-                            : 'bg-white/[0.03] border-white/[0.06] text-slate-500'
+                            ? 'bg-sky-500/12 border-sky-500/30 text-sky-400'
+                            : 'bg-white/3 border-white/6 text-slate-500'
                     }`}
                     aria-label={showAisOnRadar ? 'Hide AIS targets' : 'Show AIS targets'}
                 >
@@ -1338,7 +1338,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                 </button>
                 <button
                     onClick={handleStopWatch}
-                    className={`flex-1 py-3 bg-red-500/[0.08] border border-red-500/20 rounded-xl text-red-400 text-sm font-bold transition-all active:scale-[0.97] hover:bg-red-500/[0.12]`}
+                    className={`flex-1 py-3 bg-red-500/8 border border-red-500/20 rounded-xl text-red-400 text-sm font-bold transition-all active:scale-[0.97] hover:bg-red-500/12`}
                     aria-label="Stop Watch"
                 >
                     ⏏ Weigh Anchor
@@ -1347,7 +1347,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
 
             {/* Shore Disconnection Banner — visible when shore device drops */}
             {syncState?.connected && !syncState.peerConnected && syncState.sessionCode && (
-                <div className="shrink-0 mx-3 mb-1.5 px-3 py-2 flex items-center gap-2 bg-amber-500/[0.08] border border-amber-500/25 rounded-xl animate-pulse">
+                <div className="shrink-0 mx-3 mb-1.5 px-3 py-2 flex items-center gap-2 bg-amber-500/8 border border-amber-500/25 rounded-xl animate-pulse">
                     <span className="w-2 h-2 bg-amber-400 rounded-full shrink-0" />
                     <span className="text-xs text-amber-400 font-bold flex-1 inline-flex items-center gap-1.5">
                         {!!syncState.peerDisconnectedAt && <AlertTriangleIcon className="w-3.5 h-3.5" />}
@@ -1362,7 +1362,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
             )}
 
             {/* Main Card — gradient glass, fits available space */}
-            <div className="flex-1 min-h-0 mx-3 mb-3 bg-gradient-to-b from-slate-900/70 to-slate-950/50 rounded-2xl border border-white/[0.07] flex flex-col overflow-hidden shadow-[0_0_30px_rgba(0,0,0,0.3)]">
+            <div className="flex-1 min-h-0 mx-3 mb-3 bg-linear-to-b from-slate-900/70 to-slate-950/50 rounded-2xl border border-white/[0.07] flex flex-col overflow-hidden shadow-[0_0_30px_rgba(0,0,0,0.3)]">
                 {/* Status Badge — animated with dot */}
                 <div className="shrink-0 flex justify-center py-2">
                     <div
@@ -1399,7 +1399,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                             ashore, the swing circle is being measured from the
                             wrong place. Those two must never look alike
                             (Shane 2026-08-08, monitoring over Tailscale). */}
-                        <div className="bg-slate-800/50 rounded-lg px-2 py-1.5 text-center border border-white/[0.04]">
+                        <div className="bg-slate-800/50 rounded-lg px-2 py-1.5 text-center border border-white/4">
                             <div className={t.typography.labelSm}>
                                 {snapshot?.gpsSource === 'nmea' ? (
                                     <span className="text-cyan-300">⚓ BOAT GPS</span>
@@ -1415,7 +1415,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                                 ±{snapshot?.gpsAccuracy.toFixed(0) ?? '--'}m
                             </div>
                         </div>
-                        <div className="bg-slate-800/50 rounded-lg px-2 py-1.5 text-center border border-white/[0.04]">
+                        <div className="bg-slate-800/50 rounded-lg px-2 py-1.5 text-center border border-white/4">
                             <div className={t.typography.labelSm}>Bearing</div>
                             <div className="text-sm font-black font-mono text-slate-200">
                                 {snapshot
@@ -1423,25 +1423,25 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                                     : `--`}
                             </div>
                         </div>
-                        <div className="bg-slate-800/50 rounded-lg px-2 py-1.5 text-center border border-white/[0.04]">
+                        <div className="bg-slate-800/50 rounded-lg px-2 py-1.5 text-center border border-white/4">
                             <div className={t.typography.label}>Max Drift</div>
                             <div className="text-sm font-black font-mono text-slate-200">
                                 {snapshot ? formatDistance(snapshot.maxDistanceRecorded) : `--`}
                             </div>
                         </div>
-                        <div className="bg-slate-800/50 rounded-lg px-2 py-1.5 text-center border border-white/[0.04]">
+                        <div className="bg-slate-800/50 rounded-lg px-2 py-1.5 text-center border border-white/4">
                             <div className={t.typography.label}>Rode</div>
                             <div className="text-sm font-black font-mono text-amber-400">
                                 {snapshot ? `${snapshot.config.rodeLength.toFixed(1)}m` : '--'}
                             </div>
                         </div>
-                        <div className="bg-slate-800/50 rounded-lg px-2 py-1.5 text-center border border-white/[0.04]">
+                        <div className="bg-slate-800/50 rounded-lg px-2 py-1.5 text-center border border-white/4">
                             <div className={t.typography.label}>Depth</div>
                             <div className="text-sm font-black font-mono text-sky-400">
                                 {snapshot ? `${snapshot.config.waterDepth.toFixed(1)}m` : '--'}
                             </div>
                         </div>
-                        <div className="bg-slate-800/50 rounded-lg px-2 py-1.5 text-center border border-white/[0.04]">
+                        <div className="bg-slate-800/50 rounded-lg px-2 py-1.5 text-center border border-white/4">
                             <div className={t.typography.label}>Scope</div>
                             <div className="text-sm font-black font-mono text-slate-200">
                                 {snapshot ? (snapshot.config.rodeLength / snapshot.config.waterDepth).toFixed(1) : `--`}
@@ -1452,7 +1452,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                 </div>
 
                 {/* Distance / Radius — premium readout */}
-                <div className="shrink-0 border-t border-white/[0.06] px-4 py-1.5 bg-slate-900/30">
+                <div className="shrink-0 border-t border-white/6 px-4 py-1.5 bg-slate-900/30">
                     <div className="flex items-center justify-around gap-4">
                         <div className="text-center flex-1">
                             <div className="text-xs text-slate-400 uppercase tracking-wider">
@@ -1464,7 +1464,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                                 {snapshot ? formatDistance(snapshot.distanceFromAnchor) : '--'}
                             </div>
                         </div>
-                        <div className="w-px h-8 bg-gradient-to-b from-transparent via-white/10 to-transparent" />
+                        <div className="w-px h-8 bg-linear-to-b from-transparent via-white/10 to-transparent" />
                         <div className="text-center flex-1">
                             <div className="text-xs text-slate-400 uppercase tracking-wider">Radius</div>
                             <div className="text-xl font-black font-mono text-white">

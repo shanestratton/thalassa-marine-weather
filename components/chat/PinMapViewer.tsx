@@ -197,7 +197,7 @@ export const PinMapViewer: React.FC<PinMapViewerProps> = React.memo(({ lat, lng,
             role="dialog"
             aria-modal="true"
             aria-labelledby="pin-map-viewer-title"
-            className="fixed inset-0 z-[9999] bg-black/95 flex flex-col"
+            className="fixed inset-0 z-9999 bg-black/95 flex flex-col"
         >
             {/* Header */}
             <div className="relative z-10 flex items-center justify-between px-4 pt-[max(0.75rem,env(safe-area-inset-top))] pb-3">
@@ -205,7 +205,7 @@ export const PinMapViewer: React.FC<PinMapViewerProps> = React.memo(({ lat, lng,
                     ref={closeButtonRef}
                     aria-label="Close pin drop map"
                     onClick={onClose}
-                    className="w-10 h-10 rounded-xl bg-white/[0.06] border border-white/[0.08] flex items-center justify-center active:scale-90 transition-transform"
+                    className="w-10 h-10 rounded-xl bg-white/6 border border-white/8 flex items-center justify-center active:scale-90 transition-transform"
                 >
                     <svg
                         width="18"
@@ -242,7 +242,7 @@ export const PinMapViewer: React.FC<PinMapViewerProps> = React.memo(({ lat, lng,
                         {routeError}
                     </div>
                 )}
-                <div className="flex items-center justify-between bg-white/[0.04] border border-white/[0.06] rounded-2xl px-4 py-3">
+                <div className="flex items-center justify-between bg-white/4 border border-white/6 rounded-2xl px-4 py-3">
                     <div className="min-w-0 flex-1 pr-2">
                         <p className="text-xs font-semibold text-white/70 truncate">{caption}</p>
                         <p className="text-[11px] text-white/50 tabular-nums mt-0.5">

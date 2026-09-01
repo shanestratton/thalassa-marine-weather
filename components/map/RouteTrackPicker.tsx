@@ -124,12 +124,12 @@ export const RouteTrackPicker: React.FC<RouteTrackPickerProps> = ({
             {/* Centred per the standing modal rule (Shane 2026-09-02: "all modal boxes centered on the punters screen"). */}
             <div
                 ref={wrapRef}
-                // z-[710]: above the radial helm menu (z-700). The menu now rolls up
+                // z-710: above the radial helm menu (z-700). The menu now rolls up
                 // when this sheet opens (dismissOnSelect), so the scrim is gone —
                 // this is the second line of defence, because a sheet that loses a
                 // stacking fight is invisible-but-modal: taps close things the
                 // punter cannot see, which reads as "routes cannot be exited".
-                className="z-[710] pointer-events-auto chart-chip-in flex flex-col max-h-full"
+                className="z-710 pointer-events-auto chart-chip-in flex flex-col max-h-full"
                 style={{
                     background: 'rgba(15, 23, 42, 0.94)',
                     backdropFilter: 'blur(24px)',
@@ -243,7 +243,7 @@ export const RouteTrackPicker: React.FC<RouteTrackPickerProps> = ({
                                                 syncOfflineQueue() runs. */}
                                             {item.isLocal && (
                                                 <span
-                                                    className="ml-2 inline-block align-middle px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider"
+                                                    className="ml-2 inline-block align-middle px-1.5 py-0.5 rounded-sm text-[9px] font-bold uppercase tracking-wider"
                                                     style={{
                                                         backgroundColor: 'rgba(245, 158, 11, 0.18)',
                                                         border: '1px solid rgba(245, 158, 11, 0.42)',

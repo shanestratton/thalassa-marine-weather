@@ -20,7 +20,7 @@ export const SkeletonDashboard = () => {
                 <div className="max-w-2xl w-full">
                     <div className="flex items-center space-x-3 mb-4">
                         <div className="h-6 w-32 bg-sky-500/20 rounded-full border border-sky-500/10"></div>
-                        <div className="h-4 w-24 bg-white/10 rounded"></div>
+                        <div className="h-4 w-24 bg-white/10 rounded-sm"></div>
                     </div>
 
                     <div className="h-24 w-40 bg-white/10 rounded-2xl mb-4"></div>
@@ -35,16 +35,16 @@ export const SkeletonDashboard = () => {
                         <div className="flex items-start gap-3">
                             <div className="h-8 w-8 rounded-full bg-sky-500/10"></div>
                             <div className="space-y-2 flex-1">
-                                <div className="h-3 w-24 bg-sky-500/10 rounded"></div>
-                                <div className="h-3 w-full bg-white/5 rounded"></div>
-                                <div className="h-3 w-2/3 bg-white/5 rounded"></div>
+                                <div className="h-3 w-24 bg-sky-500/10 rounded-sm"></div>
+                                <div className="h-3 w-full bg-white/5 rounded-sm"></div>
+                                <div className="h-3 w-2/3 bg-white/5 rounded-sm"></div>
                             </div>
                         </div>
                     </div>
                 </div>
 
                 <div className="mt-6 md:mt-0 flex flex-col items-end space-y-2 w-full md:w-auto">
-                    <div className="h-4 w-24 bg-white/10 rounded"></div>
+                    <div className="h-4 w-24 bg-white/10 rounded-sm"></div>
                     <div className="h-10 w-32 bg-white/10 rounded-xl"></div>
                 </div>
             </div>
@@ -63,8 +63,8 @@ export const SkeletonDashboard = () => {
                         className="h-32 bg-slate-900/40 border border-white/5 rounded-2xl p-6 flex flex-col items-center justify-center gap-3 animate-pulse"
                     >
                         <div className="h-6 w-6 bg-sky-500/20 rounded-full"></div>
-                        <div className="h-3 w-16 bg-white/10 rounded"></div>
-                        <div className="h-8 w-12 bg-white/10 rounded"></div>
+                        <div className="h-3 w-16 bg-white/10 rounded-sm"></div>
+                        <div className="h-8 w-12 bg-white/10 rounded-sm"></div>
                     </div>
                 ))}
             </div>
@@ -76,13 +76,13 @@ export const SkeletonDashboard = () => {
                         <div className="flex items-center gap-6">
                             <div className="w-20 h-20 rounded-full border-4 border-white/5 bg-white/5"></div>
                             <div className="space-y-2">
-                                <div className="h-6 w-32 bg-white/10 rounded"></div>
-                                <div className="h-4 w-20 bg-white/5 rounded"></div>
+                                <div className="h-6 w-32 bg-white/10 rounded-sm"></div>
+                                <div className="h-4 w-20 bg-white/5 rounded-sm"></div>
                             </div>
                         </div>
                         <div className="flex-1 ml-12 space-y-4 hidden md:block">
-                            <div className="h-4 w-full bg-white/5 rounded"></div>
-                            <div className="h-4 w-2/3 bg-white/5 rounded"></div>
+                            <div className="h-4 w-full bg-white/5 rounded-sm"></div>
+                            <div className="h-4 w-2/3 bg-white/5 rounded-sm"></div>
                         </div>
                     </div>
                 </div>
@@ -92,30 +92,30 @@ export const SkeletonDashboard = () => {
             <div className="mx-2 opacity-20">
                 <div className="h-80 bg-slate-900/40 border border-white/5 rounded-2xl p-6 animate-pulse flex flex-col gap-4">
                     <div className="flex justify-between">
-                        <div className="h-6 w-32 bg-white/10 rounded"></div>
+                        <div className="h-6 w-32 bg-white/10 rounded-sm"></div>
                         <div className="h-8 w-24 bg-white/10 rounded-lg"></div>
                     </div>
                     <div className="flex-1 bg-white/5 rounded-xl opacity-20 relative overflow-hidden">
-                        <div className="absolute bottom-0 left-0 right-0 top-0 bg-gradient-to-t from-sky-500/10 to-transparent"></div>
+                        <div className="absolute bottom-0 left-0 right-0 top-0 bg-linear-to-t from-sky-500/10 to-transparent"></div>
                     </div>
                 </div>
             </div>
 
             {/* Consolidated Breakdown List Skeleton */}
             <div className="px-2 space-y-3 opacity-10">
-                <div className="h-6 w-40 bg-white/10 rounded ml-2 animate-pulse"></div>
+                <div className="h-6 w-40 bg-white/10 rounded-sm ml-2 animate-pulse"></div>
                 <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-3 px-2">
                     {[...Array(7)].map((_, idx) => (
                         <div
                             key={idx}
                             className="bg-slate-900/40 rounded-2xl p-3 border border-white/5 h-56 animate-pulse flex flex-col items-center justify-between"
                         >
-                            <div className="h-4 w-12 bg-white/10 rounded mb-2"></div>
+                            <div className="h-4 w-12 bg-white/10 rounded-sm mb-2"></div>
                             <div className="h-8 w-8 bg-white/10 rounded-full mb-2"></div>
-                            <div className="h-6 w-10 bg-white/10 rounded mb-4"></div>
+                            <div className="h-6 w-10 bg-white/10 rounded-sm mb-4"></div>
                             <div className="w-full space-y-2">
-                                <div className="h-3 w-full bg-white/5 rounded"></div>
-                                <div className="h-3 w-full bg-white/5 rounded"></div>
+                                <div className="h-3 w-full bg-white/5 rounded-sm"></div>
+                                <div className="h-3 w-full bg-white/5 rounded-sm"></div>
                             </div>
                         </div>
                     ))}
@@ -131,8 +131,8 @@ export const SkeletonPage = () => (
         <div className="flex items-center gap-3">
             <div className="h-11 w-11 animate-pulse rounded-xl border border-sky-500/20 bg-sky-500/10" />
             <div className="min-w-0 flex-1 space-y-2">
-                <div className="h-4 w-40 max-w-full animate-pulse rounded bg-white/15" />
-                <div className="h-3 w-56 max-w-full animate-pulse rounded bg-white/10" />
+                <div className="h-4 w-40 max-w-full animate-pulse rounded-sm bg-white/15" />
+                <div className="h-3 w-56 max-w-full animate-pulse rounded-sm bg-white/10" />
             </div>
         </div>
         <span className="sr-only">Loading Thalassa page…</span>
@@ -142,9 +142,9 @@ export const SkeletonPage = () => (
                 className="animate-pulse rounded-2xl border border-white/10 bg-slate-900/45 p-5"
                 style={{ minHeight: index === 0 ? 132 : 88 }}
             >
-                <div className="mb-4 h-3 w-1/3 rounded bg-white/10" />
-                <div className="mb-2 h-3 w-full rounded bg-white/5" />
-                <div className="h-3 w-4/5 rounded bg-white/5" />
+                <div className="mb-4 h-3 w-1/3 rounded-sm bg-white/10" />
+                <div className="mb-2 h-3 w-full rounded-sm bg-white/5" />
+                <div className="h-3 w-4/5 rounded-sm bg-white/5" />
             </div>
         ))}
     </div>

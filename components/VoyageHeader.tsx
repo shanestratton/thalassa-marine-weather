@@ -185,9 +185,9 @@ export const VoyageHeader: React.FC<VoyageHeaderProps> = React.memo(
                         }}
                         className={`w-full text-left rounded-xl border transition-colors cursor-pointer ${
                             isActive
-                                ? 'bg-gradient-to-r from-emerald-900/40 to-sky-900/40 border-emerald-500/30'
+                                ? 'bg-linear-to-r from-emerald-900/40 to-sky-900/40 border-emerald-500/30'
                                 : isSelected
-                                  ? 'bg-gradient-to-r from-amber-900/40 to-amber-900/40 border-amber-500/50 ring-1 ring-amber-500/30'
+                                  ? 'bg-linear-to-r from-amber-900/40 to-amber-900/40 border-amber-500/50 ring-1 ring-amber-500/30'
                                   : 'bg-slate-800/60 border-white/10 hover:bg-slate-800/80'
                         }`}
                     >
@@ -198,7 +198,7 @@ export const VoyageHeader: React.FC<VoyageHeaderProps> = React.memo(
                                 <div className="flex items-center gap-2 flex-1 min-w-0">
                                     {/* Chevron — only this triggers expand/collapse */}
                                     <div
-                                        className="p-2 -m-2 cursor-pointer hover:opacity-80 transition-opacity flex-shrink-0"
+                                        className="p-2 -m-2 cursor-pointer hover:opacity-80 transition-opacity shrink-0"
                                         onClick={(e) => {
                                             e.stopPropagation();
                                             if (swipeOffset === 0) {
@@ -239,19 +239,19 @@ export const VoyageHeader: React.FC<VoyageHeaderProps> = React.memo(
                                     </div>
                                 </div>
                                 {isActive && (
-                                    <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-400 text-sm font-bold rounded-full flex items-center gap-1 flex-shrink-0 ml-2">
+                                    <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-400 text-sm font-bold rounded-full flex items-center gap-1 shrink-0 ml-2">
                                         <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse" />
                                         ACTIVE
                                     </span>
                                 )}
                                 {entries.some((e) => e.source === 'community_download') && (
-                                    <span className="px-2 py-0.5 bg-amber-500/20 text-amber-400 text-sm font-bold rounded-full flex items-center gap-1 flex-shrink-0 ml-2">
+                                    <span className="px-2 py-0.5 bg-amber-500/20 text-amber-400 text-sm font-bold rounded-full flex items-center gap-1 shrink-0 ml-2">
                                         🌐 COMMUNITY
                                     </span>
                                 )}
                                 {entries.some((e) => e.source === 'gpx_import') &&
                                     !entries.some((e) => e.source === 'community_download') && (
-                                        <span className="px-2 py-0.5 bg-amber-500/20 text-amber-400 text-sm font-bold rounded-full flex items-center gap-1 flex-shrink-0 ml-2">
+                                        <span className="px-2 py-0.5 bg-amber-500/20 text-amber-400 text-sm font-bold rounded-full flex items-center gap-1 shrink-0 ml-2">
                                             📥 IMPORTED
                                         </span>
                                     )}

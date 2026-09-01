@@ -889,7 +889,7 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo((props) 
             {/* Title overlay — top left (hidden during playback HUD) */}
             {!showHUD && (
                 <div
-                    className="absolute top-0 left-0 right-0 z-[1001] px-4"
+                    className="absolute top-0 left-0 right-0 z-1001 px-4"
                     style={{ paddingTop: 'max(16px, env(safe-area-inset-top))' }}
                 >
                     <div>
@@ -914,7 +914,7 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo((props) 
             {/* Top-right controls — colour mode + day/night */}
             {!showHUD && hasPlaybackTrack && (
                 <div
-                    className="absolute right-3 z-[1002] flex flex-col gap-2 items-end"
+                    className="absolute right-3 z-1002 flex flex-col gap-2 items-end"
                     style={{ top: 'max(16px, env(safe-area-inset-top))' }}
                 >
                     <div
@@ -941,7 +941,7 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo((props) 
             {/* Wind legend — only in wind mode, honest "forecast" framing */}
             {!showHUD && hasPlaybackTrack && colorMode === 'wind' && (
                 <div
-                    className="absolute left-3 z-[1001] rounded-xl bg-slate-900/85 border border-white/10 px-2.5 py-2 shadow-xl pointer-events-none"
+                    className="absolute left-3 z-1001 rounded-xl bg-slate-900/85 border border-white/10 px-2.5 py-2 shadow-xl pointer-events-none"
                     style={{ bottom: '12px' }}
                 >
                     <div className="text-[9px] font-bold uppercase tracking-wider text-white/50 mb-1">
@@ -950,12 +950,12 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo((props) 
                     <div className="flex items-center gap-1.5">
                         {WIND_BUCKETS.map((b) => (
                             <div key={b.key} className="flex flex-col items-center gap-0.5">
-                                <span className="w-4 h-2 rounded-sm" style={{ background: b.color }} />
+                                <span className="w-4 h-2 rounded-xs" style={{ background: b.color }} />
                                 <span className="text-[10px] text-white/55 leading-none">{b.label}</span>
                             </div>
                         ))}
                         <div className="flex flex-col items-center gap-0.5 ml-1">
-                            <span className="w-4 h-2 rounded-sm" style={{ background: WIND_NODATA_COLOR }} />
+                            <span className="w-4 h-2 rounded-xs" style={{ background: WIND_NODATA_COLOR }} />
                             <span className="text-[10px] text-white/55 leading-none">n/a</span>
                         </div>
                     </div>
@@ -963,7 +963,7 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo((props) 
             )}
 
             {/* Back chevron — middle-left of screen */}
-            <div className="absolute z-[1001] px-3" style={{ top: '50%', transform: 'translateY(-50%)' }}>
+            <div className="absolute z-1001 px-3" style={{ top: '50%', transform: 'translateY(-50%)' }}>
                 <button
                     ref={closeButtonRef}
                     onClick={onClose}
@@ -992,7 +992,7 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo((props) 
 
                 {/* Loading overlay — entries still hydrating, nothing on the map yet */}
                 {isTrackLoading && (
-                    <div className="absolute inset-0 z-[1000] flex items-center justify-center pointer-events-none">
+                    <div className="absolute inset-0 z-1000 flex items-center justify-center pointer-events-none">
                         <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-slate-900/80 border border-white/10 shadow-xl">
                             <div className="w-4 h-4 rounded-full border-2 border-sky-400/30 border-t-sky-400 animate-spin" />
                             <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
@@ -1004,7 +1004,7 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo((props) 
 
                 {/* ═══ FLOATING WEATHER HUD ═══ */}
                 {showHUD && currentEntry && (
-                    <div className="absolute top-3 left-3 right-3 z-[1000] pointer-events-none">
+                    <div className="absolute top-3 left-3 right-3 z-1000 pointer-events-none">
                         <div
                             className="bg-slate-900/90 rounded-xl border border-white/10 shadow-2xl p-3 pointer-events-auto"
                             style={{ boxShadow: '0 8px 32px rgba(0,0,0,0.5)' }}
@@ -1207,25 +1207,25 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo((props) 
                                         {/* Stat pills */}
                                         <div className="flex flex-wrap gap-1.5 mt-1.5">
                                             {activeWaypoint.speedKts != null && activeWaypoint.speedKts > 0 && (
-                                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-500/20 text-[11px] font-bold text-amber-200">
+                                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-sm bg-amber-500/20 text-[11px] font-bold text-amber-200">
                                                     <SailBoatIcon className="w-3 h-3" />
                                                     {activeWaypoint.speedKts.toFixed(1)} kts
                                                 </span>
                                             )}
                                             {activeWaypoint.courseDeg != null && (
-                                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-500/20 text-[11px] font-bold text-amber-200">
+                                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-sm bg-amber-500/20 text-[11px] font-bold text-amber-200">
                                                     <CompassIcon className="w-3 h-3" rotation={0} />
                                                     {activeWaypoint.courseDeg}°
                                                 </span>
                                             )}
                                             {activeWaypoint.distanceNM != null && activeWaypoint.distanceNM > 0 && (
-                                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-500/20 text-[11px] font-bold text-amber-200">
+                                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-sm bg-amber-500/20 text-[11px] font-bold text-amber-200">
                                                     <DeviceIcon className="w-3 h-3" />
                                                     {activeWaypoint.distanceNM.toFixed(1)} NM
                                                 </span>
                                             )}
                                             {activeWaypoint.windSpeed != null && activeWaypoint.windSpeed > 0 && (
-                                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-sky-500/20 text-[11px] font-bold text-sky-200">
+                                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-sm bg-sky-500/20 text-[11px] font-bold text-sky-200">
                                                     <WindIcon className="w-3 h-3" />
                                                     {activeWaypoint.windSpeed} kts {activeWaypoint.windDir || ''}
                                                 </span>
@@ -1269,7 +1269,7 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo((props) 
                 {(hasPlaybackTrack || hasFollowedRoute) && (
                     <div
                         aria-label="Track legend"
-                        className="absolute bottom-2 left-1/2 -translate-x-1/2 z-[1000] flex gap-3 bg-black/60 rounded-lg px-3 py-1.5"
+                        className="absolute bottom-2 left-1/2 -translate-x-1/2 z-1000 flex gap-3 bg-black/60 rounded-lg px-3 py-1.5"
                     >
                         {hasFollowedRoute && (
                             <div className="flex items-center gap-1">
@@ -1315,7 +1315,7 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo((props) 
                 tracks the playback position ═══ */}
             {hasPlaybackTrack && sparkline.path && (
                 <div
-                    className="absolute left-2 right-2 z-[1001] px-2.5 pt-1.5 pb-1 rounded-xl border border-white/10 shadow-lg"
+                    className="absolute left-2 right-2 z-1001 px-2.5 pt-1.5 pb-1 rounded-xl border border-white/10 shadow-lg"
                     style={{
                         bottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px + 46px)',
                         background: 'rgba(15, 23, 42, 0.85)',
@@ -1357,7 +1357,7 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo((props) 
             {/* ═══ PLAYBACK SCRUBBER — matches app-wide scrubber pattern ═══ */}
             {hasPlaybackTrack && (
                 <div
-                    className="absolute left-2 right-2 z-[1001] flex items-center gap-2 px-2.5 py-1.5 rounded-xl border border-white/10 shadow-lg"
+                    className="absolute left-2 right-2 z-1001 flex items-center gap-2 px-2.5 py-1.5 rounded-xl border border-white/10 shadow-lg"
                     style={{
                         bottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)',
                         background: 'rgba(15, 23, 42, 0.85)',

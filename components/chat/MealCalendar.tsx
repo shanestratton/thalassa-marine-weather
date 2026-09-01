@@ -274,7 +274,7 @@ export const MealCalendar: React.FC<MealCalendarProps> = ({
                     Add departure and arrival dates to your passage plan to unlock the meal calendar.
                 </p>
                 <div className="mt-3 px-4">
-                    <div className="flex items-center gap-3 p-3 rounded-xl bg-white/[0.03] border border-white/[0.06]">
+                    <div className="flex items-center gap-3 p-3 rounded-xl bg-white/3 border border-white/6">
                         <span className="text-base">🧭</span>
                         <p className="text-[11px] text-gray-400 text-left">
                             Go to Vessel Hub → select your passage → set departure {'&'} ETA dates
@@ -386,8 +386,8 @@ export const MealCalendar: React.FC<MealCalendarProps> = ({
                         key={date}
                         className={`rounded-xl border p-2 transition-all ${
                             isEmergency
-                                ? 'border-amber-500/25 border-dashed bg-amber-500/[0.03]'
-                                : 'border-white/[0.06] bg-white/[0.02]'
+                                ? 'border-amber-500/25 border-dashed bg-amber-500/3'
+                                : 'border-white/6 bg-white/2'
                         }`}
                         role="row"
                         aria-label={`${dayLabel} — ${dateLabel}${isEmergency ? ' (buffer day)' : ''}`}
@@ -421,7 +421,7 @@ export const MealCalendar: React.FC<MealCalendarProps> = ({
                                             className={`relative p-2 rounded-lg text-left transition-all select-none ${
                                                 isExpanded
                                                     ? 'bg-amber-500/15 border border-amber-500/25'
-                                                    : 'bg-white/[0.04] border border-white/[0.06] hover:bg-white/[0.08]'
+                                                    : 'bg-white/4 border border-white/6 hover:bg-white/8'
                                             }`}
                                             onClick={() => setExpandedMeal(isExpanded ? null : meal.id)}
                                             onTouchStart={() => startLongPress(meal)}
@@ -490,7 +490,7 @@ export const MealCalendar: React.FC<MealCalendarProps> = ({
                                             setSlotPicker({ date, slot });
                                             triggerHaptic('light');
                                         }}
-                                        className="p-2 rounded-lg border border-dashed border-white/[0.08] hover:border-amber-500/30 hover:bg-amber-500/[0.04] transition-all flex flex-col items-center justify-center min-h-[48px] group"
+                                        className="p-2 rounded-lg border border-dashed border-white/8 hover:border-amber-500/30 hover:bg-amber-500/4 transition-all flex flex-col items-center justify-center min-h-[48px] group"
                                         aria-label={`Add ${label} meal for ${dateLabel}`}
                                     >
                                         <span className="text-[11px] text-gray-500 font-bold uppercase tracking-wider group-hover:text-gray-400">
@@ -547,7 +547,7 @@ export const MealCalendar: React.FC<MealCalendarProps> = ({
                 mealDays &&
                 createPortal(
                     <div
-                        className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 p-4 pb-[calc(4rem+env(safe-area-inset-bottom)+1rem)] pt-[max(1rem,env(safe-area-inset-top))]"
+                        className="fixed inset-0 z-9999 flex items-center justify-center bg-black/70 p-4 pb-[calc(4rem+env(safe-area-inset-bottom)+1rem)] pt-[max(1rem,env(safe-area-inset-top))]"
                         onClick={() => setContextMenu(null)}
                         role="presentation"
                     >
@@ -580,7 +580,7 @@ export const MealCalendar: React.FC<MealCalendarProps> = ({
                                     className={`flex-1 py-2.5 rounded-xl text-sm font-bold transition-all ${
                                         contextMenu.action === 'copy'
                                             ? 'bg-amber-500/20 border border-amber-500/30 text-amber-400'
-                                            : 'bg-white/[0.04] border border-white/[0.06] text-gray-400'
+                                            : 'bg-white/4 border border-white/6 text-gray-400'
                                     }`}
                                 >
                                     📋 Copy
@@ -590,7 +590,7 @@ export const MealCalendar: React.FC<MealCalendarProps> = ({
                                     className={`flex-1 py-2.5 rounded-xl text-sm font-bold transition-all ${
                                         contextMenu.action === 'move'
                                             ? 'bg-sky-500/20 border border-sky-500/30 text-sky-400'
-                                            : 'bg-white/[0.04] border border-white/[0.06] text-gray-400'
+                                            : 'bg-white/4 border border-white/6 text-gray-400'
                                     }`}
                                 >
                                     ↗️ Move
@@ -618,10 +618,10 @@ export const MealCalendar: React.FC<MealCalendarProps> = ({
                                             disabled={isSource || occupied}
                                             className={`w-full flex items-center gap-3 p-3 rounded-xl border transition-all ${
                                                 isSource
-                                                    ? 'border-white/[0.06] bg-white/[0.02] opacity-40 cursor-not-allowed'
+                                                    ? 'border-white/6 bg-white/2 opacity-40 cursor-not-allowed'
                                                     : occupied
-                                                      ? 'border-red-500/10 bg-red-500/[0.03] opacity-50 cursor-not-allowed'
-                                                      : 'border-white/[0.06] bg-white/[0.03] hover:bg-amber-500/10 hover:border-amber-500/20 active:scale-[0.98]'
+                                                      ? 'border-red-500/10 bg-red-500/3 opacity-50 cursor-not-allowed'
+                                                      : 'border-white/6 bg-white/3 hover:bg-amber-500/10 hover:border-amber-500/20 active:scale-[0.98]'
                                             }`}
                                         >
                                             <span className="text-[11px] font-black text-gray-500 w-12">
@@ -771,7 +771,7 @@ const SlotPicker: React.FC<{
     return (
         <>
             <OverlayPortal
-                className={`flex ${keyboardOpen ? 'items-start pt-[max(1rem,env(safe-area-inset-top))]' : 'items-center'} justify-center bg-black/60 backdrop-blur-sm animate-in fade-in duration-200`}
+                className={`flex ${keyboardOpen ? 'items-start pt-[max(1rem,env(safe-area-inset-top))]' : 'items-center'} justify-center bg-black/60 backdrop-blur-xs animate-in fade-in duration-200`}
                 onClick={onClose}
                 role="presentation"
             >
@@ -780,11 +780,11 @@ const SlotPicker: React.FC<{
                     role="dialog"
                     aria-modal="true"
                     aria-label={`Add ${slotLabel?.label} recipe for ${dateLabel}`}
-                    className={`w-[calc(100%-2rem)] max-w-lg bg-slate-900 border border-white/[0.1] rounded-3xl ${keyboardOpen ? 'max-h-[50vh]' : 'max-h-[80vh]'} flex flex-col shadow-2xl animate-in zoom-in-95 duration-200 transition-all`}
+                    className={`w-[calc(100%-2rem)] max-w-lg bg-slate-900 border border-white/10 rounded-3xl ${keyboardOpen ? 'max-h-[50vh]' : 'max-h-[80vh]'} flex flex-col shadow-2xl animate-in zoom-in-95 duration-200 transition-all`}
                     onClick={(e) => e.stopPropagation()}
                 >
                     {/* Header */}
-                    <div className="flex items-center justify-between p-4 border-b border-white/[0.06]">
+                    <div className="flex items-center justify-between p-4 border-b border-white/6">
                         <div>
                             <p className="text-sm font-bold text-white">
                                 {slotLabel?.emoji} {slotLabel?.label}
@@ -793,7 +793,7 @@ const SlotPicker: React.FC<{
                         </div>
                         <button
                             onClick={onClose}
-                            className="w-11 h-11 rounded-full bg-white/[0.06] flex items-center justify-center text-gray-300 hover:text-white transition-colors"
+                            className="w-11 h-11 rounded-full bg-white/6 flex items-center justify-center text-gray-300 hover:text-white transition-colors"
                             aria-label="Close recipe picker"
                         >
                             ✕
@@ -808,7 +808,7 @@ const SlotPicker: React.FC<{
                             onChange={(e) => handleSearch(e.target.value)}
                             placeholder="Search recipes…"
                             data-no-keyboard-scroll
-                            className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-4 py-3 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-amber-500/30"
+                            className="w-full bg-white/4 border border-white/8 rounded-xl px-4 py-3 text-sm text-white placeholder-gray-500 focus:outline-hidden focus:border-amber-500/30"
                             aria-label="Search recipes"
                         />
                         {!FEATURE_VISIBILITY.spoonacular && (
@@ -853,7 +853,7 @@ const SlotPicker: React.FC<{
                                             // skipper on an empty search result.
                                             void handleScheduleNamedMeal(v);
                                         }}
-                                        className="w-full bg-amber-500/[0.06] border border-amber-500/20 rounded-xl px-3 py-3 text-sm text-amber-300 font-medium focus:outline-none focus:border-amber-500/50 appearance-none pr-9 [color-scheme:dark] disabled:opacity-50"
+                                        className="w-full bg-amber-500/6 border border-amber-500/20 rounded-xl px-3 py-3 text-sm text-amber-300 font-medium focus:outline-hidden focus:border-amber-500/50 appearance-none pr-9 scheme-dark disabled:opacity-50"
                                         aria-label="Pick a popular recipe"
                                     >
                                         <option value="" className="bg-slate-900 text-amber-400/70">
@@ -928,7 +928,7 @@ const SlotPicker: React.FC<{
                                 key={`${meal.source || 'spoon'}-${meal.id}`}
                                 onClick={() => handleSelectRecipe(meal)}
                                 disabled={scheduling}
-                                className="w-full flex items-center gap-3 p-2.5 rounded-xl bg-white/[0.03] border border-white/[0.06] hover:bg-amber-500/[0.06] hover:border-amber-500/20 transition-all text-left disabled:opacity-40"
+                                className="w-full flex items-center gap-3 p-2.5 rounded-xl bg-white/3 border border-white/6 hover:bg-amber-500/6 hover:border-amber-500/20 transition-all text-left disabled:opacity-40"
                                 role="option"
                                 aria-label={`${meal.title} — ${meal.readyInMinutes} minutes, ${meal.ingredients.length} ingredients`}
                             >
@@ -936,7 +936,7 @@ const SlotPicker: React.FC<{
                                     <SafeImage
                                         src={meal.image}
                                         alt=""
-                                        className="w-14 h-14 rounded-lg object-cover flex-shrink-0"
+                                        className="w-14 h-14 rounded-lg object-cover shrink-0"
                                         loading="lazy"
                                         onError={() =>
                                             setBrokenImageIds((prev) => {
@@ -947,7 +947,7 @@ const SlotPicker: React.FC<{
                                         }
                                     />
                                 ) : (
-                                    <div className="w-14 h-14 rounded-lg bg-amber-500/10 flex items-center justify-center text-xl flex-shrink-0">
+                                    <div className="w-14 h-14 rounded-lg bg-amber-500/10 flex items-center justify-center text-xl shrink-0">
                                         🍽️
                                     </div>
                                 )}
@@ -955,12 +955,12 @@ const SlotPicker: React.FC<{
                                     <div className="flex items-center gap-1.5">
                                         <p className="text-xs font-bold text-white truncate">{meal.title}</p>
                                         {meal.source === 'private' && (
-                                            <span className="shrink-0 px-1.5 py-0.5 rounded text-[11px] font-bold bg-amber-500/15 text-amber-400 border border-amber-500/20">
+                                            <span className="shrink-0 px-1.5 py-0.5 rounded-sm text-[11px] font-bold bg-amber-500/15 text-amber-400 border border-amber-500/20">
                                                 🔒 MINE
                                             </span>
                                         )}
                                         {meal.source === 'community' && (
-                                            <span className="shrink-0 px-1.5 py-0.5 rounded text-[11px] font-bold bg-sky-500/15 text-sky-400 border border-sky-500/20">
+                                            <span className="shrink-0 px-1.5 py-0.5 rounded-sm text-[11px] font-bold bg-sky-500/15 text-sky-400 border border-sky-500/20">
                                                 👥
                                             </span>
                                         )}
@@ -980,7 +980,7 @@ const SlotPicker: React.FC<{
                         )}
 
                         {/* Custom recipe creation — inside scrollable area */}
-                        <div className="pt-2 mt-2 border-t border-white/[0.06] space-y-2">
+                        <div className="pt-2 mt-2 border-t border-white/6 space-y-2">
                             {/* Quick add (simple name only) */}
                             <div className="flex gap-2">
                                 <input
@@ -991,7 +991,7 @@ const SlotPicker: React.FC<{
                                     onFocus={handleCustomFocus}
                                     placeholder="Quick add meal name…"
                                     data-no-keyboard-scroll
-                                    className="flex-1 bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-amber-500/30"
+                                    className="flex-1 bg-white/4 border border-white/8 rounded-xl px-3 py-2.5 text-xs text-white placeholder-gray-500 focus:outline-hidden focus:border-amber-500/30"
                                     aria-label="Quick add meal name"
                                 />
                                 <button
@@ -1010,7 +1010,7 @@ const SlotPicker: React.FC<{
                                     event.currentTarget.focus({ preventScroll: true });
                                     setShowCaptainsTable(true);
                                 }}
-                                className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-white/[0.04] border border-white/[0.08] text-[11px] font-bold text-white/80 hover:bg-white/[0.08] transition-all active:scale-[0.98] min-h-[44px]"
+                                className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-white/4 border border-white/8 text-[11px] font-bold text-white/80 hover:bg-white/8 transition-all active:scale-[0.98] min-h-[44px]"
                             >
                                 Browse Community Recipes
                             </button>
@@ -1053,14 +1053,14 @@ const SlotPicker: React.FC<{
                     className="bg-slate-950 flex flex-col"
                 >
                     <div
-                        className="flex items-center gap-3 px-4 py-3 border-b border-white/[0.06] flex-shrink-0"
+                        className="flex items-center gap-3 px-4 py-3 border-b border-white/6 shrink-0"
                         style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top))' }}
                     >
                         <button
                             ref={recipeLibraryCloseRef}
                             onClick={() => setShowCaptainsTable(false)}
                             aria-label="Close recipe browser"
-                            className="w-11 h-11 rounded-full bg-white/[0.06] hover:bg-white/[0.12] flex items-center justify-center transition-all active:scale-90"
+                            className="w-11 h-11 rounded-full bg-white/6 hover:bg-white/12 flex items-center justify-center transition-all active:scale-90"
                         >
                             <span className="text-sky-400 text-lg">‹</span>
                         </button>

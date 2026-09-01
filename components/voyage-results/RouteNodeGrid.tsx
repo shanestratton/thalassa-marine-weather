@@ -77,7 +77,7 @@ export const RouteNodeGrid: React.FC<RouteNodeGridProps> = React.memo(
                                 {/* Conditions Mini-Grid */}
                                 <div className="grid grid-cols-2 gap-2">
                                     {wp.windSpeed !== undefined && (
-                                        <div className="bg-black/20 rounded px-2 py-1 flex items-center gap-1.5">
+                                        <div className="bg-black/20 rounded-sm px-2 py-1 flex items-center gap-1.5">
                                             <WindIcon className="w-3 h-3 text-sky-400" />
                                             <span className="text-[11px] text-gray-300 font-medium">
                                                 {wp.windSpeed}kt
@@ -85,7 +85,7 @@ export const RouteNodeGrid: React.FC<RouteNodeGridProps> = React.memo(
                                         </div>
                                     )}
                                     {wp.waveHeight !== undefined && (
-                                        <div className="bg-black/20 rounded px-2 py-1 flex items-center gap-1.5">
+                                        <div className="bg-black/20 rounded-sm px-2 py-1 flex items-center gap-1.5">
                                             <WaveIcon className="w-3 h-3 text-sky-400" />
                                             <span className="text-[11px] text-gray-300 font-medium">
                                                 {displayWave(wp.waveHeight)}
@@ -94,7 +94,7 @@ export const RouteNodeGrid: React.FC<RouteNodeGridProps> = React.memo(
                                         </div>
                                     )}
                                     {depth && (
-                                        <div className="bg-black/20 rounded px-2 py-1 flex items-center gap-1.5">
+                                        <div className="bg-black/20 rounded-sm px-2 py-1 flex items-center gap-1.5">
                                             <span
                                                 className={`text-[11px] font-mono font-bold ${depth.tone === 'danger' ? 'text-red-400' : depth.tone === 'caution' ? 'text-amber-400' : 'text-sky-400'}`}
                                             >

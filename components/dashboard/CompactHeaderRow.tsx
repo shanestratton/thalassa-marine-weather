@@ -92,7 +92,7 @@ export const CompactHeaderRow = ({
 
             {/* CELESTIAL CARD - Sunrise, Sunset, Moon, Golden Hour */}
             <div
-                className={`${sunrise && sunset && isGoldenHour(sunrise, sunset) ? 'bg-amber-500/15 border-amber-400/25' : `bg-slate-800/60 ${t.border.default}`} rounded-xl px-3 h-[40px] flex items-center gap-3 flex-shrink-0 transition-colors duration-500`}
+                className={`${sunrise && sunset && isGoldenHour(sunrise, sunset) ? 'bg-amber-500/15 border-amber-400/25' : `bg-slate-800/60 ${t.border.default}`} rounded-xl px-3 h-[40px] flex items-center gap-3 shrink-0 transition-colors duration-500`}
                 role="status"
                 aria-label="Celestial data"
             >

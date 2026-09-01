@@ -244,7 +244,7 @@ export const PassageBanner: React.FC<PassageBannerProps> = ({
 
     return (
         <div
-            className="absolute left-3 right-3 z-[502] animate-in fade-in slide-in-from-top-2 duration-300"
+            className="absolute left-3 right-3 z-502 animate-in fade-in slide-in-from-top-2 duration-300"
             // Sits below the safe-area inset + ChartModes chip (which
             // claims the top 56px on top of the inset). Without this
             // the banner overlapped the system status pill, the mic
@@ -253,7 +253,7 @@ export const PassageBanner: React.FC<PassageBannerProps> = ({
             // neither could be tapped reliably.
             style={{ top: 'max(64px, calc(env(safe-area-inset-top) + 64px))' }}
         >
-            <div className="bg-slate-950/95 backdrop-blur-md border border-white/[0.08] rounded-2xl shadow-2xl shadow-black/50 overflow-hidden">
+            <div className="bg-slate-950/95 backdrop-blur-md border border-white/8 rounded-2xl shadow-2xl shadow-black/50 overflow-hidden">
                 {/* ── Top row: Route + Close ── */}
                 <div className="flex items-center gap-2 px-3.5 py-3">
                     {/* Route tags — bumped up from 11px to 13px and
@@ -325,7 +325,7 @@ export const PassageBanner: React.FC<PassageBannerProps> = ({
                             window.dispatchEvent(new CustomEvent('thalassa:passage-clear'));
                             triggerHaptic('light');
                         }}
-                        className="w-9 h-9 flex items-center justify-center rounded-xl border border-white/10 bg-white/[0.05] hover:bg-white/10 transition-colors shrink-0 active:scale-95"
+                        className="w-9 h-9 flex items-center justify-center rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 transition-colors shrink-0 active:scale-95"
                         aria-label="Close passage planner"
                     >
                         <svg
@@ -350,7 +350,7 @@ export const PassageBanner: React.FC<PassageBannerProps> = ({
                     we don't have a numeric "% complete" (the wavefront
                     expansion doesn't have a clean monotonic %). */}
                 {isoProgress && (
-                    <div className="border-t border-amber-500/15 bg-amber-500/[0.05] px-3.5 py-2.5 animate-in fade-in slide-in-from-top-2 duration-200">
+                    <div className="border-t border-amber-500/15 bg-amber-500/5 px-3.5 py-2.5 animate-in fade-in slide-in-from-top-2 duration-200">
                         <div className="flex items-center gap-2">
                             <span className="text-base animate-pulse" role="img" aria-label="cooking">
                                 🍳
@@ -360,7 +360,7 @@ export const PassageBanner: React.FC<PassageBannerProps> = ({
                         </div>
                         {/* Indeterminate progress stripes */}
                         <div className="mt-2 h-1 rounded-full overflow-hidden bg-amber-500/10">
-                            <div className="h-full w-1/3 bg-gradient-to-r from-transparent via-amber-400 to-transparent animate-[passageBannerCook_1.6s_ease-in-out_infinite]" />
+                            <div className="h-full w-1/3 bg-linear-to-r from-transparent via-amber-400 to-transparent animate-[passageBannerCook_1.6s_ease-in-out_infinite]" />
                         </div>
                     </div>
                 )}
@@ -376,7 +376,7 @@ export const PassageBanner: React.FC<PassageBannerProps> = ({
                         className={`border-t px-3.5 py-2.5 animate-in fade-in slide-in-from-top-2 duration-200 ${
                             passageNotice.severity === 'warn'
                                 ? 'border-orange-500/20 bg-orange-500/[0.07]'
-                                : 'border-sky-500/15 bg-sky-500/[0.05]'
+                                : 'border-sky-500/15 bg-sky-500/5'
                         }`}
                     >
                         <div className="flex items-start gap-2">
@@ -401,7 +401,7 @@ export const PassageBanner: React.FC<PassageBannerProps> = ({
 
                 {passage.routeAnalysis && !isoProgress && !currentRouteVerified && (
                     <div
-                        className="border-t border-amber-500/25 bg-amber-500/[0.08] px-3.5 py-2.5"
+                        className="border-t border-amber-500/25 bg-amber-500/8 px-3.5 py-2.5"
                         role="status"
                         aria-live="polite"
                         data-testid="passage-route-unverified"
@@ -428,7 +428,7 @@ export const PassageBanner: React.FC<PassageBannerProps> = ({
                     passage.arrival &&
                     !isoProgress &&
                     currentRouteVerified && (
-                        <div className="flex border-t border-white/[0.06]">
+                        <div className="flex border-t border-white/6">
                             <button
                                 aria-label="Export GPX"
                                 onClick={handleExportGPX}
@@ -449,7 +449,7 @@ export const PassageBanner: React.FC<PassageBannerProps> = ({
                                 </svg>
                                 GPX
                             </button>
-                            <div className="w-px bg-white/[0.06]" />
+                            <div className="w-px bg-white/6" />
                             <button
                                 aria-label="Share Brief"
                                 onClick={handleShareBrief}
@@ -470,7 +470,7 @@ export const PassageBanner: React.FC<PassageBannerProps> = ({
                                 </svg>
                                 Brief
                             </button>
-                            <div className="w-px bg-white/[0.06]" />
+                            <div className="w-px bg-white/6" />
                             <button
                                 aria-label="Save to Log"
                                 onClick={handleSaveToLog}
@@ -506,7 +506,7 @@ export const PassageBanner: React.FC<PassageBannerProps> = ({
                     during cooking) so it doesn't fight the progress
                     indicator for attention. */}
                 {passage.routeAnalysis && passage.departure && passage.arrival && !isoProgress && (
-                    <div className="border-t border-amber-500/10 bg-amber-500/[0.03] px-3.5 py-2 flex items-start gap-2">
+                    <div className="border-t border-amber-500/10 bg-amber-500/3 px-3.5 py-2 flex items-start gap-2">
                         <span className="text-amber-400/70 text-[13px] leading-tight shrink-0">⚠️</span>
                         <p className="text-[11px] leading-snug text-amber-200/70">
                             Suggested route only — always verify pilotage, channel markers, tide timing &amp; local
@@ -518,7 +518,7 @@ export const PassageBanner: React.FC<PassageBannerProps> = ({
                 {/* Toast */}
                 {passageToast && (
                     <div
-                        className={`px-3 py-2 text-center text-[13px] font-bold border-t border-white/[0.06] animate-in fade-in duration-200 ${
+                        className={`px-3 py-2 text-center text-[13px] font-bold border-t border-white/6 animate-in fade-in duration-200 ${
                             passageToast.tone === 'ok' ? 'text-emerald-300' : 'text-red-300'
                         }`}
                     >

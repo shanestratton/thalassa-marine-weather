@@ -46,7 +46,7 @@ export const RouteLegend: React.FC<RouteLegendProps> = memo(({ visible, embedded
 
     return (
         <div
-            className="absolute z-[500] animate-in fade-in slide-in-from-left-2 duration-300"
+            className="absolute z-500 animate-in fade-in slide-in-from-left-2 duration-300"
             style={{
                 left: 12,
                 bottom: embedded ? 12 : 'calc(80px + env(safe-area-inset-bottom))',

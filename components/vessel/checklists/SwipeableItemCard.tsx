@@ -61,8 +61,8 @@ export const SwipeableItemCard: React.FC<SwipeableItemCardProps> = ({
 
             {/* Main card */}
             <div
-                className={`relative transition-transform ${isSwiping ? '' : 'duration-200'} border rounded-xl overflow-hidden bg-white/[0.03] ${
-                    isHeading ? 'border-emerald-500/20' : 'border-white/[0.06] ml-4'
+                className={`relative transition-transform ${isSwiping ? '' : 'duration-200'} border rounded-xl overflow-hidden bg-white/3 ${
+                    isHeading ? 'border-emerald-500/20' : 'border-white/6 ml-4'
                 }`}
                 style={{ transform: `translateX(-${swipeOffset}px)` }}
                 ref={ref}
@@ -105,7 +105,7 @@ export const SwipeableItemCard: React.FC<SwipeableItemCardProps> = ({
                                         onMoveUp?.();
                                     }}
                                     disabled={isFirst}
-                                    className={`p-1 rounded transition-colors ${isFirst ? 'text-white/10' : 'text-white/40 hover:text-white/70 hover:bg-white/10 active:scale-90'}`}
+                                    className={`p-1 rounded-sm transition-colors ${isFirst ? 'text-white/10' : 'text-white/40 hover:text-white/70 hover:bg-white/10 active:scale-90'}`}
                                     aria-label="Move up"
                                 >
                                     <svg
@@ -128,7 +128,7 @@ export const SwipeableItemCard: React.FC<SwipeableItemCardProps> = ({
                                         onMoveDown?.();
                                     }}
                                     disabled={isLast}
-                                    className={`p-1 rounded transition-colors ${isLast ? 'text-white/10' : 'text-white/40 hover:text-white/70 hover:bg-white/10 active:scale-90'}`}
+                                    className={`p-1 rounded-sm transition-colors ${isLast ? 'text-white/10' : 'text-white/40 hover:text-white/70 hover:bg-white/10 active:scale-90'}`}
                                     aria-label="Move down"
                                 >
                                     <svg

@@ -899,7 +899,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                     onNavigate('mob');
                                 }}
                                 style={ALERT_SAFETY_CONTROL_CARD}
-                                className="card-lift flex flex-col items-center gap-1.5 px-1 py-2.5 transition-all hover:brightness-110 active:scale-[0.98] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300"
+                                className="card-lift flex flex-col items-center gap-1.5 px-1 py-2.5 transition-all hover:brightness-110 active:scale-[0.98] focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300"
                             >
                                 <div
                                     className="flex h-8 w-8 items-center justify-center rounded-lg"
@@ -920,7 +920,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                     onNavigate('radio');
                                 }}
                                 style={SAFETY_CONTROL_CARD}
-                                className="card-lift flex flex-col items-center gap-1.5 px-1 py-2.5 transition-all hover:bg-white/[0.03] active:scale-[0.98] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300"
+                                className="card-lift flex flex-col items-center gap-1.5 px-1 py-2.5 transition-all hover:bg-white/3 active:scale-[0.98] focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300"
                             >
                                 <div
                                     className="flex h-8 w-8 items-center justify-center rounded-lg"
@@ -942,7 +942,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                         onNavigate('guardian');
                                     }}
                                     style={SAFETY_CONTROL_CARD}
-                                    className="card-lift flex flex-col items-center gap-1.5 px-1 py-2.5 transition-all hover:bg-white/[0.03] active:scale-[0.98] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300"
+                                    className="card-lift flex flex-col items-center gap-1.5 px-1 py-2.5 transition-all hover:bg-white/3 active:scale-[0.98] focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300"
                                 >
                                     <div
                                         className="flex h-8 w-8 items-center justify-center rounded-lg"
@@ -979,7 +979,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                     onNavigate('compass');
                                 }}
                                 style={anchorStatus === 'alarm' ? ALERT_SAFETY_CONTROL_CARD : SAFETY_CONTROL_CARD}
-                                className="card-lift flex flex-col items-center gap-1.5 px-1 py-2.5 transition-all hover:bg-white/[0.03] active:scale-[0.98] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300"
+                                className="card-lift flex flex-col items-center gap-1.5 px-1 py-2.5 transition-all hover:bg-white/3 active:scale-[0.98] focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300"
                             >
                                 <div
                                     className="flex h-8 w-8 items-center justify-center rounded-lg"
@@ -1036,7 +1036,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                 onNavigate('diary');
                             }}
                             style={GLASS.card}
-                            className="p-4 text-left hover:bg-white/[0.03] transition-all active:scale-[0.98] card-lift"
+                            className="p-4 text-left hover:bg-white/3 transition-all active:scale-[0.98] card-lift"
                         >
                             <div className="flex items-center gap-3">
                                 <div className="p-2.5 rounded-lg" style={{ background: 'rgba(94, 234, 212, 0.12)' }}>
@@ -1070,7 +1070,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                 onNavigate('chat');
                             }}
                             style={GLASS.card}
-                            className="p-4 text-left hover:bg-white/[0.03] transition-all active:scale-[0.98] card-lift"
+                            className="p-4 text-left hover:bg-white/3 transition-all active:scale-[0.98] card-lift"
                         >
                             <div className="flex items-center gap-3">
                                 <div className="p-2.5 rounded-lg" style={{ background: 'rgba(125, 211, 252, 0.12)' }}>
@@ -1162,7 +1162,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                         setBinderOpen(true);
                     }}
                     style={GLASS.card}
-                    className="mb-4 flex w-full items-center gap-3 p-4 text-left transition-all hover:bg-white/[0.03] active:scale-[0.99] card-lift"
+                    className="mb-4 flex w-full items-center gap-3 p-4 text-left transition-all hover:bg-white/3 active:scale-[0.99] card-lift"
                 >
                     <div
                         className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg"
@@ -1737,7 +1737,7 @@ const MetricChipStrip: React.FC<{ chips: MetricChipData[]; showTopBorder?: boole
     return (
         <div
             className={`flex flex-wrap items-center justify-between gap-x-2 gap-y-1 px-4 pt-1 pb-2 ${
-                showTopBorder ? 'border-t border-white/[0.06]' : ''
+                showTopBorder ? 'border-t border-white/6' : ''
             }`}
         >
             {chips.map((chip) => (
@@ -2256,7 +2256,7 @@ const NavStationHero: React.FC<{
 
             {/* SOG/COG nav line — left-side, always when underway */}
             {showSog && (
-                <div className="flex items-center gap-3 px-4 pt-1.5 pb-1 border-t border-white/[0.06] text-[11px]">
+                <div className="flex items-center gap-3 px-4 pt-1.5 pb-1 border-t border-white/6 text-[11px]">
                     <span className="font-mono text-white/85 tabular-nums">
                         <span className="text-white/40 uppercase tracking-wider mr-1">SOG</span>
                         {sogKt.toFixed(1)}
@@ -2339,7 +2339,7 @@ const OfficeRow: React.FC<{
         aria-label={label}
         onClick={onClick}
         className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-all active:scale-[0.98] ${
-            disabled ? 'opacity-40 cursor-not-allowed' : 'hover:bg-white/[0.03]'
+            disabled ? 'opacity-40 cursor-not-allowed' : 'hover:bg-white/3'
         }`}
     >
         <div className="p-1.5 rounded-lg" style={{ background: 'rgba(255,255,255,0.04)' }}>

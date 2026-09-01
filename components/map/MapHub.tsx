@@ -282,7 +282,7 @@ const TraceReportLoading: React.FC = () => (
     <div
         role="status"
         aria-live="polite"
-        className="fixed inset-0 z-[10050] flex items-center justify-center bg-black/60 px-4 text-center text-sm font-bold text-sky-200"
+        className="fixed inset-0 z-10050 flex items-center justify-center bg-black/60 px-4 text-center text-sm font-bold text-sky-200"
     >
         Opening route report…
     </div>
@@ -295,7 +295,7 @@ const RouteTrackPickerLoading: React.FC<{ label: string }> = ({ label }) => (
     <div
         role="status"
         aria-live="polite"
-        className="fixed left-1/2 top-20 z-[185] -translate-x-1/2 rounded-xl border border-white/10 bg-slate-900/95 px-4 py-3 text-center text-xs font-bold text-sky-200 shadow-xl"
+        className="fixed left-1/2 top-20 z-185 -translate-x-1/2 rounded-xl border border-white/10 bg-slate-900/95 px-4 py-3 text-center text-xs font-bold text-sky-200 shadow-xl"
     >
         {label}
     </div>
@@ -309,7 +309,7 @@ const StormPickerLoading: React.FC = () => (
     <div
         role="status"
         aria-live="polite"
-        className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 px-4 text-center text-sm font-bold text-red-100"
+        className="fixed inset-0 z-9999 flex items-center justify-center bg-black/60 px-4 text-center text-sm font-bold text-red-100"
     >
         Opening storm picker…
     </div>
@@ -3690,14 +3690,14 @@ export const MapHub: React.FC<MapHubProps> = ({
             {/* in the background after the basic plan lands. */}
             {!pickerMode && <RouteEnhancementChip />}
             {/* Map container — 70% on tablet during passage, full otherwise */}
-            <div className={`relative ${isHelmSplit ? 'flex-[7] h-full' : 'w-full h-full'}`}>
+            <div className={`relative ${isHelmSplit ? 'flex-7 h-full' : 'w-full h-full'}`}>
                 <div ref={containerRef} className="thalassa-chart-map w-full h-full" />
 
                 {pickerMode && (
                     <div
                         role="status"
                         aria-live="polite"
-                        className="pointer-events-none absolute left-1/2 top-[max(12px,env(safe-area-inset-top))] z-[720] w-[min(420px,calc(100%-112px))] -translate-x-1/2 rounded-2xl border border-sky-400/30 bg-slate-950/92 px-4 py-3 text-center shadow-2xl backdrop-blur-xl"
+                        className="pointer-events-none absolute left-1/2 top-[max(12px,env(safe-area-inset-top))] z-720 w-[min(420px,calc(100%-112px))] -translate-x-1/2 rounded-2xl border border-sky-400/30 bg-slate-950/92 px-4 py-3 text-center shadow-2xl backdrop-blur-xl"
                     >
                         <p className="text-sm font-black text-white">
                             {pickerLabel || 'Tap the chart to choose a location'}
@@ -3726,7 +3726,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                     (88px reserve) with safe-area padding so it never
                     lands behind the tab bar — the earlier complaint
                     that drove the PinMapViewer portal fix (since
-                    discovered to be dead code). z-[700] matches the
+                    discovered to be dead code). z-700 matches the
                     back-button stacking, well above the map but below
                     full-screen modals. */}
                 <PinDirectionsCta
@@ -3997,14 +3997,14 @@ export const MapHub: React.FC<MapHubProps> = ({
                         // into the Locate FAB's corner. Pinned left it clears it,
                         // and the tracer card stacks directly above on the same
                         // rail so the two read as one column.
-                        className="absolute left-3 z-[9994]"
+                        className="absolute left-3 z-9994"
                         style={{ bottom: 'calc(5.4rem + env(safe-area-inset-bottom))' }}
                     >
                         {/* w-72 (was w-64) so the 7 detents sit further apart —
                             more travel per step is half the fat-finger fix; the
                             other half is the 26px-tall .detail-scrubber input
                             (Shane 2026-07-18). Matches the tracer card's width. */}
-                        <div className="flex w-72 items-center gap-2.5 rounded-full border border-white/10 bg-slate-900/85 px-3.5 py-2 shadow-lg backdrop-blur-sm">
+                        <div className="flex w-72 items-center gap-2.5 rounded-full border border-white/10 bg-slate-900/85 px-3.5 py-2 shadow-lg backdrop-blur-xs">
                             <span className="text-[10px] font-black uppercase tracking-widest text-sky-300/90">
                                 Full
                             </span>
@@ -4065,7 +4065,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                         // left to clear the Locate FAB, a centred card sat off-axis
                         // from it. Same left-3, same w-72 — card directly above
                         // scrubber, one column, nothing near the corner FABs.
-                        className="map-tracer-panel absolute left-3 z-[9995]"
+                        className="map-tracer-panel absolute left-3 z-9995"
                         // OPEN card sits ABOVE the detail scrubber (bottom 5.4rem,
                         // ~2.2rem tall) — it used to overlap it by ~24 px (Shane
                         // 2026-07-17). MINIMISED it lifts a further 2rem so the
@@ -4271,7 +4271,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                     }}
                                                     placeholder="From — port or GPS coords"
                                                     aria-label="Passage origin"
-                                                    className="h-8 w-full rounded-lg border border-white/10 bg-slate-800/80 px-2 text-[11px] font-medium text-white placeholder-gray-500 outline-none focus:border-sky-500/50"
+                                                    className="h-8 w-full rounded-lg border border-white/10 bg-slate-800/80 px-2 text-[11px] font-medium text-white placeholder-gray-500 outline-hidden focus:border-sky-500/50"
                                                 />
                                                 <input
                                                     value={toQuery}
@@ -4281,7 +4281,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                     }}
                                                     placeholder="To — destination"
                                                     aria-label="Passage destination"
-                                                    className="h-8 w-full rounded-lg border border-white/10 bg-slate-800/80 px-2 text-[11px] font-medium text-white placeholder-gray-500 outline-none focus:border-sky-500/50"
+                                                    className="h-8 w-full rounded-lg border border-white/10 bg-slate-800/80 px-2 text-[11px] font-medium text-white placeholder-gray-500 outline-hidden focus:border-sky-500/50"
                                                 />
                                                 <button
                                                     onClick={() => void setCourseFrame()}
@@ -4580,7 +4580,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                     setOverwriteArm(null);
                                                 }}
                                                 placeholder="Name this route…"
-                                                className="w-full rounded-lg border border-white/10 bg-white/5 px-2 py-1.5 text-[11px] text-gray-200 placeholder:text-gray-500 focus:border-amber-500/50 focus:outline-none"
+                                                className="w-full rounded-lg border border-white/10 bg-white/5 px-2 py-1.5 text-[11px] text-gray-200 placeholder:text-gray-500 focus:border-amber-500/50 focus:outline-hidden"
                                             />
                                             <div className="flex gap-1.5">
                                                 <button
@@ -4722,7 +4722,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                                     {t.label}{' '}
                                                                     <span className="text-gray-500">{t.sublabel}</span>
                                                                     {t.isLocal && (
-                                                                        <span className="ml-1 rounded bg-white/10 px-1 text-[9px] font-bold text-gray-400">
+                                                                        <span className="ml-1 rounded-sm bg-white/10 px-1 text-[9px] font-bold text-gray-400">
                                                                             LOCAL
                                                                         </span>
                                                                     )}
@@ -4962,7 +4962,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                             anchor="top-left"
                             arrow="up"
                             initialDelayMs={1200}
-                            className="!top-[60px] !left-1/2 !-translate-x-1/2 items-center"
+                            className="top-[60px]! left-1/2! -translate-x-1/2! items-center"
                             message="Tap a mode at the top to set up the chart for your situation in one go."
                         />
                         <CoachMark
@@ -5102,7 +5102,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                     Shane 2026-07-22, on the pile-up and the lost real estate. */}
                 {!pickerMode && !planningSurface && (browseLightningVisible || browseSquallVisible) && (
                     <div
-                        className="fixed left-2 z-[140] flex flex-col-reverse gap-2 pointer-events-none"
+                        className="fixed left-2 z-140 flex flex-col-reverse gap-2 pointer-events-none"
                         style={{
                             bottom: weather.activeLayers.has('wind')
                                 ? 'calc(env(safe-area-inset-bottom) + 240px)'
@@ -5177,8 +5177,8 @@ export const MapHub: React.FC<MapHubProps> = ({
                                 triggerHaptic('light');
                             }}
                             // Right-rail column — sits below Offline FAB (top-[192px])
-                            // at top-[256px]. z-[700] matches the rail's other FABs.
-                            className="absolute z-[700] top-[256px] right-[16px] w-12 h-12 rounded-2xl bg-slate-900/90 border border-white/[0.08] flex items-center justify-center shadow-2xl hover:bg-slate-800/90 transition-all active:scale-95 text-slate-400"
+                            // at top-[256px]. z-700 matches the rail's other FABs.
+                            className="absolute z-700 top-[256px] right-[16px] w-12 h-12 rounded-2xl bg-slate-900/90 border border-white/8 flex items-center justify-center shadow-2xl hover:bg-slate-800/90 transition-all active:scale-95 text-slate-400"
                             aria-label="Search vessels"
                         >
                             <SearchIcon className="w-5 h-5" />
@@ -5260,7 +5260,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                     }}
                                     // Right-rail column — sits directly below SysStatus and
                                     // above the Radial Helm FAB.
-                                    className="absolute z-[700] top-[128px] right-[16px] w-12 h-12 rounded-2xl bg-slate-900/90 border border-white/[0.08] flex items-center justify-center shadow-2xl hover:bg-slate-800/90 transition-all active:scale-95"
+                                    className="absolute z-700 top-[128px] right-[16px] w-12 h-12 rounded-2xl bg-slate-900/90 border border-white/8 flex items-center justify-center shadow-2xl hover:bg-slate-800/90 transition-all active:scale-95"
                                     aria-label="Download offline map area"
                                     title="Download offline area"
                                 >
@@ -5295,7 +5295,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                     might look blank while preserving truthful access to
                     imported MBTiles, licensed charts and viewed tile cache. */}
                 {!isOnline && !offlineCardDismissed && !embedded && !pickerMode && !isPinView && !planningSurface && (
-                    <div className="absolute z-[550] left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[min(320px,calc(100vw-32px))] p-4 rounded-2xl bg-slate-900/95 backdrop-blur-xl border border-white/[0.08] shadow-2xl pointer-events-auto">
+                    <div className="absolute z-550 left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[min(320px,calc(100vw-32px))] p-4 rounded-2xl bg-slate-900/95 backdrop-blur-xl border border-white/8 shadow-2xl pointer-events-auto">
                         <div className="flex items-start gap-3">
                             <span className="text-xl leading-none">{'\u{1F6F0}\uFE0F'}</span>
                             <div className="flex-1">
@@ -5310,7 +5310,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                             <button
                                 onClick={() => setOfflineCardDismissed(true)}
                                 aria-label="Dismiss offline notice"
-                                className="hit-target-44 shrink-0 w-6 h-6 rounded-full text-gray-500 hover:text-gray-300 hover:bg-white/[0.06] flex items-center justify-center transition-colors"
+                                className="hit-target-44 shrink-0 w-6 h-6 rounded-full text-gray-500 hover:text-gray-300 hover:bg-white/6 flex items-center justify-center transition-colors"
                             >
                                 <svg
                                     className="w-4 h-4"
@@ -5323,7 +5323,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                 </svg>
                             </button>
                         </div>
-                        <p className="mt-3 rounded-xl border border-sky-500/20 bg-sky-500/[0.08] px-3 py-2 text-[11px] leading-relaxed text-sky-200/80">
+                        <p className="mt-3 rounded-xl border border-sky-500/20 bg-sky-500/8 px-3 py-2 text-[11px] leading-relaxed text-sky-200/80">
                             Offline-area tile downloads are unavailable for this public map source. Imported MBTiles,
                             licensed charts and previously viewed cached tiles remain available offline.
                         </p>
@@ -5351,10 +5351,10 @@ export const MapHub: React.FC<MapHubProps> = ({
                                 setShowConsensus(!showConsensus);
                                 triggerHaptic('medium');
                             }}
-                            className={`absolute bottom-44 left-4 z-[500] w-12 h-12 rounded-2xl flex items-center justify-center shadow-2xl transition-all active:scale-95 ${
+                            className={`absolute bottom-44 left-4 z-500 w-12 h-12 rounded-2xl flex items-center justify-center shadow-2xl transition-all active:scale-95 ${
                                 showConsensus
-                                    ? 'bg-gradient-to-br from-sky-500/30 to-purple-500/30 border border-sky-500/40'
-                                    : 'bg-slate-900/90 border border-white/[0.08] hover:bg-slate-800/90'
+                                    ? 'bg-linear-to-br from-sky-500/30 to-purple-500/30 border border-sky-500/40'
+                                    : 'bg-slate-900/90 border border-white/8 hover:bg-slate-800/90'
                             }`}
                             aria-label="Toggle Consensus Matrix"
                         >
@@ -5462,7 +5462,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                         href="https://www.rainviewer.com/"
                         target="_blank"
                         rel="noreferrer"
-                        className="absolute bottom-3 right-3 z-[509] rounded-md bg-slate-950/70 px-2 py-1 text-[10px] font-semibold text-slate-300/80 backdrop-blur-sm"
+                        className="absolute bottom-3 right-3 z-509 rounded-md bg-slate-950/70 px-2 py-1 text-[10px] font-semibold text-slate-300/80 backdrop-blur-xs"
                         aria-label="Rain radar data by RainViewer"
                     >
                         Radar by RainViewer
@@ -5473,7 +5473,7 @@ export const MapHub: React.FC<MapHubProps> = ({
             {/* ═══ TABLET DATA PANEL / CONSENSUS MATRIX (Helm mode, 30% width) ═══ */}
             <Suspense fallback={null}>
                 {isHelmSplit && (
-                    <div className="flex-[3] h-full">
+                    <div className="flex-3 h-full">
                         {showConsensus && consensusData ? (
                             <ConsensusMatrix
                                 data={consensusData}
@@ -5494,7 +5494,7 @@ export const MapHub: React.FC<MapHubProps> = ({
 
                 {/* ═══ CONSENSUS MATRIX — Phone slide-up (Deck mode) ═══ */}
                 {deviceMode === 'deck' && showConsensus && consensusData && !embedded && !pickerMode && (
-                    <div className="absolute inset-0 z-[600] animate-in slide-in-from-bottom duration-300">
+                    <div className="absolute inset-0 z-600 animate-in slide-in-from-bottom duration-300">
                         <ConsensusMatrix
                             data={consensusData}
                             onScrubPosition={handleScrubPosition}

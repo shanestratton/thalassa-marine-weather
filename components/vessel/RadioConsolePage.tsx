@@ -445,13 +445,13 @@ export const RadioConsolePage: React.FC<RadioConsolePageProps> = ({ onBack, onNa
             />
 
             {/* ── Vessel identity strip ── */}
-            <div className="shrink-0 px-5 py-4 border-b border-white/[0.06]">
+            <div className="shrink-0 px-5 py-4 border-b border-white/6">
                 <div className="text-2xl font-black text-white uppercase tracking-wide mb-2.5">
                     {vesselName ?? 'Vessel name not set'}
                 </div>
                 <div className="flex flex-wrap gap-2">
                     {callSign && (
-                        <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-white/[0.04] border border-white/[0.08]">
+                        <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-white/4 border border-white/8">
                             <span className="text-[9px] font-extrabold tracking-widest text-slate-500 uppercase">
                                 CS
                             </span>
@@ -459,7 +459,7 @@ export const RadioConsolePage: React.FC<RadioConsolePageProps> = ({ onBack, onNa
                         </div>
                     )}
                     {mmsi && (
-                        <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-white/[0.04] border border-white/[0.08]">
+                        <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-white/4 border border-white/8">
                             <span className="text-[9px] font-extrabold tracking-widest text-slate-500 uppercase">
                                 MMSI
                             </span>
@@ -467,7 +467,7 @@ export const RadioConsolePage: React.FC<RadioConsolePageProps> = ({ onBack, onNa
                         </div>
                     )}
                     {rego && (
-                        <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-white/[0.04] border border-white/[0.08]">
+                        <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-white/4 border border-white/8">
                             <span className="text-[9px] font-extrabold tracking-widest text-slate-500 uppercase">
                                 Rego
                             </span>
@@ -481,7 +481,7 @@ export const RadioConsolePage: React.FC<RadioConsolePageProps> = ({ onBack, onNa
                                 localStorage.setItem(authScopedStorageKey('thalassa_settings_return_to'), 'radio');
                                 onNavigate?.('settings');
                             }}
-                            className="hit-target-44 px-2.5 py-1 rounded-md bg-white/[0.02] border border-dashed border-white/10 text-[11px] font-bold text-slate-500 hover:text-slate-400 hover:border-white/20 transition-colors inline-flex items-center gap-1.5"
+                            className="hit-target-44 px-2.5 py-1 rounded-md bg-white/2 border border-dashed border-white/10 text-[11px] font-bold text-slate-500 hover:text-slate-400 hover:border-white/20 transition-colors inline-flex items-center gap-1.5"
                         >
                             <GearIcon className="w-3 h-3" />
                             <span>{vesselName ? 'Add radio identity in Vessel Settings →' : 'Set vessel name →'}</span>
@@ -500,7 +500,7 @@ export const RadioConsolePage: React.FC<RadioConsolePageProps> = ({ onBack, onNa
             </div>
 
             {/* ── Position display ── */}
-            <div className="shrink-0 px-5 py-7 bg-white/[0.02] border-b border-white/[0.06]">
+            <div className="shrink-0 px-5 py-7 bg-white/2 border-b border-white/6">
                 {position ? (
                     <div className="flex flex-col gap-3 font-mono">
                         <div className="flex items-baseline gap-3">
@@ -572,7 +572,7 @@ export const RadioConsolePage: React.FC<RadioConsolePageProps> = ({ onBack, onNa
             </div>
 
             {/* ── SOG / COG / UTC strip ── */}
-            <div className="shrink-0 flex items-center px-5 py-4 border-b border-white/[0.06]">
+            <div className="shrink-0 flex items-center px-5 py-4 border-b border-white/6">
                 <div className="flex-1 text-center">
                     <div className="text-[9px] font-extrabold tracking-[0.2em] text-slate-500 uppercase mb-1">SOG</div>
                     <div className="text-[22px] font-black text-white font-mono">
@@ -580,7 +580,7 @@ export const RadioConsolePage: React.FC<RadioConsolePageProps> = ({ onBack, onNa
                         <span className="text-[11px] font-bold text-slate-500 ml-0.5">kts</span>
                     </div>
                 </div>
-                <div className="w-px h-8 bg-white/[0.08] shrink-0" />
+                <div className="w-px h-8 bg-white/8 shrink-0" />
                 <div className="flex-1 text-center">
                     <div className="text-[9px] font-extrabold tracking-[0.2em] text-slate-500 uppercase mb-1">COG</div>
                     <div className="text-[22px] font-black text-white font-mono">
@@ -588,7 +588,7 @@ export const RadioConsolePage: React.FC<RadioConsolePageProps> = ({ onBack, onNa
                         <span className="text-[11px] font-bold text-slate-500 ml-0.5">°T</span>
                     </div>
                 </div>
-                <div className="w-px h-8 bg-white/[0.08] shrink-0" />
+                <div className="w-px h-8 bg-white/8 shrink-0" />
                 <div className="flex-1 text-center">
                     <div className="text-[9px] font-extrabold tracking-[0.2em] text-slate-500 uppercase mb-1">UTC</div>
                     <div className="text-[18px] font-black text-white font-mono tracking-wider">{utcTime}</div>
@@ -656,9 +656,7 @@ const DscSelector: React.FC<{
                     onChange(m);
                 }}
                 className={`flex-1 py-2.5 px-2 rounded-xl border text-center transition-all active:scale-[0.97] ${
-                    isActive
-                        ? activeClasses
-                        : 'bg-white/[0.03] border-white/[0.08] text-slate-400 hover:bg-white/[0.06]'
+                    isActive ? activeClasses : 'bg-white/3 border-white/8 text-slate-400 hover:bg-white/6'
                 }`}
                 aria-pressed={isActive}
             >
@@ -697,7 +695,7 @@ const NatureSelector: React.FC<{
         <select
             value={value}
             onChange={(e) => onChange(e.target.value as DistressNature)}
-            className="w-full px-3 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.08] text-white text-[13px] font-bold focus:outline-none focus:border-white/20"
+            className="w-full px-3 py-2.5 rounded-xl bg-white/4 border border-white/8 text-white text-[13px] font-bold focus:outline-hidden focus:border-white/20"
         >
             {(Object.keys(NATURE_LABEL) as DistressNature[]).map((k) => (
                 <option key={k} value={k} className="bg-slate-900">
@@ -712,7 +710,7 @@ const DscInstructions: React.FC<{ mode: DscMode; transcript: string }> = ({ mode
     if (mode === 'routine') {
         return (
             <div className="shrink-0 px-5 pt-3">
-                <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2.5">
+                <div className="rounded-xl border border-white/6 bg-white/2 px-3 py-2.5">
                     <div className="text-[10px] font-extrabold tracking-[0.2em] uppercase text-slate-500 mb-1">
                         Transcript
                     </div>
@@ -766,7 +764,7 @@ const DscInstructions: React.FC<{ mode: DscMode; transcript: string }> = ({ mode
                 </div>
             </div>
 
-            <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2.5">
+            <div className="rounded-xl border border-white/6 bg-white/2 px-3 py-2.5">
                 <div className="text-[10px] font-extrabold tracking-[0.2em] uppercase text-slate-500 mb-1">
                     Voice Transcript
                 </div>

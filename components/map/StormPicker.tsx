@@ -92,7 +92,7 @@ export const StormPicker: React.FC<StormPickerProps> = ({
                     animate={{ opacity: 1 }}
                     exit={{ opacity: 0 }}
                     transition={{ duration: 0.2 }}
-                    className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 p-4 pb-[calc(4rem+env(safe-area-inset-bottom)+1rem)] pt-[max(1rem,env(safe-area-inset-top))]"
+                    className="fixed inset-0 z-9999 flex items-center justify-center bg-black/60 p-4 pb-[calc(4rem+env(safe-area-inset-bottom)+1rem)] pt-[max(1rem,env(safe-area-inset-top))]"
                     onClick={onClose}
                     role="presentation"
                 >
@@ -103,14 +103,14 @@ export const StormPicker: React.FC<StormPickerProps> = ({
                         animate={{ opacity: 1, scale: 1, y: 0 }}
                         exit={{ opacity: 0, scale: 0.95, y: -8 }}
                         transition={{ type: 'spring', stiffness: 500, damping: 30 }}
-                        className="w-full max-w-md max-h-full bg-slate-900/95 backdrop-blur-xl border border-white/[0.08] rounded-2xl shadow-2xl overflow-hidden flex flex-col"
+                        className="w-full max-w-md max-h-full bg-slate-900/95 backdrop-blur-xl border border-white/8 rounded-2xl shadow-2xl overflow-hidden flex flex-col"
                         onClick={(e) => e.stopPropagation()}
                         role="dialog"
                         aria-modal="true"
                         aria-labelledby="storm-picker-title"
                         tabIndex={-1}
                     >
-                        <div className="h-[2px] bg-gradient-to-r from-transparent via-red-500/60 to-transparent" />
+                        <div className="h-[2px] bg-linear-to-r from-transparent via-red-500/60 to-transparent" />
 
                         {/* Header */}
                         <div className="flex items-center justify-between px-5 pt-4 pb-2">
@@ -161,7 +161,7 @@ export const StormPicker: React.FC<StormPickerProps> = ({
                                             triggerHaptic('medium');
                                             onClose();
                                         }}
-                                        className={`w-full flex items-center gap-3 px-5 py-3 text-left transition-colors border-b border-white/[0.04] last:border-b-0 ${
+                                        className={`w-full flex items-center gap-3 px-5 py-3 text-left transition-colors border-b border-white/4 last:border-b-0 ${
                                             isSelected ? 'bg-red-500/15 text-white' : 'text-gray-300 hover:bg-white/5'
                                         }`}
                                     >
@@ -209,7 +209,7 @@ export const StormPicker: React.FC<StormPickerProps> = ({
 
                         {/* Footer — "Turn off storms" clears the layer entirely. */}
                         {onClearStorms && (
-                            <div className="px-5 py-3 border-t border-white/[0.06]">
+                            <div className="px-5 py-3 border-t border-white/6">
                                 <button
                                     onClick={() => {
                                         onClearStorms();

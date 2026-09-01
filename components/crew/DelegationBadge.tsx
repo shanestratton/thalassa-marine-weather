@@ -81,7 +81,7 @@ export const DelegationBadge: React.FC<DelegationBadgeProps> = ({
                 className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[11px] font-bold uppercase tracking-wider transition-all border ${
                     assigned
                         ? 'bg-sky-500/10 border-sky-500/20 text-sky-400'
-                        : 'bg-white/[0.04] border-white/[0.08] text-gray-500 hover:text-gray-300 hover:bg-white/[0.08]'
+                        : 'bg-white/4 border-white/8 text-gray-500 hover:text-gray-300 hover:bg-white/8'
                 }`}
             >
                 {assigned ? `👤 ${emailPrefix(assigned)}` : '👤 Assign'}
@@ -105,7 +105,7 @@ export const DelegationBadge: React.FC<DelegationBadgeProps> = ({
                             className={`w-full text-left px-3 py-2 text-xs transition-colors ${
                                 assigned === crew.crew_email
                                     ? 'bg-sky-500/10 text-sky-400 font-bold'
-                                    : 'text-gray-300 hover:bg-white/[0.06]'
+                                    : 'text-gray-300 hover:bg-white/6'
                             }`}
                         >
                             <span className="mr-1.5">{assigned === crew.crew_email ? '✓' : '○'}</span>
@@ -114,7 +114,7 @@ export const DelegationBadge: React.FC<DelegationBadgeProps> = ({
                     ))}
                     {assigned && (
                         <>
-                            <div className="border-t border-white/[0.06] my-1" />
+                            <div className="border-t border-white/6 my-1" />
                             <button
                                 onClick={() => onAssign(cardKey, null)}
                                 className="w-full text-left px-3 py-2 text-xs text-red-400/70 hover:bg-red-500/10 transition-colors"

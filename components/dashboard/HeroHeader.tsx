@@ -131,7 +131,7 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
     }, [updateSettings]);
 
     return (
-        <div className="relative w-full rounded-2xl overflow-hidden border bg-white/[0.08] shadow-[0_0_30px_-5px_rgba(0,0,0,0.3)] border-white/[0.15]">
+        <div className="relative w-full rounded-2xl overflow-hidden border bg-white/8 shadow-[0_0_30px_-5px_rgba(0,0,0,0.3)] border-white/15">
             {/* Keyframes moved to index.css */}
 
             <div className="flex flex-row w-full items-center min-h-[70px]">
@@ -142,7 +142,7 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                     target generous on iOS. */}
                 <div
                     ref={setDroppableRef}
-                    className={`flex-[1] px-3 py-2 flex flex-col justify-center items-start min-w-0 cursor-pointer touch-manipulation select-none relative group transition-all duration-150 ${
+                    className={`flex-1 px-3 py-2 flex flex-col justify-center items-start min-w-0 cursor-pointer touch-manipulation select-none relative group transition-all duration-150 ${
                         isOver ? 'bg-sky-500/20 ring-2 ring-sky-400/60 ring-inset rounded-lg' : ''
                     }`}
                     onClick={handleHeroLeftTap}
@@ -176,7 +176,7 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                                 </span>
                                 <div className="flex items-baseline gap-1 leading-none">
                                     <span
-                                        className={`${typeof pinnedDisplay.value === 'string' && pinnedDisplay.value.length > 3 ? 'text-4xl' : 'text-[44px]'} font-mono font-bold tracking-tighter text-ivory drop-shadow`}
+                                        className={`${typeof pinnedDisplay.value === 'string' && pinnedDisplay.value.length > 3 ? 'text-4xl' : 'text-[44px]'} font-mono font-bold tracking-tighter text-ivory drop-shadow-sm`}
                                     >
                                         {pinnedDisplay.value}
                                     </span>
@@ -228,7 +228,7 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                                                 °
                                             </span>
                                             <span
-                                                className={`text-[22px] font-mono font-bold leading-none ${getTempColor()} -translate-y-[7px]`}
+                                                className={`text-[22px] font-mono font-bold leading-none ${getTempColor()} translate-y-[-7px]`}
                                             >
                                                 {units.temp}
                                             </span>
@@ -242,7 +242,7 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                         on hover on desktop or remains subtly visible on mobile
                         so new users have a visual cue that this area is
                         interactive. */}
-                    <span className="absolute top-1 right-1 w-4 h-4 rounded-full bg-white/[0.06] flex items-center justify-center opacity-60 group-hover:opacity-100 transition-opacity pointer-events-none">
+                    <span className="absolute top-1 right-1 w-4 h-4 rounded-full bg-white/6 flex items-center justify-center opacity-60 group-hover:opacity-100 transition-opacity pointer-events-none">
                         <svg
                             width="8"
                             height="8"
@@ -284,7 +284,7 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                 {/* key ensures React swaps the whole block atomically — no two-step size→text jank */}
                 <div
                     key={`${isLive ? 'live' : dateLabel}-${displayCondition}`}
-                    className="flex-[2] flex items-center justify-center min-w-0 py-2 px-1"
+                    className="flex-2 flex items-center justify-center min-w-0 py-2 px-1"
                 >
                     {isLive ? (
                         <div className="flex items-center justify-center gap-2 max-w-full -ml-2">
@@ -318,7 +318,7 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                 {/* RIGHT: Hi/Lo + Chevron */}
                 <div
                     onClick={onToggleExpand}
-                    className={`flex-[1] flex items-center justify-end gap-2 pr-3 touch-none select-none ${onToggleExpand ? 'cursor-pointer' : ''}`}
+                    className={`flex-1 flex items-center justify-end gap-2 pr-3 touch-none select-none ${onToggleExpand ? 'cursor-pointer' : ''}`}
                     style={{ WebkitTapHighlightColor: 'transparent' }}
                     role={onToggleExpand ? 'button' : undefined}
                     tabIndex={onToggleExpand ? 0 : undefined}
@@ -353,7 +353,7 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                     </div>
                     {/* Ghostly chevron — hidden for inland (no expand available) */}
                     {onToggleExpand && (
-                        <div className="w-9 h-9 rounded-full bg-white/[0.05] flex items-center justify-center">
+                        <div className="w-9 h-9 rounded-full bg-white/5 flex items-center justify-center">
                             <ChevronIcon
                                 className={`w-[18px] h-[18px] text-white/60 transition-transform duration-300 ${isExpanded ? 'rotate-180' : ''}`}
                             />

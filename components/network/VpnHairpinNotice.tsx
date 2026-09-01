@@ -51,7 +51,7 @@ export const VpnHairpinNotice: React.FC<VpnHairpinNoticeProps> = ({ hostIp, host
     return (
         <div
             role="status"
-            className={`rounded-xl border border-amber-500/25 bg-gradient-to-br from-amber-500/[0.10] via-amber-500/[0.04] to-transparent p-3 ${className}`}
+            className={`rounded-xl border border-amber-500/25 bg-linear-to-br from-amber-500/10 via-amber-500/4 to-transparent p-3 ${className}`}
         >
             <div className="flex items-start gap-2.5">
                 <span className="mt-px text-base leading-none" aria-hidden="true">

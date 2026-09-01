@@ -52,11 +52,7 @@ const ChampagneCard: React.FC<{ lastSeen: string | null; instrumentsLive: boolea
 );
 
 const ConnectionLostCard: React.FC<{ lastUpdate: string }> = ({ lastUpdate }) => (
-    <div
-        role="status"
-        aria-live="polite"
-        className="shrink-0 border-b border-amber-500/25 bg-amber-500/[0.08] px-4 py-4"
-    >
+    <div role="status" aria-live="polite" className="shrink-0 border-b border-amber-500/25 bg-amber-500/8 px-4 py-4">
         <div className="text-sm font-bold text-amber-200">Connection lost</div>
         <div className="mt-0.5 text-xs leading-relaxed text-amber-100/75">
             Showing last-known voyage data · last update {lastUpdate}.
@@ -127,7 +123,7 @@ export const TelemetryPanel: React.FC<TelemetryPanelProps> = ({
 
             {/* Secondary readouts */}
             {stats.length > 0 && (
-                <div className="grid grid-cols-4 gap-x-3 gap-y-2 px-4 pt-1.5 pb-3 border-t border-white/[0.05]">
+                <div className="grid grid-cols-4 gap-x-3 gap-y-2 px-4 pt-1.5 pb-3 border-t border-white/5">
                     {stats.map((s) => (
                         <Stat key={s.label} label={s.label} value={s.value} tone={s.tone} />
                     ))}

@@ -159,7 +159,7 @@ export const CoachMark: React.FC<CoachMarkProps> = ({
 
     return (
         <div
-            className={`absolute z-[200] flex ${stackDir} gap-1 pointer-events-none ${anchorClass} ${className} animate-in fade-in slide-in-from-bottom-2 duration-300`}
+            className={`absolute z-200 flex ${stackDir} gap-1 pointer-events-none ${anchorClass} ${className} animate-in fade-in slide-in-from-bottom-2 duration-300`}
             role="status"
             aria-live="polite"
         >

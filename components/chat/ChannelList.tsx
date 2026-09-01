@@ -149,25 +149,25 @@ const ChannelListInner: React.FC<ChannelListProps> = ({
             <div key={ch.id}>
                 <div className={`flex items-center ${isSub ? 'pl-6' : ''}`}>
                     {/* Sub-channel connector line */}
-                    {isSub && <div className="absolute left-[2.4rem] w-3 h-[1px] bg-white/[0.06]" />}
+                    {isSub && <div className="absolute left-[2.4rem] w-3 h-px bg-white/6" />}
                     <button
                         onClick={() => handleChannelClick(ch)}
                         aria-label={`${getChannelName(ch)}${ch.is_private ? ' — Private channel' : ''}${isPrivateLocked ? ' — Request access' : ''}`}
                         className={`w-full group flex items-center gap-3 ${isSub ? 'p-3 min-h-[48px]' : 'p-3.5 min-h-[56px]'} rounded-2xl transition-all duration-200 card-press stagger-item ${
                             isPrivateLocked
-                                ? 'bg-white/[0.01] border border-white/[0.04] opacity-70'
+                                ? 'bg-white/1 border border-white/4 opacity-70'
                                 : isSub
-                                  ? 'bg-white/[0.015] hover:bg-white/[0.04] border border-white/[0.02] hover:border-white/[0.06]'
-                                  : 'bg-white/[0.02] hover:bg-white/[0.05] border border-white/[0.03] hover:border-white/[0.08]'
+                                  ? 'bg-white/1.5 hover:bg-white/4 border border-white/2 hover:border-white/6'
+                                  : 'bg-white/2 hover:bg-white/5 border border-white/3 hover:border-white/8'
                         }`}
                         style={undefined}
                     >
                         {/* Icon */}
                         <div
-                            className={`${isSub ? 'w-8 h-8 text-base' : 'w-11 h-11 text-xl'} rounded-xl bg-gradient-to-br border flex items-center justify-center group-hover:scale-110 transition-transform duration-200 ${
+                            className={`${isSub ? 'w-8 h-8 text-base' : 'w-11 h-11 text-xl'} rounded-xl bg-linear-to-br border flex items-center justify-center group-hover:scale-110 transition-transform duration-200 ${
                                 ch.is_private
-                                    ? 'from-purple-500/[0.12] to-indigo-500/[0.05] border-purple-500/20'
-                                    : 'from-white/[0.06] to-white/[0.02] border-white/[0.05]'
+                                    ? 'from-purple-500/12 to-indigo-500/5 border-purple-500/20'
+                                    : 'from-white/6 to-white/2 border-white/5'
                             }`}
                         >
                             {ch.is_private ? '🔒' : getChannelIcon(ch)}
@@ -201,7 +201,7 @@ const ChannelListInner: React.FC<ChannelListProps> = ({
                                     onClick={(e) => toggleExpand(ch.id, e)}
                                     aria-label={`${isExpanded ? 'Collapse' : 'Expand'} ${getChannelName(ch)} sub-channels`}
                                     aria-expanded={isExpanded}
-                                    className="w-8 h-8 rounded-full bg-white/[0.04] hover:bg-white/[0.08] flex items-center justify-center transition-all min-h-[44px] min-w-[44px]"
+                                    className="w-8 h-8 rounded-full bg-white/4 hover:bg-white/8 flex items-center justify-center transition-all min-h-[44px] min-w-[44px]"
                                 >
                                     <span
                                         className={`text-white/40 text-[11px] transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}
@@ -210,7 +210,7 @@ const ChannelListInner: React.FC<ChannelListProps> = ({
                                     </span>
                                 </button>
                             )}
-                            <div className="w-6 h-6 rounded-full bg-white/[0.03] group-hover:bg-white/[0.06] flex items-center justify-center transition-all group-hover:translate-x-0.5">
+                            <div className="w-6 h-6 rounded-full bg-white/3 group-hover:bg-white/6 flex items-center justify-center transition-all group-hover:translate-x-0.5">
                                 <span className="text-white/40 group-hover:text-white/60 text-xs transition-colors">
                                     {isPrivateLocked ? '🔒' : '›'}
                                 </span>
@@ -221,7 +221,7 @@ const ChannelListInner: React.FC<ChannelListProps> = ({
 
                 {/* Sub-channels (indented, smaller) */}
                 {!isSub && isExpanded && subs.length > 0 && (
-                    <div className="relative ml-4 mt-1 mb-1 space-y-1 border-l border-white/[0.04] pl-0">
+                    <div className="relative ml-4 mt-1 mb-1 space-y-1 border-l border-white/4 pl-0">
                         {subs.map((sub, si) => renderChannelCard(sub, true, si))}
                     </div>
                 )}
@@ -236,9 +236,9 @@ const ChannelListInner: React.FC<ChannelListProps> = ({
                 <button
                     aria-label="Open Admin"
                     onClick={onOpenAdmin}
-                    className="w-full group flex items-center gap-3.5 p-3.5 rounded-2xl bg-gradient-to-r from-amber-500/[0.08] to-yellow-500/[0.04] hover:from-amber-500/[0.15] hover:to-yellow-500/[0.08] border border-amber-500/20 hover:border-amber-500/40 transition-all duration-200 active:scale-[0.98] mb-3"
+                    className="w-full group flex items-center gap-3.5 p-3.5 rounded-2xl bg-linear-to-r from-amber-500/8 to-yellow-500/4 hover:from-amber-500/15 hover:to-yellow-500/8 border border-amber-500/20 hover:border-amber-500/40 transition-all duration-200 active:scale-[0.98] mb-3"
                 >
-                    <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-amber-500/20 to-yellow-600/10 border border-amber-500/30 flex items-center justify-center text-xl group-hover:scale-110 transition-transform duration-200">
+                    <div className="w-11 h-11 rounded-xl bg-linear-to-br from-amber-500/20 to-yellow-600/10 border border-amber-500/30 flex items-center justify-center text-xl group-hover:scale-110 transition-transform duration-200">
                         👑
                     </div>
                     <div className="text-left flex-1 min-w-0">
@@ -293,9 +293,9 @@ const ChannelListInner: React.FC<ChannelListProps> = ({
                             console.error('Crew chat error:', e);
                         }
                     }}
-                    className="w-full group flex items-center gap-3.5 p-3.5 rounded-2xl bg-gradient-to-r from-emerald-500/[0.06] to-teal-500/[0.03] hover:from-emerald-500/[0.12] hover:to-teal-500/[0.06] border border-emerald-500/15 hover:border-emerald-500/30 transition-all duration-200 active:scale-[0.98] mb-3"
+                    className="w-full group flex items-center gap-3.5 p-3.5 rounded-2xl bg-linear-to-r from-emerald-500/6 to-teal-500/3 hover:from-emerald-500/12 hover:to-teal-500/6 border border-emerald-500/15 hover:border-emerald-500/30 transition-all duration-200 active:scale-[0.98] mb-3"
                 >
-                    <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-emerald-500/20 to-teal-600/10 border border-emerald-500/25 flex items-center justify-center text-xl group-hover:scale-110 transition-transform duration-200">
+                    <div className="w-11 h-11 rounded-xl bg-linear-to-br from-emerald-500/20 to-teal-600/10 border border-emerald-500/25 flex items-center justify-center text-xl group-hover:scale-110 transition-transform duration-200">
                         👥
                     </div>
                     <div className="text-left flex-1 min-w-0">
@@ -328,7 +328,7 @@ const ChannelListInner: React.FC<ChannelListProps> = ({
                 nothing and the user saw a confusing blank pane. */}
             {topLevel.length === 0 ? (
                 <div className="flex flex-col items-center text-center py-16 px-6">
-                    <div className="w-12 h-12 rounded-full bg-sky-500/[0.08] border border-sky-500/15 flex items-center justify-center mb-4">
+                    <div className="w-12 h-12 rounded-full bg-sky-500/8 border border-sky-500/15 flex items-center justify-center mb-4">
                         <svg
                             className="w-6 h-6 text-sky-400/70"
                             fill="none"

@@ -234,7 +234,7 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
             >
                 <section
                     aria-labelledby="crew-list-profile-title"
-                    className="rounded-3xl border border-sky-400/15 bg-gradient-to-br from-sky-500/[0.10] via-slate-900 to-emerald-500/[0.08] p-4 shadow-lg shadow-sky-950/20"
+                    className="rounded-3xl border border-sky-400/15 bg-linear-to-br from-sky-500/10 via-slate-900 to-emerald-500/8 p-4 shadow-lg shadow-sky-950/20"
                 >
                     <div className="flex items-start gap-3">
                         <span aria-hidden="true" className="mt-0.5 text-2xl">
@@ -255,7 +255,7 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                     </div>
                     <div
                         aria-live="polite"
-                        className={`mt-3 rounded-2xl border px-3 py-2.5 text-xs leading-relaxed ${isApprovedForCrewList ? 'border-emerald-400/20 bg-emerald-500/[0.10] text-emerald-100/80' : 'border-amber-400/15 bg-amber-500/[0.08] text-amber-100/75'}`}
+                        className={`mt-3 rounded-2xl border px-3 py-2.5 text-xs leading-relaxed ${isApprovedForCrewList ? 'border-emerald-400/20 bg-emerald-500/10 text-emerald-100/80' : 'border-amber-400/15 bg-amber-500/8 text-amber-100/75'}`}
                     >
                         {resolvedPublicationState === 'checking'
                             ? 'Checking your email and mobile verification… No profile changes are being sent yet.'
@@ -307,7 +307,7 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                         value={editFirstName}
                         onChange={(e) => setEditFirstName(e.target.value)}
                         placeholder="What should people call you?"
-                        className="w-full bg-white/[0.04] border border-white/[0.06] rounded-2xl px-4 py-3.5 text-base text-white placeholder:text-white/40 focus:outline-none focus:border-emerald-500/30 transition-colors"
+                        className="w-full bg-white/4 border border-white/6 rounded-2xl px-4 py-3.5 text-base text-white placeholder:text-white/40 focus:outline-hidden focus:border-emerald-500/30 transition-colors"
                         maxLength={30}
                     />
                 </div>
@@ -324,10 +324,10 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                                 aria-label={`${intent.label}: ${intent.detail}`}
                                 key={intent.key}
                                 onClick={() => setEditListingType(editListingType === intent.key ? '' : intent.key)}
-                                className={`min-h-[7.25rem] rounded-2xl px-3 py-3 text-left transition-all ${
+                                className={`min-h-29 rounded-2xl px-3 py-3 text-left transition-all ${
                                     editListingType === intent.key
-                                        ? 'border border-emerald-400/30 bg-gradient-to-br from-emerald-500/20 to-sky-500/20 text-emerald-100 shadow-lg shadow-emerald-950/20'
-                                        : 'border border-white/[0.06] bg-white/[0.025] text-white/60 hover:bg-white/[0.05]'
+                                        ? 'border border-emerald-400/30 bg-linear-to-br from-emerald-500/20 to-sky-500/20 text-emerald-100 shadow-lg shadow-emerald-950/20'
+                                        : 'border border-white/6 bg-white/2.5 text-white/60 hover:bg-white/5'
                                 }`}
                             >
                                 <span aria-hidden="true" className="block text-xl">
@@ -355,7 +355,7 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                                 ? "Tell crew about your vessel, planned passages, what you're looking for..."
                                 : 'Tell skippers about yourself, your experience, what you can bring to the crew...'
                         }
-                        className="w-full bg-white/[0.04] border border-white/[0.06] rounded-2xl px-4 py-3.5 text-base text-white placeholder:text-white/40 focus:outline-none focus:border-emerald-500/30 transition-colors resize-none"
+                        className="w-full bg-white/4 border border-white/6 rounded-2xl px-4 py-3.5 text-base text-white placeholder:text-white/40 focus:outline-hidden focus:border-emerald-500/30 transition-colors resize-none"
                         rows={4}
                         maxLength={500}
                     />
@@ -377,7 +377,7 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                                 ? 'Where will you be sailing? e.g. East Coast, Med...'
                                 : 'Where would you like to sail? e.g. Caribbean, Pacific...'
                         }
-                        className="w-full bg-white/[0.04] border border-white/[0.06] rounded-2xl px-4 py-3.5 text-base text-white placeholder:text-white/40 focus:outline-none focus:border-emerald-500/30 transition-colors"
+                        className="w-full bg-white/4 border border-white/6 rounded-2xl px-4 py-3.5 text-base text-white placeholder:text-white/40 focus:outline-hidden focus:border-emerald-500/30 transition-colors"
                         maxLength={80}
                     />
                 </div>
@@ -397,8 +397,8 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                                 onClick={() => setEditExperience(editExperience === level ? '' : level)}
                                 className={`w-full py-3 px-4 rounded-xl text-left text-sm font-medium transition-all ${
                                     editExperience === level
-                                        ? 'bg-gradient-to-r from-emerald-500/15 to-sky-500/15 text-emerald-200 border border-emerald-400/15'
-                                        : 'bg-white/[0.02] text-white/50 border border-white/[0.04] hover:bg-white/[0.04]'
+                                        ? 'bg-linear-to-r from-emerald-500/15 to-sky-500/15 text-emerald-200 border border-emerald-400/15'
+                                        : 'bg-white/2 text-white/50 border border-white/4 hover:bg-white/4'
                                 }`}
                             >
                                 {level}
@@ -425,8 +425,8 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                                         onClick={() => toggleEditSkill(skill)}
                                         className={`px-3 py-2 rounded-full text-sm font-medium transition-all active:scale-95 ${
                                             selected
-                                                ? 'bg-gradient-to-r from-emerald-500/25 to-sky-500/25 text-emerald-200 border border-emerald-400/25'
-                                                : 'bg-white/[0.03] text-white/50 border border-white/[0.05] hover:bg-white/[0.05]'
+                                                ? 'bg-linear-to-r from-emerald-500/25 to-sky-500/25 text-emerald-200 border border-emerald-400/25'
+                                                : 'bg-white/3 text-white/50 border border-white/5 hover:bg-white/5'
                                         }`}
                                     >
                                         {skill}
@@ -449,7 +449,7 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                                 type="date"
                                 value={editAvailFrom}
                                 onChange={(e) => setEditAvailFrom(e.target.value)}
-                                className="w-full bg-white/[0.04] border border-white/[0.06] rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-emerald-500/30 transition-colors [color-scheme:dark]"
+                                className="w-full bg-white/4 border border-white/6 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-hidden focus:border-emerald-500/30 transition-colors scheme-dark"
                             />
                         </div>
                         <div className="flex-1">
@@ -458,7 +458,7 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                                 type="date"
                                 value={isOpenEnded(editAvailTo) ? '' : editAvailTo}
                                 onChange={(e) => setEditAvailTo(e.target.value)}
-                                className="w-full bg-white/[0.04] border border-white/[0.06] rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-emerald-500/30 transition-colors [color-scheme:dark]"
+                                className="w-full bg-white/4 border border-white/6 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-hidden focus:border-emerald-500/30 transition-colors scheme-dark"
                             />
                             {editAvailTo && (
                                 <button
@@ -486,7 +486,7 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                                 setEditLocationCountry(e.target.value);
                                 setEditLocationState('');
                             }}
-                            className="w-full bg-white/[0.04] border border-white/[0.06] rounded-2xl px-4 py-3 text-base text-white focus:outline-none focus:border-emerald-500/30 transition-colors appearance-none"
+                            className="w-full bg-white/4 border border-white/6 rounded-2xl px-4 py-3 text-base text-white focus:outline-hidden focus:border-emerald-500/30 transition-colors appearance-none"
                             style={{
                                 backgroundImage:
                                     "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='rgba(255,255,255,0.3)'%3E%3Cpath d='M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z'/%3E%3C/svg%3E\")",
@@ -508,7 +508,7 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                             <select
                                 value={editLocationState}
                                 onChange={(e) => setEditLocationState(e.target.value)}
-                                className="w-full bg-white/[0.04] border border-white/[0.06] rounded-2xl px-4 py-3 text-base text-white focus:outline-none focus:border-emerald-500/30 transition-colors appearance-none"
+                                className="w-full bg-white/4 border border-white/6 rounded-2xl px-4 py-3 text-base text-white focus:outline-hidden focus:border-emerald-500/30 transition-colors appearance-none"
                                 style={{
                                     backgroundImage:
                                         "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='rgba(255,255,255,0.3)'%3E%3Cpath d='M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z'/%3E%3C/svg%3E\")",
@@ -531,7 +531,7 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                             value={editLocationCity}
                             onChange={(e) => setEditLocationCity(e.target.value)}
                             placeholder="Harbour / town (optional)"
-                            className="w-full bg-white/[0.04] border border-white/[0.06] rounded-2xl px-4 py-3 text-base text-white placeholder:text-white/40 focus:outline-none focus:border-emerald-500/30 transition-colors"
+                            className="w-full bg-white/4 border border-white/6 rounded-2xl px-4 py-3 text-base text-white placeholder:text-white/40 focus:outline-hidden focus:border-emerald-500/30 transition-colors"
                             maxLength={60}
                         />
                     </div>
@@ -558,8 +558,8 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                                     onClick={() => toggleVibe(v)}
                                     className={`px-4 py-2.5 rounded-xl text-sm font-medium transition-all ${
                                         selected
-                                            ? 'bg-gradient-to-r from-purple-500/25 to-pink-500/25 text-purple-200 border border-purple-400/25'
-                                            : 'bg-white/[0.03] text-white/50 border border-white/[0.05]'
+                                            ? 'bg-linear-to-r from-purple-500/25 to-pink-500/25 text-purple-200 border border-purple-400/25'
+                                            : 'bg-white/3 text-white/50 border border-white/5'
                                     }`}
                                 >
                                     {v}
@@ -586,8 +586,8 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                                     onClick={() => toggleLanguage(lang)}
                                     className={`px-4 py-2.5 rounded-xl text-sm font-medium transition-all ${
                                         selected
-                                            ? 'bg-gradient-to-r from-sky-500/25 to-emerald-500/25 text-sky-200 border border-sky-400/25'
-                                            : 'bg-white/[0.03] text-white/50 border border-white/[0.05]'
+                                            ? 'bg-linear-to-r from-sky-500/25 to-emerald-500/25 text-sky-200 border border-sky-400/25'
+                                            : 'bg-white/3 text-white/50 border border-white/5'
                                     }`}
                                 >
                                     {lang}
@@ -617,7 +617,7 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                                         className={`px-3 py-2 rounded-xl text-xs font-medium transition-all ${
                                             editSmoking === opt
                                                 ? 'bg-emerald-500/20 text-emerald-200 border border-emerald-400/20'
-                                                : 'bg-white/[0.03] text-white/50 border border-white/[0.05]'
+                                                : 'bg-white/3 text-white/50 border border-white/5'
                                         }`}
                                     >
                                         {opt}
@@ -639,7 +639,7 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                                         className={`px-3 py-2 rounded-xl text-xs font-medium transition-all ${
                                             editDrinking === opt
                                                 ? 'bg-amber-500/20 text-amber-200 border border-amber-400/20'
-                                                : 'bg-white/[0.03] text-white/50 border border-white/[0.05]'
+                                                : 'bg-white/3 text-white/50 border border-white/5'
                                         }`}
                                     >
                                         {opt}
@@ -661,7 +661,7 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                                         className={`px-3 py-2 rounded-xl text-xs font-medium transition-all ${
                                             editPets === opt
                                                 ? 'bg-sky-500/20 text-sky-200 border border-sky-400/20'
-                                                : 'bg-white/[0.03] text-white/50 border border-white/[0.05]'
+                                                : 'bg-white/3 text-white/50 border border-white/5'
                                         }`}
                                     >
                                         {opt}
@@ -688,8 +688,8 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                                 onClick={() => toggleInterest(interest)}
                                 className={`px-3.5 py-2 rounded-xl text-sm font-medium transition-all ${
                                     editInterests.includes(interest)
-                                        ? 'bg-gradient-to-r from-amber-500/20 to-orange-500/20 text-amber-200 border border-amber-400/20'
-                                        : 'bg-white/[0.03] text-white/50 border border-white/[0.05]'
+                                        ? 'bg-linear-to-r from-amber-500/20 to-orange-500/20 text-amber-200 border border-amber-400/20'
+                                        : 'bg-white/3 text-white/50 border border-white/5'
                                 }`}
                             >
                                 {interest}
@@ -715,7 +715,7 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                                 <div
                                     key={idx}
                                     className={`aspect-square rounded-2xl border overflow-hidden relative group ${
-                                        idx === 0 ? 'border-sky-400/35 bg-sky-500/[0.06]' : 'border-white/[0.06]'
+                                        idx === 0 ? 'border-sky-400/35 bg-sky-500/6' : 'border-white/6'
                                     }`}
                                 >
                                     {isUploading ? (
@@ -754,7 +754,7 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                                                 setPendingPhotoIdx(idx);
                                                 fileInputRef.current?.click();
                                             }}
-                                            className="w-full h-full bg-white/[0.02] hover:bg-white/[0.04] flex flex-col items-center justify-center transition-colors"
+                                            className="w-full h-full bg-white/2 hover:bg-white/4 flex flex-col items-center justify-center transition-colors"
                                         >
                                             <span className="text-2xl text-white/40">➕</span>
                                             {idx === 0 && (
@@ -789,7 +789,7 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                     <button
                         aria-label={showPreview ? 'Hide profile preview' : 'Preview Crew List profile'}
                         onClick={() => setShowPreview(!showPreview)}
-                        className="w-full py-3 rounded-2xl text-sm font-semibold transition-all active:scale-[0.98] bg-white/[0.04] border border-white/[0.06] text-white/60 hover:bg-white/[0.08]"
+                        className="w-full py-3 rounded-2xl text-sm font-semibold transition-all active:scale-[0.98] bg-white/4 border border-white/6 text-white/60 hover:bg-white/8"
                     >
                         {showPreview ? '✕ Hide Preview' : '👁 Preview Crew List Profile'}
                     </button>
@@ -800,7 +800,7 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                     <div className="px-1 py-2">
                         {/* Profile header */}
                         <div className="text-center mb-6">
-                            <div className="w-28 h-28 mx-auto rounded-2xl overflow-hidden border-3 border-white/[0.08] shadow-2xl mb-4">
+                            <div className="w-28 h-28 mx-auto rounded-2xl overflow-hidden border-3 border-white/8 shadow-2xl mb-4">
                                 {editPhotos[0] ? (
                                     <SafeImage
                                         src={editPhotos[0]}
@@ -809,7 +809,7 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                                         className="w-full h-full object-cover"
                                     />
                                 ) : (
-                                    <div className="w-full h-full bg-gradient-to-br from-emerald-500/15 to-sky-500/15 flex items-center justify-center">
+                                    <div className="w-full h-full bg-linear-to-br from-emerald-500/15 to-sky-500/15 flex items-center justify-center">
                                         <span className="text-3xl">
                                             {editListingType === 'seeking_crew' ? '🚢' : '⛵'}
                                         </span>
@@ -835,7 +835,7 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                             {/* Quick facts */}
                             <div className="grid grid-cols-2 gap-2">
                                 {(editLocationCity || editLocationState || editLocationCountry) && (
-                                    <div className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.05]">
+                                    <div className="p-3 rounded-xl bg-white/2 border border-white/5">
                                         <p className="text-[11px] font-bold uppercase tracking-wider text-white/40 mb-0.5">
                                             Private location
                                         </p>
@@ -848,7 +848,7 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                                     </div>
                                 )}
                                 {editRegion && (
-                                    <div className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.05]">
+                                    <div className="p-3 rounded-xl bg-white/2 border border-white/5">
                                         <p className="text-[11px] font-bold uppercase tracking-wider text-white/40 mb-0.5">
                                             Region
                                         </p>
@@ -856,7 +856,7 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                                     </div>
                                 )}
                                 {editExperience && (
-                                    <div className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.05]">
+                                    <div className="p-3 rounded-xl bg-white/2 border border-white/5">
                                         <p className="text-[11px] font-bold uppercase tracking-wider text-white/40 mb-0.5">
                                             Experience
                                         </p>
@@ -912,7 +912,7 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                             )}
                         </div>
 
-                        <p className="text-[11px] text-white/40 text-center pt-4 mt-4 border-t border-white/[0.04]">
+                        <p className="text-[11px] text-white/40 text-center pt-4 mt-4 border-t border-white/4">
                             This is how your Crew List profile appears to other approved members
                         </p>
                     </div>
@@ -921,7 +921,7 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                 {/* Discreet off switch — a pause is private immediately and
                     keeps the draft, unlike deletion. */}
                 {profile?.user_id && profile.community_enabled === true && (
-                    <section className="mt-6 rounded-2xl border border-amber-400/15 bg-amber-500/[0.045] p-4">
+                    <section className="mt-6 rounded-2xl border border-amber-400/15 bg-amber-500/4.5 p-4">
                         <p className="text-sm font-bold text-amber-100/90">Need to disappear for a while?</p>
                         <p className="mt-1 text-xs leading-relaxed text-white/50">
                             Pausing makes your Crew List profile private immediately. Your draft stays saved, and the
@@ -932,7 +932,7 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                             aria-label="Pause The Crew List"
                             onClick={onPauseCrewList}
                             disabled={saving}
-                            className="mt-3 min-h-[44px] w-full rounded-xl border border-amber-400/20 bg-amber-500/[0.10] px-3 py-2.5 text-sm font-bold text-amber-100 transition-colors hover:bg-amber-500/[0.16] disabled:cursor-not-allowed disabled:opacity-55 active:scale-[0.98]"
+                            className="mt-3 min-h-[44px] w-full rounded-xl border border-amber-400/20 bg-amber-500/10 px-3 py-2.5 text-sm font-bold text-amber-100 transition-colors hover:bg-amber-500/16 disabled:cursor-not-allowed disabled:opacity-55 active:scale-[0.98]"
                         >
                             {saving
                                 ? 'Pausing…'
@@ -955,7 +955,7 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                 )}
             </div>
             {/* Save — pinned CTA footer outside scroll */}
-            <div className="shrink-0 px-5 py-3 border-t border-white/[0.06] bg-slate-950">
+            <div className="shrink-0 px-5 py-3 border-t border-white/6 bg-slate-950">
                 {(() => {
                     const isComplete =
                         !!editListingType && !!editFirstName.trim() && !!editPhotos[0] && editBio.trim().length >= 20;
@@ -997,8 +997,8 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                                 }
                                 className={`w-full py-4 rounded-2xl text-base font-bold transition-all active:scale-[0.98] shadow-xl disabled:cursor-not-allowed disabled:opacity-55 ${
                                     isComplete
-                                        ? 'bg-gradient-to-r from-emerald-500 to-sky-600 hover:from-emerald-400 hover:to-sky-500 text-white shadow-emerald-500/15'
-                                        : 'bg-white/[0.06] text-white/40 cursor-not-allowed shadow-none'
+                                        ? 'bg-linear-to-r from-emerald-500 to-sky-600 hover:from-emerald-400 hover:to-sky-500 text-white shadow-emerald-500/15'
+                                        : 'bg-white/6 text-white/40 cursor-not-allowed shadow-none'
                                 }`}
                             >
                                 {saved

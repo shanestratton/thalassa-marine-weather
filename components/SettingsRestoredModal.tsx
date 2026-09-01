@@ -174,9 +174,9 @@ export const SettingsRestoredModal: React.FC = () => {
                         {rows.map((row, idx) => (
                             <li
                                 key={idx}
-                                className="flex items-start gap-3 p-3 rounded-xl bg-white/[0.03] border border-white/5"
+                                className="flex items-start gap-3 p-3 rounded-xl bg-white/3 border border-white/5"
                             >
-                                <div className="mt-0.5 flex-shrink-0 w-6 h-6 rounded-full bg-teal-500/10 border border-teal-400/20 flex items-center justify-center">
+                                <div className="mt-0.5 shrink-0 w-6 h-6 rounded-full bg-teal-500/10 border border-teal-400/20 flex items-center justify-center">
                                     {row.icon}
                                 </div>
                                 <div className="flex-1 min-w-0">
@@ -185,7 +185,7 @@ export const SettingsRestoredModal: React.FC = () => {
                                         <p className="text-[11px] text-slate-400 truncate">{row.secondary}</p>
                                     )}
                                 </div>
-                                <CheckIcon className="w-4 h-4 text-teal-300 mt-1.5 flex-shrink-0" />
+                                <CheckIcon className="w-4 h-4 text-teal-300 mt-1.5 shrink-0" />
                             </li>
                         ))}
                     </ul>

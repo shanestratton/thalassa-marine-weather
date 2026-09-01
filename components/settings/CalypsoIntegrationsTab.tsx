@@ -468,7 +468,7 @@ export const CalypsoIntegrationsTab: React.FC<SettingsTabProps> = ({ settings, o
                                 </div>
                                 <button
                                     onClick={handleTestAlert}
-                                    className="min-h-[44px] text-sm font-bold text-sky-400 hover:text-sky-300 px-3 py-1 rounded border border-sky-400/40 hover:border-sky-300/60 transition-colors"
+                                    className="min-h-[44px] text-sm font-bold text-sky-400 hover:text-sky-300 px-3 py-1 rounded-sm border border-sky-400/40 hover:border-sky-300/60 transition-colors"
                                 >
                                     Test alert
                                 </button>
@@ -514,7 +514,7 @@ export const CalypsoIntegrationsTab: React.FC<SettingsTabProps> = ({ settings, o
                             </div>
                             <button
                                 onClick={handleOpenMusicPage}
-                                className="text-sm font-bold text-pink-400 hover:text-pink-300 px-3 py-1.5 rounded border border-pink-400/40 hover:border-pink-300/60 transition-colors"
+                                className="text-sm font-bold text-pink-400 hover:text-pink-300 px-3 py-1.5 rounded-sm border border-pink-400/40 hover:border-pink-300/60 transition-colors"
                             >
                                 Open Music
                             </button>
@@ -538,7 +538,7 @@ export const CalypsoIntegrationsTab: React.FC<SettingsTabProps> = ({ settings, o
                             </div>
                             <button
                                 onClick={handleOpenMusicSystemSettings}
-                                className="text-sm font-bold text-pink-400 hover:text-pink-300 px-3 py-1.5 rounded border border-pink-400/40 hover:border-pink-300/60 transition-colors"
+                                className="text-sm font-bold text-pink-400 hover:text-pink-300 px-3 py-1.5 rounded-sm border border-pink-400/40 hover:border-pink-300/60 transition-colors"
                             >
                                 Open Thalassa Settings
                             </button>
@@ -552,7 +552,7 @@ export const CalypsoIntegrationsTab: React.FC<SettingsTabProps> = ({ settings, o
                     <div
                         role="alert"
                         aria-live="assertive"
-                        className="flex items-start gap-3 border-b border-red-500/15 bg-red-500/[0.08] p-4"
+                        className="flex items-start gap-3 border-b border-red-500/15 bg-red-500/8 p-4"
                     >
                         <p className="flex-1 text-xs leading-relaxed text-red-200">{gmailError}</p>
                         <button

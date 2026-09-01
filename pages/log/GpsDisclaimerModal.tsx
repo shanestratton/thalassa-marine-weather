@@ -24,7 +24,7 @@ export const GpsDisclaimerModal: React.FC<GpsDisclaimerModalProps> = ({ isOpen, 
     return (
         <OverlayPortal
             role="presentation"
-            className="flex items-center justify-center bg-black/70 backdrop-blur-sm px-6"
+            className="flex items-center justify-center bg-black/70 backdrop-blur-xs px-6"
         >
             <div
                 ref={dialogRef}
@@ -58,7 +58,7 @@ export const GpsDisclaimerModal: React.FC<GpsDisclaimerModalProps> = ({ isOpen, 
                         ref={checkboxRef}
                         type="checkbox"
                         id="gps-disclaimer-dismiss"
-                        className="w-4 h-4 rounded border-white/20 bg-slate-800 accent-amber-500"
+                        className="w-4 h-4 rounded-sm border-white/20 bg-slate-800 accent-amber-500"
                     />
                     <span className="text-xs text-slate-400">Don't show this again</span>
                 </label>
@@ -67,7 +67,7 @@ export const GpsDisclaimerModal: React.FC<GpsDisclaimerModalProps> = ({ isOpen, 
                     onClick={() => {
                         onDismiss(checkboxRef.current?.checked ?? false);
                     }}
-                    className="w-full py-3 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 text-white font-bold text-sm uppercase tracking-wider active:scale-[0.97] transition-all"
+                    className="w-full py-3 rounded-xl bg-linear-to-r from-amber-500 to-amber-600 text-white font-bold text-sm uppercase tracking-wider active:scale-[0.97] transition-all"
                 >
                     Got it — Start Tracking
                 </button>

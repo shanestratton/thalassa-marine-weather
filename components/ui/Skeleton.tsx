@@ -99,15 +99,15 @@ export const SkeletonChannelList: React.FC = () => (
         {[0, 1, 2, 3, 4].map((i) => (
             <div
                 key={i}
-                className="flex items-center gap-3.5 p-3.5 rounded-2xl bg-white/[0.02] border border-white/[0.03] stagger-item"
+                className="flex items-center gap-3.5 p-3.5 rounded-2xl bg-white/2 border border-white/3 stagger-item"
                 style={{ animationDelay: `${i * 60}ms` }}
             >
-                <Skeleton className="w-11 h-11 !rounded-xl" />
+                <Skeleton className="w-11 h-11 rounded-xl!" />
                 <div className="flex-1 space-y-1.5">
                     <Skeleton className={`h-4 ${i % 2 === 0 ? 'w-2/5' : 'w-1/3'}`} />
                     <Skeleton className={`h-3 ${i % 2 === 0 ? 'w-3/5' : 'w-2/3'}`} />
                 </div>
-                <Skeleton className="w-6 h-6 !rounded-full" />
+                <Skeleton className="w-6 h-6 rounded-full!" />
             </div>
         ))}
     </div>
@@ -152,15 +152,15 @@ export const SkeletonMessageList: React.FC = () => (
                 <div className={`${msg.w} max-w-[80%]`}>
                     {msg.side === 'left' && (
                         <div className="flex items-center gap-2 mb-1.5">
-                            <Skeleton className="w-6 h-6 !rounded-full" />
+                            <Skeleton className="w-6 h-6 rounded-full!" />
                             <Skeleton className="h-3 w-16" />
                         </div>
                     )}
                     <div
                         className={`rounded-2xl p-3.5 ${
                             msg.side === 'right'
-                                ? 'bg-sky-500/[0.06] border border-sky-500/[0.08] rounded-br-lg'
-                                : 'bg-white/[0.03] border border-white/[0.03] rounded-bl-lg'
+                                ? 'bg-sky-500/6 border border-sky-500/8 rounded-br-lg'
+                                : 'bg-white/3 border border-white/3 rounded-bl-lg'
                         }`}
                     >
                         <div className="space-y-1.5">

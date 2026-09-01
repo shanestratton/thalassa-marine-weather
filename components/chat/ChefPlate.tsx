@@ -136,7 +136,7 @@ export const ChefPlate: React.FC<ChefPlateProps> = ({
 
     return (
         <div
-            className="rounded-2xl overflow-hidden border border-white/[0.06] bg-slate-950"
+            className="rounded-2xl overflow-hidden border border-white/6 bg-slate-950"
             role="article"
             aria-label={`Recipe: ${meal.title}`}
         >
@@ -150,13 +150,13 @@ export const ChefPlate: React.FC<ChefPlateProps> = ({
                         onLoad={() => setImgLoaded(true)}
                         onError={() => setImgError(true)}
                         className={`absolute inset-0 w-full h-full object-cover transition-all duration-700 ${
-                            imgLoaded ? 'opacity-100 scale-100 blur-0' : 'opacity-0 scale-105 blur-sm'
+                            imgLoaded ? 'opacity-100 scale-100 blur-0' : 'opacity-0 scale-105 blur-xs'
                         }`}
                     />
                 )}
                 {/* Premium gradient fallback */}
                 <div
-                    className={`absolute inset-0 bg-gradient-to-br from-amber-900/90 via-orange-800/70 to-red-900/90 transition-opacity duration-700 ${
+                    className={`absolute inset-0 bg-linear-to-br from-amber-900/90 via-orange-800/70 to-red-900/90 transition-opacity duration-700 ${
                         imgLoaded && showImage ? 'opacity-0' : 'opacity-100'
                     }`}
                 >
@@ -169,13 +169,13 @@ export const ChefPlate: React.FC<ChefPlateProps> = ({
                 </div>
 
                 {/* Bottom shadow gradient */}
-                <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/30 to-transparent" />
+                <div className="absolute inset-0 bg-linear-to-t from-black/90 via-black/30 to-transparent" />
 
                 {/* Title + Ready In overlay */}
                 <div className="absolute bottom-0 left-0 right-0 p-4">
                     <p className="text-lg font-black text-white leading-tight drop-shadow-lg">{meal.title}</p>
                     <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-                        <span className="px-2 py-0.5 rounded-full bg-white/15 backdrop-blur-sm text-[11px] font-bold text-amber-200 border border-white/10">
+                        <span className="px-2 py-0.5 rounded-full bg-white/15 backdrop-blur-xs text-[11px] font-bold text-amber-200 border border-white/10">
                             ⏱️ {readyInLabel}
                         </span>
                         {(() => {
@@ -190,7 +190,7 @@ export const ChefPlate: React.FC<ChefPlateProps> = ({
                                         : 'text-red-300 border-red-500/20 bg-red-500/15';
                             return (
                                 <span
-                                    className={`px-2 py-0.5 rounded-full backdrop-blur-sm text-[11px] font-bold border ${diffColors}`}
+                                    className={`px-2 py-0.5 rounded-full backdrop-blur-xs text-[11px] font-bold border ${diffColors}`}
                                 >
                                     {diff.emoji} {diff.label}
                                 </span>
@@ -205,7 +205,7 @@ export const ChefPlate: React.FC<ChefPlateProps> = ({
                 {/* Status badge */}
                 <div className="absolute top-3 left-3">
                     <span
-                        className={`px-2 py-1 rounded-full text-[11px] font-bold uppercase backdrop-blur-sm ${
+                        className={`px-2 py-1 rounded-full text-[11px] font-bold uppercase backdrop-blur-xs ${
                             meal.status === 'cooking'
                                 ? 'bg-orange-500/30 text-orange-300 border border-orange-500/30'
                                 : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/20'
@@ -217,7 +217,7 @@ export const ChefPlate: React.FC<ChefPlateProps> = ({
             </div>
 
             {/* ═══════ 2. CREW SCALER ═══════ */}
-            <div className="p-4 bg-slate-950/80 border-b border-white/[0.06]">
+            <div className="p-4 bg-slate-950/80 border-b border-white/6">
                 <div className="flex items-center justify-between">
                     <div>
                         <p className="text-[11px] text-gray-500 uppercase tracking-widest font-bold">Crew Count</p>
@@ -229,7 +229,7 @@ export const ChefPlate: React.FC<ChefPlateProps> = ({
                                 setCrewCount((c) => Math.max(1, c - 1));
                                 triggerHaptic('light');
                             }}
-                            className="w-10 h-10 rounded-xl bg-white/[0.06] border border-white/[0.08] flex items-center justify-center text-white hover:bg-white/[0.1] transition-all active:scale-90"
+                            className="w-10 h-10 rounded-xl bg-white/6 border border-white/8 flex items-center justify-center text-white hover:bg-white/10 transition-all active:scale-90"
                             aria-label="Decrease servings"
                         >
                             <svg
@@ -256,7 +256,7 @@ export const ChefPlate: React.FC<ChefPlateProps> = ({
                                 setCrewCount((c) => Math.min(20, c + 1));
                                 triggerHaptic('light');
                             }}
-                            className="w-10 h-10 rounded-xl bg-white/[0.06] border border-white/[0.08] flex items-center justify-center text-white hover:bg-white/[0.1] transition-all active:scale-90"
+                            className="w-10 h-10 rounded-xl bg-white/6 border border-white/8 flex items-center justify-center text-white hover:bg-white/10 transition-all active:scale-90"
                             aria-label="Increase servings"
                         >
                             <svg
@@ -280,7 +280,7 @@ export const ChefPlate: React.FC<ChefPlateProps> = ({
 
             {/* ═══════ 3. STORES STATUS BAR ═══════ */}
             <div className="flex">
-                <div className="flex-1 p-3 bg-slate-900 border-b border-r border-white/[0.06] flex items-center gap-2">
+                <div className="flex-1 p-3 bg-slate-900 border-b border-r border-white/6 flex items-center gap-2">
                     <span className="text-base">📦</span>
                     <div>
                         <p className="text-[11px] text-gray-500 uppercase tracking-widest">Ingredients</p>
@@ -288,7 +288,7 @@ export const ChefPlate: React.FC<ChefPlateProps> = ({
                     </div>
                 </div>
                 <div
-                    className={`flex-1 p-3 border-b border-white/[0.06] flex items-center gap-2 ${
+                    className={`flex-1 p-3 border-b border-white/6 flex items-center gap-2 ${
                         totalShortfallCount === 0
                             ? 'bg-emerald-950/30'
                             : shortfallIngredients.length > 0
@@ -330,15 +330,15 @@ export const ChefPlate: React.FC<ChefPlateProps> = ({
                             key={i}
                             className={`flex items-center gap-3 p-2.5 rounded-xl border transition-colors ${
                                 !hasEnough
-                                    ? 'bg-red-500/[0.04] border-red-500/10'
+                                    ? 'bg-red-500/4 border-red-500/10'
                                     : isAggregateShort
-                                      ? 'bg-amber-500/[0.04] border-amber-500/10'
-                                      : 'bg-white/[0.02] border-white/[0.05] hover:bg-white/[0.04]'
+                                      ? 'bg-amber-500/4 border-amber-500/10'
+                                      : 'bg-white/2 border-white/5 hover:bg-white/4'
                             }`}
                             role="listitem"
                         >
                             {/* Status indicator */}
-                            <span className="text-base w-6 text-center flex-shrink-0">
+                            <span className="text-base w-6 text-center shrink-0">
                                 {hasEnough ? (isAggregateShort ? '⚠️' : '✅') : isLow ? '⚠️' : '🔴'}
                             </span>
 
@@ -360,7 +360,7 @@ export const ChefPlate: React.FC<ChefPlateProps> = ({
 
                             {/* Scale indicator */}
                             {ing.scalable && crewCount !== baseServings && (
-                                <span className="text-[11px] text-amber-400/50 flex-shrink-0 hidden sm:block">
+                                <span className="text-[11px] text-amber-400/50 shrink-0 hidden sm:block">
                                     was {ing.amount}
                                 </span>
                             )}
@@ -374,7 +374,7 @@ export const ChefPlate: React.FC<ChefPlateProps> = ({
                 <button
                     onClick={onCook}
                     disabled={cooking}
-                    className="flex-1 py-3.5 bg-gradient-to-r from-amber-500/15 to-orange-500/15 border border-amber-500/20 rounded-xl text-[11px] font-bold uppercase tracking-widest text-amber-300 hover:from-amber-500/25 hover:to-orange-500/25 transition-all active:scale-[0.97] disabled:opacity-40 shadow-lg shadow-amber-500/5"
+                    className="flex-1 py-3.5 bg-linear-to-r from-amber-500/15 to-orange-500/15 border border-amber-500/20 rounded-xl text-[11px] font-bold uppercase tracking-widest text-amber-300 hover:from-amber-500/25 hover:to-orange-500/25 transition-all active:scale-[0.97] disabled:opacity-40 shadow-lg shadow-amber-500/5"
                     aria-label={
                         meal.status === 'cooking'
                             ? 'Resume cooking mode for this meal'
@@ -391,7 +391,7 @@ export const ChefPlate: React.FC<ChefPlateProps> = ({
                             navigator.clipboard.writeText(shareText).then(() => triggerHaptic('light'));
                         }
                     }}
-                    className="w-11 flex-shrink-0 flex items-center justify-center border border-white/[0.08] bg-white/[0.03] rounded-xl text-gray-400 hover:bg-white/[0.06] hover:text-white transition-colors"
+                    className="w-11 shrink-0 flex items-center justify-center border border-white/8 bg-white/3 rounded-xl text-gray-400 hover:bg-white/6 hover:text-white transition-colors"
                     aria-label="Share recipe"
                 >
                     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>

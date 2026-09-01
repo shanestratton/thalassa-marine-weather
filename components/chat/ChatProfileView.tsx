@@ -49,7 +49,7 @@ export const ChatProfileView: React.FC<ChatProfileViewProps> = React.memo(
                     {myAvatarUrl ? (
                         <SafeImage src={myAvatarUrl} loading="lazy" alt="" className="w-full h-full object-cover" />
                     ) : (
-                        <div className="w-full h-full bg-gradient-to-br from-purple-500/10 to-sky-500/10 flex items-center justify-center">
+                        <div className="w-full h-full bg-linear-to-br from-purple-500/10 to-sky-500/10 flex items-center justify-center">
                             <span className="text-4xl opacity-40">🧑‍✈️</span>
                         </div>
                     )}
@@ -78,7 +78,7 @@ export const ChatProfileView: React.FC<ChatProfileViewProps> = React.memo(
 
             {/* Upload progress */}
             {uploadProgress && (
-                <div className="p-3.5 rounded-2xl bg-sky-500/[0.06] border border-sky-500/10">
+                <div className="p-3.5 rounded-2xl bg-sky-500/6 border border-sky-500/10">
                     <div className="flex items-center gap-3">
                         <div className="w-5 h-5 border-2 border-sky-500 border-t-transparent rounded-full animate-spin" />
                         <span className="text-sm text-sky-400">{uploadProgress}</span>
@@ -88,7 +88,7 @@ export const ChatProfileView: React.FC<ChatProfileViewProps> = React.memo(
 
             {/* Upload error */}
             {uploadError && (
-                <div className="p-3.5 rounded-2xl bg-red-500/[0.06] border border-red-500/10">
+                <div className="p-3.5 rounded-2xl bg-red-500/6 border border-red-500/10">
                     <p className="text-sm text-red-400">❌ {uploadError}</p>
                 </div>
             )}
@@ -102,7 +102,7 @@ export const ChatProfileView: React.FC<ChatProfileViewProps> = React.memo(
                     value={profileDisplayName}
                     onChange={(e) => setProfileDisplayName(e.target.value)}
                     placeholder="Captain Jack"
-                    className="w-full bg-white/[0.04] border border-white/[0.06] rounded-2xl px-4 py-3.5 text-base text-white placeholder:text-white/40 focus:outline-none focus:border-purple-500/30 transition-colors"
+                    className="w-full bg-white/4 border border-white/6 rounded-2xl px-4 py-3.5 text-base text-white placeholder:text-white/40 focus:outline-hidden focus:border-purple-500/30 transition-colors"
                     maxLength={30}
                 />
                 <p className="text-xs text-white/60 mt-1.5 px-1">This is how you appear in chat</p>
@@ -117,7 +117,7 @@ export const ChatProfileView: React.FC<ChatProfileViewProps> = React.memo(
                     value={isObserver ? '' : profileVesselName}
                     onChange={(e) => setProfileVesselName(e.target.value)}
                     placeholder={isObserver ? 'Crew Member — No Vessel' : vesselPlaceholder || 'Black Pearl'}
-                    className="w-full bg-white/[0.04] border border-white/[0.06] rounded-2xl px-4 py-3.5 text-base text-white placeholder:text-white/40 focus:outline-none focus:border-purple-500/30 transition-colors disabled:cursor-not-allowed"
+                    className="w-full bg-white/4 border border-white/6 rounded-2xl px-4 py-3.5 text-base text-white placeholder:text-white/40 focus:outline-hidden focus:border-purple-500/30 transition-colors disabled:cursor-not-allowed"
                     maxLength={40}
                     disabled={isObserver}
                 />
@@ -128,7 +128,7 @@ export const ChatProfileView: React.FC<ChatProfileViewProps> = React.memo(
                 aria-label="Save profile changes"
                 onClick={onSaveProfile}
                 disabled={profileSaving}
-                className="w-full py-4 rounded-2xl bg-gradient-to-r from-purple-500/20 to-sky-500/20 hover:from-purple-500/30 hover:to-sky-500/30 text-base text-white/80 font-bold transition-all disabled:opacity-30 active:scale-[0.98]"
+                className="w-full py-4 rounded-2xl bg-linear-to-r from-purple-500/20 to-sky-500/20 hover:from-purple-500/30 hover:to-sky-500/30 text-base text-white/80 font-bold transition-all disabled:opacity-30 active:scale-[0.98]"
             >
                 {profileSaved ? '✓ Saved!' : profileSaving ? 'Saving...' : '💾 Save Profile'}
             </button>

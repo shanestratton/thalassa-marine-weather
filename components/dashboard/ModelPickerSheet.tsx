@@ -89,14 +89,12 @@ export const ModelPickerSheet: React.FC<ModelPickerSheetProps> = ({
                 aria-label={`Use the ${label} forecast model`}
                 aria-current={isActive ? 'true' : undefined}
                 className={`w-full flex items-center gap-3 p-3 rounded-xl border transition-all active:scale-[0.98] ${
-                    isActive
-                        ? 'bg-sky-500/15 border-sky-400/40'
-                        : 'bg-white/[0.03] border-white/[0.06] hover:bg-white/[0.06]'
+                    isActive ? 'bg-sky-500/15 border-sky-400/40' : 'bg-white/3 border-white/6 hover:bg-white/6'
                 }`}
             >
                 <div
                     className={`shrink-0 w-9 h-9 rounded-lg flex items-center justify-center ${
-                        isActive ? 'bg-sky-500/20' : 'bg-white/[0.04]'
+                        isActive ? 'bg-sky-500/20' : 'bg-white/4'
                     }`}
                 >
                     {swatch ? (
@@ -124,7 +122,7 @@ export const ModelPickerSheet: React.FC<ModelPickerSheetProps> = ({
 
     return createPortal(
         <div
-            className="fixed inset-0 z-[9998] flex items-center justify-center p-4 pb-[calc(4rem+env(safe-area-inset-bottom)+1rem)] pt-[max(1rem,env(safe-area-inset-top))]"
+            className="fixed inset-0 z-9998 flex items-center justify-center p-4 pb-[calc(4rem+env(safe-area-inset-bottom)+1rem)] pt-[max(1rem,env(safe-area-inset-top))]"
             onClick={onClose}
             role="dialog"
             aria-modal="true"
@@ -132,7 +130,7 @@ export const ModelPickerSheet: React.FC<ModelPickerSheetProps> = ({
             ref={dialogRef}
         >
             {/* Backdrop */}
-            <div className="absolute inset-0 bg-black/70 backdrop-blur-sm animate-in fade-in duration-200" />
+            <div className="absolute inset-0 bg-black/70 backdrop-blur-xs animate-in fade-in duration-200" />
 
             {/* Centred per the standing modal rule (Shane 2026-09-02: "all modal boxes centered on the punters screen"). */}
             <div
@@ -140,7 +138,7 @@ export const ModelPickerSheet: React.FC<ModelPickerSheetProps> = ({
                 onClick={(e) => e.stopPropagation()}
             >
                 {/* Header */}
-                <div className="px-5 pt-5 pb-3 border-b border-white/[0.06] sticky top-0 bg-slate-900/95 z-10">
+                <div className="px-5 pt-5 pb-3 border-b border-white/6 sticky top-0 bg-slate-900/95 z-10">
                     <h2 className="text-base font-bold text-white tracking-tight">Forecast model</h2>
                     <p className="text-[12px] text-slate-400 mt-1 leading-relaxed">
                         The Glass repaints with the chosen model&apos;s numbers. Long-press any metric to see how the
@@ -160,20 +158,20 @@ export const ModelPickerSheet: React.FC<ModelPickerSheetProps> = ({
                                 `Weighted blend of 5 models${spitfireLocationName ? ` · ${spitfireLocationName}` : ''}`,
                                 '#facc15',
                             )}
-                            <div className="h-px bg-white/[0.06] my-2" />
+                            <div className="h-px bg-white/6 my-2" />
                         </>
                     )}
 
                     {grids.map((m) => row(m.id, m.label, `${m.provider} — ${m.blurb}`, m.hex))}
 
                     {/* Divider */}
-                    <div className="h-px bg-white/[0.06] my-2" />
+                    <div className="h-px bg-white/6 my-2" />
 
                     {row(AUTO_MODEL, 'Auto', 'Blended sources — no pinned model')}
                 </div>
 
                 {/* Footer */}
-                <div className="px-4 py-3 border-t border-white/[0.06] space-y-2">
+                <div className="px-4 py-3 border-t border-white/6 space-y-2">
                     <button
                         onClick={() => {
                             onRefresh();

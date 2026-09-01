@@ -88,7 +88,7 @@ export const SwipeableDocCard: React.FC<SwipeableDocCardProps> = ({
 
             {/* Main card */}
             <div
-                className={`relative transition-transform ${isSwiping ? '' : 'duration-200'} flex items-stretch border ${colors.border} rounded-2xl overflow-hidden bg-white/[0.03]`}
+                className={`relative transition-transform ${isSwiping ? '' : 'duration-200'} flex items-stretch border ${colors.border} rounded-2xl overflow-hidden bg-white/3`}
                 style={{ transform: `translateX(-${swipeOffset}px)` }}
                 ref={ref}
                 onClick={() => {

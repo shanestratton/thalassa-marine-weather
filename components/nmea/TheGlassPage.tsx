@@ -350,7 +350,7 @@ const FlankMetric: React.FC<{
        would be starboard green. */
     const display = sideColoured && shown !== null ? Math.abs(shown).toFixed(digits) : text;
     return (
-        <div className="rounded-lg border border-white/[0.06] bg-white/[0.03] px-1 py-1.5 text-center">
+        <div className="rounded-lg border border-white/6 bg-white/3 px-1 py-1.5 text-center">
             <p className="text-[8px] font-black uppercase tracking-[0.14em] text-gray-500">{label}</p>
             <p
                 data-testid={`flank-${label.toLowerCase()}`}
@@ -421,7 +421,7 @@ const WindSwapSlot: React.FC<{
             }}
             onContextMenu={(e) => e.preventDefault()}
             aria-label={`${caption} — press and hold to move it to the main dial`}
-            className={`w-full rounded-2xl border border-white/[0.06] bg-white/[0.03] p-1.5 transition-transform ${
+            className={`w-full rounded-2xl border border-white/6 bg-white/3 p-1.5 transition-transform ${
                 pressing ? 'scale-[0.97]' : ''
             }`}
         >
@@ -679,9 +679,9 @@ function resolveMetric(metric: TimestampedMetric): { value: number | null; fresh
 // ── Section faceplate — the etched title strip each instrument sits under ──
 const SectionPlate: React.FC<{ title: string }> = ({ title }) => (
     <div className="flex items-center gap-3 py-1.5 shrink-0" aria-hidden="true">
-        <div className="h-px flex-1 bg-gradient-to-r from-transparent to-white/15" />
+        <div className="h-px flex-1 bg-linear-to-r from-transparent to-white/15" />
         <p className="text-[10px] font-black uppercase tracking-[0.35em] text-gray-400">{title}</p>
-        <div className="h-px flex-1 bg-gradient-to-l from-transparent to-white/15" />
+        <div className="h-px flex-1 bg-linear-to-l from-transparent to-white/15" />
     </div>
 );
 
@@ -1149,7 +1149,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                             <p className="text-sm leading-relaxed text-gray-300">{diagnosis.detail}</p>
                         )}
                         {quietInstruments.length > 0 && (
-                            <div className="rounded-xl border border-amber-500/20 bg-amber-500/[0.06] p-3">
+                            <div className="rounded-xl border border-amber-500/20 bg-amber-500/6 p-3">
                                 <p className="text-sm leading-relaxed text-gray-300">
                                     Not reporting: {quietInstruments.join(', ')}. The rest of the backbone is fine, so
                                     check the transducer or the gateway&apos;s sentence output — or the boat is ashore,
@@ -1328,7 +1328,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                     </p>
                                 </div>
                                 <div className="w-full grid grid-cols-3 gap-2 items-center">
-                                    <div className="rounded-xl bg-white/[0.03] border border-white/[0.06] p-2 text-center">
+                                    <div className="rounded-xl bg-white/3 border border-white/6 p-2 text-center">
                                         <p className="text-[9px] font-black uppercase tracking-[0.2em] text-gray-400">
                                             AWS
                                         </p>
@@ -1337,7 +1337,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                             <span className="text-[9px] font-bold text-gray-500"> kts</span>
                                         </p>
                                     </div>
-                                    <div className="rounded-xl bg-white/[0.04] border border-white/[0.08] p-2 text-center">
+                                    <div className="rounded-xl bg-white/4 border border-white/8 p-2 text-center">
                                         <p className="text-[9px] font-black uppercase tracking-[0.2em] text-gray-400">
                                             Max
                                         </p>
@@ -1346,7 +1346,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                             <span className="text-[9px] font-bold text-gray-500"> kts</span>
                                         </p>
                                     </div>
-                                    <div className="rounded-xl bg-white/[0.03] border border-white/[0.06] p-2 text-center">
+                                    <div className="rounded-xl bg-white/3 border border-white/6 p-2 text-center">
                                         <p className="text-[9px] font-black uppercase tracking-[0.2em] text-gray-400">
                                             Gust 10m
                                         </p>
@@ -1462,15 +1462,15 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                         {fmt(sog.value)}
                                     </p>
                                     <p className="text-xs font-bold text-gray-500 mt-1">knots over ground</p>
-                                    <div className="mt-3 mx-auto max-w-xs h-1.5 rounded-full bg-white/[0.06] overflow-hidden">
+                                    <div className="mt-3 mx-auto max-w-xs h-1.5 rounded-full bg-white/6 overflow-hidden">
                                         <div
-                                            className="h-full rounded-full bg-gradient-to-r from-purple-500 via-fuchsia-500 to-pink-500 transition-all duration-500"
+                                            className="h-full rounded-full bg-linear-to-r from-purple-500 via-fuchsia-500 to-pink-500 transition-all duration-500"
                                             style={{ width: `${Math.min(100, ((sog.value ?? 0) / 20) * 100)}%` }}
                                         />
                                     </div>
                                 </div>
                                 <div className="grid grid-cols-3 gap-2">
-                                    <div className="rounded-xl bg-white/[0.03] border border-white/[0.06] p-2 text-center">
+                                    <div className="rounded-xl bg-white/3 border border-white/6 p-2 text-center">
                                         <p className="text-[9px] font-black uppercase tracking-[0.2em] text-gray-400">
                                             STW
                                         </p>
@@ -1479,7 +1479,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                             <span className="text-[9px] font-bold text-gray-500"> kt</span>
                                         </p>
                                     </div>
-                                    <div className="rounded-xl bg-white/[0.03] border border-white/[0.06] p-2 text-center">
+                                    <div className="rounded-xl bg-white/3 border border-white/6 p-2 text-center">
                                         <p className="text-[9px] font-black uppercase tracking-[0.2em] text-gray-400">
                                             Best
                                         </p>
@@ -1488,7 +1488,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                             <span className="text-[9px] font-bold text-gray-500"> kt</span>
                                         </p>
                                     </div>
-                                    <div className="rounded-xl bg-white/[0.03] border border-white/[0.06] p-2 text-center">
+                                    <div className="rounded-xl bg-white/3 border border-white/6 p-2 text-center">
                                         <p className="text-[9px] font-black uppercase tracking-[0.2em] text-gray-400">
                                             Trip
                                         </p>
@@ -1498,7 +1498,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                         </p>
                                     </div>
                                 </div>
-                                <div className="rounded-2xl bg-white/[0.03] border border-white/[0.06] p-3">
+                                <div className="rounded-2xl bg-white/3 border border-white/6 p-3">
                                     <Sparkline
                                         history={sogChart.history}
                                         min={sogChart.min}
@@ -1512,7 +1512,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                     <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400 text-center mt-0.5">
                                         Rolling Chart
                                     </p>
-                                    <div className="mt-2 flex items-center justify-center gap-1.5 border-t border-white/[0.06] pt-1.5">
+                                    <div className="mt-2 flex items-center justify-center gap-1.5 border-t border-white/6 pt-1.5">
                                         <span className="text-[10px]">🔋</span>
                                         <span className="font-mono text-xs font-black tabular-nums text-white">
                                             {fmt(voltage.value)}
@@ -1545,12 +1545,12 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                 <div
                                     className={`rounded-2xl border p-3 text-center ${
                                         depthTrend.level === 'critical'
-                                            ? 'border-rose-500/40 bg-rose-500/[0.10]'
+                                            ? 'border-rose-500/40 bg-rose-500/10'
                                             : depthTrend.level === 'serious'
-                                              ? 'border-orange-500/30 bg-orange-500/[0.08]'
+                                              ? 'border-orange-500/30 bg-orange-500/8'
                                               : depthTrend.level === 'warning'
-                                                ? 'border-amber-500/25 bg-amber-500/[0.06]'
-                                                : 'border-white/[0.06] bg-white/[0.03]'
+                                                ? 'border-amber-500/25 bg-amber-500/6'
+                                                : 'border-white/6 bg-white/3'
                                     }`}
                                 >
                                     <p className="text-[9px] font-black uppercase tracking-[0.2em] text-gray-400">
@@ -1562,7 +1562,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                         Comfort line {COMFORT_M.toFixed(1)} m under the keel
                                     </p>
                                 </div>
-                                <div className="rounded-2xl bg-white/[0.03] border border-white/[0.06] p-3">
+                                <div className="rounded-2xl bg-white/3 border border-white/6 p-3">
                                     <Sparkline
                                         history={depthChart.history}
                                         min={depthChart.min}
@@ -1647,7 +1647,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                                     {rudder.value < -0.3 ? 'PORT' : rudder.value > 0.3 ? 'STBD' : 'MID'}
                                                 </span>
                                             </p>
-                                            <div className="mt-3 mx-auto max-w-xs relative h-3 rounded-full bg-white/[0.06] overflow-hidden">
+                                            <div className="mt-3 mx-auto max-w-xs relative h-3 rounded-full bg-white/6 overflow-hidden">
                                                 <div className="absolute inset-y-0 left-1/2 w-px bg-white/30" />
                                                 <div
                                                     className={`absolute inset-y-0 ${rudder.value >= 0 ? 'left-1/2 bg-emerald-400/70' : 'right-1/2 bg-rose-400/70'}`}
@@ -1661,17 +1661,17 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                             <div
                                                 className={`rounded-2xl border p-4 ${
                                                     helm.level === 'serious'
-                                                        ? 'border-orange-500/30 bg-orange-500/[0.08]'
+                                                        ? 'border-orange-500/30 bg-orange-500/8'
                                                         : helm.level === 'warning'
-                                                          ? 'border-amber-500/25 bg-amber-500/[0.06]'
-                                                          : 'border-emerald-500/20 bg-emerald-500/[0.05]'
+                                                          ? 'border-amber-500/25 bg-amber-500/6'
+                                                          : 'border-emerald-500/20 bg-emerald-500/5'
                                                 }`}
                                             >
                                                 <p className="text-2xl font-black text-white">{helm.word}</p>
                                                 <p className="mt-1 text-[13px] leading-relaxed text-gray-300">
                                                     {helm.what}
                                                 </p>
-                                                <p className="mt-2 rounded-xl bg-white/[0.05] p-2.5 text-[13px] leading-relaxed text-white">
+                                                <p className="mt-2 rounded-xl bg-white/5 p-2.5 text-[13px] leading-relaxed text-white">
                                                     {helm.fix}
                                                 </p>
                                                 <p className="mt-1 text-[10px] text-gray-500">
@@ -1679,7 +1679,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                                 </p>
                                             </div>
                                         ) : helm && !helm.ok ? (
-                                            <div className="rounded-2xl border border-white/[0.06] bg-white/[0.03] p-4">
+                                            <div className="rounded-2xl border border-white/6 bg-white/3 p-4">
                                                 <p className="text-sm font-bold text-gray-300">
                                                     {helm.downwind ? 'No verdict off the wind' : 'No verdict yet'}
                                                 </p>
@@ -1688,7 +1688,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                                 </p>
                                             </div>
                                         ) : (
-                                            <div className="rounded-2xl border border-white/[0.06] bg-white/[0.03] p-4">
+                                            <div className="rounded-2xl border border-white/6 bg-white/3 p-4">
                                                 <p className="text-sm font-bold text-gray-300">Averaging the helm…</p>
                                                 <p className="mt-1 text-[12px] text-gray-400">
                                                     The balance verdict needs 30 seconds of rudder history — an
@@ -1704,7 +1704,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                         )}
                                     </>
                                 ) : (
-                                    <div className="rounded-2xl border border-white/[0.06] bg-white/[0.03] p-4 text-center">
+                                    <div className="rounded-2xl border border-white/6 bg-white/3 p-4 text-center">
                                         <p className="text-4xl font-black text-gray-600">—</p>
                                         <p className="mt-2 text-sm font-bold text-gray-300">No rudder sensor</p>
                                         <p className="mt-1 text-[12px] leading-relaxed text-gray-400">
@@ -1725,7 +1725,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                 <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar space-y-2 pb-2">
                                     {plan ? (
                                         <>
-                                            <div className="rounded-2xl border border-white/[0.08] bg-white/[0.04] p-4">
+                                            <div className="rounded-2xl border border-white/8 bg-white/4 p-4">
                                                 <p className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400">
                                                     {plan.band.band} · {Math.round(plan.off)}° off ·{' '}
                                                     {fmt(recentGust, 0)} kn gusts (10 min)
@@ -1737,12 +1737,12 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                                     {reefDescribe(plan.row, plan.row.main === 'Down').rest}
                                                 </p>
                                                 {(plan.row.stay === true || plan.row.stay === 'storm') && (
-                                                    <p className="mt-2 rounded-xl border border-amber-500/25 bg-amber-500/[0.08] p-2.5 text-[12px] font-semibold text-amber-200">
+                                                    <p className="mt-2 rounded-xl border border-amber-500/25 bg-amber-500/8 p-2.5 text-[12px] font-semibold text-amber-200">
                                                         Runners on BEFORE the staysail loads the inner forestay.
                                                     </p>
                                                 )}
                                                 {plan.row.prevent && (
-                                                    <p className="mt-2 rounded-xl border border-amber-500/25 bg-amber-500/[0.08] p-2.5 text-[12px] font-semibold text-amber-200">
+                                                    <p className="mt-2 rounded-xl border border-amber-500/25 bg-amber-500/8 p-2.5 text-[12px] font-semibold text-amber-200">
                                                         Preventer on — led aft, releasable under load.
                                                     </p>
                                                 )}
@@ -1751,7 +1751,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                                 </p>
                                             </div>
                                             {plan.trim && (
-                                                <details className="rounded-2xl border border-white/[0.06] bg-white/[0.03] p-3">
+                                                <details className="rounded-2xl border border-white/6 bg-white/3 p-3">
                                                     <summary className="cursor-pointer text-[11px] font-black uppercase tracking-[0.2em] text-gray-400 [&::-webkit-details-marker]:hidden">
                                                         Where everything goes
                                                     </summary>
@@ -1780,7 +1780,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                                         these words — leech telltale, luff breathing,
                                                         the clew rising — and they are only useful if
                                                         you can point at them. */}
-                                                    <details className="mt-2 rounded-xl border border-white/[0.06] bg-white/[0.02] p-2">
+                                                    <details className="mt-2 rounded-xl border border-white/6 bg-white/2 p-2">
                                                         <summary className="cursor-pointer text-[10px] font-black uppercase tracking-[0.18em] text-gray-500 [&::-webkit-details-marker]:hidden">
                                                             Parts of a sail
                                                         </summary>
@@ -1808,8 +1808,8 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                                 <div
                                                     className={`rounded-2xl border p-3 ${
                                                         kite.ok
-                                                            ? 'border-emerald-500/20 bg-emerald-500/[0.05]'
-                                                            : 'border-white/[0.06] bg-white/[0.03]'
+                                                            ? 'border-emerald-500/20 bg-emerald-500/5'
+                                                            : 'border-white/6 bg-white/3'
                                                     }`}
                                                 >
                                                     <p className="text-[11px] font-black uppercase tracking-[0.2em] text-gray-400">
@@ -1827,7 +1827,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                             )}
                                         </>
                                     ) : (
-                                        <div className="rounded-2xl border border-white/[0.06] bg-white/[0.03] p-4 text-center">
+                                        <div className="rounded-2xl border border-white/6 bg-white/3 p-4 text-center">
                                             <p className="text-sm font-bold text-gray-300">No wind data yet</p>
                                             <p className="mt-1 text-[12px] text-gray-400">
                                                 The sail plan reads true wind and ten minutes of gusts from the

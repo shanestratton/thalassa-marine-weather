@@ -115,7 +115,7 @@ export const DepthSummaryCard: React.FC<DepthSummaryCardProps> = ({ data, vessel
                 </div>
             </div>
 
-            <div className="rounded-xl border border-amber-400/20 bg-amber-500/[0.08] px-3 py-2 text-xs leading-relaxed text-amber-100/80">
+            <div className="rounded-xl border border-amber-400/20 bg-amber-500/8 px-3 py-2 text-xs leading-relaxed text-amber-100/80">
                 NOAA ETOPO global relief is roughly 1.8 km resolution here: coarse planning guidance, not a navigation
                 clearance. Shoals and islands smaller than a grid cell may be absent. Verify the displayed route against
                 current official charts, notices, tides, and observed depth before departure.
@@ -146,7 +146,7 @@ export const DepthSummaryCard: React.FC<DepthSummaryCardProps> = ({ data, vessel
                                 title={`Depth: ${seg.depth_m !== null ? `${Math.abs(seg.depth_m)}m` : 'unknown'} (${safety})`}
                             >
                                 {/* Tooltip on hover */}
-                                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 px-2 py-1 bg-black/90 rounded text-[11px] text-white font-mono whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10 border border-white/10">
+                                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 px-2 py-1 bg-black/90 rounded-sm text-[11px] text-white font-mono whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10 border border-white/10">
                                     {seg.depth_m !== null ? `${Math.abs(seg.depth_m)}m` : '?'}
                                 </div>
                             </div>
@@ -161,7 +161,7 @@ export const DepthSummaryCard: React.FC<DepthSummaryCardProps> = ({ data, vessel
                     const s = SAFETY_COLORS[safety as keyof typeof SAFETY_COLORS] || SAFETY_COLORS.unknown;
                     return (
                         <div key={safety} className="flex items-center gap-1.5">
-                            <div className={`w-3 h-3 rounded ${s.bg}`} />
+                            <div className={`w-3 h-3 rounded-sm ${s.bg}`} />
                             <span className={`text-[11px] font-bold ${s.text}`}>{s.label}</span>
                             <span className="text-[11px] text-gray-400">({count})</span>
                         </div>
@@ -171,7 +171,7 @@ export const DepthSummaryCard: React.FC<DepthSummaryCardProps> = ({ data, vessel
 
             {/* Depth Stats Grid */}
             <div className="grid grid-cols-3 gap-3">
-                <div className="bg-white/[0.03] rounded-xl px-3 py-2.5 text-center border border-white/[0.06]">
+                <div className="bg-white/3 rounded-xl px-3 py-2.5 text-center border border-white/6">
                     <div className="text-[11px] text-gray-400 uppercase tracking-widest font-bold mb-1">Min Depth</div>
                     <div
                         className={`text-lg font-bold ${
@@ -183,13 +183,13 @@ export const DepthSummaryCard: React.FC<DepthSummaryCardProps> = ({ data, vessel
                         {data.minDepth !== null ? `${Math.abs(data.minDepth)}m` : '--'}
                     </div>
                 </div>
-                <div className="bg-white/[0.03] rounded-xl px-3 py-2.5 text-center border border-white/[0.06]">
+                <div className="bg-white/3 rounded-xl px-3 py-2.5 text-center border border-white/6">
                     <div className="text-[11px] text-gray-400 uppercase tracking-widest font-bold mb-1">
                         Vessel Draft
                     </div>
                     <div className="text-lg font-bold text-sky-400">{vesselDraft}m</div>
                 </div>
-                <div className="bg-white/[0.03] rounded-xl px-3 py-2.5 text-center border border-white/[0.06]">
+                <div className="bg-white/3 rounded-xl px-3 py-2.5 text-center border border-white/6">
                     <div className="text-[11px] text-gray-400 uppercase tracking-widest font-bold mb-1">Clearance</div>
                     <div
                         className={`text-lg font-bold ${

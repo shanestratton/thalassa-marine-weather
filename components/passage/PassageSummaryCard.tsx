@@ -198,7 +198,7 @@ const LegRow: React.FC<{ leg: PassageLeg; index: number }> = ({ leg, index }) =>
                     </span>
                 </div>
                 <span
-                    className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider shadow-sm ${diff.pillBg} ${diff.pillText}`}
+                    className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider shadow-xs ${diff.pillBg} ${diff.pillText}`}
                 >
                     {diff.label}
                 </span>
@@ -762,7 +762,7 @@ export const PassageSummaryCard: React.FC<PassageSummaryCardProps> = ({
     return (
         <div className="space-y-3">
             {/* ── Route Header ── */}
-            <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-gradient-to-r from-sky-500/[0.06] to-indigo-500/[0.03] border border-sky-500/15">
+            <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-linear-to-r from-sky-500/6 to-indigo-500/3 border border-sky-500/15">
                 <div className="text-2xl">&#x1F9ED;</div>
                 <div className="flex-1 min-w-0">
                     <p className="text-sm font-bold text-white truncate">{displayRouteName}</p>
@@ -797,7 +797,7 @@ export const PassageSummaryCard: React.FC<PassageSummaryCardProps> = ({
                         type="button"
                         onClick={handleOpenTrackViewer}
                         aria-label="Open fullscreen track view"
-                        className="relative block w-full rounded-2xl overflow-hidden focus:outline-none focus:ring-2 focus:ring-sky-400/40 transition-shadow"
+                        className="relative block w-full rounded-2xl overflow-hidden focus:outline-hidden focus:ring-2 focus:ring-sky-400/40 transition-shadow"
                     >
                         <PassageRouteMap
                             routeCoordinates={mapRouteCoords}
@@ -810,7 +810,7 @@ export const PassageSummaryCard: React.FC<PassageSummaryCardProps> = ({
                         />
                         {/* Hint chip — bottom-right so it doesn't fight
                             the route line for attention */}
-                        <span className="absolute bottom-2 right-2 px-2 py-1 rounded-full bg-slate-900/80 border border-white/10 text-[10px] font-bold uppercase tracking-widest text-sky-300 backdrop-blur-sm pointer-events-none">
+                        <span className="absolute bottom-2 right-2 px-2 py-1 rounded-full bg-slate-900/80 border border-white/10 text-[10px] font-bold uppercase tracking-widest text-sky-300 backdrop-blur-xs pointer-events-none">
                             Tap to expand
                         </span>
                     </button>
@@ -829,7 +829,7 @@ export const PassageSummaryCard: React.FC<PassageSummaryCardProps> = ({
                     clips any final stragglers. The input itself drops
                     w-full so it sizes to its content rather than
                     stretching past the parent. */}
-                <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-3 min-w-0 overflow-hidden">
+                <div className="bg-white/3 border border-white/6 rounded-xl p-3 min-w-0 overflow-hidden">
                     <div className="text-[11px] text-gray-400 uppercase tracking-widest font-bold mb-1.5 flex items-center gap-1">
                         Departure Time
                     </div>
@@ -840,14 +840,14 @@ export const PassageSummaryCard: React.FC<PassageSummaryCardProps> = ({
                             min={effectiveTimeMin}
                             onChange={handleTimeChange}
                             aria-label="Departure Time"
-                            className="bg-white/5 border border-white/10 rounded-lg px-2 py-2 text-base font-bold text-white font-mono focus:outline-none focus:border-sky-500/50 focus:ring-1 focus:ring-sky-500/30 transition-all max-w-full"
+                            className="bg-white/5 border border-white/10 rounded-lg px-2 py-2 text-base font-bold text-white font-mono focus:outline-hidden focus:border-sky-500/50 focus:ring-1 focus:ring-sky-500/30 transition-all max-w-full"
                             style={{ colorScheme: 'dark', boxSizing: 'border-box' }}
                         />
                     </div>
                 </div>
 
                 {/* Duration */}
-                <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-3">
+                <div className="bg-white/3 border border-white/6 rounded-xl p-3">
                     <div className="text-[11px] text-gray-400 uppercase tracking-widest font-bold mb-1.5 flex items-center gap-1">
                         Duration
                     </div>
@@ -855,7 +855,7 @@ export const PassageSummaryCard: React.FC<PassageSummaryCardProps> = ({
                 </div>
 
                 {/* Distance */}
-                <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-3">
+                <div className="bg-white/3 border border-white/6 rounded-xl p-3">
                     <div className="text-[11px] text-gray-400 uppercase tracking-widest font-bold mb-1.5 flex items-center gap-1">
                         Distance
                     </div>
@@ -865,7 +865,7 @@ export const PassageSummaryCard: React.FC<PassageSummaryCardProps> = ({
                 </div>
 
                 {/* Max Conditions */}
-                <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-3">
+                <div className="bg-white/3 border border-white/6 rounded-xl p-3">
                     <div className="text-[11px] text-gray-400 uppercase tracking-widest font-bold mb-1.5 flex items-center gap-1">
                         Max Conditions
                     </div>
@@ -922,7 +922,7 @@ export const PassageSummaryCard: React.FC<PassageSummaryCardProps> = ({
 
             {/* ── Difficulty Overview ── */}
             {difficultySummary && (
-                <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-3">
+                <div className="bg-white/3 border border-white/6 rounded-xl p-3">
                     <div className="text-[11px] text-gray-400 uppercase tracking-widest font-bold mb-2">
                         Passage Difficulty
                     </div>
@@ -996,7 +996,7 @@ export const PassageSummaryCard: React.FC<PassageSummaryCardProps> = ({
             )}
 
             {/* ── Coordinates ── */}
-            <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-3">
+            <div className="bg-white/3 border border-white/6 rounded-xl p-3">
                 <div className="text-[11px] text-gray-400 uppercase tracking-widest font-bold mb-2">
                     Passage Coordinates
                 </div>
@@ -1055,7 +1055,7 @@ export const PassageSummaryCard: React.FC<PassageSummaryCardProps> = ({
             {/* (departPort + destPort populated) they don't need a CTA */}
             {/* telling them to plan a route, that's exactly what they did. */}
             {mapRouteCoords.length < 2 && !departPort && !destPort && (
-                <div className="px-4 py-3 rounded-xl bg-white/[0.02] border border-white/[0.06] text-center">
+                <div className="px-4 py-3 rounded-xl bg-white/2 border border-white/6 text-center">
                     <p className="text-xs text-gray-500">
                         Plan a route on the Charts page to see the full passage breakdown here.
                     </p>
@@ -1075,7 +1075,7 @@ export const PassageSummaryCard: React.FC<PassageSummaryCardProps> = ({
                 entries={trackEntries ?? []}
             />
             {showTrackViewer && loadingTrack && (
-                <div className="fixed inset-0 z-[10000] flex items-center justify-center pointer-events-none">
+                <div className="fixed inset-0 z-10000 flex items-center justify-center pointer-events-none">
                     <div className="px-3 py-1.5 rounded-full bg-slate-900/90 border border-white/10 text-[11px] text-sky-300 font-bold pointer-events-auto">
                         Loading track…
                     </div>

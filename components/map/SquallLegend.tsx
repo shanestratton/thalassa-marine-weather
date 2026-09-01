@@ -89,7 +89,7 @@ export const SquallLegend: React.FC<SquallLegendProps> = ({ visible }) => {
                 {TIERS.map(({ label, color }) => (
                     <div key={label} className="flex items-center gap-1.5">
                         <span
-                            className="inline-block h-3 w-3 rounded-sm shrink-0"
+                            className="inline-block h-3 w-3 rounded-xs shrink-0"
                             style={{ background: color, border: '0.5px solid rgba(255,255,255,0.2)' }}
                             aria-hidden
                         />

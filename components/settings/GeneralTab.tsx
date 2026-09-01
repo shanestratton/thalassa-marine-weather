@@ -196,7 +196,7 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                                         className={`w-full text-left p-3 rounded-xl border transition-all duration-200 flex items-center gap-3 ${
                                             isActive
                                                 ? 'bg-sky-500/10 border-sky-500/30'
-                                                : 'bg-white/[0.02] border-white/5 hover:bg-white/[0.05]'
+                                                : 'bg-white/2 border-white/5 hover:bg-white/5'
                                         }`}
                                     >
                                         <div
@@ -234,7 +234,7 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                     <button
                         aria-label="Open Terms of Service and Privacy Policy"
                         onClick={() => void openExternalUrl(THALASSA_TERMS_URL)}
-                        className="w-full flex items-center gap-3 p-3 bg-white/[0.03] border border-white/5 rounded-xl hover:bg-white/[0.07] hover:border-white/10 transition-all active:scale-[0.98] text-left"
+                        className="w-full flex items-center gap-3 p-3 bg-white/3 border border-white/5 rounded-xl hover:bg-white/[0.07] hover:border-white/10 transition-all active:scale-[0.98] text-left"
                     >
                         <div className="p-2 bg-white/5 rounded-lg">
                             <svg

@@ -47,8 +47,8 @@ interface ChecklistsPageProps {
 
 const STATUS_STYLES: Record<RunItemStatus, { bg: string; border: string; icon: string; text: string }> = {
     unchecked: {
-        bg: 'bg-white/[0.03]',
-        border: 'border-white/[0.08]',
+        bg: 'bg-white/3',
+        border: 'border-white/8',
         icon: 'text-gray-400',
         text: 'text-white/60',
     },
@@ -501,7 +501,7 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
                         placeholder="Search items..."
-                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-gray-500 outline-none focus:border-sky-500/30"
+                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-gray-500 outline-hidden focus:border-sky-500/30"
                     />
                 </div>
 
@@ -680,7 +680,7 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                                 <select
                                     value={formHeadingId}
                                     onChange={(e) => setFormHeadingId(e.target.value)}
-                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white outline-none focus:border-sky-500/30 appearance-none"
+                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white outline-hidden focus:border-sky-500/30 appearance-none"
                                 >
                                     {headings.map((h) => (
                                         <option key={h.id} value={h.id} className="bg-slate-800">
@@ -717,8 +717,8 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                             disabled={!formText.trim()}
                             className={`w-full py-3 mt-1 rounded-xl text-sm font-black text-white uppercase tracking-[0.15em] transition-all active:scale-[0.97] disabled:opacity-30 ${
                                 editEntry
-                                    ? 'bg-gradient-to-r from-sky-600 to-sky-600 shadow-lg shadow-sky-500/20 hover:from-sky-500 hover:to-sky-500'
-                                    : 'bg-gradient-to-r from-emerald-600 to-emerald-600 shadow-lg shadow-emerald-500/20 hover:from-emerald-500 hover:to-emerald-500'
+                                    ? 'bg-linear-to-r from-sky-600 to-sky-600 shadow-lg shadow-sky-500/20 hover:from-sky-500 hover:to-sky-500'
+                                    : 'bg-linear-to-r from-emerald-600 to-emerald-600 shadow-lg shadow-emerald-500/20 hover:from-emerald-500 hover:to-emerald-500'
                             }`}
                         >
                             {editEntry ? 'Save Changes' : formType === 'heading' ? 'Add Section' : 'Add Item'}
@@ -764,7 +764,7 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                     createPortal(
                         <div
                             ref={runDialogRef}
-                            className="fixed inset-0 z-[999] bg-slate-950 flex flex-col"
+                            className="fixed inset-0 z-999 bg-slate-950 flex flex-col"
                             style={{ paddingTop: 'max(1rem, env(safe-area-inset-top))' }}
                             role="dialog"
                             aria-modal="true"
@@ -802,7 +802,7 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
 
                                 {/* Progress bar */}
                                 <div
-                                    className="relative h-2 rounded-full bg-white/[0.06] overflow-hidden mb-1"
+                                    className="relative h-2 rounded-full bg-white/6 overflow-hidden mb-1"
                                     role="progressbar"
                                     aria-label="Checklist completion"
                                     aria-valuemin={0}
@@ -925,7 +925,7 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                                                                         </svg>
                                                                     )}
                                                                     {item.status === 'unchecked' && (
-                                                                        <span className="w-4 h-4 rounded border-2 border-gray-500/40" />
+                                                                        <span className="w-4 h-4 rounded-sm border-2 border-gray-500/40" />
                                                                     )}
                                                                 </span>
 
@@ -977,10 +977,10 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                                     onClick={completeRun}
                                     className={`w-full py-4 rounded-2xl text-sm font-black text-white uppercase tracking-[0.15em] transition-all active:scale-[0.97] shadow-xl ${
                                         runFailCount > 0
-                                            ? 'bg-gradient-to-r from-red-600 to-red-700 shadow-red-500/20'
+                                            ? 'bg-linear-to-r from-red-600 to-red-700 shadow-red-500/20'
                                             : runCheckedCount === runTotal
-                                              ? 'bg-gradient-to-r from-emerald-600 to-emerald-700 shadow-emerald-500/20'
-                                              : 'bg-gradient-to-r from-sky-600 to-sky-700 shadow-sky-500/20'
+                                              ? 'bg-linear-to-r from-emerald-600 to-emerald-700 shadow-emerald-500/20'
+                                              : 'bg-linear-to-r from-sky-600 to-sky-700 shadow-sky-500/20'
                                     }`}
                                 >
                                     {runCheckedCount === runTotal

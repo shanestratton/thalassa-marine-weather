@@ -174,7 +174,7 @@ export const VesselCheckCard: React.FC<VesselCheckCardProps> = ({ voyageId, onRe
     return (
         <div className="space-y-3">
             {/* ── Progress Bar ── */}
-            <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-3">
+            <div className="bg-white/3 border border-white/6 rounded-xl p-3">
                 <div className="flex items-center justify-between mb-2">
                     <span className="text-[11px] text-gray-400 font-bold uppercase tracking-widest">
                         Vessel Pre-Check
@@ -193,14 +193,14 @@ export const VesselCheckCard: React.FC<VesselCheckCardProps> = ({ voyageId, onRe
                         )}
                     </div>
                 </div>
-                <div className="w-full h-2 bg-white/[0.06] rounded-full overflow-hidden">
+                <div className="w-full h-2 bg-white/6 rounded-full overflow-hidden">
                     <div
                         className={`h-full rounded-full transition-all duration-500 ${
                             allChecked
-                                ? 'bg-gradient-to-r from-emerald-500 to-teal-400'
+                                ? 'bg-linear-to-r from-emerald-500 to-teal-400'
                                 : progress > 50
-                                  ? 'bg-gradient-to-r from-amber-500 to-yellow-400'
-                                  : 'bg-gradient-to-r from-red-500 to-orange-400'
+                                  ? 'bg-linear-to-r from-amber-500 to-yellow-400'
+                                  : 'bg-linear-to-r from-red-500 to-orange-400'
                         }`}
                         style={{ width: `${progress}%` }}
                     />
@@ -217,8 +217,8 @@ export const VesselCheckCard: React.FC<VesselCheckCardProps> = ({ voyageId, onRe
                         <summary
                             className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl border cursor-pointer list-none transition-all ${
                                 sectionDone
-                                    ? 'bg-emerald-500/[0.06] border-emerald-500/15'
-                                    : 'bg-white/[0.03] border-white/[0.06] hover:bg-white/[0.05]'
+                                    ? 'bg-emerald-500/6 border-emerald-500/15'
+                                    : 'bg-white/3 border-white/6 hover:bg-white/5'
                             }`}
                         >
                             <span className="text-lg">{section.icon}</span>
@@ -258,7 +258,7 @@ export const VesselCheckCard: React.FC<VesselCheckCardProps> = ({ voyageId, onRe
                                         className={`w-full flex items-start gap-3 px-3 py-2.5 rounded-xl text-left transition-all active:scale-[0.98] ${
                                             isChecked
                                                 ? 'bg-emerald-500/10 border border-emerald-500/20'
-                                                : 'bg-white/[0.02] border border-white/[0.06] hover:bg-white/[0.05]'
+                                                : 'bg-white/2 border border-white/6 hover:bg-white/5'
                                         }`}
                                     >
                                         <div

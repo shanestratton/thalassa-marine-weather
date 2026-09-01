@@ -134,7 +134,7 @@ export const PerfOverlay: React.FC<PerfOverlayProps> = ({ mapRef, activeLayerCou
 
     return (
         <div
-            className="fixed z-[9999] pointer-events-none"
+            className="fixed z-9999 pointer-events-none"
             style={{
                 top: 'max(4px, env(safe-area-inset-top))',
                 left: 4,

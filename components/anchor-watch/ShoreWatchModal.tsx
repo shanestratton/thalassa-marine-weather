@@ -24,7 +24,7 @@ export const ShoreWatchModal: React.FC<ShoreWatchModalProps> = React.memo(
 
         return createPortal(
             <div
-                className="anchor-shore-watch-backdrop fixed inset-0 z-[9999] bg-black/70 flex flex-col items-center justify-center p-3"
+                className="anchor-shore-watch-backdrop fixed inset-0 z-9999 bg-black/70 flex flex-col items-center justify-center p-3"
                 onClick={onClose}
                 role="presentation"
             >
@@ -33,7 +33,7 @@ export const ShoreWatchModal: React.FC<ShoreWatchModalProps> = React.memo(
                     role="dialog"
                     aria-modal="true"
                     aria-labelledby="shore-watch-title"
-                    className="anchor-shore-watch-dialog flex max-h-[calc(100dvh-1.5rem)] w-full max-w-md flex-col overflow-hidden rounded-2xl border border-white/[0.08] bg-slate-900/95 shadow-2xl"
+                    className="anchor-shore-watch-dialog flex max-h-[calc(100dvh-1.5rem)] w-full max-w-md flex-col overflow-hidden rounded-2xl border border-white/8 bg-slate-900/95 shadow-2xl"
                     onClick={(e) => e.stopPropagation()}
                 >
                     {/* Modal Header */}

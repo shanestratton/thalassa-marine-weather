@@ -278,7 +278,7 @@ const RING_BUFFER_MAX_BYTES = 48_000;
  * the AudioContext + worklet module): the bigger cold-start win comes
  * from having the AudioContext in `running` state with audio samples
  * actively flowing into a ring buffer BEFORE the user taps. On tap we
- * just swap the worklet handler from "ring buffer" to "WS send" and
+ * just swap the worklet handler from "ring-3 buffer" to "WS send" and
  * flush whatever's in the ring — no AVAudioSession activation latency
  * to swallow leading words.
  *
@@ -1008,7 +1008,7 @@ export async function startDeepgramRecognizer(opts: StartOptions = {}): Promise<
         prewarmedRingBuffer = prewarmedAudio.ringBuffer;
         emitEvent(
             `[DG] reusing prewarmed audio context + worklet${
-                prewarmedWorkletNode ? ' + graph + ring buffer' : ''
+                prewarmedWorkletNode ? ' + graph + ring-3 buffer' : ''
             }${prewarmedRingBuffer ? ` (${prewarmedRingBuffer.length} chunks buffered)` : ''}`,
         );
         prewarmedAudio = null; // consumed; next session re-prewarms
@@ -1452,7 +1452,9 @@ export async function startDeepgramRecognizer(opts: StartOptions = {}): Promise<
             // gets to Deepgram immediately rather than waiting for
             // more chunks to top up the batch.
             if (batchSize > 0) flushBatch();
-            emitEvent(`[DG] flushed ${flushedChunks} prewarmed ring chunks (${flushedBytes}B leading audio recovered)`);
+            emitEvent(
+                `[DG] flushed ${flushedChunks} prewarmed ring-3 chunks (${flushedBytes}B leading audio recovered)`,
+            );
         }
 
         // Safety flush every 60ms so even short/irregular utterances get

@@ -91,7 +91,7 @@ export const ImportSheet: React.FC<ImportSheetProps> = ({
                             className={`w-full flex items-center gap-4 p-5 rounded-2xl border active:scale-[0.98] transition-all relative overflow-hidden ${
                                 isImportingGPX
                                     ? 'bg-slate-800/30 border-slate-700/30 cursor-not-allowed opacity-50'
-                                    : 'bg-gradient-to-r from-amber-500/15 to-amber-600/5 border-amber-500/20 hover:border-amber-400/40'
+                                    : 'bg-linear-to-r from-amber-500/15 to-amber-600/5 border-amber-500/20 hover:border-amber-400/40'
                             }`}
                         >
                             <div className="w-14 h-14 rounded-xl bg-amber-500/20 flex items-center justify-center shrink-0">
@@ -138,7 +138,7 @@ export const ImportSheet: React.FC<ImportSheetProps> = ({
                     <button
                         aria-label="Browse community tracks"
                         onClick={onShowCommunityBrowser}
-                        className="w-full flex items-center gap-4 p-5 rounded-2xl border active:scale-[0.98] transition-all bg-gradient-to-r from-purple-500/15 to-purple-600/5 border-purple-500/20 hover:border-purple-400/40"
+                        className="w-full flex items-center gap-4 p-5 rounded-2xl border active:scale-[0.98] transition-all bg-linear-to-r from-purple-500/15 to-purple-600/5 border-purple-500/20 hover:border-purple-400/40"
                     >
                         <div className="w-14 h-14 rounded-xl bg-purple-500/20 flex items-center justify-center shrink-0">
                             <svg

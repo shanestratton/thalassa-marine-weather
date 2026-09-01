@@ -44,7 +44,7 @@ export const VoyageProgressBar: React.FC<VoyageProgressBarProps> = ({ track, des
             <div className="relative h-1.5 rounded-full bg-slate-800 overflow-visible">
                 {/* Fill */}
                 <div
-                    className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-sky-500 to-emerald-400"
+                    className="absolute inset-y-0 left-0 rounded-full bg-linear-to-r from-sky-500 to-emerald-400"
                     style={{ width: `${pct}%` }}
                 />
                 {/* Origin dot */}

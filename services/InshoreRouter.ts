@@ -1610,7 +1610,7 @@ async function tryInshoreRouteInner(
                     );
                 }
             } else if (ROUTE_DEBUG) {
-                log.warn('SEAWAY SHADOW: corridor has no lateral marks — nothing to shadow');
+                log.warn('SEAWAY SHADOW: corridor has no lateral marks — nothing to shadow-sm');
             }
         } catch (err) {
             // Shadow failures must never touch the live route.

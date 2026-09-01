@@ -127,7 +127,7 @@ export const ExportButtons: React.FC<ExportButtonsProps> = React.memo(({ voyageP
                 const { printPassageBrief } = await import('../../utils/pdfExport');
                 printPassageBrief({ voyagePlan, vessel });
             }}
-            className="bg-gradient-to-r from-sky-500/10 to-sky-600/10 border border-sky-500/20 rounded-2xl p-4 flex flex-col items-center justify-center gap-2 group hover:from-sky-500/20 hover:to-sky-600/20 transition-all"
+            className="bg-linear-to-r from-sky-500/10 to-sky-600/10 border border-sky-500/20 rounded-2xl p-4 flex flex-col items-center justify-center gap-2 group hover:from-sky-500/20 hover:to-sky-600/20 transition-all"
         >
             <ShareIcon className="w-5 h-5 text-sky-400 group-hover:scale-110 transition-transform" />
             <span className="text-[11px] font-bold text-sky-300 uppercase tracking-widest text-center">
@@ -167,7 +167,7 @@ export const ExportButtons: React.FC<ExportButtonsProps> = React.memo(({ voyageP
                     }
                 }
             }}
-            className="bg-gradient-to-r from-purple-500/10 to-purple-600/10 border border-purple-500/20 rounded-2xl p-4 flex flex-col items-center justify-center gap-2 group hover:from-purple-500/20 hover:to-purple-600/20 transition-all"
+            className="bg-linear-to-r from-purple-500/10 to-purple-600/10 border border-purple-500/20 rounded-2xl p-4 flex flex-col items-center justify-center gap-2 group hover:from-purple-500/20 hover:to-purple-600/20 transition-all"
         >
             <MapPinIcon className="w-5 h-5 text-purple-400 group-hover:scale-110 transition-transform" />
             <span

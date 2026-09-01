@@ -563,7 +563,7 @@ const ScopedWeatherProvider: React.FC<{ children: React.ReactNode; identityScope
             //    Selecting a saved location immediately swaps in that
             //    location's CACHED report (just below), which can be far
             //    older than what it replaced. A fresh screen plus a stale
-            //    cache scored "no blur" and then displayed stale numbers.
+            //    cache scored "no blur-sm" and then displayed stale numbers.
             //
             // 2. The threshold was 2 h while the old freshness strip warned from
             //    60 min (coastal). Everything in between showed the toast

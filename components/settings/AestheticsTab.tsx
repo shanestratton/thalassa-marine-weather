@@ -119,7 +119,7 @@ export const AestheticsTab: React.FC<SettingsTabProps> = ({ settings, onSave }) 
                                     onClick={() => onSave({ displayMode: opt.value })}
                                     className={`flex flex-col items-center gap-1.5 p-3 rounded-xl border-2 transition-all duration-300 active:scale-95 ${
                                         isActive
-                                            ? `bg-gradient-to-br ${opt.gradient} shadow-lg`
+                                            ? `bg-linear-to-br ${opt.gradient} shadow-lg`
                                             : 'bg-white/5 border-transparent hover:bg-white/10 hover:border-white/10'
                                     }`}
                                 >
@@ -200,7 +200,7 @@ export const AestheticsTab: React.FC<SettingsTabProps> = ({ settings, onSave }) 
                                     onClick={() => onSave({ screenOrientation: opt.value })}
                                     className={`flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-all duration-300 active:scale-95 ${
                                         isActive
-                                            ? `bg-gradient-to-br ${opt.gradient} shadow-lg`
+                                            ? `bg-linear-to-br ${opt.gradient} shadow-lg`
                                             : 'bg-white/5 border-transparent hover:bg-white/10 hover:border-white/10'
                                     }`}
                                 >

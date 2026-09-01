@@ -173,14 +173,14 @@ export const WindVsTideView: React.FC<WindVsTideViewProps> = ({
 
             {/* Wind / Stream readout */}
             <div className="mt-2 grid grid-cols-2 gap-3">
-                <div className="rounded-lg bg-white/[0.04] px-3 py-2">
+                <div className="rounded-lg bg-white/4 px-3 py-2">
                     <div className="text-[10px] uppercase tracking-wider text-white/40">Wind</div>
                     <div className="text-sm font-bold tabular-nums">
                         {windSpd !== null ? `${windSpd} ${units.speed}` : '--'}{' '}
                         <span className="text-white/50 font-normal">from {windFrom}</span>
                     </div>
                 </div>
-                <div className="rounded-lg bg-white/[0.04] px-3 py-2">
+                <div className="rounded-lg bg-white/4 px-3 py-2">
                     <div className="text-[10px] uppercase tracking-wider text-white/40">
                         Stream {PHASE_ARROW[phase]} {PHASE_LABEL[phase]}
                     </div>
@@ -196,7 +196,7 @@ export const WindVsTideView: React.FC<WindVsTideViewProps> = ({
                 {outlook.map(({ h, ph, res }) => (
                     <div
                         key={h}
-                        className={`flex-1 rounded-md px-1 py-1.5 text-center ${res.windOverTide ? 'bg-red-500/20 border border-red-500/40' : 'bg-white/[0.04]'}`}
+                        className={`flex-1 rounded-md px-1 py-1.5 text-center ${res.windOverTide ? 'bg-red-500/20 border border-red-500/40' : 'bg-white/4'}`}
                     >
                         <div className="text-[10px] text-white/45">+{h}h</div>
                         <div

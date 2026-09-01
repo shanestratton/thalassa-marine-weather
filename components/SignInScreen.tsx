@@ -185,8 +185,8 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({ isOpen, onClose, pro
                 soft aurora-like sky glow up top. Makes the screen feel
                 like a marine destination instead of a generic auth
                 form. All decorative, all behind pointer-events:none. */}
-                <div className="absolute inset-0 bg-gradient-to-b from-slate-950 via-slate-950 to-sky-950/40 pointer-events-none" />
-                <div className="absolute inset-x-0 top-0 h-72 bg-gradient-to-b from-sky-500/15 via-sky-500/5 to-transparent pointer-events-none" />
+                <div className="absolute inset-0 bg-linear-to-b from-slate-950 via-slate-950 to-sky-950/40 pointer-events-none" />
+                <div className="absolute inset-x-0 top-0 h-72 bg-linear-to-b from-sky-500/15 via-sky-500/5 to-transparent pointer-events-none" />
                 {/* Subtle horizon line — sits at ~40% down, the eye-line
                 of a sailor looking out from the cockpit. Pure
                 atmospherics, 1px of cyan glow. */}
@@ -221,7 +221,7 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({ isOpen, onClose, pro
                 wordmark, and "MARINE DATA & NAVIGATION" descriptor —
                 all baked into one SVG so proportions and weights
                 stay exactly as designed. The pulse keyframe (below)
-                animates a teal drop-shadow around it so the mark
+                animates a teal drop-shadow-sm around it so the mark
                 breathes like a beacon. */}
                 <div className="relative z-10 mb-8 flex flex-col items-center text-center">
                     <div
@@ -418,7 +418,7 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({ isOpen, onClose, pro
                     </p>
                 </div>
 
-                {/* Pulse keyframe — drop-shadow filter rather than the
+                {/* Pulse keyframe — drop-shadow-sm filter rather than the
                 old disc-based box-shadow, because the lockup is now a
                 free-standing image (no surrounding container disc).
                 Two stacked drop-shadows: a tight inner glow that

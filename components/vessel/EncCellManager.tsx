@@ -114,7 +114,7 @@ const ImportProgressBar: React.FC<{ progress: EncImportProgress }> = ({ progress
                 <span className="text-[11px] uppercase tracking-wider font-bold text-gray-400">{label}</span>
                 <span className="text-[11px] font-mono text-white/60">{pct}%</span>
             </div>
-            <div className="w-full h-1.5 rounded-full bg-white/[0.06] overflow-hidden">
+            <div className="w-full h-1.5 rounded-full bg-white/6 overflow-hidden">
                 <div
                     className={`h-full rounded-full transition-all duration-300 ease-out ${colour}`}
                     style={{ width: `${pct}%` }}
@@ -134,7 +134,7 @@ const CellRow: React.FC<{
 }> = ({ cell, onDelete, onShowOnMap, busy }) => {
     const [confirming, setConfirming] = useState(false);
     return (
-        <div className="flex items-start gap-2 px-3 py-2 rounded-xl bg-white/[0.02] border border-white/[0.04]">
+        <div className="flex items-start gap-2 px-3 py-2 rounded-xl bg-white/2 border border-white/4">
             <button
                 onClick={() => {
                     triggerHaptic('light');
@@ -208,7 +208,7 @@ const CellRow: React.FC<{
                             triggerHaptic('light');
                             setConfirming(false);
                         }}
-                        className="min-h-[44px] px-2 py-1 rounded-md text-[10px] uppercase tracking-wider bg-white/[0.04] text-gray-400"
+                        className="min-h-[44px] px-2 py-1 rounded-md text-[10px] uppercase tracking-wider bg-white/4 text-gray-400"
                     >
                         Cancel
                     </button>
@@ -220,7 +220,7 @@ const CellRow: React.FC<{
                         setConfirming(true);
                     }}
                     disabled={busy}
-                    className="hit-target-44 shrink-0 px-2 py-1 rounded-md text-[10px] font-black uppercase tracking-wider bg-white/[0.04] hover:bg-white/[0.08] text-gray-400"
+                    className="hit-target-44 shrink-0 px-2 py-1 rounded-md text-[10px] font-black uppercase tracking-wider bg-white/4 hover:bg-white/8 text-gray-400"
                     title="Remove this cell from your device"
                 >
                     Remove
@@ -578,7 +578,7 @@ export const EncCellManager: React.FC = () => {
 
     return (
         <>
-            <div className="mb-3 p-4 rounded-2xl bg-white/[0.03] border border-white/[0.06]">
+            <div className="mb-3 p-4 rounded-2xl bg-white/3 border border-white/6">
                 <button
                     onClick={() => {
                         triggerHaptic('light');
@@ -670,7 +670,7 @@ export const EncCellManager: React.FC = () => {
                             </p>
 
                             {progress && (
-                                <div className="px-3 py-2 rounded-xl bg-white/[0.02] border border-white/[0.04]">
+                                <div className="px-3 py-2 rounded-xl bg-white/2 border border-white/4">
                                     <ImportProgressBar progress={progress} />
                                 </div>
                             )}
@@ -683,7 +683,7 @@ export const EncCellManager: React.FC = () => {
                                 disabled={importing}
                                 className={`w-full py-2.5 rounded-xl text-[11px] font-bold uppercase tracking-wider transition-all active:scale-95 ${
                                     importing
-                                        ? 'bg-white/[0.04] border border-white/[0.06] text-gray-500 cursor-not-allowed'
+                                        ? 'bg-white/4 border border-white/6 text-gray-500 cursor-not-allowed'
                                         : 'bg-sky-500/10 border border-sky-500/20 text-sky-400 hover:bg-sky-500/20'
                                 }`}
                             >
@@ -707,7 +707,7 @@ export const EncCellManager: React.FC = () => {
                                         void refreshPiCells();
                                     }}
                                     disabled={piListBusy}
-                                    className="w-full py-2 rounded-xl text-[11px] font-bold uppercase tracking-wider bg-white/[0.04] border border-white/[0.08] text-white/60 hover:bg-white/[0.08] active:scale-95 transition-all disabled:opacity-50"
+                                    className="w-full py-2 rounded-xl text-[11px] font-bold uppercase tracking-wider bg-white/4 border border-white/8 text-white/60 hover:bg-white/8 active:scale-95 transition-all disabled:opacity-50"
                                 >
                                     {piListBusy
                                         ? 'Checking Pi…'
@@ -760,13 +760,13 @@ export const EncCellManager: React.FC = () => {
                                                 value={pickerFilter}
                                                 onChange={(e) => setPickerFilter(e.target.value)}
                                                 placeholder="Filter by cell id (e.g. FR46)"
-                                                className="w-full px-3 py-2 rounded-xl bg-white/[0.04] border border-white/[0.08] text-[11px] text-white/80 placeholder:text-white/25 focus:outline-none focus:border-amber-500/40"
+                                                className="w-full px-3 py-2 rounded-xl bg-white/4 border border-white/8 text-[11px] text-white/80 placeholder:text-white/25 focus:outline-hidden focus:border-amber-500/40"
                                             />
                                             <div className="max-h-56 overflow-y-auto space-y-1">
                                                 {pickerMatches.rows.map((c) => (
                                                     <div
                                                         key={`${c.cellId}@${c.edition}`}
-                                                        className="flex items-center justify-between gap-2 px-3 py-2 rounded-xl bg-white/[0.03] border border-white/[0.06]"
+                                                        className="flex items-center justify-between gap-2 px-3 py-2 rounded-xl bg-white/3 border border-white/6"
                                                     >
                                                         <div className="min-w-0">
                                                             <p className="font-mono text-[11px] text-white/80 truncate">
@@ -814,13 +814,13 @@ export const EncCellManager: React.FC = () => {
                                 show the curated bucket. */}
 
                             {error && (
-                                <div className="px-3 py-2 rounded-xl bg-red-500/[0.06] border border-red-500/20">
+                                <div className="px-3 py-2 rounded-xl bg-red-500/6 border border-red-500/20">
                                     <p className="text-[11px] text-red-400 leading-relaxed">{error}</p>
                                 </div>
                             )}
 
                             {lastSkipped.length > 0 && (
-                                <div className="px-3 py-2 rounded-xl bg-amber-500/[0.06] border border-amber-500/20">
+                                <div className="px-3 py-2 rounded-xl bg-amber-500/6 border border-amber-500/20">
                                     <p className="text-[11px] font-bold text-amber-300 mb-1">
                                         {lastSkipped.length} cell{lastSkipped.length === 1 ? '' : 's'} skipped during
                                         last import
@@ -887,7 +887,7 @@ export const EncCellManager: React.FC = () => {
                         </p>
 
                         {/* ── Source attribution / honesty note ── */}
-                        <div className="px-3 py-2 rounded-xl bg-white/[0.02] border border-white/[0.04]">
+                        <div className="px-3 py-2 rounded-xl bg-white/2 border border-white/4">
                             <p className="text-[10px] text-gray-500 leading-relaxed">
                                 <span className="text-amber-300 font-bold">Important:</span> ENCs improve accuracy where
                                 you have them, but they aren&apos;t infallible. Pacific atolls have known position
@@ -956,7 +956,7 @@ export const EncCellManager: React.FC = () => {
                             aria-invalid={urlError ? 'true' : 'false'}
                             aria-describedby={urlError ? 'enc-install-url-error' : 'enc-install-url-help'}
                             placeholder="https://example.gov/charts/cell.zip"
-                            className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-sm text-white outline-none placeholder:text-gray-400 focus:border-sky-400 disabled:opacity-60"
+                            className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-sm text-white outline-hidden placeholder:text-gray-400 focus:border-sky-400 disabled:opacity-60"
                         />
                         <button
                             type="button"
@@ -977,7 +977,7 @@ export const EncCellManager: React.FC = () => {
                                 id="enc-install-url-error"
                                 role="alert"
                                 aria-live="assertive"
-                                className="mt-2 rounded-lg border border-red-500/20 bg-red-500/[0.08] px-3 py-2 text-xs text-red-300"
+                                className="mt-2 rounded-lg border border-red-500/20 bg-red-500/8 px-3 py-2 text-xs text-red-300"
                             >
                                 {urlError}
                             </p>

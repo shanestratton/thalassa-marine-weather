@@ -147,7 +147,7 @@ export function useEncVectorLayer(
     /**
      * Tracer is up. Forces the pipeline to MOUNT even with the chart toggled
      * off, because the plotting keel floor cannot work on layers that do not
-     * exist — see the `!visible` early-return below.
+     * exist — see the `visible!` early-return below.
      */
     plotting: boolean = false,
 ): void {

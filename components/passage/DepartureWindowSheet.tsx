@@ -131,7 +131,7 @@ export const DepartureWindowSheet: React.FC<DepartureWindowSheetProps> = ({
     return (
         <OverlayPortal className="flex items-center justify-center p-4 pb-[calc(4rem+env(safe-area-inset-bottom)+1rem)] pt-[max(1rem,env(safe-area-inset-top))]">
             {/* Backdrop */}
-            <div role="presentation" onClick={onClose} className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
+            <div role="presentation" onClick={onClose} className="absolute inset-0 bg-black/70 backdrop-blur-xs" />
 
             {/* Centred per the standing modal rule (Shane 2026-09-02: "all modal boxes centered on the punters screen"). */}
             <div
@@ -142,12 +142,12 @@ export const DepartureWindowSheet: React.FC<DepartureWindowSheetProps> = ({
                 className="relative w-full max-w-2xl max-h-full flex flex-col bg-slate-950 border border-white/10 rounded-3xl shadow-2xl animate-in fade-in duration-200"
             >
                 {/* Drag handle */}
-                <div className="flex-shrink-0 pt-2 pb-1 flex justify-center">
+                <div className="shrink-0 pt-2 pb-1 flex justify-center">
                     <div className="w-12 h-1 rounded-full bg-white/20" />
                 </div>
 
                 {/* Header */}
-                <div className="flex-shrink-0 px-5 pt-2 pb-4 border-b border-white/5">
+                <div className="shrink-0 px-5 pt-2 pb-4 border-b border-white/5">
                     <div className="flex items-start justify-between gap-3">
                         <div className="flex-1 min-w-0">
                             <h2 id="departure-window-title" className="text-base font-bold text-white">
@@ -189,7 +189,7 @@ export const DepartureWindowSheet: React.FC<DepartureWindowSheetProps> = ({
 
                 {/* Best-pick callout */}
                 {best && !planning && (
-                    <div className="flex-shrink-0 px-5 pt-3 pb-2">
+                    <div className="shrink-0 px-5 pt-3 pb-2">
                         <div className="rounded-xl bg-emerald-500/10 border border-emerald-500/30 p-3">
                             <div className="flex items-center justify-between gap-2 mb-1">
                                 <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400">
@@ -220,7 +220,7 @@ export const DepartureWindowSheet: React.FC<DepartureWindowSheetProps> = ({
                                 {Array.from({ length: 3 }).map((_, i) => (
                                     <div
                                         key={i}
-                                        className="rounded-xl border border-white/[0.06] bg-white/[0.03] h-[64px] animate-pulse"
+                                        className="rounded-xl border border-white/6 bg-white/3 h-[64px] animate-pulse"
                                     />
                                 ))}
                             </div>

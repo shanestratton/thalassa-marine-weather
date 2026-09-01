@@ -112,7 +112,7 @@ export const TripLegPicker: React.FC<{ onOpenChart: () => void }> = ({ onOpenCha
     if (trips.length === 0) return null; // nothing saved yet — no empty furniture
 
     return (
-        <div className="rounded-2xl border border-amber-500/20 bg-gradient-to-br from-amber-500/10 to-slate-900/40 p-3 shadow-[0_0_20px_rgba(245,158,11,0.08)]">
+        <div className="rounded-2xl border border-amber-500/20 bg-linear-to-br from-amber-500/10 to-slate-900/40 p-3 shadow-[0_0_20px_rgba(245,158,11,0.08)]">
             <div className="mb-2 flex items-baseline justify-between">
                 <span className="text-[11px] font-black uppercase tracking-widest text-amber-300">🧩 Trip · Legs</span>
                 {/* Was "N legs" for the SELECTED trip, which is now dead furniture:
@@ -132,7 +132,7 @@ export const TripLegPicker: React.FC<{ onOpenChart: () => void }> = ({ onOpenCha
                     setLegsOpen(e.target.value !== '');
                 }}
                 aria-label="Pick a trip or route to continue"
-                className="h-11 w-full rounded-xl border border-white/10 bg-slate-900/60 px-3 text-[13px] font-medium text-white [color-scheme:dark] focus:border-amber-500/50 focus:outline-none"
+                className="h-11 w-full rounded-xl border border-white/10 bg-slate-900/60 px-3 text-[13px] font-medium text-white scheme-dark focus:border-amber-500/50 focus:outline-hidden"
             >
                 <option value="">New Trip or Route</option>
                 {trips.map((t) => (
@@ -150,7 +150,7 @@ export const TripLegPicker: React.FC<{ onOpenChart: () => void }> = ({ onOpenCha
                     // would cover the page box, not the screen, and centring
                     // would land wherever that box happens to be.
                     <div
-                        className="fixed inset-0 z-[10060] flex items-center justify-center bg-black/60 px-3 py-[max(1rem,env(safe-area-inset-bottom))]"
+                        className="fixed inset-0 z-10060 flex items-center justify-center bg-black/60 px-3 py-[max(1rem,env(safe-area-inset-bottom))]"
                         onClick={closeLegs}
                         role="presentation"
                     >

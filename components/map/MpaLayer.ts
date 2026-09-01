@@ -229,7 +229,7 @@ export async function mountMpaLayer(
             },
             before,
         );
-        log.info(`Added outline layer (before=${before ?? 'top'})`);
+        log.info(`Added outline-solid layer (before=${before ?? 'top'})`);
     } catch (error) {
         log.warn('MPA mount failed; rolling back every owned artifact', error);
         deactivateMpaLayerAndProveSafe(map);
@@ -267,7 +267,7 @@ export function unmountMpaLayer(map: mapboxgl.Map): boolean {
 
     const fullyRemoved = isMpaLayerUnmounted(map);
     if (removalFailed || !fullyRemoved) {
-        log.warn('MPA teardown could not prove removal of source, fill and outline');
+        log.warn('MPA teardown could not prove removal of source, fill and outline-solid');
         return false;
     }
     log.info('Unmounted MPA layers + source');

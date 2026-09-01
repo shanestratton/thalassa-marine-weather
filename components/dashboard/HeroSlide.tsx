@@ -719,7 +719,7 @@ const HeroSlideComponent = ({
                         <span className="text-sm md:text-sm font-medium text-gray-400">/100</span>
                     </div>
                     <div
-                        className={`mt-auto pt-1 text-sm md: text-sm font-bold px-1.5 py-0.5 rounded w-fit ${scoreColor} `}
+                        className={`mt-auto pt-1 text-sm md: text-sm font-bold px-1.5 py-0.5 rounded-sm w-fit ${scoreColor} `}
                     >
                         {scoreText}
                     </div>
@@ -934,7 +934,7 @@ const HeroSlideComponent = ({
                 it never interferes with the user's own swipe. */}
             {showSwipeHint && (
                 <div
-                    className="absolute inset-y-0 right-0 z-[50] w-16 flex items-center justify-end pr-3 pointer-events-none"
+                    className="absolute inset-y-0 right-0 z-50 w-16 flex items-center justify-end pr-3 pointer-events-none"
                     style={{
                         background:
                             'linear-gradient(to right, transparent 0%, rgba(56, 189, 248, 0.08) 60%, rgba(56, 189, 248, 0.18) 100%)',
@@ -966,7 +966,7 @@ const HeroSlideComponent = ({
                     role="region"
                     aria-roledescription="carousel"
                     aria-label="Hourly forecast carousel — use left and right arrow keys to navigate between hours"
-                    className={`w-full h-full ${isEssentialMode ? 'overflow-hidden' : 'overflow-x-auto snap-x snap-mandatory'} no-scrollbar flex flex-row focus:outline-none`}
+                    className={`w-full h-full ${isEssentialMode ? 'overflow-hidden' : 'overflow-x-auto snap-x snap-mandatory'} no-scrollbar flex flex-row focus:outline-hidden`}
                     style={{ willChange: 'scroll-position' }}
                 >
                     {slides.map((slide, slideIdx) => {
@@ -1123,12 +1123,12 @@ const HeroSlideComponent = ({
                                         <div
                                             onClick={() => setShowWindVsTide((v) => !v)}
                                             title="Tap for wind vs tide"
-                                            className={`relative flex-[2] min-h-0 w-full rounded-2xl overflow-hidden border bg-white/[0.04] shadow-[0_0_30px_-5px_rgba(0,0,0,0.3)] cursor-pointer ${isGolden ? 'border-amber-400/[0.15]' : isCardDay ? 'border-white/[0.08]' : 'border-sky-300/[0.08]'}`}
+                                            className={`relative flex-2 min-h-0 w-full rounded-2xl overflow-hidden border bg-white/4 shadow-[0_0_30px_-5px_rgba(0,0,0,0.3)] cursor-pointer ${isGolden ? 'border-amber-400/15' : isCardDay ? 'border-white/8' : 'border-sky-300/8'}`}
                                         >
                                             {/* BG Gradient — golden hour amber tinge */}
                                             <div className="absolute inset-0 z-0 pointer-events-none">
                                                 <div
-                                                    className={`absolute inset-0 bg-gradient-to-br ${isGolden ? 'from-amber-500/[0.10] via-amber-300/[0.04] to-amber-500/[0.06]' : isCardDay ? 'from-sky-500/[0.06] via-transparent to-sky-500/[0.04]' : 'from-sky-500/[0.08] via-transparent to-purple-500/[0.04]'}`}
+                                                    className={`absolute inset-0 bg-linear-to-br ${isGolden ? 'from-amber-500/10 via-amber-300/4 to-amber-500/6' : isCardDay ? 'from-sky-500/6 via-transparent to-sky-500/4' : 'from-sky-500/8 via-transparent to-purple-500/4'}`}
                                                 />
                                             </div>
                                             <div className="relative w-full h-full">
@@ -1178,7 +1178,7 @@ const HeroSlideComponent = ({
                                     /* COASTAL BUT TIDES UNAVAILABLE — graceful degradation */
                                     <div className="relative w-full h-full flex flex-col gap-2">
                                         <div
-                                            className={`relative flex-[2] min-h-0 w-full rounded-2xl overflow-hidden border bg-white/[0.03] ${isGolden ? 'border-amber-400/[0.12]' : isCardDay ? 'border-white/[0.06]' : 'border-sky-300/[0.06]'}`}
+                                            className={`relative flex-2 min-h-0 w-full rounded-2xl overflow-hidden border bg-white/3 ${isGolden ? 'border-amber-400/12' : isCardDay ? 'border-white/6' : 'border-sky-300/6'}`}
                                         >
                                             <div className="flex flex-col items-center justify-center h-full gap-3 px-6 text-center">
                                                 <div className="w-10 h-10 rounded-full bg-amber-500/10 border border-amber-500/20 flex items-center justify-center">
@@ -1197,7 +1197,7 @@ const HeroSlideComponent = ({
                                 ) : (
                                     /* INLAND / OFFSHORE LAYOUT — 3×2 instrument panel matching HeroWidgets */
                                     <div className="relative w-full h-full flex flex-col gap-2">
-                                        <div className="relative flex-[2] min-h-0 w-full rounded-xl overflow-hidden bg-white/[0.08] border border-white/[0.15] shadow-2xl flex flex-col">
+                                        <div className="relative flex-2 min-h-0 w-full rounded-xl overflow-hidden bg-white/8 border border-white/15 shadow-2xl flex flex-col">
                                             {(() => {
                                                 const OFFSHORE_WIDGETS = [
                                                     {

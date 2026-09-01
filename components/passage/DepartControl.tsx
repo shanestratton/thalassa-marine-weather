@@ -88,7 +88,7 @@ export const DepartControl: React.FC = () => {
     // the "leaving now" state stays null until the punter actually picks.
     const todayStr = localDateStr();
     return (
-        <div className="rounded-2xl border border-sky-500/20 bg-gradient-to-br from-sky-500/10 to-slate-900/40 p-3 shadow-[0_0_20px_rgba(14,165,233,0.08)]">
+        <div className="rounded-2xl border border-sky-500/20 bg-linear-to-br from-sky-500/10 to-slate-900/40 p-3 shadow-[0_0_20px_rgba(14,165,233,0.08)]">
             <div className="mb-2 flex items-baseline justify-between">
                 <span className="text-[11px] font-black uppercase tracking-widest text-sky-300">🕐 Departure</span>
                 {departureMs === null && (
@@ -113,7 +113,7 @@ export const DepartControl: React.FC = () => {
                         if (Number.isFinite(t)) setDeparture(t);
                     }}
                     aria-label="Departure date"
-                    className="h-11 min-w-0 flex-[3] rounded-xl border border-white/10 bg-slate-900/60 px-3 text-[13px] font-medium text-white [color-scheme:dark] focus:border-sky-500/50 focus:outline-none"
+                    className="h-11 min-w-0 flex-3 rounded-xl border border-white/10 bg-slate-900/60 px-3 text-[13px] font-medium text-white scheme-dark focus:border-sky-500/50 focus:outline-hidden"
                 />
                 {/* 24-hour time (Shane 2026-07-17: the web time input's AM/PM
                     clipped in the card) — wheels on iOS, dropdowns on desktop. */}
@@ -127,7 +127,7 @@ export const DepartControl: React.FC = () => {
                         const t = new Date(`${date}T${p(h)}:${p(m)}`).getTime();
                         if (Number.isFinite(t)) setDeparture(t);
                     }}
-                    selectClassName="h-11 min-w-0 rounded-xl border border-white/10 bg-slate-900/60 px-2 text-[13px] font-medium text-white [color-scheme:dark] focus:border-sky-500/50 focus:outline-none"
+                    selectClassName="h-11 min-w-0 rounded-xl border border-white/10 bg-slate-900/60 px-2 text-[13px] font-medium text-white scheme-dark focus:border-sky-500/50 focus:outline-hidden"
                 />
             </div>
             <div className="mt-2 flex gap-2">

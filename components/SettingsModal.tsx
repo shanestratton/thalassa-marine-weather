@@ -55,7 +55,7 @@ const NavButton = React.memo(
             aria-label={label}
             onClick={onClick}
             className={`relative flex items-center gap-3 w-full pl-4 pr-3 py-2.5 rounded-lg transition-colors duration-150 text-left ${
-                active ? 'bg-white/[0.04] text-white' : 'text-slate-400 hover:bg-white/[0.03] hover:text-slate-200'
+                active ? 'bg-white/4 text-white' : 'text-slate-400 hover:bg-white/3 hover:text-slate-200'
             }`}
         >
             {/* Single-pixel anchor bar. Solid sky-500 at full opacity
@@ -166,7 +166,7 @@ const MetricInput = ({
                     {label}
                 </label>
                 {isEstimated && (
-                    <span className="text-[11px] bg-red-500/10 border border-red-500/20 text-red-400 px-1.5 py-0.5 rounded font-bold uppercase shadow-[0_0_10px_rgba(239,68,68,0.2)]">
+                    <span className="text-[11px] bg-red-500/10 border border-red-500/20 text-red-400 px-1.5 py-0.5 rounded-sm font-bold uppercase shadow-[0_0_10px_rgba(239,68,68,0.2)]">
                         Est.
                     </span>
                 )}
@@ -181,13 +181,13 @@ const MetricInput = ({
                     value={localStr}
                     onChange={handleChange}
                     onBlur={handleBlur}
-                    className={`flex-1 bg-transparent px-3 py-2 outline-none w-full text-sm font-mono placeholder-gray-700 transition-colors ${isEstimated ? 'text-red-300' : 'text-white focus:text-sky-200'}`}
+                    className={`flex-1 bg-transparent px-3 py-2 outline-hidden w-full text-sm font-mono placeholder-gray-700 transition-colors ${isEstimated ? 'text-red-300' : 'text-white focus:text-sky-200'}`}
                     placeholder={placeholder}
                 />
                 <select
                     value={unitType}
                     onChange={(e) => onChangeUnit(e.target.value)}
-                    className="bg-white/5 text-gray-300 text-xs font-bold px-3 py-2 outline-none border-l border-white/10 hover:text-white hover:bg-white/10 focus:bg-white/10 cursor-pointer uppercase transition-all appearance-none bg-no-repeat bg-[length:10px_10px] bg-[right_8px_center]"
+                    className="bg-white/5 text-gray-300 text-xs font-bold px-3 py-2 outline-hidden border-l border-white/10 hover:text-white hover:bg-white/10 focus:bg-white/10 cursor-pointer uppercase transition-all appearance-none bg-no-repeat bg-size-[10px_10px] bg-position-[right_8px_center]"
                     style={{
                         backgroundImage:
                             'url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 10 6%27%3E%3Cpath d=%27M1 1l4 4 4-4%27 stroke=%27%2394a3b8%27 stroke-width=%271.5%27 fill=%27none%27 stroke-linecap=%27round%27/%3E%3C/svg%3E")',
@@ -478,9 +478,9 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                 </div>
 
                 {/* --- DESKTOP SIDEBAR (unchanged) --- */}
-                <div className="hidden md:flex w-72 border-r border-white/5 p-6 flex-col gap-3 shrink-0 relative z-10 bg-gradient-to-b from-transparent via-white/[0.02] to-transparent">
+                <div className="hidden md:flex w-72 border-r border-white/5 p-6 flex-col gap-3 shrink-0 relative z-10 bg-linear-to-b from-transparent via-white/2 to-transparent">
                     <div className="mb-6 px-2">
-                        <h2 className="settings-title text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-white to-sky-300 flex items-center gap-3 drop-shadow-sm">
+                        <h2 className="settings-title text-2xl font-black text-transparent bg-clip-text bg-linear-to-r from-white to-sky-300 flex items-center gap-3 drop-shadow-xs">
                             <GearIcon className="w-6 h-6 text-sky-400" />
                             SETTINGS
                         </h2>
@@ -514,7 +514,7 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                             value={tabQuery}
                             onChange={(e) => setTabQuery(e.target.value)}
                             placeholder="Search settings…"
-                            className="w-full h-9 pl-9 pr-8 rounded-lg bg-white/[0.04] border border-white/10 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-sky-500/40 focus:bg-white/[0.06] transition-colors"
+                            className="w-full h-9 pl-9 pr-8 rounded-lg bg-white/4 border border-white/10 text-xs text-white placeholder-slate-500 focus:outline-hidden focus:border-sky-500/40 focus:bg-white/6 transition-colors"
                             aria-label="Search settings tabs"
                         />
                         {tabQuery && (
@@ -626,10 +626,10 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                         <div
                             className={`rounded-xl p-4 border ${
                                 PUBLIC_BETA_ACCESS.enabled
-                                    ? 'bg-gradient-to-br from-cyan-500/15 to-sky-500/10 border-cyan-300/25'
+                                    ? 'bg-linear-to-br from-cyan-500/15 to-sky-500/10 border-cyan-300/25'
                                     : hasPaidPlan
-                                      ? 'bg-gradient-to-br from-sky-500/20 to-purple-500/20 border-sky-500/30'
-                                      : 'bg-white/[0.03] border-white/10'
+                                      ? 'bg-linear-to-br from-sky-500/20 to-purple-500/20 border-sky-500/30'
+                                      : 'bg-white/3 border-white/10'
                             }`}
                         >
                             <div className="flex items-center gap-2 mb-2">
@@ -701,7 +701,7 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                                     </button>
                                 )}
                                 <div>
-                                    <h2 className="settings-title text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-white to-sky-300 flex items-center gap-3">
+                                    <h2 className="settings-title text-2xl font-black text-transparent bg-clip-text bg-linear-to-r from-white to-sky-300 flex items-center gap-3">
                                         <GearIcon className="w-6 h-6 text-sky-400" />
                                         SETTINGS
                                     </h2>
@@ -741,7 +741,7 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                                     value={tabQuery}
                                     onChange={(e) => setTabQuery(e.target.value)}
                                     placeholder="Search settings…"
-                                    className="w-full h-11 pl-9 pr-9 rounded-xl bg-white/[0.04] border border-white/10 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-sky-500/40 focus:bg-white/[0.06] transition-colors"
+                                    className="w-full h-11 pl-9 pr-9 rounded-xl bg-white/4 border border-white/10 text-sm text-white placeholder-slate-500 focus:outline-hidden focus:border-sky-500/40 focus:bg-white/6 transition-colors"
                                     aria-label="Search settings tabs"
                                 />
                                 {tabQuery && (
@@ -779,7 +779,7 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                                         aria-label={`Open ${item.label} settings`}
                                         key={item.id}
                                         onClick={() => handleSelectTab(item.id)}
-                                        className="group w-full flex items-center gap-4 p-4 rounded-2xl bg-white/[0.03] border border-white/5 hover:bg-white/[0.07] hover:border-white/10 transition-all duration-300 active:scale-[0.98] text-left"
+                                        className="group w-full flex items-center gap-4 p-4 rounded-2xl bg-white/3 border border-white/5 hover:bg-white/[0.07] hover:border-white/10 transition-all duration-300 active:scale-[0.98] text-left"
                                     >
                                         <div
                                             className={`p-3 rounded-xl ${item.iconBg} ${item.iconHoverBg} group-hover:scale-110 transition-all duration-300 shadow-lg`}
@@ -806,7 +806,7 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                                             aria-label={`Open ${item.label} settings`}
                                             key={item.id}
                                             onClick={() => handleSelectTab(item.id)}
-                                            className="group w-full flex items-center gap-4 p-4 rounded-2xl bg-white/[0.03] border border-white/5 hover:bg-white/[0.07] hover:border-white/10 transition-all duration-300 active:scale-[0.98] text-left"
+                                            className="group w-full flex items-center gap-4 p-4 rounded-2xl bg-white/3 border border-white/5 hover:bg-white/[0.07] hover:border-white/10 transition-all duration-300 active:scale-[0.98] text-left"
                                         >
                                             <div
                                                 className={`p-3 rounded-xl ${item.iconBg} ${item.iconHoverBg} group-hover:scale-110 transition-all duration-300 shadow-lg`}

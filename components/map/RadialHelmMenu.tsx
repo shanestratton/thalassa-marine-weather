@@ -826,7 +826,7 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
     return (
         <div
             ref={containerRef}
-            className={`radial-helm-menu absolute z-[700] top-[192px] right-[16px] ${isOpen ? 'pointer-events-auto' : ''}`}
+            className={`radial-helm-menu absolute z-700 top-[192px] right-[16px] ${isOpen ? 'pointer-events-auto' : ''}`}
             onKeyDown={handleMenuKeyDown}
             onPointerDown={handleContainerPointerDown}
             onPointerMove={handlePointerMove}
@@ -985,7 +985,7 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
                                                         ? 'bg-sky-500/20 border-sky-400/50 text-white'
                                                         : hovered
                                                           ? 'bg-white/10 border-white/25 text-white'
-                                                          : 'bg-slate-800/70 border-white/[0.08] text-gray-300'
+                                                          : 'bg-slate-800/70 border-white/8 text-gray-300'
                                                 }`}
                                                 whileHover={{ scale: 1.04 }}
                                                 whileTap={{ scale: 0.94 }}
@@ -1089,7 +1089,7 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
                                             ? `bg-slate-800/90 border-white/20 ${cat.color}`
                                             : hasActive
                                               ? `bg-slate-900/80 border-white/10 ${cat.color}`
-                                              : 'bg-slate-900/70 border-white/[0.08] text-gray-500'
+                                              : 'bg-slate-900/70 border-white/8 text-gray-500'
                                     } backdrop-blur-xl`}
                                     style={{
                                         width: 60,
@@ -1137,7 +1137,7 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
                 transition={SPRING_TIGHT}
                 onClick={handleTap}
                 onPointerDown={handlePointerDown}
-                className="relative w-12 h-12 rounded-2xl bg-slate-900/90 backdrop-blur-xl border border-white/[0.08] flex items-center justify-center shadow-2xl hover:bg-slate-800/90 transition-colors active:scale-95"
+                className="relative w-12 h-12 rounded-2xl bg-slate-900/90 backdrop-blur-xl border border-white/8 flex items-center justify-center shadow-2xl hover:bg-slate-800/90 transition-colors active:scale-95"
                 style={{ touchAction: 'none' }}
             >
                 <HelmWheelIcon isOpen={isOpen} />

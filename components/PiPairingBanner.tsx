@@ -92,7 +92,7 @@ export const PiPairingBanner: React.FC = () => {
         <div
             role="status"
             aria-live="polite"
-            className="pointer-events-auto fixed inset-x-0 z-[880] mx-auto w-[min(420px,calc(100vw-24px))] rounded-2xl border border-sky-400/30 bg-slate-950/95 p-3 shadow-2xl backdrop-blur-xl"
+            className="pointer-events-auto fixed inset-x-0 z-880 mx-auto w-[min(420px,calc(100vw-24px))] rounded-2xl border border-sky-400/30 bg-slate-950/95 p-3 shadow-2xl backdrop-blur-xl"
             style={{ bottom: 'calc(env(safe-area-inset-bottom) + 88px)' }}
         >
             <p className="text-[13px] font-black leading-snug text-white">Pair with {offer.info.boatName}?</p>
@@ -121,7 +121,7 @@ export const PiPairingBanner: React.FC = () => {
                         triggerHaptic('light');
                         setDismissed(true);
                     }}
-                    className="min-h-[40px] rounded-xl border border-white/10 px-4 text-[12px] font-bold text-slate-300 transition-colors hover:bg-white/[0.06]"
+                    className="min-h-[40px] rounded-xl border border-white/10 px-4 text-[12px] font-bold text-slate-300 transition-colors hover:bg-white/6"
                 >
                     Not now
                 </button>

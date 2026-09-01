@@ -244,7 +244,7 @@ export const SoundCheckModal: React.FC<SoundCheckModalProps> = React.memo(({ onC
 
     return createPortal(
         <div
-            className="anchor-sound-check-backdrop fixed inset-0 z-[9999] bg-black/80 flex items-center justify-center p-6"
+            className="anchor-sound-check-backdrop fixed inset-0 z-9999 bg-black/80 flex items-center justify-center p-6"
             onClick={handleCancel}
             role="presentation"
         >
@@ -253,7 +253,7 @@ export const SoundCheckModal: React.FC<SoundCheckModalProps> = React.memo(({ onC
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby="sound-check-title"
-                className="anchor-sound-check-dialog flex w-full max-w-sm max-h-[calc(100dvh-3rem)] flex-col bg-slate-900/95 border border-white/[0.08] rounded-2xl shadow-2xl overflow-hidden"
+                className="anchor-sound-check-dialog flex w-full max-w-sm max-h-[calc(100dvh-3rem)] flex-col bg-slate-900/95 border border-white/8 rounded-2xl shadow-2xl overflow-hidden"
                 onClick={(e) => e.stopPropagation()}
             >
                 <div className="anchor-sound-check-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain">
@@ -270,7 +270,7 @@ export const SoundCheckModal: React.FC<SoundCheckModalProps> = React.memo(({ onC
 
                     {/* Checklist */}
                     <div className="px-5 pb-4 space-y-2.5">
-                        <div className="bg-emerald-500/[0.06] border border-emerald-500/10 rounded-xl px-3.5 py-3">
+                        <div className="bg-emerald-500/6 border border-emerald-500/10 rounded-xl px-3.5 py-3">
                             <div className="flex items-start gap-3">
                                 <span className="text-lg mt-0.5">🔊</span>
                                 <div className="min-w-0 flex-1">
@@ -341,7 +341,7 @@ export const SoundCheckModal: React.FC<SoundCheckModalProps> = React.memo(({ onC
                             )}
                         </div>
 
-                        <div className="flex items-start gap-3 bg-amber-500/[0.06] border border-amber-500/10 rounded-xl px-3.5 py-2.5">
+                        <div className="flex items-start gap-3 bg-amber-500/6 border border-amber-500/10 rounded-xl px-3.5 py-2.5">
                             <span className="text-lg mt-0.5">🔔</span>
                             <div>
                                 <p className="text-sm font-bold text-amber-400">Volume &amp; Focus</p>
@@ -352,7 +352,7 @@ export const SoundCheckModal: React.FC<SoundCheckModalProps> = React.memo(({ onC
                             </div>
                         </div>
 
-                        <div className="flex items-start gap-3 bg-sky-500/[0.06] border border-sky-500/10 rounded-xl px-3.5 py-2.5">
+                        <div className="flex items-start gap-3 bg-sky-500/6 border border-sky-500/10 rounded-xl px-3.5 py-2.5">
                             <span className="text-lg mt-0.5">📱</span>
                             <div className="min-w-0 flex-1">
                                 <p className="text-sm font-bold text-sky-400">
@@ -413,7 +413,7 @@ export const SoundCheckModal: React.FC<SoundCheckModalProps> = React.memo(({ onC
                 </div>
 
                 {/* Actions */}
-                <div className="anchor-sound-check-actions shrink-0 border-t border-white/[0.06] bg-slate-950/95 px-5 pt-3 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
+                <div className="anchor-sound-check-actions shrink-0 border-t border-white/6 bg-slate-950/95 px-5 pt-3 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
                     <div className="flex gap-2.5">
                         <Button
                             ref={cancelButtonRef}
@@ -435,7 +435,7 @@ export const SoundCheckModal: React.FC<SoundCheckModalProps> = React.memo(({ onC
                             onClick={handleConfirm}
                             disabled={!alarmAudibilityConfirmed || notificationBlocked || audioCleanupBlocked}
                             aria-describedby={confirmRequirementIds || undefined}
-                            className="flex-[2] py-3 rounded-xl text-white text-sm font-black transition-all active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40 disabled:active:scale-100"
+                            className="flex-2 py-3 rounded-xl text-white text-sm font-black transition-all active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40 disabled:active:scale-100"
                             style={{
                                 background: 'linear-gradient(135deg, #f97316 0%, #ea580c 100%)',
                                 boxShadow: '0 4px 16px rgba(249,115,22,0.3)',

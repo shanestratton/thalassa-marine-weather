@@ -1261,7 +1261,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                         // Centred, not a bottom sheet: anchored low it slid its second
                         // option under the tab bar, and a question with one visible answer
                         // is not a question (Shane, 2026-08-31).
-                        className="fixed inset-0 z-[1200] flex items-center justify-center bg-black/80 p-6"
+                        className="fixed inset-0 z-1200 flex items-center justify-center bg-black/80 p-6"
                         role="dialog"
                         aria-modal="true"
                     >

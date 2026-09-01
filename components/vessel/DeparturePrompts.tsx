@@ -106,7 +106,7 @@ export const DeparturePrompts: React.FC = () => {
                 deep-menu toggle isn't the only way to opt in. */}
             {sharePrompt && sharePrompt === voyageId && (
                 <div
-                    className="fixed left-4 right-4 z-[9991] animate-slide-up"
+                    className="fixed left-4 right-4 z-9991 animate-slide-up"
                     style={{ bottom: 'calc(9rem + env(safe-area-inset-bottom))' }}
                 >
                     <div className="bg-slate-800 border border-emerald-500/30 rounded-2xl px-4 py-3 shadow-2xl shadow-black/50">

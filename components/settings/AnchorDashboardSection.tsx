@@ -147,14 +147,14 @@ export const AnchorDashboardSection: React.FC = () => {
                         onClick={() => void test()}
                         disabled={testing}
                         aria-busy={testing}
-                        className="rounded-xl bg-white/[0.06] px-3 py-2 text-[12px] font-bold text-gray-200 active:scale-[0.98] disabled:opacity-60"
+                        className="rounded-xl bg-white/6 px-3 py-2 text-[12px] font-bold text-gray-200 active:scale-[0.98] disabled:opacity-60"
                     >
                         {testing ? 'Testing…' : 'Test connection'}
                     </button>
                     {savedToken && (
                         <button
                             onClick={() => void forget()}
-                            className="rounded-xl bg-white/[0.04] px-3 py-2 text-[12px] font-bold text-gray-400 active:scale-[0.98]"
+                            className="rounded-xl bg-white/4 px-3 py-2 text-[12px] font-bold text-gray-400 active:scale-[0.98]"
                         >
                             Forget
                         </button>

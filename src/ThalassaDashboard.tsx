@@ -272,7 +272,7 @@ export default function ThalassaDashboard() {
         // the map takes every pixel above the reopen bar.
         <div
             className={`flex flex-col ${
-                diaryHidden ? 'h-[100dvh] overflow-hidden' : 'min-h-[100dvh]'
+                diaryHidden ? 'h-dvh overflow-hidden' : 'min-h-dvh'
             } md:h-screen md:overflow-hidden bg-slate-900 text-slate-100 font-sans`}
         >
             <TopNav
@@ -296,9 +296,9 @@ export default function ThalassaDashboard() {
                 a concrete track id below freezes that voyage during polling. */}
             <section
                 aria-label="Voyage selection"
-                className="shrink-0 border-b border-slate-700/80 bg-slate-900/95 px-4 py-2.5 shadow-sm backdrop-blur-md sm:px-6"
+                className="shrink-0 border-b border-slate-700/80 bg-slate-900/95 px-4 py-2.5 shadow-xs backdrop-blur-md sm:px-6"
             >
-                <div className="mx-auto flex max-w-screen-2xl flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div className="mx-auto flex max-w-(--breakpoint-2xl) flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                     <div className="flex min-w-0 items-center gap-2.5">
                         <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-sky-400/25 bg-sky-400/10 text-sm text-sky-300">
                             ⛵
@@ -319,7 +319,7 @@ export default function ThalassaDashboard() {
                         </div>
                     </div>
 
-                    <label className="group flex min-w-0 items-center gap-2 sm:w-[25rem]" aria-busy={isTripLoading}>
+                    <label className="group flex min-w-0 items-center gap-2 sm:w-100" aria-busy={isTripLoading}>
                         <span className="shrink-0 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">
                             Viewing
                         </span>
@@ -329,7 +329,7 @@ export default function ThalassaDashboard() {
                                 onChange={handleTripChange}
                                 disabled={isTripLoading}
                                 aria-label="Choose a voyage to view"
-                                className="h-9 w-full appearance-none rounded-lg border border-slate-600/90 bg-slate-800 px-3 pr-9 text-left text-xs font-semibold text-slate-100 outline-none transition-colors hover:border-sky-400/60 focus:border-sky-400 focus:ring-2 focus:ring-sky-400/20 disabled:cursor-wait disabled:opacity-80"
+                                className="h-9 w-full appearance-none rounded-lg border border-slate-600/90 bg-slate-800 px-3 pr-9 text-left text-xs font-semibold text-slate-100 outline-hidden transition-colors hover:border-sky-400/60 focus:border-sky-400 focus:ring-2 focus:ring-sky-400/20 disabled:cursor-wait disabled:opacity-80"
                             >
                                 <option value="latest">{latestOptionLabel}</option>
                                 {trips.some((trip) => trip.kind === 'track') && (

@@ -243,7 +243,7 @@ export const DepartureSweepSheet: React.FC<DepartureSweepSheetProps> = ({
             <div
                 role="presentation"
                 onClick={onClose}
-                className="absolute inset-0 bg-black/70 backdrop-blur-sm animate-in fade-in duration-200"
+                className="absolute inset-0 bg-black/70 backdrop-blur-xs animate-in fade-in duration-200"
             />
 
             {/* Centred per the standing modal rule (Shane 2026-09-02: "all modal boxes centered on the punters screen"). */}
@@ -254,12 +254,12 @@ export const DepartureSweepSheet: React.FC<DepartureSweepSheetProps> = ({
                 aria-labelledby="departure-sweep-title"
                 className="relative w-full max-w-2xl max-h-full flex flex-col bg-slate-950 border border-white/10 rounded-3xl shadow-2xl animate-in fade-in duration-200"
             >
-                <div className="flex-shrink-0 pt-2 pb-1 flex justify-center">
+                <div className="shrink-0 pt-2 pb-1 flex justify-center">
                     <div className="w-12 h-1 rounded-full bg-white/20" />
                 </div>
 
                 {/* Header */}
-                <div className="flex-shrink-0 px-5 pt-2 pb-4 border-b border-white/5">
+                <div className="shrink-0 px-5 pt-2 pb-4 border-b border-white/5">
                     <div className="flex items-start justify-between gap-3">
                         <div className="flex-1 min-w-0">
                             <h2 id="departure-sweep-title" className="text-base font-bold text-white">
@@ -274,7 +274,7 @@ export const DepartureSweepSheet: React.FC<DepartureSweepSheetProps> = ({
                             onClick={onClose}
                             type="button"
                             aria-label="Close"
-                            className="shrink-0 min-w-[44px] min-h-[44px] -mr-2 -mt-1 flex items-center justify-center text-slate-400 hover:text-white rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
+                            className="shrink-0 min-w-[44px] min-h-[44px] -mr-2 -mt-1 flex items-center justify-center text-slate-400 hover:text-white rounded-lg focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-sky-400"
                         >
                             <svg
                                 className="w-5 h-5"
@@ -310,7 +310,7 @@ export const DepartureSweepSheet: React.FC<DepartureSweepSheetProps> = ({
 
                 {/* Best pick + sparkline */}
                 {!loading && best && (
-                    <div className="flex-shrink-0 px-5 pt-3 pb-1">
+                    <div className="shrink-0 px-5 pt-3 pb-1">
                         <div className="rounded-xl bg-emerald-500/10 border border-emerald-500/30 p-3">
                             <div className="flex items-center justify-between gap-2 mb-1">
                                 <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400">
@@ -353,7 +353,7 @@ export const DepartureSweepSheet: React.FC<DepartureSweepSheetProps> = ({
                         <ul className="space-y-2">
                             {Array.from({ length: 5 }, (_, i) => (
                                 <li key={i}>
-                                    <div className="rounded-xl border border-white/10 bg-white/[0.04] h-[52px] animate-pulse" />
+                                    <div className="rounded-xl border border-white/10 bg-white/4 h-[52px] animate-pulse" />
                                 </li>
                             ))}
                         </ul>

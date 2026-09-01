@@ -103,7 +103,7 @@ export const ExportSheet: React.FC<ExportSheetProps> = ({
                         className={`w-full flex items-center gap-4 p-5 rounded-2xl border active:scale-[0.98] transition-all relative overflow-hidden ${
                             hasNonDeviceEntries || isExportingPDF
                                 ? 'bg-slate-800/30 border-slate-700/30 cursor-not-allowed opacity-50'
-                                : 'bg-gradient-to-r from-sky-500/15 to-sky-600/5 border-sky-500/20 hover:border-sky-400/40'
+                                : 'bg-linear-to-r from-sky-500/15 to-sky-600/5 border-sky-500/20 hover:border-sky-400/40'
                         }`}
                     >
                         <div className="w-14 h-14 rounded-xl bg-sky-500/20 flex items-center justify-center shrink-0">
@@ -163,7 +163,7 @@ export const ExportSheet: React.FC<ExportSheetProps> = ({
                         className={`w-full flex items-center gap-4 p-5 rounded-2xl border active:scale-[0.98] transition-all relative overflow-hidden ${
                             isExportingGPX
                                 ? 'bg-slate-800/30 border-slate-700/30 cursor-not-allowed opacity-50'
-                                : 'bg-gradient-to-r from-emerald-500/15 to-emerald-600/5 border-emerald-500/20 hover:border-emerald-400/40'
+                                : 'bg-linear-to-r from-emerald-500/15 to-emerald-600/5 border-emerald-500/20 hover:border-emerald-400/40'
                         }`}
                     >
                         <div className="w-14 h-14 rounded-xl bg-emerald-500/20 flex items-center justify-center shrink-0">

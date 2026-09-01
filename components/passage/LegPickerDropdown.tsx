@@ -323,7 +323,7 @@ function buildTripFromDraftChain(chain: Voyage[]): UiTrip {
 const BADGE_STYLE: Record<UiTrip['badge'], string> = {
     active: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/25',
     draft: 'bg-sky-500/10 text-sky-300 border-sky-500/20',
-    new: 'bg-white/[0.05] text-gray-300 border-white/10',
+    new: 'bg-white/5 text-gray-300 border-white/10',
 };
 
 const BADGE_LABEL: Record<UiTrip['badge'], string> = {
@@ -707,7 +707,7 @@ export const LegPickerDropdown: React.FC<LegPickerDropdownProps> = ({
                             setLegOpen(false);
                             triggerHaptic('light');
                         }}
-                        className="w-full h-11 bg-amber-500/[0.04] border border-amber-500/20 hover:border-amber-500/40 rounded-xl px-4 text-sm text-amber-100 font-medium outline-none transition-all flex items-center justify-between gap-2"
+                        className="w-full h-11 bg-amber-500/4 border border-amber-500/20 hover:border-amber-500/40 rounded-xl px-4 text-sm text-amber-100 font-medium outline-hidden transition-all flex items-center justify-between gap-2"
                         aria-haspopup="listbox"
                         aria-expanded={tripOpen}
                     >
@@ -748,10 +748,10 @@ export const LegPickerDropdown: React.FC<LegPickerDropdownProps> = ({
                                     role="option"
                                     aria-selected={tripId === t.id}
                                     onClick={() => pickTrip(t)}
-                                    className={`w-full px-4 py-2.5 text-left text-sm border-b border-white/[0.04] last:border-b-0 transition-colors flex items-center gap-2 ${
+                                    className={`w-full px-4 py-2.5 text-left text-sm border-b border-white/4 last:border-b-0 transition-colors flex items-center gap-2 ${
                                         tripId === t.id
-                                            ? 'bg-amber-500/[0.08] text-amber-200'
-                                            : 'text-white hover:bg-white/[0.05]'
+                                            ? 'bg-amber-500/8 text-amber-200'
+                                            : 'text-white hover:bg-white/5'
                                     }`}
                                 >
                                     <span className="truncate flex-1">{t.name}</span>
@@ -776,7 +776,7 @@ export const LegPickerDropdown: React.FC<LegPickerDropdownProps> = ({
                         setTripOpen(false);
                         triggerHaptic('light');
                     }}
-                    className="w-full h-11 bg-amber-500/[0.06] border border-amber-500/20 hover:border-amber-500/40 rounded-xl px-4 text-sm text-amber-200 font-medium outline-none transition-all flex items-center justify-between gap-2"
+                    className="w-full h-11 bg-amber-500/6 border border-amber-500/20 hover:border-amber-500/40 rounded-xl px-4 text-sm text-amber-200 font-medium outline-hidden transition-all flex items-center justify-between gap-2"
                     aria-haspopup="listbox"
                     aria-expanded={legOpen}
                 >
@@ -828,12 +828,12 @@ export const LegPickerDropdown: React.FC<LegPickerDropdownProps> = ({
                                     role="option"
                                     aria-selected={isSelected}
                                     onClick={() => pickLeg(l)}
-                                    className={`w-full px-4 py-2.5 text-left text-sm border-b border-white/[0.04] last:border-b-0 transition-colors flex items-center gap-2 ${
+                                    className={`w-full px-4 py-2.5 text-left text-sm border-b border-white/4 last:border-b-0 transition-colors flex items-center gap-2 ${
                                         isSelected
-                                            ? 'bg-amber-500/[0.08] text-amber-200'
+                                            ? 'bg-amber-500/8 text-amber-200'
                                             : isFuture
-                                              ? 'text-amber-300 hover:bg-amber-500/[0.06] font-bold'
-                                              : 'text-white hover:bg-white/[0.05]'
+                                              ? 'text-amber-300 hover:bg-amber-500/6 font-bold'
+                                              : 'text-white hover:bg-white/5'
                                     }`}
                                 >
                                     <span className="truncate flex-1">{summary}</span>

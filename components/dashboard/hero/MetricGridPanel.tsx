@@ -70,17 +70,17 @@ export const MetricGridPanel: React.FC<MetricGridPanelProps> = ({ widgets, getVa
     return (
         <>
             {/* TOP ROW */}
-            <div className="w-full grid grid-cols-3 divide-x divide-white/[0.12] flex-1 min-h-0">
+            <div className="w-full grid grid-cols-3 divide-x divide-white/12 flex-1 min-h-0">
                 {topRow.map((w) => (
                     <MetricCell key={w.id} w={w} value={getValue(w.id)} unit={getUnit(w.id)} />
                 ))}
             </div>
 
             {/* Horizontal divider */}
-            <div className="w-full h-px bg-white/[0.12] shrink-0" />
+            <div className="w-full h-px bg-white/12 shrink-0" />
 
             {/* BOTTOM ROW */}
-            <div className="w-full grid grid-cols-3 divide-x divide-white/[0.12] flex-1 min-h-0">
+            <div className="w-full grid grid-cols-3 divide-x divide-white/12 flex-1 min-h-0">
                 {bottomRow.map((w) => (
                     <MetricCell key={w.id} w={w} value={getValue(w.id)} unit={getUnit(w.id)} />
                 ))}

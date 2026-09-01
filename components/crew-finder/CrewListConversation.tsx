@@ -81,7 +81,7 @@ export const CrewListConversation: React.FC<CrewListConversationProps> = React.m
 
         return (
             <section
-                className="flex min-h-[100dvh] min-w-0 flex-col bg-[#050a18] text-white"
+                className="flex min-h-dvh min-w-0 flex-col bg-[#050a18] text-white"
                 aria-label={`Private conversation with ${partnerName}`}
             >
                 <header className="sticky top-0 z-10 border-b border-white/[0.07] bg-[#050a18]/95 px-4 py-3 backdrop-blur-xl">
@@ -90,7 +90,7 @@ export const CrewListConversation: React.FC<CrewListConversationProps> = React.m
                             type="button"
                             onClick={onBack}
                             aria-label="Back to Crew List introductions"
-                            className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl border border-white/[0.08] bg-white/[0.03] text-white/80 transition-colors hover:bg-white/[0.07] focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-300/70 active:scale-[0.97]"
+                            className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl border border-white/8 bg-white/3 text-white/80 transition-colors hover:bg-white/[0.07] focus:outline-hidden focus-visible:ring-2 focus-visible:ring-sky-300/70 active:scale-[0.97]"
                         >
                             <svg
                                 aria-hidden="true"
@@ -118,7 +118,7 @@ export const CrewListConversation: React.FC<CrewListConversationProps> = React.m
 
                 <div className="mx-auto w-full max-w-2xl flex-1 px-4 py-4">
                     <aside
-                        className="mb-5 rounded-2xl border border-sky-400/15 bg-sky-500/[0.06] px-3.5 py-3"
+                        className="mb-5 rounded-2xl border border-sky-400/15 bg-sky-500/6 px-3.5 py-3"
                         aria-label="Conversation safety guidance"
                     >
                         <div className="flex gap-2.5">
@@ -145,7 +145,7 @@ export const CrewListConversation: React.FC<CrewListConversationProps> = React.m
                         </div>
                     ) : unavailable ? (
                         <div className="flex min-h-[260px] flex-col items-center justify-center px-6 text-center">
-                            <div className="flex h-16 w-16 items-center justify-center rounded-3xl border border-amber-400/20 bg-amber-500/[0.08] text-3xl">
+                            <div className="flex h-16 w-16 items-center justify-center rounded-3xl border border-amber-400/20 bg-amber-500/8 text-3xl">
                                 🔒
                             </div>
                             <h2 className="mt-4 text-base font-black text-white/90">Conversation unavailable</h2>
@@ -156,7 +156,7 @@ export const CrewListConversation: React.FC<CrewListConversationProps> = React.m
                         </div>
                     ) : messages.length === 0 ? (
                         <div className="flex min-h-[260px] flex-col items-center justify-center px-6 text-center">
-                            <div className="flex h-16 w-16 items-center justify-center rounded-3xl border border-emerald-400/15 bg-emerald-500/[0.08] text-3xl">
+                            <div className="flex h-16 w-16 items-center justify-center rounded-3xl border border-emerald-400/15 bg-emerald-500/8 text-3xl">
                                 👋
                             </div>
                             <h2 className="mt-4 text-base font-black text-white/90">A calm place to start</h2>
@@ -179,13 +179,13 @@ export const CrewListConversation: React.FC<CrewListConversationProps> = React.m
                                 return (
                                     <li key={message.id} className={`flex ${isMine ? 'justify-end' : 'justify-start'}`}>
                                         <article
-                                            className={`max-w-[84%] rounded-2xl px-3.5 py-2.5 shadow-sm ${
+                                            className={`max-w-[84%] rounded-2xl px-3.5 py-2.5 shadow-xs ${
                                                 isMine
-                                                    ? 'rounded-br-md border border-sky-300/20 bg-sky-500/[0.18] text-sky-50'
-                                                    : 'rounded-bl-md border border-white/[0.08] bg-white/[0.045] text-white/80'
+                                                    ? 'rounded-br-md border border-sky-300/20 bg-sky-500/18 text-sky-50'
+                                                    : 'rounded-bl-md border border-white/8 bg-white/4.5 text-white/80'
                                             }`}
                                         >
-                                            <p className="whitespace-pre-wrap break-words text-sm leading-relaxed">
+                                            <p className="whitespace-pre-wrap wrap-break-word text-sm leading-relaxed">
                                                 {message.message}
                                             </p>
                                             {sentAt && (
@@ -228,13 +228,13 @@ export const CrewListConversation: React.FC<CrewListConversationProps> = React.m
                                 disabled={loading || sending || unavailable}
                                 rows={1}
                                 placeholder={`Message ${partnerName}…`}
-                                className="max-h-32 min-h-[48px] flex-1 resize-none rounded-2xl border border-white/[0.09] bg-white/[0.045] px-3.5 py-3 text-sm leading-5 text-white placeholder:text-white/50 transition-colors focus:outline-none focus-visible:border-sky-300/50 focus-visible:ring-2 focus-visible:ring-sky-300/20 disabled:cursor-not-allowed disabled:opacity-55"
+                                className="max-h-32 min-h-[48px] flex-1 resize-none rounded-2xl border border-white/9 bg-white/4.5 px-3.5 py-3 text-sm leading-5 text-white placeholder:text-white/50 transition-colors focus:outline-hidden focus-visible:border-sky-300/50 focus-visible:ring-2 focus-visible:ring-sky-300/20 disabled:cursor-not-allowed disabled:opacity-55"
                             />
                             <button
                                 type="submit"
                                 disabled={!canSend}
                                 aria-label={sending ? 'Sending message' : `Send message to ${partnerName}`}
-                                className="flex min-h-[48px] min-w-[48px] items-center justify-center rounded-2xl border border-sky-300/25 bg-gradient-to-br from-sky-500 to-cyan-500 text-white shadow-lg shadow-sky-500/20 transition-all hover:from-sky-400 hover:to-cyan-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-200/80 active:scale-[0.94] disabled:cursor-not-allowed disabled:border-white/[0.06] disabled:from-white/[0.08] disabled:to-white/[0.05] disabled:text-white/50 disabled:shadow-none"
+                                className="flex min-h-[48px] min-w-[48px] items-center justify-center rounded-2xl border border-sky-300/25 bg-linear-to-br from-sky-500 to-cyan-500 text-white shadow-lg shadow-sky-500/20 transition-all hover:from-sky-400 hover:to-cyan-400 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-sky-200/80 active:scale-[0.94] disabled:cursor-not-allowed disabled:border-white/6 disabled:from-white/8 disabled:to-white/5 disabled:text-white/50 disabled:shadow-none"
                             >
                                 {sending ? (
                                     <span

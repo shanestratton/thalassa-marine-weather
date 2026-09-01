@@ -68,7 +68,7 @@ export const SavedRoutePicker: React.FC<SavedRoutePickerProps> = ({ rows, select
                     triggerHaptic('light');
                     setOpen(true);
                 }}
-                className="w-full flex items-center justify-between gap-2 bg-white/[0.06] border border-white/[0.12] rounded-lg px-3 py-2.5 text-sm text-left focus:outline-none focus:border-violet-500/40"
+                className="w-full flex items-center justify-between gap-2 bg-white/6 border border-white/12 rounded-lg px-3 py-2.5 text-sm text-left focus:outline-hidden focus:border-violet-500/40"
             >
                 <span className={selected ? 'text-white' : 'text-gray-400'}>
                     {selected ? [selected.name, selected.legBadge].filter(Boolean).join(' ') : 'Choose a saved route…'}
@@ -87,7 +87,7 @@ export const SavedRoutePicker: React.FC<SavedRoutePickerProps> = ({ rows, select
 
             {open && (
                 <OverlayPortal>
-                    <div className="fixed inset-0 z-[10050] flex items-center justify-center p-4">
+                    <div className="fixed inset-0 z-10050 flex items-center justify-center p-4">
                         <button
                             type="button"
                             aria-label="Close saved routes"
@@ -101,7 +101,7 @@ export const SavedRoutePicker: React.FC<SavedRoutePickerProps> = ({ rows, select
                             aria-label="Saved Routes"
                             className="relative w-full max-w-lg max-h-[75vh] flex flex-col rounded-3xl border border-white/10 bg-slate-900 shadow-2xl shadow-black/60"
                         >
-                            <div className="flex items-center justify-between px-5 pt-4 pb-3 border-b border-white/[0.06]">
+                            <div className="flex items-center justify-between px-5 pt-4 pb-3 border-b border-white/6">
                                 <div>
                                     <p className="text-[11px] font-black uppercase tracking-[0.2em] text-violet-300">
                                         Saved Routes
@@ -133,7 +133,7 @@ export const SavedRoutePicker: React.FC<SavedRoutePickerProps> = ({ rows, select
                                         triggerHaptic('light');
                                         choose('');
                                     }}
-                                    className="w-full flex items-center gap-3 rounded-xl border border-white/[0.08] bg-white/[0.02] px-3 py-2.5 text-left text-xs font-bold text-gray-400 hover:bg-white/[0.05]"
+                                    className="w-full flex items-center gap-3 rounded-xl border border-white/8 bg-white/2 px-3 py-2.5 text-left text-xs font-bold text-gray-400 hover:bg-white/5"
                                 >
                                     <span aria-hidden="true">✕</span>
                                     <span>Clear selection</span>

@@ -133,14 +133,14 @@ export const NmeaReconnectBanner: React.FC = () => {
 
     return (
         <div
-            className={`fixed top-0 left-0 right-0 z-[9999] transition-transform duration-300 ease-out ${
+            className={`fixed top-0 left-0 right-0 z-9999 transition-transform duration-300 ease-out ${
                 visible ? 'translate-y-0' : '-translate-y-full'
             }`}
         >
-            <div className="bg-gradient-to-r from-red-600 to-red-700 px-4 py-3 flex items-center justify-center gap-3 shadow-2xl shadow-red-500/30">
+            <div className="bg-linear-to-r from-red-600 to-red-700 px-4 py-3 flex items-center justify-center gap-3 shadow-2xl shadow-red-500/30">
                 {/* Pulsing warning icon */}
                 <svg
-                    className="w-5 h-5 text-white animate-pulse flex-shrink-0"
+                    className="w-5 h-5 text-white animate-pulse shrink-0"
                     fill="none"
                     viewBox="0 0 24 24"
                     stroke="currentColor"
@@ -161,7 +161,7 @@ export const NmeaReconnectBanner: React.FC = () => {
                 </div>
 
                 {/* Spinning reconnect indicator */}
-                <div className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin flex-shrink-0" />
+                <div className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin shrink-0" />
             </div>
 
             {/* Stale data time indicator */}

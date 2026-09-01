@@ -104,7 +104,7 @@ export const ShareFormSheet: React.FC<ShareFormSheetProps> = ({
                     )}
 
                     {/* Share Track Form */}
-                    <div className="rounded-2xl bg-gradient-to-b from-purple-500/10 to-slate-900/80 border border-purple-500/20 p-4 space-y-3">
+                    <div className="rounded-2xl bg-linear-to-b from-purple-500/10 to-slate-900/80 border border-purple-500/20 p-4 space-y-3">
                         <div>
                             <label
                                 htmlFor="share-title"
@@ -116,7 +116,7 @@ export const ShareFormSheet: React.FC<ShareFormSheetProps> = ({
                                 id="share-title"
                                 type="text"
                                 placeholder={shareAutoTitle || 'e.g. "Moreton Bay Anchorage"'}
-                                className="w-full px-3 py-2.5 rounded-xl bg-slate-800/80 border border-white/10 text-white placeholder-slate-500 text-sm font-medium focus:outline-none focus:border-purple-500/50 focus:ring-1 focus:ring-violet-500/30 transition-all"
+                                className="w-full px-3 py-2.5 rounded-xl bg-slate-800/80 border border-white/10 text-white placeholder-slate-500 text-sm font-medium focus:outline-hidden focus:border-purple-500/50 focus:ring-1 focus:ring-violet-500/30 transition-all"
                             />
                         </div>
                         <div>
@@ -130,7 +130,7 @@ export const ShareFormSheet: React.FC<ShareFormSheetProps> = ({
                                 id="share-description"
                                 rows={2}
                                 placeholder="Brief description of the route, conditions, or points of interest..."
-                                className="w-full px-3 py-2.5 rounded-xl bg-slate-800/80 border border-white/10 text-white placeholder-slate-500 text-sm font-medium focus:outline-none focus:border-purple-500/50 focus:ring-1 focus:ring-violet-500/30 transition-all resize-none"
+                                className="w-full px-3 py-2.5 rounded-xl bg-slate-800/80 border border-white/10 text-white placeholder-slate-500 text-sm font-medium focus:outline-hidden focus:border-purple-500/50 focus:ring-1 focus:ring-violet-500/30 transition-all resize-none"
                             />
                         </div>
                         <div className="flex gap-3">
@@ -144,7 +144,7 @@ export const ShareFormSheet: React.FC<ShareFormSheetProps> = ({
                                 <select
                                     id="share-category"
                                     defaultValue="coastal"
-                                    className="w-full px-3 py-2.5 rounded-xl bg-slate-800/80 border border-white/10 text-white text-sm font-medium focus:outline-none focus:border-purple-500/50 focus:ring-1 focus:ring-violet-500/30 transition-all appearance-none cursor-pointer"
+                                    className="w-full px-3 py-2.5 rounded-xl bg-slate-800/80 border border-white/10 text-white text-sm font-medium focus:outline-hidden focus:border-purple-500/50 focus:ring-1 focus:ring-violet-500/30 transition-all appearance-none cursor-pointer"
                                     style={{
                                         backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%2394a3b8' d='M6 8L1 3h10z'/%3E%3C/svg%3E")`,
                                         backgroundRepeat: 'no-repeat',
@@ -174,7 +174,7 @@ export const ShareFormSheet: React.FC<ShareFormSheetProps> = ({
                                     id="share-region"
                                     defaultValue={shareAutoRegion}
                                     placeholder='e.g. "QLD, Australia"'
-                                    inputClassName="w-full px-3 py-2.5 rounded-xl bg-slate-800/80 border border-white/10 text-white placeholder-slate-500 text-sm font-medium focus:outline-none focus:border-purple-500/50 focus:ring-1 focus:ring-violet-500/30 transition-all"
+                                    inputClassName="w-full px-3 py-2.5 rounded-xl bg-slate-800/80 border border-white/10 text-white placeholder-slate-500 text-sm font-medium focus:outline-hidden focus:border-purple-500/50 focus:ring-1 focus:ring-violet-500/30 transition-all"
                                 />
                             </div>
                         </div>
@@ -202,7 +202,7 @@ export const ShareFormSheet: React.FC<ShareFormSheetProps> = ({
                                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                                 onShareToCommunity({ title, description, category: category as any, region });
                             }}
-                            className="w-full py-3 rounded-xl bg-gradient-to-r from-amber-600 to-amber-500 text-white font-bold text-sm tracking-wide shadow-lg shadow-amber-500/20 hover:shadow-amber-500/40 active:scale-[0.98] transition-all"
+                            className="w-full py-3 rounded-xl bg-linear-to-r from-amber-600 to-amber-500 text-white font-bold text-sm tracking-wide shadow-lg shadow-amber-500/20 hover:shadow-amber-500/40 active:scale-[0.98] transition-all"
                         >
                             🚀 Share Track
                         </button>
@@ -212,7 +212,7 @@ export const ShareFormSheet: React.FC<ShareFormSheetProps> = ({
                     <button
                         aria-label="Browse shared tracks"
                         onClick={onShowCommunityBrowser}
-                        className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl bg-gradient-to-r from-sky-500/15 to-sky-600/5 border border-sky-500/20 hover:border-sky-400/40 active:scale-[0.98] transition-all"
+                        className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl bg-linear-to-r from-sky-500/15 to-sky-600/5 border border-sky-500/20 hover:border-sky-400/40 active:scale-[0.98] transition-all"
                     >
                         <div className="w-10 h-10 rounded-xl bg-sky-500/20 flex items-center justify-center shrink-0">
                             <svg className="w-5 h-5 text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">

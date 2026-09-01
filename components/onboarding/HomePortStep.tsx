@@ -68,7 +68,7 @@ export const HomePortStep: React.FC<HomePortStepProps> = ({
                     role="dialog"
                     aria-modal="true"
                     aria-labelledby={mapTitleId}
-                    className="fixed inset-0 z-[150] bg-slate-950 animate-in fade-in duration-200 flex flex-col"
+                    className="fixed inset-0 z-150 bg-slate-950 animate-in fade-in duration-200 flex flex-col"
                 >
                     <div className="flex-1 relative">
                         <Suspense
@@ -94,30 +94,30 @@ export const HomePortStep: React.FC<HomePortStepProps> = ({
                         </Suspense>
 
                         {/* Close button — top-right, glassy */}
-                        <div className="absolute top-[max(1rem,env(safe-area-inset-top))] right-4 z-[160]">
+                        <div className="absolute top-[max(1rem,env(safe-area-inset-top))] right-4 z-160">
                             <button
                                 ref={mapCloseRef}
                                 type="button"
                                 aria-label="Close map"
                                 onClick={closeMap}
-                                className="p-3 bg-slate-900/80 backdrop-blur text-white rounded-full shadow-xl border border-white/15 hover:bg-slate-800 active:scale-95 transition-all"
+                                className="p-3 bg-slate-900/80 backdrop-blur-sm text-white rounded-full shadow-xl border border-white/15 hover:bg-slate-800 active:scale-95 transition-all"
                             >
                                 <XIcon className="w-5 h-5" />
                             </button>
                         </div>
 
                         {/* Title pill — top-center, reinforces intent */}
-                        <div className="absolute top-[max(1.25rem,env(safe-area-inset-top))] left-1/2 -translate-x-1/2 z-[160] pointer-events-none">
+                        <div className="absolute top-[max(1.25rem,env(safe-area-inset-top))] left-1/2 -translate-x-1/2 z-160 pointer-events-none">
                             <div
                                 id={mapTitleId}
-                                className="bg-slate-900/80 backdrop-blur text-white/80 text-xs font-bold uppercase tracking-wider px-4 py-2 rounded-full border border-white/10 shadow-lg"
+                                className="bg-slate-900/80 backdrop-blur-sm text-white/80 text-xs font-bold uppercase tracking-wider px-4 py-2 rounded-full border border-white/10 shadow-lg"
                             >
                                 Tap the chart to pick your home port
                             </div>
                         </div>
 
                         {/* Confirm bar — bottom, only appears once a pin exists */}
-                        <div className="absolute bottom-[max(1.5rem,env(safe-area-inset-bottom))] left-1/2 -translate-x-1/2 z-[160] w-full max-w-sm px-4">
+                        <div className="absolute bottom-[max(1.5rem,env(safe-area-inset-bottom))] left-1/2 -translate-x-1/2 z-160 w-full max-w-sm px-4">
                             {tempLocation ? (
                                 <button
                                     type="button"
@@ -135,7 +135,7 @@ export const HomePortStep: React.FC<HomePortStepProps> = ({
                                     </span>
                                 </button>
                             ) : (
-                                <div className="bg-slate-900/80 backdrop-blur text-white/70 text-xs px-4 py-2.5 rounded-full border border-white/10 pointer-events-none shadow-lg text-center">
+                                <div className="bg-slate-900/80 backdrop-blur-sm text-white/70 text-xs px-4 py-2.5 rounded-full border border-white/10 pointer-events-none shadow-lg text-center">
                                     Tap any location on the chart to drop a pin
                                 </div>
                             )}
@@ -167,7 +167,7 @@ export const HomePortStep: React.FC<HomePortStepProps> = ({
                             onChange={(e) => onPrefixChange(e.target.value)}
                             placeholder="Capt."
                             aria-label="Title or prefix (optional)"
-                            className="col-span-2 w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3.5 text-white focus:border-sky-500 outline-none text-sm font-medium transition-colors placeholder:text-gray-500"
+                            className="col-span-2 w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3.5 text-white focus:border-sky-500 outline-hidden text-sm font-medium transition-colors placeholder:text-gray-500"
                         />
                         <input
                             type="text"
@@ -177,7 +177,7 @@ export const HomePortStep: React.FC<HomePortStepProps> = ({
                             onChange={(e) => onFirstNameChange(e.target.value)}
                             placeholder="First Name *"
                             aria-label="First name (required)"
-                            className="col-span-3 w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3.5 text-white focus:border-sky-500 outline-none text-sm font-medium transition-colors placeholder:text-gray-500"
+                            className="col-span-3 w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3.5 text-white focus:border-sky-500 outline-hidden text-sm font-medium transition-colors placeholder:text-gray-500"
                         />
                     </div>
                     <div className="grid grid-cols-2 gap-3">
@@ -189,7 +189,7 @@ export const HomePortStep: React.FC<HomePortStepProps> = ({
                             onChange={(e) => onLastNameChange(e.target.value)}
                             placeholder="Surname *"
                             aria-label="Surname (required)"
-                            className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3.5 text-white focus:border-sky-500 outline-none text-sm font-medium transition-colors placeholder:text-gray-500"
+                            className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3.5 text-white focus:border-sky-500 outline-hidden text-sm font-medium transition-colors placeholder:text-gray-500"
                         />
                         <input
                             type="text"
@@ -197,7 +197,7 @@ export const HomePortStep: React.FC<HomePortStepProps> = ({
                             onChange={(e) => onNicknameChange(e.target.value)}
                             placeholder="Nickname"
                             aria-label="Nickname (optional)"
-                            className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3.5 text-white focus:border-sky-500 outline-none text-sm font-medium transition-colors placeholder:text-gray-500"
+                            className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3.5 text-white focus:border-sky-500 outline-hidden text-sm font-medium transition-colors placeholder:text-gray-500"
                         />
                     </div>
 
@@ -218,7 +218,7 @@ export const HomePortStep: React.FC<HomePortStepProps> = ({
                             value={homePort}
                             onChange={(e) => onHomePortChange(e.target.value)}
                             placeholder="e.g. Newport, RI"
-                            className="w-full bg-white/5 border border-white/10 rounded-xl pl-4 pr-12 py-4 text-white focus:border-sky-500 outline-none text-lg font-medium transition-colors"
+                            className="w-full bg-white/5 border border-white/10 rounded-xl pl-4 pr-12 py-4 text-white focus:border-sky-500 outline-hidden text-lg font-medium transition-colors"
                         />
                         <div className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400">
                             <SearchIcon className="w-5 h-5" />

@@ -192,7 +192,7 @@ export const ModelComparisonCard: React.FC<ModelComparisonCardProps> = ({ data }
         <div className="space-y-4">
             {/* ── Overall Confidence Banner ── */}
             <div
-                className={`bg-gradient-to-r ${style.bg} ${style.border} border rounded-xl px-4 py-3 flex items-center gap-3`}
+                className={`bg-linear-to-r ${style.bg} ${style.border} border rounded-xl px-4 py-3 flex items-center gap-3`}
             >
                 <span className="text-xl">{style.icon}</span>
                 <div className="flex-1 min-w-0">
@@ -236,7 +236,7 @@ export const ModelComparisonCard: React.FC<ModelComparisonCardProps> = ({ data }
                                 className={`shrink-0 px-3 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition-all border ${
                                     isActive
                                         ? 'bg-white/10 border-white/20 text-white shadow-lg'
-                                        : 'bg-white/[0.03] border-white/[0.06] text-gray-400 hover:text-gray-300 hover:bg-white/[0.06]'
+                                        : 'bg-white/3 border-white/6 text-gray-400 hover:text-gray-300 hover:bg-white/6'
                                 }`}
                             >
                                 <div className="flex items-center gap-1.5">
@@ -253,10 +253,10 @@ export const ModelComparisonCard: React.FC<ModelComparisonCardProps> = ({ data }
 
             {/* ── Active Waypoint Heat Map ── */}
             {wpData && (
-                <div className="bg-white/[0.02] border border-white/[0.06] rounded-2xl overflow-hidden animate-in fade-in duration-200">
+                <div className="bg-white/2 border border-white/6 rounded-2xl overflow-hidden animate-in fade-in duration-200">
                     {/* Waypoint header */}
                     <div
-                        className={`px-4 py-3 flex items-center justify-between border-b border-white/[0.06] bg-gradient-to-r ${wpStyle.bg}`}
+                        className={`px-4 py-3 flex items-center justify-between border-b border-white/6 bg-linear-to-r ${wpStyle.bg}`}
                     >
                         <div className="flex items-center gap-2.5">
                             <span className="text-sm">{wpStyle.icon}</span>
@@ -277,7 +277,7 @@ export const ModelComparisonCard: React.FC<ModelComparisonCardProps> = ({ data }
                     </div>
 
                     {/* Consensus summary bar */}
-                    <div className="px-4 py-3 grid grid-cols-4 gap-2 border-b border-white/[0.06] bg-white/[0.02]">
+                    <div className="px-4 py-3 grid grid-cols-4 gap-2 border-b border-white/6 bg-white/2">
                         <div className="text-center">
                             <div className="text-[11px] text-gray-400 uppercase tracking-widest font-bold mb-0.5">
                                 Wind
@@ -324,7 +324,7 @@ export const ModelComparisonCard: React.FC<ModelComparisonCardProps> = ({ data }
                     </div>
 
                     {/* ── HEAT MAP ROWS — one per model ── */}
-                    <div className="divide-y divide-white/[0.04]">
+                    <div className="divide-y divide-white/4">
                         {wpData.forecasts.map((f, fIdx) => {
                             const pal = MODEL_PALETTE[f.model.name] || DEFAULT_PAL;
                             const sample24 = f.points[Math.min(24, f.points.length - 1)];
@@ -418,7 +418,7 @@ export const ModelComparisonCard: React.FC<ModelComparisonCardProps> = ({ data }
                     </div>
 
                     {/* Time axis label */}
-                    <div className="px-4 py-2 flex justify-between text-[11px] text-gray-500 font-mono border-t border-white/[0.04]">
+                    <div className="px-4 py-2 flex justify-between text-[11px] text-gray-500 font-mono border-t border-white/4">
                         <span>Now</span>
                         <span>+{Math.round(data.forecastHours / 2)}h</span>
                         <span>+{data.forecastHours}h</span>
@@ -439,7 +439,7 @@ export const ModelComparisonCard: React.FC<ModelComparisonCardProps> = ({ data }
                     { label: '35+', cls: 'bg-red-500/60' },
                 ].map((s, i) => (
                     <div key={i} className="flex flex-col items-center gap-0.5">
-                        <div className={`w-5 h-2.5 rounded-sm ${s.cls}`} />
+                        <div className={`w-5 h-2.5 rounded-xs ${s.cls}`} />
                         <span className="text-[10px] text-gray-500 font-mono">{s.label}</span>
                     </div>
                 ))}

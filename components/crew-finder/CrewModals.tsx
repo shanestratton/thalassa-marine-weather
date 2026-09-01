@@ -72,7 +72,7 @@ export const CrewModals: React.FC<CrewModalsProps> = React.memo(
                 {/* Report Modal */}
                 {showReportModal && (
                     <OverlayPortal
-                        className="flex items-center justify-center bg-black/70 backdrop-blur-sm"
+                        className="flex items-center justify-center bg-black/70 backdrop-blur-xs"
                         onClick={() => setShowReportModal(null)}
                         role="presentation"
                     >
@@ -94,7 +94,7 @@ export const CrewModals: React.FC<CrewModalsProps> = React.memo(
                                 aria-label="Reason for reporting this user"
                                 value={reportReason}
                                 onChange={(e) => setReportReason(e.target.value)}
-                                className="w-full bg-white/[0.05] border border-white/10 rounded-xl px-4 py-3 text-sm text-white/70 mb-4 outline-none focus:border-white/20"
+                                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white/70 mb-4 outline-hidden focus:border-white/20"
                             >
                                 <option value="">Select a reason...</option>
                                 <option value="Fake profile">Fake profile</option>
@@ -108,7 +108,7 @@ export const CrewModals: React.FC<CrewModalsProps> = React.memo(
                                     ref={reportCancelRef}
                                     aria-label="Cancel report"
                                     onClick={() => setShowReportModal(null)}
-                                    className="flex-1 py-3 rounded-xl bg-white/[0.05] text-sm text-white/40 font-medium"
+                                    className="flex-1 py-3 rounded-xl bg-white/5 text-sm text-white/40 font-medium"
                                 >
                                     Cancel
                                 </button>
@@ -116,7 +116,7 @@ export const CrewModals: React.FC<CrewModalsProps> = React.memo(
                                     aria-label="Submit report"
                                     onClick={onReport}
                                     disabled={!reportReason}
-                                    className={`flex-1 py-3 rounded-xl text-sm font-bold transition-all ${reportReason ? 'bg-red-500/20 text-red-300 border border-red-500/20' : 'bg-white/[0.03] text-white/40 cursor-not-allowed'}`}
+                                    className={`flex-1 py-3 rounded-xl text-sm font-bold transition-all ${reportReason ? 'bg-red-500/20 text-red-300 border border-red-500/20' : 'bg-white/3 text-white/40 cursor-not-allowed'}`}
                                 >
                                     Submit Report
                                 </button>
@@ -128,7 +128,7 @@ export const CrewModals: React.FC<CrewModalsProps> = React.memo(
                 {/* Introduction note modal — the service implementation stays behind onSuperLike. */}
                 {showSuperLikeModal && (
                     <OverlayPortal
-                        className="flex items-center justify-center bg-black/70 backdrop-blur-sm"
+                        className="flex items-center justify-center bg-black/70 backdrop-blur-xs"
                         onClick={() => setShowSuperLikeModal(null)}
                         role="presentation"
                     >
@@ -142,7 +142,7 @@ export const CrewModals: React.FC<CrewModalsProps> = React.memo(
                         >
                             <h3
                                 id="introduction-note-title"
-                                className="text-lg font-bold text-transparent bg-clip-text bg-gradient-to-r from-emerald-200 to-sky-200 mb-1"
+                                className="text-lg font-bold text-transparent bg-clip-text bg-linear-to-r from-emerald-200 to-sky-200 mb-1"
                             >
                                 ✉️ Send an introduction
                             </h3>
@@ -157,7 +157,7 @@ export const CrewModals: React.FC<CrewModalsProps> = React.memo(
                                 onFocus={scrollInputAboveKeyboard}
                                 placeholder="Hi — I am planning a coastal passage in September and your experience looks like a good fit..."
                                 maxLength={200}
-                                className="w-full bg-white/[0.05] border border-white/10 rounded-xl px-4 py-3 text-sm text-white/70 mb-1 outline-none focus:border-violet-400/30 resize-none h-24"
+                                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white/70 mb-1 outline-hidden focus:border-violet-400/30 resize-none h-24"
                             />
                             <p className="text-[11px] text-white/40 text-right mb-4">{superLikeMessage.length}/200</p>
                             <div className="flex gap-3">
@@ -165,14 +165,14 @@ export const CrewModals: React.FC<CrewModalsProps> = React.memo(
                                     ref={superLikeCancelRef}
                                     aria-label="Cancel introduction"
                                     onClick={() => setShowSuperLikeModal(null)}
-                                    className="flex-1 py-3 rounded-xl bg-white/[0.05] text-sm text-white/40 font-medium"
+                                    className="flex-1 py-3 rounded-xl bg-white/5 text-sm text-white/40 font-medium"
                                 >
                                     Cancel
                                 </button>
                                 <button
                                     aria-label={`Send introduction to ${showSuperLikeModal.display_name}`}
                                     onClick={onSuperLike}
-                                    className="flex-1 py-3 rounded-xl bg-gradient-to-r from-emerald-500/30 to-sky-500/30 text-sm font-bold text-emerald-100 border border-emerald-400/20 transition-all active:scale-[0.97]"
+                                    className="flex-1 py-3 rounded-xl bg-linear-to-r from-emerald-500/30 to-sky-500/30 text-sm font-bold text-emerald-100 border border-emerald-400/20 transition-all active:scale-[0.97]"
                                 >
                                     ✉️ Send introduction
                                 </button>

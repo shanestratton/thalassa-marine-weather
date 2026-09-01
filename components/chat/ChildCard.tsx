@@ -53,7 +53,7 @@ export const ChildCard: React.FC<ChildCardProps> = ({ icon, title, subtitle, col
                 type="button"
                 onClick={onToggle}
                 className={`w-full flex items-center gap-3 p-3 rounded-2xl border transition-all active:scale-[0.98] ${
-                    isOpen ? c.border + ' ' + c.bg : 'border-white/[0.06] bg-white/[0.02] hover:bg-white/[0.04]'
+                    isOpen ? c.border + ' ' + c.bg : 'border-white/6 bg-white/2 hover:bg-white/4'
                 }`}
                 aria-expanded={isOpen}
                 aria-label={`${title} — ${subtitle}`}
@@ -61,7 +61,7 @@ export const ChildCard: React.FC<ChildCardProps> = ({ icon, title, subtitle, col
                 aria-haspopup="dialog"
             >
                 <div
-                    className={`w-11 h-11 rounded-xl ${c.iconBg} border ${c.border} flex items-center justify-center text-xl flex-shrink-0`}
+                    className={`w-11 h-11 rounded-xl ${c.iconBg} border ${c.border} flex items-center justify-center text-xl shrink-0`}
                 >
                     {icon}
                 </div>
@@ -94,7 +94,7 @@ export const ChildCard: React.FC<ChildCardProps> = ({ icon, title, subtitle, col
                 >
                     {/* Header with back chevron */}
                     <div
-                        className={`flex items-center gap-3 px-4 py-3 border-b ${c.border} bg-slate-950/95 backdrop-blur-xl flex-shrink-0`}
+                        className={`flex items-center gap-3 px-4 py-3 border-b ${c.border} bg-slate-950/95 backdrop-blur-xl shrink-0`}
                     >
                         <button
                             type="button"
@@ -114,7 +114,7 @@ export const ChildCard: React.FC<ChildCardProps> = ({ icon, title, subtitle, col
                             </svg>
                         </button>
                         <div
-                            className={`w-11 h-11 rounded-xl ${c.iconBg} border ${c.border} flex items-center justify-center text-xl flex-shrink-0`}
+                            className={`w-11 h-11 rounded-xl ${c.iconBg} border ${c.border} flex items-center justify-center text-xl shrink-0`}
                         >
                             {icon}
                         </div>

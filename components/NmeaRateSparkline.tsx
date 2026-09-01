@@ -91,7 +91,7 @@ export const NmeaRateSparkline: React.FC<NmeaRateSparklineProps> = ({
     const totalSpanMin = (bucketSec * bucketCount) / 60;
 
     return (
-        <div className="rounded-lg border border-white/[0.08] bg-black/30 p-2">
+        <div className="rounded-lg border border-white/8 bg-black/30 p-2">
             {/* Header row — label + headline rate */}
             <div className="flex items-center justify-between mb-1.5">
                 <div className="flex items-center gap-1.5">
