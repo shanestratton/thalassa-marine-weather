@@ -16,7 +16,7 @@ The Edge runtime generates a short-lived ES256 Apple client-secret JWT from the 
 
 ## Release order
 
-Apple sign-in is compile-time fail-closed by default. `VITE_APPLE_SIGN_IN_ENABLED` must remain unset (or any value other than the exact string `true`) while these gates are incomplete; native beta users receive the working email OTP door instead. The public-beta candidate also omits `com.apple.developer.applesignin` from `ios/App/App/App.entitlements`, so its provisioning profile does not advertise a disabled capability. The native monitoring implementation remains compiled but unreachable.
+Native Apple sign-in is compile-time fail-closed by default. `VITE_APPLE_SIGN_IN_ENABLED` must remain unset (or any value other than the exact string `true`) while these gates are incomplete; native beta users receive the working email OTP door instead. The public-beta candidate also omits `com.apple.developer.applesignin` from `ios/App/App/App.entitlements`, so its provisioning profile does not advertise a disabled capability. The native monitoring implementation remains compiled but unreachable. Browser Apple OAuth is a separate lane, gated by `VITE_APPLE_WEB_SIGN_IN_ENABLED`, the Apple Services ID, and the Supabase callback/client secret; enabling it does not enable or claim the native entitlement.
 
 1. Apply `20260805090000_apple_sign_in_token_lifecycle.sql` and `20260805091000_apple_server_notification_queue.sql`. Both tables have forced RLS, no client policy or grant, and are accessible only through the service role.
 2. Set and independently verify all five secrets above.

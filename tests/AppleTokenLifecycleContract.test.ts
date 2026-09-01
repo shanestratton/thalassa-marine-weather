@@ -112,9 +112,11 @@ describe('Sign in with Apple TN3194 token lifecycle contract', () => {
     it('keeps the native Apple door default-off until every external lifecycle gate is live', () => {
         const signIn = read('components/SignInScreen.tsx');
 
-        expect(signIn).toContain("const APPLE_SIGN_IN_ENABLED = import.meta.env.VITE_APPLE_SIGN_IN_ENABLED === 'true'");
-        expect(signIn).toContain('const appleNativeEnabled = isNative && APPLE_SIGN_IN_ENABLED');
-        expect(signIn).toContain('{appleNativeEnabled && (');
+        expect(signIn).toContain(
+            "const APPLE_NATIVE_SIGN_IN_ENABLED = import.meta.env.VITE_APPLE_SIGN_IN_ENABLED === 'true'",
+        );
+        expect(signIn).toContain('const appleNativeEnabled = isNative && APPLE_NATIVE_SIGN_IN_ENABLED');
+        expect(signIn).toContain('{appleEnabled && (');
         expect(signIn).toContain('{!appleNativeEnabled && (');
         expect(signIn).toContain('Apple sign-in is not enabled in this beta build; use email.');
 

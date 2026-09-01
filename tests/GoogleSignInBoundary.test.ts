@@ -23,6 +23,9 @@ const codeOf = (relative: string): string =>
 describe('Google sign-in boundary', () => {
     const service = codeOf('services/auth/googleSignIn.ts');
     const signInUi = codeOf('components/SignInScreen.tsx');
+    const infoPlist = read('ios/App/App/Info.plist');
+    const nativeOAuth = codeOf('ios/App/App/GoogleOAuthPlugin.swift');
+    const nativeBridge = codeOf('ios/App/App/ThalassaBridgeViewController.swift');
 
     it('is off unless BOTH the flag and a client ID are present', () => {
         // Either alone produces a button that dies at Google, which is worse
@@ -66,16 +69,27 @@ describe('Google sign-in boundary', () => {
     it('binds the redirect to this flow and drops anything else', () => {
         // CSRF, plus not eating unrelated deep links.
         expect(service).toContain("params.get('state') !== expectedState");
-        expect(service).toContain('!event.url?.startsWith(redirectPrefix)');
+        expect(service).toContain('!callbackUrl.startsWith(redirectPrefix)');
     });
 
-    it('always tears its listeners down, including on cancel and timeout', () => {
-        // A leaked appUrlOpen listener from an abandoned sign-in would hijack
-        // a later, unrelated deep link.
-        expect(service).toContain('urlHandle?.remove()');
-        expect(service).toContain('closeHandle?.remove()');
-        expect(service).toContain('clearTimeout(timer)');
-        expect(service).toContain("Browser.addListener('browserFinished'");
+    it('registers the native return scheme declared by the Google iOS client', () => {
+        // The Google Console iOS client is deliberately public configuration;
+        // pinning its reversed ID here lets CI catch an Info.plist/client drift
+        // without needing a production .env file or disclosing a secret.
+        const reversedClientId = 'com.googleusercontent.apps.717700927804-t644h587eb4kaklh3cb495k2ec7q8q6v';
+        expect(infoPlist).toContain('<key>CFBundleURLTypes</key>');
+        expect(infoPlist).toContain(`<string>${reversedClientId}</string>`);
+    });
+
+    it('uses iOS ASWebAuthenticationSession so Chrome cannot intercept the callback', () => {
+        expect(service).toContain("registerPlugin<GoogleOAuthPlugin>('GoogleOAuth')");
+        expect(service).toContain('await GoogleOAuth.authorize({');
+        expect(service).not.toContain("from '@capacitor/browser'");
+        expect(service).not.toContain("App.addListener('appUrlOpen'");
+        expect(nativeOAuth).toContain('ASWebAuthenticationSession(');
+        expect(nativeOAuth).toContain('ASWebAuthenticationSessionErrorDomain');
+        expect(nativeOAuth).toContain('callbackURL.scheme == allowedCallbackScheme');
+        expect(nativeBridge).toContain('registerPluginInstance(GoogleOAuthPlugin())');
     });
 
     it('keeps sign-in storage separate from the Gmail integration', () => {

@@ -21,15 +21,16 @@
  *    that needs an always-rendered sign-in (e.g. a hard-gated
  *    publish step).
  *
- * Once the Apple lifecycle is enabled, Apple becomes primary on iOS and email
- * remains the recovery lane. Until then, every platform presents email only.
+ * Browser Apple uses its released Services-ID OAuth lane. Native Apple stays
+ * separately held until its full lifecycle gate is enabled, with email as the
+ * recovery lane throughout.
  *
  * On a sailing app, identity reliability beats minor UI clutter.
  */
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Capacitor } from '@capacitor/core';
-import { signInWithApple } from '../services/auth/SocialAuthService';
+import { APPLE_WEB_SIGN_IN_ENABLED, signInWithApple, signInWithAppleOnWeb } from '../services/auth/SocialAuthService';
 import { GOOGLE_SIGN_IN_ENABLED, signInWithGoogle, signInWithGoogleOnWeb } from '../services/auth/googleSignIn';
 import { AuthModal } from './AuthModal';
 import { triggerHaptic } from '../utils/system';
@@ -52,7 +53,7 @@ import { BRAND } from '../theme';
 // Fail closed until the TN3194 migration, both authenticated Edge Functions,
 // Apple server credentials, and the signed server-notification receiver are
 // deployed and verified. A missing variable must never expose a broken door.
-const APPLE_SIGN_IN_ENABLED = import.meta.env.VITE_APPLE_SIGN_IN_ENABLED === 'true';
+const APPLE_NATIVE_SIGN_IN_ENABLED = import.meta.env.VITE_APPLE_SIGN_IN_ENABLED === 'true';
 
 interface SignInScreenProps {
     /**
@@ -86,15 +87,15 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({ isOpen, onClose, pro
     const authedUser = useAuthStore((s) => s.user);
     const primaryActionRef = useRef<HTMLButtonElement>(null);
     const emailModeWasOpenRef = useRef(false);
-    // Apple wraps a native Capacitor plugin on iOS. The production Supabase
-    // Apple client is the native App ID, not a web Services ID, so browser
-    // Apple OAuth must stay hidden until that separate credential exists.
-    // Email OTP is the working web/desktop door.
+    // Native and browser Apple are separate release lanes. Native wraps a
+    // Capacitor plugin and remains held behind its entitlement/lifecycle gate;
+    // browser Apple uses the configured Services ID through Supabase OAuth.
     const isNative = Capacitor.isNativePlatform();
-    const appleNativeEnabled = isNative && APPLE_SIGN_IN_ENABLED;
-    // Google works on BOTH lanes, unlike Apple: the native PKCE flow and the
-    // web OAuth redirect use the same Google client, so there is no
-    // Services-ID equivalent holding the browser back.
+    const appleNativeEnabled = isNative && APPLE_NATIVE_SIGN_IN_ENABLED;
+    const appleWebEnabled = !isNative && APPLE_WEB_SIGN_IN_ENABLED;
+    const appleEnabled = appleNativeEnabled || appleWebEnabled;
+    // Google works on both lanes: native PKCE and the web OAuth redirect share
+    // the configured provider client list.
     const googleEnabled = GOOGLE_SIGN_IN_ENABLED;
 
     // Auto-dismiss in controlled mode once authentication succeeds.
@@ -127,17 +128,21 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({ isOpen, onClose, pro
         setError(null);
         setBusy('apple');
         try {
-            if (!appleNativeEnabled) throw new Error('Apple sign-in is not enabled in this beta. Use email instead.');
-            await signInWithApple();
-            triggerHaptic('medium');
-            // Dismissal handled by the effect above watching authedUser.
+            if (!appleEnabled) throw new Error('Apple sign-in is not enabled in this beta. Use email instead.');
+            if (isNative) {
+                await signInWithApple();
+                triggerHaptic('medium');
+                // Dismissal handled by the effect above watching authedUser.
+            } else {
+                await signInWithAppleOnWeb();
+            }
         } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
             if (msg !== 'CANCELLED') setError(msg);
         } finally {
             setBusy(null);
         }
-    }, [appleNativeEnabled]);
+    }, [appleEnabled, isNative]);
 
     const handleGoogle = useCallback(async () => {
         setError(null);
@@ -276,8 +281,7 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({ isOpen, onClose, pro
 
                     <div className="space-y-3">
                         {/* Web/desktop primary: email OTP. It stays FIRST and keeps
-                        the focus ref. Email is the only web lane until an Apple
-                        Services ID and redirect credential are configured. */}
+                        the focus ref; social providers follow as alternatives. */}
                         {!appleNativeEnabled && (
                             <button
                                 ref={primaryActionRef}
@@ -289,15 +293,15 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({ isOpen, onClose, pro
                                 Sign in with email
                             </button>
                         )}
-                        {/* Native Apple uses the system plugin's ID-token flow.
-                            Browser Apple OAuth needs a separate Services ID;
-                            showing the native App ID as a web door fails at Apple. */}
-                        {appleNativeEnabled && (
+                        {/* Native Apple uses the system plugin's ID-token flow;
+                            browser Apple uses the separately configured Services
+                            ID and Supabase OAuth callback. */}
+                        {appleEnabled && (
                             <>
                                 {/* Apple — official styling: white background, black
                         text, with the Apple logo. Per Apple HIG. */}
                                 <button
-                                    ref={primaryActionRef}
+                                    ref={appleNativeEnabled ? primaryActionRef : undefined}
                                     type="button"
                                     onClick={() => void handleApple()}
                                     disabled={busy !== null}
@@ -361,12 +365,7 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({ isOpen, onClose, pro
                                 )}
                             </button>
                         )}
-                        {!isNative && (
-                            <p className="px-2 text-center text-xs leading-relaxed text-slate-400">
-                                Apple sign-in is not enabled in this beta build; use email.
-                            </p>
-                        )}
-                        {isNative && !appleNativeEnabled && (
+                        {!appleEnabled && (
                             <p className="px-2 text-center text-xs leading-relaxed text-slate-400">
                                 Apple sign-in is not enabled in this beta build; use email.
                             </p>

@@ -13,10 +13,10 @@
  * Native flow (iOS)
  * ─────────────────
  *   1. Generate a PKCE verifier, a CSRF `state`, and a `nonce`.
- *   2. Open Google's consent screen in the system browser (@capacitor/browser).
- *   3. Google redirects to the reversed-client-ID scheme, caught by a one-shot
- *      `appUrlOpen` listener owned by this call — so the caller just awaits a
- *      promise instead of wiring redirect plumbing into the sign-in screen.
+ *   2. Open Google's consent screen in iOS ASWebAuthenticationSession through
+ *      the app-local GoogleOAuth plugin.
+ *   3. iOS captures the reversed-client-ID callback and returns it directly to
+ *      this call. Chrome and other default browsers cannot intercept it.
  *   4. Exchange the code for tokens, take the `id_token`, and hand it to
  *      Supabase's `signInWithIdToken`, which verifies it against Google's
  *      public keys.
@@ -36,9 +36,7 @@
  * one call and die with it — a half-finished sign-in leaves no residue.
  */
 
-import { App, type URLOpenListenerEvent } from '@capacitor/app';
-import { Browser } from '@capacitor/browser';
-import { Capacitor } from '@capacitor/core';
+import { Capacitor, registerPlugin } from '@capacitor/core';
 import type { Session } from '@supabase/supabase-js';
 import { supabase } from '../supabase';
 import { createLogger } from '../../utils/createLogger';
@@ -51,9 +49,6 @@ const TOKEN_ENDPOINT = 'https://oauth2.googleapis.com/token';
 /** Identity only. No Gmail, Drive or Calendar scope belongs in a sign-in. */
 const SCOPES = 'openid email profile';
 
-/** How long to wait for the user to finish at Google before giving up. */
-const REDIRECT_TIMEOUT_MS = 5 * 60 * 1000;
-
 const GOOGLE_OAUTH_CLIENT_ID =
     (typeof import.meta !== 'undefined' && import.meta.env?.VITE_GOOGLE_OAUTH_CLIENT_ID) || '';
 
@@ -64,6 +59,12 @@ const GOOGLE_OAUTH_CLIENT_ID =
  */
 export const GOOGLE_SIGN_IN_ENABLED =
     import.meta.env.VITE_GOOGLE_SIGN_IN_ENABLED === 'true' && GOOGLE_OAUTH_CLIENT_ID !== '';
+
+interface GoogleOAuthPlugin {
+    authorize(options: { url: string; callbackScheme: string }): Promise<{ url: string }>;
+}
+
+const GoogleOAuth = registerPlugin<GoogleOAuthPlugin>('GoogleOAuth');
 
 // ── PKCE / redirect helpers ────────────────────────────────────────
 
@@ -99,79 +100,26 @@ function nativeRedirectUri(): string {
     return scheme ? `${scheme}:/oauth2redirect` : '';
 }
 
-/**
- * Wait for Google to hand control back to the app.
- *
- * Owns its listener and always removes it — including on timeout and on the
- * user simply closing the browser — so a cancelled sign-in cannot leave a
- * listener behind that hijacks an unrelated deep link later.
- */
-async function awaitRedirect(expectedState: string): Promise<string> {
+function authorizationCodeFromCallback(callbackUrl: string, expectedState: string): string {
     const redirectPrefix = nativeRedirectUri();
+    if (!redirectPrefix || !callbackUrl.startsWith(redirectPrefix)) {
+        throw new Error('Google returned a redirect we could not verify.');
+    }
 
-    return new Promise<string>((resolve, reject) => {
-        let settled = false;
-        let urlHandle: { remove: () => Promise<void> } | undefined;
-        let closeHandle: { remove: () => Promise<void> } | undefined;
-        const finish = (fn: () => void) => {
-            if (settled) return;
-            settled = true;
-            clearTimeout(timer);
-            void urlHandle?.remove().catch(() => undefined);
-            void closeHandle?.remove().catch(() => undefined);
-            void Browser.close().catch(() => undefined);
-            fn();
-        };
-
-        // Backstop: the skipper walks away mid-consent. Without this the
-        // promise — and the sign-in screen's spinner — would live forever.
-        const timer = setTimeout(() => finish(() => reject(new Error('CANCELLED'))), REDIRECT_TIMEOUT_MS);
-
-        void App.addListener('appUrlOpen', (event: URLOpenListenerEvent) => {
-            // Ignore deep links that are not this flow's redirect — the app
-            // handles others, and consuming them here would break them.
-            if (!redirectPrefix || !event.url?.startsWith(redirectPrefix)) return;
-
-            let params: URLSearchParams;
-            try {
-                params = new URL(event.url.replace(':/', '://')).searchParams;
-            } catch {
-                finish(() => reject(new Error('Google returned a redirect we could not read.')));
-                return;
-            }
-
-            // CSRF: a code that came back under a different state is not ours.
-            if (params.get('state') !== expectedState) {
-                log.warn('discarding a Google redirect whose state did not match this flow');
-                finish(() => reject(new Error('Google sign-in could not be verified. Try again.')));
-                return;
-            }
-            if (params.get('error')) {
-                finish(() => reject(new Error('CANCELLED')));
-                return;
-            }
-            const code = params.get('code');
-            if (!code) {
-                finish(() => reject(new Error('Google returned no authorization code. Try again.')));
-                return;
-            }
-            finish(() => resolve(code));
-        }).then((handle) => {
-            urlHandle = handle;
-            if (settled) void handle.remove().catch(() => undefined);
-        });
-
-        // The user dismissing the browser IS a cancellation. Without this the
-        // promise would hang until the timeout with the screen spinning.
-        void Browser.addListener('browserFinished', () => {
-            // Give the redirect listener a beat to win the race when the
-            // browser closes *because* the redirect fired.
-            setTimeout(() => finish(() => reject(new Error('CANCELLED'))), 400);
-        }).then((handle) => {
-            closeHandle = handle;
-            if (settled) void handle.remove().catch(() => undefined);
-        });
-    });
+    let params: URLSearchParams;
+    try {
+        params = new URL(callbackUrl.replace(':/', '://')).searchParams;
+    } catch {
+        throw new Error('Google returned a redirect we could not read.');
+    }
+    if (params.get('state') !== expectedState) {
+        log.warn('discarding a Google redirect whose state did not match this flow');
+        throw new Error('Google sign-in could not be verified. Try again.');
+    }
+    if (params.get('error')) throw new Error('CANCELLED');
+    const code = params.get('code');
+    if (!code) throw new Error('Google returned no authorization code. Try again.');
+    return code;
 }
 
 // ── Flows ──────────────────────────────────────────────────────────
@@ -211,9 +159,20 @@ export async function signInWithGoogle(): Promise<Session> {
         prompt: 'select_account',
     }).toString()}`;
 
-    const redirectPromise = awaitRedirect(state);
-    await Browser.open({ url: authUrl, presentationStyle: 'popover' });
-    const code = await redirectPromise;
+    let callbackUrl: string;
+    try {
+        ({ url: callbackUrl } = await GoogleOAuth.authorize({
+            url: authUrl,
+            callbackScheme: reversedClientIdScheme(),
+        }));
+    } catch (error) {
+        const code = error && typeof error === 'object' && 'code' in error ? String(error.code ?? '') : '';
+        const message = error instanceof Error ? error.message : String(error);
+        if (code === 'CANCELLED' || message === 'CANCELLED') throw new Error('CANCELLED');
+        log.warn('Native Google authorization session failed:', message);
+        throw new Error("Google sign-in didn't complete. Try again or use another method.");
+    }
+    const code = authorizationCodeFromCallback(callbackUrl, state);
 
     const tokenRes = await fetch(TOKEN_ENDPOINT, {
         method: 'POST',

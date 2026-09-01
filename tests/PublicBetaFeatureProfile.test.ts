@@ -40,6 +40,7 @@ describe('committed public-beta feature profile', () => {
             VITE_CMEMS_MLD_ENABLED: false,
             VITE_MPA_ENABLED: false,
             VITE_APPLE_SIGN_IN_ENABLED: false,
+            VITE_APPLE_WEB_SIGN_IN_ENABLED: true,
             // RELEASED 2026-08-10: MusicKit App Service live on the App ID,
             // usage description shipped, native plugin restored to Sources.
             VITE_APPLE_MUSIC_ENABLED: true,
@@ -54,7 +55,7 @@ describe('committed public-beta feature profile', () => {
             VITE_NATIVE_API_BASE: 'https://thalassawx.vercel.app/api',
         });
         expect(profile.heldCapabilities).toEqual([
-            'apple-sign-in',
+            'native-apple-sign-in',
             'apple-watch-bridge',
             'account-deletion',
             'gmail',

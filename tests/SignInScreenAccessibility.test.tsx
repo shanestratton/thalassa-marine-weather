@@ -4,6 +4,7 @@ import { renderToString } from 'react-dom/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../services/auth/SocialAuthService', () => ({
+    APPLE_WEB_SIGN_IN_ENABLED: true,
     signInWithApple: vi.fn(),
     signInWithAppleOnWeb: vi.fn(),
 }));
@@ -18,6 +19,7 @@ vi.mock('../utils/system', async (importOriginal) => ({
 }));
 
 import { SignInScreen } from '../components/SignInScreen';
+import { signInWithAppleOnWeb } from '../services/auth/SocialAuthService';
 
 describe('SignInScreen accessibility', () => {
     beforeEach(() => {
@@ -91,8 +93,18 @@ describe('SignInScreen accessibility', () => {
         expect(dialog).toHaveAttribute('aria-modal', 'true');
         expect(screen.getByRole('button', { name: 'Sign in with email' })).toHaveFocus();
         expect(screen.queryByRole('button', { name: 'Close sign-in' })).not.toBeInTheDocument();
-        expect(screen.queryByRole('button', { name: 'Sign in with Apple' })).not.toBeInTheDocument();
-        expect(screen.getByText(/Apple sign-in is not enabled in this beta build; use email/i)).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Sign in with Apple' })).toBeInTheDocument();
+        expect(
+            screen.queryByText(/Apple sign-in is not enabled in this beta build; use email/i),
+        ).not.toBeInTheDocument();
+    });
+
+    it('routes the browser Apple button through the Services-ID OAuth flow', () => {
+        render(<SignInScreen isOpen onClose={vi.fn()} />);
+
+        fireEvent.click(screen.getByRole('button', { name: 'Sign in with Apple' }));
+
+        expect(signInWithAppleOnWeb).toHaveBeenCalledOnce();
     });
 
     it('keeps the outer trap mounted beneath the nested email dialog and restores its action', () => {

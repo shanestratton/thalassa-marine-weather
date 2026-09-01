@@ -46,6 +46,7 @@
 		AA000026AAAA002600000001 /* NetworkInterfacesPlugin.m in Sources */ = {isa = PBXBuildFile; fileRef = AA000026AAAA002600000002 /* NetworkInterfacesPlugin.m */; };
 		AA000027AAAA002700000001 /* MemoryGaugePlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000027AAAA002700000002 /* MemoryGaugePlugin.swift */; };
 		AA000028AAAA002800000001 /* MemoryGaugePlugin.m in Sources */ = {isa = PBXBuildFile; fileRef = AA000028AAAA002800000002 /* MemoryGaugePlugin.m */; };
+		AA000029AAAA002900000001 /* GoogleOAuthPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000029AAAA002900000002 /* GoogleOAuthPlugin.swift */; };
 		B3A100012026080400000001 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = B3A100012026080400000002 /* PrivacyInfo.xcprivacy */; };
 /* End PBXBuildFile section */
 
@@ -94,6 +95,7 @@
 		AA000026AAAA002600000002 /* NetworkInterfacesPlugin.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = NetworkInterfacesPlugin.m; sourceTree = "<group>"; };
 		AA000027AAAA002700000002 /* MemoryGaugePlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoryGaugePlugin.swift; sourceTree = "<group>"; };
 		AA000028AAAA002800000002 /* MemoryGaugePlugin.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = MemoryGaugePlugin.m; sourceTree = "<group>"; };
+		AA000029AAAA002900000002 /* GoogleOAuthPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoogleOAuthPlugin.swift; sourceTree = "<group>"; };
 		B3A100012026080400000002 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -182,6 +184,7 @@
 				AA000015AAAA001500000002 /* WatchConnectivityPlugin.swift */,
 				AA000016AAAA001600000002 /* WatchConnectivityPlugin.m */,
 				AA000017AAAA001700000002 /* AppleCredentialStatePlugin.swift */,
+				AA000029AAAA002900000002 /* GoogleOAuthPlugin.swift */,
 				AA000020AAAA002000000002 /* SecureStoragePlugin.swift */,
 				AA000021AAAA002100000002 /* AnchorWatchStoragePlugin.swift */,
 				AA000022AAAA002200000002 /* EncryptedLargeStoragePlugin.swift */,
@@ -417,6 +420,7 @@
 				AA000015AAAA001500000001 /* WatchConnectivityPlugin.swift in Sources */,
 				AA000016AAAA001600000001 /* WatchConnectivityPlugin.m in Sources */,
 				AA000017AAAA001700000001 /* AppleCredentialStatePlugin.swift in Sources */,
+				AA000029AAAA002900000001 /* GoogleOAuthPlugin.swift in Sources */,
 				AA000020AAAA002000000001 /* SecureStoragePlugin.swift in Sources */,
 				AA000021AAAA002100000001 /* AnchorWatchStoragePlugin.swift in Sources */,
 				AA000022AAAA002200000001 /* EncryptedLargeStoragePlugin.swift in Sources */,
