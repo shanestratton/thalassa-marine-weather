@@ -56,3 +56,8 @@ BEGIN
     RETURN OLD;
 END;
 $$;
+
+-- Definer hygiene (added 2026-09-01, flagged by the migration audit):
+-- trigger functions fire regardless, but a definer function must still
+-- say who may EXECUTE it. Nothing calls this directly.
+REVOKE ALL ON FUNCTION public.guard_grocery_purchase_delete() FROM PUBLIC, anon, authenticated;

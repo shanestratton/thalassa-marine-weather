@@ -153,3 +153,10 @@ BEGIN
     RETURN NEW;
 END;
 $$;
+
+-- Definer hygiene (added 2026-09-01, flagged by the migration audit):
+-- the inventory takes an arbitrary user id and reads storage.objects, so
+-- only the service-role deletion path may call it; the tombstone guard is
+-- a trigger and nothing calls it directly.
+REVOKE ALL ON FUNCTION public.account_deletion_storage_inventory(UUID) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.block_tombstoned_storage_write() FROM PUBLIC, anon, authenticated;
