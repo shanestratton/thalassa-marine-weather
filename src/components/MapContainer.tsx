@@ -347,6 +347,54 @@ export default function MapContainer({
     // every background refresh would fight a viewer who is exploring the map.
     // Store the ever-changing geometry in a ref and key the effect solely to
     // the resolved trip id supplied by the dashboard.
+    /**
+     * Frame the whole voyage — the complete route, the sailed track and the
+     * boat's last known fix — using as much of the map as the shape allows
+     * (Shane 2026-09-02). Padding is only what the page chrome needs: the
+     * basemap toggle at the top, the attribution strip and this button at the
+     * bottom. maxZoom 14 lets a short day-sail fill the screen instead of
+     * stopping at the auto-frame's cautious 12.
+     */
+    const frameWholeVoyage = React.useCallback((): void => {
+        const map = mapRef.current;
+        if (!map) return;
+        const { allCoords: coords, telemetryFix: fix } = focusTargetRef.current;
+        const points = [...coords, ...(fix ? [fix] : [])];
+        if (points.length === 0) return;
+        if (points.length === 1) {
+            map.flyTo({ center: points[0], zoom: 12, duration: 900, essential: true });
+            return;
+        }
+        let minLon = Infinity;
+        let minLat = Infinity;
+        let maxLon = -Infinity;
+        let maxLat = -Infinity;
+        for (const [lon, lat] of points) {
+            minLon = Math.min(minLon, lon);
+            minLat = Math.min(minLat, lat);
+            maxLon = Math.max(maxLon, lon);
+            maxLat = Math.max(maxLat, lat);
+        }
+        // A voyage that has barely moved collapses to a point; fitBounds on a
+        // zero-span box lands at max zoom staring at pixels.
+        if (maxLon - minLon < 1e-4 && maxLat - minLat < 1e-4) {
+            map.flyTo({ center: [minLon, minLat], zoom: 12, duration: 900, essential: true });
+            return;
+        }
+        map.fitBounds(
+            [
+                [minLon, minLat],
+                [maxLon, maxLat],
+            ],
+            {
+                padding: { top: 64, bottom: 72, left: 28, right: 28 },
+                duration: 900,
+                maxZoom: 14,
+                essential: true,
+            },
+        );
+    }, []);
+
     const focusTargetRef = useRef({ allCoords, telemetryFix });
     focusTargetRef.current = { allCoords, telemetryFix };
     const lastFocusKey = useRef<string | undefined>(undefined);
@@ -480,8 +528,32 @@ export default function MapContainer({
                 mapboxAccessToken={MAPBOX_TOKEN}
                 initialViewState={initialViewState}
                 mapStyle={STYLES[styleMode]}
-                projection="mercator"
+                /* A voyage page should feel like looking down at the planet
+                   from orbit (Shane 2026-09-02: "something very special…
+                   the punter wishing they were there"). Mapbox flattens the
+                   globe to mercator on its own above ~zoom 6, so an anchored
+                   boat still gets an ordinary flat chart — the curve is only
+                   there when the view is wide enough to earn it. */
+                projection="globe"
                 attributionControl
+                onLoad={(event) => {
+                    // Atmosphere: deep-ocean blue at the horizon warming to
+                    // teal above it, true space behind, and stars once the
+                    // camera pulls far enough back. setFog is v3-only, so it
+                    // is guarded — an older renderer just draws a plain globe
+                    // rather than throwing on load.
+                    try {
+                        event.target.setFog({
+                            color: 'rgb(8, 26, 38)',
+                            'high-color': 'rgb(16, 74, 88)',
+                            'horizon-blend': 0.07,
+                            'space-color': 'rgb(3, 7, 14)',
+                            'star-intensity': 0.5,
+                        });
+                    } catch {
+                        /* older renderer — plain globe is fine */
+                    }
+                }}
             >
                 <NavigationControl position="top-left" showCompass={false} />
 
@@ -505,7 +577,28 @@ export default function MapContainer({
                         id="bathy-ocean-layer"
                         type="raster"
                         layout={{ visibility: styleMode === 'satellite' ? 'visible' : 'none' }}
-                        paint={{ 'raster-opacity': 0.45, 'raster-fade-duration': 0 }}
+                        paint={{
+                            // The MapTiler Ocean raster is a FULL basemap — it
+                            // paints land as well as sea — so a flat tint at
+                            // any strength greys out the satellite imagery
+                            // underneath and the page looks like a chart with
+                            // a photo hiding behind it.
+                            //
+                            // So it now fades with zoom, which is also how a
+                            // sailor actually uses it: offshore and zoomed out
+                            // the depth structure IS the story, and there is
+                            // nothing to see in the imagery but blue; zoomed
+                            // into an anchorage the imagery is the story —
+                            // reefs, sand, the colour of the water you are
+                            // about to drop the pick into — so the tint gets
+                            // out of the way almost entirely.
+                            'raster-opacity': ['interpolate', ['linear'], ['zoom'], 3, 0.62, 7, 0.4, 10, 0.2, 13, 0.08],
+                            // Warmed toward teal so the shallows read tropical
+                            // rather than grey-blue.
+                            'raster-saturation': 0.3,
+                            'raster-hue-rotate': -14,
+                            'raster-fade-duration': 0,
+                        }}
                     />
                 </Source>
 
@@ -573,13 +666,18 @@ export default function MapContainer({
                         id="track-glow"
                         type="line"
                         layout={{ 'line-cap': 'round', 'line-join': 'round' }}
-                        paint={{ 'line-color': '#38bdf8', 'line-width': 11, 'line-blur': 7, 'line-opacity': 0.3 }}
+                        /* The sailed track is the hero line, so it carries
+                           the brightest colour on the page: a luminous teal
+                           that sits against the warmer water tint instead of
+                           disappearing into it (the old sky-blue was the same
+                           family as the sea). */
+                        paint={{ 'line-color': '#2dd4bf', 'line-width': 13, 'line-blur': 8, 'line-opacity': 0.38 }}
                     />
                     <Layer
                         id="track-line"
                         type="line"
                         layout={{ 'line-cap': 'round', 'line-join': 'round' }}
-                        paint={{ 'line-color': '#7dd3fc', 'line-width': 2.5, 'line-opacity': 0.95 }}
+                        paint={{ 'line-color': '#5eead4', 'line-width': 2.8, 'line-opacity': 0.97 }}
                     />
                 </Source>
 
@@ -841,6 +939,33 @@ export default function MapContainer({
                     </Popup>
                 )}
             </Map>
+
+            {/* Locate FAB — one tap frames the whole voyage: the complete
+                route, the track sailed so far, and the boat's last known
+                position. Sits ABOVE the Mapbox attribution strip, which is
+                bottom-right and must never be covered. */}
+            {(allCoords.length > 0 || telemetryFix) && (
+                <button
+                    type="button"
+                    onClick={frameWholeVoyage}
+                    aria-label="Show the whole voyage — centre on the boat's last known position with the full route in view"
+                    title="Show the whole voyage"
+                    className="absolute bottom-9 right-3 flex h-12 w-12 items-center justify-center rounded-full border border-teal-300/30 bg-slate-900/80 text-teal-300 shadow-lg shadow-black/40 backdrop-blur-md transition-colors hover:bg-slate-800/90 hover:text-teal-200 active:scale-95"
+                >
+                    <svg
+                        className="h-6 w-6"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth={1.8}
+                        aria-hidden="true"
+                    >
+                        <circle cx="12" cy="12" r="3.2" />
+                        <circle cx="12" cy="12" r="7.2" opacity="0.45" />
+                        <path strokeLinecap="round" d="M12 2.2v2.6M12 19.2v2.6M2.2 12h2.6M19.2 12h2.6" />
+                    </svg>
+                </button>
+            )}
 
             {/* Basemap toggle */}
             <div className="absolute top-3 right-3 flex rounded-lg overflow-hidden border border-white/15 bg-slate-900/80 backdrop-blur-md shadow-lg text-[11px] font-bold uppercase tracking-wider">
