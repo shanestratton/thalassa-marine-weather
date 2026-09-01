@@ -437,6 +437,181 @@ Deno.serve(async (req: Request) => {
         // the at-stop upload arrives, it supersedes the trickle by
         // construction. Capped generously — a multi-day trickle at the
         // device's 30 s decimation floor is ~3k rows/day.
+        /**
+         * Resolve the PLANNED ROUTE for a voyage — a plan with geometry, not
+         * merely a plan id.
+         *
+         * Shane 2026-09-02: "the public page no longer shows the route that
+         * you are running… harden it up." A five-lens audit found the cause
+         * was not any single broken link but that THREE supposedly
+         * independent authorities collapsed into one row. Both the primary
+         * passage path and the active-voyage fallback resolved the plan id
+         * from `voyage_plan_links` alone, and the fallback's own comment
+         * promised "every server-side link we hold" while its ladder
+         * short-circuited on the first non-empty STRING — so a link pointing
+         * at a mirror whose rows had been deleted, archived or superseded on
+         * another device starved BOTH paths, silently.
+         *
+         * This resolver takes the opposite stance: gather every candidate id
+         * we know, then keep going until one actually yields drawable
+         * geometry. A dead link is now something to step over, not a wall.
+         *
+         * Every read is owner-scoped. Two of the previous saved_routes
+         * lookups had NO owner filter at all — a `passage_voyage_id` match
+         * across all users — which this closes on the way past.
+         */
+        const resolvePlanForVoyage = async (
+            voyageId: string,
+            preferredPlanId?: string | null,
+        ): Promise<
+            { planId: string; rows: Record<string, unknown>[]; canonicalLine: Array<[number, number]> | null } | null
+        > => {
+            const candidates: string[] = [];
+            /** The canonical geometry Plan itself renders, with the moment it
+             *  last moved — used only when it is FRESHER than the mirror. */
+            let canonical: { points: unknown; updatedAt: number } | null = null;
+            const considerCanonical = (points: unknown, updatedAt: unknown): void => {
+                const ts = typeof updatedAt === 'string' ? Date.parse(updatedAt) : Number.NaN;
+                if (Array.isArray(points) && Number.isFinite(ts)) canonical = { points, updatedAt: ts };
+            };
+            const consider = (value: unknown): void => {
+                if (typeof value !== 'string') return;
+                const id = value.trim();
+                if (id && !candidates.includes(id)) candidates.push(id);
+            };
+
+            consider(preferredPlanId);
+
+            // 1. The explicit link the app writes when a route is followed.
+            const { data: link, error: linkError } = await supabase
+                .from('voyage_plan_links')
+                .select('plan_voyage_id')
+                .eq('user_id', ownerId)
+                .eq('voyage_id', voyageId)
+                .maybeSingle();
+            if (linkError) console.warn('voyage-log: plan link fetch failed:', linkError.message);
+            consider(link?.plan_voyage_id);
+
+            // 2. The voyage's own saved route, through its planned mirror.
+            const { data: voyageRow, error: voyageRowError } = await supabase
+                .from('voyages')
+                .select('saved_route_id')
+                .eq('user_id', ownerId)
+                .eq('id', voyageId)
+                .maybeSingle();
+            if (voyageRowError) console.warn('voyage-log: voyage row fetch failed:', voyageRowError.message);
+            if (typeof voyageRow?.saved_route_id === 'string') {
+                const { data: routeRow, error: routeRowError } = await supabase
+                    .from('saved_routes')
+                    .select('planned_route_id, points, updated_at')
+                    .eq('user_id', ownerId)
+                    .eq('id', voyageRow.saved_route_id)
+                    .eq('deleted', false)
+                    .maybeSingle();
+                if (routeRowError) console.warn('voyage-log: saved route fetch failed:', routeRowError.message);
+                consider(routeRow?.planned_route_id);
+                considerCanonical(routeRow?.points, routeRow?.updated_at);
+            }
+
+            // 3. The back-link, for a passage saved against this voyage.
+            const { data: backLink, error: backLinkError } = await supabase
+                .from('saved_routes')
+                .select('planned_route_id, points, updated_at')
+                .eq('user_id', ownerId)
+                .eq('passage_voyage_id', voyageId)
+                .eq('deleted', false)
+                .maybeSingle();
+            if (backLinkError) console.warn('voyage-log: passage back-link fetch failed:', backLinkError.message);
+            consider(backLink?.planned_route_id);
+            if (!canonical) considerCanonical(backLink?.points, backLink?.updated_at);
+
+            for (const planId of candidates) {
+                let planQuery = supabase
+                    .from('ship_logs')
+                    .select('latitude, longitude, cumulative_distance_nm, waypoint_name, notes, timestamp, created_at')
+                    .eq('user_id', ownerId)
+                    .eq('voyage_id', planId)
+                    .eq('source', 'planned_route')
+                    .or('archived.is.null,archived.eq.false');
+                // The boat pin is deliberately permissive HERE only: these
+                // rows are already fenced by owner + exact plan voyage id +
+                // source, so a boat filter can only ever exclude the
+                // skipper's own plan (a mirror written before the vessel was
+                // active carries a null boat_id).
+                if (boatId) planQuery = planQuery.or(`boat_id.is.null,boat_id.eq.${boatId}`);
+                const { data: planRows, error: planError } = await planQuery
+                    .order('timestamp', { ascending: true })
+                    .limit(1000);
+                if (planError) {
+                    console.warn(`voyage-log: plan geometry fetch failed for ${planId}:`, planError.message);
+                    continue;
+                }
+                const rows = (planRows ?? []) as Record<string, unknown>[];
+                const usable = rows.filter((point) => {
+                    const lat = point.latitude;
+                    const lon = point.longitude;
+                    return (
+                        typeof lat === 'number' && typeof lon === 'number' &&
+                        Number.isFinite(lat) && Number.isFinite(lon) &&
+                        Math.abs(lat) <= 90 && Math.abs(lon) <= 180
+                    );
+                });
+                if (usable.length >= 2) {
+                    // THE STALE-MIRROR GUARD. Editing a saved traced route
+                    // rewrites saved_routes.points but NOT this compatibility
+                    // mirror (services/shiplog/PassagePlanSave.ts same-id
+                    // overwrite branch returns after refreshing only the
+                    // voyage's Cast Off proof). The public page draws the
+                    // mirror, so an edited route kept showing its ORIGINAL
+                    // line — the boat's own chart moved and the punters' did
+                    // not. When the canonical geometry is demonstrably NEWER
+                    // than every mirror row, draw the canonical one. Equal or
+                    // older leaves the healthy case byte-for-byte unchanged.
+                    let canonicalLine: Array<[number, number]> | null = null;
+                    // Snapshot: `canonical` is only ever assigned inside a
+                    // closure, which TypeScript's flow analysis narrows to
+                    // `never` at this point.
+                    const canonicalSnapshot = canonical as { points: unknown; updatedAt: number } | null;
+                    if (canonicalSnapshot) {
+                        const newestMirror = Math.max(
+                            ...rows.map((row) => {
+                                const stamp = typeof row.created_at === 'string' ? Date.parse(row.created_at) : NaN;
+                                return Number.isFinite(stamp) ? stamp : 0;
+                            }),
+                            0,
+                        );
+                        // A minute of slack: the mirror and the canonical row
+                        // are written by the same save, seconds apart.
+                        if (canonicalSnapshot.updatedAt > newestMirror + 60_000) {
+                            const pts = (canonicalSnapshot.points as unknown[])
+                                .map((entry) => {
+                                    if (!Array.isArray(entry) || entry.length < 2) return null;
+                                    const lat = Number(entry[0]);
+                                    const lon = Number(entry[1]);
+                                    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+                                    if (Math.abs(lat) > 90 || Math.abs(lon) > 180) return null;
+                                    // saved_routes.points is [lat, lon];
+                                    // plan_line is GeoJSON [lon, lat].
+                                    return [lon, lat] as [number, number];
+                                })
+                                .filter((entry): entry is [number, number] => entry !== null);
+                            if (pts.length >= 2) {
+                                canonicalLine = pts;
+                                console.warn(
+                                    `voyage-log: plan ${planId} mirror is stale; drawing canonical saved-route geometry`,
+                                );
+                            }
+                        }
+                    }
+                    return { planId, rows, canonicalLine };
+                }
+                console.warn(
+                    `voyage-log: plan ${planId} for voyage ${voyageId} has no drawable geometry; trying next authority`,
+                );
+            }
+            return null;
+        };
+
         const fetchLiveTail = async (afterTs: string, voyageId?: string): Promise<Record<string, unknown>[]> => {
             const rows: Record<string, unknown>[] = [];
             const PAGE = 1000;
@@ -977,22 +1152,16 @@ Deno.serve(async (req: Request) => {
         let passage: Record<string, unknown> | null = null;
         const displayedVoyageId = selectedTrackId ?? (tripSelection.mode === 'legacy' ? currentVoyageId : null);
         const planId = displayedVoyageId ? (planIdByVoyageId.get(displayedVoyageId) ?? null) : null;
-        if (displayedVoyageId && planId) {
-            let planQuery = supabase
-                .from('ship_logs')
-                .select('latitude, longitude, cumulative_distance_nm, waypoint_name, notes, timestamp')
-                .eq('user_id', ownerId)
-                .eq('voyage_id', planId)
-                .eq('source', 'planned_route')
-                .or('archived.is.null,archived.eq.false');
-            if (boatId) planQuery = planQuery.eq('boat_id', boatId);
-            const { data: planRows, error: planError } = await planQuery
-                .order('timestamp', { ascending: true })
-                .limit(1000);
-            if (planError) {
-                console.warn('voyage-log: linked-plan fetch failed:', planError.message);
-            }
-            const plan = (planRows ?? []) as Record<string, unknown>[];
+        // The catalogue's link id is a PREFERENCE, not the only authority:
+        // resolvePlanForVoyage steps over a dead link to the next one that
+        // actually has geometry. Entering on displayedVoyageId alone (rather
+        // than requiring a known planId) is what lets a just-cast-off voyage
+        // — seeded into the picker with no link metadata — still find its
+        // route here.
+        const resolvedPlan = displayedVoyageId ? await resolvePlanForVoyage(displayedVoyageId, planId) : null;
+        if (displayedVoyageId && resolvedPlan) {
+            const planId = resolvedPlan.planId;
+            const plan = resolvedPlan.rows;
             const planPoints = plan.filter((point) => {
                 const lat = point.latitude;
                 const lon = point.longitude;
@@ -1091,7 +1260,8 @@ Deno.serve(async (req: Request) => {
                             routeGeometry[routeGeometry.length - 1][1],
                             routeGeometry[routeGeometry.length - 1][0],
                         ) <= 2;
-                const routeLine: Array<[number, number]> = (routeGeometryMatchesPlan ? routeGeometry : null) ??
+                const routeLine: Array<[number, number]> = resolvedPlan.canonicalLine ??
+                    (routeGeometryMatchesPlan ? routeGeometry : null) ??
                     planPoints.map(
                         (point) => [point.longitude as number, point.latitude as number] as [number, number],
                     );
@@ -1125,49 +1295,28 @@ Deno.serve(async (req: Request) => {
         // the public page, but it is not showing". Resolve the planned
         // mirror through every server-side link we hold and draw the plan
         // with zero progress — the track catches up when fixes arrive.
-        if (!passage) {
-            const { data: activeVoyage } = await supabase
+        // Runs when there is no passage at all, AND when the passage we
+        // built belongs to some OTHER voyage than the one currently under
+        // way — otherwise a historical trip's route would permanently
+        // suppress the route the skipper is actually sailing.
+        if (!passage || (activeRowVoyageId && passage.voyage_id !== activeRowVoyageId)) {
+            const { data: activeVoyage, error: activeVoyageError } = await supabase
                 .from('voyages')
                 .select('id, voyage_name, saved_route_id')
                 .eq('user_id', ownerId)
                 .eq('status', 'active')
                 .maybeSingle();
+            if (activeVoyageError) {
+                console.warn('voyage-log: active-voyage fetch failed:', activeVoyageError.message);
+            }
             if (activeVoyage) {
-                let fallbackPlanId: string | null = null;
-                const { data: activeLink } = await supabase
-                    .from('voyage_plan_links')
-                    .select('plan_voyage_id')
-                    .eq('user_id', ownerId)
-                    .eq('voyage_id', activeVoyage.id as string)
-                    .maybeSingle();
-                if (typeof activeLink?.plan_voyage_id === 'string') fallbackPlanId = activeLink.plan_voyage_id;
-                if (!fallbackPlanId && typeof activeVoyage.saved_route_id === 'string') {
-                    const { data: routeRow } = await supabase
-                        .from('saved_routes')
-                        .select('planned_route_id')
-                        .eq('id', activeVoyage.saved_route_id)
-                        .maybeSingle();
-                    if (typeof routeRow?.planned_route_id === 'string') fallbackPlanId = routeRow.planned_route_id;
-                }
-                if (!fallbackPlanId) {
-                    const { data: backLink } = await supabase
-                        .from('saved_routes')
-                        .select('planned_route_id')
-                        .eq('passage_voyage_id', activeVoyage.id as string)
-                        .maybeSingle();
-                    if (typeof backLink?.planned_route_id === 'string') fallbackPlanId = backLink.planned_route_id;
-                }
-                if (fallbackPlanId) {
-                    let planQuery = supabase
-                        .from('ship_logs')
-                        .select('latitude, longitude, cumulative_distance_nm, notes, timestamp')
-                        .eq('user_id', ownerId)
-                        .eq('voyage_id', fallbackPlanId)
-                        .eq('source', 'planned_route')
-                        .or('archived.is.null,archived.eq.false');
-                    if (boatId) planQuery = planQuery.eq('boat_id', boatId);
-                    const { data: planRows } = await planQuery.order('timestamp', { ascending: true }).limit(1000);
-                    const plan = (planRows ?? []) as Record<string, unknown>[];
+                // One resolver, every authority, geometry-verified — the
+                // ladder this replaced short-circuited on the first plan ID
+                // and never looked past it, so a dead link ended the search.
+                const fallbackPlan = await resolvePlanForVoyage(activeVoyage.id as string);
+                if (fallbackPlan) {
+                    const fallbackPlanId = fallbackPlan.planId;
+                    const plan = fallbackPlan.rows;
                     const planPoints = plan.filter(
                         (point) =>
                             typeof point.latitude === 'number' &&
@@ -1184,7 +1333,7 @@ Deno.serve(async (req: Request) => {
                         );
                         const planEnd = planPoints[planPoints.length - 1];
                         const routeGeometry = recoverPublicRouteGeometry(String(plan[0]?.notes ?? ''));
-                        const routeLine: Array<[number, number]> = routeGeometry ??
+                        const routeLine: Array<[number, number]> = fallbackPlan.canonicalLine ?? routeGeometry ??
                             planPoints.map(
                                 (point) => [point.longitude as number, point.latitude as number] as [number, number],
                             );
