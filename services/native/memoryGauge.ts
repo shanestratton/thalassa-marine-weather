@@ -43,6 +43,12 @@ function armWarningListener(): void {
     listenerArmed = true;
     void MemoryGauge.addListener('warning', () => {
         warningUntil = Date.now() + WARNING_HOLD_MS;
+        // iOS says the ceiling is close: parked route grids are the
+        // biggest thing we can shed instantly (up to ~48 MB of typed
+        // arrays; the Airlie Jetsam hunt, 2026-09-02). Dynamic import so
+        // this display-layer module never pulls the routing engine into
+        // bundles that only wanted a gauge.
+        void import('../engine/navGrid').then(({ trimNavGridCache }) => trimNavGridCache(0)).catch(() => {});
     }).catch(() => {
         // Plugin absent (old native build) — the gauge stays silent and the
         // brake keeps its historical no-op behaviour rather than guessing.
