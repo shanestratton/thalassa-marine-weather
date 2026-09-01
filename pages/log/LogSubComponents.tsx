@@ -161,6 +161,13 @@ export const FollowRouteChoice: React.FC<{
      *  the dog-leg arrow alone — legs are flush, not indented (Shane
      *  2026-08-27). */
     isLeg?: boolean;
+    /** Trailing "(2nd Leg)" paint, rendered OUTSIDE the truncating name span
+     *  so a long name can never eat it — the saved-routes grammar rule. */
+    legBadge?: string;
+    /** The saved trace's display name (badge-stripped). Preferred over the
+     *  geocoded endpoint guess: it is the name the PLAN library shows, so the
+     *  two surfaces agree about what a route is called (Shane 2026-09-02). */
+    savedName?: string;
     onPick: () => void;
 }> = ({
     summary,
@@ -173,6 +180,8 @@ export const FollowRouteChoice: React.FC<{
     loading = false,
     disabled = false,
     isLeg = false,
+    legBadge,
+    savedName,
     onPick,
 }) => {
     const first = summary.firstLat != null ? { latitude: summary.firstLat, longitude: summary.firstLon } : undefined;
@@ -183,10 +192,16 @@ export const FollowRouteChoice: React.FC<{
     // Round trips and single-fix plans collapse to one name instead of the
     // silly "Newport → Newport". "Suggested route" survives only as the honest
     // last resort when nothing resolved — offline, mid-ocean, or a bad fix.
-    const routeName =
+    // The saved route's own name wins when it exists — endpoints are a guess
+    // (two offshore fixes both geocoded to "Coral Sea" and collapsed to a
+    // single word on the cast-off sheet, 2026-09-02). Round trips and
+    // single-fix plans still collapse; "Suggested route" survives only as the
+    // honest last resort when nothing resolved.
+    const geocodedName =
         startLabel && endLabel && startLabel !== endLabel
             ? `${startLabel} → ${endLabel}`
             : (startLabel ?? endLabel ?? 'Suggested route');
+    const routeName = savedName?.trim() || geocodedName;
 
     return (
         <button
@@ -207,11 +222,10 @@ export const FollowRouteChoice: React.FC<{
                 name could eat the one mark telling you a direction had been
                 chosen on your behalf.
 
-                A pin, not a compass: these rows are individual routes. The
-                compass is reserved for a whole passage, and this sheet has no
-                passages to show — VoyageSummary carries no tripId or
-                legOrdinal, so the passage/leg structure is not derivable here
-                without new data. */}
+                A pin for a day sail, the ↳ dog-leg for a leg under its
+                passage heading — the compass stays reserved for the passage
+                row itself. Trip structure arrives via the trace store join in
+                LogPage (tripIdentityByTraceId), not VoyageSummary. */}
             <span aria-hidden="true" className="shrink-0 text-base leading-none">
                 {isLeg ? '↳' : '📍'}
             </span>
@@ -220,6 +234,7 @@ export const FollowRouteChoice: React.FC<{
                     className={`flex items-baseline gap-1.5 text-[13px] font-bold ${blocked ? 'text-gray-400' : 'text-gray-100'}`}
                 >
                     <span className="min-w-0 truncate">{routeName}</span>
+                    {legBadge && <span className="shrink-0">{legBadge}</span>}
                     {/* The return leg is a separate saved voyage, folded into this
                         row. Marked rather than silently dropped — the direction shown
                         is the one starting nearest the boat, and a skipper should be

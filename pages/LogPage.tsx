@@ -94,6 +94,7 @@ import {
     tripIdentityByTraceId,
 } from '../services/traceDirectUseGate';
 import { orderSavedRouteRows } from '../services/savedRouteOrder';
+import { ordinalLegLabel } from '../services/routeTracer';
 import { SavedRoutePassageHeading } from '../components/routes/SavedRouteRows';
 
 const NO_FOLLOWED_ROUTE: readonly RouteCoordinate[] = [];
@@ -464,6 +465,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
             tripId?: string;
             legOrdinal?: number;
             tripName?: string;
+            legName?: string;
         })[]
     >([]);
     /**
@@ -3073,6 +3075,12 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                             key={item.key}
                                             summary={s}
                                             isLeg={item.row.kind === 'leg'}
+                                            savedName={item.row.choice.legName}
+                                            legBadge={
+                                                item.row.kind === 'leg' && item.row.legOrdinal
+                                                    ? `(${ordinalLegLabel(item.row.legOrdinal)})`
+                                                    : undefined
+                                            }
                                             reversible={reversible}
                                             blockReason={blockReason}
                                             onCheckRoute={() => {

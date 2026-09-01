@@ -51,6 +51,37 @@ describe('saved-routes grammar on the follow sheet', () => {
         expect(badge.closest('.truncate')).toBeNull();
     });
 
+    it('prefers the saved route name over the geocoded endpoint guess', () => {
+        // Two offshore fixes both geocode to "Coral Sea" and collapse to one
+        // word (seen live 2026-09-02). The trace's own name is the truth the
+        // PLAN library already shows — the sheet must agree with it.
+        render(<FollowRouteChoice summary={summary} savedName="Coral Sea - Whitsundays" onPick={vi.fn()} />);
+        const truncating = document.querySelector('.truncate');
+        expect(truncating?.textContent).toBe('Coral Sea - Whitsundays');
+    });
+
+    it('falls back to geocoded endpoints when there is no saved name', () => {
+        render(<FollowRouteChoice summary={summary} onPick={vi.fn()} />);
+        expect(document.querySelector('.truncate')?.textContent).toBe(
+            'Manly Boat Harbour Marina Berth → Tangalooma Wrecks Anchorage North',
+        );
+    });
+
+    it('keeps the leg badge OUT of the truncating name span', () => {
+        render(
+            <FollowRouteChoice
+                summary={summary}
+                isLeg
+                savedName="Coral Sea - Whitsundays"
+                legBadge="(3rd Leg)"
+                onPick={vi.fn()}
+            />,
+        );
+        const badge = screen.getByText('(3rd Leg)');
+        expect(badge.className).toContain('shrink-0');
+        expect(badge.closest('.truncate')).toBeNull();
+    });
+
     it('truncates only the name', () => {
         render(<FollowRouteChoice summary={summary} reversible onPick={vi.fn()} />);
         const truncating = document.querySelector('.truncate');
