@@ -746,17 +746,11 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                             badge={expiringDocsCount > 0 ? expiringDocsCount : undefined}
                             badgeUrgent={expiringDocsCount > 0}
                         />
-                        <ListDivider />
-                        <OfficeRow
-                            icon={<NoticeIcon color="#f59e0b" />}
-                            label="Notices to Mariners"
-                            status="NAVAREA • HYDRO"
-                            statusColor="#f59e0b"
-                            onClick={() => {
-                                triggerHaptic('light');
-                                navigateFromBinder('notices');
-                            }}
-                        />
+                        {/* Notices to Mariners culled from the binder (Shane
+                            2026-09-02): "wrong spot for them. we have them on
+                            the obs page anyway. so lets not hide them here."
+                            Notices are perishable and spatial — they live on
+                            the chart, not in the reference drawer. */}
                         <ListDivider />
                         <OfficeRow
                             icon={<GpxIcon color="#cbd5e1" />}
