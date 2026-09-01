@@ -63,14 +63,14 @@ export const ChatComposer: React.FC<ChatComposerProps> = React.memo(
         );
 
         return (
-            <div className="flex-shrink-0 relative">
-                <div className="absolute inset-0 bg-gradient-to-t from-[#050a18] via-[#050a18]/95 to-transparent" />
+            <div className="shrink-0 relative">
+                <div className="absolute inset-0 bg-linear-to-t from-[#050a18] via-[#050a18]/95 to-transparent" />
                 <div
                     className={`relative px-4 pt-2 ${keyboardOffset > 0 ? 'pb-2' : 'pb-[calc(4.5rem+env(safe-area-inset-bottom))]'}`}
                 >
                     {/* Client filter warning */}
                     {filterWarning && (
-                        <div className="mb-2 p-3 rounded-xl bg-amber-500/[0.06] border border-amber-500/[0.12] fade-slide-down">
+                        <div className="mb-2 p-3 rounded-xl bg-amber-500/6 border border-amber-500/12 fade-slide-down">
                             <p className="text-[11px] text-amber-400/80 mb-2">⚠️ {filterWarning.warning}</p>
                             <div className="flex gap-2">
                                 <button
@@ -79,7 +79,7 @@ export const ChatComposer: React.FC<ChatComposerProps> = React.memo(
                                         setMessageText('');
                                     }}
                                     aria-label="Edit message"
-                                    className="flex-1 py-2.5 rounded-lg bg-white/[0.03] text-xs text-white/60 hover:bg-white/[0.06] transition-colors min-h-[44px]"
+                                    className="flex-1 py-2.5 rounded-lg bg-white/3 text-xs text-white/60 hover:bg-white/6 transition-colors min-h-[44px]"
                                 >
                                     Edit message
                                 </button>
@@ -97,7 +97,7 @@ export const ChatComposer: React.FC<ChatComposerProps> = React.memo(
                     )}
 
                     {isMuted ? (
-                        <div className="flex items-center justify-center gap-2 py-2 rounded-xl bg-red-500/[0.04] border border-red-500/[0.06]">
+                        <div className="flex items-center justify-center gap-2 py-2 rounded-xl bg-red-500/4 border border-red-500/6">
                             <span className="text-[11px] text-red-400/50">
                                 🔇 Muted until {mutedUntil?.toLocaleTimeString()}
                             </span>
@@ -113,10 +113,10 @@ export const ChatComposer: React.FC<ChatComposerProps> = React.memo(
                                     aria-expanded={showAttachMenu}
                                     aria-haspopup="menu"
                                     aria-controls={showAttachMenu ? attachMenuId : undefined}
-                                    className={`w-11 h-11 rounded-xl flex items-center justify-center text-lg transition-all duration-200 flex-shrink-0 active:scale-90 ${
+                                    className={`w-11 h-11 rounded-xl flex items-center justify-center text-lg transition-all duration-200 shrink-0 active:scale-90 ${
                                         showAttachMenu
                                             ? 'bg-sky-500/15 border border-sky-500/25 rotate-45'
-                                            : 'bg-white/[0.03] border border-white/[0.04] hover:bg-white/[0.06]'
+                                            : 'bg-white/3 border border-white/4 hover:bg-white/6'
                                     }`}
                                 >
                                     <span
@@ -140,7 +140,7 @@ export const ChatComposer: React.FC<ChatComposerProps> = React.memo(
                                             id={attachMenuId}
                                             role="menu"
                                             aria-label="Share an attachment"
-                                            className="absolute bottom-12 left-0 z-50 w-72 rounded-2xl bg-slate-900 border border-white/[0.1] shadow-2xl overflow-hidden fade-slide-down"
+                                            className="absolute bottom-12 left-0 z-50 w-72 rounded-2xl bg-slate-900 border border-white/10 shadow-2xl overflow-hidden fade-slide-down"
                                         >
                                             <div className="px-4 pt-3 pb-2" role="presentation">
                                                 <p className="text-[10px] font-black uppercase tracking-[0.18em] text-sky-300/70">
@@ -151,9 +151,9 @@ export const ChatComposer: React.FC<ChatComposerProps> = React.memo(
                                                 role="menuitem"
                                                 onClick={() => chooseAttachment(onOpenPinDrop)}
                                                 aria-label="Share my current location"
-                                                className="w-full flex items-center gap-3 px-4 py-3 hover:bg-emerald-400/[0.08] transition-colors text-left min-h-[64px]"
+                                                className="w-full flex items-center gap-3 px-4 py-3 hover:bg-emerald-400/8 transition-colors text-left min-h-[64px]"
                                             >
-                                                <span className="w-10 h-10 rounded-xl bg-emerald-400/10 border border-emerald-300/20 flex items-center justify-center text-lg flex-shrink-0">
+                                                <span className="w-10 h-10 rounded-xl bg-emerald-400/10 border border-emerald-300/20 flex items-center justify-center text-lg shrink-0">
                                                     📍
                                                 </span>
                                                 <span className="min-w-0">
@@ -165,14 +165,14 @@ export const ChatComposer: React.FC<ChatComposerProps> = React.memo(
                                                     </span>
                                                 </span>
                                             </button>
-                                            <div role="separator" className="h-px bg-white/[0.06]" />
+                                            <div role="separator" className="h-px bg-white/6" />
                                             <button
                                                 role="menuitem"
                                                 onClick={() => chooseAttachment(onOpenPoiPicker)}
                                                 aria-label="Drop a pin on the chart"
-                                                className="w-full flex items-center gap-3 px-4 py-3 hover:bg-sky-400/[0.08] transition-colors text-left min-h-[64px]"
+                                                className="w-full flex items-center gap-3 px-4 py-3 hover:bg-sky-400/8 transition-colors text-left min-h-[64px]"
                                             >
-                                                <span className="w-10 h-10 rounded-xl bg-sky-400/10 border border-sky-300/20 flex items-center justify-center text-lg flex-shrink-0">
+                                                <span className="w-10 h-10 rounded-xl bg-sky-400/10 border border-sky-300/20 flex items-center justify-center text-lg shrink-0">
                                                     📌
                                                 </span>
                                                 <span className="min-w-0">
@@ -186,14 +186,14 @@ export const ChatComposer: React.FC<ChatComposerProps> = React.memo(
                                             </button>
                                             {FEATURE_VISIBILITY.communityTrackSharing && (
                                                 <>
-                                                    <div role="separator" className="h-px bg-white/[0.06]" />
+                                                    <div role="separator" className="h-px bg-white/6" />
                                                     <button
                                                         role="menuitem"
                                                         onClick={() => chooseAttachment(onOpenTrackPicker)}
                                                         aria-label="Share a voyage track"
-                                                        className="w-full flex items-center gap-3 px-4 py-3 hover:bg-white/[0.06] transition-colors text-left min-h-[64px]"
+                                                        className="w-full flex items-center gap-3 px-4 py-3 hover:bg-white/6 transition-colors text-left min-h-[64px]"
                                                     >
-                                                        <span className="w-10 h-10 rounded-xl bg-violet-400/10 border border-violet-300/20 flex items-center justify-center text-lg flex-shrink-0">
+                                                        <span className="w-10 h-10 rounded-xl bg-violet-400/10 border border-violet-300/20 flex items-center justify-center text-lg shrink-0">
                                                             🗺️
                                                         </span>
                                                         <span className="min-w-0">
@@ -217,10 +217,10 @@ export const ChatComposer: React.FC<ChatComposerProps> = React.memo(
                                     isQuestion ? 'Unmark as question' : 'Mark as question — questions get priority'
                                 }
                                 aria-pressed={isQuestion}
-                                className={`w-11 h-11 rounded-xl flex items-center justify-center text-sm transition-all duration-200 flex-shrink-0 active:scale-90 ${
+                                className={`w-11 h-11 rounded-xl flex items-center justify-center text-sm transition-all duration-200 shrink-0 active:scale-90 ${
                                     isQuestion
                                         ? 'bg-amber-500/15 border border-amber-500/25 shadow-lg shadow-amber-500/10'
-                                        : 'bg-white/[0.03] border border-white/[0.04] hover:bg-white/[0.06]'
+                                        : 'bg-white/3 border border-white/4 hover:bg-white/6'
                                 }`}
                             >
                                 📢
@@ -239,7 +239,7 @@ export const ChatComposer: React.FC<ChatComposerProps> = React.memo(
                                     aria-label={isQuestion ? 'Ask the crew a question' : 'Type a message'}
                                     aria-describedby={messageLimitId}
                                     maxLength={MAX_CHAT_MESSAGE_CHARS}
-                                    className="w-full bg-white/[0.04] border border-white/[0.06] rounded-xl px-4 py-3 text-lg text-white placeholder:text-white/40 focus:outline-none focus:border-sky-500/30 focus:bg-white/[0.06] transition-all duration-200 min-h-[48px]"
+                                    className="w-full bg-white/4 border border-white/6 rounded-xl px-4 py-3 text-lg text-white placeholder:text-white/40 focus:outline-hidden focus:border-sky-500/30 focus:bg-white/6 transition-all duration-200 min-h-[48px]"
                                 />
                                 <span id={messageLimitId} className="sr-only">
                                     Maximum {MAX_CHAT_MESSAGE_CHARS.toLocaleString()} characters
@@ -249,7 +249,7 @@ export const ChatComposer: React.FC<ChatComposerProps> = React.memo(
                                 onClick={() => onSend()}
                                 disabled={!messageText.trim()}
                                 aria-label="Send message"
-                                className="w-11 h-11 rounded-xl bg-gradient-to-r from-sky-500 to-sky-600 hover:from-sky-400 hover:to-sky-500 disabled:from-white/[0.03] disabled:to-white/[0.03] disabled:border disabled:border-white/[0.04] flex items-center justify-center transition-all duration-200 active:scale-90 disabled:active:scale-100 shadow-lg shadow-sky-500/20 disabled:shadow-none"
+                                className="w-11 h-11 rounded-xl bg-linear-to-r from-sky-500 to-sky-600 hover:from-sky-400 hover:to-sky-500 disabled:from-white/3 disabled:to-white/3 disabled:border disabled:border-white/4 flex items-center justify-center transition-all duration-200 active:scale-90 disabled:active:scale-100 shadow-lg shadow-sky-500/20 disabled:shadow-none"
                             >
                                 <svg
                                     width="16"

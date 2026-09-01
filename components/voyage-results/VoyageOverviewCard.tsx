@@ -63,7 +63,7 @@ export const VoyageOverviewCard: React.FC<VoyageOverviewCardProps> = React.memo(
                 {/* Route Connector */}
                 <div className="flex flex-col items-center justify-center shrink-0 gap-0.5 py-2 min-w-[80px] md:min-w-[140px]">
                     <div className="w-full flex items-center gap-0">
-                        <div className="h-px flex-1 bg-gradient-to-r from-transparent via-sky-500/40 to-sky-500/60" />
+                        <div className="h-px flex-1 bg-linear-to-r from-transparent via-sky-500/40 to-sky-500/60" />
                         <div className="p-1.5 bg-sky-500/10 border border-sky-500/30 rounded-full shadow-[0_0_8px_rgba(56,189,248,0.15)]">
                             {vessel?.type === 'power' ? (
                                 <PowerBoatIcon className="w-3.5 h-3.5 text-sky-400" />
@@ -71,7 +71,7 @@ export const VoyageOverviewCard: React.FC<VoyageOverviewCardProps> = React.memo(
                                 <SailBoatIcon className="w-3.5 h-3.5 text-sky-400" />
                             )}
                         </div>
-                        <div className="h-px flex-1 bg-gradient-to-r from-sky-500/60 via-sky-500/40 to-transparent" />
+                        <div className="h-px flex-1 bg-linear-to-r from-sky-500/60 via-sky-500/40 to-transparent" />
                     </div>
                     <span className="text-[11px] text-sky-400/70 font-bold uppercase tracking-[0.15em] mt-0.5">
                         {voyagePlan.departureDate}

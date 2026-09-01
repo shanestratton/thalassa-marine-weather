@@ -153,7 +153,7 @@ export const DiaryComposeForm: React.FC<DiaryComposeFormProps> = React.memo(
                             e.currentTarget.select();
                             scrollInputAboveKeyboard(e);
                         }}
-                        className="shrink-0 w-full bg-white/[0.03] border border-white/[0.08] rounded-xl px-4 py-3 text-lg font-bold text-white placeholder-gray-500 outline-none focus:border-sky-500/30 transition-colors"
+                        className="shrink-0 w-full bg-white/3 border border-white/8 rounded-xl px-4 py-3 text-lg font-bold text-white placeholder-gray-500 outline-hidden focus:border-sky-500/30 transition-colors"
                     />
 
                     {/* Mood selector */}
@@ -171,7 +171,7 @@ export const DiaryComposeForm: React.FC<DiaryComposeFormProps> = React.memo(
                                     className={`flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-bold transition-all ${
                                         mood === key
                                             ? 'bg-white/15 border border-white/20 scale-[1.02]'
-                                            : 'bg-white/5 border border-white/[0.06] opacity-60 hover:opacity-90'
+                                            : 'bg-white/5 border border-white/6 opacity-60 hover:opacity-90'
                                     }`}
                                 >
                                     <span>{cfg.emoji}</span>
@@ -197,7 +197,7 @@ export const DiaryComposeForm: React.FC<DiaryComposeFormProps> = React.memo(
                                         ? 'bg-purple-500/30 border-purple-500/30 animate-pulse'
                                         : body.trim().length >= 10
                                           ? 'bg-purple-500/15 border-purple-500/25 hover:bg-purple-500/25'
-                                          : 'bg-white/[0.03] border-white/[0.06] opacity-30 cursor-default'
+                                          : 'bg-white/3 border-white/6 opacity-30 cursor-default'
                                 }`}
                             >
                                 <span aria-hidden="true">{polishing ? '⏳' : '✨'}</span>
@@ -212,7 +212,7 @@ export const DiaryComposeForm: React.FC<DiaryComposeFormProps> = React.memo(
                                     value={polishStyle}
                                     onChange={(e) => onSetPolishStyle(e.target.value as PolishStyle)}
                                     aria-label="Polish style"
-                                    className="w-full h-11 appearance-none bg-purple-500/[0.08] border border-purple-500/25 rounded-xl pl-3 pr-8 text-[11px] text-purple-100 font-bold outline-none focus:border-purple-400/60 hover:bg-purple-500/[0.12] transition-colors cursor-pointer [color-scheme:dark]"
+                                    className="w-full h-11 appearance-none bg-purple-500/8 border border-purple-500/25 rounded-xl pl-3 pr-8 text-[11px] text-purple-100 font-bold outline-hidden focus:border-purple-400/60 hover:bg-purple-500/12 transition-colors cursor-pointer scheme-dark"
                                 >
                                     {(Object.entries(POLISH_LABEL) as [PolishStyle, string][]).map(([value, label]) => (
                                         <option key={value} value={value} className="bg-slate-900 text-purple-100">
@@ -243,7 +243,7 @@ export const DiaryComposeForm: React.FC<DiaryComposeFormProps> = React.memo(
                             value={locationName}
                             onChange={(e) => onSetLocationName(e.target.value)}
                             onFocus={scrollInputAboveKeyboard}
-                            className="w-full bg-white/5 border border-white/5 rounded-lg px-3 py-1.5 text-[11px] text-gray-300 placeholder-gray-500 outline-none focus:border-sky-500/30 transition-colors"
+                            className="w-full bg-white/5 border border-white/5 rounded-lg px-3 py-1.5 text-[11px] text-gray-300 placeholder-gray-500 outline-hidden focus:border-sky-500/30 transition-colors"
                         />
 
                         {/* GPS coords — always on the entry by default (Shane
@@ -361,7 +361,7 @@ export const DiaryComposeForm: React.FC<DiaryComposeFormProps> = React.memo(
                                 });
                             }}
                             disabled={polishing}
-                            className="w-full h-full min-h-[10rem] bg-slate-900 border border-white/[0.08] rounded-2xl p-4 text-sm text-gray-200 placeholder-gray-500 leading-relaxed resize-none outline-none focus:border-sky-500/30 transition-colors disabled:opacity-60"
+                            className="w-full h-full min-h-40 bg-slate-900 border border-white/8 rounded-2xl p-4 text-sm text-gray-200 placeholder-gray-500 leading-relaxed resize-none outline-hidden focus:border-sky-500/30 transition-colors disabled:opacity-60"
                         />
                     </div>
                 </div>
@@ -381,7 +381,7 @@ export const DiaryComposeForm: React.FC<DiaryComposeFormProps> = React.memo(
                             aria-label="Save changes"
                             onClick={onSave}
                             disabled={saving || polishing || (!body.trim() && !title.trim() && !audioUrl)}
-                            className="flex-[2] py-3 rounded-xl bg-sky-600 hover:bg-sky-500 disabled:bg-gray-700 disabled:text-gray-400 text-white font-bold text-sm transition-colors active:scale-[0.98]"
+                            className="flex-2 py-3 rounded-xl bg-sky-600 hover:bg-sky-500 disabled:bg-gray-700 disabled:text-gray-400 text-white font-bold text-sm transition-colors active:scale-[0.98]"
                         >
                             {saving ? 'Saving…' : isEditing ? 'Update Entry' : 'Save Entry'}
                         </button>

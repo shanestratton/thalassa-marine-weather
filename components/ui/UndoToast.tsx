@@ -52,7 +52,7 @@ export const UndoToast: React.FC<UndoToastProps> = ({ message, isOpen, duration 
 
     return (
         <div
-            className="fixed left-4 right-4 z-[9999] animate-slide-up"
+            className="fixed left-4 right-4 z-9999 animate-slide-up"
             style={{ bottom: 'calc(5.5rem + env(safe-area-inset-bottom))' }}
         >
             <div className="bg-slate-800 border border-white/10 rounded-2xl px-4 py-3 shadow-2xl shadow-black/50">

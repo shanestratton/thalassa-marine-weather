@@ -81,21 +81,21 @@ const VERDICT_UI: Record<WindowVerdict, { thumb: string; word: string; badge: st
             thumb: '👍',
             word: 'Good window',
             badge: 'bg-emerald-400/15 text-emerald-300',
-            banner: 'bg-emerald-500/[0.12] border-emerald-400/30',
+            banner: 'bg-emerald-500/12 border-emerald-400/30',
             text: 'text-emerald-300',
         },
         marginal: {
             thumb: '🆗',
             word: 'Marginal',
             badge: 'bg-amber-400/15 text-amber-200',
-            banner: 'bg-amber-500/[0.12] border-amber-400/30',
+            banner: 'bg-amber-500/12 border-amber-400/30',
             text: 'text-amber-200',
         },
         poor: {
             thumb: '👎',
             word: 'Poor window',
             badge: 'bg-red-400/15 text-red-300',
-            banner: 'bg-red-500/[0.12] border-red-400/30',
+            banner: 'bg-red-500/12 border-red-400/30',
             text: 'text-red-300',
         },
     };
@@ -425,7 +425,7 @@ const DirArrow: React.FC<{ deg: number | null; size?: number }> = ({ deg, size =
 const DirCell: React.FC<{ label: string; deg: number | null; highlight?: boolean }> = ({ label, deg, highlight }) => (
     <div
         className={`flex-1 rounded-xl border px-2 py-3 flex flex-col items-center gap-1.5 ${
-            highlight ? 'bg-emerald-400/10 border-emerald-400/25' : 'bg-white/[0.04] border-white/[0.06]'
+            highlight ? 'bg-emerald-400/10 border-emerald-400/25' : 'bg-white/4 border-white/6'
         }`}
     >
         <div className="text-[10px] uppercase tracking-wider text-white/40">{label}</div>
@@ -722,7 +722,7 @@ export const MetricDeepDiveModal: React.FC<MetricDeepDiveModalProps> = ({
                         </div>
 
                         {/* Shift read — accent callout */}
-                        <div className="flex items-start gap-2.5 rounded-xl bg-white/[0.04] border border-white/[0.06] px-3.5 py-3">
+                        <div className="flex items-start gap-2.5 rounded-xl bg-white/4 border border-white/6 px-3.5 py-3">
                             <span className="mt-0.5 text-base leading-none text-emerald-300">{shiftIcon}</span>
                             <p className="text-sm text-white/80 leading-relaxed">{dirRead}</p>
                         </div>
@@ -735,7 +735,7 @@ export const MetricDeepDiveModal: React.FC<MetricDeepDiveModalProps> = ({
                 ) : (
                     <>
                         {/* Chart */}
-                        <div className="rounded-xl bg-gradient-to-b from-white/[0.05] to-white/[0.015] border border-white/[0.07] p-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
+                        <div className="rounded-xl bg-linear-to-b from-white/5 to-white/1.5 border border-white/[0.07] p-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
                             <Sparkline pts={chartPts} nowT={nowT} accent={cfg.accent} />
                             <div className="flex justify-between text-[10px] text-white/50 px-1 mt-1">
                                 <span>{hasHistory ? 'Yesterday' : 'Now'}</span>
@@ -747,7 +747,7 @@ export const MetricDeepDiveModal: React.FC<MetricDeepDiveModalProps> = ({
                         {/* Window verdict + 5-day read — the merged hero callout */}
                         <div
                             className={`flex items-start gap-3 rounded-xl border px-3.5 py-3 ${
-                                vUI ? vUI.banner : 'bg-white/[0.04] border-white/[0.06]'
+                                vUI ? vUI.banner : 'bg-white/4 border-white/6'
                             }`}
                         >
                             {vUI ? (
@@ -767,13 +767,13 @@ export const MetricDeepDiveModal: React.FC<MetricDeepDiveModalProps> = ({
 
                         {/* Stat cards */}
                         <div className="grid grid-cols-2 gap-3">
-                            <div className="rounded-xl bg-white/[0.04] border border-white/[0.06] px-3.5 py-2.5">
+                            <div className="rounded-xl bg-white/4 border border-white/6 px-3.5 py-2.5">
                                 <div className="text-[10px] uppercase tracking-wider text-white/40">5-day range</div>
                                 <div className="mt-0.5 text-sm font-bold text-white tabular-nums">
                                     {fmt(todayMin)} – {fmt(todayMax)}
                                 </div>
                             </div>
-                            <div className="rounded-xl bg-white/[0.04] border border-white/[0.06] px-3.5 py-2.5">
+                            <div className="rounded-xl bg-white/4 border border-white/6 px-3.5 py-2.5">
                                 <div className="text-[10px] uppercase tracking-wider text-white/40">Tomorrow</div>
                                 <div className="mt-0.5 text-sm font-bold text-white tabular-nums">
                                     {tomorrowStr || '--'}

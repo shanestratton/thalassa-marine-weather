@@ -481,7 +481,7 @@ export const WeatherWindowCard: React.FC<WeatherWindowCardProps> = ({
         <div className="space-y-4">
             {/* No coordinates */}
             {lat == null && (
-                <div className="bg-white/[0.03] border border-dashed border-white/[0.08] rounded-xl p-4 text-center">
+                <div className="bg-white/3 border border-dashed border-white/8 rounded-xl p-4 text-center">
                     <p className="text-2xl mb-2">🧭</p>
                     <p className="text-xs text-gray-400">
                         Plan a route first to enable weather window analysis.
@@ -493,7 +493,7 @@ export const WeatherWindowCard: React.FC<WeatherWindowCardProps> = ({
 
             {/* Loading */}
             {loading && (
-                <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-6 text-center">
+                <div className="bg-white/3 border border-white/6 rounded-xl p-6 text-center">
                     <div className="w-8 h-8 border-2 border-cyan-400/20 border-t-cyan-400 rounded-full animate-spin mx-auto mb-3" />
                     <p className="text-xs text-gray-400">Analysing 16-day forecast...</p>
                 </div>
@@ -519,7 +519,7 @@ export const WeatherWindowCard: React.FC<WeatherWindowCardProps> = ({
             {result?.availability === 'available' && !loading && (
                 <>
                     {/* Summary bar */}
-                    <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-3 flex items-center gap-3">
+                    <div className="bg-white/3 border border-white/6 rounded-xl p-3 flex items-center gap-3">
                         <span className="text-lg">{goCount > 0 ? '🌤️' : '⛈️'}</span>
                         <div className="flex-1">
                             <p className="text-xs font-bold text-white">
@@ -563,7 +563,7 @@ export const WeatherWindowCard: React.FC<WeatherWindowCardProps> = ({
                     {/* No windows in the chosen-date scope (e.g. user
                         picked a date beyond the 16-day forecast horizon) */}
                     {displayWindows.length === 0 && hasChosenDate && (
-                        <div className="bg-amber-500/[0.05] border border-amber-500/15 rounded-xl p-3 text-center">
+                        <div className="bg-amber-500/5 border border-amber-500/15 rounded-xl p-3 text-center">
                             <p className="text-xs text-amber-300">
                                 No forecast data within ±3 days of {chosenDateLabel}.
                             </p>

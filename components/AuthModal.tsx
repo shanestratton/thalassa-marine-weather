@@ -335,7 +335,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, layer = '
                                     value={email}
                                     onChange={(e) => setEmail(e.target.value.replace(/\s+/g, ''))}
                                     placeholder="captain@vessel.com"
-                                    className={`w-full bg-slate-900 ${t.border.default} rounded-xl px-4 py-3 text-white focus:border-sky-500 outline-none transition-colors`}
+                                    className={`w-full bg-slate-900 ${t.border.default} rounded-xl px-4 py-3 text-white focus:border-sky-500 outline-hidden transition-colors`}
                                     required
                                     autoFocus
                                 />
@@ -389,7 +389,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, layer = '
                                     value={otp}
                                     onChange={(e) => handleOtpChange(e.target.value)}
                                     placeholder="••••••"
-                                    className={`w-full bg-slate-900 ${t.border.default} rounded-xl px-4 py-4 text-white text-center text-xl font-mono tracking-[0.3em] focus:border-sky-500 outline-none transition-colors`}
+                                    className={`w-full bg-slate-900 ${t.border.default} rounded-xl px-4 py-4 text-white text-center text-xl font-mono tracking-[0.3em] focus:border-sky-500 outline-hidden transition-colors`}
                                     // Accept Supabase's 6-8 digit range; the
                                     // dashboard setting picks one. Hardcoding 8
                                     // locked users out when the project setting

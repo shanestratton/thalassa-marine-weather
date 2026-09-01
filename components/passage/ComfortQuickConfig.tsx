@@ -114,7 +114,7 @@ export const ComfortQuickConfig: React.FC<ComfortQuickConfigProps> = ({ expanded
                 type="button"
                 onClick={() => setExpanded((v) => !v)}
                 aria-expanded={expanded}
-                className="w-full flex items-center justify-between gap-3 px-4 py-3 hover:bg-white/[0.03] transition-colors"
+                className="w-full flex items-center justify-between gap-3 px-4 py-3 hover:bg-white/3 transition-colors"
             >
                 <div className="flex items-center gap-2">
                     <span className="text-base">🎚️</span>
@@ -216,7 +216,7 @@ export const ComfortQuickConfig: React.FC<ComfortQuickConfigProps> = ({ expanded
                                         className={`px-2.5 py-1 min-h-[44px] rounded-full text-[11px] font-bold border transition-colors active:scale-[0.97] ${
                                             active
                                                 ? 'bg-violet-500/20 border-violet-500/40 text-violet-200'
-                                                : 'bg-white/[0.02] border-white/10 text-slate-500 hover:text-slate-300'
+                                                : 'bg-white/2 border-white/10 text-slate-500 hover:text-slate-300'
                                         }`}
                                     >
                                         {label}

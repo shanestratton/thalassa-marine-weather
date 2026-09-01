@@ -139,7 +139,7 @@ const SystemStatusModal: React.FC<{
 
     return createPortal(
         <div
-            className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-[2px] p-4 pb-[calc(4rem+env(safe-area-inset-bottom)+1rem)] pt-[max(1rem,env(safe-area-inset-top))]"
+            className="fixed inset-0 z-9999 flex items-center justify-center bg-black/60 backdrop-blur-[2px] p-4 pb-[calc(4rem+env(safe-area-inset-bottom)+1rem)] pt-[max(1rem,env(safe-area-inset-top))]"
             onClick={onClose}
             role="presentation"
         >
@@ -153,7 +153,7 @@ const SystemStatusModal: React.FC<{
                 onClick={(e) => e.stopPropagation()}
             >
                 {/* Header */}
-                <div className="flex items-center justify-between px-5 pt-5 pb-3 sticky top-0 bg-slate-900/95 z-10 border-b border-white/[0.06]">
+                <div className="flex items-center justify-between px-5 pt-5 pb-3 sticky top-0 bg-slate-900/95 z-10 border-b border-white/6">
                     <div className="flex items-center gap-2">
                         <div className="w-7 h-7 rounded-full bg-sky-500/20 flex items-center justify-center">
                             <span className="text-sky-400 text-sm font-bold">ℹ</span>
@@ -205,7 +205,7 @@ const SystemStatusModal: React.FC<{
                         return (
                             <div
                                 className={`rounded-xl border p-3 ${
-                                    died ? 'border-red-500/30 bg-red-500/[0.07]' : 'border-white/10 bg-white/[0.03]'
+                                    died ? 'border-red-500/30 bg-red-500/[0.07]' : 'border-white/10 bg-white/3'
                                 }`}
                             >
                                 <p
@@ -217,7 +217,7 @@ const SystemStatusModal: React.FC<{
                                 </p>
                                 <p className="mt-1 text-[11px] leading-relaxed text-slate-300">{flight.summary}</p>
                                 {trail && (
-                                    <p className="mt-2 select-all break-words font-mono text-[10px] leading-relaxed text-slate-400">
+                                    <p className="mt-2 select-all wrap-break-word font-mono text-[10px] leading-relaxed text-slate-400">
                                         {trail}
                                     </p>
                                 )}
@@ -522,7 +522,7 @@ const SystemRow: React.FC<{
 }> = ({ icon, label, active, detail, dotColor, pulse, action }) => (
     <div
         className={`flex items-center gap-3 p-3 rounded-xl border transition-all ${
-            active ? 'bg-white/[0.04] border-white/10' : 'bg-white/[0.01] border-white/[0.04] opacity-50'
+            active ? 'bg-white/4 border-white/10' : 'bg-white/1 border-white/4 opacity-50'
         }`}
     >
         {/* Status dot */}
@@ -889,8 +889,8 @@ export const SystemStatusButton: React.FC<SystemStatusButtonProps> = ({
                 aria-label={`System status: ${activeCount} active`}
                 className={`relative w-12 h-12 rounded-2xl flex items-center justify-center border shadow-2xl transition-all pointer-events-auto active:scale-[0.95] ${
                     hasUrgent
-                        ? 'bg-gradient-to-br from-amber-400 to-amber-600 border-amber-300/50 shadow-amber-500/40'
-                        : 'bg-gradient-to-br from-sky-400 to-sky-600 border-sky-300/50 shadow-sky-500/40'
+                        ? 'bg-linear-to-br from-amber-400 to-amber-600 border-amber-300/50 shadow-amber-500/40'
+                        : 'bg-linear-to-br from-sky-400 to-sky-600 border-sky-300/50 shadow-sky-500/40'
                 }`}
             >
                 {/* URGENT ONLY. This used to also ping on `activeCount > 1`, which
@@ -906,13 +906,13 @@ export const SystemStatusButton: React.FC<SystemStatusButtonProps> = ({
                 )}
 
                 {/* Subtle inner highlight for depth — matches the glass aesthetic */}
-                <span className="absolute inset-0 rounded-2xl bg-gradient-to-b from-white/25 via-transparent to-transparent pointer-events-none" />
+                <span className="absolute inset-0 rounded-2xl bg-linear-to-b from-white/25 via-transparent to-transparent pointer-events-none" />
 
                 {/* Proper SVG info icon — unicode ℹ rendered thin and inconsistent across
                     iOS font variations. This Heroicons-style circle-i has real visual
                     weight and scales crisply on retina displays. */}
                 <svg
-                    className="relative w-6 h-6 text-white drop-shadow-sm"
+                    className="relative w-6 h-6 text-white drop-shadow-xs"
                     viewBox="0 0 24 24"
                     fill="none"
                     stroke="currentColor"

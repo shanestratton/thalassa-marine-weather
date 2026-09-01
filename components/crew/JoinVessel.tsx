@@ -192,7 +192,7 @@ export const JoinVessel: React.FC<JoinVesselProps> = ({ onJoined, onClose }) => 
                                     value={char}
                                     onChange={(e) => handleInput(i, e.target.value)}
                                     onKeyDown={(e) => handleKeyDown(i, e)}
-                                    className={`w-12 h-14 text-center text-xl font-mono font-bold rounded-xl border transition-all focus:outline-none ${
+                                    className={`w-12 h-14 text-center text-xl font-mono font-bold rounded-xl border transition-all focus:outline-hidden ${
                                         char
                                             ? 'bg-amber-500/10 border-amber-500/30 text-amber-300'
                                             : 'bg-white/5 border-white/10 text-white focus:border-amber-500/50 focus:bg-amber-500/5'
@@ -208,7 +208,7 @@ export const JoinVessel: React.FC<JoinVesselProps> = ({ onJoined, onClose }) => 
                     <button
                         onClick={handleSubmit}
                         disabled={status === 'checking' || code.some((c) => !c)}
-                        className="w-full max-w-[280px] py-4 bg-gradient-to-r from-amber-500/20 to-orange-500/20 hover:from-amber-500/30 hover:to-orange-500/30 border border-amber-500/30 rounded-xl text-sm font-bold text-amber-300 uppercase tracking-widest transition-all active:scale-[0.97] disabled:opacity-30 disabled:cursor-not-allowed"
+                        className="w-full max-w-[280px] py-4 bg-linear-to-r from-amber-500/20 to-orange-500/20 hover:from-amber-500/30 hover:to-orange-500/30 border border-amber-500/30 rounded-xl text-sm font-bold text-amber-300 uppercase tracking-widest transition-all active:scale-[0.97] disabled:opacity-30 disabled:cursor-not-allowed"
                     >
                         {status === 'checking' ? '⏳ Checking...' : '⚓ Join Vessel'}
                     </button>

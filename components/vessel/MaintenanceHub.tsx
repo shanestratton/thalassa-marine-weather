@@ -634,7 +634,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                 if (isAuthIdentityScopeCurrent(identity)) hoursInputRef.current?.focus();
                             }, 100);
                         }}
-                        className="w-full bg-gradient-to-br from-sky-500/15 to-sky-500/15 border border-sky-500/20 rounded-2xl p-5 text-left group hover:from-sky-500/20 hover:to-sky-500/20 transition-all active:scale-[0.98]"
+                        className="w-full bg-linear-to-br from-sky-500/15 to-sky-500/15 border border-sky-500/20 rounded-2xl p-5 text-left group hover:from-sky-500/20 hover:to-sky-500/20 transition-all active:scale-[0.98]"
                     >
                         <div className="flex items-center justify-between">
                             <div className="flex items-center gap-4">
@@ -669,7 +669,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                                 if (e.key === 'Enter') saveEngineHours();
                                             }}
                                             onClick={(e) => e.stopPropagation()}
-                                            className="bg-transparent border-b-2 border-sky-400 text-3xl font-black text-white tracking-wider outline-none w-40"
+                                            className="bg-transparent border-b-2 border-sky-400 text-3xl font-black text-white tracking-wider outline-hidden w-40"
                                             autoFocus
                                         />
                                     ) : (
@@ -853,7 +853,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                         isOpen={true}
                         onClose={() => setShowHistory(false)}
                         title="Service History"
-                        zIndex="z-[1000]"
+                        zIndex="z-1000"
                     >
                         {historyItems.length === 0 ? (
                             <EmptyState
@@ -879,10 +879,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                         ) : (
                             <div className="space-y-3">
                                 {historyItems.map((h) => (
-                                    <div
-                                        key={h.id}
-                                        className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4"
-                                    >
+                                    <div key={h.id} className="bg-white/3 border border-white/6 rounded-xl p-4">
                                         <div className="flex items-center justify-between mb-1">
                                             <p className="text-sm font-bold text-white">
                                                 {new Date(h.completed_at).toLocaleDateString()}
@@ -923,7 +920,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                             aria-label="Export blank maintenance checklist PDF"
                             onClick={() => handleExport('checklist', taskData.identity)}
                             disabled={exporting}
-                            className="w-full mb-3 p-4 bg-gradient-to-r from-sky-500/15 to-sky-500/15 border border-sky-500/20 rounded-2xl text-left hover:from-sky-500/25 hover:to-sky-500/25 transition-all active:scale-[0.98] disabled:opacity-50"
+                            className="w-full mb-3 p-4 bg-linear-to-r from-sky-500/15 to-sky-500/15 border border-sky-500/20 rounded-2xl text-left hover:from-sky-500/25 hover:to-sky-500/25 transition-all active:scale-[0.98] disabled:opacity-50"
                         >
                             <div className="flex items-center gap-3">
                                 <div className="p-2.5 bg-sky-500/20 rounded-xl">
@@ -955,7 +952,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                             aria-label="Export service history PDF"
                             onClick={() => handleExport('history', taskData.identity)}
                             disabled={exporting}
-                            className="w-full p-4 bg-gradient-to-r from-amber-500/15 to-amber-500/15 border border-amber-500/20 rounded-2xl text-left hover:from-amber-500/25 hover:to-amber-500/25 transition-all active:scale-[0.98] disabled:opacity-50"
+                            className="w-full p-4 bg-linear-to-r from-amber-500/15 to-amber-500/15 border border-amber-500/20 rounded-2xl text-left hover:from-amber-500/25 hover:to-amber-500/25 transition-all active:scale-[0.98] disabled:opacity-50"
                         >
                             <div className="flex items-center gap-3">
                                 <div className="p-2.5 bg-amber-500/20 rounded-xl">

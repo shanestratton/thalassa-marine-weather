@@ -260,7 +260,7 @@ export const OceanCurrentsCard: React.FC<OceanCurrentsCardProps> = ({
         <div className="space-y-4">
             {/* No coordinates */}
             {!hasCoords && (
-                <div className="bg-white/[0.03] border border-dashed border-white/[0.08] rounded-xl p-4 text-center">
+                <div className="bg-white/3 border border-dashed border-white/8 rounded-xl p-4 text-center">
                     <p className="text-2xl mb-2">🌀</p>
                     <p className="text-xs text-gray-400">
                         Plan a route first to analyse ocean currents along your passage.
@@ -270,7 +270,7 @@ export const OceanCurrentsCard: React.FC<OceanCurrentsCardProps> = ({
 
             {/* Loading */}
             {loading && (
-                <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-6 text-center">
+                <div className="bg-white/3 border border-white/6 rounded-xl p-6 text-center">
                     <div className="w-8 h-8 border-2 border-cyan-400/20 border-t-cyan-400 rounded-full animate-spin mx-auto mb-3" />
                     <p className="text-xs text-gray-400">Fetching NOAA CoastWatch surface currents...</p>
                 </div>
@@ -314,7 +314,7 @@ export const OceanCurrentsCard: React.FC<OceanCurrentsCardProps> = ({
             {briefing?.availability === 'available' && !loading && (
                 <>
                     {/* Overview */}
-                    <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4">
+                    <div className="bg-white/3 border border-white/6 rounded-xl p-4">
                         <div className="flex items-center gap-3 mb-3">
                             <span className="text-xl">🌊</span>
                             <div className="flex-1">
@@ -332,15 +332,15 @@ export const OceanCurrentsCard: React.FC<OceanCurrentsCardProps> = ({
                         {/* Stats grid */}
                         {briefing.coverage !== 'empty' && (
                             <div className="grid grid-cols-3 gap-2 text-center">
-                                <div className="bg-white/[0.03] rounded-lg p-2">
+                                <div className="bg-white/3 rounded-lg p-2">
                                     <p className="text-[11px] text-gray-500 uppercase font-bold">Avg</p>
                                     <p className="text-sm font-bold text-cyan-400">{briefing.avgSpeedKts}kt</p>
                                 </div>
-                                <div className="bg-white/[0.03] rounded-lg p-2">
+                                <div className="bg-white/3 rounded-lg p-2">
                                     <p className="text-[11px] text-gray-500 uppercase font-bold">Max</p>
                                     <p className="text-sm font-bold text-amber-400">{briefing.maxSpeedKts}kt</p>
                                 </div>
-                                <div className="bg-white/[0.03] rounded-lg p-2">
+                                <div className="bg-white/3 rounded-lg p-2">
                                     <p className="text-[11px] text-gray-500 uppercase font-bold">Net Effect</p>
                                     <p
                                         className={`text-sm font-bold ${
@@ -361,7 +361,7 @@ export const OceanCurrentsCard: React.FC<OceanCurrentsCardProps> = ({
 
                     {/* Segments */}
                     {briefing.segments.length > 0 && (
-                        <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4">
+                        <div className="bg-white/3 border border-white/6 rounded-xl p-4">
                             <h4 className="text-xs font-bold text-white uppercase tracking-widest mb-3">
                                 🧭 Route Segments
                             </h4>
@@ -385,7 +385,7 @@ export const OceanCurrentsCard: React.FC<OceanCurrentsCardProps> = ({
 
                     {/* No significant currents */}
                     {briefing.coverage === 'empty' && (
-                        <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4 text-center">
+                        <div className="bg-white/3 border border-white/6 rounded-xl p-4 text-center">
                             <p className="text-xs font-bold text-cyan-200">Provider returned an empty current field</p>
                             <p className="text-[11px] text-gray-400 mt-1">
                                 This is the authoritative NOAA response for the route, not a substituted 0-current
@@ -395,7 +395,7 @@ export const OceanCurrentsCard: React.FC<OceanCurrentsCardProps> = ({
                     )}
 
                     {briefing.coverage === 'calm' && (
-                        <div className="bg-cyan-500/[0.05] border border-cyan-500/15 rounded-xl p-3 text-center">
+                        <div className="bg-cyan-500/5 border border-cyan-500/15 rounded-xl p-3 text-center">
                             <p className="text-xs text-cyan-200">
                                 NOAA returned current vectors and they are calm at this field&apos;s resolution.
                             </p>
@@ -425,7 +425,7 @@ export const OceanCurrentsCard: React.FC<OceanCurrentsCardProps> = ({
             {/* Acknowledge */}
             <div
                 className={`flex items-center gap-3 p-3 rounded-xl border transition-all ${
-                    acknowledged ? 'bg-emerald-500/10 border-emerald-500/20' : 'bg-white/[0.03] border-white/[0.06]'
+                    acknowledged ? 'bg-emerald-500/10 border-emerald-500/20' : 'bg-white/3 border-white/6'
                 }`}
             >
                 {acknowledged ? (

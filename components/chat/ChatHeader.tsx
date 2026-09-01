@@ -83,7 +83,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = React.memo(
                                     <button
                                         onClick={onPropose}
                                         aria-label="Propose a new channel"
-                                        className="w-11 h-11 rounded-xl bg-white/[0.08] hover:bg-sky-500/15 border border-white/[0.12] hover:border-sky-500/30 flex items-center justify-center transition-all active:scale-95"
+                                        className="w-11 h-11 rounded-xl bg-white/8 hover:bg-sky-500/15 border border-white/12 hover:border-sky-500/30 flex items-center justify-center transition-all active:scale-95"
                                     >
                                         <svg
                                             className="w-5 h-5 text-sky-400"
@@ -103,7 +103,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = React.memo(
                                 <button
                                     aria-label="Open Profile"
                                     onClick={onOpenProfile}
-                                    className="relative w-11 h-11 rounded-xl border border-white/[0.12] hover:border-white/[0.18] bg-white/[0.08] hover:bg-white/[0.12] transition-all active:scale-95"
+                                    className="relative w-11 h-11 rounded-xl border border-white/12 hover:border-white/18 bg-white/8 hover:bg-white/12 transition-all active:scale-95"
                                 >
                                     <div className="w-full h-full rounded-xl overflow-hidden">
                                         {myAvatarUrl ? (
@@ -114,22 +114,22 @@ export const ChatHeader: React.FC<ChatHeaderProps> = React.memo(
                                                 className="w-full h-full object-cover"
                                             />
                                         ) : (
-                                            <div className="w-full h-full bg-white/[0.04] flex items-center justify-center">
+                                            <div className="w-full h-full bg-white/4 flex items-center justify-center">
                                                 <span className="text-xl">⚓</span>
                                             </div>
                                         )}
                                     </div>
                                     {/* Online indicator dot */}
-                                    <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-emerald-500 border-2 border-[#0a0f1a] shadow-sm shadow-emerald-500/40" />
+                                    <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-emerald-500 border-2 border-[#0a0f1a] shadow-xs shadow-emerald-500/40" />
                                 </button>
                                 <button
                                     aria-label="Open DMInbox"
                                     onClick={onOpenDMInbox}
-                                    className="relative w-11 h-11 rounded-xl bg-white/[0.08] hover:bg-white/[0.12] border border-white/[0.12] flex items-center justify-center transition-all active:scale-95"
+                                    className="relative w-11 h-11 rounded-xl bg-white/8 hover:bg-white/12 border border-white/12 flex items-center justify-center transition-all active:scale-95"
                                 >
                                     <span className="text-xl">✉️</span>
                                     {unreadDMs > 0 && (
-                                        <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] bg-gradient-to-r from-red-500 to-red-500 rounded-full text-[11px] font-bold flex items-center justify-center px-1 shadow-lg shadow-red-500/30">
+                                        <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] bg-linear-to-r from-red-500 to-red-500 rounded-full text-[11px] font-bold flex items-center justify-center px-1 shadow-lg shadow-red-500/30">
                                             {unreadDMs > 9 ? '9+' : unreadDMs}
                                         </span>
                                     )}
@@ -143,7 +143,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = React.memo(
                                     <button
                                         aria-label="Leave channel"
                                         onClick={onLeaveChannel}
-                                        className="px-3 min-h-[44px] rounded-lg bg-white/[0.04] hover:bg-red-500/10 border border-white/[0.06] text-white/50 hover:text-red-400 text-[11px] font-bold uppercase tracking-wider transition-all active:scale-95"
+                                        className="px-3 min-h-[44px] rounded-lg bg-white/4 hover:bg-red-500/10 border border-white/6 text-white/50 hover:text-red-400 text-[11px] font-bold uppercase tracking-wider transition-all active:scale-95"
                                     >
                                         Leave
                                     </button>
@@ -154,7 +154,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = React.memo(
                             <button
                                 aria-label="Toggle notification mute"
                                 onClick={onToggleBlock}
-                                className="px-3 py-2 rounded-xl bg-white/[0.04] hover:bg-red-500/10 border border-white/[0.06] text-white/60 hover:text-red-400 text-xs font-medium transition-all active:scale-95"
+                                className="px-3 py-2 rounded-xl bg-white/4 hover:bg-red-500/10 border border-white/6 text-white/60 hover:text-red-400 text-xs font-medium transition-all active:scale-95"
                             >
                                 {isUserBlocked ? '🔓 Unblock' : '🚫 Block'}
                             </button>

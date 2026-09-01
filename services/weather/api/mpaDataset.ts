@@ -248,11 +248,11 @@ function validatePosition(
 }
 
 function validateRing(value: unknown, observed: ObservedBounds, declared: PublisherBounds): void {
-    requireTrust(Array.isArray(value) && value.length >= 4, 'MPA polygon ring is invalid');
+    requireTrust(Array.isArray(value) && value.length >= 4, 'MPA polygon ring-3 is invalid');
     for (const position of value) validatePosition(position, observed, declared);
     const first = value[0] as Position;
     const last = value[value.length - 1] as Position;
-    requireTrust(first[0] === last[0] && first[1] === last[1], 'MPA polygon ring is not closed');
+    requireTrust(first[0] === last[0] && first[1] === last[1], 'MPA polygon ring-3 is not closed');
 }
 
 function validatePolygonCoordinates(value: unknown, observed: ObservedBounds, declared: PublisherBounds): void {

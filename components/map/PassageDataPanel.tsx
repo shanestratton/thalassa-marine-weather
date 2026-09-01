@@ -27,9 +27,9 @@ export const PassageDataPanel: React.FC<PassageDataPanelProps> = ({
     const depTime = departureTime ? new Date(departureTime) : new Date();
 
     return (
-        <div className="h-full w-full overflow-y-auto bg-slate-950/95 border-l border-white/[0.06]">
+        <div className="h-full w-full overflow-y-auto bg-slate-950/95 border-l border-white/6">
             {/* Header */}
-            <div className="px-4 pt-4 pb-3 border-b border-white/[0.06]">
+            <div className="px-4 pt-4 pb-3 border-b border-white/6">
                 <div className="flex items-center gap-2 mb-1">
                     <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
                     <h2 className="text-[11px] font-black text-white uppercase tracking-widest">Passage Plan</h2>
@@ -41,7 +41,7 @@ export const PassageDataPanel: React.FC<PassageDataPanelProps> = ({
 
             {/* Route Summary */}
             {routeAnalysis && (
-                <div className="px-4 py-3 border-b border-white/[0.06]">
+                <div className="px-4 py-3 border-b border-white/6">
                     <div className="grid grid-cols-2 gap-3">
                         <div>
                             <span className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">
@@ -115,7 +115,7 @@ export const PassageDataPanel: React.FC<PassageDataPanelProps> = ({
                                             ? 'bg-emerald-500/5 border-emerald-500/15'
                                             : isLast
                                               ? 'bg-red-500/5 border-red-500/15'
-                                              : 'bg-white/[0.02] border-white/[0.04] hover:bg-white/[0.04]'
+                                              : 'bg-white/2 border-white/4 hover:bg-white/4'
                                     }`}
                                 >
                                     {/* Number badge */}

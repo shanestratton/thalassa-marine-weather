@@ -46,7 +46,7 @@ const ADMIN_TABS: ReadonlyArray<readonly [AdminTab, string]> = [
 const ROLE_STYLES: Record<ChatRole, { bg: string; text: string; label: string }> = {
     admin: { bg: 'bg-amber-500/20 border-amber-500/40', text: 'text-amber-400', label: '👑 Admin' },
     moderator: { bg: 'bg-sky-500/20 border-sky-500/40', text: 'text-sky-400', label: '🛡️ Mod' },
-    member: { bg: 'bg-white/[0.06] border-white/10', text: 'text-white/50', label: 'Member' },
+    member: { bg: 'bg-white/6 border-white/10', text: 'text-white/50', label: 'Member' },
 };
 
 const AUDIT_LABELS: Record<string, { icon: string; label: string; color: string }> = {
@@ -452,12 +452,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onChann
             />
 
             {/* ── Header ── */}
-            <div className="sticky top-0 z-10 bg-slate-900/95 border-b border-white/[0.06]">
+            <div className="sticky top-0 z-10 bg-slate-900/95 border-b border-white/6">
                 <div className="flex items-center gap-3 px-4 py-3">
                     <button
                         onClick={onClose}
                         aria-label="Back to channels"
-                        className="w-10 h-10 flex items-center justify-center rounded-xl bg-white/[0.04] hover:bg-white/[0.08] transition-colors"
+                        className="w-10 h-10 flex items-center justify-center rounded-xl bg-white/4 hover:bg-white/8 transition-colors"
                     >
                         <svg
                             className="w-4 h-4 text-white/60"
@@ -490,8 +490,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onChann
                             role="tab"
                             className={`shrink-0 min-w-[96px] flex-1 py-2.5 rounded-xl text-[11px] font-bold uppercase tracking-wider transition-all min-h-[44px] ${
                                 tab === t
-                                    ? 'bg-white/[0.08] border border-white/[0.12] text-white'
-                                    : 'bg-white/[0.02] border border-white/[0.04] text-white/40'
+                                    ? 'bg-white/8 border border-white/12 text-white'
+                                    : 'bg-white/2 border border-white/4 text-white/40'
                             }`}
                         >
                             {label}
@@ -533,7 +533,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onChann
                                 onChange={(e) => setSearch(e.target.value)}
                                 placeholder="Search users..."
                                 aria-label="Search users"
-                                className="w-full px-3.5 py-3 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors min-h-[44px]"
+                                className="w-full px-3.5 py-3 rounded-xl bg-white/6 border border-white/10 text-sm text-white placeholder-white/30 outline-hidden focus:border-sky-500/40 transition-colors min-h-[44px]"
                             />
                         </div>
 
@@ -547,7 +547,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onChann
                                     {joinRequests.map((req) => (
                                         <div
                                             key={req.id}
-                                            className="rounded-xl border border-purple-500/15 bg-purple-500/[0.03] p-3 space-y-2.5"
+                                            className="rounded-xl border border-purple-500/15 bg-purple-500/3 p-3 space-y-2.5"
                                         >
                                             <div className="flex items-center gap-2.5">
                                                 {req.avatar_url ? (
@@ -557,7 +557,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onChann
                                                         alt={`${req.display_name} avatar`}
                                                     />
                                                 ) : (
-                                                    <div className="w-9 h-9 rounded-full bg-gradient-to-br from-purple-600 to-indigo-600 flex items-center justify-center text-xs font-bold text-white">
+                                                    <div className="w-9 h-9 rounded-full bg-linear-to-br from-purple-600 to-indigo-600 flex items-center justify-center text-xs font-bold text-white">
                                                         {(req.display_name || '?')[0].toUpperCase()}
                                                     </div>
                                                 )}
@@ -620,7 +620,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onChann
                                     return (
                                         <div
                                             key={user.user_id}
-                                            className={`rounded-xl border overflow-hidden transition-all ${user.is_blocked ? 'border-red-500/20 bg-red-500/5' : 'border-white/[0.06] bg-white/[0.02]'}`}
+                                            className={`rounded-xl border overflow-hidden transition-all ${user.is_blocked ? 'border-red-500/20 bg-red-500/5' : 'border-white/6 bg-white/2'}`}
                                         >
                                             <button
                                                 onClick={() => setActionUserId(isExpanded ? null : user.user_id)}
@@ -635,7 +635,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onChann
                                                         alt=""
                                                     />
                                                 ) : (
-                                                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-sky-600 to-indigo-600 flex items-center justify-center text-sm font-bold text-white">
+                                                    <div className="w-10 h-10 rounded-full bg-linear-to-br from-sky-600 to-indigo-600 flex items-center justify-center text-sm font-bold text-white">
                                                         {user.display_name[0].toUpperCase()}
                                                     </div>
                                                 )}
@@ -676,7 +676,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onChann
                                             </button>
 
                                             {isExpanded && !isMe && (
-                                                <div className="px-3.5 pb-3.5 space-y-2 border-t border-white/[0.04] pt-2.5">
+                                                <div className="px-3.5 pb-3.5 space-y-2 border-t border-white/4 pt-2.5">
                                                     {/* Role buttons — 44px min */}
                                                     <div className="flex gap-1.5">
                                                         {(['admin', 'moderator', 'member'] as ChatRole[]).map((r) => (
@@ -688,7 +688,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onChann
                                                                 className={`flex-1 py-2.5 rounded-xl border text-[11px] font-bold uppercase tracking-wider transition-all active:scale-95 min-h-[44px] ${
                                                                     user.role === r
                                                                         ? ROLE_STYLES[r].bg + ' ' + ROLE_STYLES[r].text
-                                                                        : 'bg-white/[0.04] border-white/[0.06] text-white/50'
+                                                                        : 'bg-white/4 border-white/6 text-white/50'
                                                                 }`}
                                                             >
                                                                 {ROLE_STYLES[r].label}
@@ -714,7 +714,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onChann
                                                                 placeholder="Hours"
                                                                 inputMode="numeric"
                                                                 aria-label="Mute duration in hours"
-                                                                className="w-20 px-2.5 py-3 rounded-xl bg-white/[0.06] border border-white/10 text-xs text-white placeholder-white/30 outline-none min-h-[44px]"
+                                                                className="w-20 px-2.5 py-3 rounded-xl bg-white/6 border border-white/10 text-xs text-white placeholder-white/30 outline-hidden min-h-[44px]"
                                                             />
                                                             <button
                                                                 onClick={() => handleMute(user.user_id)}
@@ -746,7 +746,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onChann
                                                 </div>
                                             )}
                                             {isExpanded && isMe && (
-                                                <div className="px-3.5 pb-3 pt-2 border-t border-white/[0.04]">
+                                                <div className="px-3.5 pb-3 pt-2 border-t border-white/4">
                                                     <p className="text-[11px] text-white/50 text-center">
                                                         You cannot modify your own role
                                                     </p>
@@ -792,10 +792,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onChann
                                     {pendingChannels.map((ch) => (
                                         <div
                                             key={ch.id}
-                                            className="rounded-xl border border-sky-500/15 bg-sky-500/[0.03] p-3.5 space-y-2.5"
+                                            className="rounded-xl border border-sky-500/15 bg-sky-500/3 p-3.5 space-y-2.5"
                                         >
                                             <div className="flex items-center gap-2.5">
-                                                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-sky-500/10 to-indigo-500/10 border border-sky-500/20 flex items-center justify-center text-lg">
+                                                <div className="w-10 h-10 rounded-xl bg-linear-to-br from-sky-500/10 to-indigo-500/10 border border-sky-500/20 flex items-center justify-center text-lg">
                                                     {ch.icon}
                                                 </div>
                                                 <div className="flex-1 min-w-0">
@@ -807,7 +807,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onChann
                                                             </span>
                                                         )}
                                                         {ch.parent_id && (
-                                                            <span className="text-[11px] font-bold text-white/50 bg-white/[0.05] px-1.5 py-0.5 rounded-full">
+                                                            <span className="text-[11px] font-bold text-white/50 bg-white/5 px-1.5 py-0.5 rounded-full">
                                                                 SUB
                                                             </span>
                                                         )}
@@ -855,7 +855,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onChann
                                     {activeChannels.map((ch) => (
                                         <div
                                             key={ch.id}
-                                            className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-3.5 py-3 flex items-center gap-2.5 min-h-[52px]"
+                                            className="rounded-xl border border-white/6 bg-white/2 px-3.5 py-3 flex items-center gap-2.5 min-h-[52px]"
                                         >
                                             <span className="text-base">{ch.is_private ? '🔒' : ch.icon}</span>
                                             <div className="flex-1 min-w-0">
@@ -867,7 +867,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onChann
                                                         </span>
                                                     )}
                                                     {ch.parent_id && (
-                                                        <span className="text-[11px] font-bold text-white/40 bg-white/[0.04] px-1 py-0.5 rounded-full">
+                                                        <span className="text-[11px] font-bold text-white/40 bg-white/4 px-1 py-0.5 rounded-full">
                                                             SUB
                                                         </span>
                                                     )}
@@ -891,7 +891,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onChann
                 {/* ════════ CREW LIST REVIEW TAB ════════ */}
                 {tab === 'crew' && (
                     <div className="px-4 pt-4 space-y-3">
-                        <div className="rounded-2xl border border-amber-400/20 bg-amber-400/[0.05] px-3.5 py-3">
+                        <div className="rounded-2xl border border-amber-400/20 bg-amber-400/5 px-3.5 py-3">
                             <p className="text-xs font-bold text-amber-300">Manual safety review</p>
                             <p className="mt-1 text-[11px] leading-relaxed text-amber-100/55">
                                 Check that the primary image is a real headshot and that the listing is suitable.
@@ -914,7 +914,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onChann
                             </div>
 
                             {loading ? (
-                                <div className="rounded-xl border border-white/[0.05] bg-white/[0.02] px-3 py-2.5">
+                                <div className="rounded-xl border border-white/5 bg-white/2 px-3 py-2.5">
                                     <ShimmerBlock variant="text" rows={2} />
                                 </div>
                             ) : pendingCrewReports.length > 0 ? (
@@ -947,13 +947,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onChann
                                                     {report.reason}
                                                 </p>
 
-                                                <div className="mt-3 grid grid-cols-3 gap-2 border-t border-white/[0.05] pt-3">
+                                                <div className="mt-3 grid grid-cols-3 gap-2 border-t border-white/5 pt-3">
                                                     <button
                                                         type="button"
                                                         onClick={() => handleReviewReportedAccount(report)}
                                                         disabled={isReviewing}
                                                         aria-label="Review reported account"
-                                                        className="min-h-[44px] rounded-xl border border-sky-400/20 bg-sky-400/[0.08] px-2 py-2 text-[10px] font-bold text-sky-200 transition-colors active:scale-95 disabled:cursor-wait disabled:opacity-50"
+                                                        className="min-h-[44px] rounded-xl border border-sky-400/20 bg-sky-400/8 px-2 py-2 text-[10px] font-bold text-sky-200 transition-colors active:scale-95 disabled:cursor-wait disabled:opacity-50"
                                                     >
                                                         Review account
                                                     </button>
@@ -962,7 +962,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onChann
                                                         onClick={() => handleReviewCrewReport(report, 'dismissed')}
                                                         disabled={isReviewing}
                                                         aria-label="Dismiss Crew List report"
-                                                        className="min-h-[44px] rounded-xl border border-white/[0.08] bg-white/[0.035] px-2 py-2 text-[10px] font-bold text-white/60 transition-colors active:scale-95 disabled:cursor-wait disabled:opacity-50"
+                                                        className="min-h-[44px] rounded-xl border border-white/8 bg-white/[0.035] px-2 py-2 text-[10px] font-bold text-white/60 transition-colors active:scale-95 disabled:cursor-wait disabled:opacity-50"
                                                     >
                                                         {isReviewing ? 'Updating…' : 'Dismiss'}
                                                     </button>
@@ -981,7 +981,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onChann
                                     })}
                                 </div>
                             ) : (
-                                <p className="rounded-xl border border-white/[0.05] bg-white/[0.02] px-3 py-2.5 text-[11px] text-white/40">
+                                <p className="rounded-xl border border-white/5 bg-white/2 px-3 py-2.5 text-[11px] text-white/40">
                                     No open Crew List safety reports.
                                 </p>
                             )}
@@ -1012,7 +1012,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onChann
                                     return (
                                         <article
                                             key={profile.user_id}
-                                            className="overflow-hidden rounded-2xl border border-sky-400/15 bg-white/[0.025]"
+                                            className="overflow-hidden rounded-2xl border border-sky-400/15 bg-white/2.5"
                                         >
                                             <div className="flex gap-3 p-3.5">
                                                 {profile.photo_url ? (
@@ -1047,7 +1047,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onChann
                                                 </div>
                                             </div>
 
-                                            <div className="border-t border-white/[0.05] px-3.5 py-3">
+                                            <div className="border-t border-white/5 px-3.5 py-3">
                                                 <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-white/50">
                                                     Listing note
                                                 </p>
@@ -1056,7 +1056,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onChann
                                                 </p>
                                             </div>
 
-                                            <div className="flex gap-2 border-t border-white/[0.05] p-3.5">
+                                            <div className="flex gap-2 border-t border-white/5 p-3.5">
                                                 <button
                                                     type="button"
                                                     onClick={() => handleReviewCrewProfile(profile, 'rejected')}
@@ -1112,7 +1112,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onChann
                                 return (
                                     <div
                                         key={entry.id || i}
-                                        className="rounded-xl border border-white/[0.04] bg-white/[0.015] px-3.5 py-3 flex items-start gap-2.5"
+                                        className="rounded-xl border border-white/4 bg-white/1.5 px-3.5 py-3 flex items-start gap-2.5"
                                     >
                                         <span className="text-base mt-0.5">{meta.icon}</span>
                                         <div className="flex-1 min-w-0">

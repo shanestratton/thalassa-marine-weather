@@ -434,7 +434,7 @@ export const ThalassaHelixControl: React.FC<ThalassaHelixControlProps> = memo(
                     gap. Deliberately NOT in the bottom row with the scrubber:
                     that corner already carries the model chips and the
                     lightning stack. */}
-                <div className="absolute z-[500]" style={{ left: 12, bottom: embedded ? 12 : 'calc(50% + 28px)' }}>
+                <div className="absolute z-500" style={{ left: 12, bottom: embedded ? 12 : 'calc(50% + 28px)' }}>
                     {showLegend && (
                         <div
                             className="flex flex-col items-center gap-1 animate-in fade-in duration-200"
@@ -468,7 +468,7 @@ export const ThalassaHelixControl: React.FC<ThalassaHelixControlProps> = memo(
                             {/* Layer icon */}
                             <button
                                 onClick={() => setShowLegend(false)}
-                                className="mt-1 w-12 h-12 flex items-center justify-center rounded-lg bg-white/[0.04] hover:bg-white/[0.08] transition-colors"
+                                className="mt-1 w-12 h-12 flex items-center justify-center rounded-lg bg-white/4 hover:bg-white/8 transition-colors"
                                 aria-label={`${config.label} layer`}
                             >
                                 <span className="text-sm">{config.icon}</span>
@@ -503,7 +503,7 @@ export const ThalassaHelixControl: React.FC<ThalassaHelixControlProps> = memo(
 
                 {/* ═══ MAIN CONTROL — SCRUBBER + TIME ═══ */}
                 <div
-                    className="absolute z-[500] flex items-end gap-2"
+                    className="absolute z-500 flex items-end gap-2"
                     style={{
                         left: 12,
                         bottom: embedded ? 12 : 'calc(80px + env(safe-area-inset-bottom))',
@@ -601,7 +601,7 @@ export const ThalassaHelixControl: React.FC<ThalassaHelixControlProps> = memo(
                                                 transform: 'translate(-50%, -50%)',
                                             }}
                                         >
-                                            <div className="w-2 h-2 bg-white rounded-sm rotate-45 shadow-sm border border-white/60" />
+                                            <div className="w-2 h-2 bg-white rounded-xs rotate-45 shadow-xs border border-white/60" />
                                         </div>
                                     )}
 
@@ -693,7 +693,7 @@ export const LegendDock: React.FC<LegendDockProps> = memo(({ layers, embedded })
     if (!expanded) {
         return (
             <div
-                className="absolute z-[500] flex items-end gap-2 animate-in fade-in duration-200"
+                className="absolute z-500 flex items-end gap-2 animate-in fade-in duration-200"
                 style={{ left: 12, bottom: embedded ? 12 : 'calc(80px + env(safe-area-inset-bottom))' }}
             >
                 {validLayers.map((layer) => (
@@ -718,7 +718,7 @@ export const LegendDock: React.FC<LegendDockProps> = memo(({ layers, embedded })
 
     return (
         <div
-            className="absolute z-[500] flex items-end gap-2 animate-in fade-in duration-200"
+            className="absolute z-500 flex items-end gap-2 animate-in fade-in duration-200"
             style={{
                 left: 12,
                 bottom: embedded ? 12 : 'calc(80px + env(safe-area-inset-bottom))',
@@ -747,7 +747,7 @@ export const LegendDock: React.FC<LegendDockProps> = memo(({ layers, embedded })
                         <div className="rounded-full" style={{ width: 6, height: 64, background: config.gradient }} />
                         <span className="text-[10px] font-bold text-white/40 uppercase">{config.lowLabel}</span>
                         <span className="text-[11px] font-black text-blue-400/70 uppercase tracking-wider">↓</span>
-                        <div className="mt-1 w-7 h-7 flex items-center justify-center rounded-lg bg-white/[0.04]">
+                        <div className="mt-1 w-7 h-7 flex items-center justify-center rounded-lg bg-white/4">
                             <span className="text-sm">{config.icon}</span>
                         </div>
                         {config.honestyNote && (

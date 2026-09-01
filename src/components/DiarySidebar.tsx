@@ -108,7 +108,7 @@ const EntryDetail: React.FC<{
                     aria-label="Back to all entries"
                     className="group flex items-center gap-2.5 pr-3 rounded-full hover:bg-white/5 active:bg-white/10 transition-colors"
                 >
-                    <span className="flex items-center justify-center w-11 h-11 rounded-full bg-sky-500/15 border border-sky-400/30 text-sky-300 group-hover:bg-sky-500/25 group-hover:text-sky-200 group-active:scale-95 transition-all shadow-sm">
+                    <span className="flex items-center justify-center w-11 h-11 rounded-full bg-sky-500/15 border border-sky-400/30 text-sky-300 group-hover:bg-sky-500/25 group-hover:text-sky-200 group-active:scale-95 transition-all shadow-xs">
                         <svg
                             className="w-5 h-5"
                             fill="none"

@@ -240,7 +240,7 @@ export const TripOverviewSheet: React.FC<TripOverviewSheetProps> = ({ isOpen, on
                 onClick={(e) => e.stopPropagation()}
             >
                 {/* Header */}
-                <div className="flex items-start justify-between p-4 border-b border-white/[0.06] shrink-0">
+                <div className="flex items-start justify-between p-4 border-b border-white/6 shrink-0">
                     <div className="min-w-0">
                         <p
                             id="trip-overview-eyebrow"
@@ -268,7 +268,7 @@ export const TripOverviewSheet: React.FC<TripOverviewSheetProps> = ({ isOpen, on
                 </div>
 
                 {/* Stats banner */}
-                <div className="grid grid-cols-4 gap-2 px-4 py-3 border-b border-white/[0.06] shrink-0">
+                <div className="grid grid-cols-4 gap-2 px-4 py-3 border-b border-white/6 shrink-0">
                     <Stat label="Legs" value={overview.legs.length.toString()} color="text-sky-300" />
                     <Stat label="Total NM" value={overview.totalDistanceNm.toFixed(0)} color="text-emerald-300" />
                     <Stat label="Duration" value={formatDuration(overview.totalDurationHours)} color="text-amber-300" />
@@ -283,13 +283,13 @@ export const TripOverviewSheet: React.FC<TripOverviewSheetProps> = ({ isOpen, on
                         once the fetch lands so the user knows they're
                         looking at real numbers. */}
                     {enriching && (
-                        <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-sky-500/[0.06] border border-sky-500/15">
+                        <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-sky-500/6 border border-sky-500/15">
                             <div className="w-3 h-3 border-2 border-sky-400/60 border-t-transparent rounded-full animate-spin" />
                             <span className="text-[11px] text-sky-200">Fetching live forecasts…</span>
                         </div>
                     )}
                     {!enriching && enriched?.enrichedAt && (
-                        <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-500/[0.06] border border-emerald-500/15">
+                        <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-500/6 border border-emerald-500/15">
                             <span className="text-base leading-none">✓</span>
                             <span className="text-[11px] text-emerald-200">
                                 Live forecast loaded ·{' '}
@@ -355,7 +355,7 @@ export const TripOverviewSheet: React.FC<TripOverviewSheetProps> = ({ isOpen, on
                                 return (
                                     <div
                                         key={leg.legNumber}
-                                        className="rounded-xl bg-white/[0.03] border border-white/[0.06] p-3 space-y-2"
+                                        className="rounded-xl bg-white/3 border border-white/6 p-3 space-y-2"
                                     >
                                         <div className="flex items-center gap-3">
                                             <div className="w-9 h-9 rounded-full bg-sky-500/15 border border-sky-500/25 flex items-center justify-center shrink-0">
@@ -384,7 +384,7 @@ export const TripOverviewSheet: React.FC<TripOverviewSheetProps> = ({ isOpen, on
                                             </div>
                                         </div>
                                         {forecast && (
-                                            <div className="flex flex-wrap gap-2 pt-2 border-t border-white/[0.05] text-[11px] text-gray-300">
+                                            <div className="flex flex-wrap gap-2 pt-2 border-t border-white/5 text-[11px] text-gray-300">
                                                 <span>
                                                     💨{' '}
                                                     <span className="font-mono font-bold text-white">
@@ -420,7 +420,7 @@ export const TripOverviewSheet: React.FC<TripOverviewSheetProps> = ({ isOpen, on
                                 {countrySnippets.map((s) => (
                                     <div
                                         key={s.country}
-                                        className="rounded-xl bg-white/[0.03] border border-white/[0.06] p-3 space-y-1.5"
+                                        className="rounded-xl bg-white/3 border border-white/6 p-3 space-y-1.5"
                                     >
                                         <div className="flex items-center justify-between gap-2">
                                             <p className="text-sm font-bold text-sky-300 truncate">{s.country}</p>
@@ -484,17 +484,17 @@ export const TripOverviewSheet: React.FC<TripOverviewSheetProps> = ({ isOpen, on
 
                 {/* Toast */}
                 {toast && (
-                    <div className="px-4 py-2 text-center text-[11px] font-bold text-sky-300 border-t border-white/[0.06] animate-in fade-in shrink-0">
+                    <div className="px-4 py-2 text-center text-[11px] font-bold text-sky-300 border-t border-white/6 animate-in fade-in shrink-0">
                         {toast}
                     </div>
                 )}
 
                 {/* Footer — Export PDF */}
-                <div className="border-t border-white/[0.06] p-3 shrink-0">
+                <div className="border-t border-white/6 p-3 shrink-0">
                     <button
                         onClick={handleExportPdf}
                         disabled={exporting}
-                        className="w-full py-3 rounded-xl bg-gradient-to-r from-sky-500 to-cyan-500 text-white text-sm font-black uppercase tracking-[0.15em] shadow-lg shadow-sky-500/20 hover:shadow-sky-500/40 active:scale-[0.97] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="w-full py-3 rounded-xl bg-linear-to-r from-sky-500 to-cyan-500 text-white text-sm font-black uppercase tracking-[0.15em] shadow-lg shadow-sky-500/20 hover:shadow-sky-500/40 active:scale-[0.97] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                         {exporting ? '⏳ Generating…' : '📄 Export Trip Plan as PDF'}
                     </button>

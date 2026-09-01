@@ -72,7 +72,7 @@ export const CrewPhoneVerificationPanel: React.FC<CrewPhoneVerificationPanelProp
     return (
         <section
             aria-labelledby="crew-mobile-verification-title"
-            className="rounded-3xl border border-cyan-400/20 bg-gradient-to-br from-cyan-500/[0.10] via-slate-900 to-emerald-500/[0.08] p-4 shadow-lg shadow-cyan-950/20"
+            className="rounded-3xl border border-cyan-400/20 bg-linear-to-br from-cyan-500/10 via-slate-900 to-emerald-500/8 p-4 shadow-lg shadow-cyan-950/20"
         >
             <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
@@ -91,7 +91,7 @@ export const CrewPhoneVerificationPanel: React.FC<CrewPhoneVerificationPanelProp
 
             <div className="mt-3 flex flex-wrap gap-2" aria-label="Crew List verification status">
                 <span
-                    className={`rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-wider ${accountCheckPending || accountCheckUnavailable ? 'border-white/10 bg-white/[0.04] text-white/45' : controller.status?.emailVerified ? 'border-emerald-400/25 bg-emerald-500/10 text-emerald-200' : 'border-amber-400/20 bg-amber-500/10 text-amber-100'}`}
+                    className={`rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-wider ${accountCheckPending || accountCheckUnavailable ? 'border-white/10 bg-white/4 text-white/45' : controller.status?.emailVerified ? 'border-emerald-400/25 bg-emerald-500/10 text-emerald-200' : 'border-amber-400/20 bg-amber-500/10 text-amber-100'}`}
                 >
                     {accountCheckPending
                         ? '… Checking email'
@@ -102,7 +102,7 @@ export const CrewPhoneVerificationPanel: React.FC<CrewPhoneVerificationPanelProp
                             : '○ Email needed'}
                 </span>
                 <span
-                    className={`rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-wider ${accountCheckPending || accountCheckUnavailable ? 'border-white/10 bg-white/[0.04] text-white/45' : controller.status?.verified ? 'border-emerald-400/25 bg-emerald-500/10 text-emerald-200' : controller.pending ? 'border-sky-400/25 bg-sky-500/10 text-sky-100' : 'border-amber-400/20 bg-amber-500/10 text-amber-100'}`}
+                    className={`rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-wider ${accountCheckPending || accountCheckUnavailable ? 'border-white/10 bg-white/4 text-white/45' : controller.status?.verified ? 'border-emerald-400/25 bg-emerald-500/10 text-emerald-200' : controller.pending ? 'border-sky-400/25 bg-sky-500/10 text-sky-100' : 'border-amber-400/20 bg-amber-500/10 text-amber-100'}`}
                 >
                     {accountCheckPending
                         ? '… Checking mobile'
@@ -118,7 +118,7 @@ export const CrewPhoneVerificationPanel: React.FC<CrewPhoneVerificationPanelProp
 
             <div aria-live="polite" className="mt-4">
                 {!controller.signedIn ? (
-                    <p className="rounded-2xl border border-amber-400/15 bg-amber-500/[0.08] p-3 text-xs text-amber-100/80">
+                    <p className="rounded-2xl border border-amber-400/15 bg-amber-500/8 p-3 text-xs text-amber-100/80">
                         Sign in from Vessel → Settings → Account before verifying your mobile.
                     </p>
                 ) : accountCheckPending ? (
@@ -127,7 +127,7 @@ export const CrewPhoneVerificationPanel: React.FC<CrewPhoneVerificationPanelProp
                         Checking verification…
                     </div>
                 ) : accountCheckUnavailable ? (
-                    <div className="space-y-3 rounded-2xl border border-amber-400/15 bg-amber-500/[0.08] p-3">
+                    <div className="space-y-3 rounded-2xl border border-amber-400/15 bg-amber-500/8 p-3">
                         <p className="text-xs leading-relaxed text-amber-100/80">
                             We could not confirm your trust checks. Your profile has not been changed.
                         </p>
@@ -141,7 +141,7 @@ export const CrewPhoneVerificationPanel: React.FC<CrewPhoneVerificationPanelProp
                     </div>
                 ) : controller.status?.verified ? (
                     <div className="space-y-3">
-                        <div className="rounded-2xl border border-emerald-400/20 bg-emerald-500/[0.10] p-3.5">
+                        <div className="rounded-2xl border border-emerald-400/20 bg-emerald-500/10 p-3.5">
                             <p className="text-sm font-bold text-emerald-100">Mobile verified</p>
                             <p className="mt-1 text-xs text-emerald-100/65">
                                 Number ending •••• {controller.status.last4}. Only the final four digits are shown here.
@@ -153,7 +153,7 @@ export const CrewPhoneVerificationPanel: React.FC<CrewPhoneVerificationPanelProp
                             )}
                         </div>
                         {confirmNumberChange ? (
-                            <div className="rounded-2xl border border-amber-400/20 bg-amber-500/[0.08] p-3">
+                            <div className="rounded-2xl border border-amber-400/20 bg-amber-500/8 p-3">
                                 <p className="text-xs font-bold text-amber-100">Change this verified number?</p>
                                 <p className="mt-1 text-xs leading-relaxed text-white/55">
                                     This immediately takes your Crew List profile private. It stays private until your
@@ -164,7 +164,7 @@ export const CrewPhoneVerificationPanel: React.FC<CrewPhoneVerificationPanelProp
                                         type="button"
                                         onClick={() => setConfirmNumberChange(false)}
                                         disabled={controller.removing}
-                                        className="min-h-[44px] rounded-xl border border-white/[0.10] bg-white/[0.04] px-2 text-xs font-bold text-white/65 disabled:opacity-45"
+                                        className="min-h-[44px] rounded-xl border border-white/10 bg-white/4 px-2 text-xs font-bold text-white/65 disabled:opacity-45"
                                     >
                                         Keep current number
                                     </button>
@@ -211,7 +211,7 @@ export const CrewPhoneVerificationPanel: React.FC<CrewPhoneVerificationPanelProp
                                 maxLength={6}
                                 placeholder="000000"
                                 aria-describedby="crew-mobile-code-help"
-                                className="min-h-[48px] w-full rounded-2xl border border-white/[0.10] bg-slate-950/70 px-4 text-center font-mono text-xl tracking-[0.42em] text-white placeholder:text-white/20 focus:border-cyan-400/50 focus:outline-none"
+                                className="min-h-[48px] w-full rounded-2xl border border-white/10 bg-slate-950/70 px-4 text-center font-mono text-xl tracking-[0.42em] text-white placeholder:text-white/20 focus:border-cyan-400/50 focus:outline-hidden"
                             />
                             <p id="crew-mobile-code-help" className="mt-1.5 text-[11px] text-white/40">
                                 The code expires shortly. Standard SMS charges may apply.
@@ -220,7 +220,7 @@ export const CrewPhoneVerificationPanel: React.FC<CrewPhoneVerificationPanelProp
                         <button
                             type="submit"
                             disabled={controller.checking || controller.code.length !== 6}
-                            className="min-h-[46px] w-full rounded-2xl bg-gradient-to-r from-emerald-500 to-cyan-600 px-4 text-sm font-black text-white shadow-lg shadow-cyan-950/30 transition-opacity disabled:cursor-not-allowed disabled:opacity-45"
+                            className="min-h-[46px] w-full rounded-2xl bg-linear-to-r from-emerald-500 to-cyan-600 px-4 text-sm font-black text-white shadow-lg shadow-cyan-950/30 transition-opacity disabled:cursor-not-allowed disabled:opacity-45"
                         >
                             {controller.checking ? 'Checking code…' : 'Verify mobile'}
                         </button>
@@ -260,7 +260,7 @@ export const CrewPhoneVerificationPanel: React.FC<CrewPhoneVerificationPanelProp
                                     id="crew-mobile-country"
                                     value={controller.countryCode}
                                     onChange={(event) => controller.setCountryCode(event.target.value)}
-                                    className="min-h-[48px] w-full rounded-2xl border border-white/[0.10] bg-slate-950/70 px-3 text-sm text-white focus:border-cyan-400/50 focus:outline-none"
+                                    className="min-h-[48px] w-full rounded-2xl border border-white/10 bg-slate-950/70 px-3 text-sm text-white focus:border-cyan-400/50 focus:outline-hidden"
                                 >
                                     {PHONE_COUNTRIES.map((country) => (
                                         <option key={country.iso} value={country.iso}>
@@ -289,7 +289,7 @@ export const CrewPhoneVerificationPanel: React.FC<CrewPhoneVerificationPanelProp
                                         onChange={(event) => controller.setLocalNumber(event.target.value)}
                                         placeholder="0412 345 678"
                                         aria-describedby="crew-mobile-number-help"
-                                        className="min-h-[48px] w-full rounded-2xl border border-white/[0.10] bg-slate-950/70 py-3 pl-14 pr-3 text-sm text-white placeholder:text-white/25 focus:border-cyan-400/50 focus:outline-none"
+                                        className="min-h-[48px] w-full rounded-2xl border border-white/10 bg-slate-950/70 py-3 pl-14 pr-3 text-sm text-white placeholder:text-white/25 focus:border-cyan-400/50 focus:outline-hidden"
                                     />
                                 </div>
                             </div>
@@ -319,7 +319,7 @@ export const CrewPhoneVerificationPanel: React.FC<CrewPhoneVerificationPanelProp
             {controller.error && (
                 <p
                     role="alert"
-                    className="mt-3 rounded-xl border border-red-400/20 bg-red-500/[0.10] px-3 py-2 text-xs text-red-100"
+                    className="mt-3 rounded-xl border border-red-400/20 bg-red-500/10 px-3 py-2 text-xs text-red-100"
                 >
                     {controller.error}
                 </p>

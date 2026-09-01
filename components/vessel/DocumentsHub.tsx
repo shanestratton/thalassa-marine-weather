@@ -616,7 +616,7 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
                         placeholder="Search documents..."
-                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-gray-500 outline-none focus:border-sky-500/30"
+                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-gray-500 outline-hidden focus:border-sky-500/30"
                     />
                 </div>
 

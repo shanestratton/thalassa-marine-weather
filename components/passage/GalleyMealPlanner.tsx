@@ -118,7 +118,7 @@ export const GalleyMealPlanner: React.FC<GalleyMealPlannerProps> = ({ days, crew
             <div className="space-y-3">
                 <div
                     role="status"
-                    className="rounded-xl border border-amber-500/20 bg-amber-500/[0.06] px-4 py-3 text-xs leading-relaxed text-amber-200"
+                    className="rounded-xl border border-amber-500/20 bg-amber-500/6 px-4 py-3 text-xs leading-relaxed text-amber-200"
                 >
                     <span className="font-bold">Beta mode:</span> Online recipe generation is disabled. Offline meal
                     ideas remain available below.
@@ -136,7 +136,7 @@ export const GalleyMealPlanner: React.FC<GalleyMealPlannerProps> = ({ days, crew
                     aria-label="Generate Galley Plan"
                     onClick={handleGenerate}
                     disabled={loading}
-                    className="w-full py-3 px-4 bg-gradient-to-r from-amber-500/20 to-orange-500/20 hover:from-amber-500/30 hover:to-orange-500/30 border border-amber-500/30 rounded-xl text-xs font-bold uppercase tracking-widest text-amber-300 transition-all active:scale-[0.98] flex items-center justify-center gap-2 disabled:opacity-50"
+                    className="w-full py-3 px-4 bg-linear-to-r from-amber-500/20 to-orange-500/20 hover:from-amber-500/30 hover:to-orange-500/30 border border-amber-500/30 rounded-xl text-xs font-bold uppercase tracking-widest text-amber-300 transition-all active:scale-[0.98] flex items-center justify-center gap-2 disabled:opacity-50"
                 >
                     {loading ? (
                         <>
@@ -177,7 +177,7 @@ export const GalleyMealPlanner: React.FC<GalleyMealPlannerProps> = ({ days, crew
 
     return (
         <div className="animate-in fade-in slide-in-from-top-4 duration-300 space-y-4">
-            <div className="bg-gradient-to-br from-amber-500/5 via-orange-500/5 to-red-500/5 border border-amber-500/20 rounded-2xl p-5 relative overflow-hidden">
+            <div className="bg-linear-to-br from-amber-500/5 via-orange-500/5 to-red-500/5 border border-amber-500/20 rounded-2xl p-5 relative overflow-hidden">
                 <div className="absolute bottom-0 right-0 w-40 h-40 bg-orange-400/5 rounded-full translate-y-12 translate-x-12 blur-3xl" />
 
                 {/* Header */}
@@ -204,7 +204,7 @@ export const GalleyMealPlanner: React.FC<GalleyMealPlannerProps> = ({ days, crew
                             key={i}
                             aria-label={`Day ${day.day}`}
                             onClick={() => setActiveDay(i)}
-                            className={`flex-shrink-0 px-3 py-1.5 rounded-lg text-[11px] font-bold uppercase tracking-wider transition-all ${
+                            className={`shrink-0 px-3 py-1.5 rounded-lg text-[11px] font-bold uppercase tracking-wider transition-all ${
                                 i === activeDay
                                     ? 'bg-amber-500/25 text-amber-300 border border-amber-500/30'
                                     : 'bg-white/5 text-gray-400 border border-white/5 hover:bg-white/10'
@@ -284,12 +284,12 @@ const DayCard: React.FC<{ day: GalleyDayPlan; crew: number }> = ({ day, crew }) 
                                     }}
                                 />
                             )}
-                            <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
-                            <div className="absolute top-2 left-2 px-2 py-0.5 bg-black/50 backdrop-blur-sm rounded-full text-[11px] font-bold text-amber-300 uppercase tracking-wider">
+                            <div className="absolute inset-0 bg-linear-to-t from-black/60 to-transparent" />
+                            <div className="absolute top-2 left-2 px-2 py-0.5 bg-black/50 backdrop-blur-xs rounded-full text-[11px] font-bold text-amber-300 uppercase tracking-wider">
                                 {MEAL_EMOJIS[i]} {MEAL_LABELS[i]}
                             </div>
                             <div
-                                className={`absolute top-2 right-2 px-2 py-0.5 bg-black/50 backdrop-blur-sm rounded-full text-[11px] font-bold ${
+                                className={`absolute top-2 right-2 px-2 py-0.5 bg-black/50 backdrop-blur-xs rounded-full text-[11px] font-bold ${
                                     meal.readyInMinutes >= 120 ? 'text-red-400' : 'text-gray-300'
                                 }`}
                             >
@@ -339,7 +339,7 @@ const ShoppingListView: React.FC<{ items: ShoppingItem[]; crew: number; days: nu
     const aisles = Array.from(grouped.entries()).sort(([a], [b]) => a.localeCompare(b));
 
     return (
-        <div className="bg-white/[0.03] border border-white/10 rounded-xl p-4 space-y-3 animate-in fade-in duration-300">
+        <div className="bg-white/3 border border-white/10 rounded-xl p-4 space-y-3 animate-in fade-in duration-300">
             <div className="flex items-center justify-between">
                 <h4 className="text-xs font-bold text-emerald-300 uppercase tracking-widest flex items-center gap-2">
                     🛒 Shopping List

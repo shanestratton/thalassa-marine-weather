@@ -102,7 +102,7 @@ export const ForecastSheet: React.FC<ForecastSheetProps> = React.memo(
                     <div
                         role="presentation"
                         aria-hidden="true"
-                        className={`fixed inset-0 z-[1100] bg-black/40 transition-opacity duration-500 ${isVisible ? 'opacity-100' : 'opacity-0'}`}
+                        className={`fixed inset-0 z-1100 bg-black/40 transition-opacity duration-500 ${isVisible ? 'opacity-100' : 'opacity-0'}`}
                         onClick={requestClose}
                     />
                 )}
@@ -113,7 +113,7 @@ export const ForecastSheet: React.FC<ForecastSheetProps> = React.memo(
                     role="dialog"
                     aria-modal="true"
                     aria-label="Weather forecast summary"
-                    className="pointer-events-none fixed inset-0 z-[1110] flex items-center justify-center p-4 pb-[calc(4rem+env(safe-area-inset-bottom)+1rem)] pt-[max(1rem,env(safe-area-inset-top))]"
+                    className="pointer-events-none fixed inset-0 z-1110 flex items-center justify-center p-4 pb-[calc(4rem+env(safe-area-inset-bottom)+1rem)] pt-[max(1rem,env(safe-area-inset-top))]"
                 >
                     <div
                         className="pointer-events-auto flex max-h-full w-full max-w-lg md:max-w-2xl"
@@ -128,11 +128,11 @@ export const ForecastSheet: React.FC<ForecastSheetProps> = React.memo(
                     >
                         {/* Glass Panel */}
                         <div
-                            className={`bg-slate-900/95 ${t.border.default} rounded-[2rem] shadow-2xl w-full max-h-full overflow-y-auto ring-1 ring-white/10 relative`}
+                            className={`bg-slate-900/95 ${t.border.default} rounded-4xl shadow-2xl w-full max-h-full overflow-y-auto ring-1 ring-white/10 relative`}
                         >
                             {/* DRAG HANDLE AREA - Expanded touch target */}
                             <div
-                                className="h-8 w-full absolute top-0 left-0 z-[60] flex items-start justify-center pt-3 cursor-grab active:cursor-grabbing"
+                                className="h-8 w-full absolute top-0 left-0 z-60 flex items-start justify-center pt-3 cursor-grab active:cursor-grabbing"
                                 onTouchStart={handleTouchStart}
                                 onTouchMove={handleTouchMove}
                                 onTouchEnd={handleTouchEnd}
@@ -224,7 +224,7 @@ export const ForecastSheet: React.FC<ForecastSheetProps> = React.memo(
 
                                         <button
                                             onClick={onViewFull}
-                                            className="w-full py-3.5 bg-gradient-to-r from-sky-600 to-sky-600 hover:from-sky-500 hover:to-sky-500 text-white font-bold rounded-xl shadow-lg shadow-sky-900/20 transition-all flex items-center justify-center gap-2 group active:scale-95"
+                                            className="w-full py-3.5 bg-linear-to-r from-sky-600 to-sky-600 hover:from-sky-500 hover:to-sky-500 text-white font-bold rounded-xl shadow-lg shadow-sky-900/20 transition-all flex items-center justify-center gap-2 group active:scale-95"
                                             aria-label="View full weather report"
                                         >
                                             View Full Report

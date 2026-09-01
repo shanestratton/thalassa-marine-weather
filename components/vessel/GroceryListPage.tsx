@@ -510,7 +510,7 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack, passag
             role="dialog"
             aria-modal="true"
             aria-label="Shopping list"
-            className="fixed inset-0 z-[1100] bg-slate-950 overflow-hidden slide-up-enter"
+            className="fixed inset-0 z-1100 bg-slate-950 overflow-hidden slide-up-enter"
         >
             <div className="flex flex-col h-full">
                 <PageHeader
@@ -535,7 +535,7 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack, passag
 
                 {/* Filter tabs */}
                 <div
-                    className="shrink-0 flex border-b border-white/[0.06]"
+                    className="shrink-0 flex border-b border-white/6"
                     role="tablist"
                     aria-label="Shopping list filters"
                 >
@@ -578,7 +578,7 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack, passag
                     <div
                         id="grocery-permission-note"
                         role="status"
-                        className="mx-4 mt-3 rounded-xl border border-amber-500/20 bg-amber-500/[0.08] px-3 py-2 text-xs font-semibold text-amber-100"
+                        className="mx-4 mt-3 rounded-xl border border-amber-500/20 bg-amber-500/8 px-3 py-2 text-xs font-semibold text-amber-100"
                     >
                         Checking your grocery access. Purchase, undo, and list-edit actions are unavailable for now.
                     </div>
@@ -586,7 +586,7 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack, passag
                     <div
                         id="grocery-permission-note"
                         role="note"
-                        className="mx-4 mt-3 rounded-xl border border-sky-500/20 bg-sky-500/[0.08] px-3 py-2 text-xs font-semibold text-sky-100"
+                        className="mx-4 mt-3 rounded-xl border border-sky-500/20 bg-sky-500/8 px-3 py-2 text-xs font-semibold text-sky-100"
                     >
                         Ship&apos;s Stores are read-only. Only the skipper or crew with Stores edit access can record or
                         undo purchases.
@@ -677,8 +677,8 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack, passag
                                                 key={item.id}
                                                 className={`flex items-center gap-3 p-3 rounded-xl border transition-all ${
                                                     item.purchased
-                                                        ? 'bg-emerald-500/[0.04] border-emerald-500/10 opacity-60'
-                                                        : 'bg-white/[0.02] border-white/[0.06]'
+                                                        ? 'bg-emerald-500/4 border-emerald-500/10 opacity-60'
+                                                        : 'bg-white/2 border-white/6'
                                                 }`}
                                             >
                                                 {/* Checkbox */}
@@ -698,7 +698,7 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack, passag
                                                             ? 'grocery-permission-note'
                                                             : undefined
                                                     }
-                                                    className={`hit-target-44 w-6 h-6 rounded-lg border-2 flex items-center justify-center flex-shrink-0 transition-all active:scale-90 disabled:cursor-not-allowed disabled:opacity-40 ${
+                                                    className={`hit-target-44 w-6 h-6 rounded-lg border-2 flex items-center justify-center shrink-0 transition-all active:scale-90 disabled:cursor-not-allowed disabled:opacity-40 ${
                                                         item.purchased
                                                             ? 'bg-emerald-500 border-emerald-500'
                                                             : isPurchasing
@@ -753,7 +753,7 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack, passag
                                                 </div>
 
                                                 {/* Purchase quantity */}
-                                                <div className="text-right flex-shrink-0">
+                                                <div className="text-right shrink-0">
                                                     <span
                                                         className={`text-[11px] font-bold tabular-nums ${item.purchased ? 'text-gray-500' : 'text-emerald-400'}`}
                                                     >
@@ -776,7 +776,7 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack, passag
 
                 {/* ═══ Voyage Budget Summary ═══ */}
                 {visibleBudget && visibleBudget.total > 0 && (
-                    <div className="shrink-0 mx-4 mb-3 p-3 rounded-xl bg-gradient-to-r from-emerald-500/[0.06] to-teal-500/[0.04] border border-emerald-500/10">
+                    <div className="shrink-0 mx-4 mb-3 p-3 rounded-xl bg-linear-to-r from-emerald-500/6 to-teal-500/4 border border-emerald-500/10">
                         <div className="flex items-center justify-between mb-2">
                             <span className="text-[11px] font-black text-emerald-400 uppercase tracking-widest">
                                 💰 Voyage Spend
@@ -802,12 +802,12 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack, passag
                 {/* Progress bar at bottom */}
                 {visibleSummary && visibleSummary.total > 0 && (
                     <div
-                        className="shrink-0 px-4 py-3 border-t border-white/[0.06] bg-slate-950"
+                        className="shrink-0 px-4 py-3 border-t border-white/6 bg-slate-950"
                         style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}
                     >
                         <div className="flex items-center gap-3">
                             <div
-                                className="flex-1 h-2 bg-white/[0.06] rounded-full overflow-hidden"
+                                className="flex-1 h-2 bg-white/6 rounded-full overflow-hidden"
                                 role="progressbar"
                                 aria-label="Shopping progress"
                                 aria-valuemin={0}
@@ -816,7 +816,7 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack, passag
                                 aria-valuetext={`${visibleSummary.purchased} of ${visibleSummary.total} items purchased`}
                             >
                                 <div
-                                    className="h-full bg-gradient-to-r from-emerald-500 to-teal-400 rounded-full transition-all duration-500"
+                                    className="h-full bg-linear-to-r from-emerald-500 to-teal-400 rounded-full transition-all duration-500"
                                     style={{
                                         width: `${Math.round(
                                             (visibleSummary.purchased / visibleSummary.total) * 100,
@@ -845,7 +845,7 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack, passag
                     }}
                     disabled={!!purchasingId || !canManageShoppingList}
                     aria-describedby={!canManageShoppingList ? 'grocery-permission-note' : undefined}
-                    className="fixed bottom-[calc(5rem+env(safe-area-inset-bottom))] right-4 z-[1130] w-14 h-14 rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-500 shadow-lg shadow-emerald-500/30 flex items-center justify-center active:scale-90 transition-transform disabled:opacity-40"
+                    className="fixed bottom-[calc(5rem+env(safe-area-inset-bottom))] right-4 z-1130 w-14 h-14 rounded-2xl bg-linear-to-br from-emerald-500 to-teal-500 shadow-lg shadow-emerald-500/30 flex items-center justify-center active:scale-90 transition-transform disabled:opacity-40"
                     aria-label="Add item to shopping list"
                 >
                     <svg
@@ -864,14 +864,14 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack, passag
             {/* ═══ Price Input Modal ═══ */}
             {stateOwnsRenderedScope && priceItem && (
                 <div
-                    className="fixed inset-0 z-[1200] flex items-start justify-center overflow-y-auto overscroll-contain p-4 pt-[max(1rem,env(safe-area-inset-top))] pb-[calc(5rem+env(safe-area-inset-bottom)+1rem)] sm:items-center"
+                    className="fixed inset-0 z-1200 flex items-start justify-center overflow-y-auto overscroll-contain p-4 pt-[max(1rem,env(safe-area-inset-top))] pb-[calc(5rem+env(safe-area-inset-bottom)+1rem)] sm:items-center"
                     onClick={closePriceDialog}
                     role="presentation"
                 >
-                    <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" aria-hidden="true" />
+                    <div className="absolute inset-0 bg-black/60 backdrop-blur-xs" aria-hidden="true" />
                     <div
                         ref={priceDialogRef}
-                        className="relative my-auto w-full max-w-md overflow-y-auto overscroll-contain rounded-2xl border border-white/[0.08] bg-slate-900 p-5 shadow-2xl animate-in slide-in-from-bottom duration-200"
+                        className="relative my-auto w-full max-w-md overflow-y-auto overscroll-contain rounded-2xl border border-white/8 bg-slate-900 p-5 shadow-2xl animate-in slide-in-from-bottom duration-200"
                         style={{
                             maxHeight: 'calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 6rem)',
                         }}
@@ -906,7 +906,7 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack, passag
                         <p id="grocery-purchase-item" className="text-[11px] text-gray-400 mb-4">
                             {priceItem.ingredient_name}
                         </p>
-                        <p className="mb-4 rounded-lg border border-emerald-500/15 bg-emerald-500/[0.06] px-3 py-2 text-[11px] text-emerald-200">
+                        <p className="mb-4 rounded-lg border border-emerald-500/15 bg-emerald-500/6 px-3 py-2 text-[11px] text-emerald-200">
                             Adds {purchaseQuantityLabel(priceItem).primary} to Ship&apos;s Stores.
                         </p>
 
@@ -939,7 +939,7 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack, passag
                                 aria-invalid={priceInvalid}
                                 aria-describedby={priceError ? 'grocery-purchase-error' : undefined}
                                 placeholder="0.00"
-                                className="flex-1 bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white text-lg font-bold tabular-nums outline-none focus:border-emerald-500/50 transition-colors placeholder-gray-600"
+                                className="flex-1 bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white text-lg font-bold tabular-nums outline-hidden focus:border-emerald-500/50 transition-colors placeholder-gray-600"
                             />
                         </div>
 
@@ -957,7 +957,7 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack, passag
                             onChange={(e) => setStoreName(e.target.value)}
                             disabled={!!purchasingId || !permissionsLoadedForScope || !permissions.canEditStores}
                             placeholder="Where did you buy it?"
-                            className="w-full mt-1 bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:border-emerald-500/50 transition-colors placeholder-gray-600"
+                            className="w-full mt-1 bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-white text-sm outline-hidden focus:border-emerald-500/50 transition-colors placeholder-gray-600"
                         />
                         <div className="flex flex-wrap gap-1.5 mt-2 mb-4">
                             {['Coles', 'Woolworths', 'Aldi', 'IGA', 'Markets'].map((s) => (
@@ -972,7 +972,7 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack, passag
                                     className={`min-h-[44px] px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all active:scale-95 ${
                                         storeName === s
                                             ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                                            : 'bg-white/[0.04] text-gray-500 border border-white/[0.06] hover:text-gray-300'
+                                            : 'bg-white/4 text-gray-500 border border-white/6 hover:text-gray-300'
                                     }`}
                                 >
                                     {s}
@@ -997,7 +997,7 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack, passag
                                 onClick={handleSkipPrice}
                                 disabled={!!purchasingId || !permissionsLoadedForScope || !permissions.canEditStores}
                                 aria-label={`Mark ${priceItem.ingredient_name} as purchased without a price`}
-                                className="flex-1 py-3 rounded-xl bg-white/[0.05] border border-white/[0.08] text-[11px] font-bold text-gray-400 uppercase tracking-widest active:scale-[0.97] disabled:opacity-40"
+                                className="flex-1 py-3 rounded-xl bg-white/5 border border-white/8 text-[11px] font-bold text-gray-400 uppercase tracking-widest active:scale-[0.97] disabled:opacity-40"
                             >
                                 Skip Price
                             </button>
@@ -1006,7 +1006,7 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack, passag
                                 onClick={handleConfirmPurchase}
                                 disabled={!!purchasingId || !permissionsLoadedForScope || !permissions.canEditStores}
                                 aria-label={`Confirm purchase of ${priceItem.ingredient_name}`}
-                                className="flex-1 py-3 rounded-xl bg-gradient-to-r from-emerald-600 to-emerald-500 text-[11px] font-black text-white uppercase tracking-widest active:scale-[0.97] disabled:opacity-40"
+                                className="flex-1 py-3 rounded-xl bg-linear-to-r from-emerald-600 to-emerald-500 text-[11px] font-black text-white uppercase tracking-widest active:scale-[0.97] disabled:opacity-40"
                             >
                                 {purchasingId ? '⏳ Saving…' : '✅ Confirm'}
                             </button>
@@ -1018,14 +1018,14 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack, passag
             {/* ═══ Add Item Modal ═══ */}
             {stateOwnsRenderedScope && showAddForm && (
                 <div
-                    className="fixed inset-0 z-[1200] flex items-start justify-center overflow-y-auto overscroll-contain p-4 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))] sm:items-center"
+                    className="fixed inset-0 z-1200 flex items-start justify-center overflow-y-auto overscroll-contain p-4 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))] sm:items-center"
                     onClick={closeAddDialog}
                     role="presentation"
                 >
-                    <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" aria-hidden="true" />
+                    <div className="absolute inset-0 bg-black/60 backdrop-blur-xs" aria-hidden="true" />
                     <div
                         ref={addDialogRef}
-                        className="relative my-auto w-full max-w-md overflow-y-auto overscroll-contain rounded-2xl border border-white/[0.08] bg-slate-900 p-5 shadow-2xl animate-in slide-in-from-bottom duration-200"
+                        className="relative my-auto w-full max-w-md overflow-y-auto overscroll-contain rounded-2xl border border-white/8 bg-slate-900 p-5 shadow-2xl animate-in slide-in-from-bottom duration-200"
                         style={{
                             maxHeight: 'calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 2rem)',
                         }}
@@ -1073,7 +1073,7 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack, passag
                             onKeyDown={(e) => e.key === 'Enter' && handleAddItem()}
                             disabled={isAdding || !canManageShoppingList}
                             placeholder="Shampoo, dish soap, shackle pins..."
-                            className="w-full mt-1 mb-3 bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white text-sm outline-none focus:border-emerald-500/50 transition-colors placeholder-gray-600"
+                            className="w-full mt-1 mb-3 bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white text-sm outline-hidden focus:border-emerald-500/50 transition-colors placeholder-gray-600"
                         />
 
                         {/* Qty + Unit row */}
@@ -1102,7 +1102,7 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack, passag
                                     disabled={isAdding || !canManageShoppingList}
                                     aria-invalid={addQuantityInvalid}
                                     aria-describedby={addQuantityInvalid ? 'grocery-add-error' : undefined}
-                                    className="w-full mt-1 bg-black/40 border border-white/10 rounded-xl px-3 py-2.5 text-white text-sm font-bold tabular-nums outline-none focus:border-emerald-500/50"
+                                    className="w-full mt-1 bg-black/40 border border-white/10 rounded-xl px-3 py-2.5 text-white text-sm font-bold tabular-nums outline-hidden focus:border-emerald-500/50"
                                 />
                             </div>
                             <div className="flex-1">
@@ -1117,7 +1117,7 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack, passag
                                     value={addUnit}
                                     onChange={(e) => setAddUnit(e.target.value)}
                                     disabled={isAdding || !canManageShoppingList}
-                                    className="w-full mt-1 bg-black/40 border border-white/10 rounded-xl px-3 py-2.5 text-white text-sm outline-none focus:border-emerald-500/50 appearance-none"
+                                    className="w-full mt-1 bg-black/40 border border-white/10 rounded-xl px-3 py-2.5 text-white text-sm outline-hidden focus:border-emerald-500/50 appearance-none"
                                 >
                                     <option value="each">each</option>
                                     <option value="pack">pack</option>
@@ -1150,7 +1150,7 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack, passag
                                         className={`min-h-[44px] px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition-all active:scale-95 ${
                                             addZone === z
                                                 ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                                                : 'bg-white/[0.04] text-gray-500 border border-white/[0.06] hover:text-gray-300'
+                                                : 'bg-white/4 text-gray-500 border border-white/6 hover:text-gray-300'
                                         }`}
                                     >
                                         {ZONE_EMOJI[z]} {z}
@@ -1175,7 +1175,7 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack, passag
                             onClick={handleAddItem}
                             disabled={!addName.trim() || isAdding || !canManageShoppingList}
                             aria-label="Add item to grocery list"
-                            className="w-full py-3 rounded-xl bg-gradient-to-r from-emerald-600 to-emerald-500 text-[11px] font-black text-white uppercase tracking-widest active:scale-[0.97] disabled:opacity-30 transition-all"
+                            className="w-full py-3 rounded-xl bg-linear-to-r from-emerald-600 to-emerald-500 text-[11px] font-black text-white uppercase tracking-widest active:scale-[0.97] disabled:opacity-30 transition-all"
                         >
                             {isAdding ? '⏳ Adding…' : '➕ Add to List'}
                         </button>

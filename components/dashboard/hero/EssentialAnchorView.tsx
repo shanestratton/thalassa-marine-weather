@@ -326,7 +326,7 @@ export const EssentialAnchorView: React.FC<EssentialAnchorViewProps> = ({
                 />
             )}
             {/* Top chrome — status pill + elapsed time */}
-            <div className="shrink-0 flex items-center justify-between px-3 py-2 border-b border-white/[0.06] bg-black/30">
+            <div className="shrink-0 flex items-center justify-between px-3 py-2 border-b border-white/6 bg-black/30">
                 <div className="flex items-center gap-2">
                     <span className="relative flex w-2 h-2 shrink-0">
                         {(isAlarm || isDrifting) && (
@@ -349,7 +349,7 @@ export const EssentialAnchorView: React.FC<EssentialAnchorViewProps> = ({
                 fatigue to a crisis). */}
             {showSuggestion && suggestion && !isAlarm && (
                 <div
-                    className={`shrink-0 flex items-center gap-2 px-3 py-2 border-b border-white/[0.06] ${
+                    className={`shrink-0 flex items-center gap-2 px-3 py-2 border-b border-white/6 ${
                         suggestion.direction === 'larger'
                             ? 'bg-amber-500/10 border-amber-500/25'
                             : 'bg-sky-500/10 border-sky-500/25'
@@ -409,7 +409,7 @@ export const EssentialAnchorView: React.FC<EssentialAnchorViewProps> = ({
                     <button
                         onClick={handleDismissSuggestion}
                         aria-label="Dismiss swing radius suggestion"
-                        className="shrink-0 w-6 h-6 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-full text-white/40 hover:text-white/80 hover:bg-white/[0.08] transition-colors"
+                        className="shrink-0 w-6 h-6 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-full text-white/40 hover:text-white/80 hover:bg-white/8 transition-colors"
                     >
                         <svg
                             width="12"
@@ -444,7 +444,7 @@ export const EssentialAnchorView: React.FC<EssentialAnchorViewProps> = ({
                 data to draw a meaningful curve. */}
             {sparkline && (
                 <div
-                    className="shrink-0 relative h-[32px] border-b border-white/[0.06] bg-black/20 overflow-hidden"
+                    className="shrink-0 relative h-[32px] border-b border-white/6 bg-black/20 overflow-hidden"
                     aria-label={`12-hour wind forecast. Peak ${Math.round(sparkline.peak)} ${speedUnit}.`}
                     role="img"
                 >
@@ -511,7 +511,7 @@ export const EssentialAnchorView: React.FC<EssentialAnchorViewProps> = ({
                 Grid switches from 3-col to 4-col when NMEA depth is live so
                 the column widths rebalance automatically. */}
             <div
-                className={`shrink-0 grid ${depthLive ? 'grid-cols-4' : 'grid-cols-3'} divide-x divide-white/[0.08] border-t border-white/[0.06] bg-black/40`}
+                className={`shrink-0 grid ${depthLive ? 'grid-cols-4' : 'grid-cols-3'} divide-x divide-white/8 border-t border-white/6 bg-black/40`}
             >
                 {/* Distance from anchor */}
                 <div className="flex flex-col items-center justify-center py-2 px-2">

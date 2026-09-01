@@ -185,7 +185,7 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
                     aria-label="Submit form"
                     onClick={onSubmit}
                     disabled={!form.title.trim()}
-                    className="w-full py-3 mt-2 bg-gradient-to-r from-sky-600 to-sky-600 rounded-xl text-sm font-black text-white uppercase tracking-[0.15em] shadow-lg shadow-sky-500/20 hover:from-sky-500 hover:to-sky-500 transition-all active:scale-[0.97] disabled:opacity-30 shrink-0"
+                    className="w-full py-3 mt-2 bg-linear-to-r from-sky-600 to-sky-600 rounded-xl text-sm font-black text-white uppercase tracking-[0.15em] shadow-lg shadow-sky-500/20 hover:from-sky-500 hover:to-sky-500 transition-all active:scale-[0.97] disabled:opacity-30 shrink-0"
                 >
                     Create Task
                 </button>
@@ -297,7 +297,7 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
                 aria-label="Submit form"
                 onClick={onSubmit}
                 disabled={!form.title.trim()}
-                className="w-full py-3.5 bg-gradient-to-r from-sky-600 to-sky-600 rounded-xl text-sm font-black text-white uppercase tracking-widest shadow-lg shadow-sky-500/20 hover:from-sky-500 hover:to-sky-500 transition-all active:scale-[0.97] disabled:opacity-30"
+                className="w-full py-3.5 bg-linear-to-r from-sky-600 to-sky-600 rounded-xl text-sm font-black text-white uppercase tracking-widest shadow-lg shadow-sky-500/20 hover:from-sky-500 hover:to-sky-500 transition-all active:scale-[0.97] disabled:opacity-30"
             >
                 Save Changes
             </button>

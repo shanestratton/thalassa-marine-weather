@@ -499,7 +499,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
                         placeholder="Search by name or location..."
-                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-gray-500 outline-none focus:border-sky-500/30"
+                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-gray-500 outline-hidden focus:border-sky-500/30"
                     />
                 </div>
 
@@ -639,7 +639,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                                     value={editBarcode}
                                     onChange={(e) => setEditBarcode(e.target.value)}
                                     onFocus={scrollInputAboveKeyboard}
-                                    className="flex-1 bg-black/40 border border-white/10 rounded-xl px-3 py-1.5 text-white text-sm font-mono outline-none focus:border-sky-500 transition-colors"
+                                    className="flex-1 bg-black/40 border border-white/10 rounded-xl px-3 py-1.5 text-white text-sm font-mono outline-hidden focus:border-sky-500 transition-colors"
                                 />
                                 <button
                                     aria-label="Scan barcode with camera"
@@ -752,7 +752,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                         aria-label="Save inventory item changes"
                         onClick={handleSaveEdit}
                         disabled={!editName.trim()}
-                        className="w-full mt-2 py-2.5 bg-gradient-to-r from-sky-600 to-sky-600 text-white font-black text-sm uppercase tracking-[0.15em] rounded-xl hover:from-sky-500 hover:to-sky-500 transition-all active:scale-[0.98] disabled:opacity-30"
+                        className="w-full mt-2 py-2.5 bg-linear-to-r from-sky-600 to-sky-600 text-white font-black text-sm uppercase tracking-[0.15em] rounded-xl hover:from-sky-500 hover:to-sky-500 transition-all active:scale-[0.98] disabled:opacity-30"
                     >
                         Save Changes
                     </button>
@@ -810,7 +810,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                     <button
                         aria-label="Export inventory PDF"
                         onClick={() => handleExport(exportMode, exportCategories, inventoryData.identity)}
-                        className="w-full py-3 bg-gradient-to-r from-sky-600 to-sky-500 text-white font-black text-sm uppercase tracking-widest rounded-xl transition-all active:scale-[0.98]"
+                        className="w-full py-3 bg-linear-to-r from-sky-600 to-sky-500 text-white font-black text-sm uppercase tracking-widest rounded-xl transition-all active:scale-[0.98]"
                     >
                         {exportMode === 'share' ? 'Share' : 'Download'}{' '}
                         {exportCategories.size > 0

@@ -102,7 +102,7 @@ export const AdviceWidget: React.FC<AdviceWidgetProps> = React.memo(
                     <div className="absolute inset-0 z-20 bg-slate-900/60 flex items-center justify-center">
                         <button
                             onClick={onUpgrade}
-                            className={`bg-gradient-to-r from-sky-500 to-sky-600 text-white font-bold py-3 px-8 rounded-xl shadow-lg shadow-sky-500/30 flex items-center gap-3 hover:scale-105 transition-transform ${t.border.default}`}
+                            className={`bg-linear-to-r from-sky-500 to-sky-600 text-white font-bold py-3 px-8 rounded-xl shadow-lg shadow-sky-500/30 flex items-center gap-3 hover:scale-105 transition-transform ${t.border.default}`}
                             aria-label="Upgrade to premium forecast"
                         >
                             <DiamondIcon className="w-5 h-5" />
@@ -112,7 +112,7 @@ export const AdviceWidget: React.FC<AdviceWidgetProps> = React.memo(
                 )}
 
                 <div
-                    className={`flex flex-col md:flex-row items-stretch min-h-[300px] ${!isPro ? 'opacity-30 blur-sm select-none' : ''}`}
+                    className={`flex flex-col md:flex-row items-stretch min-h-[300px] ${!isPro ? 'opacity-30 blur-xs select-none' : ''}`}
                 >
                     {/* LEFT: LOGBOOK AREA */}
                     <div className="flex flex-1 flex-col relative">
@@ -125,7 +125,7 @@ export const AdviceWidget: React.FC<AdviceWidgetProps> = React.memo(
                                 backgroundSize: '24px 24px',
                             }}
                         />
-                        <div className="absolute inset-0 bg-gradient-to-br from-slate-900 via-[#0f172a] to-sky-950/30"></div>
+                        <div className="absolute inset-0 bg-linear-to-br from-slate-900 via-[#0f172a] to-sky-950/30"></div>
 
                         {/* Content Layer */}
                         <div className="relative z-10 p-6 md:p-8 flex flex-col h-full">
@@ -176,16 +176,16 @@ export const AdviceWidget: React.FC<AdviceWidgetProps> = React.memo(
 
                             {/* Text Area - Auto Expanding */}
                             <div className="relative flex-1 min-h-[120px] pr-2">
-                                <div className="absolute top-0 left-0 bottom-0 w-[2px] bg-gradient-to-b from-sky-500/50 via-sky-500/10 to-transparent"></div>
+                                <div className="absolute top-0 left-0 bottom-0 w-[2px] bg-linear-to-b from-sky-500/50 via-sky-500/10 to-transparent"></div>
                                 <div className="pl-6 py-1">
                                     <QuoteIcon className="w-6 h-6 text-white/10 mb-4 transform -scale-x-100" />
 
                                     {showSkeleton ? (
                                         <div className="space-y-3 animate-pulse">
-                                            <div className="h-4 bg-white/10 rounded w-3/4"></div>
-                                            <div className="h-4 bg-white/10 rounded w-full"></div>
-                                            <div className="h-4 bg-white/10 rounded w-5/6"></div>
-                                            <div className="h-4 bg-white/5 rounded w-1/2"></div>
+                                            <div className="h-4 bg-white/10 rounded-sm w-3/4"></div>
+                                            <div className="h-4 bg-white/10 rounded-sm w-full"></div>
+                                            <div className="h-4 bg-white/10 rounded-sm w-5/6"></div>
+                                            <div className="h-4 bg-white/5 rounded-sm w-1/2"></div>
                                         </div>
                                     ) : (
                                         <p className="text-gray-200 leading-relaxed font-serif text-lg md:text-xl tracking-wide whitespace-pre-line animate-in fade-in slide-in-from-bottom-2 duration-500">
@@ -194,7 +194,7 @@ export const AdviceWidget: React.FC<AdviceWidgetProps> = React.memo(
                                     )}
 
                                     <div className="mt-6 flex items-center gap-2 opacity-50">
-                                        <div className="h-[1px] w-8 bg-sky-400"></div>
+                                        <div className="h-px w-8 bg-sky-400"></div>
                                         <span className="text-sm font-mono text-sky-300">END LOG</span>
                                     </div>
                                 </div>
@@ -222,7 +222,7 @@ export const AdviceWidget: React.FC<AdviceWidgetProps> = React.memo(
                                 {lockerItems.map((item, idx) => (
                                     <span
                                         key={idx}
-                                        className={`px-3 py-2 bg-white/5 hover:bg-white/10 text-sm font-medium text-sky-100 ${t.border.default} rounded-lg shadow-sm transition-all hover:border-sky-500/30 cursor-default flex items-center gap-1.5`}
+                                        className={`px-3 py-2 bg-white/5 hover:bg-white/10 text-sm font-medium text-sky-100 ${t.border.default} rounded-lg shadow-xs transition-all hover:border-sky-500/30 cursor-default flex items-center gap-1.5`}
                                     >
                                         <span>{item.icon}</span>
                                         {item.name}

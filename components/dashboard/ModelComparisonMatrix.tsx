@@ -504,7 +504,7 @@ export const ModelComparisonMatrix: React.FC<Props> = React.memo(
 
         return createPortal(
             <div
-                className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 pb-[calc(4rem+env(safe-area-inset-bottom)+1rem)] pt-[max(1rem,env(safe-area-inset-top))]"
+                className="fixed inset-0 z-9999 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 pb-[calc(4rem+env(safe-area-inset-bottom)+1rem)] pt-[max(1rem,env(safe-area-inset-top))]"
                 onClick={onClose}
                 role="presentation"
             >
@@ -514,11 +514,11 @@ export const ModelComparisonMatrix: React.FC<Props> = React.memo(
                     role="dialog"
                     aria-modal="true"
                     aria-labelledby="model-comparison-title"
-                    className="w-full max-w-lg bg-slate-900/95 border border-white/[0.08] rounded-3xl shadow-2xl max-h-full overflow-y-auto animate-in fade-in zoom-in-95 duration-300"
+                    className="w-full max-w-lg bg-slate-900/95 border border-white/8 rounded-3xl shadow-2xl max-h-full overflow-y-auto animate-in fade-in zoom-in-95 duration-300"
                     onClick={(e) => e.stopPropagation()}
                 >
                     {/* Accent glow */}
-                    <div className="h-[2px] bg-gradient-to-r from-transparent via-sky-500/60 to-transparent" />
+                    <div className="h-[2px] bg-linear-to-r from-transparent via-sky-500/60 to-transparent" />
 
                     {/* Header */}
                     <div className="flex items-center justify-between px-5 pt-4 pb-3">
@@ -556,7 +556,7 @@ export const ModelComparisonMatrix: React.FC<Props> = React.memo(
 
                     {/* Parameter tabs — one per grid metric, horizontally scrollable */}
                     <div className="px-5 pb-3">
-                        <div className="flex items-center gap-1 bg-white/[0.04] border border-white/[0.06] rounded-xl p-1 overflow-x-auto no-scrollbar">
+                        <div className="flex items-center gap-1 bg-white/4 border border-white/6 rounded-xl p-1 overflow-x-auto no-scrollbar">
                             {PARAMS.map((p) => {
                                 const active = p.id === param;
                                 return (
@@ -685,7 +685,7 @@ export const ModelComparisonMatrix: React.FC<Props> = React.memo(
                                         <div
                                             key={s.id}
                                             className={`flex items-center gap-2 py-1 px-2 rounded-lg ${
-                                                isSelected(s) ? 'bg-white/[0.05]' : ''
+                                                isSelected(s) ? 'bg-white/5' : ''
                                             }`}
                                         >
                                             <span
@@ -712,7 +712,7 @@ export const ModelComparisonMatrix: React.FC<Props> = React.memo(
 
                     {/* Convergence summary */}
                     {hasData && (
-                        <div className="mx-5 mb-3 p-3 rounded-xl bg-white/[0.03] border border-white/[0.05] flex items-center gap-3">
+                        <div className="mx-5 mb-3 p-3 rounded-xl bg-white/3 border border-white/5 flex items-center gap-3">
                             <div
                                 className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${
                                     overallLevel === 'high'
@@ -770,7 +770,7 @@ export const ModelComparisonMatrix: React.FC<Props> = React.memo(
                                 {confidence.map((c, i) => (
                                     <span
                                         key={i}
-                                        className={`w-1.5 h-4 rounded-sm ${
+                                        className={`w-1.5 h-4 rounded-xs ${
                                             c.level === 'none'
                                                 ? 'bg-white/10'
                                                 : c.level === 'high'

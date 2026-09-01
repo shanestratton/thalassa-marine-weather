@@ -58,7 +58,7 @@ const VesselWidgetComponent = ({ vessel, vesselStatus }: { vessel: VesselProfile
                     </span>
                 </div>
                 <div
-                    className={`px-2 py-1 rounded border text-[11px] font-bold uppercase ${vesselStatus?.status === 'unsafe' ? 'bg-red-500/20 border-red-500/50 text-red-300' : 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300'}`}
+                    className={`px-2 py-1 rounded-sm border text-[11px] font-bold uppercase ${vesselStatus?.status === 'unsafe' ? 'bg-red-500/20 border-red-500/50 text-red-300' : 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300'}`}
                 >
                     {vesselStatus?.status === 'unsafe' ? 'Limits Exceeded' : 'Within Limits'}
                 </div>
@@ -263,7 +263,7 @@ const VesselStatusWidgetComponent = ({
                             </span>
                         </div>
                         <div
-                            className={`px-2 py-1 rounded border text-[11px] font-bold uppercase ${vesselStatus?.status === 'unsafe' ? 'bg-red-500/20 border-red-500/50 text-red-300' : 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300'}`}
+                            className={`px-2 py-1 rounded-sm border text-[11px] font-bold uppercase ${vesselStatus?.status === 'unsafe' ? 'bg-red-500/20 border-red-500/50 text-red-300' : 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300'}`}
                         >
                             {vesselStatus?.status === 'unsafe' ? 'Limits Exceeded' : 'Within Limits'}
                         </div>

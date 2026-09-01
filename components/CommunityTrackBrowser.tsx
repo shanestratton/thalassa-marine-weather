@@ -343,7 +343,7 @@ export const CommunityTrackBrowser: React.FC<CommunityTrackBrowserProps> = ({ is
                                 placeholder="Search tracks..."
                                 value={search}
                                 onChange={(e) => handleSearchChange(e.target.value)}
-                                className={`w-full bg-slate-800/60 ${t.border.default} rounded-lg pl-9 pr-3 py-2.5 text-white text-sm focus:border-emerald-500 focus:outline-none placeholder-slate-500`}
+                                className={`w-full bg-slate-800/60 ${t.border.default} rounded-lg pl-9 pr-3 py-2.5 text-white text-sm focus:border-emerald-500 focus:outline-hidden placeholder-slate-500`}
                             />
                         </div>
 
@@ -353,7 +353,7 @@ export const CommunityTrackBrowser: React.FC<CommunityTrackBrowserProps> = ({ is
                             <select
                                 value={category}
                                 onChange={(e) => setCategory(e.target.value as TrackCategory | '')}
-                                className={`flex-1 bg-slate-800/60 ${t.border.default} rounded-lg px-2 py-2 text-white text-sm font-bold focus:border-emerald-500 focus:outline-none`}
+                                className={`flex-1 bg-slate-800/60 ${t.border.default} rounded-lg px-2 py-2 text-white text-sm font-bold focus:border-emerald-500 focus:outline-hidden`}
                             >
                                 <option value="">All Categories</option>
                                 {(Object.keys(CATEGORY_LABELS) as TrackCategory[]).map((cat) => (
@@ -366,7 +366,7 @@ export const CommunityTrackBrowser: React.FC<CommunityTrackBrowserProps> = ({ is
                             <select
                                 value={regionFilter}
                                 onChange={(e) => setRegionFilter(e.target.value)}
-                                className={`flex-1 bg-slate-800/60 ${t.border.default} rounded-lg px-2 py-2 text-white text-sm font-bold focus:border-emerald-500 focus:outline-none`}
+                                className={`flex-1 bg-slate-800/60 ${t.border.default} rounded-lg px-2 py-2 text-white text-sm font-bold focus:border-emerald-500 focus:outline-hidden`}
                             >
                                 <option value="">All Regions</option>
                                 {availableRegions.map((r) => (
@@ -379,7 +379,7 @@ export const CommunityTrackBrowser: React.FC<CommunityTrackBrowserProps> = ({ is
                             <select
                                 value={sortBy}
                                 onChange={(e) => setSortBy(e.target.value as BrowseFilters['sortBy'])}
-                                className={`bg-slate-800/60 ${t.border.default} rounded-lg px-2 py-2 text-white text-sm font-bold focus:border-emerald-500 focus:outline-none`}
+                                className={`bg-slate-800/60 ${t.border.default} rounded-lg px-2 py-2 text-white text-sm font-bold focus:border-emerald-500 focus:outline-hidden`}
                             >
                                 {SORT_OPTIONS.map((opt) => (
                                     <option key={opt.value} value={opt.value}>
@@ -543,7 +543,7 @@ const TrackCard: React.FC<{
 
             {/* Stats row */}
             <div className="flex items-center gap-3 text-sm text-slate-400">
-                <span className="bg-slate-800/60 px-2 py-0.5 rounded text-slate-400 font-bold">{categoryLabel}</span>
+                <span className="bg-slate-800/60 px-2 py-0.5 rounded-sm text-slate-400 font-bold">{categoryLabel}</span>
                 {track.region && (
                     <span className="truncate inline-flex items-center gap-1">
                         <MapPinIcon className="w-3 h-3" />
@@ -559,12 +559,12 @@ const TrackCard: React.FC<{
             {(track.vessel_draft_m || track.tide_info) && (
                 <div className="flex items-center gap-3 mt-1.5 text-sm">
                     {track.vessel_draft_m && (
-                        <span className="bg-sky-900/30 border border-sky-500/20 text-sky-400 px-2 py-0.5 rounded font-bold">
+                        <span className="bg-sky-900/30 border border-sky-500/20 text-sky-400 px-2 py-0.5 rounded-sm font-bold">
                             ⚓ {track.vessel_draft_m.toFixed(1)}m draft
                         </span>
                     )}
                     {track.tide_info && (
-                        <span className="bg-slate-800/60 text-slate-400 px-2 py-0.5 rounded truncate">
+                        <span className="bg-slate-800/60 text-slate-400 px-2 py-0.5 rounded-sm truncate">
                             🌊 {track.tide_info}
                         </span>
                     )}
@@ -654,7 +654,7 @@ const MyTrackCard: React.FC<{
 
             {/* Stats row */}
             <div className="flex items-center gap-3 text-sm text-slate-400">
-                <span className="bg-slate-800/60 px-2 py-0.5 rounded text-slate-400 font-bold">{categoryLabel}</span>
+                <span className="bg-slate-800/60 px-2 py-0.5 rounded-sm text-slate-400 font-bold">{categoryLabel}</span>
                 {track.region && (
                     <span className="truncate inline-flex items-center gap-1">
                         <MapPinIcon className="w-3 h-3" />

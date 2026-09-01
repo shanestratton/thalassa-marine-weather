@@ -252,7 +252,7 @@ export const DiaryEntryView: React.FC<DiaryEntryViewProps> = React.memo(
 
                         {/* 7. Pin Location + Weather (only if pin dropped) */}
                         {hasCoords && (
-                            <div className="bg-gradient-to-br from-sky-500/[0.06] to-emerald-500/[0.04] border border-white/[0.08] rounded-2xl p-4 space-y-3">
+                            <div className="bg-linear-to-br from-sky-500/6 to-emerald-500/4 border border-white/8 rounded-2xl p-4 space-y-3">
                                 {/* Position */}
                                 <div className="flex items-center gap-2.5">
                                     <div className="p-2 bg-sky-500/15 rounded-lg">
@@ -290,7 +290,7 @@ export const DiaryEntryView: React.FC<DiaryEntryViewProps> = React.memo(
 
                                 {/* Weather Grid (only if weather_data exists) */}
                                 {e.weather_data && (
-                                    <div className="border-t border-white/[0.06] pt-3">
+                                    <div className="border-t border-white/6 pt-3">
                                         <p className="text-[11px] font-bold text-emerald-400/60 uppercase tracking-wider mb-2">
                                             🌤 Weather at Location
                                         </p>
@@ -301,7 +301,7 @@ export const DiaryEntryView: React.FC<DiaryEntryViewProps> = React.memo(
                                         )}
                                         <div className="grid grid-cols-3 gap-2">
                                             {e.weather_data.airTemp != null && (
-                                                <div className="bg-white/[0.04] rounded-xl p-2.5 text-center">
+                                                <div className="bg-white/4 rounded-xl p-2.5 text-center">
                                                     <p className="text-[11px] text-gray-400 uppercase tracking-wider">
                                                         Air
                                                     </p>
@@ -311,7 +311,7 @@ export const DiaryEntryView: React.FC<DiaryEntryViewProps> = React.memo(
                                                 </div>
                                             )}
                                             {e.weather_data.seaTemp != null && (
-                                                <div className="bg-white/[0.04] rounded-xl p-2.5 text-center">
+                                                <div className="bg-white/4 rounded-xl p-2.5 text-center">
                                                     <p className="text-[11px] text-gray-400 uppercase tracking-wider">
                                                         Sea
                                                     </p>
@@ -321,7 +321,7 @@ export const DiaryEntryView: React.FC<DiaryEntryViewProps> = React.memo(
                                                 </div>
                                             )}
                                             {e.weather_data.windSpeed != null && (
-                                                <div className="bg-white/[0.04] rounded-xl p-2.5 text-center">
+                                                <div className="bg-white/4 rounded-xl p-2.5 text-center">
                                                     <p className="text-[11px] text-gray-400 uppercase tracking-wider">
                                                         Wind
                                                     </p>
@@ -332,7 +332,7 @@ export const DiaryEntryView: React.FC<DiaryEntryViewProps> = React.memo(
                                                 </div>
                                             )}
                                             {e.weather_data.humidity != null && (
-                                                <div className="bg-white/[0.04] rounded-xl p-2.5 text-center">
+                                                <div className="bg-white/4 rounded-xl p-2.5 text-center">
                                                     <p className="text-[11px] text-gray-400 uppercase tracking-wider">
                                                         Humidity
                                                     </p>
@@ -342,7 +342,7 @@ export const DiaryEntryView: React.FC<DiaryEntryViewProps> = React.memo(
                                                 </div>
                                             )}
                                             {e.weather_data.rain != null && (
-                                                <div className="bg-white/[0.04] rounded-xl p-2.5 text-center">
+                                                <div className="bg-white/4 rounded-xl p-2.5 text-center">
                                                     <p className="text-[11px] text-gray-400 uppercase tracking-wider">
                                                         Rain
                                                     </p>
@@ -356,7 +356,7 @@ export const DiaryEntryView: React.FC<DiaryEntryViewProps> = React.memo(
                                 )}
                                 {/* Fall back to text summary if no structured data */}
                                 {!e.weather_data && e.weather_summary && (
-                                    <div className="border-t border-white/[0.06] pt-3">
+                                    <div className="border-t border-white/6 pt-3">
                                         <p className="text-xs text-gray-400 italic">🌤 {e.weather_summary}</p>
                                     </div>
                                 )}
@@ -390,7 +390,7 @@ export const DiaryEntryView: React.FC<DiaryEntryViewProps> = React.memo(
 
                         {/* Weather summary (no pin, fallback) */}
                         {!hasCoords && e.weather_summary && (
-                            <div className="text-xs text-gray-400 italic bg-white/[0.03] rounded-xl p-3 border border-white/5">
+                            <div className="text-xs text-gray-400 italic bg-white/3 rounded-xl p-3 border border-white/5">
                                 🌤 {e.weather_summary}
                             </div>
                         )}
@@ -405,7 +405,7 @@ export const DiaryEntryView: React.FC<DiaryEntryViewProps> = React.memo(
                         )}
 
                         {/* Voyage Log publish toggle */}
-                        <div className="bg-white/[0.03] border border-white/[0.08] rounded-2xl p-4 flex items-center gap-3">
+                        <div className="bg-white/3 border border-white/8 rounded-2xl p-4 flex items-center gap-3">
                             <div className="flex-1 min-w-0">
                                 <p className="text-sm font-bold text-white">
                                     {isPublished ? '🌍 On your Voyage Log' : 'Publish to Voyage Log'}

@@ -58,13 +58,13 @@ export const CmemsAttribution: React.FC<CmemsAttributionProps> = ({ layers, embe
 
     return (
         <aside
-            className="absolute left-2 z-[520] max-w-[min(360px,calc(100vw-1rem))] pointer-events-auto"
+            className="absolute left-2 z-520 max-w-[min(360px,calc(100vw-1rem))] pointer-events-auto"
             style={{
                 bottom: embedded ? '84px' : 'calc(156px + env(safe-area-inset-bottom))',
             }}
             aria-label={`Copernicus Marine data attribution for ${activeLayerLabel}`}
         >
-            <div className="rounded-lg border border-cyan-400/30 bg-black/70 px-2 py-1 text-[10px] leading-tight text-cyan-50/85 shadow-lg backdrop-blur-sm">
+            <div className="rounded-lg border border-cyan-400/30 bg-black/70 px-2 py-1 text-[10px] leading-tight text-cyan-50/85 shadow-lg backdrop-blur-xs">
                 <div className="font-semibold text-cyan-200">E.U. Copernicus Marine Service Information</div>
                 <div className="mt-0.5 text-cyan-50/80">{activeLayerLabel}</div>
                 <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5">
@@ -76,7 +76,7 @@ export const CmemsAttribution: React.FC<CmemsAttributionProps> = ({ layers, embe
                             rel="noopener noreferrer"
                             referrerPolicy="no-referrer"
                             title={product.label}
-                            className="rounded-sm underline underline-offset-2 hover:text-cyan-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300"
+                            className="rounded-xs underline underline-offset-2 hover:text-cyan-200 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-cyan-300"
                             aria-label={`${product.label}, DOI ${product.doi}`}
                         >
                             {product.shortLabel} DOI {product.doi}

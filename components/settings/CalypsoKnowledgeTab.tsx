@@ -154,7 +154,7 @@ export const CalypsoKnowledgeTab: React.FC<SettingsTabProps> = ({ settings }) =>
     if (!isTopTier) {
         return (
             <div className="max-w-2xl mx-auto w-full">
-                <div className="p-6 rounded-2xl bg-gradient-to-br from-cyan-500/10 to-transparent border border-cyan-500/20 text-center">
+                <div className="p-6 rounded-2xl bg-linear-to-br from-cyan-500/10 to-transparent border border-cyan-500/20 text-center">
                     <h2 className="text-lg font-bold text-white mb-2">Calypso's Knowledge</h2>
                     <p className="text-[13px] text-slate-300 leading-relaxed mb-1">
                         Teach Calypso about your boat — specs, recipes, maintenance history, crew notes — so it answers
@@ -170,10 +170,7 @@ export const CalypsoKnowledgeTab: React.FC<SettingsTabProps> = ({ settings }) =>
         return (
             <div className="max-w-2xl mx-auto w-full space-y-3" aria-busy="true" aria-label="Loading Calypso knowledge">
                 {[0, 1, 2].map((i) => (
-                    <div
-                        key={i}
-                        className="h-24 rounded-2xl bg-white/[0.03] border border-white/[0.06] animate-pulse"
-                    />
+                    <div key={i} className="h-24 rounded-2xl bg-white/3 border border-white/6 animate-pulse" />
                 ))}
             </div>
         );
@@ -182,7 +179,7 @@ export const CalypsoKnowledgeTab: React.FC<SettingsTabProps> = ({ settings }) =>
     return (
         <div className="max-w-2xl mx-auto w-full">
             {/* Intro */}
-            <div className="mb-6 p-4 rounded-2xl bg-gradient-to-br from-cyan-500/10 to-transparent border border-cyan-500/20">
+            <div className="mb-6 p-4 rounded-2xl bg-linear-to-br from-cyan-500/10 to-transparent border border-cyan-500/20">
                 <h2 className="text-lg font-bold text-white mb-1">Calypso's Knowledge</h2>
                 <p className="text-[12px] text-slate-300 leading-relaxed">
                     Teach Calypso about your boat. Anything you add here — specs, recipes, basic medical notes,
@@ -210,7 +207,7 @@ export const CalypsoKnowledgeTab: React.FC<SettingsTabProps> = ({ settings }) =>
 
             {/* Editor */}
             {draft && (
-                <div className="mb-6 p-4 rounded-2xl bg-white/[0.04] border border-white/10 space-y-3">
+                <div className="mb-6 p-4 rounded-2xl bg-white/4 border border-white/10 space-y-3">
                     <div className="flex flex-wrap gap-1.5">
                         {KNOWLEDGE_CATEGORIES.map((c) => (
                             <button
@@ -219,7 +216,7 @@ export const CalypsoKnowledgeTab: React.FC<SettingsTabProps> = ({ settings }) =>
                                 className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold uppercase tracking-wide transition-colors ${
                                     draft.category === c.id
                                         ? 'bg-sky-500 text-white'
-                                        : 'bg-white/[0.04] text-slate-400 hover:text-slate-200'
+                                        : 'bg-white/4 text-slate-400 hover:text-slate-200'
                                 }`}
                             >
                                 {c.label}
@@ -234,14 +231,14 @@ export const CalypsoKnowledgeTab: React.FC<SettingsTabProps> = ({ settings }) =>
                         value={draft.title}
                         onChange={(e) => setDraft((d) => (d ? { ...d, title: e.target.value } : d))}
                         placeholder="Title (e.g. Tender, Penicillin allergy, Anchor windlass)"
-                        className="w-full h-11 px-3 rounded-xl bg-black/40 border border-white/10 text-white text-sm focus:border-sky-500/50 outline-none placeholder-slate-600"
+                        className="w-full h-11 px-3 rounded-xl bg-black/40 border border-white/10 text-white text-sm focus:border-sky-500/50 outline-hidden placeholder-slate-600"
                     />
                     <textarea
                         value={draft.body}
                         onChange={(e) => setDraft((d) => (d ? { ...d, body: e.target.value } : d))}
                         placeholder="Details Calypso should remember…"
                         rows={4}
-                        className="w-full px-3 py-2.5 rounded-xl bg-black/40 border border-white/10 text-white text-sm focus:border-sky-500/50 outline-none placeholder-slate-600 resize-y leading-relaxed"
+                        className="w-full px-3 py-2.5 rounded-xl bg-black/40 border border-white/10 text-white text-sm focus:border-sky-500/50 outline-hidden placeholder-slate-600 resize-y leading-relaxed"
                     />
                     <div className="flex gap-2">
                         <button
@@ -262,10 +259,7 @@ export const CalypsoKnowledgeTab: React.FC<SettingsTabProps> = ({ settings }) =>
             {loading ? (
                 <div className="space-y-3">
                     {[0, 1, 2].map((i) => (
-                        <div
-                            key={i}
-                            className="h-24 rounded-2xl bg-white/[0.03] border border-white/[0.06] animate-pulse"
-                        />
+                        <div key={i} className="h-24 rounded-2xl bg-white/3 border border-white/6 animate-pulse" />
                     ))}
                 </div>
             ) : items.length === 0 && !draft ? (
@@ -279,7 +273,7 @@ export const CalypsoKnowledgeTab: React.FC<SettingsTabProps> = ({ settings }) =>
                         {rows.map((row, i) => (
                             <div
                                 key={row.id}
-                                className={`p-4 ${i > 0 ? 'border-t border-white/[0.06]' : ''} flex items-start gap-3`}
+                                className={`p-4 ${i > 0 ? 'border-t border-white/6' : ''} flex items-start gap-3`}
                             >
                                 <div className="flex-1 min-w-0">
                                     <div className="text-sm font-bold text-white">{row.title}</div>

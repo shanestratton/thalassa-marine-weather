@@ -176,7 +176,7 @@ export const EquipmentDetail: React.FC<EquipmentDetailProps> = ({ item, onBack, 
                         <button
                             aria-label="Enter manual mode"
                             onClick={openManual}
-                            className="w-full py-4 bg-gradient-to-r from-sky-600/20 to-sky-600/20 border border-sky-500/20 rounded-2xl flex items-center justify-center gap-3 group hover:from-sky-600/30 hover:to-sky-600/30 transition-all active:scale-[0.98]"
+                            className="w-full py-4 bg-linear-to-r from-sky-600/20 to-sky-600/20 border border-sky-500/20 rounded-2xl flex items-center justify-center gap-3 group hover:from-sky-600/30 hover:to-sky-600/30 transition-all active:scale-[0.98]"
                         >
                             <svg
                                 className="w-6 h-6 text-sky-400"

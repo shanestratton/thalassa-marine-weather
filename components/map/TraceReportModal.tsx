@@ -322,7 +322,7 @@ export const TraceReportModal: React.FC<Props> = ({
         //
         // dvh, not vh: on iOS vh is the LARGEST viewport (toolbars retracted),
         // so a vh-capped sheet overflows whenever they're showing.
-        <div className="fixed inset-0 z-[10050] flex items-center justify-center bg-black/60 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-[max(0.75rem,env(safe-area-inset-top))]">
+        <div className="fixed inset-0 z-10050 flex items-center justify-center bg-black/60 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-[max(0.75rem,env(safe-area-inset-top))]">
             {/* flex-col + a flexing body: header and footer keep their height and
                 the leg list takes the rest. The old fixed max-h-[46vh] body could
                 not compose with the 80vh cap once header, departure row and footer
@@ -462,7 +462,7 @@ export const TraceReportModal: React.FC<Props> = ({
                                         <button
                                             key={i}
                                             onClick={() => onFlyTo?.(p)}
-                                            className="flex min-h-[44px] w-full items-baseline gap-2 rounded px-1 py-0.5 text-left active:bg-white/10"
+                                            className="flex min-h-[44px] w-full items-baseline gap-2 rounded-sm px-1 py-0.5 text-left active:bg-white/10"
                                         >
                                             <span className="w-6 shrink-0 text-right text-amber-300/80">{i + 1}</span>
                                             <span className="tabular-nums">{fmtFix(p)}</span>

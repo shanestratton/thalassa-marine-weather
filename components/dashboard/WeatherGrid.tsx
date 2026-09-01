@@ -49,7 +49,7 @@ const getBeaufortConfig = (force: number) => {
             desc: 'Calm',
             sea: 'Mirror-like',
             color: 'from-sky-400 to-sky-300',
-            bg: 'bg-gradient-to-r from-sky-900/40 to-slate-900/40',
+            bg: 'bg-linear-to-r from-sky-900/40 to-slate-900/40',
             border: 'border-sky-500/30',
             text: 'text-sky-200',
         },
@@ -58,7 +58,7 @@ const getBeaufortConfig = (force: number) => {
             desc: 'Light Air',
             sea: 'Ripples',
             color: 'from-sky-400 to-sky-300',
-            bg: 'bg-gradient-to-r from-sky-900/40 to-slate-900/40',
+            bg: 'bg-linear-to-r from-sky-900/40 to-slate-900/40',
             border: 'border-sky-500/30',
             text: 'text-sky-200',
         },
@@ -67,7 +67,7 @@ const getBeaufortConfig = (force: number) => {
             desc: 'Light Breeze',
             sea: 'Small wavelets',
             color: 'from-sky-400 to-emerald-300',
-            bg: 'bg-gradient-to-r from-sky-900/40 to-slate-900/40',
+            bg: 'bg-linear-to-r from-sky-900/40 to-slate-900/40',
             border: 'border-sky-500/30',
             text: 'text-sky-200',
         },
@@ -76,7 +76,7 @@ const getBeaufortConfig = (force: number) => {
             desc: 'Gentle Breeze',
             sea: 'Large wavelets',
             color: 'from-emerald-400 to-emerald-300',
-            bg: 'bg-gradient-to-r from-emerald-900/40 to-slate-900/40',
+            bg: 'bg-linear-to-r from-emerald-900/40 to-slate-900/40',
             border: 'border-emerald-500/30',
             text: 'text-emerald-200',
         },
@@ -85,7 +85,7 @@ const getBeaufortConfig = (force: number) => {
             desc: 'Moderate Breeze',
             sea: 'Small waves',
             color: 'from-emerald-400 to-emerald-300',
-            bg: 'bg-gradient-to-r from-emerald-900/40 to-slate-900/40',
+            bg: 'bg-linear-to-r from-emerald-900/40 to-slate-900/40',
             border: 'border-emerald-500/30',
             text: 'text-emerald-200',
         },
@@ -94,7 +94,7 @@ const getBeaufortConfig = (force: number) => {
             desc: 'Fresh Breeze',
             sea: 'Moderate waves',
             color: 'from-emerald-400 to-yellow-300',
-            bg: 'bg-gradient-to-r from-emerald-900/40 to-slate-900/40',
+            bg: 'bg-linear-to-r from-emerald-900/40 to-slate-900/40',
             border: 'border-yellow-500/30',
             text: 'text-emerald-200',
         },
@@ -103,7 +103,7 @@ const getBeaufortConfig = (force: number) => {
             desc: 'Strong Breeze',
             sea: 'Large waves',
             color: 'from-yellow-400 to-amber-400',
-            bg: 'bg-gradient-to-r from-yellow-900/40 to-slate-900/40',
+            bg: 'bg-linear-to-r from-yellow-900/40 to-slate-900/40',
             border: 'border-amber-500/30',
             text: 'text-yellow-200',
         },
@@ -112,7 +112,7 @@ const getBeaufortConfig = (force: number) => {
             desc: 'Near Gale',
             sea: 'Sea heaps up',
             color: 'from-amber-400 to-red-400',
-            bg: 'bg-gradient-to-r from-amber-900/40 to-slate-900/40',
+            bg: 'bg-linear-to-r from-amber-900/40 to-slate-900/40',
             border: 'border-red-500/30',
             text: 'text-amber-200',
         },
@@ -121,7 +121,7 @@ const getBeaufortConfig = (force: number) => {
             desc: 'Gale',
             sea: 'High waves',
             color: 'from-red-400 to-red-400',
-            bg: 'bg-gradient-to-r from-red-900/40 to-slate-900/40',
+            bg: 'bg-linear-to-r from-red-900/40 to-slate-900/40',
             border: 'border-red-500/40',
             text: 'text-red-200',
         },
@@ -130,7 +130,7 @@ const getBeaufortConfig = (force: number) => {
             desc: 'Strong Gale',
             sea: 'High waves',
             color: 'from-red-400 to-red-500',
-            bg: 'bg-gradient-to-r from-red-900/40 to-slate-900/40',
+            bg: 'bg-linear-to-r from-red-900/40 to-slate-900/40',
             border: 'border-red-500/40',
             text: 'text-red-200',
         },
@@ -139,7 +139,7 @@ const getBeaufortConfig = (force: number) => {
             desc: 'Storm',
             sea: 'Very high',
             color: 'from-red-500 to-purple-500',
-            bg: 'bg-gradient-to-r from-red-900/40 to-slate-900/40',
+            bg: 'bg-linear-to-r from-red-900/40 to-slate-900/40',
             border: 'border-red-500/40',
             text: 'text-red-200',
         },
@@ -148,7 +148,7 @@ const getBeaufortConfig = (force: number) => {
             desc: 'Violent Storm',
             sea: 'Exceptionally high',
             color: 'from-purple-500 to-sky-500',
-            bg: 'bg-gradient-to-r from-purple-900/40 to-slate-900/40',
+            bg: 'bg-linear-to-r from-purple-900/40 to-slate-900/40',
             border: 'border-purple-500/50',
             text: 'text-purple-200',
         },
@@ -157,7 +157,7 @@ const getBeaufortConfig = (force: number) => {
             desc: 'Hurricane',
             sea: 'Total foam',
             color: 'from-sky-500 to-slate-400',
-            bg: 'bg-gradient-to-r from-sky-900/40 to-slate-900/40',
+            bg: 'bg-linear-to-r from-sky-900/40 to-slate-900/40',
             border: 'border-slate-400/50',
             text: 'text-sky-200',
         },
@@ -221,7 +221,7 @@ interface DetailTileProps {
 
 const DetailTile: React.FC<DetailTileProps> = React.memo(({ label, value, unit, icon, colorClass, subContent }) => (
     <div className="bg-slate-900/40 hover:bg-slate-800/60 border border-white/5 rounded-2xl p-3 flex flex-col justify-between transition-all group relative overflow-hidden h-24">
-        <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none"></div>
+        <div className="absolute inset-0 bg-linear-to-br from-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none"></div>
         <div className="flex justify-between items-start z-10">
             <div className={`p-1.5 rounded-lg bg-black/20 ${colorClass}`}>{icon}</div>
             <span className="text-[11px] font-bold uppercase tracking-widest text-gray-400 mr-4">{label}</span>
@@ -284,7 +284,7 @@ export const BeaufortWidget = React.memo(({ windSpeed }: { windSpeed: number | n
 
                 {/* Right Side: Horizontal Layout to save vertical space and look cleaner */}
                 <div className="flex-1 px-4 py-2 flex flex-row justify-between items-center relative z-20 overflow-hidden gap-3">
-                    <span className="text-sm text-white font-mono bg-black/30 px-2 py-0.5 rounded border border-white/5 whitespace-nowrap shrink-0">
+                    <span className="text-sm text-white font-mono bg-black/30 px-2 py-0.5 rounded-sm border border-white/5 whitespace-nowrap shrink-0">
                         {config.range} kts
                     </span>
                     <span className="text-xs text-gray-200 italic opacity-90 text-right truncate leading-tight">

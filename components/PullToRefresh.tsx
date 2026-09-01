@@ -84,7 +84,7 @@ export const PullToRefresh: React.FC<PullToRefreshProps> = ({ onRefresh, childre
                     transform: `translateY(${pullDistance}px)`,
                     transition: startY === 0 ? 'transform 0.3s ease-out' : 'none',
                 }}
-                className={`flex-grow flex flex-col ${disabled ? 'h-full' : 'min-h-[101%]'}`}
+                className={`grow flex flex-col ${disabled ? 'h-full' : 'min-h-[101%]'}`}
             >
                 {children}
             </div>

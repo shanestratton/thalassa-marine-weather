@@ -6,7 +6,7 @@ interface WelcomeBannerProps {
 
 export const WelcomeBanner: React.FC<WelcomeBannerProps> = ({ onDismiss }) => (
     <div className="mx-4 mt-3 fade-slide-down" role="banner" aria-label="Welcome to the Scuttlebutt">
-        <div className="flex items-center gap-3 px-4 py-3 rounded-2xl bg-white/[0.03] border border-white/[0.06]">
+        <div className="flex items-center gap-3 px-4 py-3 rounded-2xl bg-white/3 border border-white/6">
             <div className="flex-1 min-w-0">
                 <p className="text-sm font-semibold text-white/90">Welcome aboard</p>
                 <p className="text-[11px] text-white/50 mt-0.5">
@@ -16,7 +16,7 @@ export const WelcomeBanner: React.FC<WelcomeBannerProps> = ({ onDismiss }) => (
             <button
                 onClick={onDismiss}
                 aria-label="Dismiss welcome message"
-                className="w-11 h-11 flex items-center justify-center rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-white/40 hover:text-white/70 text-sm transition-all flex-shrink-0"
+                className="w-11 h-11 flex items-center justify-center rounded-lg bg-white/4 hover:bg-white/8 text-white/40 hover:text-white/70 text-sm transition-all shrink-0"
             >
                 ✕
             </button>

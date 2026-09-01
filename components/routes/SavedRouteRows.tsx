@@ -25,7 +25,7 @@ import { triggerHaptic } from '../../utils/system';
 export const SavedRoutePassageHeading: React.FC<{ row: SavedRoutePickerRow }> = ({ row }) => (
     <div
         role="presentation"
-        className="flex items-center gap-3 rounded-xl border border-violet-400/25 bg-violet-500/[0.08] px-3 py-2.5"
+        className="flex items-center gap-3 rounded-xl border border-violet-400/25 bg-violet-500/8 px-3 py-2.5"
     >
         <span aria-hidden="true" className="text-base leading-none">
             🧭
@@ -62,9 +62,7 @@ export const SavedRouteOptionRow: React.FC<{
             onSelect(row.id);
         }}
         className={`w-full flex items-center gap-3 rounded-xl border px-3 py-3 text-left transition-colors ${
-            selected
-                ? 'bg-violet-500/[0.14] border-violet-400/40'
-                : 'bg-white/[0.03] border-white/[0.08] hover:bg-white/[0.06]'
+            selected ? 'bg-violet-500/[0.14] border-violet-400/40' : 'bg-white/3 border-white/8 hover:bg-white/6'
         }`}
     >
         <span aria-hidden="true" className="text-base leading-none">

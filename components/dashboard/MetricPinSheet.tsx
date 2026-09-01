@@ -94,7 +94,7 @@ export const MetricPinSheet: React.FC<MetricPinSheetProps> = ({
 
     return createPortal(
         <div
-            className="fixed inset-0 z-[9998] flex items-center justify-center p-4 pb-[calc(4rem+env(safe-area-inset-bottom)+1rem)] pt-[max(1rem,env(safe-area-inset-top))]"
+            className="fixed inset-0 z-9998 flex items-center justify-center p-4 pb-[calc(4rem+env(safe-area-inset-bottom)+1rem)] pt-[max(1rem,env(safe-area-inset-top))]"
             onClick={onClose}
             role="dialog"
             aria-modal="true"
@@ -102,7 +102,7 @@ export const MetricPinSheet: React.FC<MetricPinSheetProps> = ({
             ref={dialogRef}
         >
             {/* Backdrop */}
-            <div className="absolute inset-0 bg-black/70 backdrop-blur-sm animate-in fade-in duration-200" />
+            <div className="absolute inset-0 bg-black/70 backdrop-blur-xs animate-in fade-in duration-200" />
 
             {/* Centred per the standing modal rule (Shane 2026-09-02: "all modal boxes centered on the punters screen"). */}
             <div
@@ -110,7 +110,7 @@ export const MetricPinSheet: React.FC<MetricPinSheetProps> = ({
                 onClick={(e) => e.stopPropagation()}
             >
                 {/* Header */}
-                <div className="px-5 pt-5 pb-3 border-b border-white/[0.06] sticky top-0 bg-slate-900/95 z-10">
+                <div className="px-5 pt-5 pb-3 border-b border-white/6 sticky top-0 bg-slate-900/95 z-10">
                     <h2 className="text-base font-bold text-white tracking-tight">Pin a metric to the top</h2>
                     <p className="text-[12px] text-slate-400 mt-1 leading-relaxed">
                         The selected metric replaces temperature in the hero. Temperature moves to its grid cell.
@@ -127,14 +127,12 @@ export const MetricPinSheet: React.FC<MetricPinSheetProps> = ({
                         className={`w-full flex items-center gap-3 p-3 rounded-xl border transition-all active:scale-[0.98] ${
                             currentMetric === 'temp'
                                 ? 'bg-sky-500/15 border-sky-400/40'
-                                : 'bg-white/[0.03] border-white/[0.06] hover:bg-white/[0.06]'
+                                : 'bg-white/3 border-white/6 hover:bg-white/6'
                         }`}
                     >
                         <div
                             className={`shrink-0 w-9 h-9 rounded-lg flex items-center justify-center ${
-                                currentMetric === 'temp'
-                                    ? 'bg-sky-500/20 text-sky-300'
-                                    : 'bg-white/[0.04] text-slate-400'
+                                currentMetric === 'temp' ? 'bg-sky-500/20 text-sky-300' : 'bg-white/4 text-slate-400'
                             }`}
                         >
                             <ThermometerIcon className="w-4 h-4" />
@@ -157,7 +155,7 @@ export const MetricPinSheet: React.FC<MetricPinSheetProps> = ({
                     </button>
 
                     {/* Divider */}
-                    <div className="h-px bg-white/[0.06] my-2" />
+                    <div className="h-px bg-white/6 my-2" />
 
                     {/* The 10 pinnable metrics */}
                     {visibleMetrics.map((m) => {
@@ -171,12 +169,12 @@ export const MetricPinSheet: React.FC<MetricPinSheetProps> = ({
                                 className={`w-full flex items-center gap-3 p-3 rounded-xl border transition-all active:scale-[0.98] ${
                                     isActive
                                         ? 'bg-sky-500/15 border-sky-400/40'
-                                        : 'bg-white/[0.03] border-white/[0.06] hover:bg-white/[0.06]'
+                                        : 'bg-white/3 border-white/6 hover:bg-white/6'
                                 }`}
                             >
                                 <div
                                     className={`shrink-0 w-9 h-9 rounded-lg flex items-center justify-center ${
-                                        isActive ? 'bg-sky-500/20 text-sky-300' : 'bg-white/[0.04] text-slate-400'
+                                        isActive ? 'bg-sky-500/20 text-sky-300' : 'bg-white/4 text-slate-400'
                                     }`}
                                 >
                                     {m.icon}
@@ -202,7 +200,7 @@ export const MetricPinSheet: React.FC<MetricPinSheetProps> = ({
                 </div>
 
                 {/* Footer */}
-                <div className="px-4 py-3 border-t border-white/[0.06]">
+                <div className="px-4 py-3 border-t border-white/6">
                     <Button
                         onClick={onClose}
                         aria-label="Close pin a metric sheet"

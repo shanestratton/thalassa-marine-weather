@@ -96,14 +96,14 @@ export const RoleSelectionStep: React.FC<RoleSelectionStepProps> = ({
                             className={`relative p-5 rounded-2xl border-2 transition-all text-left group ${
                                 isSelected
                                     ? `${opt.bgColor} ${opt.borderColor} shadow-lg`
-                                    : 'bg-white/[0.03] border-white/[0.08] hover:bg-white/[0.06] hover:border-white/[0.15]'
+                                    : 'bg-white/3 border-white/8 hover:bg-white/6 hover:border-white/15'
                             }`}
                         >
                             <div className="flex items-start gap-4">
                                 {/* Emoji badge */}
                                 <div
-                                    className={`w-12 h-12 rounded-xl flex items-center justify-center text-2xl flex-shrink-0 transition-all ${
-                                        isSelected ? opt.bgColor : 'bg-white/[0.06]'
+                                    className={`w-12 h-12 rounded-xl flex items-center justify-center text-2xl shrink-0 transition-all ${
+                                        isSelected ? opt.bgColor : 'bg-white/6'
                                     }`}
                                 >
                                     {opt.emoji}
@@ -129,7 +129,7 @@ export const RoleSelectionStep: React.FC<RoleSelectionStepProps> = ({
                                         {opt.features.map((f) => (
                                             <div key={f} className="flex items-center gap-2">
                                                 <div
-                                                    className={`w-1 h-1 rounded-full flex-shrink-0 ${isSelected ? opt.color.replace('text-', 'bg-') : 'bg-gray-600'}`}
+                                                    className={`w-1 h-1 rounded-full shrink-0 ${isSelected ? opt.color.replace('text-', 'bg-') : 'bg-gray-600'}`}
                                                 />
                                                 <span className="text-[12px] text-gray-400">{f}</span>
                                             </div>

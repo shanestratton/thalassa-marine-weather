@@ -163,7 +163,7 @@ export const VoyageCleanupSheet: React.FC<VoyageCleanupSheetProps> = ({ isOpen, 
                 onClick={(e) => e.stopPropagation()}
             >
                 {/* Header */}
-                <div className="flex items-center justify-between p-4 border-b border-white/[0.06] shrink-0">
+                <div className="flex items-center justify-between p-4 border-b border-white/6 shrink-0">
                     <div>
                         <h2 id="voyage-cleanup-title" className="text-base font-black text-white">
                             Manage Saved Trips
@@ -203,10 +203,7 @@ export const VoyageCleanupSheet: React.FC<VoyageCleanupSheetProps> = ({ isOpen, 
                                 separately below).
                             </p>
                             {voyages.map((v) => (
-                                <div
-                                    key={v.id}
-                                    className="rounded-xl bg-white/[0.03] border border-white/[0.06] p-3 space-y-2"
-                                >
+                                <div key={v.id} className="rounded-xl bg-white/3 border border-white/6 p-3 space-y-2">
                                     <div className="flex items-start justify-between gap-2">
                                         <div className="flex-1 min-w-0">
                                             <p className="text-sm font-bold text-white truncate">{v.voyage_name}</p>
@@ -234,7 +231,7 @@ export const VoyageCleanupSheet: React.FC<VoyageCleanupSheetProps> = ({ isOpen, 
                                             </button>
                                             <button
                                                 onClick={() => setConfirmId(null)}
-                                                className="px-3 py-2 rounded-lg bg-white/[0.04] border border-white/[0.08] text-gray-300 text-[11px] font-bold uppercase tracking-wider hover:bg-white/[0.08] active:scale-[0.97]"
+                                                className="px-3 py-2 rounded-lg bg-white/4 border border-white/8 text-gray-300 text-[11px] font-bold uppercase tracking-wider hover:bg-white/8 active:scale-[0.97]"
                                             >
                                                 Cancel
                                             </button>
@@ -242,7 +239,7 @@ export const VoyageCleanupSheet: React.FC<VoyageCleanupSheetProps> = ({ isOpen, 
                                     ) : (
                                         <button
                                             onClick={() => setConfirmId(`voyage:${v.id}`)}
-                                            className="w-full py-2 rounded-lg bg-red-500/[0.06] border border-red-500/15 text-red-300/90 text-[11px] font-bold uppercase tracking-wider hover:bg-red-500/[0.12] active:scale-[0.97]"
+                                            className="w-full py-2 rounded-lg bg-red-500/6 border border-red-500/15 text-red-300/90 text-[11px] font-bold uppercase tracking-wider hover:bg-red-500/12 active:scale-[0.97]"
                                         >
                                             🗑 Delete
                                         </button>
@@ -263,10 +260,7 @@ export const VoyageCleanupSheet: React.FC<VoyageCleanupSheetProps> = ({ isOpen, 
                                 its matching voyage row above and ends any active voyage with the same name.
                             </p>
                             {routes.map((r) => (
-                                <div
-                                    key={r.id}
-                                    className="rounded-xl bg-white/[0.03] border border-white/[0.06] p-3 space-y-2"
-                                >
+                                <div key={r.id} className="rounded-xl bg-white/3 border border-white/6 p-3 space-y-2">
                                     <div>
                                         <p className="text-sm font-bold text-white truncate">{r.label}</p>
                                         <p className="text-[11px] text-gray-400 mt-0.5 truncate">{r.sublabel}</p>
@@ -283,7 +277,7 @@ export const VoyageCleanupSheet: React.FC<VoyageCleanupSheetProps> = ({ isOpen, 
                                             </button>
                                             <button
                                                 onClick={() => setConfirmId(null)}
-                                                className="px-3 py-2 rounded-lg bg-white/[0.04] border border-white/[0.08] text-gray-300 text-[11px] font-bold uppercase tracking-wider hover:bg-white/[0.08] active:scale-[0.97]"
+                                                className="px-3 py-2 rounded-lg bg-white/4 border border-white/8 text-gray-300 text-[11px] font-bold uppercase tracking-wider hover:bg-white/8 active:scale-[0.97]"
                                             >
                                                 Cancel
                                             </button>
@@ -291,7 +285,7 @@ export const VoyageCleanupSheet: React.FC<VoyageCleanupSheetProps> = ({ isOpen, 
                                     ) : (
                                         <button
                                             onClick={() => setConfirmId(`route:${r.id}`)}
-                                            className="w-full py-2 rounded-lg bg-red-500/[0.06] border border-red-500/15 text-red-300/90 text-[11px] font-bold uppercase tracking-wider hover:bg-red-500/[0.12] active:scale-[0.97]"
+                                            className="w-full py-2 rounded-lg bg-red-500/6 border border-red-500/15 text-red-300/90 text-[11px] font-bold uppercase tracking-wider hover:bg-red-500/12 active:scale-[0.97]"
                                         >
                                             🗑 Delete (cascades to voyage row)
                                         </button>
@@ -303,11 +297,11 @@ export const VoyageCleanupSheet: React.FC<VoyageCleanupSheetProps> = ({ isOpen, 
                 </div>
 
                 {/* Footer */}
-                <div className="border-t border-white/[0.06] p-3 shrink-0">
+                <div className="border-t border-white/6 p-3 shrink-0">
                     <button
                         onClick={refresh}
                         disabled={loading}
-                        className="w-full py-2 rounded-lg bg-white/[0.04] border border-white/[0.08] text-gray-300 text-[11px] font-bold uppercase tracking-wider hover:bg-white/[0.08] active:scale-[0.97] disabled:opacity-50"
+                        className="w-full py-2 rounded-lg bg-white/4 border border-white/8 text-gray-300 text-[11px] font-bold uppercase tracking-wider hover:bg-white/8 active:scale-[0.97] disabled:opacity-50"
                     >
                         {loading ? 'Refreshing…' : '↻ Refresh'}
                     </button>

@@ -209,7 +209,7 @@ const Explainer: React.FC = () => (
             {BAND_ROWS.map(([range, meaning], i) => (
                 <div
                     key={range}
-                    className={`flex gap-3 px-3 py-2 ${i % 2 ? 'bg-white/[0.03]' : ''} ${i ? 'border-t border-white/5' : ''}`}
+                    className={`flex gap-3 px-3 py-2 ${i % 2 ? 'bg-white/3' : ''} ${i ? 'border-t border-white/5' : ''}`}
                 >
                     <span className="w-[76px] shrink-0 tabular-nums text-white/90 font-semibold">{range}</span>
                     <span className="text-white/65">{meaning}</span>
@@ -388,7 +388,7 @@ export const BarometerModal: React.FC<BarometerModalProps> = ({ isOpen, onClose,
                 {/* Source + calibration state */}
                 <div className="-mt-2 flex items-center gap-2">
                     <GaugeIcon className="w-4 h-4 text-emerald-400" />
-                    <span className={`px-2 py-0.5 rounded text-[10px] font-black tracking-wider ${sourceChip.cls}`}>
+                    <span className={`px-2 py-0.5 rounded-sm text-[10px] font-black tracking-wider ${sourceChip.cls}`}>
                         {sourceChip.text}
                     </span>
                     <span className="text-[11px] uppercase tracking-wider text-white/40">{subLabel}</span>
@@ -430,7 +430,7 @@ export const BarometerModal: React.FC<BarometerModalProps> = ({ isOpen, onClose,
 
                 {/* Trace */}
                 <div>
-                    <div className="h-44 rounded-xl bg-white/[0.03] border border-white/[0.06] p-2">
+                    <div className="h-44 rounded-xl bg-white/3 border border-white/6 p-2">
                         <Trace measured={measuredPts} forecast={forecastPts} nowT={nowT} accent={accent} />
                     </div>
                     <div className="mt-1.5 flex justify-between text-[11px] text-white/35 tracking-wide">

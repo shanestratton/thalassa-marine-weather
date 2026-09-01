@@ -90,8 +90,8 @@ export const OffshoreModelStep: React.FC<OffshoreModelStepProps> = ({ selected, 
                         onClick={() => onChange(opt.value)}
                         className={`w-full text-left p-4 rounded-xl border-2 transition-all duration-300 active:scale-[0.98] ${
                             isActive
-                                ? 'bg-gradient-to-br from-sky-500/15 to-sky-600/10 border-sky-500/40 shadow-lg shadow-sky-500/10'
-                                : 'bg-white/[0.03] border-white/[0.06] hover:bg-white/[0.06] hover:border-white/10'
+                                ? 'bg-linear-to-br from-sky-500/15 to-sky-600/10 border-sky-500/40 shadow-lg shadow-sky-500/10'
+                                : 'bg-white/3 border-white/6 hover:bg-white/6 hover:border-white/10'
                         }`}
                     >
                         <div className="flex items-start gap-3">
@@ -140,7 +140,7 @@ export const OffshoreModelStep: React.FC<OffshoreModelStepProps> = ({ selected, 
             type="button"
             aria-label="Continue to next step"
             onClick={onNext}
-            className="w-full bg-gradient-to-r from-sky-500 to-sky-600 hover:from-sky-400 hover:to-sky-500 text-white font-bold py-4 rounded-xl transition-all shadow-lg shadow-sky-500/20 active:scale-[0.98]"
+            className="w-full bg-linear-to-r from-sky-500 to-sky-600 hover:from-sky-400 hover:to-sky-500 text-white font-bold py-4 rounded-xl transition-all shadow-lg shadow-sky-500/20 active:scale-[0.98]"
         >
             Continue
         </button>

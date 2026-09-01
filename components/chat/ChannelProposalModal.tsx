@@ -70,10 +70,10 @@ export const ChannelProposalModal: React.FC<ChannelProposalModalProps> = ({
             role="dialog"
             aria-modal="true"
             aria-labelledby="channel-proposal-title"
-            className="flex flex-col bg-slate-950/95 backdrop-blur-sm"
+            className="flex flex-col bg-slate-950/95 backdrop-blur-xs"
         >
             {/* Header */}
-            <div className="shrink-0 px-4 pt-4 pb-3 border-b border-white/[0.06]">
+            <div className="shrink-0 px-4 pt-4 pb-3 border-b border-white/6">
                 <div className="flex items-center gap-3">
                     <button
                         onClick={onClose}
@@ -105,7 +105,7 @@ export const ChannelProposalModal: React.FC<ChannelProposalModalProps> = ({
                             <div
                                 key={s}
                                 className={`w-2.5 h-2.5 rounded-full transition-all duration-200 ${
-                                    s === step ? 'bg-sky-400 scale-110' : s < step ? 'bg-sky-400/40' : 'bg-white/[0.08]'
+                                    s === step ? 'bg-sky-400 scale-110' : s < step ? 'bg-sky-400/40' : 'bg-white/8'
                                 }`}
                             />
                         ))}
@@ -130,7 +130,7 @@ export const ChannelProposalModal: React.FC<ChannelProposalModalProps> = ({
                                     onFocus={scrollInputAboveKeyboard}
                                     placeholder="🏖️"
                                     aria-label="Channel icon"
-                                    className="w-14 bg-white/[0.04] border border-white/[0.08] rounded-xl px-2 py-3 text-center text-xl min-h-[48px] text-white placeholder:text-white/40 focus:outline-none focus:border-sky-500/30 transition-colors"
+                                    className="w-14 bg-white/4 border border-white/8 rounded-xl px-2 py-3 text-center text-xl min-h-[48px] text-white placeholder:text-white/40 focus:outline-hidden focus:border-sky-500/30 transition-colors"
                                     maxLength={2}
                                 />
                             </div>
@@ -143,7 +143,7 @@ export const ChannelProposalModal: React.FC<ChannelProposalModalProps> = ({
                                     onFocus={scrollInputAboveKeyboard}
                                     placeholder="e.g. Cruising Tips"
                                     aria-label="Channel name"
-                                    className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-4 py-3 text-sm text-white placeholder:text-white/40 focus:outline-none focus:border-sky-500/30 transition-colors min-h-[48px]"
+                                    className="w-full bg-white/4 border border-white/8 rounded-xl px-4 py-3 text-sm text-white placeholder:text-white/40 focus:outline-hidden focus:border-sky-500/30 transition-colors min-h-[48px]"
                                 />
                             </div>
                         </div>
@@ -157,7 +157,7 @@ export const ChannelProposalModal: React.FC<ChannelProposalModalProps> = ({
                                 onFocus={scrollInputAboveKeyboard}
                                 placeholder="Short description (optional)"
                                 aria-label="Channel description"
-                                className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-4 py-3 text-sm text-white placeholder:text-white/40 focus:outline-none focus:border-sky-500/30 transition-colors min-h-[48px]"
+                                className="w-full bg-white/4 border border-white/8 rounded-xl px-4 py-3 text-sm text-white placeholder:text-white/40 focus:outline-hidden focus:border-sky-500/30 transition-colors min-h-[48px]"
                             />
                         </div>
 
@@ -166,7 +166,7 @@ export const ChannelProposalModal: React.FC<ChannelProposalModalProps> = ({
                             <button
                                 onClick={onClose}
                                 aria-label="Cancel channel proposal"
-                                className="flex-1 py-3.5 rounded-xl bg-white/[0.04] text-sm text-white/60 hover:bg-white/[0.08] transition-colors min-h-[48px] font-medium"
+                                className="flex-1 py-3.5 rounded-xl bg-white/4 text-sm text-white/60 hover:bg-white/8 transition-colors min-h-[48px] font-medium"
                             >
                                 Cancel
                             </button>
@@ -200,7 +200,7 @@ export const ChannelProposalModal: React.FC<ChannelProposalModalProps> = ({
                                     className={`px-3.5 py-2.5 rounded-xl text-[11px] font-bold transition-all active:scale-95 min-h-[44px] ${
                                         !proposalParentId
                                             ? 'bg-sky-500/20 border border-sky-500/40 text-sky-400'
-                                            : 'bg-white/[0.04] border border-white/[0.06] text-white/40'
+                                            : 'bg-white/4 border border-white/6 text-white/40'
                                     }`}
                                 >
                                     📌 Top-Level
@@ -214,7 +214,7 @@ export const ChannelProposalModal: React.FC<ChannelProposalModalProps> = ({
                                         className={`px-3.5 py-2.5 rounded-xl text-[11px] font-bold transition-all active:scale-95 min-h-[44px] ${
                                             proposalParentId === p.id
                                                 ? 'bg-sky-500/20 border border-sky-500/40 text-sky-400'
-                                                : 'bg-white/[0.04] border border-white/[0.06] text-white/40'
+                                                : 'bg-white/4 border border-white/6 text-white/40'
                                         }`}
                                     >
                                         {p.icon} {p.name}
@@ -234,7 +234,7 @@ export const ChannelProposalModal: React.FC<ChannelProposalModalProps> = ({
                                     className={`flex-1 py-3.5 rounded-xl border text-[11px] font-bold uppercase tracking-wider transition-all active:scale-95 min-h-[48px] ${
                                         !proposalIsPrivate
                                             ? 'bg-sky-500/20 border-sky-500/40 text-sky-400'
-                                            : 'bg-white/[0.04] border-white/[0.06] text-white/40'
+                                            : 'bg-white/4 border-white/6 text-white/40'
                                     }`}
                                 >
                                     🌊 Public
@@ -246,7 +246,7 @@ export const ChannelProposalModal: React.FC<ChannelProposalModalProps> = ({
                                     className={`flex-1 py-3.5 rounded-xl border text-[11px] font-bold uppercase tracking-wider transition-all active:scale-95 min-h-[48px] ${
                                         proposalIsPrivate
                                             ? 'bg-purple-500/20 border-purple-500/40 text-purple-400'
-                                            : 'bg-white/[0.04] border-white/[0.06] text-white/40'
+                                            : 'bg-white/4 border-white/6 text-white/40'
                                     }`}
                                 >
                                     🔒 Private
@@ -265,7 +265,7 @@ export const ChannelProposalModal: React.FC<ChannelProposalModalProps> = ({
                             <button
                                 onClick={() => setStep(1)}
                                 aria-label="Go back"
-                                className="flex-1 py-3.5 rounded-xl bg-white/[0.04] text-sm text-white/60 hover:bg-white/[0.08] transition-colors min-h-[48px] font-medium"
+                                className="flex-1 py-3.5 rounded-xl bg-white/4 text-sm text-white/60 hover:bg-white/8 transition-colors min-h-[48px] font-medium"
                             >
                                 ← Back
                             </button>
@@ -288,9 +288,9 @@ export const ChannelProposalModal: React.FC<ChannelProposalModalProps> = ({
                         </p>
 
                         {/* Preview card */}
-                        <div className="p-4 rounded-2xl bg-white/[0.03] border border-white/[0.06] space-y-3">
+                        <div className="p-4 rounded-2xl bg-white/3 border border-white/6 space-y-3">
                             <div className="flex items-center gap-3">
-                                <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-white/[0.06] to-white/[0.02] border border-white/[0.05] flex items-center justify-center text-xl">
+                                <div className="w-11 h-11 rounded-xl bg-linear-to-br from-white/6 to-white/2 border border-white/5 flex items-center justify-center text-xl">
                                     {proposalIcon || '💬'}
                                 </div>
                                 <div>
@@ -304,7 +304,7 @@ export const ChannelProposalModal: React.FC<ChannelProposalModalProps> = ({
                                 >
                                     {proposalIsPrivate ? '🔒 Private' : '🌊 Public'}
                                 </span>
-                                <span className="text-[11px] font-bold text-white/50 bg-white/[0.04] px-2.5 py-1 rounded-full">
+                                <span className="text-[11px] font-bold text-white/50 bg-white/4 px-2.5 py-1 rounded-full">
                                     {proposalParentId
                                         ? `Sub of ${parentOptions.find((p) => p.id === proposalParentId)?.name || '?'}`
                                         : '📌 Top-Level'}
@@ -323,7 +323,7 @@ export const ChannelProposalModal: React.FC<ChannelProposalModalProps> = ({
                             <button
                                 onClick={() => setStep(2)}
                                 aria-label="Go back"
-                                className="flex-1 py-3.5 rounded-xl bg-white/[0.04] text-sm text-white/60 hover:bg-white/[0.08] transition-colors min-h-[48px] font-medium"
+                                className="flex-1 py-3.5 rounded-xl bg-white/4 text-sm text-white/60 hover:bg-white/8 transition-colors min-h-[48px] font-medium"
                             >
                                 ← Back
                             </button>

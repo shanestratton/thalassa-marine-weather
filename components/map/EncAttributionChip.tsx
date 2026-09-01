@@ -188,7 +188,7 @@ export const EncAttributionChip: React.FC<EncAttributionChipProps> = ({ mapRef, 
     return (
         <div
             // bottom-2 put this 8px above the viewport bottom — underneath the
-            // app's bottom nav, which is fixed, opaque and z-[900] against this
+            // app's bottom nav, which is fixed, opaque and z-900 against this
             // chip's z-[140]. Not clipped: UNTAPPABLE. The tap that expands it
             // never landed, so the chart source, the cell count, the worst-CATZOC
             // low-confidence warning, the edition-age caution and the "verify
@@ -199,8 +199,8 @@ export const EncAttributionChip: React.FC<EncAttributionChipProps> = ({ mapRef, 
             // (80px + inset, 48px tall, so clear of 128px) and below
             // ChartKeyPanel (bottom-44 = 176px). Deliberately NOT
             // calc(64px + inset + 8px) — that is SynopticScrubber's exact
-            // offset at z-[500] across the full width, which would re-hide it.
-            className="absolute right-2 z-[140] pointer-events-auto max-w-[280px]"
+            // offset at z-500 across the full width, which would re-hide it.
+            className="absolute right-2 z-140 pointer-events-auto max-w-[280px]"
             style={{ bottom: 'calc(env(safe-area-inset-bottom) + 136px)' }}
             role="contentinfo"
             aria-label="ENC chart attribution"
@@ -208,7 +208,7 @@ export const EncAttributionChip: React.FC<EncAttributionChipProps> = ({ mapRef, 
             <button
                 onClick={() => setExpanded((x) => !x)}
                 aria-expanded={expanded}
-                className={`hit-target-44 rounded-lg border ${frameCaution ? 'border-amber-400/40' : 'border-emerald-400/30'} bg-black/75 backdrop-blur-sm px-2 py-1 text-[11px] leading-tight text-emerald-100/85 hover:bg-black/75 transition-colors text-right flex items-center gap-1.5`}
+                className={`hit-target-44 rounded-lg border ${frameCaution ? 'border-amber-400/40' : 'border-emerald-400/30'} bg-black/75 backdrop-blur-xs px-2 py-1 text-[11px] leading-tight text-emerald-100/85 hover:bg-black/75 transition-colors text-right flex items-center gap-1.5`}
             >
                 <span className={`inline-block w-1.5 h-1.5 rounded-full shrink-0 ${tone.dot}`} aria-hidden="true" />
                 <span className={`font-bold ${frameCaution ? 'text-amber-300' : 'text-emerald-300'}`}>
@@ -229,7 +229,7 @@ export const EncAttributionChip: React.FC<EncAttributionChipProps> = ({ mapRef, 
             </button>
 
             {expanded && (
-                <div className="mt-1 rounded-lg border border-emerald-400/20 bg-black/80 backdrop-blur-sm px-2 py-2 text-[11px] leading-snug text-emerald-100/80 max-h-[40vh] overflow-y-auto">
+                <div className="mt-1 rounded-lg border border-emerald-400/20 bg-black/80 backdrop-blur-xs px-2 py-2 text-[11px] leading-snug text-emerald-100/80 max-h-[40vh] overflow-y-auto">
                     <p className="mb-1 text-[11px] uppercase tracking-wider text-emerald-300/75">In view</p>
                     {cellsInView.map((cell) => (
                         <div key={cell.id} className="mb-1 last:mb-0">

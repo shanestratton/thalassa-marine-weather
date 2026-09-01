@@ -92,12 +92,12 @@ const ChevronDown = () => (
 /* ── Accordion header styling helper ── */
 const summaryClasses = (isReady: boolean, isAmber = false) => {
     if (isReady) {
-        return 'bg-gradient-to-r from-emerald-500/[0.06] to-teal-500/[0.03] border-emerald-500/15 hover:from-emerald-500/[0.1] hover:to-teal-500/[0.06]';
+        return 'bg-linear-to-r from-emerald-500/6 to-teal-500/3 border-emerald-500/15 hover:from-emerald-500/10 hover:to-teal-500/6';
     }
     if (isAmber) {
-        return 'bg-gradient-to-r from-amber-500/[0.06] to-orange-500/[0.03] border-amber-500/15 hover:from-amber-500/[0.1] hover:to-orange-500/[0.06]';
+        return 'bg-linear-to-r from-amber-500/6 to-orange-500/3 border-amber-500/15 hover:from-amber-500/10 hover:to-orange-500/6';
     }
-    return 'bg-gradient-to-r from-red-500/[0.06] to-orange-500/[0.03] border-red-500/15 hover:from-red-500/[0.1] hover:to-orange-500/[0.06]';
+    return 'bg-linear-to-r from-red-500/6 to-orange-500/3 border-red-500/15 hover:from-red-500/10 hover:to-orange-500/6';
 };
 
 const iconClasses = (isReady: boolean, isAmber = false) => {
@@ -169,7 +169,7 @@ const CardAccordion: React.FC<CardAccordionProps> = ({
                 className={`w-full flex items-center gap-3 p-3 rounded-2xl border transition-all cursor-pointer list-none ${summaryClasses(isReady, isAmber)}`}
             >
                 <div
-                    className={`w-11 h-11 rounded-xl bg-gradient-to-br border flex items-center justify-center text-xl flex-shrink-0 ${iconClasses(isReady, isAmber)}`}
+                    className={`w-11 h-11 rounded-xl bg-linear-to-br border flex items-center justify-center text-xl shrink-0 ${iconClasses(isReady, isAmber)}`}
                 >
                     {isReady ? readyEmoji : emoji}
                 </div>
@@ -408,7 +408,7 @@ export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
                 rolled-up group headers so the user knows why the cards
                 are absent. */}
             {!hasPassage && (
-                <div className="mb-4 rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3 text-center">
+                <div className="mb-4 rounded-xl border border-white/6 bg-white/2 px-4 py-3 text-center">
                     <p className="text-sm text-gray-400">
                         {draftVoyages.length === 0
                             ? 'Plan a route to start ticking off your passage readiness.'
@@ -419,7 +419,7 @@ export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
             {hasPassage && !hasVerifiedPassageAccess && (
                 <div
                     role="status"
-                    className="mb-4 rounded-xl border border-amber-500/15 bg-amber-500/[0.04] px-4 py-3 text-center"
+                    className="mb-4 rounded-xl border border-amber-500/15 bg-amber-500/4 px-4 py-3 text-center"
                 >
                     <p className="text-sm text-amber-200/70">
                         This passage has not been shared with your crew account.

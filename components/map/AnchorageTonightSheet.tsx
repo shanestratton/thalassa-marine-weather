@@ -137,7 +137,7 @@ export const AnchorageTonightSheet: React.FC<{
                         triggerHaptic('light');
                         setOpen(true);
                     }}
-                    className="fixed left-3 z-[720] px-3 py-2 bg-slate-800/95 border border-cyan-500/30 rounded-full text-cyan-300 text-xs font-black uppercase tracking-widest shadow-xl shadow-black/40 active:scale-95 transition-all"
+                    className="fixed left-3 z-720 px-3 py-2 bg-slate-800/95 border border-cyan-500/30 rounded-full text-cyan-300 text-xs font-black uppercase tracking-widest shadow-xl shadow-black/40 active:scale-95 transition-all"
                     style={{ bottom: 'calc(8.5rem + env(safe-area-inset-bottom))' }}
                     aria-label="Rank anchorages for tonight"
                 >
@@ -146,7 +146,7 @@ export const AnchorageTonightSheet: React.FC<{
             )}
             {open && (
                 <div
-                    className="fixed inset-0 z-[730] flex items-center justify-center p-4 pb-[calc(4rem+env(safe-area-inset-bottom)+1rem)] pt-[max(1rem,env(safe-area-inset-top))]"
+                    className="fixed inset-0 z-730 flex items-center justify-center p-4 pb-[calc(4rem+env(safe-area-inset-bottom)+1rem)] pt-[max(1rem,env(safe-area-inset-top))]"
                     role="dialog"
                     aria-label="Anchorages tonight"
                 >

@@ -55,7 +55,7 @@ export const AlertsTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                 type="number"
                                 value={settings.notifications.wind.threshold}
                                 onChange={(e) => updateAlert('wind', 'threshold', Number(e.target.value))}
-                                className="w-12 bg-transparent text-white text-right outline-none font-bold"
+                                className="w-12 bg-transparent text-white text-right outline-hidden font-bold"
                             />
                             <span className="text-xs text-gray-400">kts</span>
                         </div>
@@ -86,7 +86,7 @@ export const AlertsTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                 type="number"
                                 value={settings.notifications.gusts.threshold}
                                 onChange={(e) => updateAlert('gusts', 'threshold', Number(e.target.value))}
-                                className="w-12 bg-transparent text-white text-right outline-none font-bold"
+                                className="w-12 bg-transparent text-white text-right outline-hidden font-bold"
                             />
                             <span className="text-xs text-gray-400">kts</span>
                         </div>
@@ -117,7 +117,7 @@ export const AlertsTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                 type="number"
                                 value={settings.notifications.waves.threshold}
                                 onChange={(e) => updateAlert('waves', 'threshold', Number(e.target.value))}
-                                className="w-12 bg-transparent text-white text-right outline-none font-bold"
+                                className="w-12 bg-transparent text-white text-right outline-hidden font-bold"
                             />
                             <span className="text-xs text-gray-400">ft</span>
                         </div>
@@ -148,7 +148,7 @@ export const AlertsTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                 type="number"
                                 value={settings.notifications.swellPeriod.threshold}
                                 onChange={(e) => updateAlert('swellPeriod', 'threshold', Number(e.target.value))}
-                                className="w-12 bg-transparent text-white text-right outline-none font-bold"
+                                className="w-12 bg-transparent text-white text-right outline-hidden font-bold"
                             />
                             <span className="text-xs text-gray-400">s</span>
                         </div>
@@ -180,7 +180,7 @@ export const AlertsTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                 type="number"
                                 value={settings.notifications.visibility.threshold}
                                 onChange={(e) => updateAlert('visibility', 'threshold', Number(e.target.value))}
-                                className="w-12 bg-transparent text-white text-right outline-none font-bold"
+                                className="w-12 bg-transparent text-white text-right outline-hidden font-bold"
                             />
                             <span className="text-xs text-gray-400">nm</span>
                         </div>
@@ -211,7 +211,7 @@ export const AlertsTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                 type="number"
                                 value={settings.notifications.uv.threshold}
                                 onChange={(e) => updateAlert('uv', 'threshold', Number(e.target.value))}
-                                className="w-12 bg-transparent text-white text-right outline-none font-bold"
+                                className="w-12 bg-transparent text-white text-right outline-hidden font-bold"
                             />
                             <span className="text-xs text-gray-400">idx</span>
                         </div>
@@ -242,7 +242,7 @@ export const AlertsTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                 type="number"
                                 value={settings.notifications.tempHigh.threshold}
                                 onChange={(e) => updateAlert('tempHigh', 'threshold', Number(e.target.value))}
-                                className="w-12 bg-transparent text-white text-right outline-none font-bold"
+                                className="w-12 bg-transparent text-white text-right outline-hidden font-bold"
                             />
                             <span className="text-xs text-gray-400">°</span>
                         </div>
@@ -274,7 +274,7 @@ export const AlertsTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                 type="number"
                                 value={settings.notifications.tempLow.threshold}
                                 onChange={(e) => updateAlert('tempLow', 'threshold', Number(e.target.value))}
-                                className="w-12 bg-transparent text-white text-right outline-none font-bold"
+                                className="w-12 bg-transparent text-white text-right outline-hidden font-bold"
                             />
                             <span className="text-xs text-gray-400">°</span>
                         </div>

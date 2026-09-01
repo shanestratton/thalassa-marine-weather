@@ -362,7 +362,7 @@ export const AddEntryModal: React.FC<AddEntryModalProps> = ({ isOpen, onClose, o
                             id="waypoint-toggle"
                             checked={isWaypoint}
                             onChange={(e) => setIsWaypoint(e.target.checked)}
-                            className="w-5 h-5 rounded border-slate-600 bg-slate-800 text-sky-600 focus:ring-2 focus:ring-sky-500"
+                            className="w-5 h-5 rounded-sm border-slate-600 bg-slate-800 text-sky-600 focus:ring-2 focus:ring-sky-500"
                         />
                         <label htmlFor="waypoint-toggle" className="text-white font-medium cursor-pointer">
                             Mark as Waypoint
@@ -379,7 +379,7 @@ export const AddEntryModal: React.FC<AddEntryModalProps> = ({ isOpen, onClose, o
                             onFocus={scrollInputAboveKeyboard}
                             placeholder="e.g., Cape Moreton, Fuel Stop"
                             disabled={!isWaypoint}
-                            className={`w-full px-4 py-3 bg-slate-800 border border-white/10 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-sky-500 ${!isWaypoint ? 'cursor-not-allowed' : ''}`}
+                            className={`w-full px-4 py-3 bg-slate-800 border border-white/10 rounded-lg text-white placeholder-slate-500 focus:outline-hidden focus:border-sky-500 ${!isWaypoint ? 'cursor-not-allowed' : ''}`}
                         />
                     </div>
 
@@ -391,7 +391,7 @@ export const AddEntryModal: React.FC<AddEntryModalProps> = ({ isOpen, onClose, o
                             onChange={(e) => setNotes(e.target.value)}
                             onFocus={scrollInputAboveKeyboard}
                             placeholder="e.g., Course change, Crew rotation, Equipment issue"
-                            className="w-full px-4 py-3 bg-slate-800 border border-white/10 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-sky-500 min-h-[80px] resize-none"
+                            className="w-full px-4 py-3 bg-slate-800 border border-white/10 rounded-lg text-white placeholder-slate-500 focus:outline-hidden focus:border-sky-500 min-h-[80px] resize-none"
                         />
                     </div>
 
@@ -430,7 +430,7 @@ export const AddEntryModal: React.FC<AddEntryModalProps> = ({ isOpen, onClose, o
                                     if (isAuthIdentityScopeCurrent(actionScope)) setFetchingPos(false);
                                 }
                             }}
-                            className="flex-[2] flex items-center justify-center gap-2 px-3 py-2.5 bg-slate-800 border border-white/10 rounded-lg text-sm font-bold transition-colors hover:bg-slate-700 active:scale-[0.97] disabled:opacity-50"
+                            className="flex-2 flex items-center justify-center gap-2 px-3 py-2.5 bg-slate-800 border border-white/10 rounded-lg text-sm font-bold transition-colors hover:bg-slate-700 active:scale-[0.97] disabled:opacity-50"
                         >
                             {fetchingPos ? (
                                 <div className="w-4 h-4 border-2 border-sky-400 border-t-transparent rounded-full animate-spin" />

@@ -35,7 +35,7 @@ export const ModalSheet: React.FC<ModalSheetProps> = ({
     title,
     children,
     maxWidth = 'max-w-2xl',
-    zIndex = 'z-[999]',
+    zIndex = 'z-999',
 }) => {
     const keyboardHeight = useKeyboardOffset(isOpen);
     const panelRef = useFocusTrap<HTMLDivElement>(isOpen, { onEscape: onClose });

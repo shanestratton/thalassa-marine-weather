@@ -82,14 +82,14 @@ export const OffshoreBoundaryToast: React.FC<Props> = React.memo(({ visible, mod
 
     return createPortal(
         <div
-            className="fixed left-0 right-0 z-[9998] flex justify-center pointer-events-none"
+            className="fixed left-0 right-0 z-9998 flex justify-center pointer-events-none"
             style={{ top: 'calc(env(safe-area-inset-top, 0px) + 12px)' }}
         >
             <div
                 className={`
                     pointer-events-auto mx-4 max-w-md w-full
                     bg-slate-900/80 backdrop-blur-xl
-                    border border-white/[0.08]
+                    border border-white/8
                     rounded-2xl shadow-2xl shadow-sky-500/10
                     px-5 py-4
                     transition-all duration-500 ease-out
@@ -97,7 +97,7 @@ export const OffshoreBoundaryToast: React.FC<Props> = React.memo(({ visible, mod
                 `}
             >
                 {/* Accent glow bar */}
-                <div className="absolute inset-x-0 top-0 h-[2px] rounded-t-2xl bg-gradient-to-r from-transparent via-sky-500 to-transparent opacity-60" />
+                <div className="absolute inset-x-0 top-0 h-[2px] rounded-t-2xl bg-linear-to-r from-transparent via-sky-500 to-transparent opacity-60" />
 
                 <div className="flex items-start gap-3">
                     {/* Pulsing radar icon */}

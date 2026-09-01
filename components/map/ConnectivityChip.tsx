@@ -84,7 +84,7 @@ export const ConnectivityChip: React.FC<ConnectivityChipProps> = ({ visible }) =
             // (Layer/Offline/Vessel Search at top-[80/144/208]) and the
             // bottom-right MapActionFabs (right-4 = also 16px). Every right-
             // edge element on the chart now sits on the same vertical gridline.
-            className="fixed right-[16px] z-[140] pointer-events-auto chart-chip-up"
+            className="fixed right-[16px] z-140 pointer-events-auto chart-chip-up"
             style={{ bottom: 'max(40px, calc(env(safe-area-inset-bottom) + 32px))' }}
             title={s.tooltip}
         >

@@ -337,7 +337,7 @@ export const HeroSection = ({
                    future height change — rotation, or the rain card growing
                    when minutely data lands — while overflow-hidden still
                    suppresses the swipe that essential mode is there to hide. */
-                className={`w-full h-full ${isEssentialMode ? 'overflow-hidden' : 'overflow-y-auto'} snap-y snap-mandatory no-scrollbar flex flex-col gap-0 focus:outline-none`}
+                className={`w-full h-full ${isEssentialMode ? 'overflow-hidden' : 'overflow-y-auto'} snap-y snap-mandatory no-scrollbar flex flex-col gap-0 focus:outline-hidden`}
                 style={{ overscrollBehavior: 'none' }}
             >
                 {/* Show skeleton while data is loading */}

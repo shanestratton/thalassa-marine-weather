@@ -133,7 +133,7 @@ export const AidToNavigationCard: React.FC<AidToNavigationCardProps> = ({
             </div>
 
             {/* ── Acknowledgment Checklist ── */}
-            <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4">
+            <div className="bg-white/3 border border-white/6 rounded-xl p-4">
                 <h4 className="text-sm font-bold text-white uppercase tracking-widest mb-3 flex items-center gap-2">
                     ✍️ Skipper's Acknowledgments
                     <span
@@ -156,7 +156,7 @@ export const AidToNavigationCard: React.FC<AidToNavigationCardProps> = ({
                                 className={`w-full flex items-start gap-3 px-3 py-3 rounded-xl text-left transition-all active:scale-[0.98] ${
                                     isChecked
                                         ? 'bg-emerald-500/10 border border-emerald-500/20'
-                                        : 'bg-amber-500/[0.03] border border-amber-500/10 hover:bg-amber-500/[0.06]'
+                                        : 'bg-amber-500/3 border border-amber-500/10 hover:bg-amber-500/6'
                                 }`}
                             >
                                 <div

@@ -69,7 +69,7 @@ export function MapBaseSelector({ visible, value, onChange }: MapBaseSelectorPro
     return (
         <div
             ref={rootRef}
-            className="absolute left-1/2 z-[710] flex -translate-x-1/2 flex-col items-center"
+            className="absolute left-1/2 z-710 flex -translate-x-1/2 flex-col items-center"
             style={{ top: 'calc(env(safe-area-inset-top) + 8px)' }}
             onKeyDown={(event) => {
                 if (event.key === 'Escape') {
@@ -93,7 +93,7 @@ export function MapBaseSelector({ visible, value, onChange }: MapBaseSelectorPro
                     triggerHaptic('light');
                     setOpen((current) => !current);
                 }}
-                className="flex h-12 min-h-[44px] items-center gap-2 rounded-2xl border border-white/[0.10] bg-slate-900/90 px-3 text-white shadow-xl backdrop-blur-xl transition-colors hover:bg-slate-800/95 active:scale-95"
+                className="flex h-12 min-h-[44px] items-center gap-2 rounded-2xl border border-white/10 bg-slate-900/90 px-3 text-white shadow-xl backdrop-blur-xl transition-colors hover:bg-slate-800/95 active:scale-95"
                 aria-label={`Map base: ${selected.label}`}
                 aria-haspopup="menu"
                 aria-expanded={open}
@@ -118,7 +118,7 @@ export function MapBaseSelector({ visible, value, onChange }: MapBaseSelectorPro
                     id={menuId}
                     role="menu"
                     aria-label="Map base"
-                    className="mt-2 w-[min(280px,calc(100vw-32px))] rounded-2xl border border-white/[0.10] bg-slate-950/95 p-2 shadow-2xl backdrop-blur-xl"
+                    className="mt-2 w-[min(280px,calc(100vw-32px))] rounded-2xl border border-white/10 bg-slate-950/95 p-2 shadow-2xl backdrop-blur-xl"
                 >
                     <p className="px-2 pb-2 pt-1 text-[10px] font-semibold leading-snug text-slate-400">
                         Visual background only — ENC safety layers stay above it.
@@ -143,7 +143,7 @@ export function MapBaseSelector({ visible, value, onChange }: MapBaseSelectorPro
                                 className={`flex min-h-[52px] w-full items-center justify-between rounded-xl px-3 text-left transition-colors active:scale-[0.98] ${
                                     checked
                                         ? 'border border-sky-400/35 bg-sky-500/15 text-sky-200'
-                                        : 'border border-transparent text-slate-200 hover:bg-white/[0.06]'
+                                        : 'border border-transparent text-slate-200 hover:bg-white/6'
                                 }`}
                             >
                                 <span>

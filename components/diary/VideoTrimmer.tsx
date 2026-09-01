@@ -100,7 +100,7 @@ export const VideoTrimmer: React.FC<VideoTrimmerProps> = ({ file, durationSec, o
         // clear of the menu, and the card itself scrolls internally rather
         // than ever pushing its buttons off-screen.
         <div
-            className="fixed inset-0 z-[1200] flex items-center justify-center bg-black/80 p-4 pb-[calc(4rem+env(safe-area-inset-bottom)+1rem)] pt-[max(1rem,env(safe-area-inset-top))]"
+            className="fixed inset-0 z-1200 flex items-center justify-center bg-black/80 p-4 pb-[calc(4rem+env(safe-area-inset-bottom)+1rem)] pt-[max(1rem,env(safe-area-inset-top))]"
             role="dialog"
             aria-modal="true"
         >
@@ -157,9 +157,9 @@ export const VideoTrimmer: React.FC<VideoTrimmerProps> = ({ file, durationSec, o
                         style={{ left: `${startFrac * 100}%`, width: `${windowFrac * 100}%` }}
                     >
                         <div className="flex h-full items-center justify-center gap-1">
-                            <span className="h-4 w-0.5 rounded bg-violet-200/70" />
-                            <span className="h-6 w-0.5 rounded bg-violet-200/70" />
-                            <span className="h-4 w-0.5 rounded bg-violet-200/70" />
+                            <span className="h-4 w-0.5 rounded-sm bg-violet-200/70" />
+                            <span className="h-6 w-0.5 rounded-sm bg-violet-200/70" />
+                            <span className="h-4 w-0.5 rounded-sm bg-violet-200/70" />
                         </div>
                     </div>
                 </div>
@@ -172,7 +172,7 @@ export const VideoTrimmer: React.FC<VideoTrimmerProps> = ({ file, durationSec, o
                 </div>
 
                 {error && (
-                    <p className="mt-3 rounded-xl border border-red-500/20 bg-red-500/[0.08] px-3 py-2 text-xs text-red-300">
+                    <p className="mt-3 rounded-xl border border-red-500/20 bg-red-500/8 px-3 py-2 text-xs text-red-300">
                         {error}
                     </p>
                 )}
@@ -190,7 +190,7 @@ export const VideoTrimmer: React.FC<VideoTrimmerProps> = ({ file, durationSec, o
                         type="button"
                         onClick={() => void cut()}
                         disabled={cutting}
-                        className="min-h-12 rounded-xl bg-gradient-to-r from-violet-500 to-fuchsia-500 px-4 text-xs font-black uppercase tracking-[0.1em] text-white shadow-lg shadow-violet-500/25 transition active:scale-[0.98] disabled:opacity-60"
+                        className="min-h-12 rounded-xl bg-linear-to-r from-violet-500 to-fuchsia-500 px-4 text-xs font-black uppercase tracking-widest text-white shadow-lg shadow-violet-500/25 transition active:scale-[0.98] disabled:opacity-60"
                     >
                         {cutting ? 'Cutting…' : 'This will have to do'}
                     </button>

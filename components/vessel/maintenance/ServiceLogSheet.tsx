@@ -106,7 +106,7 @@ export const ServiceLogSheet: React.FC<ServiceLogSheetProps> = ({
                         value={notes}
                         onChange={(e) => onNotesChange(e.target.value)}
                         placeholder="Found slight weeping on raw water pump gasket..."
-                        className="w-full bg-white/5 border border-white/10 rounded-xl p-3 text-sm text-white placeholder-gray-500 resize-none h-20 outline-none focus:border-sky-500/30"
+                        className="w-full bg-white/5 border border-white/10 rounded-xl p-3 text-sm text-white placeholder-gray-500 resize-none h-20 outline-hidden focus:border-sky-500/30"
                     />
                 </div>
 
@@ -130,7 +130,7 @@ export const ServiceLogSheet: React.FC<ServiceLogSheetProps> = ({
                         aria-label={saving ? 'Logging service' : 'Log service'}
                         onClick={onLog}
                         disabled={saving}
-                        className="flex-1 py-3.5 bg-gradient-to-r from-emerald-600 to-emerald-600 rounded-xl text-sm font-black text-white uppercase tracking-widest shadow-lg shadow-emerald-500/20 hover:from-emerald-500 hover:to-emerald-500 transition-all active:scale-[0.97] disabled:opacity-50"
+                        className="flex-1 py-3.5 bg-linear-to-r from-emerald-600 to-emerald-600 rounded-xl text-sm font-black text-white uppercase tracking-widest shadow-lg shadow-emerald-500/20 hover:from-emerald-500 hover:to-emerald-500 transition-all active:scale-[0.97] disabled:opacity-50"
                     >
                         {saving ? (
                             <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin mx-auto" />

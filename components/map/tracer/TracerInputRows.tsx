@@ -118,7 +118,7 @@ export const TracerInputRows: React.FC<TracerInputRowsProps> = ({
                             if (Number.isFinite(t)) setDepartureMs(t);
                         }}
                         aria-label="Departure date"
-                        className="min-w-0 flex-[3] rounded-lg border border-white/10 bg-white/5 px-2 py-1.5 text-[11px] text-gray-200 [color-scheme:dark] focus:border-sky-500/50 focus:outline-none"
+                        className="min-w-0 flex-3 rounded-lg border border-white/10 bg-white/5 px-2 py-1.5 text-[11px] text-gray-200 scheme-dark focus:border-sky-500/50 focus:outline-hidden"
                     />
                     {/* 24-hour time (Shane 2026-07-17: the web time
                         input's AM/PM clipped in the card). */}
@@ -142,7 +142,7 @@ export const TracerInputRows: React.FC<TracerInputRowsProps> = ({
                             const t = new Date(`${date}T${p(h)}:${p(m)}`).getTime();
                             if (Number.isFinite(t)) setDepartureMs(t);
                         }}
-                        selectClassName="min-w-0 rounded-lg border border-white/10 bg-white/5 px-1.5 py-1.5 text-[11px] text-gray-200 [color-scheme:dark] focus:border-sky-500/50 focus:outline-none"
+                        selectClassName="min-w-0 rounded-lg border border-white/10 bg-white/5 px-1.5 py-1.5 text-[11px] text-gray-200 scheme-dark focus:border-sky-500/50 focus:outline-hidden"
                     />
                 </div>
                 {/* OK button REMOVED (Shane 2026-07-17): it only
@@ -179,7 +179,7 @@ export const TracerInputRows: React.FC<TracerInputRowsProps> = ({
                     autoCorrect="off"
                     spellCheck={false}
                     placeholder="Add a GPS Fix"
-                    className="min-w-0 flex-1 rounded-lg border border-white/10 bg-white/5 px-2 py-1.5 font-mono text-[11px] text-gray-200 placeholder:text-gray-500 focus:border-emerald-500/50 focus:outline-none"
+                    className="min-w-0 flex-1 rounded-lg border border-white/10 bg-white/5 px-2 py-1.5 font-mono text-[11px] text-gray-200 placeholder:text-gray-500 focus:border-emerald-500/50 focus:outline-hidden"
                 />
                 <button
                     onClick={addCoordPin}

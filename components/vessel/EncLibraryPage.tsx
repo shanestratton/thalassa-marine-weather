@@ -283,7 +283,7 @@ export const EncLibraryPage: React.FC<EncLibraryPageProps> = ({ onBack, onOpenMa
                     </section>
 
                     <section
-                        className="rounded-2xl border border-white/[0.08] bg-white/[0.035] p-4"
+                        className="rounded-2xl border border-white/8 bg-white/[0.035] p-4"
                         aria-labelledby="enc-import-heading"
                     >
                         <h2 id="enc-import-heading" className="text-sm font-black text-white">
@@ -372,7 +372,7 @@ export const EncLibraryPage: React.FC<EncLibraryPageProps> = ({ onBack, onOpenMa
                     )}
 
                     <section
-                        className="rounded-2xl border border-white/[0.08] bg-white/[0.025] p-4"
+                        className="rounded-2xl border border-white/8 bg-white/2.5 p-4"
                         aria-labelledby="enc-cells-heading"
                     >
                         <div className="flex items-center justify-between gap-3">
@@ -389,7 +389,7 @@ export const EncLibraryPage: React.FC<EncLibraryPageProps> = ({ onBack, onOpenMa
                                     value={query}
                                     onChange={(event) => setQuery(event.target.value)}
                                     placeholder="Cell ID or office"
-                                    className="mt-1 min-h-11 w-full rounded-xl border border-white/10 bg-slate-900 px-3 text-sm text-white outline-none placeholder:text-gray-500 focus:border-sky-400"
+                                    className="mt-1 min-h-11 w-full rounded-xl border border-white/10 bg-slate-900 px-3 text-sm text-white outline-hidden placeholder:text-gray-500 focus:border-sky-400"
                                 />
                             </label>
                         )}
@@ -415,7 +415,7 @@ export const EncLibraryPage: React.FC<EncLibraryPageProps> = ({ onBack, onOpenMa
                     </section>
 
                     <section
-                        className="rounded-2xl border border-amber-400/20 bg-amber-500/[0.06] p-4 text-[11px] leading-relaxed text-gray-300"
+                        className="rounded-2xl border border-amber-400/20 bg-amber-500/6 p-4 text-[11px] leading-relaxed text-gray-300"
                         aria-labelledby="enc-safety-heading"
                     >
                         <h2 id="enc-safety-heading" className="font-black text-amber-200">
@@ -485,7 +485,7 @@ export const EncLibraryPage: React.FC<EncLibraryPageProps> = ({ onBack, onOpenMa
                             aria-invalid={urlError ? 'true' : 'false'}
                             aria-describedby={urlError ? 'enc-pack-url-error enc-pack-url-help' : 'enc-pack-url-help'}
                             placeholder="https://charts.example/my-pack.thalassaenc"
-                            className="min-h-12 w-full rounded-xl border border-white/10 bg-white/5 px-3 text-sm text-white outline-none placeholder:text-gray-500 focus:border-sky-400 disabled:opacity-50"
+                            className="min-h-12 w-full rounded-xl border border-white/10 bg-white/5 px-3 text-sm text-white outline-hidden placeholder:text-gray-500 focus:border-sky-400 disabled:opacity-50"
                         />
                         {urlError && (
                             <p

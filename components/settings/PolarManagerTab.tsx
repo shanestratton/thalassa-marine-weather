@@ -206,7 +206,7 @@ export const PolarManagerTab: React.FC<PolarManagerTabProps> = ({ settings, onSa
             </div>
 
             {/* Polar Chart Visualization */}
-            <div className="mt-4 flex-1 min-h-0 bg-white/[0.02] border border-white/[0.06] rounded-2xl p-4 mx-auto max-w-lg w-full flex flex-col">
+            <div className="mt-4 flex-1 min-h-0 bg-white/2 border border-white/6 rounded-2xl p-4 mx-auto max-w-lg w-full flex flex-col">
                 <div className="flex items-center justify-between mb-4">
                     <div className="flex flex-col items-start gap-1">
                         <span className="text-xs font-bold text-sky-400 uppercase tracking-widest">Polar Diagram</span>
@@ -410,8 +410,8 @@ const SmartPolarsCard: React.FC<{
         <div
             className={`rounded-2xl p-4 transition-all ${
                 isDisconnected
-                    ? 'bg-white/[0.02] border border-white/[0.06] opacity-70'
-                    : 'bg-gradient-to-br from-emerald-500/5 to-sky-500/5 border border-emerald-500/20'
+                    ? 'bg-white/2 border border-white/6 opacity-70'
+                    : 'bg-linear-to-br from-emerald-500/5 to-sky-500/5 border border-emerald-500/20'
             }`}
         >
             <div className="flex items-center justify-between mb-4">
@@ -636,7 +636,7 @@ const ImportTab: React.FC<{
     };
 
     return (
-        <div className="bg-white/[0.03] border border-white/[0.06] rounded-2xl p-4">
+        <div className="bg-white/3 border border-white/6 rounded-2xl p-4">
             <div className="flex items-center gap-2 mb-4">
                 <div className="w-1 h-4 rounded-full bg-amber-500" />
                 <span className="text-[11px] font-bold text-amber-400 uppercase tracking-widest">
@@ -663,9 +663,7 @@ const ImportTab: React.FC<{
                 onDrop={handleDrop}
                 onClick={() => fileInputRef.current?.click()}
                 className={`border-2 border-dashed rounded-2xl p-8 text-center cursor-pointer transition-all ${
-                    dragOver
-                        ? 'border-sky-400 bg-sky-500/10'
-                        : 'border-white/10 hover:border-white/20 hover:bg-white/[0.02]'
+                    dragOver ? 'border-sky-400 bg-sky-500/10' : 'border-white/10 hover:border-white/20 hover:bg-white/2'
                 } w-full`}
             >
                 <div className="mb-3 flex justify-center">
@@ -702,7 +700,7 @@ const ImportTab: React.FC<{
                 </div>
             )}
 
-            <div className="mt-4 p-3 bg-white/[0.02] rounded-xl">
+            <div className="mt-4 p-3 bg-white/2 rounded-xl">
                 <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-2">Expected Format</p>
                 <pre className="text-[11px] text-gray-400 font-mono overflow-x-auto">
                     {`TWA    6    8    10   12   15   20   25
@@ -732,7 +730,7 @@ const ManualTab: React.FC<{
     };
 
     return (
-        <div className="bg-white/[0.03] border border-white/[0.06] rounded-2xl p-4">
+        <div className="bg-white/3 border border-white/6 rounded-2xl p-4">
             <div className="flex items-center gap-2 mb-4">
                 <div className="w-1 h-4 rounded-full bg-emerald-500" />
                 <span className="text-[11px] font-bold text-emerald-400 uppercase tracking-widest">Manual Entry</span>
@@ -784,12 +782,12 @@ const ManualTab: React.FC<{
                                                 onChange={(e) => updateCell(aIdx, wIdx, e.target.value)}
                                                 aria-label={`Boat speed at ${angle} degrees true wind angle and ${polarData.windSpeeds[wIdx]} knots true wind speed`}
                                                 placeholder="—"
-                                                className={`w-full text-center text-xs font-mono py-1.5 px-1 rounded-lg outline-none transition-all ${
+                                                className={`w-full text-center text-xs font-mono py-1.5 px-1 rounded-lg outline-hidden transition-all ${
                                                     isAnomaly
                                                         ? 'bg-red-500/20 border border-red-500/40 text-red-300 focus:border-red-400'
                                                         : val > 0
                                                           ? 'bg-white/5 border border-white/10 text-white focus:border-sky-500 focus:bg-sky-500/5'
-                                                          : 'bg-white/[0.02] border border-white/5 text-gray-400 focus:border-sky-500'
+                                                          : 'bg-white/2 border border-white/5 text-gray-400 focus:border-sky-500'
                                                 }`}
                                             />
                                         </td>

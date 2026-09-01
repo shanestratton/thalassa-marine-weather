@@ -66,7 +66,7 @@ export const InviteCrewModal: React.FC<InviteCrewModalProps> = ({
                     onChange={(e) => onEmailChange(e.target.value)}
                     onFocus={scrollInputAboveKeyboard}
                     placeholder="firstmate@email.com"
-                    className={`w-full bg-slate-900 ${t.border.default} rounded-xl px-4 py-3 text-white focus:border-sky-500 outline-none transition-colors`}
+                    className={`w-full bg-slate-900 ${t.border.default} rounded-xl px-4 py-3 text-white focus:border-sky-500 outline-hidden transition-colors`}
                     autoFocus
                 />
             </div>

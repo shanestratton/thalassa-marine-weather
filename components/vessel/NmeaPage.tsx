@@ -152,7 +152,7 @@ const GatewayRouteNote: React.FC<{ host: string }> = ({ host }) => {
                     ? 'border-emerald-400/25 bg-emerald-500/10 text-emerald-200'
                     : tone === 'warn'
                       ? 'border-amber-400/25 bg-amber-500/10 text-amber-200'
-                      : 'border-white/10 bg-white/[0.03] text-gray-300'
+                      : 'border-white/10 bg-white/3 text-gray-300'
             }`}
         >
             {words}
@@ -322,7 +322,7 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
                         "iPhone GPS". A skipper with a receiver plugged in
                         needs to see whether the app is using it, and silence
                         is the one answer that helps nobody. */}
-                    <div className="shrink-0 mb-3 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                    <div className="shrink-0 mb-3 rounded-2xl border border-white/10 bg-white/3 p-4">
                         <div className="mb-2 text-[11px] font-black uppercase tracking-widest text-gray-400">
                             Position source
                         </div>
@@ -356,9 +356,7 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
                     {/* ═══ CONNECTION CARD ═══ */}
                     <div
                         className={`shrink-0 mb-3 p-4 rounded-2xl border transition-all ${
-                            isConnected
-                                ? 'bg-emerald-500/10 border-emerald-500/20'
-                                : 'bg-white/[0.03] border-white/[0.06]'
+                            isConnected ? 'bg-emerald-500/10 border-emerald-500/20' : 'bg-white/3 border-white/6'
                         }`}
                     >
                         <div className="flex items-center gap-3 mb-3">
@@ -438,7 +436,7 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
                                     </p>
                                 )}
                                 {lastError && (
-                                    <p className="mt-0.5 break-words text-[11px] leading-snug text-amber-200/70">
+                                    <p className="mt-0.5 wrap-break-word text-[11px] leading-snug text-amber-200/70">
                                         {lastError}
                                     </p>
                                 )}
@@ -455,7 +453,7 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
                                     <select
                                         value={device}
                                         onChange={(e) => handleDeviceChange(e.target.value)}
-                                        className="w-full px-3 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white font-medium outline-none appearance-none cursor-pointer transition-colors focus:border-sky-500/40"
+                                        className="w-full px-3 py-2.5 rounded-xl bg-white/6 border border-white/10 text-sm text-white font-medium outline-hidden appearance-none cursor-pointer transition-colors focus:border-sky-500/40"
                                         style={{
                                             backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='rgba(255,255,255,0.4)' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`,
                                             backgroundRepeat: 'no-repeat',
@@ -504,7 +502,7 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
                                 <button
                                     onClick={handleConnect}
                                     aria-label="Connect NMEA"
-                                    className="flex-1 py-2.5 rounded-xl text-sm font-black uppercase tracking-widest transition-all active:scale-[0.97] bg-gradient-to-r from-sky-600 to-sky-600 text-white shadow-lg shadow-sky-500/20 hover:from-sky-500 hover:to-sky-500"
+                                    className="flex-1 py-2.5 rounded-xl text-sm font-black uppercase tracking-widest transition-all active:scale-[0.97] bg-linear-to-r from-sky-600 to-sky-600 text-white shadow-lg shadow-sky-500/20 hover:from-sky-500 hover:to-sky-500"
                                 >
                                     Connect
                                 </button>
@@ -513,7 +511,7 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
                                 <button
                                     onClick={handleConnect}
                                     aria-label="Retry NMEA connection"
-                                    className="flex-1 py-2.5 rounded-xl text-sm font-black uppercase tracking-widest transition-all active:scale-[0.97] bg-gradient-to-r from-sky-600 to-sky-600 text-white shadow-lg shadow-sky-500/20 hover:from-sky-500 hover:to-sky-500"
+                                    className="flex-1 py-2.5 rounded-xl text-sm font-black uppercase tracking-widest transition-all active:scale-[0.97] bg-linear-to-r from-sky-600 to-sky-600 text-white shadow-lg shadow-sky-500/20 hover:from-sky-500 hover:to-sky-500"
                                 >
                                     <div className="flex items-center justify-center gap-2">
                                         <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
@@ -562,7 +560,7 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
                                     onNavigateToGlass();
                                 }}
                                 aria-label="Open Instrument Panel"
-                                className="w-full py-3.5 rounded-2xl text-sm font-black uppercase tracking-[0.2em] transition-all active:scale-[0.97] bg-gradient-to-r from-sky-600 via-cyan-500 to-sky-600 text-white shadow-lg shadow-sky-500/20 hover:from-sky-500 hover:to-cyan-500 border border-sky-400/20 flex items-center justify-center gap-2"
+                                className="w-full py-3.5 rounded-2xl text-sm font-black uppercase tracking-[0.2em] transition-all active:scale-[0.97] bg-linear-to-r from-sky-600 via-cyan-500 to-sky-600 text-white shadow-lg shadow-sky-500/20 hover:from-sky-500 hover:to-cyan-500 border border-sky-400/20 flex items-center justify-center gap-2"
                             >
                                 <span className="text-lg">🧭</span>
                                 <span>Instrument Panel</span>
@@ -597,7 +595,7 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
  */
 const ConsentSheet: React.FC<{ onAccept: () => void; onDismiss: () => void }> = ({ onAccept, onDismiss }) => (
     <div
-        className="fixed inset-0 z-[200] flex items-center justify-center bg-black/70 p-4 pb-[calc(4rem+env(safe-area-inset-bottom)+1rem)] pt-[max(1rem,env(safe-area-inset-top))]"
+        className="fixed inset-0 z-200 flex items-center justify-center bg-black/70 p-4 pb-[calc(4rem+env(safe-area-inset-bottom)+1rem)] pt-[max(1rem,env(safe-area-inset-top))]"
         role="dialog"
         aria-modal="true"
         aria-label="Share what you hear"
@@ -671,14 +669,14 @@ const ConsentSheet: React.FC<{ onAccept: () => void; onDismiss: () => void }> = 
                 <button
                     type="button"
                     onClick={onAccept}
-                    className="rounded-xl bg-emerald-500 px-4 py-3 text-[15px] font-semibold text-slate-950 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300"
+                    className="rounded-xl bg-emerald-500 px-4 py-3 text-[15px] font-semibold text-slate-950 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-emerald-300"
                 >
                     Share what I hear
                 </button>
                 <button
                     type="button"
                     onClick={onDismiss}
-                    className="rounded-xl px-4 py-3 text-[15px] font-semibold text-emerald-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300"
+                    className="rounded-xl px-4 py-3 text-[15px] font-semibold text-emerald-300 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-emerald-300"
                 >
                     Not now
                 </button>
@@ -704,7 +702,7 @@ const FleetSharingCard: React.FC<{ connected: boolean }> = ({ connected }) => {
     const hours = stats.card ? Math.floor(stats.card.watchMinutes / 60) : 0;
 
     return (
-        <div className="shrink-0 mb-3 rounded-2xl border border-white/[0.08] bg-slate-900/60 p-4">
+        <div className="shrink-0 mb-3 rounded-2xl border border-white/8 bg-slate-900/60 p-4">
             <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                     <p className="text-sm font-bold text-gray-100">Share what you hear</p>
@@ -768,7 +766,7 @@ const FleetSharingCard: React.FC<{ connected: boolean }> = ({ connected }) => {
                             fault.
                         </p>
                     )}
-                    <div className="mt-3 flex items-center justify-between gap-3 border-t border-white/[0.06] pt-3">
+                    <div className="mt-3 flex items-center justify-between gap-3 border-t border-white/6 pt-3">
                         <div className="min-w-0">
                             <p className="text-[12px] font-semibold text-gray-200">Low-data link</p>
                             <p className="text-[11px] leading-relaxed text-gray-400">

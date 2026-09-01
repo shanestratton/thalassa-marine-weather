@@ -70,7 +70,7 @@ export const EssentialReservesCard: React.FC<EssentialReservesCardProps> = ({ vo
     return (
         <div className="space-y-4">
             {/* ── Critical Reserves ── */}
-            <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4">
+            <div className="bg-white/3 border border-white/6 rounded-xl p-4">
                 <h4 className="text-xs font-bold text-white uppercase tracking-widest mb-3 flex items-center gap-2">
                     🚨 Critical Reserves
                     <span
@@ -136,7 +136,7 @@ export const EssentialReservesCard: React.FC<EssentialReservesCardProps> = ({ vo
             </div>
 
             {/* ── Additional Checks ── */}
-            <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4">
+            <div className="bg-white/3 border border-white/6 rounded-xl p-4">
                 <h4 className="text-xs font-bold text-white uppercase tracking-widest mb-3 flex items-center gap-2">
                     📋 Additional Checks
                     <span className="ml-auto px-2 py-0.5 rounded-full text-[11px] font-bold bg-sky-500/10 border border-sky-500/20 text-sky-400">
@@ -153,7 +153,7 @@ export const EssentialReservesCard: React.FC<EssentialReservesCardProps> = ({ vo
                                 className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-all active:scale-[0.98] ${
                                     isChecked
                                         ? 'bg-emerald-500/10 border border-emerald-500/20'
-                                        : 'bg-white/[0.02] border border-white/[0.06] hover:bg-white/[0.05]'
+                                        : 'bg-white/2 border border-white/6 hover:bg-white/5'
                                 }`}
                             >
                                 <div

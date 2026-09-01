@@ -196,7 +196,7 @@ export const ResourceCalculator: React.FC<ResourceCalculatorProps> = ({ voyagePl
             {/* ═══════════════════════════════════════════════════
                 CREW & VOYAGE SUMMARY HERO
                 ═══════════════════════════════════════════════════ */}
-            <div className="bg-gradient-to-br from-sky-500/10 via-sky-600/5 to-indigo-500/10 border border-sky-500/20 rounded-2xl p-5 relative overflow-hidden">
+            <div className="bg-linear-to-br from-sky-500/10 via-sky-600/5 to-indigo-500/10 border border-sky-500/20 rounded-2xl p-5 relative overflow-hidden">
                 <div className="absolute top-0 right-0 w-32 h-32 bg-sky-400/5 rounded-full -translate-y-8 translate-x-8 blur-2xl" />
                 <div className="relative z-10 flex items-center gap-4 flex-wrap">
                     <div className="flex items-center gap-3 bg-white/5 rounded-xl px-4 py-3 border border-white/10">
@@ -239,7 +239,7 @@ export const ResourceCalculator: React.FC<ResourceCalculatorProps> = ({ voyagePl
                 THREE RESOURCE CARDS (fuel, water, provisions)
                 ═══════════════════════════════════════════════════ */}
 
-            <div className="bg-gradient-to-br from-sky-500/10 via-sky-600/5 to-indigo-500/10 border border-sky-500/20 rounded-2xl p-5 relative overflow-hidden">
+            <div className="bg-linear-to-br from-sky-500/10 via-sky-600/5 to-indigo-500/10 border border-sky-500/20 rounded-2xl p-5 relative overflow-hidden">
                 <div className="absolute top-0 right-0 w-32 h-32 bg-sky-400/5 rounded-full -translate-y-8 translate-x-8 blur-2xl" />
                 <div className="relative z-10 flex items-center gap-4 flex-wrap">
                     <div className="flex items-center gap-3 bg-white/5 rounded-xl px-4 py-3 border border-white/10">
@@ -395,17 +395,17 @@ export const ResourceCalculator: React.FC<ResourceCalculatorProps> = ({ voyagePl
                         {/* Breakdown bar */}
                         <div className="space-y-1.5">
                             <div className="flex items-center gap-2 text-xs">
-                                <div className="w-3 h-3 rounded-sm bg-sky-400" />
+                                <div className="w-3 h-3 rounded-xs bg-sky-400" />
                                 <span className="text-gray-400">Drinking</span>
                                 <span className="ml-auto font-mono text-gray-300">{waterDrinking.toFixed(0)}L</span>
                             </div>
                             <div className="flex items-center gap-2 text-xs">
-                                <div className="w-3 h-3 rounded-sm bg-sky-600" />
+                                <div className="w-3 h-3 rounded-xs bg-sky-600" />
                                 <span className="text-gray-400">Cooking</span>
                                 <span className="ml-auto font-mono text-gray-300">{waterCooking.toFixed(0)}L</span>
                             </div>
                             <div className="flex items-center gap-2 text-xs">
-                                <div className="w-3 h-3 rounded-sm bg-sky-800" />
+                                <div className="w-3 h-3 rounded-xs bg-sky-800" />
                                 <span className="text-gray-400">Hygiene</span>
                                 <span className="ml-auto font-mono text-gray-300">{waterHygiene.toFixed(0)}L</span>
                             </div>
@@ -426,8 +426,8 @@ export const ResourceCalculator: React.FC<ResourceCalculatorProps> = ({ voyagePl
                                     <div
                                         className={`h-full rounded-full transition-all duration-700 ${
                                             waterSufficient
-                                                ? 'bg-gradient-to-r from-sky-400 to-emerald-400'
-                                                : 'bg-gradient-to-r from-amber-400 to-red-400'
+                                                ? 'bg-linear-to-r from-sky-400 to-emerald-400'
+                                                : 'bg-linear-to-r from-amber-400 to-red-400'
                                         }`}
                                         style={{ width: `${Math.min(waterPercent, 100)}%` }}
                                     />
@@ -451,7 +451,7 @@ export const ResourceCalculator: React.FC<ResourceCalculatorProps> = ({ voyagePl
                 </div>
 
                 {/* ─── PROVISIONS SUMMARY ─── */}
-                <div className="rounded-xl p-5 border bg-gradient-to-b from-amber-500/5 to-orange-500/5 border-amber-500/15">
+                <div className="rounded-xl p-5 border bg-linear-to-b from-amber-500/5 to-orange-500/5 border-amber-500/15">
                     <div className="flex items-center gap-2 mb-3">
                         <FoodIcon className="w-4 h-4 text-amber-400" />
                         <span className="text-xs font-bold uppercase tracking-widest text-gray-400">Provisions</span>
@@ -554,7 +554,7 @@ const StaticMealPlan: React.FC<StaticMealPlanProps> = ({
     effectiveCrewCount,
 }) => (
     <div className="animate-in fade-in slide-in-from-top-4 duration-300 space-y-4">
-        <div className="bg-gradient-to-br from-amber-500/5 via-orange-500/5 to-red-500/5 border border-amber-500/20 rounded-2xl p-5 relative overflow-hidden">
+        <div className="bg-linear-to-br from-amber-500/5 via-orange-500/5 to-red-500/5 border border-amber-500/20 rounded-2xl p-5 relative overflow-hidden">
             <div className="absolute bottom-0 right-0 w-40 h-40 bg-orange-400/5 rounded-full translate-y-12 translate-x-12 blur-3xl" />
             <h3 className="text-sm font-bold text-amber-300 uppercase tracking-widest mb-4 flex items-center gap-2">
                 🍳 Galley Meal Ideas

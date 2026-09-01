@@ -507,7 +507,7 @@ const CompactLogEntry: React.FC<CompactLogEntryProps> = React.memo(
 
                             {/* Waypoint — hide system names */}
                             {showWaypointName && (
-                                <div className="mt-2 px-2 py-1 bg-sky-500/10 border border-sky-500/20 rounded text-sky-400 text-xs font-bold">
+                                <div className="mt-2 px-2 py-1 bg-sky-500/10 border border-sky-500/20 rounded-sm text-sky-400 text-xs font-bold">
                                     📍 {entry.waypointName}
                                 </div>
                             )}
@@ -515,7 +515,7 @@ const CompactLogEntry: React.FC<CompactLogEntryProps> = React.memo(
                             {/* Event Category */}
                             {entry.eventCategory && (
                                 <div className="mt-2">
-                                    <span className="px-2 py-0.5 bg-slate-700/50 rounded text-[11px] text-slate-300 uppercase tracking-wider">
+                                    <span className="px-2 py-0.5 bg-slate-700/50 rounded-sm text-[11px] text-slate-300 uppercase tracking-wider">
                                         {entry.eventCategory === 'equipment' ? 'repair' : entry.eventCategory}
                                     </span>
                                 </div>

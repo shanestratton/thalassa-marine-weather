@@ -491,7 +491,7 @@ export const MobPage: React.FC<MobPageProps> = ({ onBack, onNavigate }) => {
                 <div className="text-[10px] font-bold tracking-widest uppercase text-red-300/70 mt-0.5">True</div>
             </div>
 
-            <div className="shrink-0 mx-5 rounded-2xl border border-red-400/20 bg-red-950/30 backdrop-blur-sm grid grid-cols-2 divide-x divide-red-400/15">
+            <div className="shrink-0 mx-5 rounded-2xl border border-red-400/20 bg-red-950/30 backdrop-blur-xs grid grid-cols-2 divide-x divide-red-400/15">
                 <div className="px-3 py-2.5 text-center">
                     <div className="text-[10px] font-extrabold tracking-[0.2em] uppercase text-red-300/70 mb-0.5">
                         Distance
@@ -511,8 +511,8 @@ export const MobPage: React.FC<MobPageProps> = ({ onBack, onNavigate }) => {
             </div>
 
             {/* Positions */}
-            <div className="shrink-0 mx-5 mt-3 rounded-2xl border border-white/[0.06] bg-white/[0.02] overflow-hidden">
-                <div className="px-4 py-3 border-b border-white/[0.06]">
+            <div className="shrink-0 mx-5 mt-3 rounded-2xl border border-white/6 bg-white/2 overflow-hidden">
+                <div className="px-4 py-3 border-b border-white/6">
                     <div className="text-[10px] font-extrabold tracking-[0.2em] uppercase text-red-300/80 mb-1.5">
                         MOB Fix
                     </div>
@@ -592,7 +592,7 @@ export const MobPage: React.FC<MobPageProps> = ({ onBack, onNavigate }) => {
                     className={`py-3.5 px-3 rounded-xl text-[12px] font-extrabold uppercase tracking-wider border transition-all active:scale-[0.97] ${
                         copied
                             ? 'bg-emerald-500/20 border-emerald-400/40 text-emerald-200'
-                            : 'bg-white/[0.04] border-white/10 text-slate-200 hover:bg-white/[0.08]'
+                            : 'bg-white/4 border-white/10 text-slate-200 hover:bg-white/8'
                     }`}
                 >
                     {copied ? 'Copied' : 'Copy Mayday'}
@@ -655,7 +655,7 @@ export const MobPage: React.FC<MobPageProps> = ({ onBack, onNavigate }) => {
                     onPointerCancel={cancelClearHold}
                     onContextMenu={(e) => e.preventDefault()}
                     aria-label="Hold to clear MOB"
-                    className="relative w-full py-3.5 rounded-xl border border-white/10 bg-white/[0.03] text-[11px] font-extrabold uppercase tracking-widest text-slate-400 overflow-hidden select-none"
+                    className="relative w-full py-3.5 rounded-xl border border-white/10 bg-white/3 text-[11px] font-extrabold uppercase tracking-widest text-slate-400 overflow-hidden select-none"
                     style={{
                         // iOS long-press defaults — magnifier loupe, text
                         // selection, Copy/Look-Up context sheet — were

@@ -837,7 +837,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
     // GUARD: All hooks above, early return here is safe
     if (!data || !current || !safeActive) {
         return (
-            <div className="h-[100dvh] w-full flex flex-col items-center justify-center bg-black text-white px-4 py-8">
+            <div className="h-dvh w-full flex flex-col items-center justify-center bg-black text-white px-4 py-8">
                 {/* isOffline (internetProbe-verified WAN reachability), NOT
                     navigator.onLine. On a boat the phone is joined to the Pi's
                     wifi LAN, so navigator.onLine reads TRUE while the uplink is
@@ -905,7 +905,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                     <GlassTutorial />
                 </Suspense>
 
-                <div className="h-[100dvh] w-full flex flex-col overflow-hidden relative bg-black">
+                <div className="h-dvh w-full flex flex-col overflow-hidden relative bg-black">
                     {' '}
                     {/* Flex Root */}
                     {/* ── REFRESH IN PROGRESS ──
@@ -938,10 +938,10 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                         pointer-events-none: it must never eat a tap. */}
                     {staleRefresh && (
                         <div
-                            className="absolute inset-x-0 top-0 z-[200] h-0.5 overflow-hidden pointer-events-none"
+                            className="absolute inset-x-0 top-0 z-200 h-0.5 overflow-hidden pointer-events-none"
                             aria-hidden="true"
                         >
-                            <div className="h-full w-full animate-pulse bg-gradient-to-r from-transparent via-sky-400/70 to-transparent" />
+                            <div className="h-full w-full animate-pulse bg-linear-to-r from-transparent via-sky-400/70 to-transparent" />
                         </div>
                     )}
                     {/* ── THE STALENESS PILL (Shane, 2026-08-20) ──
@@ -968,13 +968,13 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                         const ageLabel = ageMin >= 120 ? `${Math.floor(ageMin / 60)} h` : `${ageMin} min`;
                         return (
                             <div
-                                className="absolute inset-x-0 top-[38%] z-[210] flex justify-center pointer-events-none animate-in fade-in duration-300"
+                                className="absolute inset-x-0 top-[38%] z-210 flex justify-center pointer-events-none animate-in fade-in duration-300"
                                 role="status"
                                 aria-live="polite"
                             >
                                 <div className="flex items-center gap-2.5 rounded-full border border-sky-400/25 bg-slate-950/85 px-4 py-2 shadow-lg shadow-black/40 backdrop-blur-md">
                                     <span
-                                        className="h-3 w-3 shrink-0 animate-spin rounded-full border-[2px] border-sky-400/30 border-t-sky-300"
+                                        className="h-3 w-3 shrink-0 animate-spin rounded-full border-2 border-sky-400/30 border-t-sky-300"
                                         aria-hidden="true"
                                     />
                                     <span className="text-[12px] font-semibold tracking-wide text-sky-100/90">
@@ -993,7 +993,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                 {/* Compact Header Row - Warnings + Sunrise/Sunset/Rainfall.
                                     It starts one shared Glass gap below the location card. */}
                                 <div
-                                    className="flex-shrink-0 z-[120] w-full bg-gradient-to-b from-black/80 to-transparent px-4 pb-0 fixed left-0 right-0 pointer-events-none"
+                                    className="shrink-0 z-120 w-full bg-linear-to-b from-black/80 to-transparent px-4 pb-0 fixed left-0 right-0 pointer-events-none"
                                     style={{ top: glassSafeTopOffset(glassTopLayout.compactHeaderTopPx) }}
                                 >
                                     <div className="pointer-events-auto">
@@ -1027,7 +1027,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
 
                                 {/* Covers the fixed card stack until the scrollable forecast deck. */}
                                 <div
-                                    className="fixed top-[0px] left-0 right-0 bg-black z-[100] transition-all duration-300"
+                                    className="fixed top-0 left-0 right-0 bg-black z-100 transition-all duration-300"
                                     style={{
                                         height: isExpanded
                                             ? glassSafeTopOffset(glassTopLayout.heroContainerExpandedTopPx)
@@ -1037,7 +1037,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
 
                                 {/* Conditions header — held to the same 8px Glass rhythm. */}
                                 <div
-                                    className="fixed left-0 right-0 z-[110] px-4"
+                                    className="fixed left-0 right-0 z-110 px-4"
                                     style={{ top: glassSafeTopOffset(glassTopLayout.heroHeaderTopPx) }}
                                 >
                                     <HeroHeader
@@ -1100,7 +1100,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                   functional hide; the element is invisible to screen-readers
                                   via opacity:0 and to clicks via pointer-events:none. */}
                                 <div
-                                    className="fixed left-0 right-0 z-[110] px-4 transition-[opacity,transform] duration-200 ease-out"
+                                    className="fixed left-0 right-0 z-110 px-4 transition-[opacity,transform] duration-200 ease-out"
                                     aria-hidden={isExpanded}
                                     ref={(element) => {
                                         if (element)
@@ -1121,7 +1121,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                 Same transition semantics as CurrentConditionsCard above so the
                                 two layers cross-fade in sync. */}
                                 <div
-                                    className="fixed left-0 right-0 z-[110] px-4 transition-[opacity,transform] duration-200 ease-out"
+                                    className="fixed left-0 right-0 z-110 px-4 transition-[opacity,transform] duration-200 ease-out"
                                     aria-hidden={!isExpanded}
                                     ref={(element) => {
                                         if (element)
@@ -1155,7 +1155,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                     Its top is calculated from the rendered card heights so it
                                     preserves the same 8px gap in either dashboard mode. */}
                                 <div
-                                    className={`fixed left-0 right-0 z-[120] bg-black transition-[top] duration-300 flex flex-col gap-2 pt-0 ${
+                                    className={`fixed left-0 right-0 z-120 bg-black transition-[top] duration-300 flex flex-col gap-2 pt-0 ${
                                         // Clipping is fine when there is room. On a short
                                         // viewport the hero would otherwise be a sliver with
                                         // no scroll escape, so let it scroll instead.
@@ -1208,7 +1208,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                 {/* HORIZONTAL POSITION DOTS - Shows current slide in horizontal scroll (full mode only) */}
                                 {isExpanded && (
                                     <div
-                                        className="fixed left-0 right-0 z-[125] flex justify-center"
+                                        className="fixed left-0 right-0 z-125 flex justify-center"
                                         style={{ bottom: 'calc(env(safe-area-inset-bottom) + 124px)' }}
                                     >
                                         <div className="flex gap-[3px] px-4 py-1">
@@ -1249,7 +1249,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                 Gap = 120 - 116 = 4px. (Adjusted per user request to be 4px tighter)
                             */}
                                 <div
-                                    className="fixed left-0 right-0 z-[125] px-4"
+                                    className="fixed left-0 right-0 z-125 px-4"
                                     style={{ bottom: 'calc(env(safe-area-inset-bottom) + 74px)' }}
                                 >
                                     <div className={`rounded-xl bg-black/40 ${t.border.default} p-2`}>
@@ -1288,7 +1288,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                             {[0, 1, 2, 3].map((i) => (
                                                 <div
                                                     key={i}
-                                                    className="rounded-2xl bg-white/[0.05] border border-white/[0.06] h-28 animate-pulse"
+                                                    className="rounded-2xl bg-white/5 border border-white/6 h-28 animate-pulse"
                                                     style={{ animationDelay: `${i * 120}ms` }}
                                                 />
                                             ))}

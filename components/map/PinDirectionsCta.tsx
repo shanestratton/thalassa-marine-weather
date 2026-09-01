@@ -11,7 +11,7 @@ export function PinDirectionsCta({ visible, busy, error, onRequest }: PinDirecti
     if (!visible) return null;
 
     return (
-        <div className="absolute left-4 right-4 bottom-[calc(env(safe-area-inset-bottom)+88px)] z-[700] space-y-2 pointer-events-none">
+        <div className="absolute left-4 right-4 bottom-[calc(env(safe-area-inset-bottom)+88px)] z-700 space-y-2 pointer-events-none">
             {error && (
                 <div className="rounded-xl border border-red-500/30 bg-red-500/90 backdrop-blur-md px-3 py-2 text-xs text-white shadow-lg pointer-events-auto">
                     {error}

@@ -412,7 +412,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({
     // ── Manual mode: Add Item form via ModalSheet (keyboard-aware) ──
     if (startInManualMode && sheetMode === 'new') {
         return (
-            <ModalSheet isOpen={true} onClose={onClose} title="Add Item" zIndex="z-[2000]">
+            <ModalSheet isOpen={true} onClose={onClose} title="Add Item" zIndex="z-2000">
                 <div className="space-y-2">
                     {/* Category — first */}
                     <div>
@@ -453,7 +453,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({
                                 value={newItem.barcode}
                                 onChange={(e) => setNewItem((prev) => ({ ...prev, barcode: e.target.value }))}
                                 placeholder="Optional"
-                                className="flex-[2] min-w-0 bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-white text-sm font-mono outline-none focus:border-sky-500/30 transition-colors placeholder:text-gray-400"
+                                className="flex-2 min-w-0 bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-white text-sm font-mono outline-hidden focus:border-sky-500/30 transition-colors placeholder:text-gray-400"
                             />
                             <button
                                 aria-label="Inline Scanner"
@@ -626,7 +626,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({
                         {/* Scan line animation */}
                         {scanning && (
                             <div
-                                className="absolute inset-x-2 h-0.5 bg-gradient-to-r from-transparent via-sky-400 to-transparent animate-pulse"
+                                className="absolute inset-x-2 h-0.5 bg-linear-to-r from-transparent via-sky-400 to-transparent animate-pulse"
                                 style={{ top: '50%' }}
                             />
                         )}
@@ -634,7 +634,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({
                 </div>
 
                 {/* Header bar */}
-                <div className="absolute top-0 left-0 right-0 z-20 bg-gradient-to-b from-black/80 to-transparent pt-[max(1rem,env(safe-area-inset-top))] px-4 pb-8">
+                <div className="absolute top-0 left-0 right-0 z-20 bg-linear-to-b from-black/80 to-transparent pt-[max(1rem,env(safe-area-inset-top))] px-4 pb-8">
                     <div className="flex items-center justify-between">
                         <button
                             ref={cameraCloseRef}
@@ -722,7 +722,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({
                     </div>
 
                     {/* Quantity controls */}
-                    <div className="flex items-center justify-center gap-6 py-4 bg-white/[0.03] border border-white/[0.06] rounded-2xl mb-4">
+                    <div className="flex items-center justify-center gap-6 py-4 bg-white/3 border border-white/6 rounded-2xl mb-4">
                         <button
                             aria-label="Decrease quantity"
                             onClick={() => handleQuantityAdjust(-1)}
@@ -820,7 +820,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({
                                 value={newItem.item_name}
                                 onChange={(e) => setNewItem((prev) => ({ ...prev, item_name: e.target.value }))}
                                 placeholder="e.g. Racor 2010PM-OR Fuel Filter"
-                                className="w-full mt-1 bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white text-sm outline-none focus:border-sky-500 transition-colors placeholder:text-gray-400"
+                                className="w-full mt-1 bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white text-sm outline-hidden focus:border-sky-500 transition-colors placeholder:text-gray-400"
                             />
                         </div>
 
@@ -835,7 +835,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({
                                 value={newItem.barcode}
                                 onChange={(e) => setNewItem((prev) => ({ ...prev, barcode: e.target.value }))}
                                 placeholder="(auto-filled from scan)"
-                                className="w-full mt-1 bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white text-sm font-mono outline-none focus:border-sky-500 transition-colors placeholder:text-gray-400"
+                                className="w-full mt-1 bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white text-sm font-mono outline-hidden focus:border-sky-500 transition-colors placeholder:text-gray-400"
                             />
                         </div>
 
@@ -853,7 +853,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({
                                     onChange={(e) =>
                                         setNewItem((prev) => ({ ...prev, quantity: parseInt(e.target.value) || 0 }))
                                     }
-                                    className="w-full mt-1 bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white text-sm outline-none focus:border-sky-500 transition-colors"
+                                    className="w-full mt-1 bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white text-sm outline-hidden focus:border-sky-500 transition-colors"
                                 />
                             </div>
                             <div>
@@ -868,7 +868,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({
                                     onChange={(e) =>
                                         setNewItem((prev) => ({ ...prev, min_quantity: parseInt(e.target.value) || 0 }))
                                     }
-                                    className="w-full mt-1 bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white text-sm outline-none focus:border-sky-500 transition-colors"
+                                    className="w-full mt-1 bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white text-sm outline-hidden focus:border-sky-500 transition-colors"
                                 />
                             </div>
                         </div>
@@ -886,7 +886,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({
                                     onChange={(e) => setNewItem((prev) => ({ ...prev, location_zone: e.target.value }))}
                                     placeholder="Engine Room"
                                     onFocus={scrollInputAboveKeyboard}
-                                    className="w-full mt-1 bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white text-sm outline-none focus:border-sky-500 transition-colors placeholder:text-gray-400"
+                                    className="w-full mt-1 bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white text-sm outline-hidden focus:border-sky-500 transition-colors placeholder:text-gray-400"
                                 />
                             </div>
                             <div>
@@ -902,7 +902,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({
                                     }
                                     placeholder="Stbd drawer"
                                     onFocus={scrollInputAboveKeyboard}
-                                    className="w-full mt-1 bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white text-sm outline-none focus:border-sky-500 transition-colors placeholder:text-gray-400"
+                                    className="w-full mt-1 bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white text-sm outline-hidden focus:border-sky-500 transition-colors placeholder:text-gray-400"
                                 />
                             </div>
                         </div>
@@ -919,7 +919,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({
                                 onChange={(e) => setNewItem((prev) => ({ ...prev, description: e.target.value }))}
                                 placeholder="Part number, batch, etc."
                                 onFocus={scrollInputAboveKeyboard}
-                                className="w-full mt-1 bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white text-sm outline-none focus:border-sky-500 transition-colors placeholder:text-gray-400"
+                                className="w-full mt-1 bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white text-sm outline-hidden focus:border-sky-500 transition-colors placeholder:text-gray-400"
                             />
                         </div>
 
@@ -933,7 +933,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({
                                 type="date"
                                 value={newItem.expiry_date}
                                 onChange={(e) => setNewItem((prev) => ({ ...prev, expiry_date: e.target.value }))}
-                                className="w-full max-w-full min-w-0 mt-1 bg-black/40 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white outline-none focus:border-sky-500 transition-colors [color-scheme:dark] box-border"
+                                className="w-full max-w-full min-w-0 mt-1 bg-black/40 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white outline-hidden focus:border-sky-500 transition-colors scheme-dark box-border"
                             />
                         </div>
                     </div>

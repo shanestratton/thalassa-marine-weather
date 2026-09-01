@@ -239,7 +239,7 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
     return (
         <div className="flex flex-col h-full bg-slate-950 text-white slide-up-enter">
             {/* Header — standard PageHeader (title scale: text-xl font-extrabold uppercase) */}
-            <div className="border-b border-white/[0.06]">
+            <div className="border-b border-white/6">
                 <PageHeader
                     title="Galley"
                     subtitle={
@@ -260,7 +260,7 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
             </div>
 
             {/* Tab bar */}
-            <div className="flex border-b border-white/[0.06]" role="tablist" aria-label="Galley sections">
+            <div className="flex border-b border-white/6" role="tablist" aria-label="Galley sections">
                 <button
                     type="button"
                     onClick={() => setTab('active')}
@@ -317,11 +317,11 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
                             visibleActiveMeals.map((meal) => (
                                 <div
                                     key={meal.id}
-                                    className="rounded-2xl bg-white/[0.02] border border-white/[0.06] overflow-hidden"
+                                    className="rounded-2xl bg-white/2 border border-white/6 overflow-hidden"
                                 >
                                     {/* Mini hero */}
-                                    <div className="relative h-28 bg-gradient-to-br from-amber-900/60 via-orange-800/40 to-red-900/60">
-                                        <div className="absolute bottom-0 left-0 right-0 p-3 bg-gradient-to-t from-black/70 to-transparent">
+                                    <div className="relative h-28 bg-linear-to-br from-amber-900/60 via-orange-800/40 to-red-900/60">
+                                        <div className="absolute bottom-0 left-0 right-0 p-3 bg-linear-to-t from-black/70 to-transparent">
                                             <p className="text-sm font-black text-white">{meal.title}</p>
                                             <p className="text-[11px] text-amber-300/70">
                                                 {meal.planned_date} · {meal.meal_slot} · {meal.servings_planned} serves
@@ -351,7 +351,7 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
                                         <button
                                             type="button"
                                             onClick={() => handleCookNow(meal)}
-                                            className="flex-1 py-2.5 bg-gradient-to-r from-amber-500/15 to-orange-500/15 border border-amber-500/20 rounded-xl text-[11px] font-bold uppercase tracking-widest text-amber-300 disabled:opacity-40 active:scale-[0.97]"
+                                            className="flex-1 py-2.5 bg-linear-to-r from-amber-500/15 to-orange-500/15 border border-amber-500/20 rounded-xl text-[11px] font-bold uppercase tracking-widest text-amber-300 disabled:opacity-40 active:scale-[0.97]"
                                         >
                                             {meal.status === 'cooking' ? '🔥 Resume Cooking' : '🔥 Cook Now'}
                                         </button>
@@ -366,7 +366,7 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
                                                         .writeText(text)
                                                         .then(() => triggerHaptic('light'));
                                             }}
-                                            className="w-10 flex items-center justify-center border border-white/[0.08] bg-white/[0.03] rounded-xl text-gray-400"
+                                            className="w-10 flex items-center justify-center border border-white/8 bg-white/3 rounded-xl text-gray-400"
                                             aria-label="Share active meal details"
                                         >
                                             <svg
@@ -406,10 +406,10 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
                                 }
                                 className={`w-full p-3 rounded-xl border flex items-center gap-3 text-left transition-colors active:scale-[0.99] ${
                                     visibleShoppingSummary.remaining > 0
-                                        ? 'bg-red-500/[0.04] border-red-500/[0.08] hover:bg-red-500/[0.08]'
+                                        ? 'bg-red-500/4 border-red-500/8 hover:bg-red-500/8'
                                         : visibleShoppingSummary.total > 0
-                                          ? 'bg-emerald-500/[0.04] border-emerald-500/[0.1] hover:bg-emerald-500/[0.08]'
-                                          : 'bg-white/[0.02] border-white/[0.06] hover:bg-white/[0.05]'
+                                          ? 'bg-emerald-500/4 border-emerald-500/10 hover:bg-emerald-500/8'
+                                          : 'bg-white/2 border-white/6 hover:bg-white/5'
                                 }`}
                             >
                                 <span className="text-lg" aria-hidden="true">
@@ -490,10 +490,10 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
                             visibleSavedRecipes.map((recipe) => (
                                 <div
                                     key={recipe.id}
-                                    className="p-3 rounded-xl bg-white/[0.03] border border-white/[0.06] space-y-2"
+                                    className="p-3 rounded-xl bg-white/3 border border-white/6 space-y-2"
                                 >
                                     <div className="flex items-start gap-3">
-                                        <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-amber-800/40 to-orange-700/40 flex items-center justify-center flex-shrink-0 text-xl">
+                                        <div className="w-12 h-12 rounded-lg bg-linear-to-br from-amber-800/40 to-orange-700/40 flex items-center justify-center shrink-0 text-xl">
                                             🍽️
                                         </div>
                                         <div className="flex-1 min-w-0">
@@ -515,7 +515,7 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
                                                         setEditorRecipe(recipe);
                                                     }}
                                                     aria-label={`Edit ${recipe.title}`}
-                                                    className="shrink-0 min-h-[44px] rounded-lg border border-white/[0.08] bg-white/[0.04] px-2.5 py-1.5 text-[11px] font-bold text-gray-300 transition-colors hover:bg-white/[0.08]"
+                                                    className="shrink-0 min-h-[44px] rounded-lg border border-white/8 bg-white/4 px-2.5 py-1.5 text-[11px] font-bold text-gray-300 transition-colors hover:bg-white/8"
                                                 >
                                                     Edit
                                                 </button>
@@ -527,7 +527,7 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
                                         {recipe.ingredients.slice(0, 4).map((ing, i) => (
                                             <span
                                                 key={i}
-                                                className="px-2 py-0.5 rounded-full text-[11px] bg-white/[0.04] text-gray-400 border border-white/[0.06]"
+                                                className="px-2 py-0.5 rounded-full text-[11px] bg-white/4 text-gray-400 border border-white/6"
                                             >
                                                 {ing.name}
                                             </span>

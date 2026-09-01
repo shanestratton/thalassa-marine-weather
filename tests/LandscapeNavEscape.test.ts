@@ -58,8 +58,8 @@ describe('mobile landscape can always reach navigation', () => {
     });
 
     it('keeps the toggle above the nav so it can also dismiss it', () => {
-        const navZ = /z-\[900\]/.test(app);
-        const toggleZ = /z-\[901\]/.test(app);
+        const navZ = /z-900(?!\d)/.test(app);
+        const toggleZ = /z-901(?!\d)/.test(app);
         expect(navZ).toBe(true);
         expect(toggleZ).toBe(true);
     });

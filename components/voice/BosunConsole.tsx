@@ -2035,7 +2035,7 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
 
     return (
         <div
-            className="flex flex-col h-full bg-gradient-to-b from-slate-900 via-slate-950 to-black animate-in fade-in duration-200"
+            className="flex flex-col h-full bg-linear-to-b from-slate-900 via-slate-950 to-black animate-in fade-in duration-200"
             role="region"
             aria-label="Calypso voice console"
         >
@@ -2170,7 +2170,7 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
                             return (
                                 <div key={`${e.ts}-${i}`} className="flex gap-2">
                                     <span className="text-gray-400">{stamp}</span>
-                                    <span className="flex-1 break-words">{e.msg}</span>
+                                    <span className="flex-1 wrap-break-word">{e.msg}</span>
                                 </div>
                             );
                         })}
@@ -2234,7 +2234,7 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
                                   ? 'Type now — voice is still warming…'
                                   : `Or type — sends to ${brainSubtitle.toLowerCase()}...`
                         }
-                        className="flex-1 px-4 py-3 rounded-full bg-white/5 border border-white/10 text-white placeholder:text-gray-500 text-sm focus:outline-none focus:border-sky-500/50 disabled:opacity-50"
+                        className="flex-1 px-4 py-3 rounded-full bg-white/5 border border-white/10 text-white placeholder:text-gray-500 text-sm focus:outline-hidden focus:border-sky-500/50 disabled:opacity-50"
                         disabled={!route || isAnyAwaiting || isAnySending}
                     />
                     <button

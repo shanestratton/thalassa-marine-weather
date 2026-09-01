@@ -50,7 +50,7 @@ export const SwipeableCrewCard: React.FC<SwipeableCrewCardProps> = ({ member, mo
             {/* Main card (slides on swipe) — ref attaches native touch listeners */}
             <div
                 ref={ref}
-                className={`relative transition-transform ${isSwiping ? '' : 'duration-200'} ${isCaptain ? 'bg-white/[0.03] border border-white/[0.06]' : 'bg-emerald-500/5 border border-emerald-500/15'} rounded-xl p-4`}
+                className={`relative transition-transform ${isSwiping ? '' : 'duration-200'} ${isCaptain ? 'bg-white/3 border border-white/6' : 'bg-emerald-500/5 border border-emerald-500/15'} rounded-xl p-4`}
                 style={{ transform: `translateX(-${swipeOffset}px)`, touchAction: 'pan-y' }}
             >
                 <div className="flex items-start justify-between mb-2">

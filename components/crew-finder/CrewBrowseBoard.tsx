@@ -130,7 +130,7 @@ export const CrewBrowseBoard: React.FC<CrewBrowseBoardProps> = React.memo(
                     <>
                         <section
                             aria-labelledby="crew-list-browse-title"
-                            className="mb-4 rounded-3xl border border-sky-400/15 bg-gradient-to-br from-sky-500/[0.08] to-emerald-500/[0.06] p-4"
+                            className="mb-4 rounded-3xl border border-sky-400/15 bg-linear-to-br from-sky-500/8 to-emerald-500/6 p-4"
                         >
                             <p className="text-[11px] font-black uppercase tracking-[0.18em] text-sky-200/65">
                                 The Crew List
@@ -153,7 +153,7 @@ export const CrewBrowseBoard: React.FC<CrewBrowseBoardProps> = React.memo(
                                 onClick={() =>
                                     setFilterListingType(filterListingType === 'seeking_crew' ? '' : 'seeking_crew')
                                 }
-                                className={`min-h-[8rem] rounded-2xl px-3 py-4 text-left transition-all border ${filterListingType === 'seeking_crew' ? 'bg-emerald-500/15 border-emerald-400/25 shadow-lg shadow-emerald-500/10' : 'bg-white/[0.02] border-white/[0.06] hover:bg-white/[0.04]'}`}
+                                className={`min-h-32 rounded-2xl px-3 py-4 text-left transition-all border ${filterListingType === 'seeking_crew' ? 'bg-emerald-500/15 border-emerald-400/25 shadow-lg shadow-emerald-500/10' : 'bg-white/2 border-white/6 hover:bg-white/4'}`}
                             >
                                 <span aria-hidden="true" className="text-2xl block mb-1">
                                     ⚓
@@ -173,7 +173,7 @@ export const CrewBrowseBoard: React.FC<CrewBrowseBoardProps> = React.memo(
                                 onClick={() =>
                                     setFilterListingType(filterListingType === 'seeking_berth' ? '' : 'seeking_berth')
                                 }
-                                className={`min-h-[8rem] rounded-2xl px-3 py-4 text-left transition-all border ${filterListingType === 'seeking_berth' ? 'bg-emerald-500/15 border-emerald-400/25 shadow-lg shadow-emerald-500/10' : 'bg-white/[0.02] border-white/[0.06] hover:bg-white/[0.04]'}`}
+                                className={`min-h-32 rounded-2xl px-3 py-4 text-left transition-all border ${filterListingType === 'seeking_berth' ? 'bg-emerald-500/15 border-emerald-400/25 shadow-lg shadow-emerald-500/10' : 'bg-white/2 border-white/6 hover:bg-white/4'}`}
                             >
                                 <span aria-hidden="true" className="text-2xl block mb-1">
                                     🧭
@@ -201,7 +201,7 @@ export const CrewBrowseBoard: React.FC<CrewBrowseBoardProps> = React.memo(
                                         setFilterLocationCountry(e.target.value);
                                         setFilterLocationState('');
                                     }}
-                                    className="w-full bg-white/[0.04] border border-white/[0.06] rounded-2xl px-4 py-3 text-sm text-white focus:outline-none focus:border-sky-500/30 transition-colors appearance-none"
+                                    className="w-full bg-white/4 border border-white/6 rounded-2xl px-4 py-3 text-sm text-white focus:outline-hidden focus:border-sky-500/30 transition-colors appearance-none"
                                     style={selectStyle}
                                 >
                                     <option value="" className="bg-[#1a1d2e]">
@@ -217,7 +217,7 @@ export const CrewBrowseBoard: React.FC<CrewBrowseBoardProps> = React.memo(
                                     <select
                                         value={filterLocationState}
                                         onChange={(e) => setFilterLocationState(e.target.value)}
-                                        className="w-full bg-white/[0.04] border border-white/[0.06] rounded-2xl px-4 py-3 text-sm text-white focus:outline-none focus:border-sky-500/30 transition-colors appearance-none"
+                                        className="w-full bg-white/4 border border-white/6 rounded-2xl px-4 py-3 text-sm text-white focus:outline-hidden focus:border-sky-500/30 transition-colors appearance-none"
                                         style={selectStyle}
                                     >
                                         <option value="" className="bg-[#1a1d2e]">
@@ -253,7 +253,7 @@ export const CrewBrowseBoard: React.FC<CrewBrowseBoardProps> = React.memo(
                             }
                         }}
                         disabled={!hasSearched && !filterListingType}
-                        className={`w-full py-4 rounded-2xl font-bold text-base transition-all active:scale-[0.97] shadow-2xl ${!hasSearched && !filterListingType ? 'bg-white/[0.06] text-white/40 cursor-not-allowed' : 'bg-gradient-to-r from-emerald-500 to-sky-600 text-white shadow-emerald-500/20'}`}
+                        className={`w-full py-4 rounded-2xl font-bold text-base transition-all active:scale-[0.97] shadow-2xl ${!hasSearched && !filterListingType ? 'bg-white/6 text-white/40 cursor-not-allowed' : 'bg-linear-to-r from-emerald-500 to-sky-600 text-white shadow-emerald-500/20'}`}
                     >
                         {hasSearched ? '↻ Change search' : 'Show Crew List'}
                     </button>
@@ -286,7 +286,7 @@ export const CrewBrowseBoard: React.FC<CrewBrowseBoardProps> = React.memo(
                         <button
                             aria-label="To Start"
                             onClick={goToStart}
-                            className="px-6 py-3 rounded-2xl bg-gradient-to-r from-emerald-500/25 to-sky-500/25 border border-emerald-400/20 text-emerald-300 font-bold text-sm transition-all active:scale-95 mt-4"
+                            className="px-6 py-3 rounded-2xl bg-linear-to-r from-emerald-500/25 to-sky-500/25 border border-emerald-400/20 text-emerald-300 font-bold text-sm transition-all active:scale-95 mt-4"
                         >
                             ↩ Review profiles
                         </button>
@@ -340,10 +340,10 @@ export const CrewBrowseBoard: React.FC<CrewBrowseBoardProps> = React.memo(
                                                 ? 'transform 0.25s ease-out, opacity 0.25s ease-out'
                                                 : 'none',
                                     }}
-                                    className="rounded-3xl bg-gradient-to-b from-white/[0.04] to-white/[0.01] border border-white/[0.08] overflow-hidden shadow-2xl"
+                                    className="rounded-3xl bg-linear-to-b from-white/4 to-white/1 border border-white/8 overflow-hidden shadow-2xl"
                                 >
                                     {/* Large avatar */}
-                                    <div className="relative w-full aspect-[4/3] bg-gradient-to-br from-slate-800 to-slate-900 overflow-hidden">
+                                    <div className="relative w-full aspect-4/3 bg-linear-to-br from-slate-800 to-slate-900 overflow-hidden">
                                         {allPhotos.length > 0 ? (
                                             <>
                                                 <SafeImage
@@ -389,7 +389,7 @@ export const CrewBrowseBoard: React.FC<CrewBrowseBoardProps> = React.memo(
                                                 </span>
                                             </div>
                                         )}
-                                        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
+                                        <div className="absolute inset-0 bg-linear-to-t from-black/80 via-transparent to-transparent" />
                                         <div className="absolute bottom-0 left-0 right-0 p-5">
                                             <div className="flex items-end justify-between">
                                                 <div>
@@ -437,17 +437,17 @@ export const CrewBrowseBoard: React.FC<CrewBrowseBoardProps> = React.memo(
                                     <div className="p-5 space-y-4">
                                         <div className="flex flex-wrap gap-2">
                                             {broadArea && (
-                                                <span className="px-3 py-1.5 rounded-xl bg-white/[0.04] text-xs text-white/60 border border-white/[0.06]">
+                                                <span className="px-3 py-1.5 rounded-xl bg-white/4 text-xs text-white/60 border border-white/6">
                                                     📍 {broadArea}
                                                 </span>
                                             )}
                                             {card.sailing_region && (
-                                                <span className="px-3 py-1.5 rounded-xl bg-white/[0.04] text-xs text-white/60 border border-white/[0.06]">
+                                                <span className="px-3 py-1.5 rounded-xl bg-white/4 text-xs text-white/60 border border-white/6">
                                                     ⛵ {card.sailing_region}
                                                 </span>
                                             )}
                                             {card.sailing_experience && (
-                                                <span className="px-3 py-1.5 rounded-xl bg-white/[0.04] text-xs text-white/60 border border-white/[0.06]">
+                                                <span className="px-3 py-1.5 rounded-xl bg-white/4 text-xs text-white/60 border border-white/6">
                                                     🧭 {card.sailing_experience}
                                                 </span>
                                             )}
@@ -509,7 +509,7 @@ export const CrewBrowseBoard: React.FC<CrewBrowseBoardProps> = React.memo(
                                             <button
                                                 aria-label={`View accepted introduction with ${card.display_name}`}
                                                 onClick={onOpenIntroductions}
-                                                className="flex-1 py-3.5 rounded-2xl bg-gradient-to-r from-emerald-500 to-sky-600 text-sm font-bold text-white shadow-xl shadow-emerald-500/15 transition-all active:scale-[0.97]"
+                                                className="flex-1 py-3.5 rounded-2xl bg-linear-to-r from-emerald-500 to-sky-600 text-sm font-bold text-white shadow-xl shadow-emerald-500/15 transition-all active:scale-[0.97]"
                                             >
                                                 ✓ Connected · View introduction
                                             </button>
@@ -521,7 +521,7 @@ export const CrewBrowseBoard: React.FC<CrewBrowseBoardProps> = React.memo(
                                                         : `Send introduction to ${card.display_name}`
                                                 }
                                                 onClick={() => onLike(card)}
-                                                className={`flex-1 py-3.5 rounded-2xl text-sm font-bold transition-all active:scale-[0.97] ${isLiked ? 'border border-emerald-400/20 bg-emerald-500/[0.10] text-emerald-200' : 'bg-gradient-to-r from-emerald-500 to-sky-600 text-white shadow-xl shadow-emerald-500/15'}`}
+                                                className={`flex-1 py-3.5 rounded-2xl text-sm font-bold transition-all active:scale-[0.97] ${isLiked ? 'border border-emerald-400/20 bg-emerald-500/10 text-emerald-200' : 'bg-linear-to-r from-emerald-500 to-sky-600 text-white shadow-xl shadow-emerald-500/15'}`}
                                             >
                                                 {isLiked ? '✓ Introduction sent' : '✉️ Send introduction'}
                                             </button>
@@ -533,7 +533,7 @@ export const CrewBrowseBoard: React.FC<CrewBrowseBoardProps> = React.memo(
                                                     setShowSuperLikeModal(card);
                                                     setSuperLikeMessage('');
                                                 }}
-                                                className="w-14 rounded-2xl flex items-center justify-center text-lg transition-all active:scale-90 bg-sky-500/[0.10] border border-sky-400/20 text-sky-200 hover:bg-sky-500/[0.16]"
+                                                className="w-14 rounded-2xl flex items-center justify-center text-lg transition-all active:scale-90 bg-sky-500/10 border border-sky-400/20 text-sky-200 hover:bg-sky-500/16"
                                                 title="Send an introduction with a note"
                                             >
                                                 ✎
@@ -547,7 +547,7 @@ export const CrewBrowseBoard: React.FC<CrewBrowseBoardProps> = React.memo(
                                                         showActionMenu === card.user_id ? null : card.user_id,
                                                     )
                                                 }
-                                                className="w-10 rounded-2xl flex items-center justify-center text-lg transition-all active:scale-90 bg-white/[0.03] border border-white/[0.06] text-white/50 hover:text-white/50"
+                                                className="w-10 rounded-2xl flex items-center justify-center text-lg transition-all active:scale-90 bg-white/3 border border-white/6 text-white/50 hover:text-white/50"
                                             >
                                                 ⋮
                                             </button>
@@ -566,7 +566,7 @@ export const CrewBrowseBoard: React.FC<CrewBrowseBoardProps> = React.memo(
                                                             setShowReportModal(card.user_id);
                                                             setShowActionMenu(null);
                                                         }}
-                                                        className="w-full px-4 py-3 text-left text-sm text-red-400/60 hover:bg-red-500/10 transition-colors border-t border-white/[0.05]"
+                                                        className="w-full px-4 py-3 text-left text-sm text-red-400/60 hover:bg-red-500/10 transition-colors border-t border-white/5"
                                                     >
                                                         🚩 Report profile
                                                     </button>
@@ -580,7 +580,7 @@ export const CrewBrowseBoard: React.FC<CrewBrowseBoardProps> = React.memo(
 
                         {/* Navigation buttons */}
                         <div className="fixed left-0 right-0 bottom-0 z-10">
-                            <div className="h-8 bg-gradient-to-t from-[#0c1220] to-transparent" />
+                            <div className="h-8 bg-linear-to-t from-[#0c1220] to-transparent" />
                             <div
                                 className="bg-[#0c1220] px-4"
                                 style={{ paddingBottom: 'calc(64px + env(safe-area-inset-bottom) + 72px)' }}
@@ -590,7 +590,7 @@ export const CrewBrowseBoard: React.FC<CrewBrowseBoardProps> = React.memo(
                                         aria-label="Go to previous step"
                                         onClick={goToPrevCard}
                                         disabled={currentCardIndex <= 0}
-                                        className={`px-5 py-2.5 rounded-xl text-sm font-semibold transition-all ${currentCardIndex <= 0 ? 'text-white/40 cursor-not-allowed' : 'text-white/50 bg-white/[0.03] border border-white/[0.06] active:scale-95'}`}
+                                        className={`px-5 py-2.5 rounded-xl text-sm font-semibold transition-all ${currentCardIndex <= 0 ? 'text-white/40 cursor-not-allowed' : 'text-white/50 bg-white/3 border border-white/6 active:scale-95'}`}
                                     >
                                         ‹ Previous
                                     </button>
@@ -616,7 +616,7 @@ export const CrewBrowseBoard: React.FC<CrewBrowseBoardProps> = React.memo(
                                     <button
                                         aria-label="Show next crew listing"
                                         onClick={goToNextCard}
-                                        className="px-5 py-2.5 rounded-xl text-sm font-semibold text-white/50 bg-white/[0.03] border border-white/[0.06] transition-all active:scale-95"
+                                        className="px-5 py-2.5 rounded-xl text-sm font-semibold text-white/50 bg-white/3 border border-white/6 transition-all active:scale-95"
                                     >
                                         Next ›
                                     </button>

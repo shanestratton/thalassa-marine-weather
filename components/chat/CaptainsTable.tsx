@@ -47,15 +47,15 @@ const TAG_GROUP_ACCENT: Record<
 > = {
     sea_state: {
         active: 'bg-sky-500/15 text-sky-200 border-sky-400/30',
-        idle: 'bg-white/[0.03] text-white/50 border-white/[0.06] hover:bg-white/[0.06] hover:text-white/70',
+        idle: 'bg-white/3 text-white/50 border-white/6 hover:bg-white/6 hover:text-white/70',
     },
     provisioning: {
         active: 'bg-emerald-500/15 text-emerald-200 border-emerald-400/30',
-        idle: 'bg-white/[0.03] text-white/50 border-white/[0.06] hover:bg-white/[0.06] hover:text-white/70',
+        idle: 'bg-white/3 text-white/50 border-white/6 hover:bg-white/6 hover:text-white/70',
     },
     gear: {
         active: 'bg-amber-500/15 text-amber-200 border-amber-400/30',
-        idle: 'bg-white/[0.03] text-white/50 border-white/[0.06] hover:bg-white/[0.06] hover:text-white/70',
+        idle: 'bg-white/3 text-white/50 border-white/6 hover:bg-white/6 hover:text-white/70',
     },
 };
 
@@ -275,7 +275,7 @@ const RecipeDetail: React.FC<RecipeDetailProps> = ({ recipe, onClose, onRated })
     return (
         <OverlayPortal
             layer="nested"
-            className="flex items-center justify-center bg-black/70 backdrop-blur-sm animate-in fade-in duration-200 p-4 pb-[calc(4rem+env(safe-area-inset-bottom)+1rem)] pt-[max(1rem,env(safe-area-inset-top))]"
+            className="flex items-center justify-center bg-black/70 backdrop-blur-xs animate-in fade-in duration-200 p-4 pb-[calc(4rem+env(safe-area-inset-bottom)+1rem)] pt-[max(1rem,env(safe-area-inset-top))]"
             onClick={onClose}
             role="presentation"
         >
@@ -285,7 +285,7 @@ const RecipeDetail: React.FC<RecipeDetailProps> = ({ recipe, onClose, onRated })
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby="recipe-detail-title"
-                className="w-full max-w-lg bg-slate-900 border border-white/[0.1] rounded-3xl max-h-full flex flex-col shadow-2xl animate-in fade-in duration-300"
+                className="w-full max-w-lg bg-slate-900 border border-white/10 rounded-3xl max-h-full flex flex-col shadow-2xl animate-in fade-in duration-300"
                 onClick={(e) => e.stopPropagation()}
             >
                 {/* Hero image or fallback — back chevron at top-left
@@ -302,11 +302,11 @@ const RecipeDetail: React.FC<RecipeDetailProps> = ({ recipe, onClose, onRated })
                             onError={() => setImageBroken(true)}
                         />
                         {/* Galley light vignette — smooths out harsh galley lighting */}
-                        <div className="absolute inset-0 bg-gradient-to-t from-slate-900 via-transparent to-black/10 rounded-t-3xl" />
+                        <div className="absolute inset-0 bg-linear-to-t from-slate-900 via-transparent to-black/10 rounded-t-3xl" />
                         <button
                             ref={backButtonRef}
                             onClick={onClose}
-                            className="absolute top-3 left-3 w-10 h-10 rounded-full bg-black/50 backdrop-blur-sm flex items-center justify-center text-white active:scale-90 transition-transform"
+                            className="absolute top-3 left-3 w-10 h-10 rounded-full bg-black/50 backdrop-blur-xs flex items-center justify-center text-white active:scale-90 transition-transform"
                             aria-label="Back to Recipe Library"
                         >
                             <svg
@@ -321,14 +321,14 @@ const RecipeDetail: React.FC<RecipeDetailProps> = ({ recipe, onClose, onRated })
                         </button>
                         <button
                             onClick={onClose}
-                            className="absolute top-3 right-3 w-8 h-8 rounded-full bg-black/50 backdrop-blur-sm flex items-center justify-center text-white text-xs"
+                            className="absolute top-3 right-3 w-8 h-8 rounded-full bg-black/50 backdrop-blur-xs flex items-center justify-center text-white text-xs"
                             aria-label="Close recipe detail"
                         >
                             ✕
                         </button>
                     </div>
                 ) : (
-                    <div className="relative flex items-center justify-center h-32 bg-gradient-to-br from-amber-500/10 to-orange-500/10 rounded-t-3xl">
+                    <div className="relative flex items-center justify-center h-32 bg-linear-to-br from-amber-500/10 to-orange-500/10 rounded-t-3xl">
                         <span className="text-5xl">{getFallbackIcon(recipe.supabaseId)}</span>
                         <button
                             ref={backButtonRef}
@@ -373,7 +373,7 @@ const RecipeDetail: React.FC<RecipeDetailProps> = ({ recipe, onClose, onRated })
                     </div>
 
                     {/* Your rating */}
-                    <div className="p-3 rounded-xl bg-amber-500/[0.05] border border-amber-500/15">
+                    <div className="p-3 rounded-xl bg-amber-500/5 border border-amber-500/15">
                         <p className="text-[11px] text-amber-400/80 font-bold uppercase tracking-wider mb-2">
                             Your Rating
                         </p>
@@ -400,7 +400,7 @@ const RecipeDetail: React.FC<RecipeDetailProps> = ({ recipe, onClose, onRated })
                                 {ingredients.map((ing, i) => (
                                     <div
                                         key={i}
-                                        className="flex items-center gap-2 py-1.5 border-b border-white/[0.04] last:border-0"
+                                        className="flex items-center gap-2 py-1.5 border-b border-white/4 last:border-0"
                                     >
                                         <span className="text-[11px] text-amber-400">•</span>
                                         <span className="text-xs text-white flex-1">{ing.name}</span>
@@ -438,7 +438,7 @@ const RecipeDetail: React.FC<RecipeDetailProps> = ({ recipe, onClose, onRated })
                         RecipeCard.tsx already decodes inline, so the
                         channel feed gets a tappable card — image,
                         servings, cook time, full details on tap. */}
-                    <div className="pt-2 border-t border-white/[0.04]">
+                    <div className="pt-2 border-t border-white/4">
                         {!shareOpen ? (
                             <button
                                 onClick={() => {
@@ -452,7 +452,7 @@ const RecipeDetail: React.FC<RecipeDetailProps> = ({ recipe, onClose, onRated })
                                 <span>Post to Scuttlebutt</span>
                             </button>
                         ) : (
-                            <div className="space-y-3 p-3 rounded-xl bg-sky-500/[0.05] border border-sky-500/15">
+                            <div className="space-y-3 p-3 rounded-xl bg-sky-500/5 border border-sky-500/15">
                                 <div className="flex items-center justify-between">
                                     <p className="text-[11px] font-bold text-sky-300 uppercase tracking-wider">
                                         📣 Post to Scuttlebutt
@@ -490,7 +490,7 @@ const RecipeDetail: React.FC<RecipeDetailProps> = ({ recipe, onClose, onRated })
                                                         className={`px-2.5 py-1 min-h-[44px] rounded-full text-[11px] font-bold border transition-colors ${
                                                             isSelected
                                                                 ? 'bg-sky-500/20 border-sky-400/40 text-sky-200'
-                                                                : 'bg-white/[0.03] border-white/[0.06] text-gray-400 hover:bg-white/[0.06]'
+                                                                : 'bg-white/3 border-white/6 text-gray-400 hover:bg-white/6'
                                                         }`}
                                                     >
                                                         {ch.icon} {ch.name}
@@ -511,7 +511,7 @@ const RecipeDetail: React.FC<RecipeDetailProps> = ({ recipe, onClose, onRated })
                                         onChange={(e) => setShareNote(e.target.value.slice(0, 280))}
                                         placeholder="Made this on the run to Cairns, crew loved it..."
                                         rows={2}
-                                        className="w-full px-2.5 py-2 rounded-lg bg-slate-900/60 border border-white/[0.08] text-xs text-white placeholder:text-gray-400 focus:outline-none focus:border-sky-400/40 resize-none"
+                                        className="w-full px-2.5 py-2 rounded-lg bg-slate-900/60 border border-white/8 text-xs text-white placeholder:text-gray-400 focus:outline-hidden focus:border-sky-400/40 resize-none"
                                     />
                                     <p className="text-[10px] text-gray-400 mt-1 text-right">{shareNote.length}/280</p>
                                 </div>
@@ -549,7 +549,7 @@ const RecipeDetail: React.FC<RecipeDetailProps> = ({ recipe, onClose, onRated })
 
                     {/* Report image — only show if recipe has a user-uploaded image */}
                     {recipe.image && (
-                        <div className="pt-2 border-t border-white/[0.04]">
+                        <div className="pt-2 border-t border-white/4">
                             <button
                                 onClick={handleReportImage}
                                 disabled={reportSent}
@@ -737,13 +737,13 @@ export const CaptainsTable: React.FC<CaptainsTableProps> = ({ className, fullPag
                     onClick={handleToggle}
                     className={`w-full flex items-center gap-3 p-3.5 rounded-2xl border transition-all active:scale-[0.98] ${
                         expanded
-                            ? 'bg-white/[0.05] border-white/[0.08]'
-                            : 'bg-white/[0.02] hover:bg-white/[0.05] border-white/[0.03] hover:border-white/[0.08]'
+                            ? 'bg-white/5 border-white/8'
+                            : 'bg-white/2 hover:bg-white/5 border-white/3 hover:border-white/8'
                     }`}
                     aria-expanded={expanded}
                     aria-label="The Captain's Table — Community Recipe Hub"
                 >
-                    <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-white/[0.06] to-white/[0.02] border border-white/[0.05] flex items-center justify-center text-xl flex-shrink-0">
+                    <div className="w-11 h-11 rounded-xl bg-linear-to-br from-white/6 to-white/2 border border-white/5 flex items-center justify-center text-xl shrink-0">
                         ☸
                     </div>
                     <div className="flex-1 text-left">
@@ -777,7 +777,7 @@ export const CaptainsTable: React.FC<CaptainsTableProps> = ({ className, fullPag
                                     value={searchQuery}
                                     onChange={(e) => setSearchQuery(e.target.value)}
                                     placeholder="Search recipes…"
-                                    className="w-full h-full bg-white/[0.04] border border-white/[0.08] rounded-xl pl-9 pr-3 py-2.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-amber-500/30"
+                                    className="w-full h-full bg-white/4 border border-white/8 rounded-xl pl-9 pr-3 py-2.5 text-xs text-white placeholder-gray-500 focus:outline-hidden focus:border-amber-500/30"
                                     data-no-keyboard-scroll
                                 />
                                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-xs">
@@ -792,7 +792,7 @@ export const CaptainsTable: React.FC<CaptainsTableProps> = ({ className, fullPag
                                     onChange={(e) => setBilgeInput(e.target.value)}
                                     onKeyDown={handleBilgeKeyDown}
                                     placeholder="Type ingredient, press Enter… (prefix - to exclude)"
-                                    className="w-full h-full bg-white/[0.04] border border-sky-500/20 rounded-xl pl-9 pr-3 py-2.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-sky-500/40"
+                                    className="w-full h-full bg-white/4 border border-sky-500/20 rounded-xl pl-9 pr-3 py-2.5 text-xs text-white placeholder-gray-500 focus:outline-hidden focus:border-sky-500/40"
                                     data-no-keyboard-scroll
                                 />
                                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sky-400 text-xs">
@@ -812,7 +812,7 @@ export const CaptainsTable: React.FC<CaptainsTableProps> = ({ className, fullPag
                             className={`px-4 py-2.5 rounded-xl text-[11px] font-bold transition-all active:scale-95 whitespace-nowrap flex items-center gap-1.5 ${
                                 bilgeDiveMode
                                     ? 'bg-sky-500/15 text-sky-300 border border-sky-500/25'
-                                    : 'bg-white/[0.04] text-gray-400 border border-white/[0.06] hover:bg-white/[0.06]'
+                                    : 'bg-white/4 text-gray-400 border border-white/6 hover:bg-white/6'
                             }`}
                             title="Bilge Dive — search by ingredients you have"
                         >
@@ -857,7 +857,7 @@ export const CaptainsTable: React.FC<CaptainsTableProps> = ({ className, fullPag
                             {tagGroups.map((group) => (
                                 <div key={group.label} className="flex items-center gap-3">
                                     {/* Fixed-width label — keeps pill buttons vertically aligned */}
-                                    <span className="text-[10px] text-gray-500/70 font-black uppercase tracking-[0.12em] whitespace-nowrap shrink-0 w-[5.5rem] flex items-center gap-1.5">
+                                    <span className="text-[10px] text-gray-500/70 font-black uppercase tracking-[0.12em] whitespace-nowrap shrink-0 w-22 flex items-center gap-1.5">
                                         <span className="text-xs opacity-60 leading-none">{group.icon}</span>
                                         <span>{group.label}</span>
                                     </span>
@@ -887,7 +887,7 @@ export const CaptainsTable: React.FC<CaptainsTableProps> = ({ className, fullPag
                     )}
 
                     {/* ── Sort + Actions Row ── */}
-                    <div className="flex items-center gap-2 pt-1 border-t border-white/[0.04]">
+                    <div className="flex items-center gap-2 pt-1 border-t border-white/4">
                         <div className="flex gap-2 flex-1 overflow-x-auto no-scrollbar">
                             {sortOptions.map((opt) => (
                                 <button
@@ -898,8 +898,8 @@ export const CaptainsTable: React.FC<CaptainsTableProps> = ({ className, fullPag
                                     }}
                                     className={`flex items-center gap-1.5 px-3 py-1.5 min-h-[44px] rounded-full text-[11px] font-bold transition-all whitespace-nowrap ${
                                         sortBy === opt.key
-                                            ? 'bg-white/[0.08] text-white border border-white/[0.12]'
-                                            : 'bg-white/[0.03] text-gray-500 border border-white/[0.06] hover:bg-white/[0.06] hover:text-gray-300'
+                                            ? 'bg-white/8 text-white border border-white/12'
+                                            : 'bg-white/3 text-gray-500 border border-white/6 hover:bg-white/6 hover:text-gray-300'
                                     }`}
                                 >
                                     <span className="text-sm leading-none">{opt.emoji}</span>
@@ -915,7 +915,7 @@ export const CaptainsTable: React.FC<CaptainsTableProps> = ({ className, fullPag
                                 className={`flex items-center gap-1.5 px-3 py-1.5 min-h-[44px] rounded-full text-[11px] font-bold transition-all whitespace-nowrap ${
                                     showFavouritesOnly
                                         ? 'bg-rose-500/15 text-rose-300 border border-rose-500/25'
-                                        : 'bg-white/[0.03] text-gray-500 border border-white/[0.06] hover:bg-white/[0.06] hover:text-gray-300'
+                                        : 'bg-white/3 text-gray-500 border border-white/6 hover:bg-white/6 hover:text-gray-300'
                                 }`}
                             >
                                 <span className="text-sm leading-none">{showFavouritesOnly ? '♥' : '♡'}</span>
@@ -1025,7 +1025,7 @@ export const CaptainsTable: React.FC<CaptainsTableProps> = ({ className, fullPag
                                     <div
                                         key={recipe.supabaseId}
                                         data-recipe-card={recipe.supabaseId}
-                                        className="group relative rounded-xl border border-white/[0.06] bg-white/[0.03] transition-all hover:border-amber-500/15 hover:bg-amber-500/[0.04]"
+                                        className="group relative rounded-xl border border-white/6 bg-white/3 transition-all hover:border-amber-500/15 hover:bg-amber-500/4"
                                     >
                                         <button
                                             type="button"
@@ -1034,11 +1034,11 @@ export const CaptainsTable: React.FC<CaptainsTableProps> = ({ className, fullPag
                                                 triggerHaptic('light');
                                             }}
                                             aria-label={`Open recipe: ${recipe.title}`}
-                                            className="flex w-full items-stretch gap-3 rounded-xl p-2.5 pr-12 text-left transition-transform active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
+                                            className="flex w-full items-stretch gap-3 rounded-xl p-2.5 pr-12 text-left transition-transform active:scale-[0.98] focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-amber-400/70"
                                         >
                                             {/* Thumbnail with galley light filter */}
                                             {recipe.image && !brokenImageIds.has(recipe.supabaseId) ? (
-                                                <div className="w-16 h-16 rounded-lg flex-shrink-0 overflow-hidden relative">
+                                                <div className="w-16 h-16 rounded-lg shrink-0 overflow-hidden relative">
                                                     <SafeImage
                                                         src={recipe.image}
                                                         alt=""
@@ -1055,10 +1055,10 @@ export const CaptainsTable: React.FC<CaptainsTableProps> = ({ className, fullPag
                                                             })
                                                         }
                                                     />
-                                                    <div className="absolute inset-0 bg-gradient-to-t from-black/20 via-transparent to-black/5 rounded-lg pointer-events-none" />
+                                                    <div className="absolute inset-0 bg-linear-to-t from-black/20 via-transparent to-black/5 rounded-lg pointer-events-none" />
                                                 </div>
                                             ) : (
-                                                <div className="w-16 h-16 rounded-lg bg-amber-500/10 flex items-center justify-center text-2xl flex-shrink-0">
+                                                <div className="w-16 h-16 rounded-lg bg-amber-500/10 flex items-center justify-center text-2xl shrink-0">
                                                     {getFallbackIcon(recipe.supabaseId)}
                                                 </div>
                                             )}
@@ -1113,10 +1113,10 @@ export const CaptainsTable: React.FC<CaptainsTableProps> = ({ className, fullPag
                                         <button
                                             type="button"
                                             onClick={(e) => handleToggleFavourite(recipe.supabaseId, e)}
-                                            className={`absolute right-2.5 top-2.5 z-10 flex h-8 w-8 items-center justify-center rounded-full text-sm transition-all active:scale-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-400/70 ${
+                                            className={`absolute right-2.5 top-2.5 z-10 flex h-8 w-8 items-center justify-center rounded-full text-sm transition-all active:scale-90 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-rose-400/70 ${
                                                 isFav
                                                     ? 'text-rose-400 bg-rose-500/10'
-                                                    : 'text-gray-500 hover:text-gray-400 hover:bg-white/[0.05]'
+                                                    : 'text-gray-500 hover:text-gray-400 hover:bg-white/5'
                                             }`}
                                             aria-label={isFav ? 'Remove from favourites' : 'Add to favourites'}
                                         >

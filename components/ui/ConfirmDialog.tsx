@@ -61,8 +61,8 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
     if (!isOpen) return null;
 
     const confirmBg = destructive
-        ? 'bg-gradient-to-r from-red-600 to-red-600 shadow-red-500/20 hover:from-red-500 hover:to-red-500'
-        : 'bg-gradient-to-r from-sky-600 to-sky-600 shadow-sky-500/20 hover:from-sky-500 hover:to-sky-500';
+        ? 'bg-linear-to-r from-red-600 to-red-600 shadow-red-500/20 hover:from-red-500 hover:to-red-500'
+        : 'bg-linear-to-r from-sky-600 to-sky-600 shadow-sky-500/20 hover:from-sky-500 hover:to-sky-500';
 
     return (
         <OverlayPortal

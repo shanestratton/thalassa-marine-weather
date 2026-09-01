@@ -70,7 +70,7 @@ export const ReportModal: React.FC<ReportModalProps> = React.memo(
                             : `report-message-context${reportError ? ' report-submit-error' : ''}`
                     }
                     aria-busy={reportSubmitting}
-                    className="relative w-[85%] max-w-sm p-5 rounded-2xl bg-slate-900/95 border border-white/[0.08] shadow-2xl fade-slide-down"
+                    className="relative w-[85%] max-w-sm p-5 rounded-2xl bg-slate-900/95 border border-white/8 shadow-2xl fade-slide-down"
                     onClick={(e) => e.stopPropagation()}
                 >
                     {reportSent ? (
@@ -87,7 +87,7 @@ export const ReportModal: React.FC<ReportModalProps> = React.memo(
                             <button
                                 ref={closeButtonRef}
                                 onClick={onClose}
-                                className="mt-5 w-full py-2.5 rounded-xl bg-white/[0.06] text-xs text-white/70 hover:bg-white/[0.1] transition-colors"
+                                className="mt-5 w-full py-2.5 rounded-xl bg-white/6 text-xs text-white/70 hover:bg-white/10 transition-colors"
                             >
                                 Done
                             </button>
@@ -111,7 +111,7 @@ export const ReportModal: React.FC<ReportModalProps> = React.memo(
                                         className={`w-full text-left px-3 py-2 rounded-xl text-xs transition-all ${
                                             reportReason === r
                                                 ? 'bg-amber-500/10 border border-amber-500/20 text-amber-400'
-                                                : 'bg-white/[0.02] border border-white/[0.04] text-white/60 hover:bg-white/[0.04]'
+                                                : 'bg-white/2 border border-white/4 text-white/60 hover:bg-white/4'
                                         }`}
                                     >
                                         {r === 'spam' && 'Spam'}
@@ -128,7 +128,7 @@ export const ReportModal: React.FC<ReportModalProps> = React.memo(
                                     aria-label="Cancel report"
                                     onClick={onClose}
                                     disabled={reportSubmitting}
-                                    className="flex-1 py-2.5 rounded-xl bg-white/[0.03] text-xs text-white/60 hover:bg-white/[0.06] transition-colors"
+                                    className="flex-1 py-2.5 rounded-xl bg-white/3 text-xs text-white/60 hover:bg-white/6 transition-colors"
                                 >
                                     Cancel
                                 </button>
@@ -210,7 +210,7 @@ export const PinDropSheet: React.FC<PinDropSheetProps> = React.memo(
             <section
                 role="region"
                 aria-label="Share my current location"
-                className="flex-shrink-0 border-t border-emerald-400/[0.14] bg-slate-900 px-4 py-4 shadow-[0_-12px_30px_rgba(0,0,0,0.16)]"
+                className="shrink-0 border-t border-emerald-400/[0.14] bg-slate-900 px-4 py-4 shadow-[0_-12px_30px_rgba(0,0,0,0.16)]"
             >
                 <div className="flex items-start justify-between gap-4 mb-3">
                     <div>
@@ -225,7 +225,7 @@ export const PinDropSheet: React.FC<PinDropSheetProps> = React.memo(
                     <button
                         onClick={onClose}
                         disabled={sending}
-                        className="w-10 h-10 rounded-xl bg-white/[0.04] border border-white/[0.07] text-white/60 hover:text-white/90 disabled:opacity-40 transition-colors flex items-center justify-center flex-shrink-0"
+                        className="w-10 h-10 rounded-xl bg-white/4 border border-white/[0.07] text-white/60 hover:text-white/90 disabled:opacity-40 transition-colors flex items-center justify-center shrink-0"
                         aria-label="Close current location sheet"
                     >
                         ✕
@@ -233,16 +233,16 @@ export const PinDropSheet: React.FC<PinDropSheetProps> = React.memo(
                 </div>
                 {pinLoading ? (
                     <div
-                        className="flex items-center justify-center gap-3 py-8 rounded-2xl bg-white/[0.025] border border-white/[0.06]"
+                        className="flex items-center justify-center gap-3 py-8 rounded-2xl bg-white/2.5 border border-white/6"
                         aria-live="polite"
                     >
                         <div className="w-5 h-5 border-2 border-sky-500/30 rounded-full border-t-sky-500 animate-spin" />
                         <span className="text-sm text-white/60">Finding a fresh GPS fix…</span>
                     </div>
                 ) : locationError || !canShare ? (
-                    <div className="rounded-2xl border border-amber-400/20 bg-amber-400/[0.06] p-4" role="alert">
+                    <div className="rounded-2xl border border-amber-400/20 bg-amber-400/6 p-4" role="alert">
                         <div className="flex gap-3">
-                            <span className="w-9 h-9 rounded-xl bg-amber-400/10 flex items-center justify-center flex-shrink-0">
+                            <span className="w-9 h-9 rounded-xl bg-amber-400/10 flex items-center justify-center shrink-0">
                                 ⌁
                             </span>
                             <div>
@@ -263,7 +263,7 @@ export const PinDropSheet: React.FC<PinDropSheetProps> = React.memo(
                             <button
                                 type="button"
                                 onClick={onChoosePlace}
-                                className="min-h-[44px] rounded-xl bg-white/[0.05] border border-white/[0.09] text-xs font-bold text-white/75 active:scale-[0.98] transition-transform"
+                                className="min-h-[44px] rounded-xl bg-white/5 border border-white/9 text-xs font-bold text-white/75 active:scale-[0.98] transition-transform"
                             >
                                 Drop a place
                             </button>
@@ -271,7 +271,7 @@ export const PinDropSheet: React.FC<PinDropSheetProps> = React.memo(
                     </div>
                 ) : (
                     <>
-                        <div className="flex items-center justify-between gap-3 rounded-xl border border-emerald-400/20 bg-emerald-400/[0.06] px-3 py-2.5 mb-2">
+                        <div className="flex items-center justify-between gap-3 rounded-xl border border-emerald-400/20 bg-emerald-400/6 px-3 py-2.5 mb-2">
                             <div className="flex items-center gap-2 min-w-0">
                                 <span className="w-7 h-7 rounded-lg bg-emerald-300/15 text-emerald-200 flex items-center justify-center">
                                     ●
@@ -289,7 +289,7 @@ export const PinDropSheet: React.FC<PinDropSheetProps> = React.memo(
                                 </span>
                             )}
                         </div>
-                        <div className="relative w-full h-[136px] rounded-2xl overflow-hidden border border-white/[0.1] mb-2">
+                        <div className="relative w-full h-[136px] rounded-2xl overflow-hidden border border-white/10 mb-2">
                             <SafeImage
                                 src={getStaticMapUrl(pinLat, pinLng)}
                                 alt="Map preview of your current location"
@@ -329,7 +329,7 @@ export const PinDropSheet: React.FC<PinDropSheetProps> = React.memo(
                                 onKeyDown={(e) => e.key === 'Enter' && canShare && !sending && onSendPin()}
                                 placeholder="Add a note (optional)"
                                 aria-label="Location note"
-                                className="flex-1 min-w-0 bg-white/[0.04] border border-white/[0.07] rounded-xl px-3 py-3 text-sm text-white placeholder:text-white/40 focus:outline-none focus:border-emerald-400/40 transition-colors min-h-[46px]"
+                                className="flex-1 min-w-0 bg-white/4 border border-white/[0.07] rounded-xl px-3 py-3 text-sm text-white placeholder:text-white/40 focus:outline-hidden focus:border-emerald-400/40 transition-colors min-h-[46px]"
                                 maxLength={120}
                             />
                             <button
@@ -422,7 +422,7 @@ export const PoiPickerSheet: React.FC<PoiPickerSheetProps> = React.memo(
                 // app-wide keyboard guard cannot rescue — see the class
                 // comment in index.css. Share my location (PinDropSheet,
                 // above) needs no such treatment: no internal scroll box.
-                className="thalassa-keyboard-safe-sheet flex flex-shrink-0 flex-col border-t border-sky-400/[0.14] bg-slate-900 px-4 py-4 shadow-[0_-12px_30px_rgba(0,0,0,0.16)]"
+                className="thalassa-keyboard-safe-sheet flex shrink-0 flex-col border-t border-sky-400/[0.14] bg-slate-900 px-4 py-4 shadow-[0_-12px_30px_rgba(0,0,0,0.16)]"
             >
                 <div className="flex items-start justify-between gap-4 mb-3">
                     <div>
@@ -437,7 +437,7 @@ export const PoiPickerSheet: React.FC<PoiPickerSheetProps> = React.memo(
                     <button
                         onClick={onClose}
                         disabled={sending}
-                        className="w-10 h-10 rounded-xl bg-white/[0.04] border border-white/[0.07] text-white/60 hover:text-white/90 disabled:opacity-40 transition-colors flex items-center justify-center flex-shrink-0"
+                        className="w-10 h-10 rounded-xl bg-white/4 border border-white/[0.07] text-white/60 hover:text-white/90 disabled:opacity-40 transition-colors flex items-center justify-center shrink-0"
                         aria-label="Close place picker"
                     >
                         ✕
@@ -445,7 +445,7 @@ export const PoiPickerSheet: React.FC<PoiPickerSheetProps> = React.memo(
                 </div>
                 {pinLoading ? (
                     <div
-                        className="flex items-center justify-center gap-3 py-8 rounded-2xl bg-white/[0.025] border border-white/[0.06]"
+                        className="flex items-center justify-center gap-3 py-8 rounded-2xl bg-white/2.5 border border-white/6"
                         aria-live="polite"
                     >
                         <div className="w-5 h-5 border-2 border-sky-500/30 rounded-full border-t-sky-500 animate-spin" />
@@ -457,7 +457,7 @@ export const PoiPickerSheet: React.FC<PoiPickerSheetProps> = React.memo(
                         <div className="min-h-0 flex-1 overflow-y-auto">
                             {locationError && (
                                 <p
-                                    className="rounded-xl border border-amber-400/15 bg-amber-400/[0.05] px-3 py-2 text-[11px] text-amber-100/70 mb-3"
+                                    className="rounded-xl border border-amber-400/15 bg-amber-400/5 px-3 py-2 text-[11px] text-amber-100/70 mb-3"
                                     role="status"
                                 >
                                     {locationError}
@@ -475,7 +475,7 @@ export const PoiPickerSheet: React.FC<PoiPickerSheetProps> = React.memo(
                                         onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
                                         placeholder="Search a place or marina…"
                                         aria-label="Search for a place"
-                                        className="flex-1 min-w-0 bg-white/[0.04] border border-white/[0.07] rounded-xl px-3 py-3 text-sm text-white placeholder:text-white/40 focus:outline-none focus:border-sky-500/40 transition-colors min-h-[46px]"
+                                        className="flex-1 min-w-0 bg-white/4 border border-white/[0.07] rounded-xl px-3 py-3 text-sm text-white placeholder:text-white/40 focus:outline-hidden focus:border-sky-500/40 transition-colors min-h-[46px]"
                                     />
                                     <button
                                         type="button"
@@ -503,7 +503,7 @@ export const PoiPickerSheet: React.FC<PoiPickerSheetProps> = React.memo(
                                                 key={savedPin.id}
                                                 onClick={() => onSelectSavedPin(savedPin)}
                                                 aria-label={`Use saved place ${savedPin.caption}`}
-                                                className="flex-shrink-0 max-w-[180px] flex items-center gap-2 px-3 py-2 rounded-xl bg-white/[0.04] border border-white/[0.07] hover:bg-white/[0.08] active:scale-[0.98] transition-all text-left min-h-[44px]"
+                                                className="shrink-0 max-w-[180px] flex items-center gap-2 px-3 py-2 rounded-xl bg-white/4 border border-white/[0.07] hover:bg-white/8 active:scale-[0.98] transition-all text-left min-h-[44px]"
                                             >
                                                 <span className="text-sm">📌</span>
                                                 <span className="min-w-0">
@@ -526,7 +526,7 @@ export const PoiPickerSheet: React.FC<PoiPickerSheetProps> = React.memo(
                             <div
                                 ref={poiMapRef as React.RefObject<HTMLDivElement>}
                                 aria-label="Interactive chart picker"
-                                className="thalassa-pin-map relative w-full rounded-2xl overflow-hidden border border-white/[0.1] mb-3"
+                                className="thalassa-pin-map relative w-full rounded-2xl overflow-hidden border border-white/10 mb-3"
                             >
                                 {/* Floating "snap to my location" button —
                                 overlays the map so the user always has a
@@ -537,7 +537,7 @@ export const PoiPickerSheet: React.FC<PoiPickerSheetProps> = React.memo(
                                         type="button"
                                         onClick={onRecenterToMyLocation}
                                         aria-label="Use my current location for this pin"
-                                        className="absolute bottom-3 right-3 z-10 min-h-[42px] px-3 rounded-xl bg-slate-900/90 border border-white/15 backdrop-blur active:scale-95 transition-transform flex items-center justify-center gap-1.5 shadow-lg text-xs font-bold text-white/80"
+                                        className="absolute bottom-3 right-3 z-10 min-h-[42px] px-3 rounded-xl bg-slate-900/90 border border-white/15 backdrop-blur-sm active:scale-95 transition-transform flex items-center justify-center gap-1.5 shadow-lg text-xs font-bold text-white/80"
                                     >
                                         <span>📍</span>
                                         <span>My location</span>
@@ -545,7 +545,7 @@ export const PoiPickerSheet: React.FC<PoiPickerSheetProps> = React.memo(
                                 )}
                             </div>
                             <div
-                                className={`rounded-xl border px-3 py-2.5 mb-3 ${hasSelection ? 'border-sky-300/15 bg-sky-400/[0.05]' : 'border-white/[0.07] bg-white/[0.025]'}`}
+                                className={`rounded-xl border px-3 py-2.5 mb-3 ${hasSelection ? 'border-sky-300/15 bg-sky-400/5' : 'border-white/[0.07] bg-white/2.5'}`}
                                 aria-live="polite"
                             >
                                 <p className="text-[11px] font-semibold text-white/70">
@@ -574,7 +574,7 @@ export const PoiPickerSheet: React.FC<PoiPickerSheetProps> = React.memo(
                                     onKeyDown={(e) => e.key === 'Enter' && hasSelection && !sending && onSendPoi()}
                                     placeholder="Name or note (optional)"
                                     aria-label="Place name or note"
-                                    className="flex-1 min-w-0 bg-white/[0.04] border border-white/[0.07] rounded-xl px-3 py-3 text-sm text-white placeholder:text-white/40 focus:outline-none focus:border-sky-500/40 transition-colors min-h-[46px]"
+                                    className="flex-1 min-w-0 bg-white/4 border border-white/[0.07] rounded-xl px-3 py-3 text-sm text-white placeholder:text-white/40 focus:outline-hidden focus:border-sky-500/40 transition-colors min-h-[46px]"
                                     maxLength={120}
                                 />
                                 <button
@@ -624,7 +624,7 @@ export interface TrackPickerSheetProps {
 
 export const TrackPickerSheet: React.FC<TrackPickerSheetProps> = React.memo(
     ({ voyageList, trackLoadingVoyages, trackSharing, onSendTrack, onClose }) => (
-        <div className="flex-shrink-0 border-t border-white/[0.06] bg-slate-900 px-4 py-3 max-h-[320px] overflow-hidden">
+        <div className="shrink-0 border-t border-white/6 bg-slate-900 px-4 py-3 max-h-[320px] overflow-hidden">
             <div className="flex items-center justify-between mb-2">
                 <h3 className="text-sm font-bold text-white/80">Share a Voyage</h3>
                 <button
@@ -661,9 +661,9 @@ export const TrackPickerSheet: React.FC<TrackPickerSheetProps> = React.memo(
                         return (
                             <div
                                 key={v.voyageId}
-                                className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-white/[0.03] border border-white/[0.06] hover:bg-white/[0.06] transition-all"
+                                className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-white/3 border border-white/6 hover:bg-white/6 transition-all"
                             >
-                                <div className="flex-shrink-0 w-10 h-10 rounded-xl bg-sky-500/15 flex items-center justify-center">
+                                <div className="shrink-0 w-10 h-10 rounded-xl bg-sky-500/15 flex items-center justify-center">
                                     <span className="text-lg">⛵</span>
                                 </div>
                                 <div className="flex-1 min-w-0">
@@ -676,7 +676,7 @@ export const TrackPickerSheet: React.FC<TrackPickerSheetProps> = React.memo(
                                     aria-label="Send attachment"
                                     onClick={() => onSendTrack(v)}
                                     disabled={trackSharing}
-                                    className="flex-shrink-0 px-3 py-1.5 min-h-[44px] rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 text-xs text-emerald-400/80 font-bold transition-all active:scale-95 disabled:opacity-40"
+                                    className="shrink-0 px-3 py-1.5 min-h-[44px] rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 text-xs text-emerald-400/80 font-bold transition-all active:scale-95 disabled:opacity-40"
                                 >
                                     {trackSharing ? (
                                         <div className="w-4 h-4 border-2 border-emerald-500/30 rounded-full border-t-teal-500 animate-spin" />
@@ -720,7 +720,7 @@ export const TrackDisclaimerModal: React.FC<TrackDisclaimerModalProps> = React.m
                 aria-modal="true"
                 aria-labelledby="track-disclaimer-title"
                 aria-describedby="track-disclaimer-description"
-                className="w-full max-w-sm bg-slate-900/95 border border-white/[0.08] rounded-2xl shadow-2xl overflow-hidden"
+                className="w-full max-w-sm bg-slate-900/95 border border-white/8 rounded-2xl shadow-2xl overflow-hidden"
                 onClick={(e) => e.stopPropagation()}
             >
                 <div className="px-5 pt-5 pb-3">

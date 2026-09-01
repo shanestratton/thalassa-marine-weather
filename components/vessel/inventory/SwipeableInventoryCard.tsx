@@ -88,7 +88,7 @@ export const SwipeableInventoryCard: React.FC<SwipeableInventoryCardProps> = ({
                             )}
                         </div>
                         <div
-                            className={`px-2.5 py-1 rounded-lg text-center min-w-[3rem] ${isLow ? 'bg-amber-500/20 border border-amber-500/30' : 'bg-white/5'}`}
+                            className={`px-2.5 py-1 rounded-lg text-center min-w-12 ${isLow ? 'bg-amber-500/20 border border-amber-500/30' : 'bg-white/5'}`}
                         >
                             <p className={`text-sm font-black tabular-nums ${isLow ? 'text-amber-400' : 'text-white'}`}>
                                 {item.quantity}
@@ -153,7 +153,7 @@ export const SwipeableInventoryCard: React.FC<SwipeableInventoryCardProps> = ({
                         </div>
 
                         {/* Quantity controls only */}
-                        <div className="flex items-center justify-center gap-4 py-2 bg-white/[0.03] border border-white/[0.06] rounded-xl">
+                        <div className="flex items-center justify-center gap-4 py-2 bg-white/3 border border-white/6 rounded-xl">
                             <button
                                 aria-label="Decrease quantity"
                                 onClick={(e) => {

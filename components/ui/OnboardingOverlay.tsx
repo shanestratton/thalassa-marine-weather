@@ -167,7 +167,7 @@ export const OnboardingOverlay: React.FC = () => {
     const isLast = current === slides.length - 1;
 
     return (
-        <div role="presentation" className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/80 p-6">
+        <div role="presentation" className="fixed inset-0 z-10000 flex items-center justify-center bg-black/80 p-6">
             <div className="w-full max-w-sm animate-in fade-in zoom-in-95 duration-300">
                 {/* Card */}
                 <div
@@ -181,7 +181,7 @@ export const OnboardingOverlay: React.FC = () => {
                     {/* Hero gradient */}
                     <div
                         aria-hidden="true"
-                        className={`relative h-48 bg-gradient-to-br ${slide.accent} flex items-center justify-center`}
+                        className={`relative h-48 bg-linear-to-br ${slide.accent} flex items-center justify-center`}
                     >
                         <span className="text-white/90" style={{ filter: 'drop-shadow(0 4px 20px rgba(0,0,0,0.3))' }}>
                             <slide.Icon className="w-20 h-20" />

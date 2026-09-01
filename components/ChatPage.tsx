@@ -650,7 +650,7 @@ export const ChatPage: React.FC<{ onBack?: () => void }> = React.memo(({ onBack 
                 connection state, and shows for fixed durations the user
                 set. */}
             {isMuted && mutedUntil && (
-                <div className="mx-4 mt-2 px-3 py-2 rounded-xl bg-red-500/[0.06] border border-red-500/10 text-red-400/80 text-[11px] text-center fade-slide-down">
+                <div className="mx-4 mt-2 px-3 py-2 rounded-xl bg-red-500/6 border border-red-500/10 text-red-400/80 text-[11px] text-center fade-slide-down">
                     🔇 Muted until {mutedUntil.toLocaleTimeString()} — you can still read messages
                 </div>
             )}
@@ -788,7 +788,7 @@ export const ChatPage: React.FC<{ onBack?: () => void }> = React.memo(({ onBack 
                                 aria-labelledby="join-request-title"
                             >
                                 <div className="flex items-center gap-3">
-                                    <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-purple-500/20 to-indigo-500/10 border border-purple-500/30 flex items-center justify-center text-xl">
+                                    <div className="w-11 h-11 rounded-xl bg-linear-to-br from-purple-500/20 to-indigo-500/10 border border-purple-500/30 flex items-center justify-center text-xl">
                                         🔒
                                     </div>
                                     <div>
@@ -812,7 +812,7 @@ export const ChatPage: React.FC<{ onBack?: () => void }> = React.memo(({ onBack 
                                     placeholder="Why do you want to join this channel?"
                                     aria-label="Join request message"
                                     rows={3}
-                                    className="w-full px-3.5 py-3 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white placeholder-white/30 outline-none focus:border-purple-500/40 transition-colors resize-none min-h-[80px]"
+                                    className="w-full px-3.5 py-3 rounded-xl bg-white/6 border border-white/10 text-sm text-white placeholder-white/30 outline-hidden focus:border-purple-500/40 transition-colors resize-none min-h-[80px]"
                                 />
 
                                 <div className="flex gap-2">
@@ -820,7 +820,7 @@ export const ChatPage: React.FC<{ onBack?: () => void }> = React.memo(({ onBack 
                                         ref={joinRequestCancelRef}
                                         onClick={() => setJoinRequestChannel(null)}
                                         aria-label="Cancel request"
-                                        className="flex-1 py-3 rounded-xl bg-white/[0.04] text-sm text-white/60 font-medium min-h-[48px]"
+                                        className="flex-1 py-3 rounded-xl bg-white/4 text-sm text-white/60 font-medium min-h-[48px]"
                                     >
                                         Cancel
                                     </button>
@@ -1010,7 +1010,7 @@ export const ChatPage: React.FC<{ onBack?: () => void }> = React.memo(({ onBack 
             {/* ═══════════ TRACK IMPORT STATUS TOAST ═══════════ */}
             {trackImportStatus && (
                 <div
-                    className="fixed bottom-28 left-1/2 -translate-x-1/2 z-[9998] px-5 py-3 rounded-xl shadow-2xl border max-w-[320px] text-center"
+                    className="fixed bottom-28 left-1/2 -translate-x-1/2 z-9998 px-5 py-3 rounded-xl shadow-2xl border max-w-[320px] text-center"
                     style={{
                         background: trackImportStatus!.startsWith('✅') ? 'rgba(6,78,59,0.95)' : 'rgba(127,29,29,0.95)',
                         borderColor: trackImportStatus!.startsWith('✅')

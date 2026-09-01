@@ -328,7 +328,7 @@ const AvNavPageDevelopment: React.FC<AvNavPageProps> = ({ onBack }) => {
                     className={`shrink-0 mb-3 p-4 rounded-2xl border transition-all ${
                         piHost && network.services.length > 0
                             ? 'bg-emerald-500/10 border-emerald-500/20'
-                            : 'bg-white/[0.03] border-white/[0.06]'
+                            : 'bg-white/3 border-white/6'
                     }`}
                 >
                     {/* Header */}
@@ -450,7 +450,7 @@ const AvNavPageDevelopment: React.FC<AvNavPageProps> = ({ onBack }) => {
                                     className={`px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-widest transition-all active:scale-95 ${
                                         network.scanning
                                             ? 'bg-amber-500/10 border border-amber-500/20 text-amber-400'
-                                            : 'bg-white/[0.04] border border-white/[0.08] text-gray-400 hover:bg-white/[0.08]'
+                                            : 'bg-white/4 border border-white/8 text-gray-400 hover:bg-white/8'
                                     }`}
                                 >
                                     {network.scanning ? (
@@ -515,7 +515,7 @@ const AvNavPageDevelopment: React.FC<AvNavPageProps> = ({ onBack }) => {
                                                         onChange={(e) => updateSshUsername(e.target.value)}
                                                         onFocus={scrollInputIntoView}
                                                         placeholder="Username"
-                                                        className="w-24 shrink-0 px-3 py-2 rounded-xl bg-white/[0.04] border border-white/[0.08] text-xs text-white placeholder-gray-600 focus:outline-none focus:border-amber-500/30 font-mono"
+                                                        className="w-24 shrink-0 px-3 py-2 rounded-xl bg-white/4 border border-white/8 text-xs text-white placeholder-gray-600 focus:outline-hidden focus:border-amber-500/30 font-mono"
                                                     />
                                                     <input
                                                         type="password"
@@ -523,7 +523,7 @@ const AvNavPageDevelopment: React.FC<AvNavPageProps> = ({ onBack }) => {
                                                         onChange={(e) => updateSshPassword(e.target.value)}
                                                         onFocus={scrollInputIntoView}
                                                         placeholder="Password"
-                                                        className="flex-1 px-3 py-2 rounded-xl bg-white/[0.04] border border-white/[0.08] text-xs text-white placeholder-gray-600 focus:outline-none focus:border-amber-500/30"
+                                                        className="flex-1 px-3 py-2 rounded-xl bg-white/4 border border-white/8 text-xs text-white placeholder-gray-600 focus:outline-hidden focus:border-amber-500/30"
                                                     />
                                                 </div>
                                                 <button
@@ -531,7 +531,7 @@ const AvNavPageDevelopment: React.FC<AvNavPageProps> = ({ onBack }) => {
                                                     disabled={!sshUsername || !sshPassword || provisionBusy}
                                                     className={`w-full py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all active:scale-95 ${
                                                         !sshUsername || !sshPassword || provisionBusy
-                                                            ? 'bg-white/[0.03] text-gray-400 cursor-not-allowed'
+                                                            ? 'bg-white/3 text-gray-400 cursor-not-allowed'
                                                             : 'bg-amber-500/15 border border-amber-500/30 text-amber-400 hover:bg-amber-500/25'
                                                     }`}
                                                 >

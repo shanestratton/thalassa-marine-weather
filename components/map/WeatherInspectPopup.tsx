@@ -62,7 +62,7 @@ function metresToFeet(m: number): number {
 // ── Skeleton shimmer ──
 
 const Shimmer: React.FC<{ w?: string }> = ({ w = 'w-12' }) => (
-    <div className={`h-4 ${w} rounded bg-white/10 animate-pulse`} />
+    <div className={`h-4 ${w} rounded-sm bg-white/10 animate-pulse`} />
 );
 
 // ── Metric row ──
@@ -146,7 +146,7 @@ const SaveRow: React.FC<{ save: InspectSaveProps }> = ({ save }) => {
 
     if (save.savedAs) {
         return (
-            <div className="flex items-center gap-1.5 mt-2 pt-2 border-t border-white/[0.06]">
+            <div className="flex items-center gap-1.5 mt-2 pt-2 border-t border-white/6">
                 <span className="text-emerald-400 text-xs shrink-0">✓</span>
                 <span className="flex-1 min-w-0 truncate text-[11px] text-white/60">
                     Saved as <span className="text-white/90 font-semibold">{save.savedAs}</span>
@@ -170,7 +170,7 @@ const SaveRow: React.FC<{ save: InspectSaveProps }> = ({ save }) => {
                     save.onRequestName?.();
                     setEditing(true);
                 }}
-                className="w-full flex items-center justify-center gap-1.5 mt-2 pt-2 border-t border-white/[0.06] py-2 text-amber-300 hover:text-amber-200 transition-colors"
+                className="w-full flex items-center justify-center gap-1.5 mt-2 pt-2 border-t border-white/6 py-2 text-amber-300 hover:text-amber-200 transition-colors"
             >
                 <span className="text-sm">★</span>
                 <span className="text-[12px] font-bold">Save this spot</span>
@@ -179,7 +179,7 @@ const SaveRow: React.FC<{ save: InspectSaveProps }> = ({ save }) => {
     }
 
     return (
-        <div className="mt-2 pt-2 border-t border-white/[0.06]">
+        <div className="mt-2 pt-2 border-t border-white/6">
             <input
                 ref={inputRef}
                 value={name}
@@ -193,7 +193,7 @@ const SaveRow: React.FC<{ save: InspectSaveProps }> = ({ save }) => {
                 }}
                 aria-label="Location name"
                 placeholder="Name this spot"
-                className="w-full px-2 py-1.5 rounded-lg bg-white/5 border border-white/10 text-[12px] text-white placeholder-white/30 outline-none focus:border-amber-400/50"
+                className="w-full px-2 py-1.5 rounded-lg bg-white/5 border border-white/10 text-[12px] text-white placeholder-white/30 outline-hidden focus:border-amber-400/50"
             />
             <div className="flex gap-1.5 mt-1.5">
                 <button
@@ -259,39 +259,39 @@ export const WeatherInspectPopup: React.FC<Props> = ({ data, loading, error, onR
                 {loading && !data && (
                     <div className="animate-pulse">
                         {/* Coord placeholder */}
-                        <div className="h-3.5 w-28 rounded bg-sky-400/10 mb-3" />
+                        <div className="h-3.5 w-28 rounded-sm bg-sky-400/10 mb-3" />
 
                         {/* Atmospheric skeleton grid */}
                         <div className="grid grid-cols-2 gap-x-3 gap-y-2">
                             {[0, 1, 2, 3].map((i) => (
                                 <div key={i} className="flex items-center gap-2.5 py-1.5">
-                                    <div className="w-5 h-5 rounded bg-white/5 shrink-0" />
+                                    <div className="w-5 h-5 rounded-sm bg-white/5 shrink-0" />
                                     <div className="flex-1 space-y-1.5">
-                                        <div className="h-2.5 w-10 rounded bg-white/5" />
-                                        <div className="h-3.5 w-14 rounded bg-white/10" />
+                                        <div className="h-2.5 w-10 rounded-sm bg-white/5" />
+                                        <div className="h-3.5 w-14 rounded-sm bg-white/10" />
                                     </div>
                                 </div>
                             ))}
                         </div>
 
                         {/* Divider */}
-                        <div className="h-px bg-white/[0.06] my-2" />
+                        <div className="h-px bg-white/6 my-2" />
 
                         {/* Marine skeleton grid */}
                         <div className="grid grid-cols-2 gap-x-3 gap-y-2">
                             {[0, 1].map((i) => (
                                 <div key={i} className="flex items-center gap-2.5 py-1.5">
-                                    <div className="w-5 h-5 rounded bg-white/5 shrink-0" />
+                                    <div className="w-5 h-5 rounded-sm bg-white/5 shrink-0" />
                                     <div className="flex-1 space-y-1.5">
-                                        <div className="h-2.5 w-10 rounded bg-white/5" />
-                                        <div className="h-3.5 w-16 rounded bg-white/10" />
+                                        <div className="h-2.5 w-10 rounded-sm bg-white/5" />
+                                        <div className="h-3.5 w-16 rounded-sm bg-white/10" />
                                     </div>
                                 </div>
                             ))}
                         </div>
 
                         {/* Loading label */}
-                        <div className="flex items-center justify-center gap-2 mt-2 pt-2 border-t border-white/[0.04]">
+                        <div className="flex items-center justify-center gap-2 mt-2 pt-2 border-t border-white/4">
                             <div className="w-3 h-3 border-2 border-sky-400/30 border-t-sky-400 rounded-full animate-spin" />
                             <span className="text-[11px] text-sky-400/50 font-medium tracking-wider uppercase">
                                 Loading weather…
@@ -380,7 +380,7 @@ export const WeatherInspectPopup: React.FC<Props> = ({ data, loading, error, onR
                         {/* Marine section — only when over water */}
                         {hasMarine && (
                             <>
-                                <div className="h-px bg-white/[0.06] my-1.5" />
+                                <div className="h-px bg-white/6 my-1.5" />
                                 <div className="grid grid-cols-2 gap-x-3">
                                     <Metric
                                         icon="🌊"
@@ -442,7 +442,7 @@ export const WeatherInspectPopup: React.FC<Props> = ({ data, loading, error, onR
                         )}
 
                         {data && !loading && (
-                            <p className="mt-2 border-t border-white/[0.06] pt-2 text-[11px] text-white/55">
+                            <p className="mt-2 border-t border-white/6 pt-2 text-[11px] text-white/55">
                                 Open-Meteo · fetched{' '}
                                 {Math.max(0, Math.round((Date.now() - data.fetchedAt) / 60_000)) <= 1
                                     ? 'now'

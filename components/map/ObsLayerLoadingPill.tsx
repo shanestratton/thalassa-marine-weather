@@ -66,7 +66,7 @@ export function ObsLayerLoadingPill(props: ObsLayerLoadingPillProps): React.Reac
             // in half; the text goes 16px → 12px rather than a true half,
             // because 8px is not readable on a phone in daylight and this is
             // the one thing on screen explaining why the chart looks empty.
-            className="pointer-events-none absolute left-1/2 top-1/2 z-[520] flex -translate-x-1/2 -translate-y-1/2 items-center gap-2 rounded-full border border-amber-400/40 bg-slate-950/90 px-4 py-2 text-xs font-bold text-amber-200 shadow-lg shadow-amber-500/20 backdrop-blur-md"
+            className="pointer-events-none absolute left-1/2 top-1/2 z-520 flex -translate-x-1/2 -translate-y-1/2 items-center gap-2 rounded-full border border-amber-400/40 bg-slate-950/90 px-4 py-2 text-xs font-bold text-amber-200 shadow-lg shadow-amber-500/20 backdrop-blur-md"
         >
             <span
                 aria-hidden

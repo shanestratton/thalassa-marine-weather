@@ -375,7 +375,7 @@ const PiCacheTabDevelopment: React.FC<SettingsTabProps> = ({ settings, onSave })
     if (!isSkipper) {
         return (
             <div className="max-w-2xl mx-auto animate-in fade-in slide-in-from-right-4 duration-300">
-                <div className="p-8 rounded-2xl bg-white/[0.02] border border-white/5 text-center">
+                <div className="p-8 rounded-2xl bg-white/2 border border-white/5 text-center">
                     <LockIcon className="w-10 h-10 text-amber-500/50 mx-auto mb-4" />
                     <h3 className="text-white font-bold text-lg">Skipper Feature</h3>
                     <p className="text-gray-400 text-sm mt-2 leading-relaxed max-w-md mx-auto">
@@ -390,7 +390,7 @@ const PiCacheTabDevelopment: React.FC<SettingsTabProps> = ({ settings, onSave })
     return (
         <div className="max-w-2xl mx-auto animate-in fade-in slide-in-from-right-4 duration-300">
             {/* Hero */}
-            <div className="mb-6 p-5 rounded-2xl bg-gradient-to-br from-emerald-500/10 to-teal-500/10 border border-emerald-500/20">
+            <div className="mb-6 p-5 rounded-2xl bg-linear-to-br from-emerald-500/10 to-teal-500/10 border border-emerald-500/20">
                 <div className="flex items-start gap-3">
                     <div className="p-2.5 bg-emerald-500/20 rounded-xl">
                         <svg
@@ -508,7 +508,7 @@ const PiCacheTabDevelopment: React.FC<SettingsTabProps> = ({ settings, onSave })
                 {/* Paired: identity summary + Forget. */}
                 {pairing && (
                     <div className="p-4 pb-0">
-                        <div className="flex items-center justify-between gap-2 p-3 rounded-xl bg-white/[0.03] border border-white/5">
+                        <div className="flex items-center justify-between gap-2 p-3 rounded-xl bg-white/3 border border-white/5">
                             <div className="min-w-0">
                                 <div className="flex items-center gap-2">
                                     <span className="text-emerald-400 text-xs">🔒</span>
@@ -554,7 +554,7 @@ const PiCacheTabDevelopment: React.FC<SettingsTabProps> = ({ settings, onSave })
                                 </div>
                                 {/* Show all discovered services */}
                                 {boatNetwork.services.length > 0 && (
-                                    <div className="p-3 rounded-xl bg-white/[0.03] border border-white/5">
+                                    <div className="p-3 rounded-xl bg-white/3 border border-white/5">
                                         <p className="text-[10px] text-gray-500 uppercase font-bold tracking-wider mb-2">
                                             Auto-configured services
                                         </p>
@@ -888,7 +888,7 @@ const PiCacheTabDevelopment: React.FC<SettingsTabProps> = ({ settings, onSave })
 
             {/* Setup instructions — only when off */}
             {!isEnabled && (
-                <div className="p-5 rounded-2xl bg-white/[0.02] border border-white/5 mt-2">
+                <div className="p-5 rounded-2xl bg-white/2 border border-white/5 mt-2">
                     <h4 className="text-xs font-bold text-gray-300 uppercase tracking-wider mb-3">How It Works</h4>
                     <div className="text-xs text-gray-400 space-y-3 leading-relaxed">
                         {canSsh ? (
@@ -955,7 +955,7 @@ const PiCacheTabDevelopment: React.FC<SettingsTabProps> = ({ settings, onSave })
                 joined to that network. Saying so up front is the difference
                 between a wizard that works and one that silently cannot
                 reach anything. */}
-            <div className="rounded-2xl border border-white/5 bg-white/[0.02] p-4">
+            <div className="rounded-2xl border border-white/5 bg-white/2 p-4">
                 <p className="text-[13px] font-bold text-white">Setting up a brand-new Pi?</p>
                 <p className="mt-1 text-[11px] leading-relaxed text-gray-400">
                     This joins a factory-fresh Pi to your boat&apos;s Wi-Fi. First join your phone to the Pi&apos;s own{' '}
@@ -984,7 +984,7 @@ export const PiCacheTab: React.FC<SettingsTabProps> = (props) =>
     PI_INTEGRATION_ENABLED ? <PiCacheTabDevelopment {...props} /> : <PiPublicBetaUnavailable />;
 
 const StatCard = ({ label, value, sub }: { label: string; value: number; sub: string }) => (
-    <div className="p-3 bg-white/[0.03] rounded-xl border border-white/5 text-center">
+    <div className="p-3 bg-white/3 rounded-xl border border-white/5 text-center">
         <p className="text-white font-mono text-lg font-bold">{value.toLocaleString()}</p>
         <p className="text-[10px] text-gray-500 uppercase font-bold tracking-wider mt-0.5">{label}</p>
         <p className="text-[10px] text-emerald-400/50">{sub}</p>

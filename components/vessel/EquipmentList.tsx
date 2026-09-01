@@ -361,7 +361,7 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
                         <button
                             aria-label="Save equipment changes"
                             onClick={handleSaveEdit}
-                            className="w-full py-3.5 bg-gradient-to-r from-sky-600 to-sky-600 text-white font-black text-sm uppercase tracking-[0.15em] rounded-xl hover:from-sky-500 hover:to-sky-500 transition-all active:scale-[0.98]"
+                            className="w-full py-3.5 bg-linear-to-r from-sky-600 to-sky-600 text-white font-black text-sm uppercase tracking-[0.15em] rounded-xl hover:from-sky-500 hover:to-sky-500 transition-all active:scale-[0.98]"
                         >
                             Save Changes
                         </button>
@@ -521,7 +521,7 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
                         placeholder="Search equipment, make, model, serial..."
-                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-gray-500 outline-none focus:border-sky-500/30"
+                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-gray-500 outline-hidden focus:border-sky-500/30"
                     />
                 </div>
 
@@ -634,7 +634,7 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
             {contextItem &&
                 createPortal(
                     <div
-                        className="fixed inset-0 z-[999] flex items-center justify-center px-3"
+                        className="fixed inset-0 z-999 flex items-center justify-center px-3"
                         onClick={() => setContextItem(null)}
                         role="presentation"
                     >
@@ -839,7 +839,7 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
                         aria-label="Register new equipment"
                         onClick={handleAdd}
                         disabled={!newName.trim()}
-                        className="w-full py-3 mt-2 bg-gradient-to-r from-emerald-600 to-emerald-600 text-white font-black text-sm uppercase tracking-[0.15em] rounded-xl hover:from-emerald-500 hover:to-emerald-500 transition-all active:scale-[0.98] disabled:opacity-30 shrink-0"
+                        className="w-full py-3 mt-2 bg-linear-to-r from-emerald-600 to-emerald-600 text-white font-black text-sm uppercase tracking-[0.15em] rounded-xl hover:from-emerald-500 hover:to-emerald-500 transition-all active:scale-[0.98] disabled:opacity-30 shrink-0"
                     >
                         Register Equipment
                     </button>

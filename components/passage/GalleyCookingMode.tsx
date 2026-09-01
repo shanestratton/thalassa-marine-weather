@@ -215,7 +215,7 @@ export const GalleyCookingMode: React.FC<GalleyCookingModeProps> = ({ meal, onCl
             aria-modal="true"
             aria-labelledby={titleId}
             aria-busy={workflowBusy}
-            className="fixed inset-0 z-[1100] bg-[#0a0e14] text-white flex flex-col"
+            className="fixed inset-0 z-1100 bg-[#0a0e14] text-white flex flex-col"
         >
             {/* ── Header ── */}
             <div className="px-5 pt-5 pb-3 flex items-center justify-between border-b border-white/10">
@@ -251,7 +251,7 @@ export const GalleyCookingMode: React.FC<GalleyCookingModeProps> = ({ meal, onCl
                     className="h-2 bg-white/5 rounded-full overflow-hidden"
                 >
                     <div
-                        className="h-full bg-gradient-to-r from-amber-500 to-orange-500 rounded-full transition-all duration-500"
+                        className="h-full bg-linear-to-r from-amber-500 to-orange-500 rounded-full transition-all duration-500"
                         style={{ width: `${progress * 100}%` }}
                     />
                 </div>
@@ -305,7 +305,7 @@ export const GalleyCookingMode: React.FC<GalleyCookingModeProps> = ({ meal, onCl
                         <button
                             onClick={handleStartCooking}
                             disabled={starting || skipping}
-                            className="px-8 py-4 bg-gradient-to-r from-amber-500/20 to-orange-500/20 hover:from-amber-500/30 hover:to-orange-500/30 border border-amber-500/30 rounded-2xl text-sm font-bold uppercase tracking-widest text-amber-300 transition-all active:scale-[0.97]"
+                            className="px-8 py-4 bg-linear-to-r from-amber-500/20 to-orange-500/20 hover:from-amber-500/30 hover:to-orange-500/30 border border-amber-500/30 rounded-2xl text-sm font-bold uppercase tracking-widest text-amber-300 transition-all active:scale-[0.97]"
                         >
                             {starting ? '⏳ Starting…' : '🔥 Start Cooking'}
                         </button>
@@ -336,11 +336,11 @@ export const GalleyCookingMode: React.FC<GalleyCookingModeProps> = ({ meal, onCl
                                 className={`w-full flex items-start gap-4 p-4 rounded-xl border transition-all active:scale-[0.98] text-left ${
                                     checkedSteps.has(i)
                                         ? 'bg-emerald-500/10 border-emerald-500/20'
-                                        : 'bg-white/[0.03] border-white/5 hover:bg-white/[0.06]'
+                                        : 'bg-white/3 border-white/5 hover:bg-white/6'
                                 }`}
                             >
                                 <div
-                                    className={`w-8 h-8 flex-shrink-0 rounded-full flex items-center justify-center text-sm font-bold transition-all ${
+                                    className={`w-8 h-8 shrink-0 rounded-full flex items-center justify-center text-sm font-bold transition-all ${
                                         checkedSteps.has(i)
                                             ? 'bg-emerald-500/30 text-emerald-300'
                                             : 'bg-white/10 text-gray-400'
@@ -418,7 +418,7 @@ export const GalleyCookingMode: React.FC<GalleyCookingModeProps> = ({ meal, onCl
                     <button
                         onClick={handleComplete}
                         disabled={finishing}
-                        className="w-full py-4 bg-gradient-to-r from-emerald-500/20 to-green-500/20 hover:from-emerald-500/30 hover:to-green-500/30 border border-emerald-500/30 rounded-xl text-sm font-bold uppercase tracking-widest text-emerald-300 transition-all active:scale-[0.97] disabled:opacity-50"
+                        className="w-full py-4 bg-linear-to-r from-emerald-500/20 to-green-500/20 hover:from-emerald-500/30 hover:to-green-500/30 border border-emerald-500/30 rounded-xl text-sm font-bold uppercase tracking-widest text-emerald-300 transition-all active:scale-[0.97] disabled:opacity-50"
                     >
                         {finishing ? "⏳ Updating Ship's Stores..." : '✅ Complete & Subtract from Stores'}
                     </button>

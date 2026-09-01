@@ -22,7 +22,7 @@ import { createLogger } from '../../utils/createLogger';
 const log = createLogger('LogPage');
 
 export const StatBox: React.FC<{ label: string; value: string | number }> = React.memo(({ label, value }) => (
-    <div className="bg-white/[0.03] border border-white/[0.06] rounded-2xl p-3 text-center">
+    <div className="bg-white/3 border border-white/6 rounded-2xl p-3 text-center">
         <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1">{label}</div>
         <div className="text-xl font-bold text-white tabular-nums">{value}</div>
     </div>
@@ -50,7 +50,7 @@ export const _LogEntryCard: React.FC<{ entry: ShipLogEntry }> = React.memo(({ en
         <div className="bg-slate-800/40 rounded-lg p-3 border border-white/5 mb-2">
             <div className="flex justify-between items-start mb-2">
                 <div className="flex items-center gap-2">
-                    <span className={`px-2 py-0.5 rounded text-xs font-bold border ${typeColors[entry.entryType]}`}>
+                    <span className={`px-2 py-0.5 rounded-sm text-xs font-bold border ${typeColors[entry.entryType]}`}>
                         {entry.entryType.toUpperCase()}
                     </span>
                     <div className={`w-1.5 h-1.5 rounded-full ${envDot}`}></div>
@@ -196,7 +196,7 @@ export const FollowRouteChoice: React.FC<{
             disabled={disabled || checking || (blocked && !onCheckRoute)}
             aria-busy={loading || checking}
             className={`flex w-full items-start gap-3 rounded-xl border px-4 py-3 text-left active:scale-[0.99] disabled:cursor-wait disabled:opacity-60 ${
-                blocked ? 'border-amber-500/25 bg-amber-500/[0.06]' : 'border-white/10 bg-slate-800/60'
+                blocked ? 'border-amber-500/25 bg-amber-500/6' : 'border-white/10 bg-slate-800/60'
             }`}
         >
             {/* The saved-routes grammar, shared with the Passage Planning
@@ -528,18 +528,18 @@ export const VoyageCard: React.FC<{
                 <div
                     className={`w-full rounded-2xl overflow-hidden transition-all flex relative ${
                         isSelected
-                            ? 'bg-white/[0.05] border-2 border-sky-400/40 shadow-[0_0_12px_rgba(56,189,248,0.1)]'
+                            ? 'bg-white/5 border-2 border-sky-400/40 shadow-[0_0_12px_rgba(56,189,248,0.1)]'
                             : isPlannedRoute
                               ? isExpanded
                                   ? 'bg-purple-900/20 border border-purple-500/25'
-                                  : 'bg-white/[0.02] border border-purple-500/10 hover:border-purple-500/20'
+                                  : 'bg-white/2 border border-purple-500/10 hover:border-purple-500/20'
                               : isImported
                                 ? isExpanded
                                     ? 'bg-amber-900/20 border border-amber-500/25'
-                                    : 'bg-white/[0.02] border border-amber-500/10 hover:border-amber-500/20'
+                                    : 'bg-white/2 border border-amber-500/10 hover:border-amber-500/20'
                                 : isExpanded
-                                  ? 'bg-white/[0.04] border border-white/10'
-                                  : 'bg-white/[0.02] border border-white/[0.06] hover:border-white/10'
+                                  ? 'bg-white/4 border border-white/10'
+                                  : 'bg-white/2 border border-white/6 hover:border-white/10'
                     }`}
                     style={{
                         transform: `translateX(-${swipeOffset}px)`,
@@ -597,7 +597,7 @@ export const VoyageCard: React.FC<{
                                     </div>
                                 )}
                             </div>
-                            {isSelected && <span className="ml-2 flex-shrink-0 w-2 h-2 rounded-full bg-sky-400 mt-2" />}
+                            {isSelected && <span className="ml-2 shrink-0 w-2 h-2 rounded-full bg-sky-400 mt-2" />}
                         </div>
 
                         {/* ── Stats row — small chips, not dot-separated text ──
@@ -616,7 +616,7 @@ export const VoyageCard: React.FC<{
                                 </span>
                             )}
                             {recordBadge && (
-                                <span className="px-2 py-0.5 rounded-full bg-gradient-to-r from-amber-400/25 to-yellow-500/20 border border-amber-400/40 text-[11px] font-black text-amber-300 inline-flex items-center gap-1 shadow-sm shadow-amber-500/10">
+                                <span className="px-2 py-0.5 rounded-full bg-linear-to-r from-amber-400/25 to-yellow-500/20 border border-amber-400/40 text-[11px] font-black text-amber-300 inline-flex items-center gap-1 shadow-xs shadow-amber-500/10">
                                     <span aria-hidden>🏆</span>
                                     {recordBadge === 'longest'
                                         ? 'Longest'
@@ -640,15 +640,15 @@ export const VoyageCard: React.FC<{
                                     On land · not counted
                                 </span>
                             )}
-                            <span className="px-2 py-0.5 rounded-full bg-white/[0.04] border border-white/[0.06] text-[11px] font-semibold text-slate-300 tabular-nums">
+                            <span className="px-2 py-0.5 rounded-full bg-white/4 border border-white/6 text-[11px] font-semibold text-slate-300 tabular-nums">
                                 {durationLabel}
                             </span>
                             {avgSpeed > 0 && (
-                                <span className="px-2 py-0.5 rounded-full bg-white/[0.04] border border-white/[0.06] text-[11px] font-semibold text-slate-300 tabular-nums">
+                                <span className="px-2 py-0.5 rounded-full bg-white/4 border border-white/6 text-[11px] font-semibold text-slate-300 tabular-nums">
                                     {(avgSpeed ?? 0).toFixed(1)} kts
                                 </span>
                             )}
-                            <span className="px-2 py-0.5 rounded-full bg-white/[0.02] border border-white/[0.04] text-[11px] font-medium text-slate-400">
+                            <span className="px-2 py-0.5 rounded-full bg-white/2 border border-white/4 text-[11px] font-medium text-slate-400">
                                 {dateLabel}
                             </span>
                         </div>

@@ -117,7 +117,7 @@ export const EncPersonalCloudPanel: React.FC = () => {
 
     if (!plan.available) {
         return (
-            <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-3">
+            <div className="rounded-xl border border-white/8 bg-white/3 p-3">
                 <p className="text-[11px] font-bold uppercase tracking-wider text-white/60">My cloud</p>
                 <p className="mt-1 text-[11px] leading-snug text-white/45">
                     Sign in to keep your charts on your account, so they open in a browser on thalassawx.app/plan too.
@@ -129,7 +129,7 @@ export const EncPersonalCloudPanel: React.FC = () => {
     const pending = plan.candidates.length;
 
     return (
-        <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-3">
+        <div className="rounded-xl border border-white/8 bg-white/3 p-3">
             <p className="text-[11px] font-bold uppercase tracking-wider text-white/60">My cloud</p>
             <p className="mt-1 text-[11px] leading-snug text-white/45">
                 Your charts, on your account only — so the passage planner in a browser sees the same charts as this
@@ -144,7 +144,7 @@ export const EncPersonalCloudPanel: React.FC = () => {
                         </span>
                         <span className="tabular-nums">{formatBytes(progress.uploadedBytes)}</span>
                     </div>
-                    <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-white/[0.08]">
+                    <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-white/8">
                         <div
                             className="h-full rounded-full bg-sky-400 transition-[width] duration-300"
                             style={{ width: `${Math.round((progress.done / Math.max(progress.total, 1)) * 100)}%` }}
@@ -155,7 +155,7 @@ export const EncPersonalCloudPanel: React.FC = () => {
                             triggerHaptic('light');
                             abortRef.current?.abort();
                         }}
-                        className="mt-2 w-full rounded-xl border border-white/[0.08] bg-white/[0.04] py-2 text-[11px] font-bold uppercase tracking-wider text-white/60 transition-all active:scale-95 hover:bg-white/[0.08]"
+                        className="mt-2 w-full rounded-xl border border-white/8 bg-white/4 py-2 text-[11px] font-bold uppercase tracking-wider text-white/60 transition-all active:scale-95 hover:bg-white/8"
                     >
                         Stop
                     </button>
@@ -179,7 +179,7 @@ export const EncPersonalCloudPanel: React.FC = () => {
             {plan.alreadyPublished > 0 && (
                 <button
                     onClick={toggleAuto}
-                    className="mt-2 flex w-full items-center justify-between rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2 text-left transition-colors hover:bg-white/[0.05]"
+                    className="mt-2 flex w-full items-center justify-between rounded-xl border border-white/6 bg-white/2 px-3 py-2 text-left transition-colors hover:bg-white/5"
                 >
                     <span className="text-[11px] font-bold text-white/60">Keep new charts published</span>
                     <span

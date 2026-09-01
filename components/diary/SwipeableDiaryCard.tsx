@@ -160,7 +160,7 @@ export const SwipeableDiaryCard: React.FC<SwipeableDiaryCardProps> = React.memo(
 
                 {/* Main card (slides on swipe) */}
                 <div
-                    className={`relative transition-transform ${isSwiping ? '' : 'duration-200'} flex items-stretch border ${selected ? 'border-sky-500/50' : 'border-white/5'} rounded-2xl overflow-hidden bg-white/[0.03]`}
+                    className={`relative transition-transform ${isSwiping ? '' : 'duration-200'} flex items-stretch border ${selected ? 'border-sky-500/50' : 'border-white/5'} rounded-2xl overflow-hidden bg-white/3`}
                     style={{ transform: `translateX(-${swipeOffset}px)` }}
                     ref={ref}
                     onClick={() => {

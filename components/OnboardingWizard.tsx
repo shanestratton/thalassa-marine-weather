@@ -688,7 +688,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
             // letting the user swipe horizontally. `touch-action: pan-y`
             // on the inline style further locks the wizard to
             // vertical-only gestures on iOS WebKit.
-            className="bg-slate-950 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-slate-900 via-[#0f172a] to-black flex items-start md:items-center justify-center px-4 overflow-x-hidden overflow-y-auto wizard-scroll"
+            className="bg-slate-950 bg-[radial-gradient(ellipse_at_top,var(--tw-gradient-stops))] from-slate-900 via-[#0f172a] to-black flex items-start md:items-center justify-center px-4 overflow-x-hidden overflow-y-auto wizard-scroll"
             style={{
                 paddingTop: 'max(1rem, calc(env(safe-area-inset-top) + 3.5rem))',
                 paddingBottom: 'max(1rem, env(safe-area-inset-bottom))',
@@ -724,7 +724,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
                     role="group"
                     aria-label={`Setup step ${step} of 7`}
                     tabIndex={-1}
-                    className="outline-none"
+                    className="outline-hidden"
                 >
                     {/* STEP 1: WELCOME */}
                     {step === 1 && <WelcomeStep onNext={handleNext} />}

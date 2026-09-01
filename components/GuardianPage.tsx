@@ -704,7 +704,7 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
                 <div className="flex-1 flex items-center justify-center px-6">
                     <div
                         role="alert"
-                        className="w-full max-w-sm rounded-2xl border border-amber-500/25 bg-amber-500/[0.08] p-5 text-center"
+                        className="w-full max-w-sm rounded-2xl border border-amber-500/25 bg-amber-500/8 p-5 text-center"
                     >
                         <AlertTriangleIcon className="mx-auto h-8 w-8 text-amber-400" />
                         <h2 className="mt-3 text-lg font-black text-white">Guardian is unavailable</h2>
@@ -786,7 +786,7 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
                 )}
 
                 {/* ═══ ZONE 1: BAY PRESENCE HERO ═══ */}
-                <div className="relative bg-gradient-to-br from-emerald-500/15 to-sky-500/15 border border-emerald-500/20 rounded-2xl p-5 overflow-hidden">
+                <div className="relative bg-linear-to-br from-emerald-500/15 to-sky-500/15 border border-emerald-500/20 rounded-2xl p-5 overflow-hidden">
                     {/* Animated radar pulse */}
                     <div className="absolute top-3 right-3 w-16 h-16">
                         <div
@@ -820,7 +820,7 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
                         />
                         <span className="text-sm font-bold text-white truncate">{vesselName || 'Your Vessel'}</span>
                         {armed && (
-                            <span className="px-1.5 py-0.5 bg-red-500/20 border border-red-500/30 rounded text-[11px] font-black text-red-400 uppercase tracking-wider">
+                            <span className="px-1.5 py-0.5 bg-red-500/20 border border-red-500/30 rounded-sm text-[11px] font-black text-red-400 uppercase tracking-wider">
                                 Armed
                             </span>
                         )}
@@ -870,8 +870,8 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
                 <div
                     className={`relative rounded-2xl border overflow-hidden transition-all duration-500 ${
                         armed
-                            ? 'bg-gradient-to-r from-red-600/20 to-red-500/20 border-red-500/40 shadow-lg shadow-red-500/10'
-                            : 'bg-gradient-to-r from-slate-800/60 to-slate-700/60 border-white/10'
+                            ? 'bg-linear-to-r from-red-600/20 to-red-500/20 border-red-500/40 shadow-lg shadow-red-500/10'
+                            : 'bg-linear-to-r from-slate-800/60 to-slate-700/60 border-white/10'
                     }`}
                 >
                     <div
@@ -913,8 +913,8 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
                         <div
                             className={`relative w-14 h-14 rounded-xl flex items-center justify-center shadow-2xl transition-colors z-10 cursor-grab active:cursor-grabbing ${
                                 armed
-                                    ? 'bg-gradient-to-br from-red-500 to-red-600'
-                                    : 'bg-gradient-to-br from-emerald-500 to-emerald-600'
+                                    ? 'bg-linear-to-br from-red-500 to-red-600'
+                                    : 'bg-linear-to-br from-emerald-500 to-emerald-600'
                             }`}
                             style={{ transform: `translateX(${sliderX}px)` }}
                         >
@@ -973,7 +973,7 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
                             triggerHaptic('medium');
                             setShowReport(true);
                         }}
-                        className={`bg-gradient-to-br from-red-500/15 to-red-500/10 border border-red-500/20 rounded-xl p-3 text-left group transition-all ${
+                        className={`bg-linear-to-br from-red-500/15 to-red-500/10 border border-red-500/20 rounded-xl p-3 text-left group transition-all ${
                             armed ? 'hover:scale-[1.02] active:scale-[0.97]' : 'opacity-45'
                         }`}
                     >
@@ -999,7 +999,7 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
                             triggerHaptic('medium');
                             setShowWeather(true);
                         }}
-                        className={`bg-gradient-to-br from-sky-500/15 to-sky-500/10 border border-sky-500/20 rounded-xl p-3 text-left group transition-all ${
+                        className={`bg-linear-to-br from-sky-500/15 to-sky-500/10 border border-sky-500/20 rounded-xl p-3 text-left group transition-all ${
                             armed ? 'hover:scale-[1.02] active:scale-[0.97]' : 'opacity-45'
                         }`}
                     >
@@ -1014,7 +1014,7 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
                     <button
                         aria-label="Set digital tripwire at current position"
                         onClick={handleSetTripwire}
-                        className="bg-gradient-to-br from-purple-500/15 to-purple-500/10 border border-purple-500/20 rounded-xl p-3 text-left group hover:scale-[1.02] transition-all active:scale-[0.97]"
+                        className="bg-linear-to-br from-purple-500/15 to-purple-500/10 border border-purple-500/20 rounded-xl p-3 text-left group hover:scale-[1.02] transition-all active:scale-[0.97]"
                     >
                         <div className="mb-1.5 text-purple-300">
                             <BellIcon className="w-5 h-5" />
@@ -1037,7 +1037,7 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
                             {nearbyUsers.map((user) => (
                                 <div
                                     key={user.user_id}
-                                    className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-3 flex items-center gap-3 group hover:bg-white/[0.05] transition-all"
+                                    className="bg-white/3 border border-white/6 rounded-xl p-3 flex items-center gap-3 group hover:bg-white/5 transition-all"
                                 >
                                     {/* Avatar/Icon */}
                                     <div className="w-10 h-10 rounded-full flex items-center justify-center text-lg shrink-0 bg-red-500/20 border border-red-500/30">
@@ -1086,7 +1086,7 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
                         )}
                     </div>
                     {!armed ? (
-                        <div className="bg-white/[0.02] border border-white/[0.05] rounded-xl p-6 text-center">
+                        <div className="bg-white/2 border border-white/5 rounded-xl p-6 text-center">
                             <LockIcon className="mx-auto h-7 w-7 text-slate-500" />
                             <div className="mt-2 text-xs text-gray-300">Alert feed is paused</div>
                             <div className="text-[12px] text-gray-500 mt-1">
@@ -1094,7 +1094,7 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
                             </div>
                         </div>
                     ) : alerts.length === 0 ? (
-                        <div className="bg-white/[0.02] border border-white/[0.05] rounded-xl p-6 text-center">
+                        <div className="bg-white/2 border border-white/5 rounded-xl p-6 text-center">
                             <div className="mb-2 flex justify-center text-emerald-400/60">
                                 <SailBoatIcon className="w-7 h-7" />
                             </div>
@@ -1146,7 +1146,7 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
             {showSetup && (
                 <OverlayPortal
                     role="presentation"
-                    className="bg-black/80 backdrop-blur-sm flex items-center justify-center animate-in fade-in duration-200 p-4 pb-[calc(4rem+env(safe-area-inset-bottom)+1rem)] pt-[max(1rem,env(safe-area-inset-top))]"
+                    className="bg-black/80 backdrop-blur-xs flex items-center justify-center animate-in fade-in duration-200 p-4 pb-[calc(4rem+env(safe-area-inset-bottom)+1rem)] pt-[max(1rem,env(safe-area-inset-top))]"
                 >
                     {/* Centred per the standing modal rule (Shane 2026-09-02: "all modal boxes centered on the punters screen"). */}
                     <div
@@ -1240,7 +1240,7 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
                         <button
                             aria-label="Save Guardian profile"
                             onClick={handleSaveProfile}
-                            className="w-full mt-6 py-3.5 bg-gradient-to-r from-emerald-500 to-emerald-600 text-white font-bold rounded-xl text-sm tracking-wide shadow-lg shadow-emerald-500/25 active:scale-[0.98] transition-transform"
+                            className="w-full mt-6 py-3.5 bg-linear-to-r from-emerald-500 to-emerald-600 text-white font-bold rounded-xl text-sm tracking-wide shadow-lg shadow-emerald-500/25 active:scale-[0.98] transition-transform"
                         >
                             Save Guardian Profile
                         </button>
@@ -1252,7 +1252,7 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
             {showReport && (
                 <OverlayPortal
                     role="presentation"
-                    className="bg-black/80 backdrop-blur-sm flex items-center justify-center animate-in fade-in duration-200 p-4 pb-[calc(4rem+env(safe-area-inset-bottom)+1rem)] pt-[max(1rem,env(safe-area-inset-top))]"
+                    className="bg-black/80 backdrop-blur-xs flex items-center justify-center animate-in fade-in duration-200 p-4 pb-[calc(4rem+env(safe-area-inset-bottom)+1rem)] pt-[max(1rem,env(safe-area-inset-top))]"
                 >
                     {/* Centred per the standing modal rule (Shane 2026-09-02: "all modal boxes centered on the punters screen"). */}
                     <div
@@ -1319,7 +1319,7 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
                                 aria-label="Broadcast suspicious activity alert"
                                 onClick={handleReport}
                                 disabled={!reportText.trim()}
-                                className="flex-1 py-3 bg-gradient-to-r from-red-500 to-red-600 rounded-xl text-sm font-bold text-white shadow-lg shadow-red-500/25 active:scale-[0.98] transition-transform disabled:opacity-40"
+                                className="flex-1 py-3 bg-linear-to-r from-red-500 to-red-600 rounded-xl text-sm font-bold text-white shadow-lg shadow-red-500/25 active:scale-[0.98] transition-transform disabled:opacity-40"
                             >
                                 Broadcast Alert
                             </button>
@@ -1332,7 +1332,7 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
             {showWeather && (
                 <OverlayPortal
                     role="presentation"
-                    className="bg-black/80 backdrop-blur-sm flex items-center justify-center animate-in fade-in duration-200 p-4 pb-[calc(4rem+env(safe-area-inset-bottom)+1rem)] pt-[max(1rem,env(safe-area-inset-top))]"
+                    className="bg-black/80 backdrop-blur-xs flex items-center justify-center animate-in fade-in duration-200 p-4 pb-[calc(4rem+env(safe-area-inset-bottom)+1rem)] pt-[max(1rem,env(safe-area-inset-top))]"
                 >
                     {/* Centred per the standing modal rule (Shane 2026-09-02: "all modal boxes centered on the punters screen"). */}
                     <div
@@ -1383,7 +1383,7 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
                                     aria-label={`Send weather alert: ${t.text}`}
                                     key={t.text}
                                     onClick={() => handleWeatherBroadcast(t.text)}
-                                    className="w-full bg-white/[0.03] border border-white/[0.06] rounded-xl p-3 text-left flex items-center gap-3 hover:bg-sky-500/10 hover:border-sky-500/20 transition-all active:scale-[0.98]"
+                                    className="w-full bg-white/3 border border-white/6 rounded-xl p-3 text-left flex items-center gap-3 hover:bg-sky-500/10 hover:border-sky-500/20 transition-all active:scale-[0.98]"
                                 >
                                     <span className="text-xl">{t.emoji}</span>
                                     <span className="text-sm text-gray-200">{t.text}</span>
@@ -1407,7 +1407,7 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
             {showHail && (
                 <OverlayPortal
                     role="presentation"
-                    className="bg-black/80 backdrop-blur-sm flex items-center justify-center animate-in fade-in duration-200 p-4 pb-[calc(4rem+env(safe-area-inset-bottom)+1rem)] pt-[max(1rem,env(safe-area-inset-top))]"
+                    className="bg-black/80 backdrop-blur-xs flex items-center justify-center animate-in fade-in duration-200 p-4 pb-[calc(4rem+env(safe-area-inset-bottom)+1rem)] pt-[max(1rem,env(safe-area-inset-top))]"
                 >
                     {/* Centred per the standing modal rule (Shane 2026-09-02: "all modal boxes centered on the punters screen"). */}
                     <div
@@ -1434,7 +1434,7 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
                                     aria-label={`Send "${h.text}" to ${showHail.vessel_name || 'nearby vessel'}`}
                                     key={h.text}
                                     onClick={() => handleHail(showHail, h.text)}
-                                    className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-3 text-center hover:bg-emerald-500/10 hover:border-emerald-500/20 transition-all active:scale-[0.95]"
+                                    className="bg-white/3 border border-white/6 rounded-xl p-3 text-center hover:bg-emerald-500/10 hover:border-emerald-500/20 transition-all active:scale-[0.95]"
                                 >
                                     <div className="text-xl mb-0.5">{h.emoji}</div>
                                     <div className="text-[11px] text-gray-300 font-medium">{h.text}</div>

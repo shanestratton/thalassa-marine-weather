@@ -249,7 +249,7 @@ export const NmeaGaugeOverlay: React.FC<NmeaGaugeOverlayProps> = ({ metricId, me
             role="dialog"
             aria-modal="true"
             aria-labelledby={titleId}
-            className={`fixed inset-0 z-[9999] flex flex-col transition-all duration-300 ${
+            className={`fixed inset-0 z-9999 flex flex-col transition-all duration-300 ${
                 visible ? 'opacity-100' : 'opacity-0'
             } bg-slate-950`}
         >

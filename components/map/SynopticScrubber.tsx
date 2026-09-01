@@ -244,10 +244,10 @@ export const SynopticScrubber: React.FC<SynopticScrubberProps> = memo(
 
         return (
             <div
-                className="absolute left-4 right-4 z-[500]"
+                className="absolute left-4 right-4 z-500"
                 style={{ bottom: 'calc(64px + env(safe-area-inset-bottom) + 8px)' }}
             >
-                <div className="bg-slate-900/90 border border-white/[0.08] rounded-2xl px-4 py-2.5 flex items-center gap-3">
+                <div className="bg-slate-900/90 border border-white/8 rounded-2xl px-4 py-2.5 flex items-center gap-3">
                     {/* Play / Pause */}
                     <button
                         aria-label={isPlaying ? 'Pause' : 'Play'}
@@ -268,7 +268,7 @@ export const SynopticScrubber: React.FC<SynopticScrubberProps> = memo(
                         aria-valuenow={forecastHour}
                         aria-valuetext={frameValueText(forecastHour)}
                         onKeyDown={handleKeyDown}
-                        className="flex-1 relative h-10 flex items-center cursor-pointer rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
+                        className="flex-1 relative h-10 flex items-center cursor-pointer rounded-xl focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-sky-400"
                         style={{ touchAction: 'none' }}
                         onPointerDown={handlePointerDown}
                         onPointerMove={handlePointerMove}
@@ -291,7 +291,7 @@ export const SynopticScrubber: React.FC<SynopticScrubberProps> = memo(
                         {/* Thumb */}
                         <div
                             ref={thumbRef}
-                            className="absolute top-1/2 w-5 h-5 -ml-[0.5px] bg-sky-400 rounded-full shadow-lg shadow-sky-400/30 border-2 border-white/40 pointer-events-none"
+                            className="absolute top-1/2 w-5 h-5 ml-[-0.5px] bg-sky-400 rounded-full shadow-lg shadow-sky-400/30 border-2 border-white/40 pointer-events-none"
                             style={{
                                 left: `${maxFrame > 0 ? (forecastHour / maxFrame) * 100 : 0}%`,
                                 transform: 'translate(-50%, -50%) scale(1)',

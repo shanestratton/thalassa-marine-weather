@@ -498,7 +498,7 @@ export const EssentialMapSlide: React.FC<EssentialMapSlideProps> = ({
         <div className="relative w-full h-full flex flex-col">
             <div
                 ref={containerRef}
-                className={`relative flex-1 min-h-0 w-full rounded-2xl overflow-hidden border bg-slate-900/60 ${isGolden ? 'border-amber-400/[0.15]' : isCardDay ? 'border-white/[0.08]' : 'border-sky-300/[0.08]'}`}
+                className={`relative flex-1 min-h-0 w-full rounded-2xl overflow-hidden border bg-slate-900/60 ${isGolden ? 'border-amber-400/15' : isCardDay ? 'border-white/8' : 'border-sky-300/8'}`}
             >
                 {/* Layer 1: basemap — rendered at the exact container size/zoom.
                     Mid-pinch it CSS-scales from the last rendered factor; once
@@ -593,7 +593,7 @@ export const EssentialMapSlide: React.FC<EssentialMapSlideProps> = ({
                     <button
                         aria-label="Open full map"
                         onClick={onMapTap}
-                        className="absolute inset-0 bottom-12 cursor-pointer z-[1]"
+                        className="absolute inset-0 bottom-12 cursor-pointer z-1"
                         style={{ background: 'transparent' }}
                     />
                 )}
@@ -605,7 +605,7 @@ export const EssentialMapSlide: React.FC<EssentialMapSlideProps> = ({
                             <button
                                 aria-label={isPlaying ? 'Pause radar animation' : 'Play radar animation'}
                                 onClick={() => setIsPlaying((p) => !p)}
-                                className="hit-target-44 w-7 h-7 shrink-0 rounded-full bg-white/10 backdrop-blur-md border border-white/[0.12] flex items-center justify-center active:scale-90 transition-all"
+                                className="hit-target-44 w-7 h-7 shrink-0 rounded-full bg-white/10 backdrop-blur-md border border-white/12 flex items-center justify-center active:scale-90 transition-all"
                             >
                                 {isPlaying ? (
                                     <svg className="w-3 h-3 text-white/80" fill="currentColor" viewBox="0 0 24 24">
@@ -635,7 +635,7 @@ export const EssentialMapSlide: React.FC<EssentialMapSlideProps> = ({
                                     if (e.buttons > 0) handleScrub(e.clientX);
                                 }}
                             >
-                                <div className="w-full h-[3px] rounded-full bg-white/[0.08] relative overflow-visible">
+                                <div className="w-full h-[3px] rounded-full bg-white/8 relative overflow-visible">
                                     {/* Progress fill: sky for observed, amber past NOW */}
                                     <div
                                         className="absolute inset-y-0 left-0 rounded-full overflow-hidden"
@@ -723,14 +723,14 @@ export const EssentialMapSlide: React.FC<EssentialMapSlideProps> = ({
                         </div>
                     )}
                     {!isLive && activeFrame?.kind === 'past' && (
-                        <div className="px-1.5 py-0.5 rounded-md bg-black/40 backdrop-blur-sm border border-white/[0.06]">
+                        <div className="px-1.5 py-0.5 rounded-md bg-black/40 backdrop-blur-xs border border-white/6">
                             <span className="text-[11px] text-white/50 font-mono font-semibold tabular-nums">
                                 {relativeLabel}
                             </span>
                         </div>
                     )}
                     {radarFailed && (
-                        <div className="px-1.5 py-0.5 rounded-md bg-black/40 backdrop-blur-sm border border-white/[0.06]">
+                        <div className="px-1.5 py-0.5 rounded-md bg-black/40 backdrop-blur-xs border border-white/6">
                             <span className="text-[11px] text-white/40 font-medium">Radar unavailable</span>
                         </div>
                     )}
@@ -738,7 +738,7 @@ export const EssentialMapSlide: React.FC<EssentialMapSlideProps> = ({
 
                 {/* Layer 8: wind badge — bottom-left, above scrubber */}
                 {displaySpeed != null && (
-                    <div className="absolute bottom-12 left-2.5 flex items-center gap-1.5 px-2 py-1 rounded-lg bg-black/50 backdrop-blur-sm border border-white/[0.06]">
+                    <div className="absolute bottom-12 left-2.5 flex items-center gap-1.5 px-2 py-1 rounded-lg bg-black/50 backdrop-blur-xs border border-white/6">
                         {windDirection != null && (
                             <div
                                 className="w-3.5 h-3.5 flex items-center justify-center"
@@ -758,7 +758,7 @@ export const EssentialMapSlide: React.FC<EssentialMapSlideProps> = ({
 
                 {/* Layer 9: condition — top-right */}
                 {condition && (
-                    <div className="absolute top-2.5 right-2.5 px-2 py-1 rounded-lg bg-black/50 backdrop-blur-sm border border-white/[0.06]">
+                    <div className="absolute top-2.5 right-2.5 px-2 py-1 rounded-lg bg-black/50 backdrop-blur-xs border border-white/6">
                         <span className="text-[11px] text-white/50 font-medium tracking-wide">{condition}</span>
                     </div>
                 )}
@@ -770,7 +770,7 @@ export const EssentialMapSlide: React.FC<EssentialMapSlideProps> = ({
                         target="_blank"
                         rel="noreferrer"
                         onClick={(event) => event.stopPropagation()}
-                        className="absolute bottom-12 right-2.5 z-[2] rounded-md bg-black/45 px-1.5 py-0.5 text-[9px] font-semibold text-white/45 backdrop-blur-sm"
+                        className="absolute bottom-12 right-2.5 z-2 rounded-md bg-black/45 px-1.5 py-0.5 text-[9px] font-semibold text-white/45 backdrop-blur-xs"
                         aria-label="Rain radar data by RainViewer"
                     >
                         RainViewer
@@ -782,7 +782,7 @@ export const EssentialMapSlide: React.FC<EssentialMapSlideProps> = ({
                         target="_blank"
                         rel="noreferrer"
                         onClick={(event) => event.stopPropagation()}
-                        className="absolute bottom-12 right-2.5 z-[2] rounded-md bg-black/45 px-1.5 py-0.5 text-[9px] font-semibold text-white/45 backdrop-blur-sm"
+                        className="absolute bottom-12 right-2.5 z-2 rounded-md bg-black/45 px-1.5 py-0.5 text-[9px] font-semibold text-white/45 backdrop-blur-xs"
                         aria-label="Nowcast data by Rainbow.ai"
                     >
                         Rainbow.ai

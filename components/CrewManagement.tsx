@@ -2266,7 +2266,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                         <div
                             role="status"
                             aria-live="polite"
-                            className="bg-white/[0.03] border border-dashed border-white/[0.10] rounded-lg px-3 py-4 text-center"
+                            className="bg-white/3 border border-dashed border-white/10 rounded-lg px-3 py-4 text-center"
                         >
                             <p className="text-xs font-semibold text-slate-200">Loading saved routes…</p>
                             <p className="mt-0.5 text-[11px] text-slate-400 leading-relaxed">
@@ -2277,8 +2277,8 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                         // Empty state is deliberate: a route only enters this
                         // library after the skipper saves it, never as a
                         // placeholder passage.
-                        <div className="bg-white/[0.03] border border-dashed border-white/[0.10] rounded-lg px-3 py-4 text-center">
-                            <div className="w-9 h-9 mx-auto mb-2 rounded-full bg-sky-500/[0.08] border border-sky-500/15 flex items-center justify-center">
+                        <div className="bg-white/3 border border-dashed border-white/10 rounded-lg px-3 py-4 text-center">
+                            <div className="w-9 h-9 mx-auto mb-2 rounded-full bg-sky-500/8 border border-sky-500/15 flex items-center justify-center">
                                 <svg
                                     className="w-4 h-4 text-sky-400/70"
                                     fill="none"
@@ -2328,7 +2328,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                                 value={planDeparture ? planDeparture.slice(0, 10) : ''}
                                 min={localDateValue(nextDepartureSlot())}
                                 onChange={(event) => handleDepartureDateChange(event.target.value)}
-                                className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500/30 transition-colors [color-scheme:dark]"
+                                className="w-full bg-white/4 border border-white/8 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-hidden focus:border-violet-500/30 transition-colors scheme-dark"
                             />
                         </div>
 
@@ -2349,8 +2349,8 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                             disabled={!allCardsReady}
                             className={`shrink-0 px-5 py-2.5 rounded-xl text-xs font-bold uppercase tracking-widest border transition-all active:scale-[0.97] disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center gap-1.5 ${
                                 allCardsReady
-                                    ? 'bg-gradient-to-r from-emerald-500/10 to-teal-500/10 border-emerald-500/20 text-emerald-300 hover:from-emerald-500/20 hover:to-teal-500/20'
-                                    : 'bg-white/[0.03] border-white/[0.08] text-gray-500'
+                                    ? 'bg-linear-to-r from-emerald-500/10 to-teal-500/10 border-emerald-500/20 text-emerald-300 hover:from-emerald-500/20 hover:to-teal-500/20'
+                                    : 'bg-white/3 border-white/8 text-gray-500'
                             } inline-flex items-center justify-center gap-2`}
                         >
                             <AnchorIcon className="w-4 h-4" />
@@ -2359,7 +2359,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                     </div>
                 )}
                 {selectedPassageId && verifiedPassageStatus.visible && !verifiedPassageStatus.isOwner && (
-                    <p className="mb-4 rounded-xl border border-sky-500/15 bg-sky-500/[0.05] px-3 py-2 text-[11px] text-sky-200/80">
+                    <p className="mb-4 rounded-xl border border-sky-500/15 bg-sky-500/5 px-3 py-2 text-[11px] text-sky-200/80">
                         Shared passage — departure and Cast Off stay with the skipper.
                     </p>
                 )}
@@ -2376,7 +2376,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                     <div
                         role="status"
                         aria-live="polite"
-                        className="mb-4 rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3 text-center"
+                        className="mb-4 rounded-xl border border-white/6 bg-white/2 px-4 py-3 text-center"
                     >
                         <p className="text-sm text-gray-400">Checking passage access…</p>
                     </div>
@@ -2543,7 +2543,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                                     }}
                                     placeholder="Capt."
                                     aria-label="Title prefix (optional)"
-                                    className="col-span-2 w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-white focus:border-sky-500 outline-none text-sm placeholder:text-gray-500"
+                                    className="col-span-2 w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-white focus:border-sky-500 outline-hidden text-sm placeholder:text-gray-500"
                                 />
                                 <input
                                     type="text"
@@ -2553,7 +2553,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                                     }}
                                     placeholder="First *"
                                     aria-label="First name"
-                                    className="col-span-3 w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-white focus:border-sky-500 outline-none text-sm placeholder:text-gray-500"
+                                    className="col-span-3 w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-white focus:border-sky-500 outline-hidden text-sm placeholder:text-gray-500"
                                 />
                             </div>
                             <div className="grid grid-cols-2 gap-2 mt-2">
@@ -2565,7 +2565,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                                     }}
                                     placeholder="Surname"
                                     aria-label="Surname"
-                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-white focus:border-sky-500 outline-none text-sm placeholder:text-gray-500"
+                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-white focus:border-sky-500 outline-hidden text-sm placeholder:text-gray-500"
                                 />
                                 <input
                                     type="text"
@@ -2575,7 +2575,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                                     }}
                                     placeholder="Nickname"
                                     aria-label="Nickname"
-                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-white focus:border-sky-500 outline-none text-sm placeholder:text-gray-500"
+                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-white focus:border-sky-500 outline-hidden text-sm placeholder:text-gray-500"
                                 />
                             </div>
                             <p className="text-[10px] text-gray-500 mt-1.5 ml-1">
@@ -2618,7 +2618,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                                         className={`p-3 rounded-xl border text-left transition-all active:scale-95 ${
                                             selected
                                                 ? 'bg-sky-500/15 border-sky-500/40'
-                                                : 'bg-white/[0.03] border-white/[0.06] hover:bg-white/[0.05]'
+                                                : 'bg-white/3 border-white/6 hover:bg-white/5'
                                         }`}
                                     >
                                         <div className="flex items-center gap-2">
@@ -2714,7 +2714,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                                 }
                             }}
                             placeholder="DISBAND"
-                            className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-4 py-3 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-red-500/40"
+                            className="w-full bg-white/4 border border-white/8 rounded-xl px-4 py-3 text-sm text-white placeholder-gray-600 focus:outline-hidden focus:border-red-500/40"
                         />
                     </div>
 
@@ -2725,7 +2725,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                         className={`w-full py-3.5 rounded-xl font-bold text-sm transition-all active:scale-95 inline-flex items-center justify-center gap-2 ${
                             disbandConfirmText === 'DISBAND' && !disbanding
                                 ? 'bg-red-600 text-white hover:bg-red-700 shadow-lg shadow-red-500/20'
-                                : 'bg-white/[0.04] text-gray-500 cursor-not-allowed'
+                                : 'bg-white/4 text-gray-500 cursor-not-allowed'
                         }`}
                     >
                         {disbanding ? (

@@ -70,7 +70,7 @@ export function ChartDepthControls({
                                 ? 'Depths shown at a future tide — tap to return to now'
                                 : 'Live tide depth is on — tap to return to chart datum'
                         }
-                        className="absolute left-1/2 top-16 z-[9990] -translate-x-1/2 whitespace-nowrap rounded-full border px-4 py-2.5 text-[11px] font-black tracking-wide shadow-lg active:scale-95"
+                        className="absolute left-1/2 top-16 z-9990 -translate-x-1/2 whitespace-nowrap rounded-full border px-4 py-2.5 text-[11px] font-black tracking-wide shadow-lg active:scale-95"
                         style={
                             tideOffsetInfo && tideScrubQ > 0
                                 ? {
@@ -108,7 +108,7 @@ export function ChartDepthControls({
                             : 'LIVE DEPTH — no tide data, showing chart datum'}
                     </button>
                     {tideOffsetInfo && (
-                        <div className="absolute left-1/2 top-[6.4rem] z-[9989] w-60 -translate-x-1/2 rounded-xl border border-white/10 bg-slate-900/85 px-3 pb-1 pt-1.5 shadow-lg">
+                        <div className="absolute left-1/2 top-[6.4rem] z-9989 w-60 -translate-x-1/2 rounded-xl border border-white/10 bg-slate-900/85 px-3 pb-1 pt-1.5 shadow-lg">
                             <input
                                 type="range"
                                 min={0}
@@ -140,7 +140,7 @@ export function ChartDepthControls({
                     // tracer → chart key → detail scrubber. When the tracer is
                     // not active, the key simply occupies the scrubber's rail
                     // position rather than floating in the map centre.
-                    className="absolute left-3 z-[9996] flex min-h-[44px] w-72 items-center justify-center whitespace-nowrap rounded-xl border border-white/10 bg-slate-900/85 px-3 py-1 text-[11px] font-semibold tracking-wide text-gray-300 shadow-lg backdrop-blur-sm active:scale-95"
+                    className="absolute left-3 z-9996 flex min-h-[44px] w-72 items-center justify-center whitespace-nowrap rounded-xl border border-white/10 bg-slate-900/85 px-3 py-1 text-[11px] font-semibold tracking-wide text-gray-300 shadow-lg backdrop-blur-xs active:scale-95"
                     style={{
                         // 9.2rem while plotting — third cut (Shane 2026-08-25):
                         // 8.8 grazed the scrubber, 9.8 hugged the tracer card
@@ -160,7 +160,7 @@ export function ChartDepthControls({
 
             {encHydration.remaining > 0 && encVisible && surfaceVisible && (
                 <div
-                    className="pointer-events-none absolute bottom-[calc(20rem+env(safe-area-inset-bottom))] left-1/2 z-[9980] -translate-x-1/2 whitespace-nowrap rounded-full border border-teal-500/30 bg-slate-900/85 px-3 py-1 text-[10px] font-bold text-teal-300 shadow-lg sm:bottom-[calc(7.25rem+env(safe-area-inset-bottom))]"
+                    className="pointer-events-none absolute bottom-[calc(20rem+env(safe-area-inset-bottom))] left-1/2 z-9980 -translate-x-1/2 whitespace-nowrap rounded-full border border-teal-500/30 bg-slate-900/85 px-3 py-1 text-[10px] font-bold text-teal-300 shadow-lg sm:bottom-[calc(7.25rem+env(safe-area-inset-bottom))]"
                     aria-live="polite"
                 >
                     Chart downloading… ({encHydration.total - encHydration.remaining + 1} of {encHydration.total})
@@ -172,7 +172,7 @@ export function ChartDepthControls({
                     onClick={() => onNightDimChange(!nightDim)}
                     aria-label="Toggle night dim"
                     aria-pressed={nightDim}
-                    className="absolute top-[104px] left-[224px] z-[700] flex h-11 w-11 items-center justify-center rounded-full border shadow-lg backdrop-blur-md active:scale-95"
+                    className="absolute top-[104px] left-[224px] z-700 flex h-11 w-11 items-center justify-center rounded-full border shadow-lg backdrop-blur-md active:scale-95"
                     style={{
                         background: nightDim ? 'rgba(220, 80, 60, 0.30)' : 'rgba(15, 23, 42, 0.85)',
                         borderColor: 'rgba(220, 80, 60, 0.35)',
@@ -186,7 +186,7 @@ export function ChartDepthControls({
 
             {encReferenceCellCount > 0 && encVisible && referenceNoticeVisible && (
                 <div
-                    className={`absolute left-1/2 z-[9995] flex w-[min(440px,calc(100%-24px))] -translate-x-1/2 items-center justify-between gap-3 rounded-2xl border border-amber-500/40 bg-slate-950/95 px-3 py-2 text-[11px] font-bold text-amber-100 shadow-lg backdrop-blur-sm ${
+                    className={`absolute left-1/2 z-9995 flex w-[min(440px,calc(100%-24px))] -translate-x-1/2 items-center justify-between gap-3 rounded-2xl border border-amber-500/40 bg-slate-950/95 px-3 py-2 text-[11px] font-bold text-amber-100 shadow-lg backdrop-blur-xs ${
                         tideDepthMode && surfaceVisible ? 'top-28' : 'top-16'
                     }`}
                     role="status"
@@ -216,7 +216,7 @@ export function ChartDepthControls({
                 encVisible &&
                 surfaceVisible && (
                     <div
-                        className="absolute bottom-6 left-1/2 z-[9980] flex w-[min(390px,calc(100%-24px))] -translate-x-1/2 items-center justify-between gap-3 rounded-2xl border border-amber-500/30 bg-slate-900/92 px-3 py-2 text-[11px] font-bold text-amber-200 shadow-lg backdrop-blur-sm"
+                        className="absolute bottom-6 left-1/2 z-9980 flex w-[min(390px,calc(100%-24px))] -translate-x-1/2 items-center justify-between gap-3 rounded-2xl border border-amber-500/30 bg-slate-900/92 px-3 py-2 text-[11px] font-bold text-amber-200 shadow-lg backdrop-blur-xs"
                         aria-live="polite"
                     >
                         <span className="leading-snug">
@@ -273,7 +273,7 @@ export function LiveTideAckModal({ visible, onCancel, onAccept }: LiveTideAckMod
 
     return (
         <div
-            className="fixed inset-0 z-[10060] flex items-center justify-center bg-black/60 p-4 pb-[calc(4rem+env(safe-area-inset-bottom)+1rem)] pt-[max(1rem,env(safe-area-inset-top))]"
+            className="fixed inset-0 z-10060 flex items-center justify-center bg-black/60 p-4 pb-[calc(4rem+env(safe-area-inset-bottom)+1rem)] pt-[max(1rem,env(safe-area-inset-top))]"
             onClick={onCancel}
             role="presentation"
         >

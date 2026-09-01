@@ -19,7 +19,7 @@ interface AudioWidgetProps {
 
 export const AudioWidget: React.FC<AudioWidgetProps> = React.memo(
     ({ url, isPlaying, transcribing, onTogglePlayback, onTranscribe, onRemove, allowTranscribe, allowRemove }) => (
-        <div className="bg-gradient-to-r from-emerald-500/10 to-emerald-500/10 border border-emerald-500/15 rounded-xl p-3">
+        <div className="bg-linear-to-r from-emerald-500/10 to-emerald-500/10 border border-emerald-500/15 rounded-xl p-3">
             <div className="flex items-center gap-2.5">
                 <button
                     aria-label="Go back"

@@ -238,7 +238,7 @@ export const GlobalNowPlayingBar: React.FC = () => {
             // Compact, right-anchored command pod. Keeping the playback
             // surface separate from the transport buttons avoids nested
             // buttons, which iOS VoiceOver treats inconsistently.
-            className="fixed right-2 z-[850] flex max-w-[300px] items-center gap-1.5 rounded-2xl border border-sky-300/20 bg-slate-900/[0.94] p-1.5 shadow-2xl backdrop-blur-xl"
+            className="fixed right-2 z-850 flex max-w-[300px] items-center gap-1.5 rounded-2xl border border-sky-300/20 bg-slate-900/94 p-1.5 shadow-2xl backdrop-blur-xl"
             style={{
                 // Slot above the bottom nav (h-16 = 64px + safe area inset)
                 bottom: 'calc(env(safe-area-inset-bottom) + 68px)',
@@ -248,7 +248,7 @@ export const GlobalNowPlayingBar: React.FC = () => {
                 type="button"
                 onClick={handleBarTap}
                 aria-label={`Now playing: ${nowPlaying.title}${nowPlaying.artist ? ` by ${nowPlaying.artist}` : ''}. Open Apple Music.`}
-                className="flex min-w-0 flex-1 items-center gap-2 rounded-xl px-0.5 py-0.5 text-left transition-colors hover:bg-sky-500/[0.07] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
+                className="flex min-w-0 flex-1 items-center gap-2 rounded-xl px-0.5 py-0.5 text-left transition-colors hover:bg-sky-500/[0.07] focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-sky-400"
             >
                 {/* Artwork */}
                 {artwork ? (
@@ -259,13 +259,13 @@ export const GlobalNowPlayingBar: React.FC = () => {
                         loading="eager"
                         onError={() => setImageFailed(true)}
                         fallback={
-                            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-sky-400/25 to-sky-500/20 ring-1 ring-sky-200/20">
+                            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-linear-to-br from-sky-400/25 to-sky-500/20 ring-1 ring-sky-200/20">
                                 <span className="text-base">♪</span>
                             </div>
                         }
                     />
                 ) : (
-                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-sky-400/25 to-sky-500/20 ring-1 ring-sky-200/20">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-linear-to-br from-sky-400/25 to-sky-500/20 ring-1 ring-sky-200/20">
                         <span className="text-base">♪</span>
                     </div>
                 )}

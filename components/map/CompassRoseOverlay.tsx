@@ -49,7 +49,7 @@ export const CompassRoseOverlay: React.FC<CompassRoseOverlayProps> = ({ mapRef, 
         <div
             role="img"
             aria-label="Compass rose — shows which side of the chart is north"
-            className="fixed z-[9996] select-none"
+            className="fixed z-9996 select-none"
             style={{
                 left: LOCKED_LEFT,
                 top: 'calc(0.5rem + env(safe-area-inset-top))',

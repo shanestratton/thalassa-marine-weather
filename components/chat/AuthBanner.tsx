@@ -7,7 +7,7 @@ interface AuthBannerProps {
 }
 
 export const AuthBanner: React.FC<AuthBannerProps> = ({ onSignIn, onDismiss }) => (
-    <div className="mx-4 mt-3 mb-1 p-3 rounded-xl bg-violet-500/[0.06] border border-violet-500/15 flex items-center gap-3">
+    <div className="mx-4 mt-3 mb-1 p-3 rounded-xl bg-violet-500/6 border border-violet-500/15 flex items-center gap-3">
         <div className="p-1.5 rounded-lg bg-violet-500/10">
             <span className="text-lg">👥</span>
         </div>

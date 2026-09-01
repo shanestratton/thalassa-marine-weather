@@ -87,7 +87,7 @@ export const S63LicensingCard: React.FC = () => {
     })();
 
     return (
-        <div className="mb-3 p-4 rounded-2xl bg-white/[0.03] border border-white/[0.06]">
+        <div className="mb-3 p-4 rounded-2xl bg-white/3 border border-white/6">
             <button
                 onClick={() => {
                     triggerHaptic('light');
@@ -116,7 +116,7 @@ export const S63LicensingCard: React.FC = () => {
                     {busy === 'status' && !status && <p className="text-[11px] text-gray-500">Asking the Pi…</p>}
 
                     {status?.dongle.present && (
-                        <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/[0.08] px-3 py-2.5">
+                        <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/8 px-3 py-2.5">
                             <p className="text-[11px] leading-relaxed text-emerald-300">
                                 <span className="font-bold">Dongle detected.</span> Your o-charts charts are licensed to
                                 the dongle itself, so they keep working if you move it to another Pi — nothing below is
@@ -126,7 +126,7 @@ export const S63LicensingCard: React.FC = () => {
                     )}
 
                     {status && !status.toolchainReady && (
-                        <div className="rounded-xl border border-amber-500/20 bg-amber-500/[0.08] px-3 py-2.5">
+                        <div className="rounded-xl border border-amber-500/20 bg-amber-500/8 px-3 py-2.5">
                             <p className="text-[11px] leading-relaxed text-amber-300">
                                 The S-63 tools are not installed on this Pi ({status.missing.join(', ')}). o-charts with
                                 a dongle do not need them; ChartWorld S-63 does.
@@ -189,7 +189,7 @@ export const S63LicensingCard: React.FC = () => {
                             autoCorrect="off"
                             spellCheck={false}
                             disabled={busy !== null}
-                            className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-3 font-mono text-xs text-white outline-none placeholder:text-gray-500 focus:border-sky-400 disabled:opacity-60"
+                            className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-3 font-mono text-xs text-white outline-hidden placeholder:text-gray-500 focus:border-sky-400 disabled:opacity-60"
                         />
                         <input
                             value={installPermit}
@@ -199,7 +199,7 @@ export const S63LicensingCard: React.FC = () => {
                             autoCorrect="off"
                             spellCheck={false}
                             disabled={busy !== null}
-                            className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-3 font-mono text-xs text-white outline-none placeholder:text-gray-500 focus:border-sky-400 disabled:opacity-60"
+                            className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-3 font-mono text-xs text-white outline-hidden placeholder:text-gray-500 focus:border-sky-400 disabled:opacity-60"
                         />
                         <button
                             onClick={() => void onSave()}
@@ -211,7 +211,7 @@ export const S63LicensingCard: React.FC = () => {
                     </div>
 
                     {fingerprintName && (
-                        <div className="space-y-1 rounded-xl border border-emerald-500/20 bg-emerald-500/[0.08] px-3 py-2.5">
+                        <div className="space-y-1 rounded-xl border border-emerald-500/20 bg-emerald-500/8 px-3 py-2.5">
                             <p className="text-[11px] leading-relaxed text-emerald-300">
                                 Your fingerprint file is{' '}
                                 <span className="break-all font-mono font-bold">{fingerprintName}</span>
@@ -229,8 +229,8 @@ export const S63LicensingCard: React.FC = () => {
                             role="status"
                             className={`rounded-xl px-3 py-2 text-[11px] leading-relaxed ${
                                 message.tone === 'ok'
-                                    ? 'border border-emerald-500/20 bg-emerald-500/[0.08] text-emerald-300'
-                                    : 'border border-red-500/20 bg-red-500/[0.08] text-red-300'
+                                    ? 'border border-emerald-500/20 bg-emerald-500/8 text-emerald-300'
+                                    : 'border border-red-500/20 bg-red-500/8 text-red-300'
                             }`}
                         >
                             {message.text}
@@ -238,7 +238,7 @@ export const S63LicensingCard: React.FC = () => {
                     )}
 
                     {status?.permitsValid === false && status.permitProblem && !message && (
-                        <p className="rounded-xl border border-amber-500/20 bg-amber-500/[0.08] px-3 py-2 text-[11px] leading-relaxed text-amber-300">
+                        <p className="rounded-xl border border-amber-500/20 bg-amber-500/8 px-3 py-2 text-[11px] leading-relaxed text-amber-300">
                             {status.permitProblem}
                         </p>
                     )}

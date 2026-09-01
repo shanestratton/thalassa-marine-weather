@@ -555,7 +555,7 @@ export const RoutePlanner: React.FC<{
                                 ? `Select ${mapSelectionTarget === 'origin' ? 'origin' : 'destination'} on map`
                                 : 'Route map'
                         }
-                        className="fixed inset-0 z-[2000] bg-slate-900 flex flex-col"
+                        className="fixed inset-0 z-2000 bg-slate-900 flex flex-col"
                     >
                         <div className="relative flex-1">
                             <MapHub
@@ -589,7 +589,7 @@ export const RoutePlanner: React.FC<{
                         </div>
 
                         <div
-                            className="absolute left-4 z-[2200]"
+                            className="absolute left-4 z-2200"
                             style={{ top: 'calc(env(safe-area-inset-top) + 12px)' }}
                         >
                             <button
@@ -717,7 +717,7 @@ export const RoutePlanner: React.FC<{
                                         onClick={() =>
                                             b.kind === 'gpx' ? setPage('gpx-import') : void openRoutePicker(b.kind)
                                         }
-                                        className={`flex w-full items-center gap-3 rounded-2xl border bg-gradient-to-br to-slate-900/40 p-3 text-left transition-transform active:scale-[0.98] ${b.accent}`}
+                                        className={`flex w-full items-center gap-3 rounded-2xl border bg-linear-to-br to-slate-900/40 p-3 text-left transition-transform active:scale-[0.98] ${b.accent}`}
                                     >
                                         <span className="text-2xl leading-none">{b.icon}</span>
                                         <span className="min-w-0">
@@ -767,7 +767,7 @@ export const RoutePlanner: React.FC<{
                                             ? 'Auto-set from the previous leg — change Leg 1 to alter'
                                             : undefined
                                     }
-                                    className={`w-full h-12 border rounded-xl pl-12 pr-32 text-sm font-medium placeholder-gray-500 outline-none transition-all shadow-inner ${
+                                    className={`w-full h-12 border rounded-xl pl-12 pr-32 text-sm font-medium placeholder-gray-500 outline-hidden transition-all shadow-inner ${
                                         originLocked
                                             ? 'bg-slate-900/70 border-emerald-500/25 text-gray-300 cursor-not-allowed'
                                             : 'bg-slate-900/50 border-white/10 focus:border-sky-500/50 text-white'
@@ -822,7 +822,7 @@ export const RoutePlanner: React.FC<{
                                     onFocus={handleInputFocus}
                                     placeholder="Type destination, coords, or tap map…"
                                     aria-label="Destination port or location"
-                                    className="w-full h-12 bg-slate-900/50 border border-white/10 focus:border-sky-500/50 rounded-xl pl-12 pr-24 text-sm text-white font-medium placeholder-gray-500 outline-none transition-all shadow-inner"
+                                    className="w-full h-12 bg-slate-900/50 border border-white/10 focus:border-sky-500/50 rounded-xl pl-12 pr-24 text-sm text-white font-medium placeholder-gray-500 outline-hidden transition-all shadow-inner"
                                 />
                                 <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
                                     <button
@@ -869,7 +869,7 @@ export const RoutePlanner: React.FC<{
                                     }}
                                     onFocus={handleInputFocus}
                                     aria-label="Departure date"
-                                    className="w-full h-12 bg-slate-900/50 border border-white/10 focus:border-sky-500/50 rounded-xl pl-12 pr-3 text-sm text-white font-medium outline-none transition-all shadow-inner hover:bg-slate-900/80 appearance-none min-w-0"
+                                    className="w-full h-12 bg-slate-900/50 border border-white/10 focus:border-sky-500/50 rounded-xl pl-12 pr-3 text-sm text-white font-medium outline-hidden transition-all shadow-inner hover:bg-slate-900/80 appearance-none min-w-0"
                                     style={{ WebkitAppearance: 'none' }}
                                 />
                             </div>
@@ -910,7 +910,7 @@ export const RoutePlanner: React.FC<{
                     <>
                         {/* Route summary overlay */}
                         <div className="absolute top-3 left-3 right-3 z-10 pointer-events-none">
-                            <div className="pointer-events-auto flex flex-wrap items-center gap-x-3 gap-y-1.5 w-full px-4 py-2.5 rounded-xl bg-slate-900/90 border border-white/10 backdrop-blur-sm shadow-2xl">
+                            <div className="pointer-events-auto flex flex-wrap items-center gap-x-3 gap-y-1.5 w-full px-4 py-2.5 rounded-xl bg-slate-900/90 border border-white/10 backdrop-blur-xs shadow-2xl">
                                 <div className="flex items-center gap-2">
                                     <div className="w-2 h-2 rounded-full bg-emerald-400" />
                                     <span className="text-[11px] font-bold text-white truncate max-w-[120px]">
@@ -1175,7 +1175,7 @@ export const RoutePlanner: React.FC<{
                     // end on a phone.
                     <div
                         role="presentation"
-                        className="fixed inset-0 z-[10060] flex items-center justify-center bg-black/60 px-3 py-[max(1rem,env(safe-area-inset-bottom))]"
+                        className="fixed inset-0 z-10060 flex items-center justify-center bg-black/60 px-3 py-[max(1rem,env(safe-area-inset-bottom))]"
                         onClick={closeRoutePicker}
                     >
                         <div
@@ -1231,7 +1231,7 @@ export const RoutePlanner: React.FC<{
                                                     key={it.key}
                                                     className={`flex w-full overflow-hidden rounded-xl border ${
                                                         it.kind === 'passage'
-                                                            ? 'border-violet-400/25 bg-violet-500/[0.08]'
+                                                            ? 'border-violet-400/25 bg-violet-500/8'
                                                             : 'border-white/10 bg-white/5'
                                                     }`}
                                                 >
@@ -1297,7 +1297,7 @@ export const RoutePlanner: React.FC<{
                                                                     : `Delete ${it.title}`
                                                             }
                                                             onClick={() => void handleRoutePickerRemove(it)}
-                                                            className={`min-w-[4.75rem] border-l px-2 text-[11px] font-black uppercase tracking-wide transition-colors disabled:cursor-wait disabled:opacity-60 ${
+                                                            className={`min-w-19 border-l px-2 text-[11px] font-black uppercase tracking-wide transition-colors disabled:cursor-wait disabled:opacity-60 ${
                                                                 deleteArmed
                                                                     ? 'border-red-400/30 bg-red-500/20 text-red-200'
                                                                     : 'border-white/10 text-red-300'

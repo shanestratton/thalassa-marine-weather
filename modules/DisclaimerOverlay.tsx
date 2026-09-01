@@ -68,7 +68,7 @@ export const DisclaimerOverlay: React.FC<DisclaimerOverlayProps> = ({ onAccepted
             aria-modal="true"
             aria-labelledby="navigation-disclaimer-title"
             tabIndex={-1}
-            className="fixed inset-0 z-[99999] flex items-center justify-center bg-slate-950"
+            className="fixed inset-0 z-99999 flex items-center justify-center bg-slate-950"
         >
             {/* Subtle ocean gradient background */}
             <div
@@ -100,7 +100,7 @@ export const DisclaimerOverlay: React.FC<DisclaimerOverlayProps> = ({ onAccepted
                     tabIndex={0}
                     aria-label="Navigation disclaimer text"
                     onScroll={handleScroll}
-                    className="flex-1 min-h-0 overflow-y-auto rounded-2xl bg-slate-900/80 border border-white/10 p-5 mb-4 backdrop-blur-sm"
+                    className="flex-1 min-h-0 overflow-y-auto rounded-2xl bg-slate-900/80 border border-white/10 p-5 mb-4 backdrop-blur-xs"
                     style={{
                         maxHeight: '50vh',
                         WebkitOverflowScrolling: 'touch',
@@ -112,7 +112,7 @@ export const DisclaimerOverlay: React.FC<DisclaimerOverlayProps> = ({ onAccepted
 
                     {/* Scroll hint — fades when user reaches bottom */}
                     {!hasScrolledToBottom && (
-                        <div className="sticky bottom-0 left-0 right-0 h-12 pointer-events-none bg-gradient-to-t from-slate-900 to-transparent" />
+                        <div className="sticky bottom-0 left-0 right-0 h-12 pointer-events-none bg-linear-to-t from-slate-900 to-transparent" />
                     )}
                 </div>
 

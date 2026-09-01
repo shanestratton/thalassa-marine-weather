@@ -49,8 +49,8 @@ const STATE_HINT: Record<TalkButtonState, string> = {
 };
 
 /** Marine-blue Calypso gradient (matches AvNav badge family). */
-const GRADIENT_IDLE = 'bg-gradient-to-br from-sky-500 via-blue-600 to-blue-800';
-const GRADIENT_HOT = 'bg-gradient-to-br from-sky-400 via-blue-500 to-blue-700 ring-4 ring-sky-300/60';
+const GRADIENT_IDLE = 'bg-linear-to-br from-sky-500 via-blue-600 to-blue-800';
+const GRADIENT_HOT = 'bg-linear-to-br from-sky-400 via-blue-500 to-blue-700 ring-4 ring-sky-300/60';
 const SHADOW_IDLE =
     '0 16px 50px rgba(37, 99, 235, 0.4), inset 0 2px 12px rgba(255, 255, 255, 0.2), inset 0 -6px 20px rgba(0, 0, 0, 0.25)';
 const SHADOW_HOT =
@@ -94,7 +94,7 @@ export const TalkButton: React.FC<TalkButtonProps> = ({ state, subtitle, disable
     const isBusy = state === 'sending' || state === 'awaiting';
 
     const gradientClass = disabled
-        ? 'bg-gradient-to-br from-slate-700 via-slate-800 to-slate-900'
+        ? 'bg-linear-to-br from-slate-700 via-slate-800 to-slate-900'
         : isRecording
           ? GRADIENT_HOT
           : GRADIENT_IDLE;

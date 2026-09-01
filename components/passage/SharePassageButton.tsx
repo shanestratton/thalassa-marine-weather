@@ -236,7 +236,7 @@ const SharePassageButton: React.FC<SharePassageButtonProps> = ({ briefData, clas
                     ${
                         menuOpen
                             ? 'bg-sky-500/30 border border-sky-500/50 text-sky-300'
-                            : 'bg-slate-900/90 border border-white/[0.08] text-gray-400 hover:text-white'
+                            : 'bg-slate-900/90 border border-white/8 text-gray-400 hover:text-white'
                     }
                     ${sharing ? 'opacity-60 animate-pulse' : ''}
                 `}
@@ -255,10 +255,10 @@ const SharePassageButton: React.FC<SharePassageButtonProps> = ({ briefData, clas
                     id={menuId}
                     role="menu"
                     aria-label="Share passage plan"
-                    className="absolute bottom-14 right-0 w-52 bg-slate-900/95 backdrop-blur-xl border border-white/[0.08] rounded-2xl shadow-2xl overflow-hidden z-50 animate-in fade-in slide-in-from-bottom-2 duration-200"
+                    className="absolute bottom-14 right-0 w-52 bg-slate-900/95 backdrop-blur-xl border border-white/8 rounded-2xl shadow-2xl overflow-hidden z-50 animate-in fade-in slide-in-from-bottom-2 duration-200"
                     style={{ backdropFilter: 'blur(24px)' }}
                 >
-                    <div role="presentation" className="px-3 py-2 border-b border-white/[0.06]">
+                    <div role="presentation" className="px-3 py-2 border-b border-white/6">
                         <p className="text-[11px] font-bold text-white/40 uppercase tracking-widest">
                             Share Passage Plan
                         </p>
@@ -288,7 +288,7 @@ const SharePassageButton: React.FC<SharePassageButtonProps> = ({ briefData, clas
                         </div>
                     </button>
 
-                    <div role="separator" className="h-px bg-white/[0.04] mx-3" />
+                    <div role="separator" className="h-px bg-white/4 mx-3" />
 
                     {/* Passage data without the safety promise of a float plan. */}
                     <button
@@ -306,7 +306,7 @@ const SharePassageButton: React.FC<SharePassageButtonProps> = ({ briefData, clas
                         </div>
                     </button>
 
-                    <div role="separator" className="h-px bg-white/[0.04] mx-3" />
+                    <div role="separator" className="h-px bg-white/4 mx-3" />
 
                     {/* PDF Export */}
                     <button
@@ -325,7 +325,7 @@ const SharePassageButton: React.FC<SharePassageButtonProps> = ({ briefData, clas
                     </button>
 
                     {/* Close on outside tap */}
-                    <div className="px-3 py-1.5 border-t border-white/[0.06]">
+                    <div className="px-3 py-1.5 border-t border-white/6">
                         <button
                             role="menuitem"
                             onClick={closeMenu}
@@ -347,7 +347,7 @@ const SharePassageButton: React.FC<SharePassageButtonProps> = ({ briefData, clas
                 onClose={() => setShowFloatPlan(false)}
                 title="Float plan"
                 maxWidth="max-w-3xl"
-                zIndex="z-[1200]"
+                zIndex="z-1200"
             >
                 {floatPlanPreset && <FloatPlanSheet preset={floatPlanPreset} onClose={() => setShowFloatPlan(false)} />}
             </ModalSheet>
@@ -357,7 +357,7 @@ const SharePassageButton: React.FC<SharePassageButtonProps> = ({ briefData, clas
                 onClose={() => setShareFailure(null)}
                 title="Share did not complete"
                 maxWidth="max-w-xl"
-                zIndex="z-[1250]"
+                zIndex="z-1250"
             >
                 {shareFailure && (
                     <div className="space-y-4 p-1">
@@ -383,7 +383,7 @@ const SharePassageButton: React.FC<SharePassageButtonProps> = ({ briefData, clas
                                 value={shareFailure.fallbackText}
                                 onFocus={(event) => event.currentTarget.select()}
                                 rows={10}
-                                className="w-full resize-y rounded-xl border border-white/10 bg-slate-950/80 p-3 font-mono text-xs leading-relaxed text-slate-100 outline-none focus:border-sky-400"
+                                className="w-full resize-y rounded-xl border border-white/10 bg-slate-950/80 p-3 font-mono text-xs leading-relaxed text-slate-100 outline-hidden focus:border-sky-400"
                             />
                         </div>
 

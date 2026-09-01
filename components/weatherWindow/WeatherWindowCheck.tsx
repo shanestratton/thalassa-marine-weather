@@ -75,7 +75,7 @@ export const WeatherWindowCheck: React.FC<{ onBack: () => void }> = ({ onBack })
     );
 
     return (
-        <div className="flex flex-col h-full min-h-screen bg-gradient-to-b from-slate-950 to-slate-900 text-slate-100">
+        <div className="flex flex-col h-full min-h-screen bg-linear-to-b from-slate-950 to-slate-900 text-slate-100">
             {/* Header */}
             <div className="sticky top-0 z-10 flex items-center gap-3 px-4 py-3 bg-slate-950/85 backdrop-blur-xl border-b border-white/10 pt-[env(safe-area-inset-top)]">
                 <button
@@ -112,10 +112,7 @@ export const WeatherWindowCheck: React.FC<{ onBack: () => void }> = ({ onBack })
                         Showstoppers — any one is an automatic No-Go
                     </h2>
                     {gates.map((q) => (
-                        <div
-                            key={q.id}
-                            className="rounded-2xl border border-white/10 bg-white/[0.03] p-3.5 space-y-2.5"
-                        >
+                        <div key={q.id} className="rounded-2xl border border-white/10 bg-white/3 p-3.5 space-y-2.5">
                             <div className="text-[13.5px] font-semibold leading-snug">{q.prompt}</div>
                             {q.help && <div className="text-[11px] text-slate-400 -mt-1">{q.help}</div>}
                             <div className="grid gap-2">
@@ -133,10 +130,7 @@ export const WeatherWindowCheck: React.FC<{ onBack: () => void }> = ({ onBack })
                         Conditions — these set the score
                     </h2>
                     {scored.map((q) => (
-                        <div
-                            key={q.id}
-                            className="rounded-2xl border border-white/10 bg-white/[0.03] p-3.5 space-y-2.5"
-                        >
+                        <div key={q.id} className="rounded-2xl border border-white/10 bg-white/3 p-3.5 space-y-2.5">
                             <div className="text-[13.5px] font-semibold leading-snug">{q.prompt}</div>
                             {q.help && <div className="text-[11px] text-slate-400 -mt-1">{q.help}</div>}
                             <div className="grid gap-2">

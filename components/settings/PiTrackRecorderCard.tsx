@@ -64,10 +64,7 @@ export const PiTrackRecorderCard: React.FC = () => {
 
     if (!status) {
         return (
-            <div
-                data-testid="pi-track-card"
-                className="p-3 rounded-xl bg-white/[0.03] border border-white/[0.08] space-y-1"
-            >
+            <div data-testid="pi-track-card" className="p-3 rounded-xl bg-white/3 border border-white/8 space-y-1">
                 <p className="text-[11px] font-bold uppercase tracking-wider text-white/70">Boat track recorder</p>
                 <p className="text-[11px] text-amber-300/80">
                     Can’t reach the Pi — this doesn’t mean recording is off, only that it can’t be asked right now.
@@ -79,10 +76,7 @@ export const PiTrackRecorderCard: React.FC = () => {
     const held = span(status.stored.firstMs, status.stored.lastMs);
 
     return (
-        <div
-            data-testid="pi-track-card"
-            className="p-3 rounded-xl bg-white/[0.03] border border-white/[0.08] space-y-2"
-        >
+        <div data-testid="pi-track-card" className="p-3 rounded-xl bg-white/3 border border-white/8 space-y-2">
             <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                     <p className="text-[11px] font-bold uppercase tracking-wider text-white/70">Boat track recorder</p>

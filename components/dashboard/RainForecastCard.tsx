@@ -151,7 +151,7 @@ export const RainForecastCard: React.FC<RainForecastCardProps> = ({
 
                     {/* Mini Bar Chart (compact preview) — only show when there is meaningful rain */}
                     {analysis.frames.length > 0 && analysis.hasRain && (
-                        <div className="flex items-end gap-[1px] w-full mt-1 h-[22px]">
+                        <div className="flex items-end gap-px w-full mt-1 h-[22px]">
                             {analysis.frames.map((point, i) => {
                                 const normalizedHeight =
                                     analysis.maxIntensity > 0

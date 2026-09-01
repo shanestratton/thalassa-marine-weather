@@ -26,7 +26,7 @@ export class ChatErrorBoundary extends React.Component<{ children: React.ReactNo
             return (
                 <div className="flex-1 flex flex-col items-center justify-center px-6 py-20">
                     <div className="relative mb-6">
-                        <div className="w-20 h-20 rounded-full bg-red-500/[0.06] border border-red-500/10 flex items-center justify-center empty-ripple">
+                        <div className="w-20 h-20 rounded-full bg-red-500/6 border border-red-500/10 flex items-center justify-center empty-ripple">
                             <span className="text-4xl empty-bob">⚓</span>
                         </div>
                     </div>

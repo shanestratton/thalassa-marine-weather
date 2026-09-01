@@ -148,7 +148,7 @@ export const DocumentForm: React.FC<DocumentFormProps> = ({
                             fileInputRef.current?.click();
                             triggerHaptic('light');
                         }}
-                        className="w-full flex items-center justify-center gap-2 bg-white/5 border border-dashed border-white/[0.15] rounded-xl px-3 py-3 text-sm text-gray-400 hover:text-white hover:border-sky-500/30 hover:bg-white/[0.06] transition-all active:scale-[0.98]"
+                        className="w-full flex items-center justify-center gap-2 bg-white/5 border border-dashed border-white/15 rounded-xl px-3 py-3 text-sm text-gray-400 hover:text-white hover:border-sky-500/30 hover:bg-white/6 transition-all active:scale-[0.98]"
                     >
                         <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                             <path
@@ -183,8 +183,8 @@ export const DocumentForm: React.FC<DocumentFormProps> = ({
                 disabled={!formName.trim()}
                 className={`w-full py-3 mt-1 rounded-xl text-sm font-black text-white uppercase tracking-[0.15em] transition-all active:scale-[0.97] disabled:opacity-30 ${
                     isEdit
-                        ? 'bg-gradient-to-r from-sky-600 to-sky-600 shadow-lg shadow-sky-500/20 hover:from-sky-500 hover:to-sky-500'
-                        : 'bg-gradient-to-r from-emerald-600 to-emerald-600 shadow-lg shadow-emerald-500/20 hover:from-emerald-500 hover:to-emerald-500'
+                        ? 'bg-linear-to-r from-sky-600 to-sky-600 shadow-lg shadow-sky-500/20 hover:from-sky-500 hover:to-sky-500'
+                        : 'bg-linear-to-r from-emerald-600 to-emerald-600 shadow-lg shadow-emerald-500/20 hover:from-emerald-500 hover:to-emerald-500'
                 }`}
             >
                 {isEdit ? 'Save Changes' : 'Add Document'}

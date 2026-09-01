@@ -57,7 +57,7 @@ export const LogFilterToolbar: React.FC<LogFilterToolbarProps> = ({
                         aria-label="Search log entries"
                         value={filters.searchQuery}
                         onChange={(e) => onFiltersChange({ ...filters, searchQuery: e.target.value })}
-                        className="w-full bg-slate-800/60 border border-white/5 rounded-lg px-3 py-2 pl-8 text-white text-xs placeholder-slate-500 focus:border-sky-500 focus:outline-none"
+                        className="w-full bg-slate-800/60 border border-white/5 rounded-lg px-3 py-2 pl-8 text-white text-xs placeholder-slate-500 focus:border-sky-500 focus:outline-hidden"
                     />
                     <svg
                         className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2"

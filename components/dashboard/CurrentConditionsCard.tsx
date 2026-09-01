@@ -44,11 +44,11 @@ export const CurrentConditionsCard: React.FC<CurrentConditionsCardProps> = React
     const visUnit = units.visibility || 'nm';
 
     return (
-        <div className="w-full rounded-xl overflow-hidden bg-white/[0.08] border border-white/[0.15] shadow-2xl transition-all duration-300">
+        <div className="w-full rounded-xl overflow-hidden bg-white/8 border border-white/15 shadow-2xl transition-all duration-300">
             {/* Keyframes moved to index.css */}
 
             {/* Single row: 5 key metrics — clean, minimal, no redundancy with header */}
-            <div className="grid grid-cols-5 divide-x divide-white/[0.12] h-[80px]">
+            <div className="grid grid-cols-5 divide-x divide-white/12 h-[80px]">
                 {/* Wind */}
                 <div className="flex flex-col items-center justify-center">
                     <div className="flex items-center gap-1">

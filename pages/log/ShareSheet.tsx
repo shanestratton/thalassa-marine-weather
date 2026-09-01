@@ -97,7 +97,7 @@ export const ShareSheet: React.FC<ShareSheetProps> = ({
                             className={`w-full flex items-center gap-4 p-5 rounded-2xl border active:scale-[0.98] transition-all ${
                                 hasNonDeviceEntries
                                     ? 'bg-slate-800/40 border-slate-700/30 opacity-50 cursor-not-allowed'
-                                    : 'bg-gradient-to-r from-purple-500/15 to-purple-600/5 border-purple-500/20 hover:border-purple-400/40'
+                                    : 'bg-linear-to-r from-purple-500/15 to-purple-600/5 border-purple-500/20 hover:border-purple-400/40'
                             }`}
                         >
                             <div className="w-14 h-14 rounded-xl bg-purple-500/20 flex items-center justify-center shrink-0">
@@ -143,7 +143,7 @@ export const ShareSheet: React.FC<ShareSheetProps> = ({
                     <button
                         aria-label="Share voyage image"
                         onClick={onShareImage}
-                        className="w-full flex items-center gap-4 p-5 rounded-2xl border active:scale-[0.98] transition-all bg-gradient-to-r from-emerald-500/15 to-emerald-600/5 border-emerald-500/20 hover:border-emerald-400/40"
+                        className="w-full flex items-center gap-4 p-5 rounded-2xl border active:scale-[0.98] transition-all bg-linear-to-r from-emerald-500/15 to-emerald-600/5 border-emerald-500/20 hover:border-emerald-400/40"
                     >
                         <div className="w-14 h-14 rounded-xl bg-emerald-500/20 flex items-center justify-center shrink-0">
                             <svg
@@ -176,7 +176,7 @@ export const ShareSheet: React.FC<ShareSheetProps> = ({
                         <button
                             aria-label="Browse community tracks"
                             onClick={onShowCommunityBrowser}
-                            className="w-full flex items-center gap-4 p-5 rounded-2xl border active:scale-[0.98] transition-all bg-gradient-to-r from-sky-500/15 to-sky-600/5 border-sky-500/20 hover:border-sky-400/40"
+                            className="w-full flex items-center gap-4 p-5 rounded-2xl border active:scale-[0.98] transition-all bg-linear-to-r from-sky-500/15 to-sky-600/5 border-sky-500/20 hover:border-sky-400/40"
                         >
                             <div className="w-14 h-14 rounded-xl bg-sky-500/20 flex items-center justify-center shrink-0">
                                 <svg

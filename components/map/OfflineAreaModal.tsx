@@ -103,7 +103,7 @@ export const OfflineAreaModal: React.FC<OfflineAreaModalProps> = ({ isOpen, onCl
         return (
             <ModalSheet isOpen={isOpen} onClose={handleClose} title="Offline Charts" maxWidth="max-w-md">
                 <div className="space-y-3 text-[13px] leading-relaxed text-gray-300">
-                    <div role="status" className="rounded-xl border border-amber-500/25 bg-amber-500/[0.08] p-3">
+                    <div role="status" className="rounded-xl border border-amber-500/25 bg-amber-500/8 p-3">
                         <p className="font-bold text-amber-200">Area download unavailable for this map source</p>
                         <p className="mt-1 text-xs text-amber-100/75">{BULK_OFFLINE_PREFETCH_CAPABILITY.reason}</p>
                     </div>
@@ -143,7 +143,7 @@ export const OfflineAreaModal: React.FC<OfflineAreaModalProps> = ({ isOpen, onCl
 
                 {/* ── Bounds ── */}
                 {bounds && (
-                    <div className="px-3 py-2 rounded-xl bg-white/[0.03] border border-white/[0.06]">
+                    <div className="px-3 py-2 rounded-xl bg-white/3 border border-white/6">
                         <p className="text-[11px] font-bold uppercase tracking-widest text-white/40 mb-1">Area</p>
                         <p className="text-[12px] font-mono text-white/80">{formatBounds(bounds)}</p>
                     </div>
@@ -201,11 +201,11 @@ export const OfflineAreaModal: React.FC<OfflineAreaModalProps> = ({ isOpen, onCl
 
                 {/* ── Estimate ── */}
                 <div className="grid grid-cols-2 gap-2">
-                    <div className="px-3 py-2 rounded-xl bg-white/[0.03] border border-white/[0.06]">
+                    <div className="px-3 py-2 rounded-xl bg-white/3 border border-white/6">
                         <p className="text-[10px] font-bold uppercase tracking-widest text-white/40">Tiles</p>
                         <p className="text-[14px] font-bold text-white tabular-nums">{tileCount.toLocaleString()}</p>
                     </div>
-                    <div className="px-3 py-2 rounded-xl bg-white/[0.03] border border-white/[0.06]">
+                    <div className="px-3 py-2 rounded-xl bg-white/3 border border-white/6">
                         <p className="text-[10px] font-bold uppercase tracking-widest text-white/40">~ Size</p>
                         <p className="text-[14px] font-bold text-white tabular-nums">{sizeMB} MB</p>
                     </div>
@@ -247,7 +247,7 @@ export const OfflineAreaModal: React.FC<OfflineAreaModalProps> = ({ isOpen, onCl
                             </span>
                             <span className="text-[11px] text-white/60 font-mono">{pct}%</span>
                         </div>
-                        <div className="w-full h-1.5 rounded-full bg-white/[0.06] overflow-hidden">
+                        <div className="w-full h-1.5 rounded-full bg-white/6 overflow-hidden">
                             <div
                                 className={`h-full rounded-full transition-all duration-300 ease-out ${
                                     done
@@ -278,7 +278,7 @@ export const OfflineAreaModal: React.FC<OfflineAreaModalProps> = ({ isOpen, onCl
                         <>
                             <button
                                 onClick={handleClose}
-                                className="px-4 py-2.5 rounded-xl text-xs font-bold uppercase tracking-widest bg-white/[0.04] border border-white/[0.08] text-gray-400 hover:bg-white/[0.08] transition-all active:scale-95"
+                                className="px-4 py-2.5 rounded-xl text-xs font-bold uppercase tracking-widest bg-white/4 border border-white/8 text-gray-400 hover:bg-white/8 transition-all active:scale-95"
                             >
                                 Close
                             </button>
@@ -288,7 +288,7 @@ export const OfflineAreaModal: React.FC<OfflineAreaModalProps> = ({ isOpen, onCl
                                 className={`flex-1 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all active:scale-95 ${
                                     canDownload
                                         ? 'bg-sky-500/15 border border-sky-500/30 text-sky-400 hover:bg-sky-500/25'
-                                        : 'bg-white/[0.03] border border-white/[0.06] text-gray-400 cursor-not-allowed'
+                                        : 'bg-white/3 border border-white/6 text-gray-400 cursor-not-allowed'
                                 }`}
                             >
                                 {done ? 'Download Again' : 'Download'}

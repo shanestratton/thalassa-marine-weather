@@ -101,7 +101,7 @@ export const EditEntryModal: React.FC<EditEntryModalProps> = ({ isOpen, entry, o
                                 value={waypointName}
                                 onChange={(e) => setWaypointName(e.target.value)}
                                 placeholder="e.g., Cape Moreton"
-                                className="w-full px-4 py-3 bg-slate-800 border border-white/10 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-sky-500"
+                                className="w-full px-4 py-3 bg-slate-800 border border-white/10 rounded-lg text-white placeholder-slate-500 focus:outline-hidden focus:border-sky-500"
                             />
                         </div>
                     )}
@@ -113,7 +113,7 @@ export const EditEntryModal: React.FC<EditEntryModalProps> = ({ isOpen, entry, o
                             value={notes}
                             onChange={(e) => setNotes(e.target.value)}
                             placeholder="Add or edit notes..."
-                            className="w-full px-4 py-3 bg-slate-800 border border-white/10 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-sky-500 min-h-[100px] resize-none"
+                            className="w-full px-4 py-3 bg-slate-800 border border-white/10 rounded-lg text-white placeholder-slate-500 focus:outline-hidden focus:border-sky-500 min-h-[100px] resize-none"
                         />
                     </div>
 

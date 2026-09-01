@@ -152,7 +152,7 @@ const PushToastCard: React.FC<{
         <div
             className={`
                 w-full max-w-md pointer-events-auto cursor-pointer
-                bg-gradient-to-r ${style.gradient} ${style.border}
+                bg-linear-to-r ${style.gradient} ${style.border}
                 border backdrop-blur-xl rounded-2xl
                 shadow-2xl shadow-black/40
                 transition-all duration-300 ease-out
@@ -256,7 +256,7 @@ export const PushToast: React.FC<PushToastProps> = ({ onTap }) => {
 
     return (
         <div
-            className="fixed top-0 left-0 right-0 z-[9999] pointer-events-none"
+            className="fixed top-0 left-0 right-0 z-9999 pointer-events-none"
             style={{ paddingTop: 'calc(env(safe-area-inset-top) + 8px)' }}
         >
             <div className="flex flex-col items-center gap-2 px-4">

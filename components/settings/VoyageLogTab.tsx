@@ -586,7 +586,7 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = ({ settings, onSave }) =
     if (loading || dataGeneration !== identityScope.generation) {
         return (
             <div className="px-4 pb-8">
-                <div className="h-24 rounded-2xl bg-white/[0.03] border border-white/[0.06] animate-pulse" />
+                <div className="h-24 rounded-2xl bg-white/3 border border-white/6 animate-pulse" />
             </div>
         );
     }
@@ -623,7 +623,7 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = ({ settings, onSave }) =
                                         onClick={() => void handleCreateCrewLog(boat)}
                                         disabled={isBusy}
                                         aria-label={`Create personal voyage log on ${boat.boatName}`}
-                                        className="hit-target-44 shrink-0 text-xs font-bold text-sky-400 hover:text-sky-300 px-2.5 py-1 rounded border border-sky-400/40 hover:border-sky-300/60 transition-colors uppercase tracking-wider disabled:opacity-50"
+                                        className="hit-target-44 shrink-0 text-xs font-bold text-sky-400 hover:text-sky-300 px-2.5 py-1 rounded-sm border border-sky-400/40 hover:border-sky-300/60 transition-colors uppercase tracking-wider disabled:opacity-50"
                                     >
                                         {isBusy ? 'Creating…' : 'Create page'}
                                     </button>
@@ -640,7 +640,7 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = ({ settings, onSave }) =
                                     <button
                                         onClick={() => void copy(`crew-${boat.boatId}`, publicUrlForHandle(handle))}
                                         aria-label="Copy crew log share link"
-                                        className="hit-target-44 shrink-0 text-xs font-bold text-sky-400 hover:text-sky-300 px-2.5 py-1 rounded border border-sky-400/40 hover:border-sky-300/60 transition-colors uppercase tracking-wider"
+                                        className="hit-target-44 shrink-0 text-xs font-bold text-sky-400 hover:text-sky-300 px-2.5 py-1 rounded-sm border border-sky-400/40 hover:border-sky-300/60 transition-colors uppercase tracking-wider"
                                     >
                                         {copiedField === `crew-${boat.boatId}` ? 'Copied' : 'Copy'}
                                     </button>
@@ -682,7 +682,7 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = ({ settings, onSave }) =
                             onClick={() => void handleSetUp()}
                             disabled={busy}
                             aria-label="Set up your voyage log"
-                            className="shrink-0 text-sm font-bold text-sky-400 hover:text-sky-300 px-3 py-1.5 rounded border border-sky-400/40 hover:border-sky-300/60 transition-colors disabled:opacity-50"
+                            className="shrink-0 text-sm font-bold text-sky-400 hover:text-sky-300 px-3 py-1.5 rounded-sm border border-sky-400/40 hover:border-sky-300/60 transition-colors disabled:opacity-50"
                         >
                             {busy ? 'Setting up…' : 'Set up'}
                         </button>
@@ -693,7 +693,9 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = ({ settings, onSave }) =
                         <div className="text-[10px] font-black text-red-300 uppercase tracking-[0.2em] mb-2">
                             Setup failed
                         </div>
-                        <div className="text-xs text-red-100 leading-relaxed font-mono break-words">{setupError}</div>
+                        <div className="text-xs text-red-100 leading-relaxed font-mono wrap-break-word">
+                            {setupError}
+                        </div>
                         <div className="text-[11px] text-red-200/70 mt-2">
                             Screenshot this and send to Shane — it&apos;s the actual reason the database refused the
                             write.
@@ -712,7 +714,7 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = ({ settings, onSave }) =
         <div className="px-4 pb-8">
             {/* Hero — distinguish a reserved private handle from an actually
                 enabled public page. */}
-            <div className="mb-5 rounded-2xl border border-sky-500/25 bg-gradient-to-br from-sky-500/10 to-cyan-500/[0.04] p-4">
+            <div className="mb-5 rounded-2xl border border-sky-500/25 bg-linear-to-br from-sky-500/10 to-cyan-500/4 p-4">
                 <div className="flex items-center gap-2 mb-3">
                     <span className="text-xl">{config.enabled ? '🌐' : '🔒'}</span>
                     <span className="text-[10px] font-black text-sky-300/80 uppercase tracking-[0.2em]">
@@ -755,7 +757,7 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = ({ settings, onSave }) =
                 "wait, why don't I see my entries on the page?" moment for
                 new users is realising publish is opt-in per entry, so it
                 gets billing here. */}
-            <div className="mb-6 rounded-xl border border-white/[0.06] bg-white/[0.02] p-4">
+            <div className="mb-6 rounded-xl border border-white/6 bg-white/2 p-4">
                 <div className="text-[10px] font-black text-gray-300 uppercase tracking-[0.2em] mb-3">
                     What to do next
                 </div>
@@ -945,7 +947,7 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = ({ settings, onSave }) =
                     <button
                         onClick={() => void copy('api', apiUrl)}
                         aria-label="Copy API endpoint URL"
-                        className="hit-target-44 shrink-0 text-xs font-bold text-sky-400 hover:text-sky-300 px-2.5 py-1 rounded border border-sky-400/40 hover:border-sky-300/60 transition-colors uppercase tracking-wider"
+                        className="hit-target-44 shrink-0 text-xs font-bold text-sky-400 hover:text-sky-300 px-2.5 py-1 rounded-sm border border-sky-400/40 hover:border-sky-300/60 transition-colors uppercase tracking-wider"
                     >
                         {copiedField === 'api' ? 'Copied' : 'Copy'}
                     </button>
@@ -959,7 +961,7 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = ({ settings, onSave }) =
                     <button
                         onClick={() => void Browser.open({ url: 'https://thalassawx.app/voyage-log-api' })}
                         aria-label="Open the Voyage Log API documentation"
-                        className="hit-target-44 shrink-0 text-xs font-bold text-sky-400 hover:text-sky-300 px-2.5 py-1 rounded border border-sky-400/40 hover:border-sky-300/60 transition-colors uppercase tracking-wider"
+                        className="hit-target-44 shrink-0 text-xs font-bold text-sky-400 hover:text-sky-300 px-2.5 py-1 rounded-sm border border-sky-400/40 hover:border-sky-300/60 transition-colors uppercase tracking-wider"
                     >
                         API docs
                     </button>

@@ -8,11 +8,11 @@ import { triggerHaptic } from '../../utils/system';
 // ── Section ──────────────────────────────────────────────────
 export const Section = React.memo(({ title, children }: { title: string; children?: React.ReactNode }) => (
     <div className="space-y-4 mb-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-        <h3 className="text-xs font-black text-transparent bg-clip-text bg-gradient-to-r from-sky-400 to-sky-500 uppercase tracking-[0.15em] px-1 flex items-center gap-2">
+        <h3 className="text-xs font-black text-transparent bg-clip-text bg-linear-to-r from-sky-400 to-sky-500 uppercase tracking-[0.15em] px-1 flex items-center gap-2">
             <div className="w-1.5 h-1.5 rounded-full bg-sky-500 shadow-lg shadow-sky-500/50"></div>
             {title}
         </h3>
-        <div className="bg-white/[0.03] border border-white/[0.06] rounded-2xl overflow-hidden shadow-lg shadow-black/10">
+        <div className="bg-white/3 border border-white/6 rounded-2xl overflow-hidden shadow-lg shadow-black/10">
             {children}
         </div>
     </div>
@@ -68,7 +68,7 @@ export const Toggle = React.memo(
         >
             <div
                 className={`w-11 h-6 rounded-full transition-all duration-300 ${
-                    checked ? 'bg-gradient-to-r from-sky-500 to-sky-600 shadow-lg shadow-sky-500/30' : 'bg-slate-700'
+                    checked ? 'bg-linear-to-r from-sky-500 to-sky-600 shadow-lg shadow-sky-500/30' : 'bg-slate-700'
                 }`}
             >
                 <div

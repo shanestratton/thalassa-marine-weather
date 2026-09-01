@@ -123,7 +123,7 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
             statusBadgeLabel = offshoreModelLabel ? `OFFSHORE (${offshoreModelLabel})` : 'OFFSHORE';
             // Gradient gives the pill depth vs a flat wash
             statusBadgeColor =
-                'bg-gradient-to-r from-sky-500/25 via-sky-500/20 to-sky-500/25 text-sky-200 border-sky-400/40';
+                'bg-linear-to-r from-sky-500/25 via-sky-500/20 to-sky-500/25 text-sky-200 border-sky-400/40';
             statusBadgeGlow = 'status-badge-glow-sky';
             // Compass rose — offshore = open water navigation
             statusBadgeIcon = (
@@ -137,7 +137,7 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
         } else if (locationType === 'inland' || isLandlocked || fallbackInland) {
             statusBadgeLabel = 'INLAND';
             statusBadgeColor =
-                'bg-gradient-to-r from-amber-500/25 via-amber-500/20 to-amber-500/25 text-amber-200 border-amber-400/40';
+                'bg-linear-to-r from-amber-500/25 via-amber-500/20 to-amber-500/25 text-amber-200 border-amber-400/40';
             statusBadgeGlow = 'status-badge-glow-amber';
             // Little mountain silhouette
             statusBadgeIcon = (
@@ -148,7 +148,7 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
         } else if (locationType === 'inshore') {
             statusBadgeLabel = 'INSHORE';
             statusBadgeColor =
-                'bg-gradient-to-r from-teal-500/25 via-teal-500/20 to-teal-500/25 text-teal-200 border-teal-400/40';
+                'bg-linear-to-r from-teal-500/25 via-teal-500/20 to-teal-500/25 text-teal-200 border-teal-400/40';
             statusBadgeGlow = 'status-badge-glow-teal';
             // Anchor — tight-to-shore waters
             statusBadgeIcon = (
@@ -162,7 +162,7 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
         } else {
             statusBadgeLabel = 'COASTAL';
             statusBadgeColor =
-                'bg-gradient-to-r from-emerald-500/25 via-emerald-500/20 to-emerald-500/25 text-emerald-200 border-emerald-400/40';
+                'bg-linear-to-r from-emerald-500/25 via-emerald-500/20 to-emerald-500/25 text-emerald-200 border-emerald-400/40';
             statusBadgeGlow = 'status-badge-glow-emerald';
             // Stylized wave
             statusBadgeIcon = (

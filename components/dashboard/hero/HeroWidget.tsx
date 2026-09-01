@@ -34,31 +34,31 @@ interface HeroWidgetProps {
 export const getWidgetTheme = (wid: string) => {
     switch (wid) {
         case 'wind':
-            return 'bg-gradient-to-br from-sky-900/40 via-sky-900/20 to-slate-900/10 border-sky-400/20 shadow-sky-900/5';
+            return 'bg-linear-to-br from-sky-900/40 via-sky-900/20 to-slate-900/10 border-sky-400/20 shadow-sky-900/5';
         case 'gust':
-            return 'bg-gradient-to-br from-amber-900/40 via-amber-900/20 to-red-900/10 border-amber-400/20 shadow-amber-900/5';
+            return 'bg-linear-to-br from-amber-900/40 via-amber-900/20 to-red-900/10 border-amber-400/20 shadow-amber-900/5';
         case 'wave':
-            return 'bg-gradient-to-br from-sky-900/40 via-sky-900/20 to-slate-900/10 border-sky-400/20 shadow-sky-900/5';
+            return 'bg-linear-to-br from-sky-900/40 via-sky-900/20 to-slate-900/10 border-sky-400/20 shadow-sky-900/5';
         case 'uv':
-            return 'bg-gradient-to-br from-amber-900/40 via-amber-900/20 to-slate-900/10 border-amber-400/20 shadow-amber-900/5';
+            return 'bg-linear-to-br from-amber-900/40 via-amber-900/20 to-slate-900/10 border-amber-400/20 shadow-amber-900/5';
         case 'visibility':
-            return 'bg-gradient-to-br from-emerald-900/40 via-emerald-900/20 to-slate-900/10 border-emerald-400/20 shadow-emerald-900/5';
+            return 'bg-linear-to-br from-emerald-900/40 via-emerald-900/20 to-slate-900/10 border-emerald-400/20 shadow-emerald-900/5';
         case 'humidity':
-            return 'bg-gradient-to-br from-sky-900/40 via-sky-900/20 to-slate-900/10 border-sky-400/20 shadow-sky-900/5';
+            return 'bg-linear-to-br from-sky-900/40 via-sky-900/20 to-slate-900/10 border-sky-400/20 shadow-sky-900/5';
         case 'pressure':
-            return 'bg-gradient-to-br from-emerald-900/40 via-emerald-900/20 to-slate-900/10 border-emerald-400/20 shadow-emerald-900/5';
+            return 'bg-linear-to-br from-emerald-900/40 via-emerald-900/20 to-slate-900/10 border-emerald-400/20 shadow-emerald-900/5';
         case 'waterTemp':
-            return 'bg-gradient-to-br from-sky-900/40 via-sky-900/20 to-slate-900/10 border-sky-400/20 shadow-sky-900/5';
+            return 'bg-linear-to-br from-sky-900/40 via-sky-900/20 to-slate-900/10 border-sky-400/20 shadow-sky-900/5';
         case 'currentSpeed':
-            return 'bg-gradient-to-br from-emerald-900/40 via-emerald-900/20 to-slate-900/10 border-emerald-400/20 shadow-emerald-900/5';
+            return 'bg-linear-to-br from-emerald-900/40 via-emerald-900/20 to-slate-900/10 border-emerald-400/20 shadow-emerald-900/5';
         case 'currentDirection':
-            return 'bg-gradient-to-br from-emerald-900/40 via-sky-900/20 to-slate-900/10 border-emerald-400/20 shadow-emerald-900/5';
+            return 'bg-linear-to-br from-emerald-900/40 via-sky-900/20 to-slate-900/10 border-emerald-400/20 shadow-emerald-900/5';
         case 'sunrise':
-            return 'bg-gradient-to-br from-amber-900/40 via-amber-900/20 to-slate-900/10 border-amber-400/20 shadow-amber-900/5';
+            return 'bg-linear-to-br from-amber-900/40 via-amber-900/20 to-slate-900/10 border-amber-400/20 shadow-amber-900/5';
         case 'sunset':
-            return 'bg-gradient-to-br from-sky-900/40 via-purple-900/20 to-slate-900/10 border-sky-400/20 shadow-sky-900/5';
+            return 'bg-linear-to-br from-sky-900/40 via-purple-900/20 to-slate-900/10 border-sky-400/20 shadow-sky-900/5';
         case 'clouds':
-            return 'bg-gradient-to-br from-slate-800/60 via-gray-900/40 to-black/30 border-slate-500/20 shadow-slate-900/5';
+            return 'bg-linear-to-br from-slate-800/60 via-gray-900/40 to-black/30 border-slate-500/20 shadow-slate-900/5';
         default:
             return 'bg-black/10 border-white/5';
     }
@@ -127,7 +127,7 @@ export const HeroWidget: React.FC<HeroWidgetProps> = ({
                             {renderTrend(trend, true)}
                         </div>
                         <div className={`flex items-center gap-1 mt-auto pt-1 w-full ${justifyClass}`}>
-                            <div className="flex items-center gap-1 bg-white/5 px-1 py-0.5 rounded text-sm md:text-sm font-mono text-sky-300 border border-white/5">
+                            <div className="flex items-center gap-1 bg-white/5 px-1 py-0.5 rounded-sm text-sm md:text-sm font-mono text-sky-300 border border-white/5">
                                 <CompassIcon rotation={data.windDegree || 0} className="w-2.5 h-2.5 md:w-3 md:h-3" />
                                 {data.windDirection || 'VAR'}
                             </div>
@@ -187,7 +187,7 @@ export const HeroWidget: React.FC<HeroWidgetProps> = ({
                             {renderTrend(trend, true)}
                         </div>
                         <div className={`flex items-center gap-1 mt-auto pt-1 w-full ${justifyClass}`}>
-                            <div className="flex items-center gap-1 bg-white/5 px-1 py-0.5 rounded text-sm md:text-sm font-mono text-sky-300 border border-white/5">
+                            <div className="flex items-center gap-1 bg-white/5 px-1 py-0.5 rounded-sm text-sm md:text-sm font-mono text-sky-300 border border-white/5">
                                 <ClockIcon className="w-2.5 h-2.5" />
                                 {data?.swellPeriod ? `${Math.round(data.swellPeriod)} s` : '--'}
                             </div>

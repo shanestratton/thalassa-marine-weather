@@ -224,7 +224,7 @@ export const RecipeEditor: React.FC<RecipeEditorProps> = ({ onClose, onSaved, re
                         aria-valuemax={totalSteps}
                         aria-valuenow={step}
                         aria-valuetext={`Step ${step} of ${totalSteps}`}
-                        className="h-full bg-gradient-to-r from-amber-500 to-orange-500 rounded-full transition-all duration-300"
+                        className="h-full bg-linear-to-r from-amber-500 to-orange-500 rounded-full transition-all duration-300"
                         style={{ width: `${(step / totalSteps) * 100}%` }}
                     />
                 </div>
@@ -248,7 +248,7 @@ export const RecipeEditor: React.FC<RecipeEditorProps> = ({ onClose, onSaved, re
                                 value={title}
                                 onChange={(e) => setTitle(e.target.value)}
                                 placeholder="e.g., Mum's Fish Curry"
-                                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-gray-500 text-sm outline-none focus:border-amber-500/50 transition-colors"
+                                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-gray-500 text-sm outline-hidden focus:border-amber-500/50 transition-colors"
                             />
                         </div>
 
@@ -265,7 +265,7 @@ export const RecipeEditor: React.FC<RecipeEditorProps> = ({ onClose, onSaved, re
                                 value={imageUrl}
                                 onChange={(e) => setImageUrl(e.target.value)}
                                 placeholder="https://..."
-                                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-gray-500 text-sm outline-none focus:border-amber-500/50 transition-colors"
+                                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-gray-500 text-sm outline-hidden focus:border-amber-500/50 transition-colors"
                             />
                             {imageUrl && (
                                 <div className="mt-3 rounded-xl overflow-hidden border border-white/10 h-32">
@@ -346,7 +346,7 @@ export const RecipeEditor: React.FC<RecipeEditorProps> = ({ onClose, onSaved, re
                                 min={1}
                                 value={cookTime}
                                 onChange={(e) => setCookTime(parseInt(e.target.value, 10) || 0)}
-                                className="w-full mt-3 bg-white/5 border border-white/10 rounded-xl px-4 py-2 text-white text-sm outline-none focus:border-amber-500/50 transition-colors"
+                                className="w-full mt-3 bg-white/5 border border-white/10 rounded-xl px-4 py-2 text-white text-sm outline-hidden focus:border-amber-500/50 transition-colors"
                             />
                         </div>
 
@@ -399,7 +399,7 @@ export const RecipeEditor: React.FC<RecipeEditorProps> = ({ onClose, onSaved, re
                                     value={ing.amount}
                                     onChange={(e) => updateIngredient(i, 'amount', parseFloat(e.target.value) || 0)}
                                     aria-label={`Ingredient ${i + 1} amount`}
-                                    className="w-16 bg-white/5 border border-white/10 rounded-lg px-2 py-2 text-white text-sm text-center outline-none"
+                                    className="w-16 bg-white/5 border border-white/10 rounded-lg px-2 py-2 text-white text-sm text-center outline-hidden"
                                     placeholder="Qty"
                                 />
                                 <input
@@ -407,7 +407,7 @@ export const RecipeEditor: React.FC<RecipeEditorProps> = ({ onClose, onSaved, re
                                     value={ing.unit}
                                     onChange={(e) => updateIngredient(i, 'unit', e.target.value)}
                                     aria-label={`Ingredient ${i + 1} unit`}
-                                    className="w-16 bg-white/5 border border-white/10 rounded-lg px-2 py-2 text-white text-sm outline-none"
+                                    className="w-16 bg-white/5 border border-white/10 rounded-lg px-2 py-2 text-white text-sm outline-hidden"
                                     placeholder="Unit"
                                 />
                                 <input
@@ -415,7 +415,7 @@ export const RecipeEditor: React.FC<RecipeEditorProps> = ({ onClose, onSaved, re
                                     value={ing.name}
                                     onChange={(e) => updateIngredient(i, 'name', e.target.value)}
                                     aria-label={`Ingredient ${i + 1} name`}
-                                    className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-sm outline-none"
+                                    className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-sm outline-hidden"
                                     placeholder="Ingredient name"
                                 />
                                 {ingredients.length > 1 && (
@@ -447,7 +447,7 @@ export const RecipeEditor: React.FC<RecipeEditorProps> = ({ onClose, onSaved, re
                                 onChange={(e) => setInstructions(e.target.value)}
                                 placeholder="Step 1: Heat olive oil in a heavy-based pan...&#10;Step 2: Add onion and garlic...&#10;Step 3: ..."
                                 rows={10}
-                                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-gray-500 text-sm outline-none focus:border-amber-500/50 transition-colors resize-none leading-relaxed"
+                                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-gray-500 text-sm outline-hidden focus:border-amber-500/50 transition-colors resize-none leading-relaxed"
                                 autoFocus
                             />
                         </div>
@@ -493,7 +493,7 @@ export const RecipeEditor: React.FC<RecipeEditorProps> = ({ onClose, onSaved, re
                                     className={`p-4 rounded-xl border-2 text-center transition-all ${
                                         visibility === 'personal'
                                             ? 'border-cyan-500/50 bg-cyan-500/10'
-                                            : 'border-white/10 bg-white/[0.02]'
+                                            : 'border-white/10 bg-white/2'
                                     }`}
                                 >
                                     <span className="text-2xl block mb-1">🔒</span>
@@ -506,7 +506,7 @@ export const RecipeEditor: React.FC<RecipeEditorProps> = ({ onClose, onSaved, re
                                     className={`p-4 rounded-xl border-2 text-center transition-all ${
                                         visibility === 'shared'
                                             ? 'border-amber-500/50 bg-amber-500/10'
-                                            : 'border-white/10 bg-white/[0.02]'
+                                            : 'border-white/10 bg-white/2'
                                     }`}
                                 >
                                     <span className="text-2xl block mb-1">🌍</span>
@@ -520,7 +520,7 @@ export const RecipeEditor: React.FC<RecipeEditorProps> = ({ onClose, onSaved, re
             </div>
 
             {/* Footer nav */}
-            <div className="fixed bottom-0 left-0 right-0 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3 bg-gradient-to-t from-black via-black/95 to-transparent">
+            <div className="fixed bottom-0 left-0 right-0 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3 bg-linear-to-t from-black via-black/95 to-transparent">
                 {saveError && (
                     <p role="alert" className="mb-3 text-center text-xs font-bold text-red-300">
                         {saveError}
@@ -543,7 +543,7 @@ export const RecipeEditor: React.FC<RecipeEditorProps> = ({ onClose, onSaved, re
                             aria-label={`Continue to step ${step + 1}`}
                             className={`flex-1 py-3.5 rounded-xl text-sm font-bold transition-all active:scale-95 ${
                                 canProceed()
-                                    ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-black'
+                                    ? 'bg-linear-to-r from-amber-500 to-orange-500 text-black'
                                     : 'bg-white/10 text-gray-500 cursor-not-allowed'
                             }`}
                         >
@@ -554,7 +554,7 @@ export const RecipeEditor: React.FC<RecipeEditorProps> = ({ onClose, onSaved, re
                             onClick={handleSave}
                             disabled={saving}
                             aria-label={saving ? 'Saving recipe' : isEditing ? 'Save recipe changes' : 'Save recipe'}
-                            className="flex-1 py-3.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 text-black text-sm font-bold transition-all active:scale-95 flex items-center justify-center gap-2"
+                            className="flex-1 py-3.5 rounded-xl bg-linear-to-r from-amber-500 to-orange-500 text-black text-sm font-bold transition-all active:scale-95 flex items-center justify-center gap-2"
                         >
                             {saving ? (
                                 <>

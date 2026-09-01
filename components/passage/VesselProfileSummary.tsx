@@ -163,7 +163,7 @@ export const VesselProfileSummary: React.FC<VesselProfileSummaryProps> = ({ voya
                     className={`w-full rounded-xl border px-4 py-3 text-left transition-all active:scale-[0.99] ${
                         confirmedForPassage
                             ? 'border-emerald-500/25 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/15'
-                            : 'border-violet-500/25 bg-violet-500/[0.08] text-violet-200 hover:bg-violet-500/[0.13]'
+                            : 'border-violet-500/25 bg-violet-500/8 text-violet-200 hover:bg-violet-500/13'
                     }`}
                 >
                     <span className="block text-xs font-bold">
@@ -178,7 +178,7 @@ export const VesselProfileSummary: React.FC<VesselProfileSummaryProps> = ({ voya
                     </span>
                 </button>
             ) : (
-                <p className="rounded-xl border border-amber-500/20 bg-amber-500/[0.06] px-4 py-3 text-[11px] text-amber-200/80">
+                <p className="rounded-xl border border-amber-500/20 bg-amber-500/6 px-4 py-3 text-[11px] text-amber-200/80">
                     Complete the vessel name and cruising speed in Settings → Vessel Profile before confirming it for
                     this passage.
                 </p>

@@ -163,7 +163,7 @@ export const DiaryPublishModal: React.FC<DiaryPublishModalProps> = ({ entry, onC
     return (
         <OverlayPortal
             role="presentation"
-            className="flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+            className="flex items-center justify-center bg-black/70 backdrop-blur-xs p-4"
         >
             <div
                 ref={dialogRef}
@@ -177,7 +177,7 @@ export const DiaryPublishModal: React.FC<DiaryPublishModalProps> = ({ entry, onC
                 {/* ── Header ── */}
                 <div
                     aria-live="polite"
-                    className="px-6 pt-6 pb-4 bg-gradient-to-b from-sky-500/10 to-transparent text-center"
+                    className="px-6 pt-6 pb-4 bg-linear-to-b from-sky-500/10 to-transparent text-center"
                 >
                     <div className="mx-auto w-14 h-14 rounded-2xl bg-sky-500/15 border border-sky-500/20 flex items-center justify-center text-3xl">
                         {icon}
@@ -191,7 +191,7 @@ export const DiaryPublishModal: React.FC<DiaryPublishModalProps> = ({ entry, onC
                 </div>
 
                 {/* ── Entry preview ── */}
-                <div className="mx-6 mb-2 p-3 rounded-2xl bg-white/[0.03] border border-white/[0.06] flex items-center gap-3">
+                <div className="mx-6 mb-2 p-3 rounded-2xl bg-white/3 border border-white/6 flex items-center gap-3">
                     <span className="text-2xl shrink-0">{mood.emoji}</span>
                     <div className="min-w-0 flex-1">
                         <p className="text-sm font-bold text-white truncate">{entry.title || 'Untitled entry'}</p>
@@ -266,7 +266,7 @@ export const DiaryPublishModal: React.FC<DiaryPublishModalProps> = ({ entry, onC
                                 onClick={handleUnpublish}
                                 disabled={working}
                                 aria-label="Remove this entry from your voyage log"
-                                className="flex-1 py-3 rounded-xl bg-white/5 border border-white/[0.08] text-amber-300 font-bold text-sm hover:bg-white/10 transition-colors active:scale-[0.98] disabled:opacity-50 flex items-center justify-center gap-2"
+                                className="flex-1 py-3 rounded-xl bg-white/5 border border-white/8 text-amber-300 font-bold text-sm hover:bg-white/10 transition-colors active:scale-[0.98] disabled:opacity-50 flex items-center justify-center gap-2"
                             >
                                 {working ? (
                                     <>

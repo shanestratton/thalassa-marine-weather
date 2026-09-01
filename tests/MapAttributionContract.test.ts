@@ -76,7 +76,7 @@ describe('map provider attribution contract', () => {
     it('lifts the chart map credits clear of the bottom tab bar', () => {
         // Declaring attribution is not the same as displaying it. mapbox-gl
         // parks its controls at bottom:0, and App.tsx's nav is fixed, opaque,
-        // z-[900] and h-16 + border + safe-area inset — so the logo and the
+        // z-900 and h-16 + border + safe-area inset — so the logo and the
         // attribution pill sat underneath it, 100% invisible, on every chart.
         // At phone width the pill collapses to a compact ⓘ, and that was
         // buried too, leaving no route to the credits whatsoever.

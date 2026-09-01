@@ -7,7 +7,7 @@ import { OVERLAY_Z_INDEX } from '../components/ui/OverlayPortal';
  * The night-vision scrim must be the topmost layer in the app.
  *
  * It is a thin red wash over everything, and its whole job is protecting the
- * helm's dark adaptation on a night watch. It sat at z-[9999] while twelve
+ * helm's dark adaptation on a night watch. It sat at z-9999 while twelve
  * overlays lived at z >= 10000 — the Chart depth controls and trip leg picker
  * at 10060, the Plan-on-web hint at 10070, the cast-off follow sheet at 10055,
  * the trace report at 10050, onboarding at 10000. Each of those painted at full

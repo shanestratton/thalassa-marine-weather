@@ -51,7 +51,7 @@ export const EmptyTrackRemovedModal: React.FC<EmptyTrackRemovedModalProps> = ({ 
     return (
         <OverlayPortal className="flex items-center justify-center p-5" onClick={onClose}>
             <style>{`@keyframes tmv-ring-deplete { from { stroke-dashoffset: 0; } to { stroke-dashoffset: ${C}; } }`}</style>
-            <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" aria-hidden="true" />
+            <div className="absolute inset-0 bg-black/70 backdrop-blur-xs" aria-hidden="true" />
 
             <div
                 ref={dialogRef}

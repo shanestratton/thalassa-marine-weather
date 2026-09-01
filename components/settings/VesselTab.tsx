@@ -297,12 +297,12 @@ function MetricInput({
                     onChange={handleChange}
                     onBlur={handleBlur}
                     placeholder={placeholder}
-                    className={`flex-1 min-w-0 bg-white/5 border rounded-xl px-2.5 py-2.5 text-white text-sm font-medium outline-none transition-colors ${isEstimated ? 'border-amber-500/30 focus:border-amber-400' : 'border-white/10 focus:border-sky-500'}`}
+                    className={`flex-1 min-w-0 bg-white/5 border rounded-xl px-2.5 py-2.5 text-white text-sm font-medium outline-hidden transition-colors ${isEstimated ? 'border-amber-500/30 focus:border-amber-400' : 'border-white/10 focus:border-sky-500'}`}
                 />
                 <select
                     value={unitType}
                     onChange={(e) => onChangeUnit(e.target.value)}
-                    className="bg-white/5 border border-white/10 rounded-xl px-1.5 py-2.5 text-[11px] text-gray-400 font-bold uppercase outline-none focus:border-sky-500 shrink-0"
+                    className="bg-white/5 border border-white/10 rounded-xl px-1.5 py-2.5 text-[11px] text-gray-400 font-bold uppercase outline-hidden focus:border-sky-500 shrink-0"
                 >
                     {unitOptions.map((u) => (
                         <option key={u} value={u}>
@@ -581,11 +581,11 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
     };
 
     const syncToneClass: Record<FleetStatusDisplay['tone'], string> = {
-        green: 'border-emerald-500/20 bg-emerald-500/[0.08] text-emerald-200',
-        blue: 'border-sky-500/20 bg-sky-500/[0.08] text-sky-200',
-        amber: 'border-amber-500/20 bg-amber-500/[0.08] text-amber-200',
-        red: 'border-red-500/20 bg-red-500/[0.08] text-red-200',
-        slate: 'border-white/10 bg-white/[0.03] text-slate-300',
+        green: 'border-emerald-500/20 bg-emerald-500/8 text-emerald-200',
+        blue: 'border-sky-500/20 bg-sky-500/8 text-sky-200',
+        amber: 'border-amber-500/20 bg-amber-500/8 text-amber-200',
+        red: 'border-red-500/20 bg-red-500/8 text-red-200',
+        slate: 'border-white/10 bg-white/3 text-slate-300',
     };
     const syncDotClass: Record<FleetStatusDisplay['tone'], string> = {
         green: 'bg-emerald-400',
@@ -603,7 +603,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
         >
             {/* Observer upgrade banner */}
             {isObserver && (
-                <div className="mx-4 mb-4 bg-sky-500/[0.06] border border-sky-500/15 rounded-2xl p-4 animate-in fade-in slide-in-from-top-2">
+                <div className="mx-4 mb-4 bg-sky-500/6 border border-sky-500/15 rounded-2xl p-4 animate-in fade-in slide-in-from-top-2">
                     <div className="flex items-start gap-3">
                         <EyeIcon className="w-6 h-6 text-sky-300 shrink-0" />
                         <div>
@@ -620,7 +620,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
             )}
 
             {fleetAvailable && (
-                <section className="mx-4 mb-5 rounded-2xl border border-cyan-400/20 bg-gradient-to-br from-cyan-500/[0.10] via-slate-950/40 to-slate-950/10 p-4 shadow-[0_12px_32px_rgba(8,145,178,0.08)]">
+                <section className="mx-4 mb-5 rounded-2xl border border-cyan-400/20 bg-linear-to-br from-cyan-500/10 via-slate-950/40 to-slate-950/10 p-4 shadow-[0_12px_32px_rgba(8,145,178,0.08)]">
                     <div className="flex items-start justify-between gap-3">
                         <div>
                             <p className="text-[11px] font-black uppercase tracking-[0.16em] text-cyan-300">
@@ -631,7 +631,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                 hull, performance and safety details.
                             </p>
                         </div>
-                        <span className="shrink-0 rounded-full border border-cyan-300/20 bg-cyan-300/[0.08] px-2.5 py-1 text-[10px] font-black uppercase tracking-wide text-cyan-200">
+                        <span className="shrink-0 rounded-full border border-cyan-300/20 bg-cyan-300/8 px-2.5 py-1 text-[10px] font-black uppercase tracking-wide text-cyan-200">
                             {fleet.length}/5 vessels
                         </span>
                     </div>
@@ -646,7 +646,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                 value={selectedFleetId}
                                 onChange={(event) => selectFleetVessel(event.target.value)}
                                 disabled={fleet.length === 0 || fleetBusyAction !== null}
-                                className="w-full rounded-xl border border-white/10 bg-slate-950/75 px-3 py-3 text-sm font-bold text-white outline-none transition-colors focus:border-cyan-400 disabled:cursor-not-allowed disabled:opacity-55"
+                                className="w-full rounded-xl border border-white/10 bg-slate-950/75 px-3 py-3 text-sm font-bold text-white outline-hidden transition-colors focus:border-cyan-400 disabled:cursor-not-allowed disabled:opacity-55"
                             >
                                 {!selectedFleetId && <option value="">Select a vessel</option>}
                                 {fleet.map((candidate) => {
@@ -672,7 +672,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                             title={
                                 fleet.length >= 5 ? 'A skipper can keep up to five vessel profiles.' : 'Add a vessel'
                             }
-                            className="inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-cyan-300/25 bg-cyan-400/[0.12] px-3 text-xs font-black uppercase tracking-wide text-cyan-100 transition-colors hover:bg-cyan-400/[0.20] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-300 disabled:cursor-not-allowed disabled:opacity-45"
+                            className="inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-cyan-300/25 bg-cyan-400/12 px-3 text-xs font-black uppercase tracking-wide text-cyan-100 transition-colors hover:bg-cyan-400/20 focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-300 disabled:cursor-not-allowed disabled:opacity-45"
                         >
                             <PlusSquareIcon className="h-4 w-4" />
                             Add
@@ -715,14 +715,14 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                     {fleetActionError && (
                         <p
                             role="alert"
-                            className="mt-3 rounded-xl border border-red-400/25 bg-red-500/[0.10] px-3 py-2 text-[11px] leading-relaxed text-red-200"
+                            className="mt-3 rounded-xl border border-red-400/25 bg-red-500/10 px-3 py-2 text-[11px] leading-relaxed text-red-200"
                         >
                             {fleetActionError}
                         </p>
                     )}
 
                     {archiveCandidate ? (
-                        <div className="mt-3 rounded-xl border border-amber-400/25 bg-amber-500/[0.08] p-3">
+                        <div className="mt-3 rounded-xl border border-amber-400/25 bg-amber-500/8 p-3">
                             <p className="text-xs font-bold text-amber-100">
                                 Archive {archiveCandidate.vessel.name?.trim() || 'this vessel'}?
                             </p>
@@ -734,7 +734,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                 <button
                                     type="button"
                                     onClick={() => setArchiveCandidate(null)}
-                                    className="rounded-lg px-3 py-1.5 min-h-[44px] text-[10px] font-black uppercase tracking-wide text-slate-300 hover:bg-white/[0.06]"
+                                    className="rounded-lg px-3 py-1.5 min-h-[44px] text-[10px] font-black uppercase tracking-wide text-slate-300 hover:bg-white/6"
                                 >
                                     Keep
                                 </button>
@@ -742,7 +742,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                     type="button"
                                     onClick={archiveFleetVessel}
                                     disabled={fleetBusyAction !== null}
-                                    className="rounded-lg border border-red-400/25 bg-red-500/[0.15] px-3 py-1.5 min-h-[44px] text-[10px] font-black uppercase tracking-wide text-red-100 hover:bg-red-500/[0.22] disabled:cursor-not-allowed disabled:opacity-45"
+                                    className="rounded-lg border border-red-400/25 bg-red-500/15 px-3 py-1.5 min-h-[44px] text-[10px] font-black uppercase tracking-wide text-red-100 hover:bg-red-500/22 disabled:cursor-not-allowed disabled:opacity-45"
                                 >
                                     Archive
                                 </button>
@@ -809,7 +809,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                 onChange={(e) => updateVessel('name', e.target.value)}
                                 placeholder={isObserver ? 'Select Sail or Power first' : 'e.g. Black Pearl'}
                                 disabled={isObserver}
-                                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-sky-500 outline-none text-sm font-medium disabled:cursor-not-allowed"
+                                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-sky-500 outline-hidden text-sm font-medium disabled:cursor-not-allowed"
                             />
                         </div>
                     </Row>
@@ -823,7 +823,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                             Vessel Identity
                         </span>
                     </div>
-                    <div className="bg-white/[0.03] border border-white/[0.06] rounded-2xl p-4">
+                    <div className="bg-white/3 border border-white/6 rounded-2xl p-4">
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-4">
                             <div>
                                 <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5">
@@ -834,7 +834,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                     value={vessel?.registration || ''}
                                     onChange={(e) => updateVessel('registration', e.target.value)}
                                     placeholder="e.g. ABC-1234"
-                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-2.5 py-2.5 text-white text-sm font-medium outline-none transition-colors focus:border-sky-500"
+                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-2.5 py-2.5 text-white text-sm font-medium outline-hidden transition-colors focus:border-sky-500"
                                 />
                             </div>
                             <div>
@@ -850,7 +850,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                         updateVessel('mmsi', e.target.value.replace(/\D/g, '').slice(0, 9))
                                     }
                                     placeholder="9-digit number"
-                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-2.5 py-2.5 text-white text-sm font-medium outline-none transition-colors focus:border-sky-500"
+                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-2.5 py-2.5 text-white text-sm font-medium outline-hidden transition-colors focus:border-sky-500"
                                 />
                             </div>
                             <div>
@@ -862,7 +862,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                     value={vessel?.callSign || ''}
                                     onChange={(e) => updateVessel('callSign', e.target.value.toUpperCase())}
                                     placeholder="e.g. VH2ABC"
-                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-2.5 py-2.5 text-white text-sm font-medium outline-none transition-colors focus:border-sky-500 uppercase"
+                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-2.5 py-2.5 text-white text-sm font-medium outline-hidden transition-colors focus:border-sky-500 uppercase"
                                 />
                             </div>
                         </div>
@@ -884,7 +884,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                             Safety &amp; Rescue
                         </span>
                     </div>
-                    <div className="bg-white/[0.03] border border-white/[0.06] rounded-2xl p-4">
+                    <div className="bg-white/3 border border-white/6 rounded-2xl p-4">
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-4">
                             <div className="sm:col-span-2">
                                 <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5">
@@ -905,7 +905,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                         )
                                     }
                                     placeholder="15 characters, from your AMSA registration"
-                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-2.5 py-2.5 text-white text-sm font-mono outline-none transition-colors focus:border-rose-500"
+                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-2.5 py-2.5 text-white text-sm font-mono outline-hidden transition-colors focus:border-rose-500"
                                 />
                             </div>
                             <div>
@@ -921,7 +921,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                         updateVessel('liferaftCapacity', Number.isFinite(n) ? n : 0);
                                     }}
                                     placeholder="persons"
-                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-2.5 py-2.5 text-white text-sm font-medium outline-none transition-colors focus:border-rose-500"
+                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-2.5 py-2.5 text-white text-sm font-medium outline-hidden transition-colors focus:border-rose-500"
                                 />
                             </div>
                             <div>
@@ -932,7 +932,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                     type="date"
                                     value={vessel?.liferaftServiceDate || ''}
                                     onChange={(e) => updateVessel('liferaftServiceDate', e.target.value)}
-                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-2.5 py-2.5 text-white text-sm font-medium outline-none transition-colors [color-scheme:dark] focus:border-rose-500"
+                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-2.5 py-2.5 text-white text-sm font-medium outline-hidden transition-colors scheme-dark focus:border-rose-500"
                                 />
                             </div>
                             <div>
@@ -943,7 +943,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                     type="date"
                                     value={vessel?.flaresExpiry || ''}
                                     onChange={(e) => updateVessel('flaresExpiry', e.target.value)}
-                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-2.5 py-2.5 text-white text-sm font-medium outline-none transition-colors [color-scheme:dark] focus:border-rose-500"
+                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-2.5 py-2.5 text-white text-sm font-medium outline-hidden transition-colors scheme-dark focus:border-rose-500"
                                 />
                             </div>
                         </div>
@@ -954,7 +954,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                             overwhelm the punters') — the float plan simply
                             prefills from whatever is here. */}
                         <details className="mt-4 group">
-                            <summary className="flex cursor-pointer list-none items-center justify-between rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2.5 [&::-webkit-details-marker]:hidden">
+                            <summary className="flex cursor-pointer list-none items-center justify-between rounded-xl border border-white/10 bg-white/3 px-3 py-2.5 [&::-webkit-details-marker]:hidden">
                                 <span className="text-xs font-bold text-gray-300 uppercase tracking-widest">
                                     Advanced Boat Details
                                 </span>
@@ -975,7 +975,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                         value={vessel?.hailingPort || ''}
                                         onChange={(e) => updateVessel('hailingPort', e.target.value)}
                                         placeholder="Newport, QLD"
-                                        className="w-full bg-white/5 border border-white/10 rounded-xl px-2.5 py-2.5 text-white text-sm font-medium outline-none transition-colors focus:border-rose-500"
+                                        className="w-full bg-white/5 border border-white/10 rounded-xl px-2.5 py-2.5 text-white text-sm font-medium outline-hidden transition-colors focus:border-rose-500"
                                     />
                                 </div>
                                 <div>
@@ -987,7 +987,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                         value={vessel?.hullMaterial || ''}
                                         onChange={(e) => updateVessel('hullMaterial', e.target.value)}
                                         placeholder="fibreglass / steel / aluminium"
-                                        className="w-full bg-white/5 border border-white/10 rounded-xl px-2.5 py-2.5 text-white text-sm font-medium outline-none transition-colors focus:border-rose-500"
+                                        className="w-full bg-white/5 border border-white/10 rounded-xl px-2.5 py-2.5 text-white text-sm font-medium outline-hidden transition-colors focus:border-rose-500"
                                     />
                                 </div>
                                 <div>
@@ -999,7 +999,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                         value={vessel?.trimColor || ''}
                                         onChange={(e) => updateVessel('trimColor', e.target.value)}
                                         placeholder="e.g. blue trim, teak decks"
-                                        className="w-full bg-white/5 border border-white/10 rounded-xl px-2.5 py-2.5 text-white text-sm font-medium outline-none transition-colors focus:border-rose-500"
+                                        className="w-full bg-white/5 border border-white/10 rounded-xl px-2.5 py-2.5 text-white text-sm font-medium outline-hidden transition-colors focus:border-rose-500"
                                     />
                                 </div>
                                 <div>
@@ -1011,7 +1011,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                         value={vessel?.radiosMonitored || ''}
                                         onChange={(e) => updateVessel('radiosMonitored', e.target.value)}
                                         placeholder="VHF 16 + 67; HF 8291"
-                                        className="w-full bg-white/5 border border-white/10 rounded-xl px-2.5 py-2.5 text-white text-sm font-medium outline-none transition-colors focus:border-rose-500"
+                                        className="w-full bg-white/5 border border-white/10 rounded-xl px-2.5 py-2.5 text-white text-sm font-medium outline-hidden transition-colors focus:border-rose-500"
                                     />
                                 </div>
                                 <div>
@@ -1023,7 +1023,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                         value={vessel?.satPhone || ''}
                                         onChange={(e) => updateVessel('satPhone', e.target.value)}
                                         placeholder="+870 …"
-                                        className="w-full bg-white/5 border border-white/10 rounded-xl px-2.5 py-2.5 text-white text-sm font-medium outline-none transition-colors focus:border-rose-500"
+                                        className="w-full bg-white/5 border border-white/10 rounded-xl px-2.5 py-2.5 text-white text-sm font-medium outline-hidden transition-colors focus:border-rose-500"
                                     />
                                 </div>
                                 <div>
@@ -1035,7 +1035,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                         value={vessel?.tenderDescription || ''}
                                         onChange={(e) => updateVessel('tenderDescription', e.target.value)}
                                         placeholder="grey 2.6 m RIB, 5 hp outboard"
-                                        className="w-full bg-white/5 border border-white/10 rounded-xl px-2.5 py-2.5 text-white text-sm font-medium outline-none transition-colors focus:border-rose-500"
+                                        className="w-full bg-white/5 border border-white/10 rounded-xl px-2.5 py-2.5 text-white text-sm font-medium outline-hidden transition-colors focus:border-rose-500"
                                     />
                                 </div>
                                 <div className="sm:col-span-2">
@@ -1047,7 +1047,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                         value={vessel?.prominentFeatures || ''}
                                         onChange={(e) => updateVessel('prominentFeatures', e.target.value)}
                                         placeholder="hard dodger, wind generator, tan sail covers"
-                                        className="w-full bg-white/5 border border-white/10 rounded-xl px-2.5 py-2.5 text-white text-sm font-medium outline-none transition-colors focus:border-rose-500"
+                                        className="w-full bg-white/5 border border-white/10 rounded-xl px-2.5 py-2.5 text-white text-sm font-medium outline-hidden transition-colors focus:border-rose-500"
                                     />
                                 </div>
                                 {/* The two people a shore contact rings before escalating. Named
@@ -1064,7 +1064,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                         value={vessel?.shoreContact1 || ''}
                                         onChange={(e) => updateVessel('shoreContact1', e.target.value)}
                                         placeholder="Jane Stratton — 0412 345 678"
-                                        className="w-full bg-white/5 border border-white/10 rounded-xl px-2.5 py-2.5 text-white text-sm font-medium outline-none transition-colors focus:border-rose-500"
+                                        className="w-full bg-white/5 border border-white/10 rounded-xl px-2.5 py-2.5 text-white text-sm font-medium outline-hidden transition-colors focus:border-rose-500"
                                     />
                                 </div>
                                 <div className="sm:col-span-2">
@@ -1076,7 +1076,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                         value={vessel?.shoreContact2 || ''}
                                         onChange={(e) => updateVessel('shoreContact2', e.target.value)}
                                         placeholder="Redcliffe Marina office — 07 3269 1234"
-                                        className="w-full bg-white/5 border border-white/10 rounded-xl px-2.5 py-2.5 text-white text-sm font-medium outline-none transition-colors focus:border-rose-500"
+                                        className="w-full bg-white/5 border border-white/10 rounded-xl px-2.5 py-2.5 text-white text-sm font-medium outline-hidden transition-colors focus:border-rose-500"
                                     />
                                 </div>
                             </div>
@@ -1090,7 +1090,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                 value={vessel?.contactPhone || ''}
                                 onChange={(e) => updateVessel('contactPhone', e.target.value)}
                                 placeholder="04xx xxx xxx"
-                                className="w-full bg-white/5 border border-white/10 rounded-xl px-2.5 py-2.5 text-white text-sm font-medium outline-none transition-colors focus:border-rose-500"
+                                className="w-full bg-white/5 border border-white/10 rounded-xl px-2.5 py-2.5 text-white text-sm font-medium outline-hidden transition-colors focus:border-rose-500"
                             />
                         </div>
                         <div className="mt-3">
@@ -1102,7 +1102,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                 onChange={(e) => updateVessel('safetyNotes', e.target.value)}
                                 placeholder="PLB ×2, drogue, grab bag, Starlink…"
                                 rows={2}
-                                className="w-full bg-white/5 border border-white/10 rounded-xl px-2.5 py-2.5 text-white text-sm font-medium outline-none transition-colors focus:border-rose-500 resize-none"
+                                className="w-full bg-white/5 border border-white/10 rounded-xl px-2.5 py-2.5 text-white text-sm font-medium outline-hidden transition-colors focus:border-rose-500 resize-none"
                             />
                         </div>
                         <p className="text-[11px] text-gray-400 mt-3">
@@ -1181,7 +1181,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                             Hull Dimensions
                         </span>
                     </div>
-                    <div className="bg-white/[0.03] border border-white/[0.06] rounded-2xl p-4">
+                    <div className="bg-white/3 border border-white/6 rounded-2xl p-4">
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-4">
                             <MetricInput
                                 label="Length"
@@ -1250,7 +1250,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                         </span>
                         <span className="text-[11px] text-gray-400 ml-auto">Auto unless you set it</span>
                     </div>
-                    <div className="bg-white/[0.03] border border-white/[0.06] rounded-2xl p-4">
+                    <div className="bg-white/3 border border-white/6 rounded-2xl p-4">
                         {/* Derived from LOA and hull type, but OVERRIDABLE: the
                             formulas are a starting guess and the skipper knows
                             the boat. A stored positive value wins in every
@@ -1330,7 +1330,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                         </span>
                         <span className="text-[11px] text-gray-400 ml-auto">Passage Safety Limits</span>
                     </div>
-                    <div className="bg-red-500/[0.03] border border-red-500/10 rounded-2xl p-4 space-y-5">
+                    <div className="bg-red-500/3 border border-red-500/10 rounded-2xl p-4 space-y-5">
                         <p className="text-[11px] text-gray-400 leading-relaxed">
                             Set your crew's comfort thresholds. The passage planner will route around zones that exceed
                             these limits, treating them as obstacles.
@@ -1457,7 +1457,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                             Routing Data
                         </span>
                     </div>
-                    <div className="bg-white/[0.03] border border-white/[0.06] rounded-2xl p-4">
+                    <div className="bg-white/3 border border-white/6 rounded-2xl p-4">
                         {/* NRT Currents Toggle —
                         OSCAR near-real-time vs monthly climatology in the
                         isochrone router's set/drift advection. NRT is
@@ -1478,7 +1478,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                 aria-checked={settings.currentNrtEnabled === true}
                                 aria-label="Toggle high-fidelity ocean currents"
                                 onClick={() => onSave({ currentNrtEnabled: !settings.currentNrtEnabled })}
-                                className={`hit-target-44 shrink-0 relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none ${
+                                className={`hit-target-44 shrink-0 relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-hidden ${
                                     settings.currentNrtEnabled ? 'bg-cyan-500' : 'bg-slate-700'
                                 }`}
                             >
@@ -1499,7 +1499,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                         <div className="w-1 h-4 rounded-full bg-amber-500" />
                         <span className="text-[11px] font-bold text-amber-400 uppercase tracking-widest">Capacity</span>
                     </div>
-                    <div className="bg-white/[0.03] border border-white/[0.06] rounded-2xl p-4">
+                    <div className="bg-white/3 border border-white/6 rounded-2xl p-4">
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-4">
                             <MetricInput
                                 label="Fuel Cap."
@@ -1533,7 +1533,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                 value={vesselCrewAboard(vessel)}
                                 onChange={(e) => updateVessel('crewCount', parseInt(e.target.value) || 2)}
                                 placeholder="2"
-                                className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-white text-sm font-medium outline-none transition-colors focus:border-sky-500"
+                                className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-white text-sm font-medium outline-hidden transition-colors focus:border-sky-500"
                             />
                             <p className="text-[11px] text-gray-400 mt-1">
                                 Used for provisioning and watch scheduling in passage plans
@@ -1567,10 +1567,10 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                         }
                         className={`w-full py-3.5 rounded-xl text-sm font-black uppercase tracking-[0.15em] transition-all active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-50 ${
                             fleetBusyAction === 'sync' || syncStatus.busy
-                                ? 'bg-gradient-to-r from-sky-700 to-cyan-700 text-white shadow-lg shadow-sky-500/20'
+                                ? 'bg-linear-to-r from-sky-700 to-cyan-700 text-white shadow-lg shadow-sky-500/20'
                                 : saved && (!fleetAvailable || syncStatus.tone !== 'red')
-                                  ? 'bg-gradient-to-r from-emerald-600 to-emerald-600 text-white shadow-lg shadow-emerald-500/20'
-                                  : 'bg-gradient-to-r from-sky-600 to-sky-600 text-white shadow-lg shadow-sky-500/20 hover:from-sky-500 hover:to-sky-500'
+                                  ? 'bg-linear-to-r from-emerald-600 to-emerald-600 text-white shadow-lg shadow-emerald-500/20'
+                                  : 'bg-linear-to-r from-sky-600 to-sky-600 text-white shadow-lg shadow-sky-500/20 hover:from-sky-500 hover:to-sky-500'
                         }`}
                     >
                         {fleetBusyAction === 'sync' || syncStatus.busy ? (

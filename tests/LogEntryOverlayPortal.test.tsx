@@ -55,7 +55,7 @@ describe.each(cases)('$name overlay layer', ({ dialogName, element }) => {
         expect(container).not.toContainElement(dialog);
         expect(dialog).toHaveAttribute('data-overlay-layer', 'modal');
         expect(dialog.parentElement).toBe(document.body);
-        expect(dialog).toHaveClass('fixed', 'inset-0', 'z-[1100]');
+        expect(dialog).toHaveClass('fixed', 'inset-0', 'z-1100');
         expect(dialog.style.zIndex).toBe('1100');
     });
 });

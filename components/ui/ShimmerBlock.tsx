@@ -32,7 +32,7 @@ const Bar: React.FC<{ w?: string; h?: string; className?: string; rounded?: stri
     rounded = 'rounded-md',
 }) => (
     <div
-        className={`${w} ${h} ${rounded} bg-white/[0.06] shimmer-block ${className}`}
+        className={`${w} ${h} ${rounded} bg-white/6 shimmer-block ${className}`}
         style={{
             backgroundImage:
                 'linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.04) 40%, rgba(255,255,255,0.08) 50%, rgba(255,255,255,0.04) 60%, transparent 100%)',
@@ -44,7 +44,7 @@ const Bar: React.FC<{ w?: string; h?: string; className?: string; rounded?: stri
 
 /** Card skeleton — matches glassmorphic card layout */
 const CardSkeleton: React.FC = () => (
-    <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4 space-y-3">
+    <div className="bg-white/3 border border-white/6 rounded-xl p-4 space-y-3">
         <div className="flex items-center gap-3">
             <Bar w="w-10" h="h-10" rounded="rounded-xl" />
             <div className="flex-1 space-y-2">
@@ -59,7 +59,7 @@ const CardSkeleton: React.FC = () => (
 
 /** List skeleton — matches OfficeRow layout */
 const ListSkeleton: React.FC<{ rows: number }> = ({ rows }) => (
-    <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl overflow-hidden divide-y divide-white/[0.04]">
+    <div className="bg-white/3 border border-white/6 rounded-xl overflow-hidden divide-y divide-white/4">
         {Array.from({ length: rows }).map((_, i) => (
             <div key={i} className="flex items-center gap-3 px-4 py-3">
                 <Bar w="w-8" h="h-8" rounded="rounded-lg" />
@@ -75,7 +75,7 @@ const ListSkeleton: React.FC<{ rows: number }> = ({ rows }) => (
 
 /** Hero skeleton — matches dashboard hero card */
 const HeroSkeleton: React.FC = () => (
-    <div className="bg-white/[0.03] border border-white/[0.06] rounded-2xl p-6 space-y-4">
+    <div className="bg-white/3 border border-white/6 rounded-2xl p-6 space-y-4">
         <div className="flex items-center justify-between">
             <Bar w="w-1/3" h="h-4" />
             <Bar w="w-16" h="h-6" rounded="rounded-full" />

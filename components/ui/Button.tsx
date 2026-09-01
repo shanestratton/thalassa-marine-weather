@@ -52,7 +52,7 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
                     // The global :focus-visible ring in index.css covers the
                     // keyboard case; this only keeps the browser default from
                     // doubling up on it.
-                    'focus:outline-none',
+                    'focus:outline-hidden',
                     className,
                 ]
                     .filter(Boolean)

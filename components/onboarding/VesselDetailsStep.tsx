@@ -132,7 +132,7 @@ interface VesselDetailsStepProps {
 }
 
 const INPUT_CLASS =
-    'w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-sky-500 outline-none font-mono placeholder-gray-500';
+    'w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-sky-500 outline-hidden font-mono placeholder-gray-500';
 
 const UnitToggle: React.FC<{ value: string; onClick: () => void }> = ({ value, onClick }) => (
     <button
@@ -209,7 +209,7 @@ const JargonHint: React.FC<{ term: string; explanation: string }> = ({ term, exp
             {open && (
                 <span
                     role="tooltip"
-                    className="absolute z-50 top-full left-0 mt-1.5 w-60 p-3 rounded-lg bg-slate-900/95 backdrop-blur border border-sky-500/30 text-[11px] text-gray-200 leading-relaxed shadow-xl normal-case tracking-normal font-normal"
+                    className="absolute z-50 top-full left-0 mt-1.5 w-60 p-3 rounded-lg bg-slate-900/95 backdrop-blur-sm border border-sky-500/30 text-[11px] text-gray-200 leading-relaxed shadow-xl normal-case tracking-normal font-normal"
                     style={{ whiteSpace: 'normal' }}
                 >
                     <span className="block text-sky-300 font-bold mb-1 text-[11px] uppercase tracking-wide">
@@ -406,7 +406,7 @@ export const VesselDetailsStep: React.FC<VesselDetailsStepProps> = React.memo(
                                     value={name}
                                     onChange={(e) => onNameChange(e.target.value)}
                                     placeholder="e.g. Black Pearl"
-                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-sky-500 outline-none text-lg font-medium"
+                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-sky-500 outline-hidden text-lg font-medium"
                                 />
                                 <FieldError id="onboarding-vessel-name-error" message={errors.name} />
                             </div>
@@ -516,7 +516,7 @@ export const VesselDetailsStep: React.FC<VesselDetailsStepProps> = React.memo(
                                         onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
                                             onRiggingTypeChange(e.target.value as VesselProfile['riggingType'] & string)
                                         }
-                                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-sky-500 outline-none appearance-none"
+                                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-sky-500 outline-hidden appearance-none"
                                     >
                                         {[
                                             'Sloop',
