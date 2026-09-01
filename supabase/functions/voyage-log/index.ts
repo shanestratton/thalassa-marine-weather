@@ -60,6 +60,40 @@ const MAX_ENTRIES = 200;
 // decimated below; never serialize this many records to an unauthenticated
 // viewer.
 const MAX_TRACK_POINTS = 300_000;
+
+/**
+ * THE LAND-VOYAGE LAW — one definition, because there are two enforcers.
+ *
+ * A car drive must not appear as a passage (Shane 2026-07-19: his M1 run
+ * from Redcliffe to Logan City drew as a voyage). But "points on land" is
+ * not a drive — a boat alongside sits inside the coastline at the resolution
+ * is_on_water is computed from, so every fix at the dock reads as land.
+ *
+ * On 2026-09-02 that blanked Shane's live passage ("track is on but not
+ * showing"): 3 land fixes, 0 water, a land fraction of 1.0, suppressed at
+ * both enforcers — the track filter AND, independently, the trip catalogue,
+ * which is why fixing only the first changed nothing.
+ *
+ * A drive is a JOURNEY over land, so the verdict needs all three: enough
+ * points to be a verdict at all, the land majority, and distance actually
+ * covered. A berthed, anchored or just-cast-off boat covers ~nothing and is
+ * published; the M1 run covers tens of miles and is still dropped.
+ */
+const LAND_VOYAGE_FRACTION = 0.6;
+/** Below this many classified points, a voyage has not said enough to judge. */
+const LAND_VERDICT_MIN_POINTS = 6;
+/** A journey, not a berth. Nautical miles. */
+const LAND_VERDICT_MIN_NM = 1.5;
+
+function isLandJourney(
+    landFraction: number | null,
+    classifiedPoints: number,
+    distanceNm: number | null,
+): boolean {
+    if (landFraction === null || landFraction < LAND_VOYAGE_FRACTION) return false;
+    if (classifiedPoints < LAND_VERDICT_MIN_POINTS) return false;
+    return distanceNm !== null && distanceNm >= LAND_VERDICT_MIN_NM;
+}
 const MAX_PUBLIC_TRACK_POINTS = 10_000;
 
 function json(body: unknown, status = 200, extraHeaders: Record<string, string> = {}) {
@@ -252,8 +286,11 @@ Deno.serve(async (req: Request) => {
         const ownerId = config.owner_id as string;
         const boatId = config.boat_id as string | null;
 
-        // TEMPORARY DIAGNOSTIC (2026-08-26, remove after boat-pin audit):
-        // gated by a random token, reports why a boat-pinned page is empty.
+        // A token-gated counts-only diagnostic lived here twice (2026-08-26
+        // boat-pin audit, 2026-09-02 land-verdict hunt). Both were answered
+        // and removed; re-add one rather than guessing when the public page
+        // is unexpectedly empty — it settles in one request what source
+        // reading cannot.
         const scope = (config.scope as 'personal' | 'combined') ?? 'personal';
         const trackDays = (config.track_days as number) ?? 30;
         const trackSince = new Date(Date.now() - trackDays * 86400_000).toISOString();
@@ -386,18 +423,38 @@ Deno.serve(async (req: Request) => {
             // also returns true on any error/offline, so poor connectivity biases
             // toward KEEPING a track. The realistic failure is under-filtering —
             // a drive recorded offline survives — never blanking a real passage.
-            const LAND_VOYAGE_FRACTION = 0.6;
-            const landTally = new Map<string, { land: number; total: number }>();
+            //
+            // THAT LAST SENTENCE WAS WRONG, and it cost Shane his live track
+            // (2026-09-02: "track is on but not showing"). Measured on his
+            // running voyage: land 3, water 0 — a majority of 1.0, so the
+            // passage he had just started was thrown away as a car drive. A
+            // boat alongside at Scarborough sits inside the coastline at the
+            // resolution this flag is computed from, so EVERY fix at the dock
+            // reads as land. The old rule blanked a real passage at precisely
+            // the moment the skipper was watching for it.
+            //
+            // A car drive is not "points on land" — it is a JOURNEY over land.
+            // So the verdict now needs all three:
+            //   1. enough classified points to be a verdict at all,
+            //   2. the same land majority as before, and
+            //   3. distance actually covered.
+            // A boat berthed, anchored or just-cast-off covers ~nothing and is
+            // published; the Redcliffe → Logan City run that prompted this
+            // filter covers tens of miles over land and is still dropped.
+            const landTally = new Map<string, { land: number; total: number; maxNm: number }>();
             for (const p of rows) {
-                if (typeof p.is_on_water !== 'boolean') continue;
                 const vid = (p.voyage_id as string | null) ?? '';
-                const c = landTally.get(vid) ?? { land: 0, total: 0 };
-                c.total += 1;
-                if (p.is_on_water === false) c.land += 1;
+                const c = landTally.get(vid) ?? { land: 0, total: 0, maxNm: 0 };
+                const nm = p.cumulative_distance_nm;
+                if (typeof nm === 'number' && Number.isFinite(nm)) c.maxNm = Math.max(c.maxNm, nm);
+                if (typeof p.is_on_water === 'boolean') {
+                    c.total += 1;
+                    if (p.is_on_water === false) c.land += 1;
+                }
                 landTally.set(vid, c);
             }
             for (const [vid, c] of landTally) {
-                if (c.total > 0 && c.land / c.total >= LAND_VOYAGE_FRACTION) landVoyageIds.add(vid);
+                if (c.total > 0 && isLandJourney(c.land / c.total, c.total, c.maxNm)) landVoyageIds.add(vid);
             }
 
             // Trackworthy filter, mirroring the app's isTrackworthyEntry():
@@ -816,7 +873,13 @@ Deno.serve(async (req: Request) => {
         for (const row of catalogueRows) {
             const voyageId = typeof row.voyage_id === 'string' ? row.voyage_id.trim() : '';
             const landFraction = typeof row.land_fraction === 'number' ? row.land_fraction : null;
-            if (!voyageId || hiddenVoyageIds.has(voyageId) || (landFraction !== null && landFraction >= 0.6)) {
+            // Same law as the track filter above (isLandJourney) — this
+            // enforcer used the bare fraction and so suppressed a passage
+            // that had only just left the dock, which then forced the whole
+            // page into all-diary mode and emptied the track as well.
+            const rowPoints = typeof row.point_count === 'number' ? row.point_count : 0;
+            const rowNm = typeof row.distance_nm === 'number' ? row.distance_nm : null;
+            if (!voyageId || hiddenVoyageIds.has(voyageId) || isLandJourney(landFraction, rowPoints, rowNm)) {
                 if (voyageId) {
                     suppressedCatalogueVoyageIds.add(voyageId);
                 }
