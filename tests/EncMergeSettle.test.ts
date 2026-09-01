@@ -26,6 +26,10 @@ import {
     isMergeGenStale,
     noteMergeAborted,
     noteMergeCompleted,
+    mergeBudgetHoldMs,
+    noteMergeParsePaid,
+    MERGE_BUDGET_BYTES,
+    MERGE_BUDGET_WINDOW_MS,
 } from '../services/enc/mergeSettle';
 
 /** Manual clock + instant sleep so settle loops run without real timers. */
@@ -241,5 +245,61 @@ describe('kill #30 wiring (source tripwires)', () => {
         expect(brakeAt).toBeGreaterThan(-1);
         expect(coolAt).toBeGreaterThan(brakeAt);
         expect(coolAt).toBeLessThan(startCrumbAt);
+    });
+});
+
+describe('work-rate governor — the run up the coast breathes (kill #32)', () => {
+    it('holds the next build once the 30s spend window exceeds budget', () => {
+        __resetMergeGenForTest();
+        let t = 1000;
+        // Ten coastal reaches at ~12MB in quick succession ≈ kill #32's trail.
+        for (let i = 0; i < 10; i++) noteMergeParsePaid(12 * 1024 * 1024, (t += 2000));
+        expect(mergeBudgetHoldMs(t)).toBeGreaterThan(0);
+        // The hold clears exactly as the oldest spend ages out of the window.
+        expect(mergeBudgetHoldMs(t + MERGE_BUDGET_WINDOW_MS)).toBe(0);
+    });
+
+    it('stays silent under budget — ordinary browsing never breathes', () => {
+        __resetMergeGenForTest();
+        noteMergeParsePaid(9 * 1024 * 1024, 1000);
+        noteMergeParsePaid(15 * 1024 * 1024, 5000);
+        expect(mergeBudgetHoldMs(6000)).toBe(0);
+        expect(MERGE_BUDGET_BYTES).toBe(48 * 1024 * 1024);
+    });
+
+    it('the settle loop waits out a breathe like a cooldown', async () => {
+        __resetMergeGenForTest();
+        let t = 0;
+        for (let i = 0; i < 6; i++) noteMergeParsePaid(12 * 1024 * 1024, (t += 100));
+        const gen = claimMergeGen(t);
+        const sleeps: number[] = [];
+        const settled = await awaitMergeGenSettle(
+            gen,
+            () => t,
+            async (ms) => {
+                sleeps.push(ms);
+                t += ms; // time advances by exactly the requested sleep
+            },
+        );
+        expect(settled).toBe(true);
+        // It slept at least once for the breathe (longer than the 350ms settle).
+        expect(Math.max(...sleeps)).toBeGreaterThan(350);
+        // And the budget had genuinely drained by the time it ran.
+        expect(mergeBudgetHoldMs(t)).toBe(0);
+    });
+
+    it('the tracer clearance waits the budget too', async () => {
+        __resetMergeGenForTest();
+        let t = 0;
+        for (let i = 0; i < 6; i++) noteMergeParsePaid(12 * 1024 * 1024, (t += 100));
+        let waited = 0;
+        await awaitMergeAbortCooldown(
+            () => t,
+            async (ms) => {
+                waited += ms;
+                t += ms;
+            },
+        );
+        expect(waited).toBeGreaterThan(0);
     });
 });
