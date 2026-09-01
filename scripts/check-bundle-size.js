@@ -32,7 +32,13 @@ const BUDGETS = {
     // recorded, and only as far as the features actually reach — 9.5 leaves
     // ~3% headroom, small enough that the next accidental lodger still
     // trips it.
-    javascript: 9.5 * MIB,
+    // 9.9, was 9.5 (2026-09-01). Measured 9.60 after the 08-24..09-01 window
+    // shipped the video trimmer/remuxer (mp4box + mp4-muxer, verified
+    // lazy-chunked behind dynamic imports in the Diary page) plus the
+    // keyboard guard, centred modals, and ENC governor work. No accidental
+    // lodger found — the two new deps were audited before the line moved.
+    // Same ~3% headroom as the last move.
+    javascript: 9.9 * MIB,
     mainRaw: 800 * KIB,
     mainGzip: 250 * KIB,
 };
