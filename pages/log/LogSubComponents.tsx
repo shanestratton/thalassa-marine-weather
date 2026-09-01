@@ -245,6 +245,20 @@ export const FollowRouteChoice: React.FC<{
                         </span>
                     )}
                 </span>
+                {/* Distance and waypoints belong UNDER the name, not beside
+                    it (Shane 2026-09-02) — the saved-routes grammar the PLAN
+                    library already uses ("39 pins · saved 26 Aug"). Beside
+                    the name they competed with it for the same line and
+                    squeezed the truncation point on a narrow screen. */}
+                <span
+                    className={`mt-0.5 block text-[11px] font-bold ${blocked ? 'text-amber-300/70' : 'text-sky-300'}`}
+                >
+                    {loading
+                        ? 'Loading route…'
+                        : checking
+                          ? (checkingLabel ?? 'Checking…')
+                          : `${summary.totalDistanceNM.toFixed(1)} NM · ${summary.entryCount} pts`}
+                </span>
                 {blocked && (
                     <>
                         <span className="mt-1 block text-[11px] leading-snug text-amber-200/75">{blockReason}</span>
@@ -257,13 +271,6 @@ export const FollowRouteChoice: React.FC<{
                         )}
                     </>
                 )}
-            </span>
-            <span className={`shrink-0 text-[11px] font-bold ${blocked ? 'text-amber-300/70' : 'text-sky-300'}`}>
-                {loading
-                    ? 'Loading route…'
-                    : checking
-                      ? (checkingLabel ?? 'Checking…')
-                      : `${summary.totalDistanceNM.toFixed(1)} NM · ${summary.entryCount} pts`}
             </span>
         </button>
     );

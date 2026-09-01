@@ -109,6 +109,20 @@ vi.mock('../components/Icons', () => ({
 
 import { RoutePlanner } from '../components/RoutePlanner';
 
+/**
+ * Perform the right-to-left reveal gesture on a saved-route row.
+ *
+ * Delete is no longer a permanently-visible column (Shane 2026-09-02) — it
+ * hides behind a swipe like every other list in the app — so a test that
+ * wants the button must earn it the way a thumb does.
+ */
+function swipeRowLeft(row: HTMLElement): void {
+    const touch = (clientX: number) => ({ clientX, clientY: 0 }) as unknown as Touch;
+    fireEvent.touchStart(row, { touches: [touch(300)] });
+    fireEvent.touchMove(row, { touches: [touch(200)] });
+    fireEvent.touchEnd(row, { changedTouches: [touch(200)] });
+}
+
 describe('RoutePlanner', () => {
     beforeEach(() => {
         vi.clearAllMocks();
@@ -337,6 +351,11 @@ describe('RoutePlanner', () => {
         render(<RoutePlanner onTriggerUpgrade={vi.fn()} />);
         fireEvent.click(screen.getByRole('button', { name: /Saved routes/i }));
 
+        // Swipe the row to reveal its delete — the button is hidden until then.
+        const row = await screen.findByRole('button', { name: /Recovered route/ });
+        expect(screen.queryByRole('button', { name: 'Delete Recovered route' })).toBeNull();
+        swipeRowLeft(row);
+
         const deleteButton = await screen.findByRole('button', { name: 'Delete Recovered route' });
         fireEvent.click(deleteButton);
         expect(plannerMocks.deleteLogbookRouteFromLibrary).not.toHaveBeenCalled();
@@ -376,6 +395,11 @@ describe('RoutePlanner', () => {
 
         render(<RoutePlanner onTriggerUpgrade={vi.fn()} />);
         fireEvent.click(screen.getByRole('button', { name: /Saved routes/i }));
+
+        // Swipe the row to reveal its delete — the button is hidden until then.
+        const row = await screen.findByRole('button', { name: /Canonical route/ });
+        expect(screen.queryByRole('button', { name: 'Delete Canonical route' })).toBeNull();
+        swipeRowLeft(row);
 
         const deleteButton = await screen.findByRole('button', { name: 'Delete Canonical route' });
         fireEvent.click(deleteButton);
