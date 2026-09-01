@@ -139,20 +139,17 @@ const SystemStatusModal: React.FC<{
 
     return createPortal(
         <div
-            className="fixed inset-0 z-[9999] flex items-start justify-center bg-black/60 backdrop-blur-[2px]"
+            className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-[2px] p-4 pb-[calc(4rem+env(safe-area-inset-bottom)+1rem)] pt-[max(1rem,env(safe-area-inset-top))]"
             onClick={onClose}
             role="presentation"
-            style={{
-                paddingTop: 'calc(env(safe-area-inset-top) + 60px)',
-                paddingBottom: 'calc(env(safe-area-inset-bottom) + 80px)',
-            }}
         >
+            {/* Centred per the standing modal rule (Shane 2026-09-02: "all modal boxes centered on the punters screen"). */}
             <div
                 ref={dialogRef}
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby="system-status-title"
-                className="w-full max-w-md bg-slate-900/95 border border-white/15 rounded-2xl shadow-2xl max-h-[80dvh] overflow-y-auto mx-4 animate-in fade-in zoom-in-95 duration-200"
+                className="w-full max-w-md bg-slate-900/95 border border-white/15 rounded-2xl shadow-2xl max-h-[80dvh] overflow-y-auto animate-in fade-in zoom-in-95 duration-200"
                 onClick={(e) => e.stopPropagation()}
             >
                 {/* Header */}

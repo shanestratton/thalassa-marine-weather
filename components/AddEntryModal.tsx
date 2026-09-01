@@ -288,15 +288,16 @@ export const AddEntryModal: React.FC<AddEntryModalProps> = ({ isOpen, onClose, o
 
     return (
         <OverlayPortal
-            className="flex items-end justify-center bg-black/80"
+            className="flex items-center justify-center bg-black/80 p-4 pb-[calc(4rem+env(safe-area-inset-bottom)+1rem)] pt-[max(1rem,env(safe-area-inset-top))]"
             onClick={onClose}
             role="dialog"
             aria-modal="true"
             aria-labelledby="add-entry-title"
             ref={focusTrapRef}
         >
+            {/* Centred per the standing modal rule (Shane 2026-09-02: "all modal boxes centered on the punters screen"). */}
             <div
-                className="bg-slate-900 border-t border-x border-white/20 rounded-t-2xl p-4 w-full shadow-2xl h-[calc(100%-10px)] overflow-y-auto"
+                className="bg-slate-900 border border-white/20 rounded-2xl p-4 w-full max-w-md shadow-2xl max-h-full overflow-y-auto"
                 onClick={(e) => e.stopPropagation()}
             >
                 {/* Header with Watch Info */}

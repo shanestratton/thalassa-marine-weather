@@ -145,12 +145,14 @@ export const AnchorageTonightSheet: React.FC<{
                 </button>
             )}
             {open && (
-                <div className="fixed inset-0 z-[730]" role="dialog" aria-label="Anchorages tonight">
+                <div
+                    className="fixed inset-0 z-[730] flex items-center justify-center p-4 pb-[calc(4rem+env(safe-area-inset-bottom)+1rem)] pt-[max(1rem,env(safe-area-inset-top))]"
+                    role="dialog"
+                    aria-label="Anchorages tonight"
+                >
                     <div className="absolute inset-0 bg-black/50" onClick={() => setOpen(false)} />
-                    <div
-                        className="absolute left-0 right-0 bottom-0 bg-slate-900 border-t border-cyan-500/20 rounded-t-2xl shadow-2xl max-h-[70vh] flex flex-col"
-                        style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
-                    >
+                    {/* Centred per the standing modal rule (Shane 2026-09-02: "all modal boxes centered on the punters screen"). */}
+                    <div className="relative w-full max-w-md bg-slate-900 border border-cyan-500/20 rounded-2xl shadow-2xl max-h-full flex flex-col">
                         <div className="flex items-center justify-between px-4 pt-3 pb-2">
                             <div className="text-sm font-bold text-white">
                                 <span aria-hidden>⚓ </span>Where tonight?

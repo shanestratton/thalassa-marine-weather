@@ -273,13 +273,14 @@ export function LiveTideAckModal({ visible, onCancel, onAccept }: LiveTideAckMod
 
     return (
         <div
-            className="fixed inset-0 z-[10060] flex items-end justify-center bg-black/60 sm:items-center"
+            className="fixed inset-0 z-[10060] flex items-center justify-center bg-black/60 p-4 pb-[calc(4rem+env(safe-area-inset-bottom)+1rem)] pt-[max(1rem,env(safe-area-inset-top))]"
             onClick={onCancel}
             role="presentation"
         >
+            {/* Centred per the standing modal rule (Shane 2026-09-02: "all modal boxes centered on the punters screen"). */}
             <div
                 ref={dialogRef}
-                className="w-full max-w-md rounded-t-3xl border border-teal-500/30 bg-slate-900 p-5 shadow-2xl sm:rounded-3xl"
+                className="w-full max-w-md max-h-full overflow-y-auto rounded-3xl border border-teal-500/30 bg-slate-900 p-5 shadow-2xl"
                 onClick={(event) => event.stopPropagation()}
                 role="dialog"
                 aria-modal="true"

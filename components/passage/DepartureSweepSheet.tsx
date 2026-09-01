@@ -239,19 +239,20 @@ export const DepartureSweepSheet: React.FC<DepartureSweepSheetProps> = ({
     const haveCurrents = (sweep?.currentProvenance ?? 'NONE') !== 'NONE';
 
     return (
-        <OverlayPortal className="flex items-end justify-center">
+        <OverlayPortal className="flex items-center justify-center p-4 pb-[calc(4rem+env(safe-area-inset-bottom)+1rem)] pt-[max(1rem,env(safe-area-inset-top))]">
             <div
                 role="presentation"
                 onClick={onClose}
                 className="absolute inset-0 bg-black/70 backdrop-blur-sm animate-in fade-in duration-200"
             />
 
+            {/* Centred per the standing modal rule (Shane 2026-09-02: "all modal boxes centered on the punters screen"). */}
             <div
                 ref={dialogRef}
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby="departure-sweep-title"
-                className="relative w-full max-w-2xl max-h-[90vh] flex flex-col bg-slate-950 border-t border-x border-white/10 rounded-t-3xl shadow-2xl animate-in slide-in-from-bottom duration-300"
+                className="relative w-full max-w-2xl max-h-full flex flex-col bg-slate-950 border border-white/10 rounded-3xl shadow-2xl animate-in fade-in duration-200"
             >
                 <div className="flex-shrink-0 pt-2 pb-1 flex justify-center">
                     <div className="w-12 h-1 rounded-full bg-white/20" />

@@ -275,16 +275,17 @@ const RecipeDetail: React.FC<RecipeDetailProps> = ({ recipe, onClose, onRated })
     return (
         <OverlayPortal
             layer="nested"
-            className="flex items-start justify-center bg-black/70 backdrop-blur-sm animate-in fade-in duration-200 pt-[max(1rem,env(safe-area-inset-top))]"
+            className="flex items-center justify-center bg-black/70 backdrop-blur-sm animate-in fade-in duration-200 p-4 pb-[calc(4rem+env(safe-area-inset-bottom)+1rem)] pt-[max(1rem,env(safe-area-inset-top))]"
             onClick={onClose}
             role="presentation"
         >
+            {/* Centred per the standing modal rule (Shane 2026-09-02: "all modal boxes centered on the punters screen"). */}
             <div
                 ref={dialogRef}
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby="recipe-detail-title"
-                className="w-[calc(100%-1.5rem)] max-w-lg bg-slate-900 border border-white/[0.1] rounded-3xl max-h-[90vh] flex flex-col shadow-2xl animate-in slide-in-from-bottom-4 duration-300"
+                className="w-full max-w-lg bg-slate-900 border border-white/[0.1] rounded-3xl max-h-full flex flex-col shadow-2xl animate-in fade-in duration-300"
                 onClick={(e) => e.stopPropagation()}
             >
                 {/* Hero image or fallback — back chevron at top-left

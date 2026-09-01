@@ -92,21 +92,18 @@ export const StormPicker: React.FC<StormPickerProps> = ({
                     animate={{ opacity: 1 }}
                     exit={{ opacity: 0 }}
                     transition={{ duration: 0.2 }}
-                    className="fixed inset-0 z-[9999] flex items-start justify-center bg-black/60"
+                    className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 p-4 pb-[calc(4rem+env(safe-area-inset-bottom)+1rem)] pt-[max(1rem,env(safe-area-inset-top))]"
                     onClick={onClose}
                     role="presentation"
-                    style={{
-                        paddingTop: 'calc(env(safe-area-inset-top, 0px) + 56px)',
-                        paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 80px)',
-                    }}
                 >
+                    {/* Centred per the standing modal rule (Shane 2026-09-02: "all modal boxes centered on the punters screen"). */}
                     <motion.div
                         ref={dialogRef}
                         initial={{ opacity: 0, scale: 0.95, y: -8 }}
                         animate={{ opacity: 1, scale: 1, y: 0 }}
                         exit={{ opacity: 0, scale: 0.95, y: -8 }}
                         transition={{ type: 'spring', stiffness: 500, damping: 30 }}
-                        className="w-full max-w-md mx-4 bg-slate-900/95 backdrop-blur-xl border border-white/[0.08] rounded-2xl shadow-2xl overflow-hidden"
+                        className="w-full max-w-md max-h-full bg-slate-900/95 backdrop-blur-xl border border-white/[0.08] rounded-2xl shadow-2xl overflow-hidden flex flex-col"
                         onClick={(e) => e.stopPropagation()}
                         role="dialog"
                         aria-modal="true"

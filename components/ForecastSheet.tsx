@@ -107,21 +107,28 @@ export const ForecastSheet: React.FC<ForecastSheetProps> = React.memo(
                     />
                 )}
 
+                {/* Centred per the standing modal rule (Shane 2026-09-02: "all modal boxes centered on the punters screen"). */}
                 <div
                     ref={sheetRef}
                     role="dialog"
                     aria-modal="true"
                     aria-label="Weather forecast summary"
-                    className={`fixed inset-x-4 bottom-24 z-[1110] transition-transform duration-500 cubic-bezier(0.32, 0.72, 0, 1) md:mx-auto md:max-w-2xl`}
-                    style={{
-                        transform: isDragging ? `translateY(${offsetY}px)` : `translateY(${isVisible ? '0%' : '120%'})`,
-                        transition: isDragging ? 'none' : 'transform 0.5s cubic-bezier(0.32, 0.72, 0, 1)',
-                    }}
+                    className="pointer-events-none fixed inset-0 z-[1110] flex items-center justify-center p-4 pb-[calc(4rem+env(safe-area-inset-bottom)+1rem)] pt-[max(1rem,env(safe-area-inset-top))]"
                 >
-                    <div className="mx-2 mb-2 md:mx-0">
+                    <div
+                        className="pointer-events-auto flex max-h-full w-full max-w-lg md:max-w-2xl"
+                        style={{
+                            // Slide-from-bottom swapped for a fade now the card is
+                            // centred; the drag-to-dismiss offset still translates
+                            // the card while a drag is in progress.
+                            transform: isDragging ? `translateY(${offsetY}px)` : 'none',
+                            opacity: isVisible ? 1 : 0,
+                            transition: isDragging ? 'none' : 'opacity 0.3s ease',
+                        }}
+                    >
                         {/* Glass Panel */}
                         <div
-                            className={`bg-slate-900/95 ${t.border.default} rounded-[2rem] shadow-2xl overflow-hidden ring-1 ring-white/10 relative`}
+                            className={`bg-slate-900/95 ${t.border.default} rounded-[2rem] shadow-2xl w-full max-h-full overflow-y-auto ring-1 ring-white/10 relative`}
                         >
                             {/* DRAG HANDLE AREA - Expanded touch target */}
                             <div

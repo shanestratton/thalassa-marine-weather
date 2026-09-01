@@ -129,17 +129,17 @@ export const DepartureWindowSheet: React.FC<DepartureWindowSheetProps> = ({
     const best = sorted.find((s) => s.routeFound) ?? null;
 
     return (
-        <OverlayPortal className="flex items-end justify-center">
+        <OverlayPortal className="flex items-center justify-center p-4 pb-[calc(4rem+env(safe-area-inset-bottom)+1rem)] pt-[max(1rem,env(safe-area-inset-top))]">
             {/* Backdrop */}
             <div role="presentation" onClick={onClose} className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
 
-            {/* Sheet */}
+            {/* Centred per the standing modal rule (Shane 2026-09-02: "all modal boxes centered on the punters screen"). */}
             <div
                 ref={dialogRef}
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby="departure-window-title"
-                className="relative w-full max-w-2xl max-h-[90vh] flex flex-col bg-slate-950 border-t border-x border-white/10 rounded-t-3xl shadow-2xl animate-in slide-in-from-bottom duration-300"
+                className="relative w-full max-w-2xl max-h-full flex flex-col bg-slate-950 border border-white/10 rounded-3xl shadow-2xl animate-in fade-in duration-200"
             >
                 {/* Drag handle */}
                 <div className="flex-shrink-0 pt-2 pb-1 flex justify-center">

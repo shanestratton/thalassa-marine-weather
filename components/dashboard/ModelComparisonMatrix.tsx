@@ -504,20 +504,17 @@ export const ModelComparisonMatrix: React.FC<Props> = React.memo(
 
         return createPortal(
             <div
-                className="fixed inset-0 z-[9999] flex items-start justify-center bg-black/60 backdrop-blur-sm"
+                className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 pb-[calc(4rem+env(safe-area-inset-bottom)+1rem)] pt-[max(1rem,env(safe-area-inset-top))]"
                 onClick={onClose}
                 role="presentation"
-                style={{
-                    paddingTop: 'calc(env(safe-area-inset-top, 0px) + 48px)',
-                    paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 80px)',
-                }}
             >
+                {/* Centred per the standing modal rule (Shane 2026-09-02: "all modal boxes centered on the punters screen"). */}
                 <div
                     ref={dialogRef}
                     role="dialog"
                     aria-modal="true"
                     aria-labelledby="model-comparison-title"
-                    className="w-full max-w-lg mx-4 bg-slate-900/95 border border-white/[0.08] rounded-3xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-300"
+                    className="w-full max-w-lg bg-slate-900/95 border border-white/[0.08] rounded-3xl shadow-2xl max-h-full overflow-y-auto animate-in fade-in zoom-in-95 duration-300"
                     onClick={(e) => e.stopPropagation()}
                 >
                     {/* Accent glow */}
