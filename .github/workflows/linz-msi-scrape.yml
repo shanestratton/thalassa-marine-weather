@@ -47,6 +47,15 @@ jobs:
                   cache: 'npm'
                   cache-dependency-path: scripts/linz-msi-scrape/package-lock.json
 
+            - name: Re-allow user namespaces for Chromium's sandbox
+              # The Ubuntu 24.04 runner image began enforcing AppArmor's
+              # unprivileged-userns restriction (~2026-08-29), so Chromium
+              # can no longer create its sandbox and Playwright dies at
+              # launch ("No usable sandbox"). Lift the restriction rather
+              # than passing --no-sandbox — the scraper deliberately keeps
+              # Chromium sandboxed (see scrape.mjs launch options).
+              run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
             - name: Install scraper deps
               run: npm ci
 
