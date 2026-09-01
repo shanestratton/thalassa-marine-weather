@@ -150,8 +150,14 @@ function findScrollParent(element: HTMLElement): HTMLElement | null {
 
 function scrollBy(element: HTMLElement, top: number): void {
     if (Math.abs(top) < 1) return;
+    // INSTANT, never smooth (the "spin", 2026-09-02): the settle timers
+    // re-measure at 0/120/360ms, and a smooth scroll is still animating when
+    // the next measurement lands — mid-flight geometry produces a wrong
+    // delta, the wrong delta launches another smooth scroll, and a
+    // multi-field form oscillates. Instant scrolls make every settle pass
+    // see the SETTLED truth, so corrections converge and re-runs no-op.
     if (typeof element.scrollBy === 'function') {
-        element.scrollBy({ top, behavior: 'smooth' });
+        element.scrollBy({ top, behavior: 'auto' });
     } else {
         element.scrollTop += top;
     }
@@ -172,10 +178,15 @@ export function keepEditableAboveKeyboard(target: EventTarget | null): void {
     const fieldIsBelow = field.bottom > viewport.bottom;
     if (!fieldIsAbove && !fieldIsBelow) return;
 
-    // Place a focused field in the upper part of the usable area.  This leaves
-    // room for iOS's predictive/accessory bar and means a multiline textarea
-    // remains readable while it grows.
-    const preferredTop = viewport.top + Math.min(40, viewport.height * 0.16);
+    // CENTRE the focused field in the usable band (Shane 2026-09-02: "the
+    // box that you highlight needs to be IN FOCUS … in the middle of the
+    // screen"). The old placement parked fields ~112px from the top — which
+    // on most Thalassa pages is BEHIND the 180-250px sticky header, so the
+    // guard was actively hiding the very field it protected. Centring clears
+    // any header by construction; a textarea taller than the band pins to
+    // the band's top instead so its first lines stay readable.
+    const preferredTop =
+        field.height >= viewport.height ? viewport.top : viewport.top + (viewport.height - field.height) / 2;
     const desiredDelta = field.top - preferredTop;
     const scrollParent = findScrollParent(element);
 
@@ -187,12 +198,72 @@ export function keepEditableAboveKeyboard(target: EventTarget | null): void {
     // Most Thalassa forms live inside an overflow-y-auto panel.  This fallback
     // covers standalone web forms and native modals whose parent becomes
     // scrollable only after a browser layout pass.
-    element.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
+    element.scrollIntoView({ behavior: 'auto', block: 'nearest', inline: 'nearest' });
 
     // `scrollIntoView` is allowed to be a no-op in a fixed Capacitor shell.
     // A page-level nudge is still useful for normal web documents.
     if (typeof window.scrollBy === 'function') {
-        window.scrollBy({ top: desiredDelta, behavior: 'smooth' });
+        window.scrollBy({ top: desiredDelta, behavior: 'auto' });
+    }
+}
+
+/* ── RETURN-KEY NAVIGATION (Shane 2026-09-02: "when you press … either the
+ * keyboard disappears or the next box becomes focused in the middle of the
+ * screen") ──
+ *
+ * The cluster is the nearest scrolling panel — the same boundary the
+ * avoidance guard scrolls — so Return walks the fields a punter can see as
+ * one form, in DOM order. On the last field, Return puts the keyboard away.
+ * Runs in the BUBBLE phase and respects defaultPrevented, so the handful of
+ * components with their own Enter behaviour (search boxes, send buttons)
+ * always win. Textareas and contenteditables keep Enter for newlines.
+ */
+function clusterEditables(from: HTMLElement): HTMLElement[] {
+    const cluster = findScrollParent(from) ?? document.body;
+    const candidates = Array.from(
+        cluster.querySelectorAll<HTMLElement>(
+            'input, textarea, select, [contenteditable]:not([contenteditable="false"])',
+        ),
+    );
+    return candidates.filter((el) => {
+        if (editableTarget(el) !== el) return false;
+        if (el.getClientRects().length === 0) return false; // display:none / detached
+        return true;
+    });
+}
+
+function nextEditableInCluster(current: HTMLElement): HTMLElement | null {
+    const fields = clusterEditables(current);
+    const index = fields.indexOf(current);
+    if (index < 0) return null;
+    return fields[index + 1] ?? null;
+}
+
+function isSingleLineTextInput(el: HTMLElement | null): el is HTMLInputElement {
+    return el instanceof HTMLInputElement;
+}
+
+function labelReturnKey(target: EventTarget | null): void {
+    const element = editableTarget(target);
+    if (!isSingleLineTextInput(element)) return;
+    // Respect an author-set hint; only manage the ones we labelled.
+    if (element.enterKeyHint && element.dataset.thalassaEnterHint === undefined) return;
+    element.dataset.thalassaEnterHint = '1';
+    element.enterKeyHint = nextEditableInCluster(element) ? 'next' : 'done';
+}
+
+function onReturnKey(event: KeyboardEvent): void {
+    if (event.key !== 'Enter' || event.defaultPrevented) return;
+    if (event.shiftKey || event.metaKey || event.ctrlKey || event.altKey) return;
+    const element = editableTarget(event.target);
+    if (!isSingleLineTextInput(element)) return;
+    const next = nextEditableInCluster(element);
+    event.preventDefault();
+    if (next) {
+        next.focus({ preventScroll: true });
+        scheduleKeyboardAvoidance(next);
+    } else {
+        element.blur();
     }
 }
 
@@ -247,10 +318,14 @@ function startGlobalKeyboardAvoidance(): () => void {
         if (keyboardHeight > 0) scheduleFocusedElement();
     };
 
-    const onFocusIn = (event: FocusEvent) => scheduleKeyboardAvoidance(event.target);
+    const onFocusIn = (event: FocusEvent) => {
+        labelReturnKey(event.target);
+        scheduleKeyboardAvoidance(event.target);
+    };
     const viewport = window.visualViewport;
 
     document.addEventListener('focusin', onFocusIn, true);
+    document.addEventListener('keydown', onReturnKey, false);
     viewport?.addEventListener('resize', updateViewportKeyboard);
     viewport?.addEventListener('scroll', updateViewportKeyboard);
     updateViewportKeyboard();
@@ -292,6 +367,7 @@ function startGlobalKeyboardAvoidance(): () => void {
         disposed = true;
         clearScheduledFocusTimers();
         document.removeEventListener('focusin', onFocusIn, true);
+        document.removeEventListener('keydown', onReturnKey, false);
         viewport?.removeEventListener('resize', updateViewportKeyboard);
         viewport?.removeEventListener('scroll', updateViewportKeyboard);
         keyboardHandles.forEach((handle) => void handle.remove());

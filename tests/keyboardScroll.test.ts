@@ -1,5 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { getKeyboardViewport, keepEditableAboveKeyboard, scheduleKeyboardAvoidance } from '../utils/keyboardScroll';
+import {
+    getKeyboardViewport,
+    initGlobalKeyboardScroll,
+    keepEditableAboveKeyboard,
+    scheduleKeyboardAvoidance,
+} from '../utils/keyboardScroll';
 
 const originalInnerHeight = Object.getOwnPropertyDescriptor(window, 'innerHeight');
 const originalVisualViewport = Object.getOwnPropertyDescriptor(window, 'visualViewport');
@@ -77,7 +82,11 @@ describe('keyboardScroll', () => {
 
         keepEditableAboveKeyboard(input);
 
-        expect(scrollBy).toHaveBeenCalledWith({ top: 488, behavior: 'smooth' });
+        // CENTRED placement (2026-09-02): band = [72, 480] → height 408;
+        // preferredTop = 72 + (408-40)/2 = 256; delta = 600-256 = 344. And
+        // 'auto', never 'smooth' — mid-animation re-measures caused the
+        // multi-field "spin".
+        expect(scrollBy).toHaveBeenCalledWith({ top: 344, behavior: 'auto' });
     });
 
     it('protects contenteditable composers as well as native form controls', () => {
@@ -150,5 +159,65 @@ describe('keyboardScroll', () => {
         keepEditableAboveKeyboard(input);
 
         expect(scrollBy).not.toHaveBeenCalled();
+    });
+});
+
+describe('return-key navigation (2026-09-02)', () => {
+    // "when you press … either the keyboard disappears or the next box
+    // becomes focused" — Return walks the cluster, Done on the last field.
+    const buildForm = () => {
+        const form = document.createElement('div');
+        Object.defineProperty(form, 'scrollHeight', { value: 2000, configurable: true });
+        Object.defineProperty(form, 'clientHeight', { value: 500, configurable: true });
+        form.style.overflowY = 'auto';
+        const a = document.createElement('input');
+        const b = document.createElement('input');
+        const notes = document.createElement('textarea');
+        form.append(a, b, notes);
+        document.body.appendChild(form);
+        // jsdom reports no client rects; the cluster filter demands one.
+        for (const el of [a, b, notes]) {
+            vi.spyOn(el, 'getClientRects').mockReturnValue([{}] as unknown as DOMRectList);
+        }
+        return { form, a, b, notes };
+    };
+
+    it('Enter moves focus to the next field in the same scroll cluster', () => {
+        const stop = initGlobalKeyboardScroll();
+        const { a, b } = buildForm();
+        a.focus();
+        a.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+        expect(document.activeElement).toBe(b);
+        stop();
+    });
+
+    it('Enter on the last single-line field dismisses the keyboard (blur)', () => {
+        const stop = initGlobalKeyboardScroll();
+        const { b, notes } = buildForm();
+        notes.remove(); // textareas are not Return targets; make b the last
+        b.focus();
+        b.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+        expect(document.activeElement).not.toBe(b);
+        stop();
+    });
+
+    it('a component that already handled Enter always wins', () => {
+        const stop = initGlobalKeyboardScroll();
+        const { a, b } = buildForm();
+        a.addEventListener('keydown', (e) => e.preventDefault());
+        a.focus();
+        a.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+        expect(document.activeElement).toBe(a);
+        expect(document.activeElement).not.toBe(b);
+        stop();
+    });
+
+    it('textareas keep Enter for newlines', () => {
+        const stop = initGlobalKeyboardScroll();
+        const { notes } = buildForm();
+        notes.focus();
+        notes.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+        expect(document.activeElement).toBe(notes);
+        stop();
     });
 });
