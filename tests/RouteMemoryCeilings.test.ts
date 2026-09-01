@@ -112,6 +112,14 @@ describe('source pins — every layer of the ceiling', () => {
         );
     });
 
+    it('the memory warning also sheds the ENC hazard indexes', () => {
+        // Field trail 2026-09-02: death at 87s of Whitsundays merge churn —
+        // the ENC index cache (~100-190MB, session-lived) was the biggest
+        // remaining droppable ballast. Indexes rebuild lazily; a browse
+        // hiccup beats a dead app.
+        expect(gauge).toContain('clearIndexCache()');
+    });
+
     it('the grid cache admits by bytes and the memory warning dumps it', () => {
         expect(grid).toContain('trimNavGridCache(Math.max(0, NAV_GRID_CACHE_BYTE_BUDGET - bytes));');
         expect(gauge).toContain('trimNavGridCache(0)');
