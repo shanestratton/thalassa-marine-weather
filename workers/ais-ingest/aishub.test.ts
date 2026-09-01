@@ -4,7 +4,14 @@
  * exercised through its rate-floor and single-flight seams.
  */
 import { describe, expect, it, vi } from 'vitest';
-import { parseAishubResponse, parseAishubTime, parseAishubVessel, startAishubPoller } from './aishub.js';
+import {
+    parseAishubResponse,
+    parseAishubTime,
+    parseAishubVessel,
+    startAishubPoller,
+    getAishubStats,
+    isRateLimitMessage,
+} from './aishub.js';
 import type { VesselDB } from './db.js';
 
 const NOW = Date.parse('2026-08-21T03:20:00Z');
@@ -179,6 +186,41 @@ describe('startAishubPoller', () => {
         await new Promise((r) => setTimeout(r, 20));
         expect(enqueued).toHaveLength(0);
         stop();
+    });
+
+    it('counts the LIVE rate-limit envelope as a ration, not a fault', async () => {
+        // MEASURED against the real service 2026-09-02 with a live key: two
+        // polls inside a minute answer HTTP 200 with a normal ERROR envelope
+        // reading "Too frequent requests!", NOT the empty body the docs
+        // describe. Counting that as a poll error made the ration look like
+        // an outage in /health.
+        const { db, enqueued } = fakeDb();
+        const before = getAishubStats();
+        const fetchImpl = vi.fn(
+            async () =>
+                ({
+                    ok: true,
+                    text: async () => JSON.stringify([{ ERROR: true, ERROR_MESSAGE: 'Too frequent requests!' }]),
+                }) as unknown as Response,
+        );
+        const stop = startAishubPoller(db, {
+            apiKey: 'AH_TEST',
+            bounds: { latMin: -45, lonMin: 110, latMax: -8, lonMax: 157 },
+            fetchImpl: fetchImpl as unknown as typeof fetch,
+        });
+        await new Promise((r) => setTimeout(r, 20));
+        const after = getAishubStats();
+        expect(enqueued).toHaveLength(0);
+        expect(after.rateLimited).toBe(before.rateLimited + 1);
+        expect(after.pollErrors).toBe(before.pollErrors);
+        stop();
+    });
+
+    it('recognises the rate-limit message without over-matching real errors', () => {
+        expect(isRateLimitMessage('Too frequent requests!')).toBe(true);
+        expect(isRateLimitMessage('too frequent requests')).toBe(true);
+        expect(isRateLimitMessage('Wrong username!')).toBe(false);
+        expect(isRateLimitMessage('Invalid bounding box')).toBe(false);
     });
 
     it('sends the server-side freshness interval', async () => {
