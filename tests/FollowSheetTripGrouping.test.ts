@@ -30,6 +30,18 @@ const trace = (over: Record<string, unknown>) => ({
 beforeEach(() => loadSavedTraces.mockReset());
 
 describe('trip identity by trace id', () => {
+    it('carries the badge-stripped saved name and parses a dropped ordinal from it', () => {
+        loadSavedTraces.mockReturnValue([
+            trace({ id: 'leg1', name: 'Newport - Coral Sea (1st Leg)', tripId: 't1', legOrdinal: 1 }),
+            // Cloud round-trip dropped legOrdinal; the name badge is the fallback.
+            trace({ id: 'leg2', name: 'Coral Sea - Whitsundays (2nd Leg)', tripId: 't1' }),
+        ]);
+        const map = tripIdentityByTraceId();
+        expect(map.get('leg1')?.legName).toBe('Newport - Coral Sea');
+        expect(map.get('leg2')?.legName).toBe('Coral Sea - Whitsundays');
+        expect(map.get('leg2')?.legOrdinal).toBe(2);
+    });
+
     it('names a passage and tags its legs when both are present', () => {
         loadSavedTraces.mockReturnValue([
             trace({ id: 'leg1', name: 'Newport - Coral Sea (Leg 1)', tripId: 'leg1', legOrdinal: 1 }),

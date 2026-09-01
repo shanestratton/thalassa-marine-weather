@@ -3,7 +3,7 @@
  * second route into follow/publication after MapHub itself was hardened. */
 
 import type { RouteOrTrack } from './shiplog/RoutesAndTracks';
-import { buildTripPassageRollups, loadSavedTraces } from './routeTracer';
+import { buildTripPassageRollups, legBadgeOrdinal, loadSavedTraces, stripLegBadge } from './routeTracer';
 import { normaliseTraceVerification, traceFollowBlockReason } from './traceVerification';
 import { useSettingsStore } from '../stores/settingsStore';
 import { vesselDraftIsAssumed, vesselDraftMetres } from './units';
@@ -141,6 +141,11 @@ export interface TraceTripIdentity {
     legOrdinal?: number;
     /** "<origin> - <destination> (Passage)", absent for a one-leg trip. */
     tripName?: string;
+    /** The trace's own saved display name, badge-stripped — the name the PLAN
+     *  library shows. Carried so the cast-off sheet can print the same name
+     *  instead of re-deriving one from geocoded endpoints (Shane 2026-09-02:
+     *  "the names are incorrect and some are even missing"). */
+    legName?: string;
 }
 
 export function tripIdentityByTraceId(): Map<string, TraceTripIdentity> {
@@ -155,7 +160,11 @@ export function tripIdentityByTraceId(): Map<string, TraceTripIdentity> {
         // No rollup means fewer than two legs are on this device; treat the
         // trace as standalone rather than orphaning it under a missing heading.
         if (!tripName) continue;
-        out.set(trace.id, { tripId: trace.tripId, legOrdinal: trace.legOrdinal, tripName });
+        // Ordinal falls back to the name badge inside a trip — a cloud
+        // round-trip can drop the structural field (mirrors CrewManagement).
+        const legOrdinal = trace.legOrdinal ?? legBadgeOrdinal(trace.name) ?? undefined;
+        const legName = typeof trace.name === 'string' && trace.name.trim() ? stripLegBadge(trace.name) : undefined;
+        out.set(trace.id, { tripId: trace.tripId, legOrdinal, tripName, legName });
     }
     return out;
 }

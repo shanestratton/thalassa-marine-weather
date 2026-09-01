@@ -121,6 +121,8 @@ export const RoutePlanner: React.FC<{
     // Inshore departure sweep (Phase 8): button-gated, only meaningful when
     // the plan's geometry came from the inshore router (locked polyline in
     // routeGeoJSON). The sheet re-TIMES that polyline — it never re-routes.
+    /** Header kebab → centred page-actions modal (Import GPX lives here). */
+    const [plannerMenuOpen, setPlannerMenuOpen] = useState(false);
     const [showSweepSheet, setShowSweepSheet] = useState(false);
     const inshoreSweepAvailable =
         (voyagePlan as { __inshoreRouting?: { status?: string } } | null)?.__inshoreRouting?.status === 'success';
@@ -533,7 +535,68 @@ export const RoutePlanner: React.FC<{
                     : 'route-planner-page relative flex-1 bg-slate-950 overflow-hidden flex flex-col'
             }
         >
-            {!embedded && <PageHeader title="Route Planner" onBack={onBack} />}
+            {!embedded && (
+                <PageHeader
+                    title="Route Planner"
+                    onBack={onBack}
+                    action={
+                        <button
+                            type="button"
+                            onClick={() => setPlannerMenuOpen(true)}
+                            className="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
+                            aria-label="Page actions"
+                        >
+                            <svg className="w-5 h-5 text-gray-400" viewBox="0 0 24 24" fill="currentColor">
+                                <circle cx="12" cy="5" r="1.5" />
+                                <circle cx="12" cy="12" r="1.5" />
+                                <circle cx="12" cy="19" r="1.5" />
+                            </svg>
+                        </button>
+                    }
+                />
+            )}
+            {/* Page-actions modal — CENTRED per the standing modal rule, and
+                portalled to <body>: PageTransition animates this page with
+                translate3d, so an in-tree `fixed inset-0` would cover the page
+                box, not the screen (the LogPage lesson). Import GPX moved here
+                from the front-door cards (Shane 2026-09-02: "remove the import
+                gpx from the routeplanning page. maybe put it under a 3 dot
+                menu... in a modal box (centered of course)"). */}
+            {!embedded &&
+                plannerMenuOpen &&
+                createPortal(
+                    <div
+                        role="presentation"
+                        className="fixed inset-0 z-10070 flex items-center justify-center bg-black/60 p-4 pb-[calc(4rem+env(safe-area-inset-bottom)+1rem)] pt-[max(1rem,env(safe-area-inset-top))]"
+                        onClick={() => setPlannerMenuOpen(false)}
+                    >
+                        <div
+                            role="dialog"
+                            aria-modal="true"
+                            aria-label="Route Planner actions"
+                            className="w-full max-w-xs max-h-full overflow-y-auto rounded-3xl border border-white/10 bg-slate-900 p-2 shadow-2xl"
+                            onClick={(e) => e.stopPropagation()}
+                        >
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setPlannerMenuOpen(false);
+                                    setPage('gpx-import');
+                                }}
+                                className="flex w-full items-center gap-3 rounded-2xl border border-cyan-500/25 bg-linear-to-br from-cyan-500/10 to-slate-900/40 p-3 text-left text-cyan-300 transition-transform active:scale-[0.98]"
+                            >
+                                <span className="text-2xl leading-none">📥</span>
+                                <span className="min-w-0">
+                                    <span className="block text-sm font-black uppercase tracking-wide">Import GPX</span>
+                                    <span className="block truncate text-[11px] font-medium text-gray-400">
+                                        OpenCPN · Navionics — bring routes aboard
+                                    </span>
+                                </span>
+                            </button>
+                        </div>
+                    </div>,
+                    document.body,
+                )}
             {/* "Plot on the big screen" nudge. Gated on !embedded so it fires on
                 the PLAN page itself and not on the planner's embedded uses, and
                 native-only inside the component (telling a web user to go to the
@@ -698,25 +761,12 @@ export const RoutePlanner: React.FC<{
                                             sub: 'Open one, re-graded at today’s tide',
                                             accent: 'border-amber-500/25 from-amber-500/10 text-amber-300',
                                         },
-                                        {
-                                            // Binder review 2026-09-02: imports
-                                            // belong where routes live. The row
-                                            // also survives in the binder's
-                                            // Reference shelf.
-                                            kind: 'gpx' as const,
-                                            icon: '📥',
-                                            title: 'Import GPX',
-                                            sub: 'OpenCPN · Navionics — bring routes aboard',
-                                            accent: 'border-cyan-500/25 from-cyan-500/10 text-cyan-300',
-                                        },
                                     ] as const
                                 ).map((b) => (
                                     <button
                                         key={b.kind}
                                         type="button"
-                                        onClick={() =>
-                                            b.kind === 'gpx' ? setPage('gpx-import') : void openRoutePicker(b.kind)
-                                        }
+                                        onClick={() => void openRoutePicker(b.kind)}
                                         className={`flex w-full items-center gap-3 rounded-2xl border bg-linear-to-br to-slate-900/40 p-3 text-left transition-transform active:scale-[0.98] ${b.accent}`}
                                     >
                                         <span className="text-2xl leading-none">{b.icon}</span>
