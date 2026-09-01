@@ -41,6 +41,18 @@ export function useSwipeable(options: UseSwipeableOptions = {}): UseSwipeableRet
     const { threshold = 80, maxOffset, onSwipeComplete } = options;
     const max = maxOffset ?? threshold + 20;
 
+    // LATEST-REF PATTERN — the dead-swipe regression (2026-09-02). Every
+    // consumer passes `onSwipeComplete: () => …` inline, minting a new
+    // identity per render; the handlers (and therefore the ref callback)
+    // used to depend on it, so React detached and reattached the native
+    // touch listeners on EVERY swipeOffset frame — and iOS drops a touch
+    // sequence whose listeners churn mid-gesture. The swipe went dead in
+    // the diary and every binder list at once. Handlers now read the
+    // latest options through this ref and keep ONE identity for the
+    // hook's lifetime; listeners attach exactly once per element.
+    const optionsRef = useRef({ threshold, max, onSwipeComplete });
+    optionsRef.current = { threshold, max, onSwipeComplete };
+
     const [swipeOffset, setSwipeOffset] = useState(0);
     const [isSwiping, setIsSwiping] = useState(false);
 
@@ -64,47 +76,46 @@ export function useSwipeable(options: UseSwipeableOptions = {}): UseSwipeableRet
         directionLocked.current = null;
     }, []);
 
-    const handleTouchMove = useCallback(
-        (e: TouchEvent) => {
-            if (!isDraggingRef.current) return;
+    const handleTouchMove = useCallback((e: TouchEvent) => {
+        const { max } = optionsRef.current;
+        if (!isDraggingRef.current) return;
 
-            const touch = e.touches[0];
-            const dx = startX.current - touch.clientX;
-            const dy = touch.clientY - startY.current;
+        const touch = e.touches[0];
+        const dx = startX.current - touch.clientX;
+        const dy = touch.clientY - startY.current;
 
-            // Direction lock: decide on first significant movement
-            if (!directionLocked.current) {
-                const absDx = Math.abs(dx);
-                const absDy = Math.abs(dy);
+        // Direction lock: decide on first significant movement
+        if (!directionLocked.current) {
+            const absDx = Math.abs(dx);
+            const absDy = Math.abs(dy);
 
-                if (absDx < LOCK_THRESHOLD && absDy < LOCK_THRESHOLD) return;
+            if (absDx < LOCK_THRESHOLD && absDy < LOCK_THRESHOLD) return;
 
-                if (absDx > absDy * 1.2) {
-                    // Horizontal — we own this gesture
-                    directionLocked.current = 'horizontal';
-                    setIsSwiping(true);
-                } else {
-                    // Vertical — let the browser scroll
-                    directionLocked.current = 'vertical';
-                    isDraggingRef.current = false;
-                    return;
-                }
+            if (absDx > absDy * 1.2) {
+                // Horizontal — we own this gesture
+                directionLocked.current = 'horizontal';
+                setIsSwiping(true);
+            } else {
+                // Vertical — let the browser scroll
+                directionLocked.current = 'vertical';
+                isDraggingRef.current = false;
+                return;
             }
+        }
 
-            if (directionLocked.current === 'vertical') return;
+        if (directionLocked.current === 'vertical') return;
 
-            // ★ KEY FIX: This works because we register with { passive: false }
-            e.preventDefault();
-            e.stopPropagation();
+        // ★ KEY FIX: This works because we register with { passive: false }
+        e.preventDefault();
+        e.stopPropagation();
 
-            const clamped = Math.max(0, Math.min(dx, max));
-            offsetRef.current = clamped;
-            setSwipeOffset(clamped);
-        },
-        [max],
-    );
+        const clamped = Math.max(0, Math.min(dx, max));
+        offsetRef.current = clamped;
+        setSwipeOffset(clamped);
+    }, []);
 
     const handleTouchEnd = useCallback(() => {
+        const { threshold, onSwipeComplete } = optionsRef.current;
         if (!isDraggingRef.current && directionLocked.current !== 'horizontal') {
             directionLocked.current = null;
             return;
@@ -132,7 +143,7 @@ export function useSwipeable(options: UseSwipeableOptions = {}): UseSwipeableRet
             setSwipeOffset(0);
             offsetRef.current = 0;
         }
-    }, [threshold, onSwipeComplete]);
+    }, []);
 
     // ── Attach native listeners via ref callback ──
 
