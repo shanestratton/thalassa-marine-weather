@@ -592,9 +592,17 @@ export default function MapContainer({
                             // reefs, sand, the colour of the water you are
                             // about to drop the pick into — so the tint gets
                             // out of the way almost entirely.
-                            'raster-opacity': ['interpolate', ['linear'], ['zoom'], 3, 0.62, 7, 0.4, 10, 0.2, 13, 0.08],
-                            // Warmed toward teal so the shallows read tropical
-                            // rather than grey-blue.
+                            'raster-opacity': ['interpolate', ['linear'], ['zoom'], 3, 0.32, 6, 0.26, 9, 0.12, 12, 0],
+                            // Kept DELIBERATELY faint at every zoom and gone
+                            // entirely by 12. This raster has no transparency
+                            // over land, so any strength at all veils the
+                            // continents — which is precisely the "milky
+                            // layer" Shane saw (2026-09-02). It now reads as a
+                            // hint of depth structure on open water, where the
+                            // imagery is featureless blue anyway, and hands
+                            // the coast back to the photography, which already
+                            // shows the reef shallows better than a tint can.
+                            // Warmed toward teal for what little of it shows.
                             'raster-saturation': 0.3,
                             'raster-hue-rotate': -14,
                             'raster-fade-duration': 0,
