@@ -35,6 +35,9 @@ interface ImportMetaEnv {
     /** Compile-time release gate for native Sign in with Apple. Keep unset or
      *  false until the complete server-side token lifecycle is live. */
     readonly VITE_APPLE_SIGN_IN_ENABLED?: string;
+    /** Browser-only Apple OAuth gate. Uses the Apple Services ID and Supabase
+     *  callback; it does not enable or claim the native iOS entitlement. */
+    readonly VITE_APPLE_WEB_SIGN_IN_ENABLED?: string;
     readonly VITE_APPLE_MUSIC_ENABLED?: string;
     /** Compile-time release gate for the shelved Apple Watch bridge. */
     readonly VITE_APPLE_WATCH_ENABLED?: string;

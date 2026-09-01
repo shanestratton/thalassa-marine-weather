@@ -42,7 +42,7 @@ For every report, include app version, device model, OS version, online/offline 
 ### Beta App Review Notes
 
 - Email one-time code is the only enabled authentication path. A reviewer may use an email address they control; no paid entitlement is required.
-- Native Sign in with Apple source is present but compile-time default-off. The Apple button must remain hidden in this candidate. It must not be enabled until the complete TN3194 token lifecycle, Apple credentials, server-notification processor, revocation, and account-deletion behaviour are deployed and verified.
+- Native Sign in with Apple source is present but compile-time default-off. Its iOS button must remain hidden in this candidate until the complete TN3194 token lifecycle, Apple credentials, server-notification processor, revocation, and account-deletion behaviour are deployed and verified. Browser Apple OAuth is separately released for the web planner through its Services ID and Supabase callback; it does not claim the native entitlement.
 - The first-run maritime disclaimer is intentionally mandatory. Scroll through and accept it before continuing.
 - Location is requested at point of use. Anchor Watch requires verified Always location access, usable notifications including the signed Time Sensitive path, and a freshly confirmed audible sound check before it can be treated as testable.
 - Anchor Watch uses ordinary application audio and user-controllable Time Sensitive notifications. It has no Critical Alerts entitlement and cannot promise forced volume or an unconditional Silent-mode or Focus bypass.

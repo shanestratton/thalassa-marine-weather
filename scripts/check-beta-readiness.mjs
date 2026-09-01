@@ -1571,6 +1571,7 @@ const intendedPublicBetaFeatureFlags = {
     VITE_CMEMS_MLD_ENABLED: false,
     VITE_MPA_ENABLED: false,
     VITE_APPLE_SIGN_IN_ENABLED: false,
+    VITE_APPLE_WEB_SIGN_IN_ENABLED: true,
     VITE_APPLE_MUSIC_ENABLED: true,
     VITE_APPLE_WATCH_ENABLED: false,
     // true since 2026-08-25 (Shane: 'put it back') — provider config verified
@@ -1599,7 +1600,7 @@ check(
             "const DEFAULT_NATIVE_BASE = 'https://thalassawx.vercel.app/api'",
         ]) &&
         includesAll(publicBetaFeatureProfile.heldCapabilities.join('\n'), [
-            'apple-sign-in',
+            'native-apple-sign-in',
             'apple-watch-bridge',
             'account-deletion',
             'gmail',
@@ -2354,18 +2355,22 @@ check(
         ]),
 );
 check(
-    'web auth does not expose the unconfigured Apple Services-ID flow',
-    signInUi.includes('Apple sign-in is not enabled in this beta build; use email.') &&
-        !signInUi.includes('import { signInWithApple, signInWithAppleOnWeb }'),
+    'web Apple auth is independently gated on the configured Services-ID flow',
+    publicBetaFeatureProfile.featureFlags.VITE_APPLE_WEB_SIGN_IN_ENABLED === true &&
+        socialAuth.includes("VITE_APPLE_WEB_SIGN_IN_ENABLED === 'true'") &&
+        signInUi.includes('APPLE_WEB_SIGN_IN_ENABLED') &&
+        signInUi.includes('await signInWithAppleOnWeb()') &&
+        signInUi.includes('const appleWebEnabled = !isNative && APPLE_WEB_SIGN_IN_ENABLED') &&
+        signInUi.includes('const appleEnabled = appleNativeEnabled || appleWebEnabled'),
 );
 const appleFlagOn = publicBetaFeatureProfile.featureFlags.VITE_APPLE_SIGN_IN_ENABLED === true;
 const appleEntitled = mainEntitlements.includes('<key>com.apple.developer.applesignin</key>');
 check(
     'Apple sign-in stays compile-time gated on its flag',
     includesAll(signInUi, [
-        "const APPLE_SIGN_IN_ENABLED = import.meta.env.VITE_APPLE_SIGN_IN_ENABLED === 'true'",
-        'const appleNativeEnabled = isNative && APPLE_SIGN_IN_ENABLED',
-        '{appleNativeEnabled && (',
+        "const APPLE_NATIVE_SIGN_IN_ENABLED = import.meta.env.VITE_APPLE_SIGN_IN_ENABLED === 'true'",
+        'const appleNativeEnabled = isNative && APPLE_NATIVE_SIGN_IN_ENABLED',
+        '{appleEnabled && (',
         '{!appleNativeEnabled && (',
         'Apple sign-in is not enabled in this beta build; use email.',
     ]) &&
@@ -2405,6 +2410,8 @@ check(
         // access. Gmail is a separate, separately-consented integration.
         read('services/auth/googleSignIn.ts').includes("const SCOPES = 'openid email profile'") &&
         !/gmail\.(readonly|compose|send|modify)/.test(read('services/auth/googleSignIn.ts')) &&
+        infoPlist.includes('<key>CFBundleURLTypes</key>') &&
+        infoPlist.includes('com.googleusercontent.apps.717700927804-t644h587eb4kaklh3cb495k2ec7q8q6v') &&
         includesAll(signInUi, ['GOOGLE_SIGN_IN_ENABLED', '{googleEnabled && (']) &&
         // Shell and env files must not disagree with the committed profile.
         (googleFlagOn || (process.env.VITE_GOOGLE_SIGN_IN_ENABLED !== 'true' && googleEnabledEnvFiles.length === 0)),
@@ -3069,9 +3076,9 @@ check(
 // stay coupled to a source-level boundary. This prevents the manifest from
 // becoming reassuring metadata while an independently gated surface reopens.
 const heldCapabilitySourceContracts = {
-    'apple-sign-in':
+    'native-apple-sign-in':
         publicBetaFeatureProfile.featureFlags.VITE_APPLE_SIGN_IN_ENABLED === false &&
-        signInUi.includes("import.meta.env.VITE_APPLE_SIGN_IN_ENABLED === 'true'") &&
+        signInUi.includes("APPLE_NATIVE_SIGN_IN_ENABLED = import.meta.env.VITE_APPLE_SIGN_IN_ENABLED === 'true'") &&
         !mainEntitlements.includes('com.apple.developer.applesignin'),
     'apple-watch-bridge':
         publicBetaFeatureProfile.featureFlags.VITE_APPLE_WATCH_ENABLED === false &&

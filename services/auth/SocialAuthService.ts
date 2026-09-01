@@ -35,6 +35,15 @@ import { bindAppleCredentialUser, clearBoundAppleCredential } from './appleCrede
 
 const log = createLogger('SocialAuth');
 
+/**
+ * Browser Apple OAuth has its own release boundary. It is deliberately
+ * independent from VITE_APPLE_SIGN_IN_ENABLED: that flag controls the native
+ * capability/entitlement and stays off until the full TN3194 native release
+ * checklist is complete. The web lane uses the separately configured Apple
+ * Services ID and Supabase callback.
+ */
+export const APPLE_WEB_SIGN_IN_ENABLED = import.meta.env.VITE_APPLE_WEB_SIGN_IN_ENABLED === 'true';
+
 // The iOS bundle ID — matches the `aud` claim Apple includes in its
 // ID token, and matches the Client ID we registered in Supabase.
 const APPLE_CLIENT_ID = 'com.thalassa.weather';
@@ -207,15 +216,16 @@ export async function signInWithApple(): Promise<Session> {
  * it (GoTrue answers user_already_exists). So saved routes and vessel details,
  * both account-scoped, simply never arrive on the web planner.
  *
- * REQUIRES DASHBOARD CREDENTIALS THAT DO NOT EXIST YET. Until they are added
- * this will fail at the provider, by design, with a legible message rather than
- * a silent redirect to nowhere:
- *   - Apple: a SERVICES ID — the provider is currently configured with the app
- *     bundle id, which Apple will not accept for web — plus its generated
- *     secret.
+ * The browser lane is released only when its dedicated build flag agrees with
+ * the configured Apple Services ID and Supabase OAuth secret. Keeping that
+ * separate from the native flag prevents a website release from silently
+ * claiming the iOS entitlement.
  */
 export async function signInWithAppleOnWeb(): Promise<void> {
     if (!supabase) throw new Error('Sign-in is unavailable — no Supabase client.');
+    if (!APPLE_WEB_SIGN_IN_ENABLED) {
+        throw new Error('Apple sign-in is not enabled on the web. Use email instead.');
+    }
 
     // Return to the page the skipper actually came from, not a hardcoded root:
     // /plan is a standalone surface and bouncing a planner session back to the
