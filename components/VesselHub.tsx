@@ -623,20 +623,12 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                     <span className="text-xl font-extrabold uppercase tracking-wider text-white">Boat Binder</span>
                 </div>
                 <div className="flex-1 min-h-0 overflow-y-auto vessel-hub-no-scrollbar px-4 pb-4">
-                    {/* — Passage subgroup — */}
-                    <BinderSubLabel>Passage</BinderSubLabel>
-                    <div style={GLASS.listContainer}>
-                        <OfficeRow
-                            icon={<GpxIcon color="#cbd5e1" />}
-                            label="Import GPX"
-                            status="OpenCPN • Navionics"
-                            statusColor="#94a3b8"
-                            onClick={() => {
-                                triggerHaptic('light');
-                                navigateFromBinder('gpx-import');
-                            }}
-                        />
-                    </div>
+                    {/* The Passage subgroup is gone (Shane 2026-09-02, binder
+                        review, shelf #1): after Saved Routes was culled
+                        (2026-08-04) it was a grand heading over one import
+                        button. Import GPX now lives at the tail of Reference
+                        below AND on the Plan page's front door — the tool
+                        kept its shelf, routes kept their home. */}
 
                     {/* — Inventory & Stores subgroup — */}
                     <BinderSubLabel>Inventory &amp; Stores</BinderSubLabel>
@@ -713,19 +705,10 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                 navigateFromBinder('checklists');
                             }}
                         />
-                        <ListDivider />
-                        {/* Relocated from Watch Status (Shane 2026-07-08) —
-                                planning/reference tools, not daily ops. */}
-                        <OfficeRow
-                            icon={<ChartIcon color="#34d399" />}
-                            label="Weather Window"
-                            status="Go / No-Go Score"
-                            statusColor="#34d399"
-                            onClick={() => {
-                                triggerHaptic('light');
-                                navigateFromBinder('weatherWindow');
-                            }}
-                        />
+                        {/* Weather Window row culled (Shane 2026-09-02, binder
+                            review): "it is no good, we already have one on the
+                            passage planning" — the go/no-go score lives where
+                            the passage decision is made. */}
                         <ListDivider />
                         <OfficeRow
                             icon={<BookIcon color="#38bdf8" />}
@@ -772,6 +755,17 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                             onClick={() => {
                                 triggerHaptic('light');
                                 navigateFromBinder('notices');
+                            }}
+                        />
+                        <ListDivider />
+                        <OfficeRow
+                            icon={<GpxIcon color="#cbd5e1" />}
+                            label="Import GPX"
+                            status="OpenCPN • Navionics"
+                            statusColor="#94a3b8"
+                            onClick={() => {
+                                triggerHaptic('light');
+                                navigateFromBinder('gpx-import');
                             }}
                         />
                     </div>
@@ -1182,7 +1176,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                     <span className="min-w-0 flex-1">
                         <span className="block text-[13px] font-black tracking-wide text-white">Boat Binder</span>
                         <span className="mt-0.5 block text-[11px] font-bold uppercase tracking-widest text-cyan-300">
-                            Passage · Inventory · Reference
+                            Inventory · Reference
                         </span>
                     </span>
                     <span aria-hidden className="shrink-0 text-[13px] font-black text-gray-500">
