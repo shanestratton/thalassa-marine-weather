@@ -698,12 +698,25 @@ export const RoutePlanner: React.FC<{
                                             sub: 'Open one, re-graded at today’s tide',
                                             accent: 'border-amber-500/25 from-amber-500/10 text-amber-300',
                                         },
+                                        {
+                                            // Binder review 2026-09-02: imports
+                                            // belong where routes live. The row
+                                            // also survives in the binder's
+                                            // Reference shelf.
+                                            kind: 'gpx' as const,
+                                            icon: '📥',
+                                            title: 'Import GPX',
+                                            sub: 'OpenCPN · Navionics — bring routes aboard',
+                                            accent: 'border-cyan-500/25 from-cyan-500/10 text-cyan-300',
+                                        },
                                     ] as const
                                 ).map((b) => (
                                     <button
                                         key={b.kind}
                                         type="button"
-                                        onClick={() => void openRoutePicker(b.kind)}
+                                        onClick={() =>
+                                            b.kind === 'gpx' ? setPage('gpx-import') : void openRoutePicker(b.kind)
+                                        }
                                         className={`flex w-full items-center gap-3 rounded-2xl border bg-gradient-to-br to-slate-900/40 p-3 text-left transition-transform active:scale-[0.98] ${b.accent}`}
                                     >
                                         <span className="text-2xl leading-none">{b.icon}</span>
