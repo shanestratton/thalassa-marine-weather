@@ -103,3 +103,46 @@ describe('the release latch, under a simulated thumb', () => {
         expect(result.current.swipeOffset).toBe(80);
     });
 });
+
+describe('listener stability under re-render — the dead-swipe regression', () => {
+    it('re-renders with a fresh inline onSwipeComplete must NOT reattach listeners', () => {
+        // Every consumer passes `onSwipeComplete: () => …` inline, so every
+        // render mints a new callback identity. The ref callback used to
+        // depend (transitively) on it, so React detached and reattached the
+        // touch listeners on EVERY swipeOffset frame — and iOS drops a touch
+        // sequence whose listeners churn mid-gesture: the swipe went dead
+        // app-wide (diary + binder lists, 2026-09-02).
+        const el = document.createElement('div');
+        const adds: string[] = [];
+        const removes: string[] = [];
+        const origAdd = el.addEventListener.bind(el);
+        const origRemove = el.removeEventListener.bind(el);
+        el.addEventListener = ((type: string, ...rest: unknown[]) => {
+            adds.push(type);
+            (origAdd as (...a: unknown[]) => void)(type, ...rest);
+        }) as typeof el.addEventListener;
+        el.removeEventListener = ((type: string, ...rest: unknown[]) => {
+            removes.push(type);
+            (origRemove as (...a: unknown[]) => void)(type, ...rest);
+        }) as typeof el.removeEventListener;
+
+        const { result, rerender } = renderHook(() => {
+            // Inline arrow exactly as SwipeableDiaryCard does it.
+            return useSwipeable({ onSwipeComplete: () => {} });
+        });
+        act(() => result.current.ref(el));
+        const addsAfterAttach = adds.length;
+
+        // Simulate the mid-gesture frames: state-driven re-renders.
+        rerender();
+        rerender();
+        rerender();
+
+        expect(adds.length).toBe(addsAfterAttach);
+        expect(removes.length).toBe(0);
+        // And the ref callback identity itself is stable across renders.
+        const refBefore = result.current.ref;
+        rerender();
+        expect(result.current.ref).toBe(refBefore);
+    });
+});
