@@ -79,6 +79,23 @@ const MAX_TRACK_POINTS = 300_000;
  * covered. A berthed, anchored or just-cast-off boat covers ~nothing and is
  * published; the M1 run covers tens of miles and is still dropped.
  */
+/**
+ * Public AIS answer cache.
+ *
+ * The reason AIS was parked off this page in July was COST, not appetite: the
+ * vessels_nearby RPC plus its metadata follow-up ran on every page load, and
+ * every viewer polls every two minutes. That arithmetic scales with the
+ * audience, which is the wrong way round for a page whose whole purpose is to
+ * be watched by lots of people.
+ *
+ * It is also unnecessary. The pond behind it refreshes at most once a minute —
+ * AISHub rations the aggregate poll to exactly that — so two viewers thirty
+ * seconds apart were paying twice for byte-identical data. One cached answer
+ * per boat-position-per-minute makes a hundred watchers cost what one used to.
+ */
+const PUBLIC_AIS_CACHE_MS = 60_000;
+const publicAisCache = new Map<string, { at: number; vessels: unknown[] }>();
+
 const LAND_VOYAGE_FRACTION = 0.6;
 /** Below this many classified points, a voyage has not said enough to judge. */
 const LAND_VERDICT_MIN_POINTS = 6;
@@ -1534,13 +1551,34 @@ Deno.serve(async (req: Request) => {
         // The payload keeps `nearby_vessels: []`, so the client contract is
         // unchanged and its map-over renders nothing — no dead flag needed over
         // there. Flip this to bring the targets back.
-        const PUBLIC_AIS_ENABLED = false;
-        if (PUBLIC_AIS_ENABLED && last) {
+        // BROUGHT BACK 2026-09-02 (Shane: "we might just as well let the
+        // punters at home see whats around us"), now that the AISHub aggregate
+        // is live and the pond has real traffic in it again.
+        //
+        // The July objection was cost, and it is answered rather than ignored:
+        // the answer is cached per boat position for a minute (see
+        // PUBLIC_AIS_CACHE_MS), which is the pond's own refresh rate, so the
+        // work no longer multiplies by the number of people watching.
+        //
+        // Radius pulled in from 200 nm to 60. Shane asked for "what's around
+        // us", and 60 nm is already well past the horizon from a masthead; 200
+        // republished a great deal of other people's data to build markers off
+        // the edge of a phone screen.
+        const PUBLIC_AIS_ENABLED = true;
+        const PUBLIC_AIS_RADIUS_NM = 60;
+        const PUBLIC_AIS_MAX = 50;
+        // Key on position rounded to ~1 nm: a boat at anchor jitters by metres
+        // and would otherwise miss its own cache on every poll.
+        const aisCacheKey = last ? `${Number(last.lat).toFixed(2)},${Number(last.lon).toFixed(2)}` : '';
+        const cachedAis = PUBLIC_AIS_ENABLED && last ? publicAisCache.get(aisCacheKey) : undefined;
+        if (cachedAis && Date.now() - cachedAis.at < PUBLIC_AIS_CACHE_MS) {
+            nearbyVessels = cachedAis.vessels;
+        } else if (PUBLIC_AIS_ENABLED && last) {
             const { data: aisData, error: aisErr } = await supabase.rpc('vessels_nearby', {
                 query_lat: last.lat,
                 query_lon: last.lon,
-                radius_m: 200 * 1852, // 200 nm
-                max_results: 60,
+                radius_m: PUBLIC_AIS_RADIUS_NM * 1852,
+                max_results: PUBLIC_AIS_MAX,
             });
             if (aisErr) {
                 console.warn('voyage-log: AIS lookup failed:', aisErr.message);
@@ -1595,6 +1633,14 @@ Deno.serve(async (req: Request) => {
                             };
                         });
                     }
+                }
+            }
+            // Cached even when the lookup failed or came back empty: a broken
+            // or quiet pond must not be retried by every viewer on every tick.
+            publicAisCache.set(aisCacheKey, { at: Date.now(), vessels: nearbyVessels });
+            if (publicAisCache.size > 200) {
+                for (const [key, entry] of publicAisCache) {
+                    if (Date.now() - entry.at >= PUBLIC_AIS_CACHE_MS) publicAisCache.delete(key);
                 }
             }
         }
