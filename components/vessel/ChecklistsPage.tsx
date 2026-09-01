@@ -602,7 +602,6 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                             resetForm();
                         }}
                         title={editEntry ? 'Edit Item' : 'Add to Checklist'}
-                        alignTop
                     >
                         {/* Type toggle — Heading or Detail */}
                         {!editEntry && (

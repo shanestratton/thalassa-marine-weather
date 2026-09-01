@@ -347,7 +347,6 @@ const SharePassageButton: React.FC<SharePassageButtonProps> = ({ briefData, clas
                 onClose={() => setShowFloatPlan(false)}
                 title="Float plan"
                 maxWidth="max-w-3xl"
-                alignTop
                 zIndex="z-[1200]"
             >
                 {floatPlanPreset && <FloatPlanSheet preset={floatPlanPreset} onClose={() => setShowFloatPlan(false)} />}
