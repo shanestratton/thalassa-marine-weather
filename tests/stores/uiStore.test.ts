@@ -86,7 +86,8 @@ describe('uiStore', () => {
             'galley',
             'avnav',
             'encLibrary',
-            'notices',
+            // 'notices' retired as a route (binder review 2026-09-02) —
+            // notices live on the OBS chart layer.
             'gpx-import',
         ])('treats %s as a Vessel child for return transitions', (child) => {
             useUIStore.setState({ currentView: child });
