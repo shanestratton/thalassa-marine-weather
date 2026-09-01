@@ -62,7 +62,10 @@ const h = vi.hoisted(() => {
 const markers = h.markers;
 
 vi.mock('mapbox-gl', () => ({ default: { Marker: h.FakeMarker } }));
-vi.mock('../utils/system', () => ({ triggerHaptic: vi.fn() }));
+vi.mock('../utils/system', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('../utils/system')>()),
+    triggerHaptic: vi.fn(),
+}));
 vi.mock('../services/routeTracer', () => ({ snapTraceTapToLead: () => null }));
 
 import { useTracerPinMarkers } from '../components/map/useTracerPinMarkers';

@@ -6,7 +6,10 @@ import type { TraceLegVerdict } from '../services/routeTracer';
 const triggerHaptic = vi.hoisted(() => vi.fn());
 const fetchRouteWaypointWeather = vi.hoisted(() => vi.fn().mockResolvedValue([]));
 
-vi.mock('../utils/system', () => ({ triggerHaptic }));
+vi.mock('../utils/system', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('../utils/system')>()),
+    triggerHaptic,
+}));
 vi.mock('../services/routeReportWeather', () => ({
     windCompass: () => 'N',
     fetchRouteWaypointWeather,

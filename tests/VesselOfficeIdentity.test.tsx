@@ -16,7 +16,10 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('../hooks/useRealtimeSync', () => ({ useRealtimeSync: vi.fn() }));
-vi.mock('../utils/system', () => ({ triggerHaptic: vi.fn() }));
+vi.mock('../utils/system', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('../utils/system')>()),
+    triggerHaptic: vi.fn(),
+}));
 vi.mock('../components/Toast', () => ({
     toast: {
         success: mocks.toastSuccess,

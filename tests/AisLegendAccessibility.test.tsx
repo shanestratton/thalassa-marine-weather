@@ -15,7 +15,10 @@ vi.mock('../services/AisGuardZone', () => ({
         setRadius: mocks.setRadius,
     },
 }));
-vi.mock('../utils/system', () => ({ triggerHaptic: vi.fn() }));
+vi.mock('../utils/system', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('../utils/system')>()),
+    triggerHaptic: vi.fn(),
+}));
 
 describe('AisLegend accessibility', () => {
     it('exposes independent guard and radius controls in a mobile-safe scroller', () => {

@@ -46,7 +46,10 @@ vi.mock('../stores/LocationStore', () => ({ LocationStore: { getState: () => ({}
 vi.mock('../stores/settingsStore', () => ({
     useSettingsStore: { getState: () => ({ settings: { vessel: { mmsi: '503101240' } } }) },
 }));
-vi.mock('../utils/system', () => ({ triggerHaptic: vi.fn() }));
+vi.mock('../utils/system', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('../utils/system')>()),
+    triggerHaptic: vi.fn(),
+}));
 vi.mock('../utils/createLogger', () => ({
     createLogger: () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }),
 }));

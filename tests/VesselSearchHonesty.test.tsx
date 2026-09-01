@@ -16,7 +16,10 @@ import React from 'react';
 
 const rpc = vi.fn();
 vi.mock('../services/supabase', () => ({ supabase: { rpc: (...a: unknown[]) => rpc(...a) } }));
-vi.mock('../utils/system', () => ({ triggerHaptic: vi.fn() }));
+vi.mock('../utils/system', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('../utils/system')>()),
+    triggerHaptic: vi.fn(),
+}));
 vi.mock('../components/ui/OverlayPortal', () => ({
     OverlayPortal: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
 }));

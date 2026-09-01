@@ -67,7 +67,8 @@ vi.mock('../stores/settingsStore', () => ({
 vi.mock('../stores/LocationStore', () => ({
     LocationStore: { getState: () => ({ lat: -27.47, lon: 153.02 }) },
 }));
-vi.mock('../utils/system', () => ({
+vi.mock('../utils/system', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('../utils/system')>()),
     triggerHaptic: vi.fn(),
 }));
 vi.mock('../components/vessel/EncCellManager', () => ({

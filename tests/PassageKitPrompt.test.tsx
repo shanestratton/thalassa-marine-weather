@@ -27,7 +27,10 @@ vi.mock('../stores/uiStore', () => ({
 vi.mock('../stores/PassageStore', () => ({
     PassageStore: { getState: () => ({}) },
 }));
-vi.mock('../utils/system', () => ({ triggerHaptic: vi.fn() }));
+vi.mock('../utils/system', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('../utils/system')>()),
+    triggerHaptic: vi.fn(),
+}));
 
 interface FollowState {
     isFollowing: boolean;

@@ -4,7 +4,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MapBaseSelector, mapBaseVisibility, type MapBaseKind } from '../components/map/MapBaseSelector';
 
 const triggerHaptic = vi.hoisted(() => vi.fn());
-vi.mock('../utils/system', () => ({ triggerHaptic }));
+vi.mock('../utils/system', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('../utils/system')>()),
+    triggerHaptic,
+}));
 
 function Harness() {
     const [base, setBase] = useState<MapBaseKind>('hybrid');

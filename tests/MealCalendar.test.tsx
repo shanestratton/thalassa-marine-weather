@@ -28,7 +28,10 @@ vi.mock('../services/ShoppingListService', () => ({
     getShoppingList: vi.fn(() => ({ total: 0, purchased: 0, remaining: 0, totalCost: 0, currency: 'AUD', zones: [] })),
 }));
 
-vi.mock('../utils/system', () => ({ triggerHaptic: vi.fn() }));
+vi.mock('../utils/system', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('../utils/system')>()),
+    triggerHaptic: vi.fn(),
+}));
 
 vi.mock('../components/chat/CaptainsTable', () => ({
     CaptainsTable: () => <button>Community recipe result</button>,

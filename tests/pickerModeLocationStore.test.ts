@@ -31,7 +31,10 @@ vi.mock('mapbox-gl', () => ({
     },
 }));
 
-vi.mock('../utils/system', () => ({ triggerHaptic: () => {} }));
+vi.mock('../utils/system', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('../utils/system')>()),
+    triggerHaptic: () => {},
+}));
 vi.mock('../utils/createMarkerEl', () => ({ createPinMarker: () => document.createElement('div') }));
 
 const reverseGeocode = vi.fn(async () => 'Mooloolaba, QLD');

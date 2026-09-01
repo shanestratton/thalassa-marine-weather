@@ -6,7 +6,8 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
 
 // Mock haptic feedback
-vi.mock('../utils/system', () => ({
+vi.mock('../utils/system', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('../utils/system')>()),
     triggerHaptic: vi.fn(),
 }));
 

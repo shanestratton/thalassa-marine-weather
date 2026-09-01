@@ -9,7 +9,10 @@ import {
 import { ChartKeyPanel } from '../components/map/ChartKeyPanel';
 
 const triggerHaptic = vi.hoisted(() => vi.fn());
-vi.mock('../utils/system', () => ({ triggerHaptic }));
+vi.mock('../utils/system', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('../utils/system')>()),
+    triggerHaptic,
+}));
 
 function props(overrides: Partial<ChartDepthControlsProps> = {}): ChartDepthControlsProps {
     return {

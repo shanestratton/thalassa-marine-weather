@@ -31,7 +31,10 @@ vi.mock('../services/enc/localEncPackImport', () => ({
 }));
 
 vi.mock('../stores/MapFitTargetStore', () => ({ requestMapFit: mocks.requestMapFit }));
-vi.mock('../utils/system', () => ({ triggerHaptic: mocks.triggerHaptic }));
+vi.mock('../utils/system', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('../utils/system')>()),
+    triggerHaptic: mocks.triggerHaptic,
+}));
 
 import { EncLibraryPage } from '../components/vessel/EncLibraryPage';
 

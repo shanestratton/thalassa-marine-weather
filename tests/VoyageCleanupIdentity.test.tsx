@@ -25,7 +25,8 @@ vi.mock('../services/ShipLogService', () => ({
     },
 }));
 
-vi.mock('../utils/system', () => ({
+vi.mock('../utils/system', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('../utils/system')>()),
     triggerHaptic: vi.fn(),
 }));
 
