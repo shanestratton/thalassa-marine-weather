@@ -37,6 +37,36 @@ function tsxFiles(dir: string): string[] {
 }
 
 describe('centred-modal ratchet', () => {
+    it('no component reintroduces an align-top escape hatch', () => {
+        // ModalSheet's alignTop prop let three callers pin their modal to
+        // the top of the screen (found live by Shane on the Checklists
+        // page, 2026-09-01). The prop is gone; this keeps it gone.
+        const offenders: string[] = [];
+        for (const file of [...tsxFiles('components'), ...tsxFiles('src')]) {
+            const text = readFileSync(file, 'utf8');
+            if (/\balignTop\b/.test(text)) offenders.push(file);
+        }
+        expect(offenders).toEqual([]);
+    });
+
+    it('no overlay class string pins a modal to the top', () => {
+        // An overlay whose own class string carries both `fixed inset-0`
+        // and `items-start` top-pins its card — unless it is the
+        // scrolling-overlay pattern (`overflow-y-auto` on the overlay,
+        // `my-auto` on the card), which centres whenever content fits.
+        const offenders: string[] = [];
+        for (const file of [...tsxFiles('components'), ...tsxFiles('src')]) {
+            const text = readFileSync(file, 'utf8');
+            for (const m of text.matchAll(/["'`]([^"'`\n]*fixed inset-0[^"'`\n]*)["'`]/g)) {
+                const cls = m[1];
+                if (cls.includes('items-start') && !cls.includes('overflow-y-auto')) {
+                    offenders.push(`${file}:${text.slice(0, m.index ?? 0).split('\n').length}`);
+                }
+            }
+        }
+        expect(offenders).toEqual([]);
+    });
+
     it('no modal-class overlay anchors to an edge', () => {
         const offenders: string[] = [];
         for (const file of [...tsxFiles('components'), ...tsxFiles('src')]) {

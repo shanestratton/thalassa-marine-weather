@@ -717,7 +717,6 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
                             resetForm();
                         }}
                         title={editDoc ? 'Edit Document' : 'Add Document'}
-                        alignTop
                     >
                         <DocumentForm
                             isEdit={!!editDoc}

@@ -27,8 +27,6 @@ interface ModalSheetProps {
     maxWidth?: string;
     /** Optional z-index override (default: z-[999]) */
     zIndex?: string;
-    /** If true, content starts at top; if false (default), centered */
-    alignTop?: boolean;
 }
 
 export const ModalSheet: React.FC<ModalSheetProps> = ({
@@ -38,7 +36,6 @@ export const ModalSheet: React.FC<ModalSheetProps> = ({
     children,
     maxWidth = 'max-w-2xl',
     zIndex = 'z-[999]',
-    alignTop = false,
 }) => {
     const keyboardHeight = useKeyboardOffset(isOpen);
     const panelRef = useFocusTrap<HTMLDivElement>(isOpen, { onEscape: onClose });
@@ -52,8 +49,11 @@ export const ModalSheet: React.FC<ModalSheetProps> = ({
     const panelMaxHeight = kbOpen ? `calc(100dvh - ${keyboardHeight}px - 6rem)` : 'calc(100dvh - 12rem)';
 
     // When keyboard is open, switch to items-start with top padding
-    // so the panel sits above the keyboard. When closed, center it.
-    const alignment = kbOpen ? 'items-start pt-12' : alignTop ? 'items-start pt-24' : 'items-center';
+    // so the panel sits above the keyboard. When closed, center it —
+    // always. The old align-top escape hatch pinned three modals to the
+    // top of the screen and was retired 2026-09-01 under the standing
+    // rule that every modal centres on the punter's screen.
+    const alignment = kbOpen ? 'items-start pt-12' : 'items-center';
 
     const modalId = title ? `modal-title-${title.replace(/\s+/g, '-').toLowerCase()}` : undefined;
 
