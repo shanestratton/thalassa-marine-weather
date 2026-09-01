@@ -45,20 +45,24 @@ test.describe('Product Feedback', () => {
         await expect(bugContext).toContainText(/iOS.*1\.2\.0.*build.*123/i);
 
         await page.getByRole('radio', { name: 'Report a bug' }).check();
-        await page.getByLabel('Your name').fill('Test Skipper');
-        await page.getByLabel('Email').fill('SKIPPER@EXAMPLE.COM');
-        await page.getByLabel('Area of Thalassa').selectOption({ index: 1 });
-        await page.getByLabel('Short title').fill('Forecast card does not refresh');
+        await page.getByRole('textbox', { name: 'Your name' }).fill('Test Skipper');
+        await page.getByRole('textbox', { name: 'Email' }).fill('SKIPPER@EXAMPLE.COM');
+        await page.getByRole('combobox', { name: 'Area of Thalassa' }).selectOption({ index: 1 });
+        await page.getByRole('textbox', { name: 'Short title' }).fill('Forecast card does not refresh');
         await page
-            .getByLabel('Details')
+            .getByRole('textbox', { name: 'Details', exact: true })
             .fill('The forecast card remains on the previous observation after a manual refresh.');
         await page.getByRole('radio', { name: 'Stops me using it' }).check();
-        await page.getByLabel('Steps to reproduce').fill('Open The Glass, wait for an update, then tap refresh.');
-        await page.getByLabel('What did you expect?').fill('The latest observation should appear.');
-        await page.getByLabel('What actually happened?').fill('The previous observation remained visible.');
-        await page.getByLabel('Device').fill('iPhone 17 Pro');
-        await page.getByLabel('Include basic technical details').check();
-        await page.getByLabel(/I agree that Thalassa may use these details/).check();
+        await page
+            .getByRole('textbox', { name: 'Steps to reproduce' })
+            .fill('Open The Glass, wait for an update, then tap refresh.');
+        await page.getByRole('textbox', { name: 'What did you expect?' }).fill('The latest observation should appear.');
+        await page
+            .getByRole('textbox', { name: 'What actually happened?' })
+            .fill('The previous observation remained visible.');
+        await page.getByRole('textbox', { name: 'Device', exact: true }).fill('iPhone 17 Pro');
+        await page.getByRole('checkbox', { name: 'Include basic technical details' }).check();
+        await page.getByRole('checkbox', { name: /I agree that Thalassa may use these details/ }).check();
 
         await page.getByRole('button', { name: 'Send bug report' }).click();
 
@@ -94,25 +98,25 @@ test.describe('Product Feedback', () => {
         await expect(featureContext).toContainText(/iOS.*1\.2\.0.*build.*123/i);
         await page.getByRole('radio', { name: 'Request a feature' }).check();
 
-        await expect(page.getByLabel('What problem would this solve?')).toBeVisible();
-        await expect(page.getByLabel('What would a great version look like?')).toBeVisible();
-        await expect(page.getByLabel('Include basic technical details')).toHaveCount(0);
+        await expect(page.getByRole('textbox', { name: 'What problem would this solve?' })).toBeVisible();
+        await expect(page.getByRole('textbox', { name: 'What would a great version look like?' })).toBeVisible();
+        await expect(page.getByRole('checkbox', { name: 'Include basic technical details' })).toHaveCount(0);
 
-        await page.getByLabel('Your name').fill('Feature Skipper');
-        await page.getByLabel('Email').fill('feature@example.com');
-        await page.getByLabel('Area of Thalassa').selectOption({ index: 1 });
-        await page.getByLabel('Short title').fill('Add a weather comparison view');
+        await page.getByRole('textbox', { name: 'Your name' }).fill('Feature Skipper');
+        await page.getByRole('textbox', { name: 'Email' }).fill('feature@example.com');
+        await page.getByRole('combobox', { name: 'Area of Thalassa' }).selectOption({ index: 1 });
+        await page.getByRole('textbox', { name: 'Short title' }).fill('Add a weather comparison view');
         await page
-            .getByLabel('Details')
+            .getByRole('textbox', { name: 'Details', exact: true })
             .fill('Let skippers compare two forecast models over the same passage and departure window.');
         await page.getByRole('radio', { name: 'Important' }).check();
         await page
-            .getByLabel('What problem would this solve?')
+            .getByRole('textbox', { name: 'What problem would this solve?' })
             .fill('It would make model disagreement easier to understand before departure.');
         await page
-            .getByLabel('What would a great version look like?')
+            .getByRole('textbox', { name: 'What would a great version look like?' })
             .fill('A clear side-by-side forecast view using the same route and timeline.');
-        await page.getByLabel(/I agree that Thalassa may use these details/).check();
+        await page.getByRole('checkbox', { name: /I agree that Thalassa may use these details/ }).check();
         await page.getByRole('button', { name: 'Send feature request' }).click();
 
         await expect(page.getByText('Reference: FB-5E6F7A8B')).toBeVisible();
