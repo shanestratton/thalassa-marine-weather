@@ -1183,6 +1183,17 @@ export function applyThreeTier(
         fineResolutionM: number,
     ): NavGrid | null => {
         try {
+            // Belt-and-braces: MAX_ROUTE_CELLS lives in routeInshoreOnce and
+            // does NOT guard this path, so a runaway crop (a winding "canal"
+            // across an archipelago) used to build tens of millions of 12 m
+            // cells in one synchronous pass (2026-09-02). Over budget → null,
+            // and the span keeps its coarse A* slice by design.
+            const midLat = (fineBbox[1] + fineBbox[3]) / 2;
+            const wM = (fineBbox[2] - fineBbox[0]) * 111_320 * Math.cos((midLat * Math.PI) / 180);
+            const hM = (fineBbox[3] - fineBbox[1]) * 111_320;
+            const projectedCells = (wM / fineResolutionM) * (hM / fineResolutionM);
+            const MAX_FINE_CELLS = 2_000_000;
+            if (!Number.isFinite(projectedCells) || projectedCells > MAX_FINE_CELLS) return null;
             return buildNavGridCached(
                 layers,
                 [fineBbox[0], fineBbox[1], fineBbox[2], fineBbox[3]],

@@ -381,6 +381,13 @@ export function isCanalNarrow(
         y < coarseGrid.height &&
         !Number.isNaN(coarseGrid.cells[y * coarseGrid.width + x]);
 
+    // The 8-cell default assumes 50 m cells (~400 m of water). Express the
+    // threshold in METRES so a coarsened grid tightens rather than balloons:
+    // at 100 m cells "narrow" means ≤4 cells, and beyond ~400 m it can never
+    // match (the fine pass has already declined by then anyway).
+    const cellM = coarseCellM(coarseGrid);
+    const maxCellsEff = Math.max(1, Math.min(maxCells, Math.round((maxCells * 50) / cellM)));
+
     const PROBE = 6; // cells to step outward each side before giving up
     const widths: number[] = [];
     for (let i = span.fromIdx; i < span.toIdx && i + 1 < fullPolyline.length; i++) {
@@ -411,7 +418,7 @@ export function isCanalNarrow(
     if (widths.length === 0) return false;
     widths.sort((u, v) => u - v);
     const median = widths[Math.floor(widths.length / 2)];
-    return median <= maxCells;
+    return median <= maxCellsEff;
 }
 
 /**
@@ -459,6 +466,9 @@ export function spanIsInjectedCanal(coarseGrid: NavGrid, fullPolyline: readonly 
 export function spanNearBerths(coarseGrid: NavGrid, fullPolyline: readonly LatLon[], span: TierSpan): boolean {
     const bb = coarseGrid.berthBlocked;
     if (!bb) return false;
+    // R=2 "near a berth" is a ~100 m question; at coarsened resolution the
+    // same two cells are a kilometre-plus radius that matches half a harbour.
+    if (coarseCellM(coarseGrid) > MAX_FINE_PASS_COARSE_RES_M) return false;
     const w = coarseGrid.width;
     const h = coarseGrid.height;
     const R = 2; // coarse cells
@@ -493,6 +503,23 @@ function spanMetres(fullPolyline: readonly LatLon[], span: TierSpan): number {
  *  (10–15 m); 12 m keeps a tight crop bounded (~28k cells at 2 km²) and
  *  resolves a ~1-cell-at-50 m canal into ~8 cells wide. */
 export const FINE_CANAL_RES_M = 12;
+/**
+ * The fine canal pass only means anything near the native 50 m coarse grid.
+ * A long route's 2.5M-cell ceiling coarsens cells to hundreds of metres, and
+ * every cell-denominated probe silently rescales with them: "median ≤8 cells
+ * wide" became "≤6.6 km wide" on the ~830 m Airlie grid, so the Whitsundays
+ * island passages read as canals and the (then-uncapped) 12 m fine pass built
+ * a multi-hundred-MB grid over an archipelago crop — the leg-3 Jetsam kill
+ * (2026-09-02). Past this coarse resolution the fine pass declines and the
+ * span keeps its coarse A* slice, which by design can never disconnect a
+ * route.
+ */
+export const MAX_FINE_PASS_COARSE_RES_M = 100;
+
+/** The coarse grid's cell size in metres, derived from its latitude step. */
+export function coarseCellM(grid: NavGrid): number {
+    return grid.dLat * 111_320;
+}
 
 /** Even finer resolution for a BERTH-dense marina reach (the wharf start). The
  *  fairway between finger pontoons is ~15–30 m, so at 12 m the carved pontoons
@@ -709,6 +736,8 @@ export function tryFineCanalLeg(
     // probe. There we force the fine centreline pass, bounded by a
     // length cap so a long injected span can't build a giant fine grid. A wide,
     // non-injected span (open bay / wide channel) still keeps the coarse A* slice.
+    // A coarsened grid cannot answer canal questions — decline outright.
+    if (coarseCellM(coarseGrid) > MAX_FINE_PASS_COARSE_RES_M) return { leg: null, diag: 'coarse-grid' };
     const injectedSpan = spanIsInjectedCanal(coarseGrid, fullPolyline, span);
     // A berth-dense span (a marina reach, e.g. the wharf start) also forces the
     // fine pass: the coarse basin reads 'notnarrow', but the fine grid carves

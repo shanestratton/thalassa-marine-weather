@@ -25,14 +25,54 @@ import { computeCentreFactor } from './aStar';
  * feature counts would collide. Fine for now; tighten with a content hash
  * if we ever hit it.
  *
- * Hard size cap of 5 grids (≈1 MB at 200×400×4 bytes) to bound memory.
+ * Byte-budget LRU, mirroring routeTracer's TRACER_LRU_BYTE_BUDGET. The old
+ * cap was 5 ENTRIES under a "≈1 MB each" comment from the 200×400-cell era —
+ * but a long route coarsens to 2.5M cells at 50-70 MB per grid, so five
+ * entries could park ~350 MB of typed arrays in module scope for the rest of
+ * the session (the Airlie Jetsam hunt, 2026-09-02). The incoming grid is
+ * ALWAYS admitted — evicting everything else if need be — so a relax-retry
+ * or replot of the SAME leg still hits.
  */
 export interface CachedNavGrid {
     grid: NavGrid;
     ts: number;
+    bytes: number;
 }
 export const navGridCache = new Map<string, CachedNavGrid>();
 export const NAV_GRID_CACHE_MAX = 5;
+export const NAV_GRID_CACHE_BYTE_BUDGET = 48 * 1024 * 1024;
+
+/** Sum of every typed-array field on the grid — the resident cost of caching it. */
+export function navGridBytes(grid: NavGrid): number {
+    let total = 0;
+    for (const value of Object.values(grid as unknown as Record<string, unknown>)) {
+        if (ArrayBuffer.isView(value)) total += value.byteLength;
+    }
+    return total;
+}
+
+/**
+ * Evict oldest entries until the cache fits `targetBytes`. Exported so the
+ * native memory-warning listener can dump the lot (target 0) when iOS says
+ * the ceiling is close.
+ */
+export function trimNavGridCache(targetBytes = NAV_GRID_CACHE_BYTE_BUDGET): void {
+    let total = 0;
+    for (const v of navGridCache.values()) total += v.bytes;
+    while (total > targetBytes && navGridCache.size > 0) {
+        let oldestKey: string | null = null;
+        let oldestTs = Infinity;
+        for (const [k, v] of navGridCache) {
+            if (v.ts < oldestTs) {
+                oldestTs = v.ts;
+                oldestKey = k;
+            }
+        }
+        if (!oldestKey) break;
+        total -= navGridCache.get(oldestKey)?.bytes ?? 0;
+        navGridCache.delete(oldestKey);
+    }
+}
 
 export function relaxZonesKey(relaxZones: RelaxZone[]): string {
     if (relaxZones.length === 0) return 'none';
@@ -153,7 +193,11 @@ export function buildNavGridCached(
         relaxZones,
         routeProfile,
     );
-    if (navGridCache.size >= NAV_GRID_CACHE_MAX) {
+    const bytes = navGridBytes(grid);
+    // Make room by BYTES first (the incoming grid is always admitted), then
+    // by entry count for the many-tiny-grids case.
+    trimNavGridCache(Math.max(0, NAV_GRID_CACHE_BYTE_BUDGET - bytes));
+    while (navGridCache.size >= NAV_GRID_CACHE_MAX) {
         let oldestKey: string | null = null;
         let oldestTs = Infinity;
         for (const [k, v] of navGridCache) {
@@ -162,9 +206,10 @@ export function buildNavGridCached(
                 oldestKey = k;
             }
         }
-        if (oldestKey) navGridCache.delete(oldestKey);
+        if (!oldestKey) break;
+        navGridCache.delete(oldestKey);
     }
-    navGridCache.set(key, { grid, ts: Date.now() });
+    navGridCache.set(key, { grid, ts: Date.now(), bytes });
     return { grid, cacheHit: false };
 }
 
