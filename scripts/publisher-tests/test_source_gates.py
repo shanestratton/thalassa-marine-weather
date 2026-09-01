@@ -54,8 +54,14 @@ class PublisherSourceGateTests(unittest.TestCase):
         expectations = {
             "cmems-currents-pipeline.yml": (6, 13, 1, 12, "20 */6 * * *"),
             "cmems-waves-pipeline.yml": (12, 17, 3, 15, "0 7,19 * * *"),
-            "cmems-sst-pipeline.yml": (24, 6, 24, 48, "0 15 * * *"),
-            "cmems-chl-pipeline.yml": (24, 6, 24, 48, "0 16 * * *"),
+            # Twice daily since f66e5150 (2026-08-28, minute offsets against
+            # the top-of-hour thundering herd). That commit changed the crons
+            # WITHOUT updating these expectations, and because every pipeline
+            # runs this same suite, two mismatches failed all six pipelines
+            # for four days — every SEA layer on the OBS chart starved off a
+            # 502 "No valid dataset manifest slot" (found 2026-09-02).
+            "cmems-sst-pipeline.yml": (12, 6, 24, 48, "17 3,15 * * *"),
+            "cmems-chl-pipeline.yml": (12, 6, 24, 48, "47 4,16 * * *"),
             "cmems-seaice-pipeline.yml": (24, 6, 24, 48, "30 16 * * *"),
             "cmems-mld-pipeline.yml": (24, 6, 24, 48, "0 17 * * *"),
         }
