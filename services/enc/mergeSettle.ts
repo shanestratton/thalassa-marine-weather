@@ -97,6 +97,41 @@ export function abortCooldownRemainingMs(now: number = performance.now()): numbe
     return Math.max(0, lastAbortAt + cooldown - now);
 }
 
+/* ── WORK-RATE GOVERNOR — kill #32, the run up the coast (2026-09-02) ──
+ *
+ * A long plotting session slides the merge window along the coast: every
+ * new reach is a genuinely NEW cell set, so the settle quiet, the abort
+ * cooldown, the cache slots and the byte budgets all hold — and the run
+ * still died at 120 s: ten paid 10-17 MB parses in 35 seconds with three
+ * ~20 MB tracer contexts between them, and never one breath for the GC.
+ * No gauge can see the WebContent heap (the Musgrave lesson), but the app
+ * knows exactly what it has been PAYING — the trail is the gauge. Past
+ * the budget, the next build simply holds until enough of the window has
+ * drained: the chart keeps painting the previous merge, and the new reach
+ * appears a breath later instead of never.
+ */
+export const MERGE_BUDGET_WINDOW_MS = 30_000;
+export const MERGE_BUDGET_BYTES = 48 * 1024 * 1024;
+
+let paidParses: { at: number; bytes: number }[] = [];
+
+/** A merge is about to pay for a parse — record the spend. */
+export function noteMergeParsePaid(bytes: number, now: number = performance.now()): void {
+    paidParses = paidParses.filter((entry) => now - entry.at < MERGE_BUDGET_WINDOW_MS);
+    paidParses.push({ at: now, bytes });
+}
+
+/** Milliseconds the next heavy build must wait for the spend window to
+ *  drain below budget. Zero while under budget. */
+export function mergeBudgetHoldMs(now: number = performance.now()): number {
+    paidParses = paidParses.filter((entry) => now - entry.at < MERGE_BUDGET_WINDOW_MS);
+    let total = 0;
+    for (const entry of paidParses) total += entry.bytes;
+    if (total <= MERGE_BUDGET_BYTES) return 0;
+    const oldest = paidParses[0];
+    return Math.max(0, oldest.at + MERGE_BUDGET_WINDOW_MS - now);
+}
+
 /** Monotonic id of the newest WINDOWED merge (full/seaway merges — zoom
  *  null — never participate: they serve a different consumer). */
 let mergeGen = 0;
@@ -133,8 +168,9 @@ export async function awaitMergeGenSettle(
     while (!isMergeGenStale(myGen)) {
         const age = now() - mergeGenClaimedAt;
         const cooldown = abortCooldownRemainingMs(now());
-        if (age >= MERGE_SETTLE_MS && cooldown <= 0) return true;
-        await sleep(Math.max(SETTLE_POLL_FLOOR_MS, Math.max(MERGE_SETTLE_MS - age, cooldown)));
+        const breathe = mergeBudgetHoldMs(now());
+        if (age >= MERGE_SETTLE_MS && cooldown <= 0 && breathe <= 0) return true;
+        await sleep(Math.max(SETTLE_POLL_FLOOR_MS, Math.max(MERGE_SETTLE_MS - age, cooldown, breathe)));
     }
     return false;
 }
@@ -152,7 +188,10 @@ export async function awaitMergeAbortCooldown(
     sleep: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms)),
 ): Promise<void> {
     for (;;) {
-        const remaining = abortCooldownRemainingMs(now());
+        // The work-rate budget holds heavy non-merge builds too: kill #32's
+        // tracer contexts (~20 MB each) landed between paid parses and were
+        // part of the same unbroken spend.
+        const remaining = Math.max(abortCooldownRemainingMs(now()), mergeBudgetHoldMs(now()));
         if (remaining <= 0) return;
         await sleep(Math.max(SETTLE_POLL_FLOOR_MS, remaining));
     }
@@ -164,4 +203,5 @@ export function __resetMergeGenForTest(): void {
     mergeGenClaimedAt = -Infinity;
     lastAbortAt = -Infinity;
     consecutiveAborts = 0;
+    paidParses = [];
 }

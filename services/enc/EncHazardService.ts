@@ -967,6 +967,8 @@ function bboxIntersects(a: [number, number, number, number], b: [number, number,
 import { capCellsForMerge } from './mergeCap';
 import {
     claimMergeGen,
+    mergeBudgetHoldMs,
+    noteMergeParsePaid,
     isMergeGenStale,
     awaitMergeGenSettle,
     noteMergeAborted,
@@ -1123,6 +1125,13 @@ export async function getMergedVectorData(
     // stale by the time it reaches the front of the queue aborts at its
     // first slice boundary instead of building a chart nobody will paint.
     const enqueueGen = zoom != null ? claimMergeGen() : null;
+    // Trail visibility for the governor: a build that will breathe says so
+    // ONCE at claim time, so a slow reach in a long plotting run reads as
+    // discipline, not a hang.
+    if (enqueueGen != null) {
+        const breatheMs = mergeBudgetHoldMs();
+        if (breatheMs > 0) crumb('enc:merge-breathe', `${(breatheMs / 1000).toFixed(1)}s`);
+    }
     const build = mergeBuildQueue(async () => {
         // PRE-START DISCIPLINE (kill #27, Lady Musgrave 2026-08-25 — see
         // mergeSettle.ts for the trail): supersede-at-enqueue made stale
@@ -1157,6 +1166,9 @@ export async function getMergedVectorData(
             .slice(0, 3)
             .map((c) => c.id)
             .join('+');
+        // The work-rate governor's ledger (kill #32): record the spend the
+        // moment we commit to paying it. The NEXT build is what breathes.
+        noteMergeParsePaid(cells.reduce((sum, c) => sum + (c.sizeBytes ?? 0), 0));
         crumb(
             'enc:merge-start',
             `${cells.length}cells,${(cells.reduce((s, c) => s + (c.sizeBytes ?? 0), 0) / 1024 / 1024).toFixed(1)}MB${heapTag()},${cellTag}${cells.length > 3 ? '+' : ''}`,
