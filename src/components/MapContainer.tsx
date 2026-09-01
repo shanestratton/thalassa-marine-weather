@@ -528,32 +528,13 @@ export default function MapContainer({
                 mapboxAccessToken={MAPBOX_TOKEN}
                 initialViewState={initialViewState}
                 mapStyle={STYLES[styleMode]}
-                /* A voyage page should feel like looking down at the planet
-                   from orbit (Shane 2026-09-02: "something very special…
-                   the punter wishing they were there"). Mapbox flattens the
-                   globe to mercator on its own above ~zoom 6, so an anchored
-                   boat still gets an ordinary flat chart — the curve is only
-                   there when the view is wide enough to earn it. */
-                projection="globe"
+                /* Flat, by request (Shane 2026-09-02: "i prefer flat earth
+                   claude, you know like it really is"). The globe was tried
+                   here for one afternoon; a chart is a chart. Its atmosphere
+                   went with it — with no curve to wrap, fog only added haze
+                   to imagery we had just finished de-hazing. */
+                projection="mercator"
                 attributionControl
-                onLoad={(event) => {
-                    // Atmosphere: deep-ocean blue at the horizon warming to
-                    // teal above it, true space behind, and stars once the
-                    // camera pulls far enough back. setFog is v3-only, so it
-                    // is guarded — an older renderer just draws a plain globe
-                    // rather than throwing on load.
-                    try {
-                        event.target.setFog({
-                            color: 'rgb(8, 26, 38)',
-                            'high-color': 'rgb(16, 74, 88)',
-                            'horizon-blend': 0.07,
-                            'space-color': 'rgb(3, 7, 14)',
-                            'star-intensity': 0.5,
-                        });
-                    } catch {
-                        /* older renderer — plain globe is fine */
-                    }
-                }}
             >
                 <NavigationControl position="top-left" showCompass={false} />
 
