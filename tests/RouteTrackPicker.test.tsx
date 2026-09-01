@@ -7,7 +7,10 @@ const fetchRoutesAndTracks = vi.hoisted(() => vi.fn());
 const triggerHaptic = vi.hoisted(() => vi.fn());
 
 vi.mock('../services/shiplog/RoutesAndTracks', () => ({ fetchRoutesAndTracks }));
-vi.mock('../utils/system', () => ({ triggerHaptic }));
+vi.mock('../utils/system', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('../utils/system')>()),
+    triggerHaptic,
+}));
 vi.mock('../utils/useDeviceClass', () => ({
     useDeviceClass: () => 'phone',
     pickByDevice: <T,>(_device: string, phone: T) => phone,

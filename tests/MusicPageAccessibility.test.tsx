@@ -25,7 +25,10 @@ const music = vi.hoisted(() => ({
 }));
 
 vi.mock('../services/voice/integrations/appleMusic', () => music);
-vi.mock('../utils/system', () => ({ triggerHaptic: vi.fn() }));
+vi.mock('../utils/system', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('../utils/system')>()),
+    triggerHaptic: vi.fn(),
+}));
 vi.mock('../services/musicEngagement', () => ({ markMusicEngaged: vi.fn() }));
 vi.mock('@capacitor/keyboard', () => ({
     Keyboard: {

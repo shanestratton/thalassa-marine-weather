@@ -11,7 +11,15 @@
 import { create } from 'zustand';
 import type { UserSettings } from '../types';
 import type { VesselProfile } from '../types/vessel';
-import { getSystemUnits } from '../utils';
+// Deep import, not the '../utils' barrel: this store calls
+// getSystemUnits() at MODULE INIT, so its source must be the leaf
+// module. (CI 2026-09-01: tests that partial-mocked utils/system
+// erased getSystemUnits for lazily imported chains reaching this
+// store — coverage runs only, because v8 coverage slows the run
+// enough for fire-and-forget dynamic imports to land inside the
+// test window. The mocks now spread importOriginal, and
+// tests/UtilsSystemMockHygiene.test.ts keeps them that way.)
+import { getSystemUnits } from '../utils/system';
 import { boundedLocalQuarantine } from '../utils/localPrivacyRetention';
 import { Preferences } from '@capacitor/preferences';
 import { Capacitor } from '@capacitor/core';

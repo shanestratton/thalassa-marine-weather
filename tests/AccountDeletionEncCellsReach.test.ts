@@ -82,9 +82,13 @@ describe('why this one needed fixing rather than noting', () => {
             .sort();
         const later = names.filter((n) => n > '20260829030000_deletion_reach_enc_cells.sql');
         for (const name of later) {
+            // Redefinition or removal undoes the fix; privilege statements
+            // do not — 20260901130000 adds REVOKEs (definer hygiene).
             const sql = readFileSync(`${DIR}/${name}`, 'utf8');
-            expect(sql).not.toContain('FUNCTION public.account_deletion_storage_inventory');
-            expect(sql).not.toContain('FUNCTION public.block_tombstoned_storage_write');
+            expect(sql).not.toMatch(/CREATE (OR REPLACE )?FUNCTION public\.account_deletion_storage_inventory/);
+            expect(sql).not.toMatch(/DROP FUNCTION (IF EXISTS )?public\.account_deletion_storage_inventory/);
+            expect(sql).not.toMatch(/CREATE (OR REPLACE )?FUNCTION public\.block_tombstoned_storage_write/);
+            expect(sql).not.toMatch(/DROP FUNCTION (IF EXISTS )?public\.block_tombstoned_storage_write/);
         }
     });
 });

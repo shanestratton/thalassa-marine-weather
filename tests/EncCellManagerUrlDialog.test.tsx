@@ -26,7 +26,10 @@ vi.mock('../services/enc/EncHazardService', () => ({
 
 vi.mock('../stores/MapFitTargetStore', () => ({ requestMapFit: vi.fn() }));
 vi.mock('../context/UIContext', () => ({ useUI: () => ({ setPage: vi.fn() }) }));
-vi.mock('../utils/system', () => ({ triggerHaptic: vi.fn() }));
+vi.mock('../utils/system', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('../utils/system')>()),
+    triggerHaptic: vi.fn(),
+}));
 
 import { EncCellManager } from '../components/vessel/EncCellManager';
 

@@ -28,7 +28,10 @@ vi.mock('../context/SettingsContext', () => ({
     }),
 }));
 
-vi.mock('../utils/system', () => ({ triggerHaptic: vi.fn() }));
+vi.mock('../utils/system', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('../utils/system')>()),
+    triggerHaptic: vi.fn(),
+}));
 vi.mock('../services/voice/safetyTts', () => ({
     speakSafetyMessage: (...args: unknown[]) => mocks.speakSafetyMessage(...args),
 }));

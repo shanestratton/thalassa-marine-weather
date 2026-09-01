@@ -26,7 +26,10 @@ vi.mock('../context/UIContext', () => ({
     useUI: () => ({ setPage: overlayMocks.setPage }),
 }));
 
-vi.mock('../utils/system', () => ({ triggerHaptic: vi.fn() }));
+vi.mock('../utils/system', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('../utils/system')>()),
+    triggerHaptic: vi.fn(),
+}));
 
 vi.mock('../services/GalleyRecipeService', () => ({
     browseCommunityRecipes: overlayMocks.browseCommunityRecipes,

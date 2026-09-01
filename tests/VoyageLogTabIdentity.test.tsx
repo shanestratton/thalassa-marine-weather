@@ -103,7 +103,8 @@ vi.mock('../services/shiplog/RoutesAndTracks', () => ({
     fetchRoutesAndTracks: mocks.fetchRoutesAndTracks,
 }));
 
-vi.mock('../utils/system', () => ({
+vi.mock('../utils/system', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('../utils/system')>()),
     triggerHaptic: mocks.haptic,
 }));
 

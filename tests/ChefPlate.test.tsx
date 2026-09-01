@@ -27,7 +27,10 @@ vi.mock('../services/ShoppingListService', () => ({
     addManualItem: vi.fn().mockResolvedValue(undefined),
 }));
 
-vi.mock('../utils/system', () => ({ triggerHaptic: vi.fn() }));
+vi.mock('../utils/system', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('../utils/system')>()),
+    triggerHaptic: vi.fn(),
+}));
 
 import { ChefPlate } from '../components/chat/ChefPlate';
 

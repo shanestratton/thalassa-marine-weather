@@ -12,7 +12,10 @@ vi.mock('../utils/createLogger', () => ({
     createLogger: () => ({ debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }),
 }));
 
-vi.mock('../utils/system', () => ({ triggerHaptic: vi.fn() }));
+vi.mock('../utils/system', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('../utils/system')>()),
+    triggerHaptic: vi.fn(),
+}));
 
 vi.mock('../services/passageGpxExport', () => ({
     exportPassageAsGPX: vi.fn().mockReturnValue('<gpx></gpx>'),

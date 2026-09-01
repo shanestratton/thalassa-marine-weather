@@ -21,7 +21,10 @@ vi.mock('../stores/authStore', () => ({
     }),
 }));
 
-vi.mock('../utils/system', () => ({ triggerHaptic: vi.fn() }));
+vi.mock('../utils/system', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('../utils/system')>()),
+    triggerHaptic: vi.fn(),
+}));
 
 vi.mock('../components/SignInScreen', () => ({
     SignInScreen: (props: { onClose?: () => void }) => (

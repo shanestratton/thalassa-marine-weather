@@ -4,7 +4,10 @@ import { describe, expect, it, vi } from 'vitest';
 import { useTraceHistory, type TracePoint } from '../components/map/useTraceHistory';
 
 const triggerHaptic = vi.hoisted(() => vi.fn());
-vi.mock('../utils/system', () => ({ triggerHaptic }));
+vi.mock('../utils/system', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('../utils/system')>()),
+    triggerHaptic,
+}));
 
 const A: TracePoint = { lat: -27.47, lon: 153.03 };
 const B: TracePoint = { lat: -27.3, lon: 153.2 };

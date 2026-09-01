@@ -52,7 +52,10 @@ vi.mock('../services/passageHandoff', () => ({
 vi.mock('../services/authIdentityScope', () => ({
     getAuthIdentityScope: () => mocks.scope,
 }));
-vi.mock('../utils/system', () => ({ triggerHaptic: vi.fn() }));
+vi.mock('../utils/system', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('../utils/system')>()),
+    triggerHaptic: vi.fn(),
+}));
 vi.mock('../utils/createLogger', () => ({
     createLogger: () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn() }),
 }));

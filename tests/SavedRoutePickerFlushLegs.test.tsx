@@ -13,7 +13,10 @@ import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { SavedRoutePicker, type SavedRoutePickerRow } from '../components/crew/SavedRoutePicker';
 
-vi.mock('../utils/system', () => ({ triggerHaptic: vi.fn() }));
+vi.mock('../utils/system', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('../utils/system')>()),
+    triggerHaptic: vi.fn(),
+}));
 
 const rows: SavedRoutePickerRow[] = [
     {

@@ -56,7 +56,10 @@ vi.mock('../services/AlertMonitorService', () => ({
 vi.mock('../services/voice/ttsClient', () => ({
     speak: vi.fn(() => ({ done: Promise.resolve() })),
 }));
-vi.mock('../utils/system', () => ({ triggerHaptic: vi.fn() }));
+vi.mock('../utils/system', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('../utils/system')>()),
+    triggerHaptic: vi.fn(),
+}));
 
 import { CalypsoIntegrationsTab } from '../components/settings/CalypsoIntegrationsTab';
 

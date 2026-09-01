@@ -69,9 +69,12 @@ describe('the grocery guard no longer blocks account deletion', () => {
         // the directory, is what stops the old body coming back.
         const later = names.filter((n) => n > '20260829020000_deletion_unblock_grocery_guard.sql');
         for (const name of later) {
-            expect(readFileSync(`${DIR}/${name}`, 'utf8')).not.toContain(
-                'FUNCTION public.guard_grocery_purchase_delete',
-            );
+            // Redefinition or removal is what could bring the old body
+            // back; privilege statements are fine — 20260901130000 adds
+            // exactly those (REVOKE, definer hygiene).
+            const sql = readFileSync(`${DIR}/${name}`, 'utf8');
+            expect(sql).not.toMatch(/CREATE (OR REPLACE )?FUNCTION public\.guard_grocery_purchase_delete/);
+            expect(sql).not.toMatch(/DROP FUNCTION (IF EXISTS )?public\.guard_grocery_purchase_delete/);
         }
     });
 });

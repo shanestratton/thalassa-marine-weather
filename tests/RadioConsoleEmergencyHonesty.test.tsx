@@ -65,7 +65,10 @@ vi.mock('../services/voice/safetyTts', () => ({
     prewarmSafetyMessage: (...args: unknown[]) => mocks.prewarmSafetyMessage(...args),
 }));
 
-vi.mock('../utils/system', () => ({ triggerHaptic: vi.fn() }));
+vi.mock('../utils/system', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('../utils/system')>()),
+    triggerHaptic: vi.fn(),
+}));
 
 import { RadioConsolePage } from '../components/vessel/RadioConsolePage';
 import { authScopedStorageKey } from '../services/authIdentityScope';

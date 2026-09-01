@@ -12,7 +12,8 @@ vi.mock('../services/deepLink', () => ({
     requestTracerOpen: mocks.requestTracerOpen,
 }));
 
-vi.mock('../utils/system', () => ({
+vi.mock('../utils/system', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('../utils/system')>()),
     triggerHaptic: mocks.triggerHaptic,
 }));
 

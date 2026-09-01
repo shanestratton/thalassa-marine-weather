@@ -21,7 +21,10 @@ vi.mock('@capacitor/core', () => ({
     Capacitor: { isNativePlatform: () => false, getPlatform: () => 'web' },
 }));
 
-vi.mock('../utils/system', () => ({ triggerHaptic: vi.fn() }));
+vi.mock('../utils/system', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('../utils/system')>()),
+    triggerHaptic: vi.fn(),
+}));
 
 import { PushToast } from '../components/PushToast';
 

@@ -7,7 +7,10 @@ vi.mock('@capacitor/core', () => ({
 vi.mock('../services/VoyageLogService', () => ({
     VoyageLogService: { getConfig: vi.fn().mockResolvedValue({ handle: 'wanderer' }) },
 }));
-vi.mock('../utils/system', () => ({ triggerHaptic: vi.fn() }));
+vi.mock('../utils/system', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('../utils/system')>()),
+    triggerHaptic: vi.fn(),
+}));
 
 import { PlanOnWebHint } from '../components/passage/PlanOnWebHint';
 

@@ -12,7 +12,8 @@ vi.mock('../stores/authStore', () => ({
     useAuthStore: (selector: (state: { user: null }) => unknown) => selector({ user: null }),
 }));
 
-vi.mock('../utils/system', () => ({
+vi.mock('../utils/system', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('../utils/system')>()),
     triggerHaptic: vi.fn(),
 }));
 

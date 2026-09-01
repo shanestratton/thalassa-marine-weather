@@ -65,7 +65,10 @@ vi.mock('../services/GuardianService', () => ({
     WEATHER_TEMPLATES: [{ emoji: '💨', text: 'Strong winds expected' }],
 }));
 
-vi.mock('../utils/system', () => ({ triggerHaptic: vi.fn() }));
+vi.mock('../utils/system', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('../utils/system')>()),
+    triggerHaptic: vi.fn(),
+}));
 
 vi.mock('../context/SettingsContext', () => ({
     useSettings: () => ({

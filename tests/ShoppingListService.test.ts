@@ -69,7 +69,10 @@ vi.mock('../services/vessel/SyncService', () => ({
     syncNow: vi.fn().mockResolvedValue(undefined),
 }));
 
-vi.mock('../utils/system', () => ({ triggerHaptic: vi.fn() }));
+vi.mock('../utils/system', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('../utils/system')>()),
+    triggerHaptic: vi.fn(),
+}));
 
 vi.mock('../services/PassageProvisionsService', () => ({}));
 vi.mock('../services/VoyageService', () => ({
