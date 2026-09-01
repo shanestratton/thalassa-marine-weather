@@ -127,6 +127,35 @@ describe('RoutePlanner', () => {
         );
     });
 
+    it('keeps Import GPX out of the front door and behind the header menu, centred', async () => {
+        // Shane 2026-09-02: "remove the import gpx from the routeplanning
+        // page. maybe put it under a 3 dot menu at the top of the page, in a
+        // modal box (centered of course)". A once-in-a-while errand should
+        // not sit between the two everyday doors.
+        render(<RoutePlanner onTriggerUpgrade={vi.fn()} />);
+
+        // Not on the front door.
+        expect(screen.queryByText('Import GPX')).toBeNull();
+
+        // Behind the kebab.
+        fireEvent.click(screen.getByLabelText('Page actions'));
+        const item = await screen.findByText('Import GPX');
+
+        // The dialog obeys the standing centred-modal rule.
+        const dialog = item.closest('[role="dialog"]');
+        expect(dialog).not.toBeNull();
+        const overlay = dialog?.parentElement;
+        expect(overlay?.className).toContain('items-center');
+        expect(overlay?.className).toContain('justify-center');
+        expect(dialog?.className).toContain('max-h-full');
+        // Portalled out of the page's transformed subtree, or `fixed` would
+        // mean the page box rather than the screen.
+        expect(overlay?.parentElement).toBe(document.body);
+
+        fireEvent.click(item);
+        expect(plannerMocks.setPage).toHaveBeenCalledWith('gpx-import');
+    });
+
     it('renders without crashing', () => {
         const { container } = render(<RoutePlanner onTriggerUpgrade={vi.fn()} />);
         expect(container).toBeDefined();
