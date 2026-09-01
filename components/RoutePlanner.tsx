@@ -24,6 +24,7 @@ import { DepartureSweepSheet } from './passage/DepartureSweepSheet';
 import { ComfortQuickConfig } from './passage/ComfortQuickConfig';
 import { LegPickerDropdown } from './passage/LegPickerDropdown';
 import { SavedLocationsPicker } from './passage/SavedLocationsPicker';
+import { SwipeableSavedRouteRow } from './routes/SwipeableSavedRouteRow';
 import { useVoyageForm, LOADING_PHASES } from '../hooks/useVoyageForm';
 import { useUI } from '../context/UIContext';
 import { consumeSavedRoutesLibraryOpen, requestTracerOpen } from '../services/deepLink';
@@ -1246,7 +1247,7 @@ export const RoutePlanner: React.FC<{
                                     </span>
                                     {routePicker.kind === 'saved' && (
                                         <p className="mt-0.5 text-[10px] leading-snug text-gray-500">
-                                            Open a route, or remove one here with a two-tap confirmation.
+                                            Open a route, or swipe left on one to delete it.
                                         </p>
                                     )}
                                 </div>
@@ -1277,90 +1278,68 @@ export const RoutePlanner: React.FC<{
                                             const deleteBusy = deleteArmed && routePickerDelete.busy;
                                             const anyDeleteBusy = routePickerDelete?.busy === true;
                                             return (
-                                                <div
+                                                <SwipeableSavedRouteRow
                                                     key={it.key}
-                                                    className={`flex w-full overflow-hidden rounded-xl border ${
+                                                    className={`rounded-xl border ${
                                                         it.kind === 'passage'
                                                             ? 'border-violet-400/25 bg-violet-500/8'
                                                             : 'border-white/10 bg-white/5'
                                                     }`}
+                                                    deleteArmed={deleteArmed}
+                                                    deleteBusy={deleteBusy}
+                                                    anyDeleteBusy={anyDeleteBusy}
+                                                    onDelete={
+                                                        it.remove ? () => void handleRoutePickerRemove(it) : undefined
+                                                    }
+                                                    deleteLabel={
+                                                        deleteArmed
+                                                            ? `Confirm delete ${it.title}`
+                                                            : `Delete ${it.title}`
+                                                    }
+                                                    onOpen={() => {
+                                                        setRoutePickerDelete(null);
+                                                        it.go();
+                                                    }}
                                                 >
-                                                    <button
-                                                        type="button"
-                                                        disabled={anyDeleteBusy}
-                                                        onClick={() => {
-                                                            setRoutePickerDelete(null);
-                                                            it.go();
-                                                        }}
-                                                        className="flex min-w-0 flex-1 items-center gap-3 p-3 text-left transition-transform active:scale-[0.98] disabled:cursor-wait disabled:opacity-60"
-                                                    >
-                                                        {/* The same grammar the Passage Planning
+                                                    {/* The same grammar the Passage Planning
                                                             picker uses: a compass for a whole passage,
                                                             the dog-leg arrow for a leg, a pin for a day
                                                             sail. Legs sit FLUSH — the arrow marks them,
                                                             not indentation (Shane 2026-08-27). */}
-                                                        <span aria-hidden="true" className="text-base leading-none">
-                                                            {it.kind === 'passage'
-                                                                ? '🧭'
-                                                                : it.kind === 'leg'
-                                                                  ? '↳'
-                                                                  : '📍'}
-                                                        </span>
-                                                        <span className="min-w-0">
-                                                            <span
-                                                                className={`block truncate text-sm ${
-                                                                    it.kind === 'passage'
-                                                                        ? 'font-black text-violet-100'
-                                                                        : 'font-bold text-gray-100'
-                                                                }`}
-                                                            >
-                                                                {it.title}
-                                                            </span>
-                                                            <span
-                                                                className={`block text-[11px] ${
-                                                                    it.kind === 'passage'
-                                                                        ? 'text-violet-300/60'
-                                                                        : 'text-gray-400'
-                                                                }`}
-                                                            >
-                                                                {it.sub}
-                                                            </span>
-                                                        </span>
-                                                        {it.kind === 'passage' && (
-                                                            <span className="ml-auto shrink-0 rounded-md border border-violet-400/30 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-[0.15em] text-violet-300">
-                                                                Passage
-                                                            </span>
-                                                        )}
+                                                    <span aria-hidden="true" className="text-base leading-none">
+                                                        {it.kind === 'passage' ? '🧭' : it.kind === 'leg' ? '↳' : '📍'}
+                                                    </span>
+                                                    <span className="min-w-0">
                                                         <span
-                                                            className={`text-gray-500 ${it.kind === 'passage' ? 'ml-2' : 'ml-auto'}`}
-                                                        >
-                                                            ›
-                                                        </span>
-                                                    </button>
-                                                    {it.remove && (
-                                                        <button
-                                                            type="button"
-                                                            disabled={anyDeleteBusy}
-                                                            aria-label={
-                                                                deleteArmed
-                                                                    ? `Confirm delete ${it.title}`
-                                                                    : `Delete ${it.title}`
-                                                            }
-                                                            onClick={() => void handleRoutePickerRemove(it)}
-                                                            className={`min-w-19 border-l px-2 text-[11px] font-black uppercase tracking-wide transition-colors disabled:cursor-wait disabled:opacity-60 ${
-                                                                deleteArmed
-                                                                    ? 'border-red-400/30 bg-red-500/20 text-red-200'
-                                                                    : 'border-white/10 text-red-300'
+                                                            className={`block truncate text-sm ${
+                                                                it.kind === 'passage'
+                                                                    ? 'font-black text-violet-100'
+                                                                    : 'font-bold text-gray-100'
                                                             }`}
                                                         >
-                                                            {deleteBusy
-                                                                ? 'Deleting…'
-                                                                : deleteArmed
-                                                                  ? 'Confirm'
-                                                                  : 'Delete'}
-                                                        </button>
+                                                            {it.title}
+                                                        </span>
+                                                        <span
+                                                            className={`block text-[11px] ${
+                                                                it.kind === 'passage'
+                                                                    ? 'text-violet-300/60'
+                                                                    : 'text-gray-400'
+                                                            }`}
+                                                        >
+                                                            {it.sub}
+                                                        </span>
+                                                    </span>
+                                                    {it.kind === 'passage' && (
+                                                        <span className="ml-auto shrink-0 rounded-md border border-violet-400/30 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-[0.15em] text-violet-300">
+                                                            Passage
+                                                        </span>
                                                     )}
-                                                </div>
+                                                    <span
+                                                        className={`text-gray-500 ${it.kind === 'passage' ? 'ml-2' : 'ml-auto'}`}
+                                                    >
+                                                        ›
+                                                    </span>
+                                                </SwipeableSavedRouteRow>
                                             );
                                         })}
                                         {routePicker.checkingCompatibility && (
