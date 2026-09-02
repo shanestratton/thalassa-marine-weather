@@ -101,7 +101,7 @@ describe('the Pi can actually be handed the shore watch', () => {
         // Paired, configured, AND seeing the vessel on the bus right now.
         expect(server).toMatch(/capable: paired && !!SUPABASE_ANON_KEY && hasFix/);
         const page = read('components/AnchorWatchPage.tsx');
-        expect(page).toMatch(/if \(cap\.capable\) setShowPiWatchOffer\(true\)/);
+        expect(page).toMatch(/if \(!cancelled && cap\.capable\) setShowPiWatchOffer\(true\)/);
     });
 
     it('handing over follows the one order that is safe', () => {
@@ -127,5 +127,23 @@ describe('the Pi can actually be handed the shore watch', () => {
         // the Pi is the only thing still watching the boat.
         expect(page).toMatch(/if \(viewMode === 'setup'\) void AnchorPiWatchKeeper\.end\(\)/);
         expect(page).not.toMatch(/viewMode !== 'watching'[\s\S]{0,120}AnchorPiWatchKeeper\.end\(\)/);
+    });
+
+    it('offers whenever the Pi can take the watch, not only in the instant after arming', () => {
+        const page = read('components/AnchorWatchPage.tsx');
+        // Tied to STATE — watching, sharing, no Pi keeping it — so a Pi that is
+        // redeployed or comes up while the hook is already down still gets
+        // offered. A one-shot probe inside handleSetAnchor could not.
+        expect(page).toMatch(/if \(viewMode !== 'watching' \|\| !piOfferSession\) return;/);
+        expect(page).toMatch(
+            /if \(AnchorPiWatchKeeper\.isKeeping\(\) \|\| piOfferDeclinedFor === piOfferSession\) return;/,
+        );
+        const arm = page.slice(page.indexOf('if (success) {'), page.indexOf('First-time hint dismissal'));
+        expect(arm).not.toMatch(/probePiWatchCapability/);
+    });
+
+    it('does not ask again once the skipper has said keep it here', () => {
+        const page = read('components/AnchorWatchPage.tsx');
+        expect(page).toMatch(/setPiOfferDeclinedFor\(piOfferSession\)/);
     });
 });

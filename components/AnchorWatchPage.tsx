@@ -66,6 +66,8 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
     /** Offer to let the boat's Pi keep the watch, asked once per anchor set. */
     const [showPiWatchOffer, setShowPiWatchOffer] = useState(false);
     const [piHandoffBusy, setPiHandoffBusy] = useState(false);
+    /** The session the skipper already said "no, keep it here" about. */
+    const [piOfferDeclinedFor, setPiOfferDeclinedFor] = useState<string | null>(null);
     const [snapshot, setSnapshot] = useState<AnchorWatchSnapshot | null>(null);
     const [syncState, setSyncState] = useState<SyncState | null>(null);
     const [shoreData, setShoreData] = useState<PositionBroadcast | null>(null);
@@ -322,6 +324,36 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
         return () => clearInterval(interval);
     }, [viewMode, syncState?.connected]);
 
+    /**
+     * Offer the Pi the watch whenever it can genuinely take it.
+     *
+     * This used to fire once, in the instant after arming — so a Pi that came
+     * up later, or was redeployed while the hook was already down, could never
+     * be offered, and the skipper had no way to reach the feature short of
+     * weighing anchor (Shane 2026-09-03: "it set the anchor. but it does not
+     * allow me to be the shore share punter?"). It is tied to the STATE that
+     * makes the offer meaningful — watching, sharing, no Pi keeping it yet —
+     * rather than to a moment in time.
+     *
+     * Only offered when the Pi can ACTUALLY keep it: paired, configured, and
+     * seeing the vessel on the bus right now. A Pi that took the watch and
+     * then reported no-fix forever would send the skipper ashore believing the
+     * boat was watched. Asked once per session, so "keep it here" is not
+     * asked again all night.
+     */
+    const piOfferSession = syncState?.connected ? (syncState.sessionCode ?? null) : null;
+    useEffect(() => {
+        if (viewMode !== 'watching' || !piOfferSession) return;
+        if (AnchorPiWatchKeeper.isKeeping() || piOfferDeclinedFor === piOfferSession) return;
+        let cancelled = false;
+        void probePiWatchCapability().then((cap) => {
+            if (!cancelled && cap.capable) setShowPiWatchOffer(true);
+        });
+        return () => {
+            cancelled = true;
+        };
+    }, [viewMode, piOfferSession, piOfferDeclinedFor]);
+
     // ── The Pi keeps the watch only when the skipper says so ──
     //
     // Handing over is an explicit choice (see the offer below), not something
@@ -382,13 +414,9 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
 
         if (success) {
             setViewMode('watching');
-            // Only offer if the Pi can ACTUALLY keep it — paired, configured,
-            // and seeing the vessel on the bus right now. A Pi that took the
-            // watch and then reported no-fix forever would send the skipper
-            // ashore believing the boat was watched.
-            void probePiWatchCapability().then((cap) => {
-                if (cap.capable) setShowPiWatchOffer(true);
-            });
+            // The offer is driven by the effect below, which also covers the
+            // case a probe here would miss: a Pi that becomes capable AFTER
+            // the anchor is already down.
             // First-time hint dismissal — the intro card at the top
             // of the setup view only shows for users who haven't
             // armed yet. After one successful arm, they know.
@@ -1030,7 +1058,10 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                     confirmLabel={piHandoffBusy ? 'Handing over…' : 'Yes, the Pi watches'}
                     cancelLabel="No, keep it here"
                     onConfirm={handleAcceptPiWatch}
-                    onCancel={() => setShowPiWatchOffer(false)}
+                    onCancel={() => {
+                        setShowPiWatchOffer(false);
+                        setPiOfferDeclinedFor(piOfferSession);
+                    }}
                 />
 
                 <SignInScreen
