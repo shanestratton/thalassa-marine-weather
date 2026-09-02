@@ -190,9 +190,6 @@ vi.mock('../components/chat/ChatDMView', () => ({
 vi.mock('../components/chat/TypingIndicator', () => ({
     TypingIndicator: () => null,
 }));
-vi.mock('../components/chat/MaritimeIntelCard', () => ({
-    MaritimeIntelCard: () => <div data-testid="maritime-intel">Intel</div>,
-}));
 vi.mock('../components/chat/GalleyCard', () => ({
     GalleyCard: () => <div data-testid="galley-card">Galley</div>,
 }));
