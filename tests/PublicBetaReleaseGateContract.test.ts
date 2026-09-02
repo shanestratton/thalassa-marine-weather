@@ -502,14 +502,20 @@ describe('public-beta release gate contract', () => {
         expect(gate).toContain('locked CocoaPods toolchain supports Ruby 4 and Xcode object version 70');
     });
 
-    it('enforces the documented 11px operational-text floor for legacy utility sizes', () => {
+    it('enforces the documented 12px operational-text floor for legacy utility sizes', () => {
         const css = read('index.css');
 
-        for (const size of ['8px', '9px', '10px', '10.5px']) {
+        // 11px joined the floor on 2026-09-02 — it was the most common size in
+        // the codebase and sat one pixel outside the rule protecting it. The
+        // floor itself moved 11 → 12px: safety chips (MOB elapsed time,
+        // guard-zone SOG, GPS age) were being read at 9–11px on a wet phone.
+        for (const size of ['8px', '9px', '10px', '10.5px', '11px']) {
             expect(css).toContain(`[class~='text-[${size}]']`);
         }
         expect(css).toContain('font-size: var(--text-micro) !important');
-        expect(css).toMatch(/--text-micro:\s*11px/);
+        expect(css).toMatch(/--text-micro:\s*12px/);
+        // Label must stay a distinct tier above micro (they collapsed once, 2026-08-03).
+        expect(css).toMatch(/--text-label:\s*13px/);
     });
 
     it('locks the native privacy inventory and safety entitlement to the shipped data flows', () => {
