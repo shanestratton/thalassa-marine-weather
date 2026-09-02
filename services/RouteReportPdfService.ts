@@ -95,8 +95,10 @@ export interface RouteReportPdfData {
 function etaLabel(w: WaypointWeather, departingNow: boolean): string {
     const clock = new Date(w.etaMs).toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit', hour12: false });
     if (w.hoursFromDep < 0.02) return `${departingNow ? 'now' : 'dep'} ${clock}`;
-    const h = Math.floor(w.hoursFromDep);
-    const m = Math.round((w.hoursFromDep - h) * 60);
+    // Round to whole minutes FIRST — rounding the remainder alone printed "+2h60" (audit 2026-09-02).
+    const totalMin = Math.round(w.hoursFromDep * 60);
+    const h = Math.floor(totalMin / 60);
+    const m = totalMin % 60;
     const rel = h > 0 ? `+${h}h${m > 0 ? String(m).padStart(2, '0') : ''}` : `+${m}m`;
     return `${rel} ${clock}`;
 }

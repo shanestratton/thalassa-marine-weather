@@ -69,6 +69,10 @@ export const AnchorageTonightSheet: React.FC<{
         if (!open || !centre) return;
         let cancelled = false;
         setState('loading');
+        // Clear the previous centre's ranking — it used to sit under "Reading
+        // tonight's conditions…" for the new one (audit 2026-09-02).
+        setRows(null);
+        setSwellUnknown(false);
         (async () => {
             try {
                 const [data, hours] = await Promise.all([

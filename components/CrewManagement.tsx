@@ -2124,6 +2124,11 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
     const selectedPassageCrew = isSelectedPassageOwner
         ? visibleCrew.filter((member) => member.voyage_id === null || member.voyage_id === selectedPassageId)
         : [];
+    // Declined invitees stay in the roster (7-day 'Declined' label) but are
+    // not souls aboard — provisioning and the watch bill count only the rest
+    // (audit 2026-09-02). selectedPassageCrew itself stays unfiltered: it is
+    // also the delegation crewList.
+    const activePassageCrew = selectedPassageCrew.filter((member) => member.status !== 'declined');
     // Souls aboard = the vessel's standing crew PLUS anyone invited to this
     // passage.
     //
@@ -2145,7 +2150,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
     // single-handed (Shane 2026-08-04 and again 2026-08-25).
     const standingCrewAboard = vesselCrewAboard(settings.vessel);
     const selectedPassageCrewCount = isSelectedPassageOwner
-        ? standingCrewAboard + selectedPassageCrew.length
+        ? standingCrewAboard + activePassageCrew.length
         : Math.max(selectedVoyage?.crew_count ?? 1, 1);
     const ownVoyageCount = draftVoyages.filter((voyage) => !voyage.isShared).length;
     const sharedVoyageCount = draftVoyages.length - ownVoyageCount;

@@ -565,7 +565,8 @@ export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
                             <GalleyCard
                                 passageStatus={passageStatus}
                                 className=""
-                                registeredCrewCount={visibleCrew.length}
+                                // declined rows are retained 7 days for the roster's 'Declined' label only; they are not souls aboard.
+                                registeredCrewCount={visibleCrew.filter((m) => m.status !== 'declined').length}
                                 standingCrewAboard={standingCrewAboard}
                                 onProvisionedChange={handleProvisionedChange}
                                 {...(passageStatus.isOwner

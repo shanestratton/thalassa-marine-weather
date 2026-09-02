@@ -206,7 +206,7 @@ export interface ThalassaHelixControlProps {
     nowIndex?: number;
     /** Whether the "now" region uses a different color */
     dualColor?: boolean;
-    /** Accent color for forecast portion (when dualColor) */
+    /** Accent color for forecast frames (track fill when dualColor; sublabel always) */
     forecastAccent?: string;
 }
 
@@ -639,10 +639,11 @@ export const ThalassaHelixControl: React.FC<ThalassaHelixControlProps> = memo(
                                     <p
                                         className="text-[11px] font-bold uppercase tracking-widest leading-tight"
                                         style={{
-                                            color:
-                                                frameLabel === 'Now' || frameLabel === 'Live'
-                                                    ? `${accent}90`
-                                                    : `${forecastAccent}`,
+                                            // Keyed on TENSE (only forecast frames carry 'Forecast' in
+                                            // their sublabel), not on the label text — 'Today · Daily
+                                            // mean' and every 'Past' frame painted in the forecast
+                                            // accent (audit 2026-09-02).
+                                            color: /\bForecast\b/.test(sublabel) ? forecastAccent : `${accent}90`,
                                         }}
                                     >
                                         {sublabel}
