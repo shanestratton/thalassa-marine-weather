@@ -2152,7 +2152,6 @@ const passiveLaunchSettings = read('stores/settingsStore.ts');
 const passiveLocationService = read('services/GpsService.ts');
 const passiveWeatherOrchestrator = read('services/WeatherOrchestrator.ts');
 const passiveWeatherContext = read('context/WeatherContext.tsx');
-const passiveSmartRefresh = read('hooks/useSmartRefresh.ts');
 const passiveDashboard = read('components/Dashboard.tsx');
 const passiveLogPageState = read('hooks/useLogPageState.ts');
 const passiveVesselHub = read('components/VesselHub.tsx');
@@ -2223,9 +2222,18 @@ check(
         !passiveWeatherOrchestrator.includes('GpsService.getCurrentPosition(') &&
         passiveWeatherOrchestrator.includes('GpsService.getCurrentPositionIfGranted(') &&
         !passiveWeatherContext.includes('GpsService.getCurrentPosition(') &&
-        passiveWeatherContext.includes('GpsService.getCurrentPositionIfGranted(') &&
-        !passiveSmartRefresh.includes('GpsService.getCurrentPosition(') &&
-        passiveSmartRefresh.includes('GpsService.getCurrentPositionIfGranted('),
+        passiveWeatherContext.includes('GpsService.getCurrentPositionIfGranted('),
+    // hooks/useSmartRefresh.ts used to be asserted here too. It was deleted
+    // on 2026-09-02 as dead code — no application importer, only this gate
+    // and one test — and the check below keeps the gate honest: if the hook
+    // ever returns, it must be re-added to this clause, because a passive
+    // GPS caller that nothing asserts about is exactly what this gate
+    // exists to prevent.
+);
+check(
+    'the deleted useSmartRefresh hook has not returned unasserted',
+    !fs.existsSync(absolute('hooks/useSmartRefresh.ts')),
+    'hooks/useSmartRefresh.ts is back: re-add its GpsService assertions to the passive-launch gate above',
 );
 check(
     'Guardian client only discovers while armed',
