@@ -17,6 +17,7 @@
  * values when no live NMEA data is connected so the panel remains testable.
  */
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { BarometerGauge } from './gauges/BarometerGauge';
 import { useBarometerSource } from '../../hooks/useBarometerSource';
 import { hpaToInHg, observedTendency, type TendencySeverity } from '../../utils/barometerTendency';
 import * as barometerService from '../../services/native/barometer';
@@ -750,16 +751,14 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
         // store's own tick, so a clock dependency would only add churn.
         [baro.samples],
     );
-    const baroChart = React.useMemo(() => {
-        const history = baro.samples.map((sample) => sample.hpa);
-        if (history.length === 0) return { history, min: 1000, max: 1030 };
-        const lo = Math.min(...history);
-        const hi = Math.max(...history);
-        // A flat calm would otherwise draw a zero-height line through the
-        // middle of the box; give it at least 4 hPa of paper to sit on.
-        const pad = Math.max(2, (4 - (hi - lo)) / 2);
-        return { history, min: lo - pad, max: hi + pad };
-    }, [baro.samples]);
+    /* The SET HAND: what the glass read three hours ago. Taken from the same
+       endpoint the tendency uses (current minus its own delta) rather than
+       hunting the sample list again, so the hands and the number can never
+       tell different stories. */
+    const baroSetHand = React.useMemo(
+        () => (baroTendency && baro.latest ? baro.latest.hpa - baroTendency.deltaHpa : null),
+        [baroTendency, baro.latest],
+    );
 
     /* Each snap section is exactly the scroller's height, and the scroller
        runs UNDER the translucent tab bar — so without this the bottom of
@@ -1767,20 +1766,23 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                             <SectionPlate title="Barometer" />
                             <div className="flex-1 min-h-0 flex flex-col justify-evenly">
                                 <div className="text-center">
-                                    <p className="text-[10px] font-black uppercase tracking-[0.3em] text-gray-400">
-                                        {baroUnit === 'inHg' ? 'Inches of mercury' : 'Sea level pressure'}
-                                    </p>
-                                    <p className="text-7xl font-black tabular-nums font-mono text-white leading-none">
-                                        {baro.latest
-                                            ? baroUnit === 'inHg'
-                                                ? hpaToInHg(baro.latest.hpa).toFixed(2)
-                                                : baro.latest.hpa.toFixed(1)
-                                            : '--'}
-                                    </p>
-                                    <p className="text-xs font-bold text-gray-500 mt-1">
-                                        {baroUnit === 'inHg' ? 'inHg' : 'hPa'}
-                                        {baro.source === 'boat' && ' · boat sensor'}
-                                        {baro.source === 'phone' && ' · this device'}
+                                    <BarometerGauge
+                                        hpa={baro.latest?.hpa ?? null}
+                                        setHandHpa={baroSetHand}
+                                        severity={baroTendency?.severity ?? 'calm'}
+                                        readout={
+                                            baro.latest
+                                                ? baroUnit === 'inHg'
+                                                    ? hpaToInHg(baro.latest.hpa).toFixed(2)
+                                                    : baro.latest.hpa.toFixed(1)
+                                                : '--'
+                                        }
+                                        readoutUnit={baroUnit === 'inHg' ? 'inHg' : 'hPa'}
+                                    />
+                                    <p className="text-[10px] font-bold text-gray-500">
+                                        {baro.source === 'boat' && 'Boat sensor'}
+                                        {baro.source === 'phone' && 'This device'}
+                                        {baroSetHand !== null && ' · pale hand = 3 h ago'}
                                     </p>
                                     {baroTendency && (
                                         <div
@@ -1849,28 +1851,12 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                     </div>
                                 </div>
 
-                                <div className="rounded-2xl bg-white/3 border border-white/6 p-3">
-                                    <Sparkline
-                                        history={baroChart.history}
-                                        min={baroChart.min}
-                                        max={baroChart.max}
-                                        color="#5eead4"
-                                        width={sparklineWidth * 2}
-                                        height={sparklineHeight + 20}
-                                        showAxes
-                                        axisUnit="hPa"
-                                        label="pressure"
-                                    />
-                                    <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400 text-center mt-0.5">
-                                        Pressure Trace
+                                {baro.source === 'phone' && (
+                                    <p className="px-3 text-center text-[10px] font-medium leading-snug text-amber-300/80">
+                                        This device&apos;s barometer. Carrying it up or down changes the reading — the
+                                        boat&apos;s sensor is steadier.
                                     </p>
-                                    {baro.source === 'phone' && (
-                                        <p className="mt-2 border-t border-white/6 pt-1.5 text-center text-[10px] font-medium leading-snug text-amber-300/80">
-                                            This device&apos;s barometer. Carrying it up or down changes the reading —
-                                            the boat&apos;s sensor is steadier.
-                                        </p>
-                                    )}
-                                </div>
+                                )}
                             </div>
                         </section>
 
