@@ -111,12 +111,19 @@ textarea,
     /* ── Type Scale Design Tokens ──
      5 semantic sizes used across all vessel components.
      Adjust here to globally change the type scale. */
-    --text-micro: 11px;
-    /* Hints, sub-counts, badges — 11px is the WCAG-safe floor */
-    --text-label: 12px;
-    /* Form labels, section headers, metadata. 12px per theme.ts's
-       documented 8-tier scale — this sat collapsed onto micro (11px),
-       making the two tiers indistinguishable (audit 2026-08-03). */
+    --text-micro: 12px;
+    /* Hints, sub-counts, badges. Was 11px ("the WCAG-safe floor") — raised
+       to 12px on 2026-09-02 after the polish audit found SAFETY text living
+       at 9–11px: the MOB marker's elapsed time and bearing, the guard-zone
+       collision alert's SOG, the threat banner's detail line, own-ship GPS
+       age. WCAG's floor is for reading a web page at a desk; this app is
+       read on a wet phone on a heeling deck in sunlight (Shane: "if it is
+       too small make it bigger"). 12px is the smallest size that survives
+       that. */
+    --text-label: 13px;
+    /* Form labels, section headers, metadata. Lifted with micro so the two
+       tiers stay distinguishable — they collapsed onto each other once
+       before (audit 2026-08-03) and that must not happen again. */
     --text-body: 14px;
     /* Body text, input values (= text-sm) */
     --text-title: 18px;
@@ -131,7 +138,11 @@ textarea,
 [class~='text-[8px]'],
 [class~='text-[9px]'],
 [class~='text-[10px]'],
-[class~='text-[10.5px]'] {
+[class~='text-[10.5px]'],
+[class~='text-[11px]'] {
+    /* text-[11px] joined the floor on 2026-09-02: it is the single most
+       common size in the codebase (1,457 uses) and it sat one pixel OUTSIDE
+       the rule that existed to protect exactly this kind of text. */
     font-size: var(--text-micro) !important;
 }
 
