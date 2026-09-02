@@ -2,8 +2,15 @@
  * Edge Middleware — wildcard-subdomain router for the public vessel
  * surfaces.
  *
- * Pattern: <handle>.thalassawx.app/plan[/…] → /index.html (the planner SPA)
- *          <handle>.thalassawx.app/*        → /logs.html  (voyage log)
+ * Pattern: <handle>.thalassawx.{app,com}/plan[/…] → /index.html (planner SPA)
+ *          <handle>.thalassawx.{app,com}/*        → /logs.html  (voyage log)
+ *
+ * BOTH TLDs, because a link a skipper reads out loud has to survive being
+ * typed from memory (Shane 2026-09-02: "can we make the public page work at
+ * boat-name.thalassawx.com as well as boat-name.thalassawx.app"). .app is
+ * still the canonical address the app builds and copies; .com simply also
+ * lands, rather than serving a stranger a dead link because they guessed the
+ * commoner ending.
  *
  * /plan serves the INTERACTIVE planner (Shane 2026-07-17: "the planning
  * page… serene-summer.thalassawx.app/plan — i will not be the only person
@@ -37,10 +44,12 @@ export const config = {
 export default async function middleware(request: Request) {
     const host = request.headers.get('host') ?? '';
 
-    // <handle>.thalassawx.app — exactly one label before the apex.
-    // 'www' is excluded explicitly so a future www subdomain stays
-    // pointed at the marketing app, not the voyage log.
-    const match = host.match(/^([a-z0-9-]+)\.thalassawx\.app$/i);
+    // <handle>.thalassawx.app or .com — exactly one label before the apex.
+    // 'www' is excluded explicitly so a www subdomain stays pointed at the
+    // marketing site, not the voyage log. A port suffix is tolerated because
+    // `host` carries one on non-standard ports and an exact-anchor match
+    // would silently fall through to the catch-all.
+    const match = host.match(/^([a-z0-9-]+)\.thalassawx\.(?:app|com)(?::\d+)?$/i);
     if (!match || match[1].toLowerCase() === 'www') {
         // Apex / unknown host → let normal Vercel routing handle it
         // (catch-all rewrite in vercel.json serves /index.html).
