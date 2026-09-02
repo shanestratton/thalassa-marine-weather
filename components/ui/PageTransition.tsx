@@ -29,7 +29,6 @@ const TAB_DURATION = 120;
 // Swipe-back thresholds
 const SWIPE_EDGE_WIDTH = 24;
 const SWIPE_DISMISS_FRACTION = 0.3;
-const _SWIPE_VELOCITY_THRESHOLD = 400;
 
 export const PageTransition: React.FC<PageTransitionProps> = ({
     pageKey,
@@ -38,7 +37,6 @@ export const PageTransition: React.FC<PageTransitionProps> = ({
     canSwipeBack = false,
     onSwipeBack,
 }) => {
-    const containerRef = useRef<HTMLDivElement>(null);
     const [phase, setPhase] = useState<'idle' | 'entering' | 'animating'>('idle');
     const prevKeyRef = useRef(pageKey);
 
@@ -142,7 +140,6 @@ export const PageTransition: React.FC<PageTransitionProps> = ({
 
     return (
         <div
-            ref={containerRef}
             key={pageKey}
             className="absolute inset-0 bg-slate-950"
             data-transition-phase={phase}

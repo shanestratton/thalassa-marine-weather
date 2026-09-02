@@ -145,7 +145,7 @@ export const PlanOnWebHint: React.FC = () => {
                 <div className="shrink-0 space-y-3 border-t border-white/10 px-5 py-4">
                     {/* A LABEL, not a bare checkbox — a 16px box is not a thumb
                         target, so the whole row toggles it. */}
-                    <label className="flex cursor-pointer items-center gap-2.5 py-1">
+                    <label className="flex min-h-[44px] cursor-pointer items-center gap-2.5 py-1">
                         <input
                             type="checkbox"
                             checked={dontShow}
@@ -157,7 +157,7 @@ export const PlanOnWebHint: React.FC = () => {
                     <button
                         ref={closeButtonRef}
                         onClick={close}
-                        className="w-full rounded-xl bg-sky-500/20 py-2.5 text-[12px] font-black uppercase tracking-widest text-sky-300 active:scale-95"
+                        className="w-full min-h-[44px] rounded-xl bg-sky-500/20 py-2.5 text-[12px] font-black uppercase tracking-widest text-sky-300 active:scale-95"
                     >
                         Got it — plot here anyway
                     </button>

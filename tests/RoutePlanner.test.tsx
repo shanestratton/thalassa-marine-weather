@@ -231,7 +231,7 @@ describe('RoutePlanner', () => {
         expect(opener).toHaveFocus();
     });
 
-    it('marks both planner-owned map surfaces as clean planning maps', () => {
+    it('marks both planner-owned map surfaces as clean planning maps', async () => {
         routePlannerState.isMapOpen = true;
         routePlannerState.voyagePlan = {
             origin: 'Brisbane',
@@ -245,7 +245,8 @@ describe('RoutePlanner', () => {
 
         render(<RoutePlanner onTriggerUpgrade={vi.fn()} />);
 
-        const maps = screen.getAllByTestId('map-hub');
+        // MapHub is lazy-loaded in the planner now (same pattern as App.tsx), so await its mount.
+        const maps = await screen.findAllByTestId('map-hub');
         expect(maps).toHaveLength(2);
         for (const map of maps) {
             expect(map).toHaveAttribute('data-clean-planning-map', 'true');

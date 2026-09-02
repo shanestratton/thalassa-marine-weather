@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useWeather } from '../context/WeatherContext';
 import { useSettings } from '../context/SettingsContext';
 import { useUI } from '../context/UIContext';
@@ -16,16 +16,11 @@ export const useDashboardController = (viewMode: 'overview' | 'details' = 'overv
     const [chartView, setChartView] = useState<'hourly' | 'tide'>('hourly');
     const [view, setView] = useState<'forecast' | 'charts'>('forecast');
 
-    // Audio State
-    const [isAudioPreloading, _setIsAudioPreloading] = useState(false);
-    const [preloadedAudio, _setPreloadedAudio] = useState<ArrayBuffer | null>(null);
+    // Audio State — native speech only. The PCM pre-load machinery that lived
+    // here (preloadedAudio / AudioContext / decodePCM / playAudio / stopAudio)
+    // was unreachable: nothing ever set preloadedAudio, so stopAudio() was a
+    // guaranteed no-op and the speech branch always ran.
     const [isPlaying, setIsPlaying] = useState(false);
-    const [audioSource, setAudioSource] = useState<AudioBufferSourceNode | null>(null);
-    const [_audioPreloadAttempted, _setAudioPreloadAttempted] = useState(false);
-
-    // Refs
-    const _processedAdviceRef = useRef<string | null>(null);
-    const audioContextRef = useRef<AudioContext | null>(null);
 
     // RESET SCROLL ON MOUNT
     useEffect(() => {
@@ -67,47 +62,6 @@ export const useDashboardController = (viewMode: 'overview' | 'details' = 'overv
 
     // AUDIO LOGIC (Simplified for Controller)
 
-    // Helper: Decode PCM
-    const decodePCM = async (buffer: ArrayBuffer, ctx: AudioContext): Promise<AudioBuffer> => {
-        const float32Array = new Float32Array(buffer);
-        const audioBuffer = ctx.createBuffer(1, float32Array.length, 24000);
-        audioBuffer.getChannelData(0).set(float32Array);
-        return audioBuffer;
-    };
-
-    const playAudio = useCallback(async (buffer: ArrayBuffer) => {
-        if (!audioContextRef.current) {
-            const AudioCtx =
-                window.AudioContext ||
-                ('webkitAudioContext' in window
-                    ? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
-                    : AudioContext);
-            audioContextRef.current = new AudioCtx();
-        }
-        const ctx = audioContextRef.current;
-        if (ctx.state === 'suspended') await ctx.resume();
-
-        try {
-            const audioBuffer = await decodePCM(buffer, ctx);
-            const source = ctx.createBufferSource();
-            source.buffer = audioBuffer;
-            source.connect(ctx.destination);
-            source.onended = () => setIsPlaying(false);
-            source.start(0);
-            setAudioSource(source);
-            setIsPlaying(true);
-        } catch (e) {
-            setIsPlaying(false);
-        }
-    }, []);
-
-    const stopAudio = useCallback(() => {
-        if (audioSource) {
-            audioSource.stop();
-            setIsPlaying(false);
-        }
-    }, [audioSource]);
-
     const speakNativeFallback = useCallback((text: string) => {
         if (!('speechSynthesis' in window)) return;
         window.speechSynthesis.cancel();
@@ -123,23 +77,16 @@ export const useDashboardController = (viewMode: 'overview' | 'details' = 'overv
     const handleAudioBroadcast = useCallback(async () => {
         if (isPlaying) {
             if (window.speechSynthesis.speaking) window.speechSynthesis.cancel();
-            stopAudio();
             setIsPlaying(false);
             return;
         }
 
-        if (preloadedAudio) {
-            await playAudio(preloadedAudio);
-            return;
-        }
-
-        // Native Fallback if no audio or offline
         if (boatingAdvice) {
             // Strip markdown for speech
             const cleanText = boatingAdvice.replace(/\*\*/g, '').replace(/__/, '');
             speakNativeFallback(cleanText);
         }
-    }, [isPlaying, preloadedAudio, boatingAdvice, playAudio, stopAudio, speakNativeFallback]);
+    }, [isPlaying, boatingAdvice, speakNativeFallback]);
 
     // SHARING
     const shareReport = useCallback(async () => {
@@ -183,8 +130,6 @@ export const useDashboardController = (viewMode: 'overview' | 'details' = 'overv
 
         // Audio State
         isPlaying,
-        isAudioPreloading,
-        hasPreloadedAudio: !!preloadedAudio,
 
         // Actions
         refreshData,

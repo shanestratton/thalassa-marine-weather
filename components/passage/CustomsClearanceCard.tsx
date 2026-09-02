@@ -10,7 +10,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { VoyagePlan } from '../../types';
-import { PhoneIcon, RadioTowerIcon, AlertTriangleIcon, ShareIcon, MapPinIcon } from '../Icons';
+import { PhoneIcon, RadioTowerIcon, AlertTriangleIcon, ExternalLinkIcon, MapPinIcon } from '../Icons';
 import { findCountryData, difficultyStyle } from '../../data/customsDb';
 import { useReadinessSync, useScopedReadinessStorageState } from '../../hooks/useReadinessSync';
 import { safeExternalHttpUrl } from '../../utils/safeUrl';
@@ -133,7 +133,7 @@ export const CustomsClearanceCard: React.FC<CustomsClearanceCardProps> = ({
                     <button
                         aria-label={`Departing ${departLabel}`}
                         onClick={() => setActiveTab('depart')}
-                        className={`flex-1 py-2.5 px-3 rounded-lg text-xs font-bold uppercase tracking-widest transition-all flex items-center justify-center gap-2 ${
+                        className={`flex-1 min-h-[44px] py-2.5 px-3 rounded-lg text-xs font-bold uppercase tracking-widest transition-all flex items-center justify-center gap-2 ${
                             activeTab === 'depart'
                                 ? 'bg-sky-500/15 text-sky-400 border border-sky-500/30 shadow-lg shadow-sky-500/10'
                                 : 'text-gray-400 hover:text-gray-300 hover:bg-white/5 border border-transparent'
@@ -145,7 +145,7 @@ export const CustomsClearanceCard: React.FC<CustomsClearanceCardProps> = ({
                 <button
                     aria-label={`Arriving ${arriveLabel}`}
                     onClick={() => setActiveTab('arrive')}
-                    className={`flex-1 py-2.5 px-3 rounded-lg text-xs font-bold uppercase tracking-widest transition-all flex items-center justify-center gap-2 ${
+                    className={`flex-1 min-h-[44px] py-2.5 px-3 rounded-lg text-xs font-bold uppercase tracking-widest transition-all flex items-center justify-center gap-2 ${
                         activeTab === 'arrive'
                             ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 shadow-lg shadow-emerald-500/10'
                             : 'text-gray-400 hover:text-gray-300 hover:bg-white/5 border border-transparent'
@@ -244,7 +244,7 @@ export const CustomsClearanceCard: React.FC<CustomsClearanceCardProps> = ({
                                     referrerPolicy="no-referrer"
                                     className="mt-3 flex items-center gap-2 w-fit px-4 py-2.5 bg-linear-to-r from-sky-500/20 to-indigo-500/20 hover:from-sky-500/30 hover:to-indigo-500/30 border border-sky-500/30 rounded-xl text-xs font-bold text-sky-300 hover:text-white transition-all active:scale-[0.98] shadow-lg shadow-sky-500/10"
                                 >
-                                    <ShareIcon className="w-3.5 h-3.5" />
+                                    <ExternalLinkIcon className="w-3.5 h-3.5" />
                                     {activeData.guideLabel || 'View Complete Guide'}
                                 </a>
                             )}
@@ -260,7 +260,7 @@ export const CustomsClearanceCard: React.FC<CustomsClearanceCardProps> = ({
                             referrerPolicy="no-referrer"
                             className="flex items-center gap-2 w-fit px-4 py-2.5 bg-linear-to-r from-sky-500/20 to-indigo-500/20 hover:from-sky-500/30 hover:to-indigo-500/30 border border-sky-500/30 rounded-xl text-xs font-bold text-sky-300 hover:text-white transition-all active:scale-[0.98]"
                         >
-                            <ShareIcon className="w-3.5 h-3.5" />
+                            <ExternalLinkIcon className="w-3.5 h-3.5" />
                             {activeData.guideLabel || 'View Complete Guide'}
                         </a>
                     )}
@@ -354,7 +354,7 @@ export const CustomsClearanceCard: React.FC<CustomsClearanceCardProps> = ({
                                         {contact.phone && (
                                             <a
                                                 href={`tel:${contact.phone}`}
-                                                className="flex items-center gap-1.5 text-[11px] text-emerald-400 hover:text-emerald-300 transition-colors"
+                                                className="flex items-center gap-1.5 min-h-[44px] text-xs text-emerald-400 hover:text-emerald-300 transition-colors"
                                             >
                                                 <PhoneIcon className="w-3 h-3 shrink-0" />
                                                 <span className="font-mono">{contact.phone}</span>
@@ -363,7 +363,7 @@ export const CustomsClearanceCard: React.FC<CustomsClearanceCardProps> = ({
                                         {contact.email && (
                                             <a
                                                 href={`mailto:${contact.email}`}
-                                                className="flex items-center gap-1.5 text-[11px] text-sky-400 hover:text-sky-300 transition-colors"
+                                                className="flex items-center gap-1.5 min-h-[44px] text-xs text-sky-400 hover:text-sky-300 transition-colors"
                                             >
                                                 <span className="shrink-0">✉️</span>
                                                 <span className="font-mono">{contact.email}</span>
@@ -383,9 +383,9 @@ export const CustomsClearanceCard: React.FC<CustomsClearanceCardProps> = ({
                                                     target="_blank"
                                                     rel="noopener noreferrer"
                                                     referrerPolicy="no-referrer"
-                                                    className="flex items-center gap-1 text-[11px] text-gray-400 hover:text-white transition-colors"
+                                                    className="flex items-center gap-1 min-h-[44px] text-xs text-gray-400 hover:text-white transition-colors"
                                                 >
-                                                    <ShareIcon className="w-3 h-3 shrink-0" />
+                                                    <ExternalLinkIcon className="w-3 h-3 shrink-0" />
                                                     <span className="truncate max-w-[180px]">Website</span>
                                                 </a>
                                             ) : null;

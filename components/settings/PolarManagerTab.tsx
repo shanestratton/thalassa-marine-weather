@@ -22,7 +22,8 @@ import { SmartPolarService, type FilterStatus } from '../../services/SmartPolarS
 import { SmartPolarStore } from '../../services/SmartPolarStore';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { OverlayPortal } from '../ui/OverlayPortal';
-import { CheckIcon, CheckCircleIcon, AlertTriangleIcon, DownloadIcon, EditIcon } from '../Icons';
+import { CheckIcon, CheckCircleIcon, AlertTriangleIcon, DownloadIcon, EditIcon, XIcon, MinusIcon } from '../Icons';
+import { Toggle } from './SettingsPrimitives';
 
 type InputTab = 'import' | 'manual';
 
@@ -429,24 +430,19 @@ const SmartPolarsCard: React.FC<{
                         </span>
                     )}
                 </div>
-                {/* Smart Polars Toggle */}
-                <button
-                    onClick={() => {
-                        if (!smartEnabled && nmeaStatus === 'disconnected' && onNavigateToNmea) {
+                {/* Smart Polars Toggle — the shared settings switch (role=switch,
+                    same geometry and colour as every other settings toggle). */}
+                <Toggle
+                    checked={smartEnabled}
+                    label="Smart Polars"
+                    onChange={(next) => {
+                        if (next && nmeaStatus === 'disconnected' && onNavigateToNmea) {
                             onNavigateToNmea();
                             return;
                         }
-                        onToggleSmart(!smartEnabled);
+                        onToggleSmart(next);
                     }}
-                    className={`relative w-11 h-6 rounded-full transition-all ${
-                        smartEnabled ? 'bg-emerald-500' : nmeaStatus === 'disconnected' ? 'bg-gray-800' : 'bg-gray-700'
-                    }`}
-                    aria-label={smartEnabled ? 'Disable Smart Polars' : 'Enable Smart Polars'}
-                >
-                    <div
-                        className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow-lg transition-transform ${smartEnabled ? 'translate-x-[22px]' : 'translate-x-0.5'}`}
-                    />
-                </button>
+                />
             </div>
 
             {/* Explanation when disabled */}
@@ -569,7 +565,7 @@ const SmartPolarsCard: React.FC<{
                     </div>
                     <button
                         onClick={onReset}
-                        className="text-[11px] font-bold text-red-400/50 hover:text-red-400 uppercase tracking-wider transition-colors px-2"
+                        className="hit-target-44 py-2 px-2 text-xs font-bold text-red-300 hover:text-red-400 uppercase tracking-wider transition-colors"
                         aria-label="Reset Smart Polar data"
                     >
                         Reset
@@ -581,16 +577,33 @@ const SmartPolarsCard: React.FC<{
 };
 
 const GateBadge: React.FC<{ label: string; status: 'pass' | 'fail' | 'unavailable' }> = ({ label, status }) => {
+    // Pass/fail carried by colour alone was invisible to colour-blind users
+    // and to VoiceOver — a glyph per state plus a spoken suffix fixes both.
     const config = {
-        pass: { bg: 'bg-emerald-500/20 border-emerald-500/30', text: 'text-emerald-400', dot: 'bg-emerald-400' },
-        fail: { bg: 'bg-red-500/20 border-red-500/30', text: 'text-red-400', dot: 'bg-red-400' },
-        unavailable: { bg: 'bg-gray-500/10 border-gray-500/20', text: 'text-gray-400', dot: 'bg-gray-500' },
+        pass: {
+            bg: 'bg-emerald-500/20 border-emerald-500/30',
+            text: 'text-emerald-400',
+            Icon: CheckIcon,
+            spoken: 'passed',
+        },
+        fail: { bg: 'bg-red-500/20 border-red-500/30', text: 'text-red-400', Icon: XIcon, spoken: 'failed' },
+        unavailable: {
+            bg: 'bg-gray-500/10 border-gray-500/20',
+            text: 'text-gray-400',
+            Icon: MinusIcon,
+            spoken: 'unavailable',
+        },
     };
     const c = config[status];
     return (
         <div className={`flex items-center justify-center gap-1 py-1.5 rounded-lg border ${c.bg}`}>
-            <div className={`w-1.5 h-1.5 rounded-full ${c.dot}`} />
-            <span className={`text-[11px] font-bold uppercase tracking-widest ${c.text}`}>{label}</span>
+            <span aria-hidden="true" className={`inline-flex ${c.text}`}>
+                <c.Icon className="w-3 h-3" />
+            </span>
+            <span className={`text-[11px] font-bold uppercase tracking-widest ${c.text}`}>
+                {label}
+                <span className="sr-only">: {c.spoken}</span>
+            </span>
         </div>
     );
 };

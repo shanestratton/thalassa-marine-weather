@@ -1,5 +1,6 @@
 import React from 'react';
 import { PI_PUBLIC_BETA_UNAVAILABLE_MESSAGE } from '../../services/piPublicBetaBoundary';
+import { LockIcon } from '../Icons';
 
 /**
  * Honest replacement for every Pi setup/control surface, on builds that cannot
@@ -15,8 +16,11 @@ import { PI_PUBLIC_BETA_UNAVAILABLE_MESSAGE } from '../../services/piPublicBetaB
 export const PiPublicBetaUnavailable: React.FC<{ onOpenEncLibrary?: () => void }> = ({ onOpenEncLibrary }) => (
     <div className="max-w-2xl mx-auto p-5 sm:p-8" role="status" aria-live="polite">
         <div className="rounded-2xl border border-amber-400/25 bg-amber-500/10 p-6 text-center">
-            <div className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-full bg-amber-400/15 text-xl">
-                {'\u{1F512}'}
+            <div
+                aria-hidden="true"
+                className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-full bg-amber-400/15 text-amber-300"
+            >
+                <LockIcon className="h-5 w-5" />
             </div>
             <h2 className="text-lg font-bold text-white">Pi integration unavailable in this build</h2>
             <p className="mx-auto mt-2 max-w-lg text-sm leading-relaxed text-amber-100/80">

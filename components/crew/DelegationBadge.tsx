@@ -78,7 +78,7 @@ export const DelegationBadge: React.FC<DelegationBadgeProps> = ({
                     e.stopPropagation();
                     onMenuToggle(isOpen ? null : cardKey);
                 }}
-                className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[11px] font-bold uppercase tracking-wider transition-all border ${
+                className={`hit-target-44 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[11px] font-bold uppercase tracking-wider transition-all border ${
                     assigned
                         ? 'bg-sky-500/10 border-sky-500/20 text-sky-400'
                         : 'bg-white/4 border-white/8 text-gray-500 hover:text-gray-300 hover:bg-white/8'
@@ -96,13 +96,15 @@ export const DelegationBadge: React.FC<DelegationBadgeProps> = ({
                     }}
                 >
                     <div className="px-3 py-1.5 text-[11px] font-bold text-gray-500 uppercase tracking-widest">
-                        {DELEGATABLE_CARDS[cardKey]?.roles.join(' · ') || 'Assign To'}
+                        {DELEGATABLE_CARDS[cardKey]?.roles.length
+                            ? `Suggested: ${DELEGATABLE_CARDS[cardKey].roles.join(' · ')}`
+                            : 'Assign to'}
                     </div>
                     {eligibleCrew.map((crew) => (
                         <button
                             key={crew.crew_email}
                             onClick={() => onAssign(cardKey, crew.crew_email)}
-                            className={`w-full text-left px-3 py-2 text-xs transition-colors ${
+                            className={`w-full min-h-[44px] text-left px-3 py-2 text-xs transition-colors ${
                                 assigned === crew.crew_email
                                     ? 'bg-sky-500/10 text-sky-400 font-bold'
                                     : 'text-gray-300 hover:bg-white/6'
@@ -117,7 +119,7 @@ export const DelegationBadge: React.FC<DelegationBadgeProps> = ({
                             <div className="border-t border-white/6 my-1" />
                             <button
                                 onClick={() => onAssign(cardKey, null)}
-                                className="w-full text-left px-3 py-2 text-xs text-red-400/70 hover:bg-red-500/10 transition-colors"
+                                className="w-full min-h-[44px] text-left px-3 py-2 text-xs text-red-400/70 hover:bg-red-500/10 transition-colors"
                             >
                                 ✕ Unassign
                             </button>

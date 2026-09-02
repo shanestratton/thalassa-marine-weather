@@ -9,7 +9,9 @@ import { DisplayMode, ScreenOrientationType } from '../../types';
 import { SunIcon, MoonIcon, RefreshIcon, PhoneIcon } from '../Icons';
 
 // Small inline icon for "Night mode" — a red-tint moon.
-const RedMoonIcon = ({ className }: { className?: string }) => <MoonIcon className={className} />;
+const RedMoonIcon = ({ className }: { className?: string }) => (
+    <MoonIcon className={`${className ?? ''} text-red-400`} />
+);
 // Inline icon for landscape orientation — phone rotated 90°.
 const LandscapeIcon = ({ className }: { className?: string }) => (
     <span className="inline-flex rotate-90">
