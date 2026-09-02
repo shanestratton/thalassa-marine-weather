@@ -220,6 +220,16 @@ export function detectAbnormalExit(now = Date.now()): AbnormalExit | null {
  */
 /** The pending appStateChange registration, so it can be removed on teardown. */
 let appStatePromise: Promise<{ remove: () => void } | null> | null = null;
+/**
+ * Bumped by every stop. An arm captures it and, when its own registration
+ * finally resolves, refuses to keep a handle minted for a generation that has
+ * already been torn down.
+ *
+ * Why a counter and not a boolean: arm/stop can interleave more than once in a
+ * session (identity switches re-run the bootstrap), and a boolean cannot tell
+ * "stopped, then re-armed" from "still stopped".
+ */
+let watchGeneration = 0;
 
 /**
  * Stop watching and release the native listener.
@@ -229,6 +239,9 @@ let appStatePromise: Promise<{ remove: () => void } | null> | null = null;
  * bootstrap has a test for exactly this shape of leak, and it caught this one.
  */
 export function stopSessionWatch(): void {
+    // Bump FIRST. An arm whose dynamic import is still in flight will compare
+    // against this and remove itself on arrival — see the race below.
+    watchGeneration += 1;
     const pending = appStatePromise;
     appStatePromise = null;
     if (!pending) return;
@@ -263,6 +276,34 @@ export function armSessionWatch(currentView: string | null): AbnormalExit | null
         // left the flag raised and was reported as a foreground death, which
         // is how a count reached 21 on a day with no crash reports and no
         // Jetsam events to match.
+        // ARMING IS IDEMPOTENT — one listener at a time, always.
+        //
+        // This assignment used to simply overwrite appStatePromise. Arm twice
+        // without a stop between (an identity switch, a bootstrap remount, a
+        // React StrictMode double-invoke) and the FIRST registration was
+        // orphaned on the spot: nothing held it, so nothing could ever remove
+        // it. On iOS that is a native appStateChange subscription outliving
+        // its own React tree and writing session crumbs forever, one more
+        // added every time the hook remounts.
+        //
+        // Releasing the previous one first is what makes the trace read
+        // ARM → STOP → ARM instead of ARM → ARM → one STOP.
+        stopSessionWatch();
+
+        // THE ARM/STOP RACE, found 2026-09-02 by running the suite under heavy
+        // load until useAppBootstrap's leak test failed honestly.
+        //
+        // Registration is two awaits deep: a dynamic import, then addListener.
+        // If teardown lands between arming and arrival — which is ordinary on
+        // a busy machine, and was reproducible at load average 110 — then
+        // stopSessionWatch() runs while appStatePromise is still null, finds
+        // nothing to release, and the listener that arrives moments later is
+        // held by no one and removed by nobody. On iOS that is a native
+        // appStateChange subscription surviving its own React tree, still
+        // writing session crumbs for a screen that no longer exists.
+        //
+        // So the arm carries its generation with it and checks on arrival.
+        const generation = watchGeneration;
         appStatePromise = import('@capacitor/app')
             .then(({ App }) =>
                 App.addListener('appStateChange', ({ isActive }) => {
@@ -270,6 +311,13 @@ export function armSessionWatch(currentView: string | null): AbnormalExit | null
                     else markOrderlyExit();
                 }),
             )
+            .then((handle) => {
+                if (generation === watchGeneration) return handle;
+                // Torn down while we were arming: release it immediately and
+                // report nothing, so a later stop cannot double-remove.
+                handle?.remove();
+                return null;
+            })
             .catch(() => null);
     } catch (err) {
         log.warn('could not arm the session watch', err);
