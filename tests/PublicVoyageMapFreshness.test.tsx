@@ -28,6 +28,10 @@ vi.mock('react-map-gl/mapbox', async () => {
 
     return {
         default: Map,
+        // Partial mocks CRASH the component on any export they lack rather than
+        // failing an assertion — the fourth time today (utils/system, the
+        // barometer modal, BoatNetworkService, and now this).
+        AttributionControl: () => null,
         Layer: () => null,
         Marker: ({ children }: { children?: React.ReactNode }) => <div data-testid="map-marker">{children}</div>,
         NavigationControl: () => null,
