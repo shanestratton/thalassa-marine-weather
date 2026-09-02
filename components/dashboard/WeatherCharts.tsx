@@ -208,7 +208,17 @@ export const HourlyWidget = ({
                                 >
                                     <div className="flex justify-between items-center border-b border-white/5 pb-4 mb-4">
                                         <div className="flex flex-col">
-                                            <span className="text-2xl font-bold text-white">{item.time}</span>
+                                            <span className="text-2xl font-bold text-white">
+                                                {/* item.time is the raw ISO timestamp from the model; it printed
+                                                    as "2026-09-02T03:00:00+00:00" (audit 2026-09-02). Same
+                                                    convention as LocationClock. */}
+                                                {Number.isNaN(new Date(item.time).getTime())
+                                                    ? item.time
+                                                    : new Date(item.time).toLocaleTimeString('en-US', {
+                                                          hour: 'numeric',
+                                                          minute: '2-digit',
+                                                      })}
+                                            </span>
                                             <span className="text-xs text-gray-400 uppercase tracking-widest truncate max-w-[100px]">
                                                 {item.condition}
                                             </span>

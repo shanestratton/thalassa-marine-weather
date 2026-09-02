@@ -275,6 +275,20 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
 
     const handleConnect = useCallback(() => {
         triggerHaptic('medium');
+        // Validate BEFORE touching the service. An empty or non-numeric port
+        // reached configure() as NaN and the service fell back to its factory
+        // default while the card and localStorage showed what was typed — a
+        // connection to somewhere other than what the screen said (audit
+        // 2026-09-02).
+        const portNum = Number.parseInt(port, 10);
+        if (!host.trim()) {
+            setLastError('Enter the gateway host or IP address.');
+            return;
+        }
+        if (!Number.isInteger(portNum) || portNum < 1 || portNum > 65535) {
+            setLastError('Enter a port between 1 and 65535.');
+            return;
+        }
         try {
             // Always stop first so re-tapping Connect restarts cleanly
             NmeaListenerService.stop();

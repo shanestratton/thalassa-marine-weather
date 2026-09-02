@@ -16,7 +16,23 @@ export type ExpiryStatus = 'valid' | 'warning' | 'expired' | 'none';
 export function getExpiryStatus(expiryDate: string | null): ExpiryStatus {
     if (!expiryDate) return 'none';
     const now = Date.now();
-    const expiry = new Date(expiryDate).getTime();
+    // A date-only string ("2026-09-02") parses as UTC MIDNIGHT, which is 10:00
+    // that morning in Queensland — so a document read "Expired" while it was
+    // still valid for the rest of the day, and the badge showed the previous
+    // day west of UTC (audit 2026-09-02). Treat a date-only expiry as valid
+    // through the end of that local day.
+    const dateOnly = /^\d{4}-\d{2}-\d{2}$/.exec(expiryDate);
+    const expiry = dateOnly
+        ? new Date(
+              Number(expiryDate.slice(0, 4)),
+              Number(expiryDate.slice(5, 7)) - 1,
+              Number(expiryDate.slice(8, 10)),
+              23,
+              59,
+              59,
+              999,
+          ).getTime()
+        : new Date(expiryDate).getTime();
     if (expiry < now) return 'expired';
     if (expiry - now < 30 * 86400000) return 'warning';
     return 'valid';

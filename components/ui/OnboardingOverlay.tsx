@@ -55,12 +55,13 @@ const slides: OnboardingSlide[] = [
         title: 'Your Charts',
         subtitle: 'Wind, waves, and weather right on the map',
         features: [
-            { Icon: WindIcon, text: 'Real-time wind particle overlay (NOAA GFS)' },
+            { Icon: WindIcon, text: 'Real-time wind particle overlay' },
             { Icon: WaveIcon, text: 'Ocean currents, waves, SST, and sea state' },
             { Icon: SailBoatIcon, text: 'Track your vessel live with GPS' },
         ],
         accent: 'from-emerald-500/20 to-teal-500/10',
-        tab: 'Charts',
+        // Was 'Charts' — that tab is 'Plan' now (App.tsx NavButtons). Audit 2026-09-02.
+        tab: 'Plan',
     },
     {
         Icon: ChatIcon,
@@ -72,7 +73,8 @@ const slides: OnboardingSlide[] = [
             { text: 'Crew Chat — private group for your invited crew' },
         ],
         accent: 'from-indigo-500/20 to-violet-500/10',
-        tab: 'Scuttlebutt',
+        // Scuttlebutt lives under Vessel → Wardroom now (stores/uiStore.ts).
+        tab: 'Vessel',
     },
     {
         Icon: SailBoatIcon,
@@ -85,7 +87,8 @@ const slides: OnboardingSlide[] = [
             { Icon: AnchorIcon, text: 'Anchor watch + MOB safety systems' },
         ],
         accent: 'from-amber-500/20 to-orange-500/10',
-        tab: 'Nav Station',
+        // Was 'Nav Station' — the tab is labelled 'Vessel'.
+        tab: 'Vessel',
     },
 ];
 

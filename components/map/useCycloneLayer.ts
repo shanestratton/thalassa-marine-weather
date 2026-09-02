@@ -746,10 +746,13 @@ function drawTrackDots(svg: SVGSVGElement, projected: { px: mapboxgl.Point; poin
             timeLabel = 'Now';
         } else {
             const dayDiff = Math.round(ageHrs / 24);
+            // Advisory times are UTC and were printed without saying so beside
+            // local-relative day words — "Today 3 PM" read as local time to a
+            // skipper on a UTC+10 coast (audit 2026-09-02).
             const hourStr =
                 d.getUTCHours() >= 12
-                    ? `${d.getUTCHours() === 12 ? 12 : d.getUTCHours() - 12} PM`
-                    : `${d.getUTCHours() === 0 ? 12 : d.getUTCHours()} AM`;
+                    ? `${d.getUTCHours() === 12 ? 12 : d.getUTCHours() - 12} PM UTC`
+                    : `${d.getUTCHours() === 0 ? 12 : d.getUTCHours()} AM UTC`;
 
             if (dayDiff === 0) timeLabel = `Today ${hourStr}`;
             else if (dayDiff === 1) timeLabel = `Yesterday ${hourStr}`;

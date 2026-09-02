@@ -223,7 +223,18 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                 : previous,
         );
         setExpandedId(null);
-        setDeletedItem({ identity, item });
+        // One undo slot: a second swipe-delete inside the window used to orphan
+        // the first item — gone from the list, never deleted, back on reload
+        // (audit 2026-09-02). Commit the pending one before taking the slot.
+        setDeletedItem((pending) => {
+            if (pending && isAuthIdentityScopeCurrent(pending.identity)) {
+                void InventoryService.delete(pending.item.id).catch((e) => {
+                    log.warn(' delete failed:', e);
+                    if (isAuthIdentityScopeCurrent(pending.identity)) toast.error('Failed to delete item');
+                });
+            }
+            return { identity, item };
+        });
     };
 
     // Called by UndoToast after 5s — performs the actual API delete

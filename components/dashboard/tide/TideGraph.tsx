@@ -304,8 +304,11 @@ export const TideGraphOriginal = ({
                                     <div className="flex flex-col items-end">
                                         <span className="text-sm font-bold text-white tracking-tight leading-none font-mono">
                                             {(() => {
-                                                const h = Math.floor(event!.time) % 24;
-                                                const m = Math.round((event!.time - Math.floor(event!.time)) * 60);
+                                                // Round to whole minutes FIRST, then split — rounding the
+                                                // fraction alone produced "HH:60" (audit 2026-09-02).
+                                                const total = Math.round(event!.time * 60);
+                                                const h = Math.floor(total / 60) % 24;
+                                                const m = total % 60;
                                                 return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
                                             })()}
                                         </span>
