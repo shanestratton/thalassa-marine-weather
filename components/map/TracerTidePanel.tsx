@@ -159,7 +159,7 @@ export const TracerTidePanel: React.FC<TracerTidePanelProps> = ({ anchor, depart
             <div className="flex items-baseline justify-between">
                 <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">🌊 Tide</span>
                 {state?.atDeparture !== null && state?.atDeparture !== undefined && (
-                    <span className="text-[10px] font-bold text-sky-300">
+                    <span className="text-sm font-bold text-sky-300">
                         {state.atDeparture.toFixed(1)} m{state.trend ? ` · ${state.trend}` : ''}
                     </span>
                 )}
@@ -204,9 +204,7 @@ export const TracerTidePanel: React.FC<TracerTidePanelProps> = ({ anchor, depart
                                                 {formatClock(t.ms)}
                                             </span>
                                         </span>
-                                        <span className="font-mono text-[11px] text-gray-300">
-                                            {t.height.toFixed(1)} m
-                                        </span>
+                                        <span className="font-mono text-sm text-gray-300">{t.height.toFixed(1)} m</span>
                                     </div>
                                 );
                             })}
@@ -216,7 +214,7 @@ export const TracerTidePanel: React.FC<TracerTidePanelProps> = ({ anchor, depart
             )}
 
             {state && state.extremes.length > 0 && (
-                <p className="text-[9px] leading-snug text-gray-500">
+                <p className="text-xs leading-snug text-gray-400">
                     {state.approximate ? 'Approx — interpolated between high and low' : 'Station heights'}
                     {state.stationName ? ` · ${state.stationName}` : ''}
                 </p>

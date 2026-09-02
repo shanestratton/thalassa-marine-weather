@@ -182,6 +182,48 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
     const activeDayDataRef = useRef<SourcedWeatherMetrics | null>(null);
     const rafIdRef = useRef<number | null>(null);
 
+    // Stable handlers for the header rows. HeroHeader is React.memo, and an
+    // inline closure here handed it a new onToggleExpand on every Dashboard
+    // render — defeating the memo entirely.
+    const handleToggleDashboardMode = useCallback(() => {
+        triggerHaptic('light');
+        const goingEssential = userSettings.dashboardMode !== 'essential';
+        updateSettings({
+            dashboardMode: goingEssential ? 'essential' : 'full',
+        });
+        if (goingEssential) {
+            // Reset to live so map/widgets show current data
+            setActiveDay(0);
+            setActiveHour(0);
+            setActiveDayData(null);
+            // Reset horizontal scroll to live position
+            setTimeout(() => window.dispatchEvent(new Event('hero-reset-scroll')), 10);
+        }
+    }, [userSettings.dashboardMode, updateSettings]);
+    const handleToggleExpand = useCallback(() => {
+        triggerHaptic('light');
+        const goingEssential = isExpanded; // isExpanded means currently full, so toggling goes to essential
+        updateSettings({
+            dashboardMode: goingEssential ? 'essential' : 'full',
+        });
+        if (goingEssential) {
+            /* Clear the REFS as well as the state. The rAF batches in
+               handleDayChange / handleHourChange / handleActiveDataChange
+               all re-assert setActiveDay(activeDayRef.current), and the
+               reset itself provokes one — so setting state alone let the
+               old day walk straight back in. That is why the header still
+               read MON 31 AUG after a toggle that had just set day 0. */
+            activeDayRef.current = 0;
+            activeHourRef.current = 0;
+            activeDayDataRef.current = null;
+            setActiveDay(0);
+            setActiveHour(0);
+            setActiveDayData(null);
+            // Reset horizontal scroll to live position
+            setTimeout(() => window.dispatchEvent(new Event('hero-reset-scroll')), 10);
+        }
+    }, [isExpanded, updateSettings]);
+
     // Sync activeDayData with the same location-day high/low pair used by the
     // Hero row. This closes the short initial-render window before HeroSlide's
     // active-card callback arrives.
@@ -854,7 +896,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                     <div className="text-center max-w-xs">
                         <div className="w-10 h-10 mx-auto mb-5 rounded-full bg-white/5 border border-white/10 flex items-center justify-center">
                             <svg
-                                className="w-5 h-5 text-white/50"
+                                className="w-5 h-5 text-white/70"
                                 fill="none"
                                 viewBox="0 0 24 24"
                                 stroke="currentColor"
@@ -868,8 +910,8 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                 <line x1="4" y1="4" x2="20" y2="20" strokeLinecap="round" />
                             </svg>
                         </div>
-                        <p className="text-sm text-white/40 font-medium mb-1">No connection</p>
-                        <p className="text-xs text-white/40 leading-relaxed">Cached data will appear when available</p>
+                        <p className="text-base text-white/80 font-medium mb-1">No connection</p>
+                        <p className="text-sm text-white/60 leading-relaxed">Cached data will appear when available</p>
                     </div>
                 ) : (
                     /* Full-width skeleton mirroring the real dashboard column:
@@ -1003,24 +1045,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                             sunset={activeDayData?.sunset || current?.sunset}
                                             moonPhase={getMoonPhase(new Date(widgetCardTime)).emoji}
                                             dashboardMode={userSettings.dashboardMode || 'full'}
-                                            onToggleDashboardMode={() => {
-                                                triggerHaptic('light');
-                                                const goingEssential = userSettings.dashboardMode !== 'essential';
-                                                updateSettings({
-                                                    dashboardMode: goingEssential ? 'essential' : 'full',
-                                                });
-                                                if (goingEssential) {
-                                                    // Reset to live so map/widgets show current data
-                                                    setActiveDay(0);
-                                                    setActiveHour(0);
-                                                    setActiveDayData(null);
-                                                    // Reset horizontal scroll to live position
-                                                    setTimeout(
-                                                        () => window.dispatchEvent(new Event('hero-reset-scroll')),
-                                                        10,
-                                                    );
-                                                }
-                                            }}
+                                            onToggleDashboardMode={handleToggleDashboardMode}
                                         />
                                     </div>
                                 </div>
@@ -1051,40 +1076,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                         sources={safeActive.sources}
                                         isExpanded={isExpanded}
                                         locationType={data.locationType}
-                                        onToggleExpand={
-                                            isInland || isOffshore
-                                                ? undefined
-                                                : () => {
-                                                      triggerHaptic('light');
-                                                      const goingEssential = isExpanded; // isExpanded means currently full, so toggling goes to essential
-                                                      updateSettings({
-                                                          dashboardMode: goingEssential ? 'essential' : 'full',
-                                                      });
-                                                      if (goingEssential) {
-                                                          /* Clear the REFS as well as the state. The
-                                                             rAF batches in handleDayChange /
-                                                             handleHourChange / handleActiveDataChange
-                                                             all re-assert setActiveDay(activeDayRef
-                                                             .current), and the reset itself provokes
-                                                             one — so setting state alone let the old
-                                                             day walk straight back in. That is why the
-                                                             header still read MON 31 AUG after a
-                                                             toggle that had just set day 0. */
-                                                          activeDayRef.current = 0;
-                                                          activeHourRef.current = 0;
-                                                          activeDayDataRef.current = null;
-                                                          setActiveDay(0);
-                                                          setActiveHour(0);
-                                                          setActiveDayData(null);
-                                                          // Reset horizontal scroll to live position
-                                                          setTimeout(
-                                                              () =>
-                                                                  window.dispatchEvent(new Event('hero-reset-scroll')),
-                                                              10,
-                                                          );
-                                                      }
-                                                  }
-                                        }
+                                        onToggleExpand={isInland || isOffshore ? undefined : handleToggleExpand}
                                     />
                                 </div>
 

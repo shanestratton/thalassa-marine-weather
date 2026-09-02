@@ -227,7 +227,7 @@ export const ComfortQuickConfig: React.FC<ComfortQuickConfigProps> = ({ expanded
                                 );
                             })}
                         </div>
-                        <p className="mt-1.5 text-[10px] text-slate-500 leading-relaxed">
+                        <p className="mt-1.5 text-xs text-slate-400 leading-relaxed">
                             Routes whose true wind angle falls outside your selection are dropped. Empty / all = no
                             preference. Cruisers who hate beating typically deselect it.
                         </p>

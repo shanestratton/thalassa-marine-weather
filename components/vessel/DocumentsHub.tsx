@@ -517,7 +517,7 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
                     status={<OfflineBadge />}
                     subtitle={
                         <p className="text-label text-gray-400 font-bold uppercase tracking-widest">
-                            {visibleDocuments.length} Documents
+                            {visibleDocuments.length} {visibleDocuments.length === 1 ? 'Document' : 'Documents'}
                             {selectedIds.size > 0 && (
                                 <span className="text-sky-400 ml-2">✓ {selectedIds.size} selected</span>
                             )}

@@ -8,13 +8,38 @@
  */
 import React from 'react';
 import { createLogger } from '../../../utils/createLogger';
-import { ArrowUpIcon, ArrowDownIcon, MinusIcon, GaugeIcon } from '../../Icons';
+import { ArrowUpIcon, ArrowDownIcon, MinusIcon, TideCurveIcon } from '../../Icons';
 import { Tide, UnitPreferences, HourlyForecast, TidePoint } from '../../../types';
 import { TideGUIDetails } from '../../../services/weather/api/tides';
 import { convertMetersTo } from '../../../utils';
 import { TideCanvas } from './TideCanvas';
 
 const log = createLogger('TideGraph');
+
+// Intl.DateTimeFormat construction is the expensive half of reading a
+// wall-clock time in another zone — keep one instance per zone and reuse it
+// across renders. Construction still throws on an unknown zone, so callers
+// keep their try/catch fallbacks; a failed construction is never cached.
+const hmFormatters = new Map<string, Intl.DateTimeFormat>();
+const hmFormatter = (tz?: string): Intl.DateTimeFormat => {
+    const key = tz ?? '';
+    let fmt = hmFormatters.get(key);
+    if (!fmt) {
+        fmt = new Intl.DateTimeFormat('en-US', { timeZone: tz, hour: 'numeric', minute: 'numeric', hour12: false });
+        hmFormatters.set(key, fmt);
+    }
+    return fmt;
+};
+const labelFormatters = new Map<string, Intl.DateTimeFormat>();
+const labelFormatter = (tz?: string): Intl.DateTimeFormat => {
+    const key = tz ?? '';
+    let fmt = labelFormatters.get(key);
+    if (!fmt) {
+        fmt = new Intl.DateTimeFormat('en-US', { timeZone: tz, hour: 'numeric', minute: '2-digit', hour12: true });
+        labelFormatters.set(key, fmt);
+    }
+    return fmt;
+};
 
 export const TideGraphOriginal = ({
     tides,
@@ -54,12 +79,7 @@ export const TideGraphOriginal = ({
 
     const getDecimalHour = (date: Date, tz?: string) => {
         try {
-            const parts = new Intl.DateTimeFormat('en-US', {
-                timeZone: tz,
-                hour: 'numeric',
-                minute: 'numeric',
-                hour12: false,
-            }).formatToParts(date);
+            const parts = hmFormatter(tz).formatToParts(date);
             const h = parseInt(parts.find((p) => p.type === 'hour')?.value || '0');
             const m = parseInt(parts.find((p) => p.type === 'minute')?.value || '0');
             return h + m / 60;
@@ -80,21 +100,24 @@ export const TideGraphOriginal = ({
     };
 
     // --- HELPER: EXACT COSINE INTERPOLATION ---
-    const calculateTideHeightAt = (t: number, sortedTides: Tide[]) => {
+    // Takes the extremes with hour + converted height already resolved: the
+    // 241-sample sweep below used to re-parse every extreme's date and
+    // re-convert its height on every sample.
+    const calculateTideHeightAt = (t: number, sortedTides: { hour: number; height: number }[]) => {
         let t1 = -999;
         let t2 = 999;
         let h1 = 0;
         let h2 = 0;
 
         for (let i = 0; i < sortedTides.length - 1; i++) {
-            const timeA = getHourFromMidnight(sortedTides[i].time);
-            const timeB = getHourFromMidnight(sortedTides[i + 1].time);
+            const timeA = sortedTides[i].hour;
+            const timeB = sortedTides[i + 1].hour;
 
             if (t >= timeA && t <= timeB) {
                 t1 = timeA;
                 t2 = timeB;
-                h1 = convertMetersTo(sortedTides[i].height, unitPref.tideHeight || 'm') || 0;
-                h2 = convertMetersTo(sortedTides[i + 1].height, unitPref.tideHeight || 'm') || 0;
+                h1 = sortedTides[i].height;
+                h2 = sortedTides[i + 1].height;
                 break;
             }
         }
@@ -107,12 +130,10 @@ export const TideGraphOriginal = ({
         }
 
         // Fallback: Nearest Neighbor
-        const nearest = sortedTides.reduce((prev, curr) => {
-            const timeC = getHourFromMidnight(curr.time);
-            const timeP = getHourFromMidnight(prev.time);
-            return Math.abs(timeC - t) < Math.abs(timeP - t) ? curr : prev;
-        });
-        return convertMetersTo(nearest.height, unitPref.tideHeight || 'm') || 0;
+        const nearest = sortedTides.reduce((prev, curr) =>
+            Math.abs(curr.hour - t) < Math.abs(prev.hour - t) ? curr : prev,
+        );
+        return nearest.height;
     };
 
     // --- SMART DATA GENERATION (MEMOIZED) ---
@@ -121,7 +142,12 @@ export const TideGraphOriginal = ({
 
         // Priority 1: WorldTides (Authoritative Extremes) - Use Sine Interpolation
         if (tides && tides.length > 0) {
-            const sortedTides = [...tides].sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+            const sortedTides = [...tides]
+                .sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime())
+                .map((tide) => ({
+                    hour: getHourFromMidnight(tide.time),
+                    height: convertMetersTo(tide.height, unitPref.tideHeight || 'm') || 0,
+                }));
             for (let t = 0; t <= 24; t += 0.1) {
                 const h = calculateTideHeightAt(t, sortedTides);
                 points.push({ time: t, height: h });
@@ -157,45 +183,38 @@ export const TideGraphOriginal = ({
     }, [tides, currentHour, unitPref.tideHeight, hourlyTides, tideSeries]);
 
     // --- COMPREHENSIVE MARKERS (Next ~48h) ---
-    const allMarkers = tides
-        ? (tides
-              .map((t) => {
-                  const time = getHourFromMidnight(t.time);
-                  if (time >= -12 && time <= 48) {
-                      const hVal = convertMetersTo(t.height, unitPref.tideHeight || 'm') || 0;
+    // Memoised on the same minute-granular clock as dataPoints: re-formatting
+    // every extreme's label on each render was the other per-render Intl cost.
+    const allMarkers = React.useMemo(() => {
+        if (!tides) return [] as { time: number; height: number; type: 'High' | 'Low'; labelTime: string }[];
+        return tides
+            .map((t) => {
+                const time = getHourFromMidnight(t.time);
+                if (time >= -12 && time <= 48) {
+                    const hVal = convertMetersTo(t.height, unitPref.tideHeight || 'm') || 0;
 
-                      let labelTime = '';
-                      try {
-                          labelTime = new Date(t.time).toLocaleTimeString('en-US', {
-                              timeZone: timeZone,
-                              hour: 'numeric',
-                              minute: '2-digit',
-                              hour12: true,
-                          });
-                      } catch (_e) {
-                          labelTime = new Date(t.time).toLocaleTimeString('en-US', {
-                              hour: 'numeric',
-                              minute: '2-digit',
-                              hour12: true,
-                          });
-                      }
+                    let labelTime = '';
+                    try {
+                        labelTime = labelFormatter(timeZone).format(new Date(t.time));
+                    } catch (_e) {
+                        labelTime = labelFormatter(undefined).format(new Date(t.time));
+                    }
 
-                      return { time, height: hVal, type: t.type, labelTime };
-                  }
-                  return null;
-              })
-              .filter(Boolean) as { time: number; height: number; type: 'High' | 'Low'; labelTime: string }[])
-        : [];
+                    return { time, height: hVal, type: t.type, labelTime };
+                }
+                return null;
+            })
+            .filter(Boolean) as { time: number; height: number; type: 'High' | 'Low'; labelTime: string }[];
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [tides, timeZone, unitPref.tideHeight, currentHour, customTime]);
 
-    const visibleMarkers = allMarkers.filter((m) => m.time >= 0 && m.time <= 24);
+    const visibleMarkers = React.useMemo(() => allMarkers.filter((m) => m.time >= 0 && m.time <= 24), [allMarkers]);
 
     if (dataPoints.length === 0) {
         return (
             <div className="flex flex-col items-center justify-center h-full opacity-60">
-                <GaugeIcon className="w-8 h-8 text-gray-400 mb-2" />
-                <span className="text-[11px] uppercase font-bold text-gray-400 tracking-widest">
-                    Awaiting Telemetry
-                </span>
+                <TideCurveIcon className="w-8 h-8 text-gray-400 mb-2" />
+                <span className="text-[11px] uppercase font-bold text-gray-400 tracking-widest">No tide data</span>
             </div>
         );
     }
@@ -280,7 +299,7 @@ export const TideGraphOriginal = ({
                         <div className="flex items-baseline gap-1.5 pointer-events-auto">
                             <span className={heroLabelClass}>Height</span>
                             <div className="flex items-baseline gap-0.5">
-                                <span className="text-sm font-bold text-white tracking-tight leading-none font-mono">
+                                <span className="text-xl font-bold text-white tracking-tight leading-none font-mono">
                                     {currentHeight.toFixed(1)}
                                 </span>
                                 <span className="text-[11px] text-sky-200 font-medium">{unit}</span>
@@ -302,7 +321,7 @@ export const TideGraphOriginal = ({
                                 <div key={idx} className="flex items-start gap-1.5">
                                     <span className={`${heroLabelClass} mt-[2px]`}>{event!.type}</span>
                                     <div className="flex flex-col items-end">
-                                        <span className="text-sm font-bold text-white tracking-tight leading-none font-mono">
+                                        <span className="text-base font-bold text-white tracking-tight leading-none font-mono">
                                             {(() => {
                                                 // Round to whole minutes FIRST, then split — rounding the
                                                 // fraction alone produced "HH:60" (audit 2026-09-02).

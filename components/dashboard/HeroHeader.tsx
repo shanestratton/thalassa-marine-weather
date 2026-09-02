@@ -307,7 +307,7 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                                 <ConditionText text={displayCondition} />
                             </div>
                             {timeLabel && (
-                                <span className="text-sky-400/70 text-[11px] font-bold font-mono leading-none mt-1">
+                                <span className="text-sky-300 text-sm font-bold font-mono leading-none mt-1">
                                     {timeLabel}
                                 </span>
                             )}

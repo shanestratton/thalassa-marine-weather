@@ -2115,7 +2115,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                     {
                                         label: 'Fastest avg',
                                         value: `${records.fastestAvgKts.toFixed(1)}`,
-                                        unit: 'kt',
+                                        unit: 'kts',
                                         icon: '⚡',
                                     },
                                     {
@@ -2611,8 +2611,9 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                         </p>
                                     </div>
                                 ) : (
-                                    loggedVoyages.map((summary) => (
+                                    loggedVoyages.map((summary, voyageIdx) => (
                                         <VoyageCard
+                                            showSwipeHint={voyageIdx === 0}
                                             suppressMiniMap={showTrackMap || liveMapExpanded}
                                             recordBadge={
                                                 records.voyageCount >= 2

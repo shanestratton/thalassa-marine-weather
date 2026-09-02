@@ -112,7 +112,7 @@ export const WatchAssignSheet: React.FC<WatchAssignSheetProps> = ({
                             onClick={onClose}
                             type="button"
                             aria-label="Close"
-                            className="shrink-0 p-2 -mr-2 -mt-1 text-slate-400 hover:text-white"
+                            className="hit-target-44 shrink-0 p-2 -mr-2 -mt-1 text-slate-400 hover:text-white"
                         >
                             <svg
                                 className="w-5 h-5"

@@ -1,5 +1,4 @@
 import React from 'react';
-import { t } from '../../theme';
 
 /**
  * Skeleton loader for HeroSlide cards
@@ -24,30 +23,5 @@ export const HeroSlideSkeleton: React.FC<{ count?: number }> = ({ count = 1 }) =
         </>
     );
 };
-
-/**
- * Skeleton for vertical hourly cards
- */
-export const HourlyCardSkeleton: React.FC = () => (
-    <div
-        className={`w-20 h-32 shrink-0 bg-linear-to-b from-white/5 to-white/2 rounded-lg ${t.border.subtle} animate-pulse flex flex-col items-center justify-center gap-2 p-2`}
-    >
-        <div className="h-3 w-8 bg-white/10 rounded-sm" />
-        <div className="h-6 w-6 bg-white/10 rounded-full" />
-        <div className="h-4 w-10 bg-white/10 rounded-sm" />
-        <div className="h-3 w-8 bg-white/5 rounded-sm" />
-    </div>
-);
-
-/**
- * Skeleton for widget grid
- */
-export const WidgetGridSkeleton: React.FC<{ rows?: number; cols?: number }> = ({ rows = 2, cols = 5 }) => (
-    <div className={`grid grid-cols-${cols} gap-2`}>
-        {Array.from({ length: rows * cols }).map((_, i) => (
-            <div key={i} className="h-14 bg-white/5 rounded-lg animate-pulse" />
-        ))}
-    </div>
-);
 
 export default HeroSlideSkeleton;

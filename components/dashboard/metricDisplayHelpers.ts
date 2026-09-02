@@ -7,7 +7,7 @@
  * stay in sync — same rounding rules, same null handling, same labels.
  */
 import { WeatherMetrics, UnitPreferences } from '../../types';
-import { convertSpeed, convertLength, convertDistance, convertTemp } from '../../utils';
+import { convertSpeed, convertLength, convertDistance } from '../../utils';
 
 export interface PinnedMetricDisplay {
     /** Short uppercase label (e.g. "WIND", "HPA", "UV") */
@@ -116,19 +116,4 @@ export function getPinnedMetricDisplay(
         default:
             return null;
     }
-}
-
-/**
- * Temperature display for the hero slot — shared between the default
- * rendering (heroMetric='temp') and the grid-cell-temp rendering (when
- * a different metric is pinned and temp has moved into the grid).
- */
-export function getTemperatureDisplay(data: WeatherMetrics, units: UnitPreferences): PinnedMetricDisplay {
-    const t = data.airTemperature;
-    const value = t !== null && t !== undefined ? convertTemp(t, units.temp) : '--';
-    return {
-        label: 'TEMP',
-        value,
-        unit: `°${units.temp || 'C'}`,
-    };
 }

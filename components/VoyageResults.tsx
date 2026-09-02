@@ -517,7 +517,7 @@ export const VoyageResults: React.FC<VoyageResultsProps> = React.memo(
                     {/* EMERGENCY & CONTINGENCY */}
                     <AccordionSection
                         title="Emergency & Contingency"
-                        subtitle="Safe Harbors & Emergency Procedures"
+                        subtitle="Safe Harbours & Emergency Procedures"
                         icon={<AlertTriangleIcon className="w-5 h-5" />}
                         accent="red"
                         defaultOpen={false}
