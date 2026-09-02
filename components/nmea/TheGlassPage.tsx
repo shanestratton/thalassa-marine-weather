@@ -18,6 +18,7 @@
  */
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { BarometerGauge } from './gauges/BarometerGauge';
+import { RudderGauge } from './gauges/RudderGauge';
 import { useBarometerSource } from '../../hooks/useBarometerSource';
 import { hpaToInHg, observedTendency, type TendencySeverity } from '../../utils/barometerTendency';
 import * as barometerService from '../../services/native/barometer';
@@ -1774,33 +1775,15 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                             <div className="flex-1 min-h-0 flex flex-col justify-evenly">
                                 {rudder.value !== null ? (
                                     <>
-                                        {/* Rudder bar — port red left, starboard green right,
-                                            nav-light convention. */}
-                                        <div className="text-center">
-                                            <p className="text-6xl font-black tabular-nums font-mono text-white leading-none">
-                                                {Math.abs(rudder.value).toFixed(1)}°
-                                                <span
-                                                    className={`text-xl ml-2 ${
-                                                        rudder.value < -0.3
-                                                            ? 'text-rose-400'
-                                                            : rudder.value > 0.3
-                                                              ? 'text-emerald-400'
-                                                              : 'text-gray-500'
-                                                    }`}
-                                                >
-                                                    {rudder.value < -0.3 ? 'PORT' : rudder.value > 0.3 ? 'STBD' : 'MID'}
-                                                </span>
-                                            </p>
-                                            <div className="mt-3 mx-auto max-w-xs relative h-3 rounded-full bg-white/6 overflow-hidden">
-                                                <div className="absolute inset-y-0 left-1/2 w-px bg-white/30" />
-                                                <div
-                                                    className={`absolute inset-y-0 ${rudder.value >= 0 ? 'left-1/2 bg-emerald-400/70' : 'right-1/2 bg-rose-400/70'}`}
-                                                    style={{
-                                                        width: `${Math.min(50, (Math.abs(rudder.value) / 40) * 50)}%`,
-                                                    }}
-                                                />
-                                            </div>
-                                        </div>
+                                        {/* The rudder as a DIAL rather than a bar (Shane
+                                            2026-09-02: "a round guage that literally shows
+                                            you where the rudder is like 0 is middle"). This
+                                            is the one instrument whose reading is a physical
+                                            position, so a needle sitting where the blade sits
+                                            beats a length you have to convert. Colours and
+                                            the amidships dead-band are unchanged from the
+                                            bar, so only the shape is new. */}
+                                        <RudderGauge angle={rudder.value} freshness={rudder.freshness} />
                                         {helm && helm.ok ? (
                                             <div
                                                 className={`rounded-2xl border p-4 ${
