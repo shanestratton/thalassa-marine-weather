@@ -19,6 +19,7 @@
  * why the tendency, not the band, carries the advice elsewhere on the page.
  */
 import React, { useMemo } from 'react';
+import { describeArc, polarToCart, uprightRotation } from './gaugeGeometry';
 
 interface BarometerGaugeProps {
     /** Current pressure, hPa. Null renders a dead face rather than a lie. */
@@ -62,33 +63,11 @@ const NEEDLE_COLOR: Record<NonNullable<BarometerGaugeProps['severity']>, string>
     warn: '#f87171',
 };
 
-function polarToCart(cx: number, cy: number, r: number, angleDeg: number) {
-    const rad = ((angleDeg - 90) * Math.PI) / 180;
-    return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) };
-}
-
-function describeArc(cx: number, cy: number, r: number, startDeg: number, endDeg: number) {
-    const s = polarToCart(cx, cy, r, startDeg);
-    const e = polarToCart(cx, cy, r, endDeg);
-    const largeArc = endDeg - startDeg > 180 ? 1 : 0;
-    return `M ${s.x} ${s.y} A ${r} ${r} 0 ${largeArc} 1 ${e.x} ${e.y}`;
-}
-
 /** hPa → dial angle, clamped so an off-scale reading pins at the stop
  *  instead of spinning the needle somewhere meaningless. */
 function angleFor(hpa: number): number {
     const clamped = Math.max(MIN_HPA, Math.min(MAX_HPA, hpa));
     return START_ANGLE + ((clamped - MIN_HPA) / (MAX_HPA - MIN_HPA)) * SWEEP;
-}
-
-/**
- * Tangential text rotation that never reads upside down. Dial angles run past
- * 360 once the sweep starts at 225, so the lower-half test has to be made on a
- * normalised angle — otherwise every label past the top silently flips back.
- */
-function uprightRotation(angleDeg: number): number {
-    const a = ((angleDeg % 360) + 360) % 360;
-    return a > 90 && a < 270 ? a + 180 : a;
 }
 
 export const BarometerGauge: React.FC<BarometerGaugeProps> = ({
