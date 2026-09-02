@@ -92,8 +92,16 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
 
             {actionLabel && onAction && (
                 <button
-                    onClick={onAction}
-                    className="mt-4 px-5 py-2.5 rounded-xl bg-sky-500/15 border border-sky-500/30 text-sky-400 text-xs font-bold uppercase tracking-wider hover:bg-sky-500/25 transition-all active:scale-95"
+                    /* Called with NO arguments, on purpose. Passing the handler
+                       straight to onClick handed the MouseEvent to whatever the
+                       caller wired in — and the Ship's Office loaders take an
+                       identity scope as their first (defaulted) parameter, so
+                       the event landed in that slot, the identity guard bailed,
+                       and "Try again" did nothing at all (MaintenanceHub,
+                       InventoryList; found by the 2026-09-02 audit). Fixed here
+                       once rather than at every call site. */
+                    onClick={() => onAction()}
+                    className="mt-4 min-h-[44px] px-5 py-2.5 rounded-xl bg-sky-500/15 border border-sky-500/30 text-sky-400 text-xs font-bold uppercase tracking-wider hover:bg-sky-500/25 transition-all active:scale-95"
                 >
                     {actionLabel}
                 </button>
@@ -101,7 +109,7 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
 
             {secondaryLabel && onSecondary && (
                 <button
-                    onClick={onSecondary}
+                    onClick={() => onSecondary()}
                     className="mt-2 px-4 py-1.5 min-h-[44px] text-[11px] text-gray-500 hover:text-gray-300 transition-colors"
                 >
                     {secondaryLabel}
