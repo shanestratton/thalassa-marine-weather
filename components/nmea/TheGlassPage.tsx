@@ -18,6 +18,10 @@
  */
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { BarometerGauge } from './gauges/BarometerGauge';
+import { ShipsBellClock } from './gauges/ShipsBellClock';
+import { ShipsBellAlarmService, type BellAlarm } from '../../services/ShipsBellAlarmService';
+import { clockInZone, deviceTimeZone, listTimeZones, zoneDisplayName } from '../../utils/timeZones';
+import { bellsAt, bellsSpoken, nextBellFrom, watchAt } from '../../utils/shipsBells';
 import { HeadingGauge } from './gauges/HeadingGauge';
 import { RudderGauge } from './gauges/RudderGauge';
 import { useBarometerSource } from '../../hooks/useBarometerSource';
@@ -39,6 +43,7 @@ import { SailPlanDiagram } from './gauges/SailPlanDiagram';
 import { SailPartsDiagram } from './gauges/SailPartsDiagram';
 import { useUnwrappedAngle } from './gauges/useUnwrappedAngle';
 import { triggerHaptic } from '../../utils/system';
+import { toast } from '../Toast';
 import { PageHeader } from '../ui/PageHeader';
 import { ModalSheet } from '../ui/ModalSheet';
 import { useDeviceClass, pickByDevice } from '../../utils/useDeviceClass';
@@ -761,7 +766,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
            the rail jumps by INDEX (scrollTop / clientHeight), so a name missing
            here does not just lose a dot, it shifts every dot after it onto the
            wrong instrument. */
-        const base = ['Wind', 'Barometer', 'Position', 'Speed', 'Depth', 'Heading', 'Helm'];
+        const base = ['Wind', 'Barometer', 'Position', 'Speed', 'Depth', 'Heading', 'Helm', 'Clock'];
         return isSereneSummer ? [...base, 'Sail Plan'] : base;
     }, [isSereneSummer]);
     const onPanelScroll = useCallback(() => {
@@ -825,6 +830,83 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
     // moved, the whole silent stretch was integrated at the NEW speed. The
     // trapezoid (mean of previous and current speed) is what makes the sum
     // honest across a change (audit 2026-09-02).
+    // ── The bulkhead clock ──
+    // A second-by-second tick, because the sweep hand is half the point of a
+    // clock like this. Cheap: one setState a second, and only this section
+    // reads it.
+    const [clockNow, setClockNow] = useState(() => new Date());
+    useEffect(() => {
+        const id = setInterval(() => setClockNow(new Date()), 1000);
+        return () => clearInterval(id);
+    }, []);
+    const [clockZone, setClockZone] = useState<string>(() => {
+        try {
+            return localStorage.getItem('thalassa_clock_zone') || deviceTimeZone();
+        } catch {
+            return deviceTimeZone();
+        }
+    });
+    useEffect(() => {
+        try {
+            localStorage.setItem('thalassa_clock_zone', clockZone);
+        } catch {
+            /* a clock that cannot remember its zone still keeps time */
+        }
+    }, [clockZone]);
+    const zoneOptions = useMemo(() => listTimeZones(), []);
+    const zoneClock = clockInZone(clockNow, clockZone);
+    const [bellAlarms, setBellAlarms] = useState<BellAlarm[]>([]);
+    useEffect(() => {
+        void ShipsBellAlarmService.list().then(setBellAlarms);
+    }, []);
+
+    /**
+     * The times a skipper actually asks for: the next bell, and the next two
+     * watch changes. Computed in the DEVICE's clock, not the displayed zone —
+     * the phone's alarm fires on the phone's own time, and an alarm that fires
+     * an hour out because the face was showing UTC would be the worst bug this
+     * page could have.
+     */
+    const alarmChoices = useMemo(() => {
+        const out: Array<{ label: string; at: Date }> = [];
+        const bellAt = nextBellFrom(clockNow);
+        out.push({
+            label: `Next bell · ${bellsSpoken(bellsAt(bellAt.getHours(), bellAt.getMinutes()))}`,
+            at: bellAt,
+        });
+        const cursor = new Date(clockNow.getTime());
+        cursor.setMinutes(0, 0, 0);
+        for (let i = 0; i < 24 && out.length < 3; i++) {
+            cursor.setHours(cursor.getHours() + 1);
+            const w = watchAt(cursor.getHours(), 0);
+            if (w.startHour === cursor.getHours()) {
+                out.push({
+                    label: `${w.name} · ${String(cursor.getHours()).padStart(2, '0')}00`,
+                    at: new Date(cursor),
+                });
+            }
+        }
+        return out;
+        // Recomputed each minute, not each second: the choices only change on
+        // the half hour, and re-rendering three buttons every tick is waste.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [Math.floor(clockNow.getTime() / 60_000)]);
+
+    const handleSetBellAlarm = useCallback(async (choice: { label: string; at: Date }) => {
+        const alarm = await ShipsBellAlarmService.schedule(choice.at, choice.label);
+        if (!alarm) {
+            toast.error('Could not set that alarm — check notification permission.');
+            return;
+        }
+        setBellAlarms(await ShipsBellAlarmService.list());
+        triggerHaptic('light');
+    }, []);
+
+    const handleCancelBellAlarm = useCallback(async (id: number) => {
+        await ShipsBellAlarmService.cancel(id);
+        setBellAlarms(await ShipsBellAlarmService.list());
+    }, []);
+
     const [tripDist, setTripDist] = useState<number>(0);
     const lastSogTime = useRef<number>(0);
     const lastSogValue = useRef<number | null>(null);
@@ -1725,6 +1807,94 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                         </p>
                                     </div>
                                 )}
+                            </div>
+                        </section>
+
+                        {/* ── SECTION: CLOCK ──
+                            The bulkhead clock, and the only thing on this page
+                            that is not an instrument reading the boat. It reads
+                            the PHONE, which is the one clock aboard that is
+                            never wrong, and it says which zone it is keeping —
+                            a boat crosses them, and ship's time is a choice
+                            somebody made rather than a fact.
+
+                            Shane 2026-09-03: "build a beautiful chelsea ships
+                            bell clock… the whole works." */}
+                        <section
+                            className={`w-full h-full snap-start snap-always shrink-0 overflow-hidden flex flex-col ${containerPx} pt-1 ${sectionPb}`}
+                        >
+                            <SectionPlate title="Clock" />
+                            <div className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-3 pb-2">
+                                <ShipsBellClock
+                                    hour={zoneClock.hour}
+                                    minute={zoneClock.minute}
+                                    second={zoneClock.second}
+                                    zoneLabel={zoneClock.label}
+                                />
+
+                                <label className="flex items-center gap-2 px-1">
+                                    <span className="text-xs font-black uppercase tracking-widest text-gray-400 shrink-0">
+                                        Zone
+                                    </span>
+                                    <select
+                                        value={clockZone}
+                                        onChange={(e) => setClockZone(e.target.value)}
+                                        aria-label="Clock time zone"
+                                        className="flex-1 min-w-0 min-h-[44px] rounded-xl border border-white/10 bg-white/5 px-3 text-sm text-white"
+                                    >
+                                        {zoneOptions.map((z) => (
+                                            <option key={z} value={z} className="bg-slate-900">
+                                                {zoneDisplayName(z)}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </label>
+
+                                {/* Watch alarms. The offered times are the ones a
+                                    skipper actually asks for — the next bell, and
+                                    the next two watch changes — because "wake me
+                                    for my watch" is the whole use. */}
+                                <div className="px-1">
+                                    <p className="text-xs font-black uppercase tracking-widest text-gray-400 mb-2">
+                                        Wake me
+                                    </p>
+                                    <div className="flex flex-wrap gap-2">
+                                        {alarmChoices.map((choice) => (
+                                            <button
+                                                key={choice.label}
+                                                onClick={() => void handleSetBellAlarm(choice)}
+                                                className="min-h-[44px] px-3 rounded-xl border border-amber-400/30 bg-amber-400/10 text-sm font-bold text-amber-200 active:scale-95 transition-all"
+                                            >
+                                                {choice.label}
+                                            </button>
+                                        ))}
+                                    </div>
+                                    {bellAlarms.length > 0 && (
+                                        <ul className="mt-3 space-y-1.5">
+                                            {bellAlarms.map((a) => (
+                                                <li
+                                                    key={a.id}
+                                                    className="flex items-center justify-between gap-2 rounded-xl bg-white/4 px-3 py-2"
+                                                >
+                                                    <span className="text-sm text-white truncate">
+                                                        {a.label} ·{' '}
+                                                        {new Date(a.at).toLocaleTimeString([], {
+                                                            hour: '2-digit',
+                                                            minute: '2-digit',
+                                                        })}
+                                                    </span>
+                                                    <button
+                                                        onClick={() => void handleCancelBellAlarm(a.id)}
+                                                        aria-label={`Cancel the ${a.label} alarm`}
+                                                        className="min-h-[44px] px-3 text-sm font-bold text-rose-300 shrink-0"
+                                                    >
+                                                        Cancel
+                                                    </button>
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    )}
+                                </div>
                             </div>
                         </section>
 
