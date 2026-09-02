@@ -15,6 +15,7 @@ import { CompassRose } from './CompassRose';
 import { WindBarb, windBarbColor } from './WindBarb';
 import { fetchWindGrid, type WindSample } from '../windField';
 import { classifyNearbyVesselFreshness, formatPublicAge, isPublicPositionFresh } from '../publicVoyageFreshness';
+import { shipTypeLabel, vesselColor } from '../aisShipType';
 
 // Wind barbs are a skipper's tool, not a viewer's — the public page is for
 // following a boat, and the control was competing with the base-map switcher in
@@ -54,18 +55,6 @@ interface MapContainerProps {
      *  change (Shane 2026-07-15: "when I close the side card, can the
      *  map fill the void left behind"). */
     resizeSignal?: number;
-}
-
-/** Hex fill for an AIS contact's triangle, by ship-type substring. */
-function vesselColor(shipType: string | null | undefined): string {
-    const t = (shipType ?? '').toLowerCase();
-    if (t.includes('tanker')) return '#f87171'; // red
-    if (t.includes('cargo')) return '#fbbf24'; // amber
-    if (t.includes('passenger')) return '#38bdf8'; // sky
-    if (t.includes('fishing')) return '#34d399'; // emerald
-    if (t.includes('sailing') || t.includes('pleasure') || t.includes('yacht')) return '#a78bfa'; // violet
-    if (t.includes('tug') || t.includes('pilot') || t.includes('sar') || t.includes('law')) return '#fb923c'; // orange
-    return '#94a3b8'; // slate
 }
 
 const STYLES = {
@@ -908,10 +897,11 @@ export default function MapContainer({
                                 {selectedVesselDisplay.freshness === 'fresh' ? 'Updated' : 'Last known'} ·{' '}
                                 {selectedVesselDisplay.ageLabel}
                             </p>
-                            {(popupVessel.ship_type || popupVessel.loa || popupVessel.flag_country) && (
+                            {(shipTypeLabel(popupVessel.ship_type) || popupVessel.loa || popupVessel.flag_country) && (
                                 <p className="text-[10px] text-slate-400 uppercase tracking-wider mb-1.5 truncate">
                                     {[
-                                        popupVessel.ship_type,
+                                        /* A word, never the raw AIS code — "36" tells a punter nothing. */
+                                        shipTypeLabel(popupVessel.ship_type),
                                         popupVessel.loa ? `${Math.round(popupVessel.loa)} m` : null,
                                         popupVessel.flag_country,
                                     ]
