@@ -476,7 +476,9 @@ export const EssentialMapSlide: React.FC<EssentialMapSlideProps> = ({
         const s = units?.speed ?? 'knots';
         return Math.round(convertSpeed(windSpeed, s) || 0);
     }, [windSpeed, units?.speed]);
-    const speedUnit = units?.speed === 'mph' ? 'mph' : units?.speed === 'kmh' ? 'km/h' : 'kts';
+    // 'mps' was missing: the value converted to metres per second and the badge said 'kts' (audit 2026-09-02).
+    const speedUnit =
+        units?.speed === 'mph' ? 'mph' : units?.speed === 'kmh' ? 'km/h' : units?.speed === 'mps' ? 'm/s' : 'kts';
     const windLabel = windDirection != null ? degreesToCardinal(windDirection) : '';
 
     // Range rings adapt to zoom: the smaller dimension's edge is 300/zoom nm

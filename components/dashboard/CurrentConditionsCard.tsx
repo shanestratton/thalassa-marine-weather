@@ -1,6 +1,6 @@
 import React from 'react';
 import { WeatherMetrics, UnitPreferences } from '../../types';
-import { convertSpeed, convertDistance } from '../../utils';
+import { convertSpeed, convertDistance, convertPrecip } from '../../utils';
 import { DropletIcon, EyeIcon } from '../Icons';
 import { AnimatedSunIcon, AnimatedRainIcon } from '../ui/AnimatedIcons';
 
@@ -29,8 +29,14 @@ export const CurrentConditionsCard: React.FC<CurrentConditionsCardProps> = React
             ? Math.round(convertSpeed(data.windSpeed, units.speed) ?? 0)
             : '--';
     const windDir = data.windDirection || '--';
-    const rainChance =
-        data.precipitation !== null && data.precipitation !== undefined ? `${Math.round(data.precipitation)}%` : '--';
+    // `precipitation` is an AMOUNT in millimetres, not a probability — this cell
+    // appended '%' to it (audit 2026-09-02). convertPrecip returns a formatted
+    // inch string for Fahrenheit users (unit mark embedded) and mm otherwise.
+    const rainAmount =
+        data.precipitation !== null && data.precipitation !== undefined
+            ? (convertPrecip(data.precipitation, units.temp) ?? '0')
+            : '--';
+    const rainUnit = units.temp === 'F' || rainAmount === '--' ? '' : 'mm';
     const uvIndex =
         data.uvIndex !== null && data.uvIndex !== undefined && !isNaN(data.uvIndex) ? Math.round(data.uvIndex) : '--';
     const humidity = data.humidity !== null && data.humidity !== undefined ? `${Math.round(data.humidity)}%` : '--';
@@ -109,7 +115,10 @@ export const CurrentConditionsCard: React.FC<CurrentConditionsCardProps> = React
                         <AnimatedRainIcon className="w-3 h-3 text-emerald-400" />
                         <span className="text-xs font-bold text-emerald-400 uppercase tracking-wider">Rain</span>
                     </div>
-                    <span className="text-2xl font-mono font-medium text-ivory tracking-tight mt-1">{rainChance}</span>
+                    <div className="flex items-baseline mt-1">
+                        <span className="text-2xl font-mono font-medium text-ivory tracking-tight">{rainAmount}</span>
+                        {rainUnit && <span className="text-[11px] text-white/60 font-medium ml-0.5">{rainUnit}</span>}
+                    </div>
                 </div>
             </div>
         </div>
