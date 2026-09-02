@@ -40,7 +40,7 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
                 <div className="flex flex-col gap-2">
                     {/* Task Type Selector */}
                     <div>
-                        <label className="text-micro text-gray-400 font-bold uppercase tracking-wider block mb-1">
+                        <label className="text-label text-gray-400 font-bold uppercase tracking-wider block mb-1">
                             Type
                         </label>
                         <div className="grid grid-cols-2 gap-2">
@@ -78,7 +78,7 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
                     {/* Category chips — only for Maintenance type */}
                     {form.taskType === 'maintenance' && (
                         <div>
-                            <label className="text-micro text-gray-400 font-bold uppercase tracking-wider block mb-1">
+                            <label className="text-label text-gray-400 font-bold uppercase tracking-wider block mb-1">
                                 Category
                             </label>
                             <div className="grid grid-cols-3 gap-1.5">
@@ -123,7 +123,7 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
                     {/* Trigger type — hidden for Repair */}
                     {form.category !== 'Repair' && (
                         <div>
-                            <label className="text-micro text-gray-400 font-bold uppercase tracking-wider block mb-1">
+                            <label className="text-label text-gray-400 font-bold uppercase tracking-wider block mb-1">
                                 Schedule
                             </label>
                             <div className="grid grid-cols-3 gap-1.5">
@@ -149,14 +149,14 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
                     {form.trigger === 'engine_hours' && form.category !== 'Repair' && (
                         <div className="grid grid-cols-2 gap-2">
                             <FormField
-                                label="Interval (Hrs)"
+                                label="Interval (hours)"
                                 value={form.interval}
                                 onChange={(v) => setField('interval', v)}
                                 placeholder="200"
                                 inputMode="numeric"
                             />
                             <FormField
-                                label="Next Due (Hrs)"
+                                label="Next due (hours)"
                                 value={form.dueHours}
                                 onChange={(v) => setField('dueHours', v)}
                                 placeholder={String(engineHours + 200)}
@@ -172,7 +172,11 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
                             type="date"
                             value={form.dueDate}
                             onChange={(v) => setField('dueDate', v)}
-                            hint={`Repeats every ${TRIGGER_LABELS[form.trigger].replace('📅 ', '').toLowerCase()}`}
+                            hint={
+                                form.trigger === 'daily'
+                                    ? 'Checked before every trip'
+                                    : `Repeats every ${TRIGGER_LABELS[form.trigger].replace('📅 ', '').toLowerCase()}`
+                            }
                         />
                     )}
                 </div>
@@ -241,7 +245,7 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
             {/* Trigger type */}
             <div className="mb-4">
                 <label className="text-label text-gray-400 font-bold uppercase tracking-widest block mb-2">
-                    Trigger Type
+                    Schedule
                 </label>
                 <div className="grid grid-cols-3 gap-2">
                     {(Object.keys(TRIGGER_LABELS) as MaintenanceTriggerType[]).map((t) => (
@@ -262,7 +266,7 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
                 <>
                     <div className="mb-4">
                         <FormField
-                            label="Interval (Hours)"
+                            label="Interval (hours)"
                             value={form.interval}
                             onChange={(v) => setField('interval', v)}
                             placeholder="200"
@@ -271,7 +275,7 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
                     </div>
                     <div className="mb-6">
                         <FormField
-                            label="Next Due at (Hours)"
+                            label="Next due (hours)"
                             value={form.dueHours}
                             onChange={(v) => setField('dueHours', v)}
                             placeholder={String(engineHours + 200)}
@@ -285,7 +289,7 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
             {form.trigger !== 'engine_hours' && (
                 <div className="mb-6">
                     <FormField
-                        label="Next Due Date"
+                        label="Next due date"
                         type="date"
                         value={form.dueDate}
                         onChange={(v) => setField('dueDate', v)}

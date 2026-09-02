@@ -100,7 +100,6 @@ const AvNavPageDevelopment: React.FC<AvNavPageProps> = ({ onBack }) => {
 
     // ── AvNav chart state (still needed for chart list after connect) ──
     const [skStatus, setSkStatus] = useState<AvNavConnectionStatus>(AvNavService.getStatus());
-    const [_skApiVersion, setSkApiVersion] = useState<string | null>(AvNavService.getApiVersion());
 
     // ── "Connect All" state ──
     // DERIVED from the persisted wiring, with room for a session override.
@@ -193,7 +192,6 @@ const AvNavPageDevelopment: React.FC<AvNavPageProps> = ({ onBack }) => {
     const skConnected = skStatus === 'connected';
     const skConnecting = skStatus === 'connecting';
     const hasPiCache = network.services.some((s) => s.name === 'pi-cache');
-    const _hasAvNav = network.services.some((s) => s.name.startsWith('avnav'));
     const hasSignalK = network.services.some((s) => s.name === 'signalk');
     const hasNmea = network.services.some((s) => s.name === 'signalk-nmea');
 
@@ -214,7 +212,6 @@ const AvNavPageDevelopment: React.FC<AvNavPageProps> = ({ onBack }) => {
     useEffect(() => {
         const unsubSk = AvNavService.onStatusChange((s) => {
             setSkStatus(s);
-            setSkApiVersion(AvNavService.getApiVersion());
         });
 
         return () => {

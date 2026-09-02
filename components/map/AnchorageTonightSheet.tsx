@@ -163,7 +163,7 @@ export const AnchorageTonightSheet: React.FC<{
                             </div>
                             <button
                                 onClick={() => setOpen(false)}
-                                className="px-3 py-1 text-gray-400 text-xs font-black uppercase tracking-widest active:scale-95"
+                                className="min-h-[44px] px-3 py-1 text-gray-400 text-xs font-black uppercase tracking-widest active:scale-95"
                             >
                                 Close
                             </button>
@@ -204,7 +204,7 @@ export const AnchorageTonightSheet: React.FC<{
                                                 {r.name}
                                             </span>
                                             <span
-                                                className={`px-2 py-0.5 rounded-full text-[10px] font-black tracking-wider ${chip.cls}`}
+                                                className={`px-2 py-0.5 rounded-full text-sm font-black tracking-wider ${chip.cls}`}
                                             >
                                                 {chip.label}
                                             </span>
@@ -220,7 +220,7 @@ export const AnchorageTonightSheet: React.FC<{
                                 );
                             })}
                             {rows && (
-                                <div className="pt-3 text-[9px] text-gray-500 leading-relaxed">
+                                <div className="pt-3 text-xs text-gray-400 leading-relaxed">
                                     {swellUnknown && 'Swell data unavailable — roll unassessed. '}
                                     Advisory only — verify against official charts, the pilot and your own eyes before
                                     anchoring. Data: © OpenStreetMap contributors (ODbL), © GBRMPA (CC BY). Forecast:

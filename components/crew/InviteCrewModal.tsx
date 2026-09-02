@@ -57,10 +57,14 @@ export const InviteCrewModal: React.FC<InviteCrewModalProps> = ({
         <div className="p-6 space-y-5">
             {/* Email input */}
             <div>
-                <label className="text-[11px] uppercase font-bold text-gray-400 mb-1.5 ml-1 block tracking-wide">
+                <label
+                    htmlFor="invite-crew-email"
+                    className="text-[11px] uppercase font-bold text-gray-400 mb-1.5 ml-1 block tracking-wide"
+                >
                     Crew Email Address
                 </label>
                 <input
+                    id="invite-crew-email"
                     type="email"
                     value={inviteEmail}
                     onChange={(e) => onEmailChange(e.target.value)}

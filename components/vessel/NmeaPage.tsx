@@ -147,7 +147,7 @@ const GatewayRouteNote: React.FC<{ host: string }> = ({ host }) => {
 
     return (
         <div
-            className={`mb-3 rounded-xl border px-3 py-2 text-[11px] leading-snug ${
+            className={`mb-3 rounded-xl border px-3 py-2 text-sm leading-snug ${
                 tone === 'ok'
                     ? 'border-emerald-400/25 bg-emerald-500/10 text-emerald-200'
                     : tone === 'warn'
@@ -387,14 +387,14 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
                                 {isConnected
                                     ? 'Connected'
                                     : isConnecting
-                                      ? 'Connecting...'
+                                      ? 'Connecting…'
                                       : hasFailed
                                         ? 'Connection failed'
                                         : 'Disconnected'}
                             </h3>
                             {/* Show host:port when connected or connecting */}
                             {(isConnected || isConnecting || hasFailed) && (
-                                <span className="text-xs text-white/40 font-mono ml-auto">
+                                <span className="text-xs text-white/70 font-mono ml-auto">
                                     {host}:{port}
                                 </span>
                             )}
@@ -446,11 +446,11 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
                             <div className="mb-3 px-3 py-2 rounded-xl bg-amber-500/10 border border-amber-500/15">
                                 {reconnectAttempts > 0 && (
                                     <p className="text-xs text-amber-300 font-medium">
-                                        Reconnecting... attempt {reconnectAttempts}
+                                        Reconnecting… attempt {reconnectAttempts}
                                     </p>
                                 )}
                                 {lastError && (
-                                    <p className="mt-0.5 wrap-break-word text-[11px] leading-snug text-amber-200/70">
+                                    <p className="mt-0.5 wrap-break-word text-sm leading-snug text-amber-200">
                                         {lastError}
                                     </p>
                                 )}
@@ -516,7 +516,7 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
                                 <button
                                     onClick={handleConnect}
                                     aria-label="Connect NMEA"
-                                    className="flex-1 py-2.5 rounded-xl text-sm font-black uppercase tracking-widest transition-all active:scale-[0.97] bg-linear-to-r from-sky-600 to-sky-600 text-white shadow-lg shadow-sky-500/20 hover:from-sky-500 hover:to-sky-500"
+                                    className="flex-1 min-h-[44px] py-2.5 rounded-xl text-sm font-black uppercase tracking-widest transition-all active:scale-[0.97] bg-sky-600 text-white shadow-lg shadow-sky-500/20 hover:bg-sky-500"
                                 >
                                     Connect
                                 </button>
@@ -525,7 +525,7 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
                                 <button
                                     onClick={handleConnect}
                                     aria-label="Retry NMEA connection"
-                                    className="flex-1 py-2.5 rounded-xl text-sm font-black uppercase tracking-widest transition-all active:scale-[0.97] bg-linear-to-r from-sky-600 to-sky-600 text-white shadow-lg shadow-sky-500/20 hover:from-sky-500 hover:to-sky-500"
+                                    className="flex-1 min-h-[44px] py-2.5 rounded-xl text-sm font-black uppercase tracking-widest transition-all active:scale-[0.97] bg-sky-600 text-white shadow-lg shadow-sky-500/20 hover:bg-sky-500"
                                 >
                                     <div className="flex items-center justify-center gap-2">
                                         <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
@@ -537,7 +537,7 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
                                 <button
                                     onClick={handleDisconnect}
                                     aria-label="Disconnect NMEA"
-                                    className="flex-1 py-2.5 rounded-xl text-sm font-black uppercase tracking-widest transition-all active:scale-[0.97] bg-red-500/20 text-red-400 border border-red-500/20 hover:bg-red-500/30"
+                                    className="flex-1 min-h-[44px] py-2.5 rounded-xl text-sm font-black uppercase tracking-widest transition-all active:scale-[0.97] bg-red-500/20 text-red-400 border border-red-500/20 hover:bg-red-500/30"
                                 >
                                     Disconnect
                                 </button>

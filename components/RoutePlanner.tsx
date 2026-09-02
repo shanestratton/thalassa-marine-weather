@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { Suspense, useState, useEffect, useRef, useCallback } from 'react';
 import { createLogger } from '../utils/createLogger';
 
 const log = createLogger('RoutePlanner');
@@ -18,7 +18,6 @@ import {
 } from './Icons';
 import { SlideToAction } from './ui/SlideToAction';
 import { toast } from './Toast';
-import { MapHub } from './map/MapHub';
 import { DepartureWindowSheet } from './passage/DepartureWindowSheet';
 import { DepartureSweepSheet } from './passage/DepartureSweepSheet';
 import { ComfortQuickConfig } from './passage/ComfortQuickConfig';
@@ -31,6 +30,7 @@ import { consumeSavedRoutesLibraryOpen, requestTracerOpen } from '../services/de
 import { DepartControl } from './passage/DepartControl';
 import { TripLegPicker } from './passage/TripLegPicker';
 import { PlanOnWebHint } from './passage/PlanOnWebHint';
+import { lazyRetry } from '../utils/lazyRetry';
 
 // PLAN-tab morph (Shane 2026-07-16): this page is now the TRACER's front door
 // — Comfort + Trip/Leg stay up top, then Departure, then the three ways in
@@ -38,6 +38,11 @@ import { PlanOnWebHint } from './passage/PlanOnWebHint';
 // the chart plotting. The old origin/destination/date form + calculate flow is
 // PARKED behind this flag (wiring intact) — flip to true to resurrect.
 const LEGACY_PLANNER_FORM = false;
+// Lazy, like App.tsx: with the legacy form parked neither <MapHub> site below
+// can render, so the Plan tab must not pull the map chunk (mapbox-gl + leaflet)
+// on open. If the form is ever flipped back on, the map still mounts behind a
+// one-frame fallback.
+const MapHub = lazyRetry(() => import('./map/MapHub').then((m) => ({ default: m.MapHub })), 'MapHub_Planner');
 import { requestPassageMode, stagePassageRequest, type PassageHandoffDetail } from '../services/passageHandoff';
 import { scrollInputAboveKeyboard } from '../utils/keyboardScroll';
 import { PageHeader } from './ui/PageHeader';
@@ -196,12 +201,10 @@ export const RoutePlanner: React.FC<{
     // departureTime state removed 2026-05-05 — see comment near the
     // date input above. Time-of-day is set in Passage Planning.
 
-    const [_tempMapSelection, setTempMapSelection] = useState<{ lat: number; lon: number; name: string } | null>(null);
     const { setPage } = useUI();
     const mapDialogCloseRef = useRef<HTMLButtonElement>(null);
     const closeMapDialog = useCallback(() => {
         setIsMapOpen(false);
-        setTempMapSelection(null);
     }, [setIsMapOpen]);
     const mapDialogRef = useFocusTrap(isMapOpen, {
         initialFocusRef: mapDialogCloseRef,
@@ -622,34 +625,36 @@ export const RoutePlanner: React.FC<{
                         className="fixed inset-0 z-2000 bg-slate-900 flex flex-col"
                     >
                         <div className="relative flex-1">
-                            <MapHub
-                                mapboxToken={mapboxToken}
-                                hideTracer
-                                cleanPlanningMap
-                                pickerMode={!!mapSelectionTarget}
-                                pickerLabel={
-                                    mapSelectionTarget
-                                        ? `Tap to select ${mapSelectionTarget === 'origin' ? 'Origin' : 'Destination'}`
-                                        : undefined
-                                }
-                                initialZoom={8}
-                                center={
-                                    voyagePlan?.originCoordinates
-                                        ? {
-                                              lat: voyagePlan.originCoordinates.lat,
-                                              lon: voyagePlan.originCoordinates.lon,
-                                          }
-                                        : undefined
-                                }
-                                onLocationSelect={(lat, lon, name) => {
-                                    if (mapSelectionTarget) {
-                                        const selectionName =
-                                            name ||
-                                            `WP ${Math.abs(lat).toFixed(4)}°${lat >= 0 ? 'N' : 'S'}, ${Math.abs(lon).toFixed(4)}°${lon >= 0 ? 'E' : 'W'}`;
-                                        handleMapSelect(lat, lon, selectionName);
+                            <Suspense fallback={null}>
+                                <MapHub
+                                    mapboxToken={mapboxToken}
+                                    hideTracer
+                                    cleanPlanningMap
+                                    pickerMode={!!mapSelectionTarget}
+                                    pickerLabel={
+                                        mapSelectionTarget
+                                            ? `Tap to select ${mapSelectionTarget === 'origin' ? 'Origin' : 'Destination'}`
+                                            : undefined
                                     }
-                                }}
-                            />
+                                    initialZoom={8}
+                                    center={
+                                        voyagePlan?.originCoordinates
+                                            ? {
+                                                  lat: voyagePlan.originCoordinates.lat,
+                                                  lon: voyagePlan.originCoordinates.lon,
+                                              }
+                                            : undefined
+                                    }
+                                    onLocationSelect={(lat, lon, name) => {
+                                        if (mapSelectionTarget) {
+                                            const selectionName =
+                                                name ||
+                                                `WP ${Math.abs(lat).toFixed(4)}°${lat >= 0 ? 'N' : 'S'}, ${Math.abs(lon).toFixed(4)}°${lon >= 0 ? 'E' : 'W'}`;
+                                            handleMapSelect(lat, lon, selectionName);
+                                        }
+                                    }}
+                                />
+                            </Suspense>
                         </div>
 
                         <div
@@ -950,7 +955,7 @@ export const RoutePlanner: React.FC<{
                 <div className="shrink-0 px-4 pb-2">
                     <div className="max-w-xl mx-auto bg-red-500/10 border border-red-500/20 p-3 rounded-xl flex items-center gap-3 text-red-200 animate-in fade-in">
                         <AlertTriangleIcon className="w-4 h-4 shrink-0" />
-                        <p className="text-xs flex-1">{error}</p>
+                        <p className="text-sm flex-1">{error}</p>
                     </div>
                 </div>
             )}
@@ -964,7 +969,7 @@ export const RoutePlanner: React.FC<{
                             <div className="pointer-events-auto flex flex-wrap items-center gap-x-3 gap-y-1.5 w-full px-4 py-2.5 rounded-xl bg-slate-900/90 border border-white/10 backdrop-blur-xs shadow-2xl">
                                 <div className="flex items-center gap-2">
                                     <div className="w-2 h-2 rounded-full bg-emerald-400" />
-                                    <span className="text-[11px] font-bold text-white truncate max-w-[120px]">
+                                    <span className="text-xs font-bold text-white truncate max-w-[120px]">
                                         {voyagePlan.origin}
                                     </span>
                                 </div>
@@ -983,7 +988,7 @@ export const RoutePlanner: React.FC<{
                                 </svg>
                                 <div className="flex items-center gap-2">
                                     <div className="w-2 h-2 rounded-full bg-purple-400" />
-                                    <span className="text-[11px] font-bold text-white truncate max-w-[120px]">
+                                    <span className="text-xs font-bold text-white truncate max-w-[120px]">
                                         {voyagePlan.destination}
                                     </span>
                                 </div>
@@ -1068,31 +1073,33 @@ export const RoutePlanner: React.FC<{
                                             requestPassageMode(detail, operationScope);
                                         }, 200);
                                     }}
-                                    className="ml-auto p-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/20 text-emerald-400 transition-all"
+                                    className="hit-target-44 ml-auto p-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/20 text-emerald-400 transition-all"
                                     aria-label="Open on main map"
                                     title="Open on main map"
                                 >
-                                    <CompassIcon className="w-4 h-4" rotation={0} />
+                                    <MapIcon className="w-4 h-4" />
                                 </button>
                             </div>
                         </div>
 
                         {/* Inline route map */}
-                        <MapHub
-                            mapboxToken={mapboxToken}
-                            pickerMode={false}
-                            embedded
-                            cleanPlanningMap
-                            initialZoom={5}
-                            center={
-                                voyagePlan.originCoordinates
-                                    ? {
-                                          lat: voyagePlan.originCoordinates.lat,
-                                          lon: voyagePlan.originCoordinates.lon,
-                                      }
-                                    : undefined
-                            }
-                        />
+                        <Suspense fallback={null}>
+                            <MapHub
+                                mapboxToken={mapboxToken}
+                                pickerMode={false}
+                                embedded
+                                cleanPlanningMap
+                                initialZoom={5}
+                                center={
+                                    voyagePlan.originCoordinates
+                                        ? {
+                                              lat: voyagePlan.originCoordinates.lat,
+                                              lon: voyagePlan.originCoordinates.lon,
+                                          }
+                                        : undefined
+                                }
+                            />
+                        </Suspense>
                     </>
                 ) : (
                     /* Empty state — clean dark placeholder. The hint card that
@@ -1160,7 +1167,7 @@ export const RoutePlanner: React.FC<{
                                 aria-label="Unlock route planning feature"
                                 type="button"
                                 onClick={onTriggerUpgrade}
-                                className="h-14 w-full rounded-2xl font-bold uppercase tracking-wider text-xs transition-all shadow-lg flex items-center justify-center gap-2 bg-slate-800 text-white hover:bg-slate-700"
+                                className="h-14 w-full rounded-2xl font-bold uppercase tracking-wider text-sm transition-all shadow-lg flex items-center justify-center gap-2 bg-slate-800 text-white hover:bg-slate-700"
                             >
                                 <LockIcon className="w-4 h-4 text-emerald-400" />
                                 Unlock Route Planning
@@ -1246,7 +1253,7 @@ export const RoutePlanner: React.FC<{
                                         {routePicker.kind === 'voyage' ? '🛥 Past voyages' : '💾 Saved routes'}
                                     </span>
                                     {routePicker.kind === 'saved' && (
-                                        <p className="mt-0.5 text-[10px] leading-snug text-gray-500">
+                                        <p className="mt-0.5 text-xs leading-snug text-gray-400">
                                             Open a route, or swipe left on one to delete it.
                                         </p>
                                     )}
@@ -1343,7 +1350,7 @@ export const RoutePlanner: React.FC<{
                                             );
                                         })}
                                         {routePicker.checkingCompatibility && (
-                                            <div className="px-2 py-1 text-center text-[10px] font-medium text-gray-500">
+                                            <div className="px-2 py-1 text-center text-xs font-medium text-gray-400">
                                                 Checking older Log plans…
                                             </div>
                                         )}

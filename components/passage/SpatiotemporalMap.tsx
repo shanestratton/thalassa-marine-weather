@@ -17,12 +17,11 @@ import { createLogger } from '../../utils/createLogger';
 
 const log = createLogger('SpatiotemporalMap');
 import Map, { Source, Layer, Marker, MapRef } from 'react-map-gl/mapbox';
-import type { StyleSpecification, LngLatBoundsLike } from 'mapbox-gl';
+import type { StyleSpecification, LngLatBoundsLike, LineLayerSpecification } from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import type { TrackPoint, GhostShipState } from '../../types/spatiotemporal';
 import { WindParticleLayer } from '../map/WindParticleLayer';
 import { WindStore } from '../../stores/WindStore';
-import { calculateBearing as calcBearing } from '../../utils/navigationCalculations';
 import { FONT, SIZE } from '../../styles/typeScale';
 import '../../styles/bioluminescent.css';
 
@@ -213,68 +212,6 @@ const PowerboatGhost: React.FC<{ bearing: number }> = ({ bearing }) => (
     </div>
 );
 
-// ── Corridor Polygon Generator ──────────────────────────────────
-
-/**
- * Generate a GeoJSON Polygon from a track by offsetting each point
- * laterally by ±corridorNM along the perpendicular bearing.
- */
-function generateCorridorPolygon(track: TrackPoint[], corridorNM: number): GeoJSON.Feature<GeoJSON.Polygon> | null {
-    if (track.length < 2) return null;
-
-    const NM_TO_DEG_LAT = 1 / 60; // 1 NM ≈ 1/60 degree latitude
-
-    // Calculate perpendicular offsets for the port and starboard sides
-    const portSide: [number, number][] = [];
-    const starboardSide: [number, number][] = [];
-
-    for (let i = 0; i < track.length; i++) {
-        const [lng, lat] = track[i].coordinates;
-
-        // Calculate bearing at this point
-        let fwdBearing: number;
-        if (i === 0) {
-            fwdBearing = calcBearing(lat, lng, track[1].coordinates[1], track[1].coordinates[0]);
-        } else if (i === track.length - 1) {
-            fwdBearing = calcBearing(track[i - 1].coordinates[1], track[i - 1].coordinates[0], lat, lng);
-        } else {
-            const bIn = calcBearing(track[i - 1].coordinates[1], track[i - 1].coordinates[0], lat, lng);
-            const bOut = calcBearing(lat, lng, track[i + 1].coordinates[1], track[i + 1].coordinates[0]);
-            fwdBearing = (bIn + bOut) / 2;
-        }
-
-        // Perpendicular bearing (port = +90, starboard = -90)
-        const perpRad = ((fwdBearing + 90) * Math.PI) / 180;
-        const antiperpRad = ((fwdBearing - 90) * Math.PI) / 180;
-
-        const cosLat = Math.cos((lat * Math.PI) / 180);
-        const dLat = corridorNM * NM_TO_DEG_LAT;
-        const dLng = dLat / (cosLat || 0.001);
-
-        // Port side (left of track when looking forward)
-        portSide.push([lng + Math.sin(perpRad) * dLng, lat + Math.cos(perpRad) * dLat]);
-
-        // Starboard side (right of track)
-        starboardSide.push([lng + Math.sin(antiperpRad) * dLng, lat + Math.cos(antiperpRad) * dLat]);
-    }
-
-    // Build polygon: port side forward → starboard side reverse → close
-    const ring = [
-        ...portSide,
-        ...starboardSide.reverse(),
-        portSide[0], // Close the ring
-    ];
-
-    return {
-        type: 'Feature',
-        properties: {},
-        geometry: {
-            type: 'Polygon',
-            coordinates: [ring],
-        },
-    };
-}
-
 // ── Waypoint Badge ──────────────────────────────────────────────
 
 const WaypointBadge: React.FC<{
@@ -343,20 +280,51 @@ const WaypointBadge: React.FC<{
     );
 };
 
+// ── Layer paint (module constants) ──────────────────────────────
+// react-map-gl deep-compares `paint` on every render to decide whether to
+// call setPaintProperty; this map re-renders on every scrubber tick, so the
+// literals were compared 7 layers × N keys at up to 20 Hz. Stable references
+// short-circuit on identity. Values are unchanged.
+type LinePaint = NonNullable<LineLayerSpecification['paint']>;
+const HARBOUR_GLOW_PAINT: LinePaint = {
+    'line-color': '#1a1a1a',
+    'line-width': 4,
+    'line-blur': 3,
+    'line-opacity': 0.15,
+};
+const HARBOUR_LINE_PAINT: LinePaint = {
+    'line-color': '#1a1a1a',
+    'line-width': 1.5,
+    'line-opacity': 0.9,
+    'line-dasharray': [3, 4],
+};
+const ROUTE_HALO_PAINT: LinePaint = {
+    'line-color': '#00f0ff',
+    'line-width': 14,
+    'line-blur': 10,
+    'line-opacity': 0.3,
+};
+const ROUTE_GLOW_PAINT: LinePaint = {
+    'line-color': '#00f0ff',
+    'line-width': 6,
+    'line-blur': 3,
+    'line-opacity': 0.5,
+};
+const ROUTE_CORE_PAINT: LinePaint = {
+    'line-color': '#ffffff',
+    'line-width': 2,
+    'line-opacity': 0.92,
+};
+
 // ── Main Map Component ──────────────────────────────────────────
 
 interface SpatiotemporalMapProps {
     track: TrackPoint[] | null;
     ghostShip: GhostShipState | null;
     boundingBox?: [number, number, number, number];
-    corridorWidthNM?: number;
     vesselType?: 'sail' | 'power';
     /** Current time from scrubber — used to sync wind particles */
     currentTimeHours?: number;
-    /** GeoJSON FeatureCollection of seamark navigation aids */
-    seamarkGeoJSON?: GeoJSON.FeatureCollection | null;
-    /** GeoJSON polygon of the navigable channel corridor */
-    channelPolygonGeoJSON?: GeoJSON.Feature<GeoJSON.Polygon> | null;
     /** Callback when map is fully loaded and ready */
     onMapReady?: () => void;
 }
@@ -365,42 +333,13 @@ const SpatiotemporalMap: React.FC<SpatiotemporalMapProps> = ({
     track,
     ghostShip,
     boundingBox,
-    corridorWidthNM = 30,
     vesselType = 'sail',
     currentTimeHours = 0,
-    seamarkGeoJSON,
-
-    channelPolygonGeoJSON: _channelPolygonGeoJSON,
     onMapReady,
 }) => {
     const mapRef = useRef<MapRef>(null);
     const windLayerRef = useRef<WindParticleLayer | null>(null);
     const [mapReady, setMapReady] = useState(false);
-    const [fetchedSeamarks, setFetchedSeamarks] = useState<GeoJSON.FeatureCollection | null>(null);
-
-    // ── Fetch seamark markers from Supabase (public bucket) ──
-    useEffect(() => {
-        const baseUrl =
-            (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) ||
-            'https://pcisdplnodrphauixcau.supabase.co';
-        const url = `${baseUrl}/storage/v1/object/public/regions/australia_se_qld/nav_markers.geojson`;
-        fetch(url)
-            .then((r) => r.json())
-            .then((geojson: Record<string, unknown>) => {
-                setFetchedSeamarks(geojson as unknown as GeoJSON.FeatureCollection);
-            })
-            .catch((e) => {
-                log.warn(`[SpatiotemporalMap]`, e);
-            });
-    }, []);
-
-    // Merge prop-based seamarks with fetched ones
-    const _mergedSeamarks = useMemo<GeoJSON.FeatureCollection | null>(() => {
-        if (!fetchedSeamarks && !seamarkGeoJSON) return null;
-        const features = [...(fetchedSeamarks?.features || []), ...(seamarkGeoJSON?.features || [])];
-        return { type: 'FeatureCollection', features };
-    }, [fetchedSeamarks, seamarkGeoJSON]);
-
     // ── Route GeoJSON — split into harbour legs (dashed) and ocean route (solid) ──
     const { oceanRouteGeoJSON, departureHarbourGeoJSON, arrivalHarbourGeoJSON } = useMemo(() => {
         if (!track || track.length < 2)
@@ -463,12 +402,6 @@ const SpatiotemporalMap: React.FC<SpatiotemporalMapProps> = ({
         };
     }, [track]);
 
-    // ── Corridor Polygon GeoJSON ──
-    const _corridorGeoJSON = useMemo(() => {
-        if (!track || track.length < 2) return null;
-        return generateCorridorPolygon(track, corridorWidthNM);
-    }, [track, corridorWidthNM]);
-
     // ── Fit bounds on route load ──
     useEffect(() => {
         if (!mapReady || !mapRef.current || !boundingBox) {
@@ -515,6 +448,14 @@ const SpatiotemporalMap: React.FC<SpatiotemporalMapProps> = ({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
+    // Latest scrubber hour for the feeder below — read at call time so the
+    // callback identity is stable and WindStore.subscribe runs once per mount
+    // instead of unsubscribing/resubscribing on every scrubber tick.
+    const hourRef = useRef(currentTimeHours);
+    useEffect(() => {
+        hourRef.current = currentTimeHours;
+    }, [currentTimeHours]);
+
     const feedWindData = useCallback(() => {
         const layer = windLayerRef.current;
         if (!layer) {
@@ -527,10 +468,10 @@ const SpatiotemporalMap: React.FC<SpatiotemporalMapProps> = ({
         }
 
         log.info(
-            `[SpatiotemporalMap] Feeding wind data: ${grid.width}×${grid.height} to layer at hour=${currentTimeHours}`,
+            `[SpatiotemporalMap] Feeding wind data: ${grid.width}×${grid.height} to layer at hour=${hourRef.current}`,
         );
-        layer.setGrid(grid, currentTimeHours);
-    }, [currentTimeHours]);
+        layer.setGrid(grid, hourRef.current);
+    }, []);
 
     // Subscribe to WindStore changes
     useEffect(() => {
@@ -589,50 +530,14 @@ const SpatiotemporalMap: React.FC<SpatiotemporalMapProps> = ({
             {/* ═══ HARBOUR STITCHING LEGS (dashed sky-blue) ═══ */}
             {departureHarbourGeoJSON && (
                 <Source id="departure-harbour" type="geojson" data={departureHarbourGeoJSON}>
-                    <Layer
-                        id="dep-harbour-glow"
-                        type="line"
-                        paint={{
-                            'line-color': '#1a1a1a',
-                            'line-width': 4,
-                            'line-blur': 3,
-                            'line-opacity': 0.15,
-                        }}
-                    />
-                    <Layer
-                        id="dep-harbour-line"
-                        type="line"
-                        paint={{
-                            'line-color': '#1a1a1a',
-                            'line-width': 1.5,
-                            'line-opacity': 0.9,
-                            'line-dasharray': [3, 4],
-                        }}
-                    />
+                    <Layer id="dep-harbour-glow" type="line" paint={HARBOUR_GLOW_PAINT} />
+                    <Layer id="dep-harbour-line" type="line" paint={HARBOUR_LINE_PAINT} />
                 </Source>
             )}
             {arrivalHarbourGeoJSON && (
                 <Source id="arrival-harbour" type="geojson" data={arrivalHarbourGeoJSON}>
-                    <Layer
-                        id="arr-harbour-glow"
-                        type="line"
-                        paint={{
-                            'line-color': '#1a1a1a',
-                            'line-width': 4,
-                            'line-blur': 3,
-                            'line-opacity': 0.15,
-                        }}
-                    />
-                    <Layer
-                        id="arr-harbour-line"
-                        type="line"
-                        paint={{
-                            'line-color': '#1a1a1a',
-                            'line-width': 1.5,
-                            'line-opacity': 0.9,
-                            'line-dasharray': [3, 4],
-                        }}
-                    />
+                    <Layer id="arr-harbour-glow" type="line" paint={HARBOUR_GLOW_PAINT} />
+                    <Layer id="arr-harbour-line" type="line" paint={HARBOUR_LINE_PAINT} />
                 </Source>
             )}
 
@@ -640,39 +545,13 @@ const SpatiotemporalMap: React.FC<SpatiotemporalMapProps> = ({
             {oceanRouteGeoJSON && (
                 <Source id="passage-route" type="geojson" data={oceanRouteGeoJSON}>
                     {/* Layer 1: Outer Halo (the glow) */}
-                    <Layer
-                        id="route-halo"
-                        type="line"
-                        paint={{
-                            'line-color': '#00f0ff',
-                            'line-width': 14,
-                            'line-blur': 10,
-                            'line-opacity': 0.3,
-                        }}
-                    />
+                    <Layer id="route-halo" type="line" paint={ROUTE_HALO_PAINT} />
 
                     {/* Layer 2: Mid glow */}
-                    <Layer
-                        id="route-glow"
-                        type="line"
-                        paint={{
-                            'line-color': '#00f0ff',
-                            'line-width': 6,
-                            'line-blur': 3,
-                            'line-opacity': 0.5,
-                        }}
-                    />
+                    <Layer id="route-glow" type="line" paint={ROUTE_GLOW_PAINT} />
 
                     {/* Layer 3: Core line (crisp white-cyan) */}
-                    <Layer
-                        id="route-core"
-                        type="line"
-                        paint={{
-                            'line-color': '#ffffff',
-                            'line-width': 2,
-                            'line-opacity': 0.92,
-                        }}
-                    />
+                    <Layer id="route-core" type="line" paint={ROUTE_CORE_PAINT} />
                 </Source>
             )}
 

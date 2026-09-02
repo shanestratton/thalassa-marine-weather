@@ -88,6 +88,16 @@ export const ThreatBanner: React.FC<ThreatBannerProps> = ({
     // Lightning strike buffer — keep a rolling 5-min window of strikes
     // so we can re-evaluate proximity each tick without re-summing.
     const strikesRef = useRef<Map<string, LightningStrike>>(new Map());
+    // Latest position and cyclone list for the evaluator, read at tick time.
+    // They used to be effect deps, so every GPS fix (1 Hz) tore the 10 s
+    // interval down and re-ran evaluate() — defeating the throttle the
+    // comment below describes.
+    const posRef = useRef({ lat: userLat, lon: userLon });
+    const cyclonesRef = useRef(cyclones);
+    useEffect(() => {
+        posRef.current = { lat: userLat, lon: userLon };
+        cyclonesRef.current = cyclones;
+    }, [userLat, userLon, cyclones]);
 
     // Subscribe to lightning when active. Strikes go straight into the
     // ref; the periodic effect below recomputes the banner from them.
@@ -110,9 +120,10 @@ export const ThreatBanner: React.FC<ThreatBannerProps> = ({
             setThreat(null);
             return;
         }
-        if (!isFinite(userLat) || !isFinite(userLon)) return;
-
         const evaluate = () => {
+            const { lat: hereLat, lon: hereLon } = posRef.current;
+            if (!isFinite(hereLat) || !isFinite(hereLon)) return;
+            const activeCyclones = cyclonesRef.current;
             // 1. Lightning proximity
             let lightningThreat: Threat | null = null;
             if (lightningActive) {
@@ -125,7 +136,7 @@ export const ThreatBanner: React.FC<ThreatBannerProps> = ({
                         strikesRef.current.delete(s.id);
                         continue;
                     }
-                    const nm = calculateDistance(userLat, userLon, s.lat, s.lon);
+                    const nm = calculateDistance(hereLat, hereLon, s.lat, s.lon);
                     if (nm <= RADIUS_LIGHTNING_NM) {
                         countWithin++;
                         if (nm < nearestNm) {
@@ -136,7 +147,7 @@ export const ThreatBanner: React.FC<ThreatBannerProps> = ({
                 }
                 if (nearestStrike && countWithin > 0) {
                     const distNm = nearestNm;
-                    const bearing = calculateBearing(userLat, userLon, nearestStrike.lat, nearestStrike.lon);
+                    const bearing = calculateBearing(hereLat, hereLon, nearestStrike.lat, nearestStrike.lon);
                     const severity: Threat['severity'] = distNm < 5 ? 'danger' : distNm < 15 ? 'warning' : 'caution';
                     lightningThreat = {
                         kind: 'lightning',
@@ -156,14 +167,14 @@ export const ThreatBanner: React.FC<ThreatBannerProps> = ({
 
             // 2. Cyclone proximity
             let cycloneThreat: Threat | null = null;
-            if (cyclones && cyclones.length > 0) {
+            if (activeCyclones && activeCyclones.length > 0) {
                 let nearestNm = Infinity;
                 let nearestCyclone: ActiveCyclone | null = null;
-                for (const c of cyclones) {
+                for (const c of activeCyclones) {
                     const lat = c.currentPosition?.lat;
                     const lon = c.currentPosition?.lon;
                     if (typeof lat !== 'number' || typeof lon !== 'number') continue;
-                    const nm = calculateDistance(userLat, userLon, lat, lon);
+                    const nm = calculateDistance(hereLat, hereLon, lat, lon);
                     if (nm < nearestNm) {
                         nearestNm = nm;
                         nearestCyclone = c;
@@ -172,8 +183,8 @@ export const ThreatBanner: React.FC<ThreatBannerProps> = ({
                 if (nearestCyclone && nearestNm <= RADIUS_CYCLONE_NM) {
                     const distNm = nearestNm;
                     const bearing = calculateBearing(
-                        userLat,
-                        userLon,
+                        hereLat,
+                        hereLon,
                         nearestCyclone.currentPosition.lat,
                         nearestCyclone.currentPosition.lon,
                     );
@@ -221,7 +232,7 @@ export const ThreatBanner: React.FC<ThreatBannerProps> = ({
         evaluate();
         const t = setInterval(evaluate, REFRESH_INTERVAL_MS);
         return () => clearInterval(t);
-    }, [visible, userLat, userLon, cyclones, lightningActive]);
+    }, [visible, lightningActive]);
 
     if (!visible || !threat) return null;
 
@@ -261,12 +272,12 @@ export const ThreatBanner: React.FC<ThreatBannerProps> = ({
             aria-label={`Threat alert: ${threat.label}`}
         >
             <div className="flex flex-col">
-                <span className="font-bold text-[12px] leading-tight" style={{ color: sev.text }}>
+                <span className="font-bold text-sm leading-tight" style={{ color: sev.text }}>
                     {threat.label}
                 </span>
-                <span className="opacity-75 text-[10px] leading-tight">{threat.sublabel}</span>
+                <span className="opacity-90 text-xs leading-tight">{threat.sublabel}</span>
             </div>
-            <span className="opacity-60 text-[10px] ml-1" aria-hidden>
+            <span className="opacity-60 text-xs ml-1" aria-hidden>
                 ▸
             </span>
         </button>

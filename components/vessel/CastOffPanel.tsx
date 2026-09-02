@@ -133,6 +133,8 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
         () => (activeVoyage ? displayVoyageName(activeVoyage) : null),
         [activeVoyage],
     );
+    // The draft list gets the same treatment: N rows, one parse per drafts change.
+    const draftNames = useMemo(() => new Map(drafts.map((v) => [v.id, displayVoyageName(v)])), [drafts]);
     const vesselName = useSettingsStore((s) => s.settings.vessel?.name);
     const closeButtonRef = useRef<HTMLButtonElement>(null);
     const mountedRef = useRef(true);
@@ -689,14 +691,14 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                             <h3 className="text-lg font-black text-white">
                                 {formatStoredPlannedRouteName(activeVoyage.voyage_name) ?? activeVoyage.voyage_name}
                             </h3>
-                            <div className="grid grid-cols-2 gap-2 text-[11px]">
+                            <div className="grid grid-cols-2 gap-2">
                                 {/* Voyage endpoints — editable in place, and always
                                     rendered so an empty destination can be filled
                                     rather than silently hidden. These feed the
                                     float plan's From/To, so getting them right
                                     matters beyond cosmetics. */}
                                 <div className="p-2 rounded-lg bg-white/3 border border-white/6">
-                                    <label htmlFor="voyage-from" className="text-gray-500">
+                                    <label htmlFor="voyage-from" className="text-xs text-gray-500">
                                         From{currentLeg ? ` · Leg ${currentLeg.leg_number}` : ''}
                                     </label>
                                     <input
@@ -707,11 +709,11 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                                         onBlur={persistPorts}
                                         onFocus={scrollInputAboveKeyboard}
                                         placeholder="Departure port"
-                                        className="mt-0.5 w-full bg-transparent text-white font-bold outline-hidden placeholder-gray-600 border-b border-transparent focus:border-sky-500/40 transition-colors"
+                                        className="mt-0.5 w-full bg-transparent text-sm text-white font-bold outline-hidden placeholder-gray-600 border-b border-transparent focus:border-sky-500/40 transition-colors"
                                     />
                                 </div>
                                 <div className="p-2 rounded-lg bg-white/3 border border-white/6">
-                                    <label htmlFor="voyage-to" className="text-gray-500">
+                                    <label htmlFor="voyage-to" className="text-xs text-gray-500">
                                         To
                                     </label>
                                     <input
@@ -722,11 +724,11 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                                         onBlur={persistPorts}
                                         onFocus={scrollInputAboveKeyboard}
                                         placeholder="Destination"
-                                        className="mt-0.5 w-full bg-transparent text-white font-bold outline-hidden placeholder-gray-600 border-b border-transparent focus:border-sky-500/40 transition-colors"
+                                        className="mt-0.5 w-full bg-transparent text-sm text-white font-bold outline-hidden placeholder-gray-600 border-b border-transparent focus:border-sky-500/40 transition-colors"
                                     />
                                 </div>
                                 <div className="p-2 rounded-lg bg-white/3 border border-white/6">
-                                    <span className="text-gray-500">Crew</span>
+                                    <span className="text-xs text-gray-500">Crew</span>
                                     {/* Editable like From/To: legacy rows carry a
                                         creation-time crew snapshot (often the old
                                         hardcoded 1) that the float plan then
@@ -741,7 +743,9 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                                         >
                                             −
                                         </button>
-                                        <p className="text-white font-bold tabular-nums">{displayedCrewCount}</p>
+                                        <p className="text-sm text-white font-bold tabular-nums">
+                                            {displayedCrewCount}
+                                        </p>
                                         <button
                                             type="button"
                                             aria-label="Increase crew"
@@ -754,8 +758,8 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                                 </div>
                                 {activeVoyage.departure_time && (
                                     <div className="p-2 rounded-lg bg-white/3 border border-white/6">
-                                        <span className="text-gray-500">Departed</span>
-                                        <p className="text-white font-bold">
+                                        <span className="text-xs text-gray-500">Departed</span>
+                                        <p className="text-sm text-white font-bold">
                                             {new Date(activeVoyage.departure_time).toLocaleString([], {
                                                 ...(new Date(activeVoyage.departure_time).getFullYear() !==
                                                 new Date().getFullYear()
@@ -822,7 +826,7 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                                 }}
                                 className="w-full py-3.5 bg-cyan-500/10 border border-cyan-400/25 rounded-xl text-sm font-bold text-cyan-300 uppercase tracking-widest hover:bg-cyan-500/20 transition-colors active:scale-[0.97]"
                             >
-                                🧭 Open Ship&rsquo;s Log
+                                📓 Open Ship&rsquo;s Log
                             </button>
                         )}
 
@@ -1004,7 +1008,7 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                         <div className="mt-2 flex gap-2">
                             <button
                                 onClick={() => setStandDownText(null)}
-                                className="flex-1 rounded-lg bg-white/10 py-2 text-[11px] font-black uppercase tracking-wide text-gray-300 active:scale-95"
+                                className="flex-1 min-h-[44px] rounded-lg bg-white/10 py-2 text-[11px] font-black uppercase tracking-wide text-gray-300 active:scale-95"
                             >
                                 Not now
                             </button>
@@ -1023,7 +1027,7 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                                         // keep the prompt so it can be retried.
                                     }
                                 }}
-                                className="flex-2 rounded-lg bg-emerald-500/20 py-2 text-[11px] font-black uppercase tracking-wide text-emerald-200 active:scale-95"
+                                className="flex-2 min-h-[44px] rounded-lg bg-emerald-500/20 py-2 text-[11px] font-black uppercase tracking-wide text-emerald-200 active:scale-95"
                             >
                                 Send &ldquo;we&rsquo;re in&rdquo;
                             </button>
@@ -1066,10 +1070,10 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                                         <div className="flex items-start justify-between">
                                             <div>
                                                 <h3 className="text-sm font-bold text-white group-hover:text-amber-300 transition-colors">
-                                                    {displayVoyageName(v)}
+                                                    {draftNames.get(v.id) ?? v.voyage_name}
                                                 </h3>
                                                 <p className="text-[11px] text-gray-500 mt-0.5">
-                                                    {v.departure_port || '?'} → {v.destination_port || '?'}
+                                                    {v.departure_port || '—'} → {v.destination_port || '—'}
                                                 </p>
                                             </div>
                                             <span className="px-2 py-0.5 rounded-full text-[11px] font-bold uppercase bg-sky-500/10 text-sky-400 border border-sky-500/15">
@@ -1206,8 +1210,8 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                             <h3 className="text-lg font-black text-white">
                                 {selectedDisplayName ?? selected.voyage_name}
                             </h3>
-                            <p className="text-[11px] text-gray-500">
-                                {selected.departure_port || '?'} → {selected.destination_port || '?'}
+                            <p className="text-sm text-gray-300">
+                                {selected.departure_port || '—'} → {selected.destination_port || '—'}
                             </p>
                             {selected.departure_time && (
                                 <p className="text-[11px] text-amber-400/60 mt-1">

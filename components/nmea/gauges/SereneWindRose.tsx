@@ -30,6 +30,7 @@
  * app tokens that move independently is how a faithful port stops being one.
  */
 import React from 'react';
+import { degreesToCardinal16 as compassPoint } from '../../../utils/logExportHelpers';
 
 /** The handoff's dark palette, verbatim. Scoped to the SVG, so nothing here
  *  leaks into the app and no app-level token change can drift the rose. */
@@ -60,29 +61,6 @@ const RI = 112; // inner circle
 const RS = 104; // side arcs
 const RN = 95; // needle
 const RH = 64; // hub
-
-const COMPASS_POINTS = [
-    'N',
-    'NNE',
-    'NE',
-    'ENE',
-    'E',
-    'ESE',
-    'SE',
-    'SSE',
-    'S',
-    'SSW',
-    'SW',
-    'WSW',
-    'W',
-    'WNW',
-    'NW',
-    'NNW',
-];
-
-function compassPoint(bearing: number): string {
-    return COMPASS_POINTS[Math.round((((bearing % 360) + 360) % 360) / 22.5) % 16];
-}
 
 const fmt = (v: number | null | undefined, d = 1): string =>
     v === null || v === undefined || Number.isNaN(v) ? '—' : Number(v).toFixed(d);

@@ -93,7 +93,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
 
     const [isSettingAnchor, setIsSettingAnchor] = useState(false);
     const [isRetryingMonitoring, setIsRetryingMonitoring] = useState(false);
-    const [gpsStatus, setGpsStatus] = useState<string>('Waiting for GPS...');
+    const [gpsStatus, setGpsStatus] = useState<string>('Waiting for GPS…');
     // The gateway the NMEA GPS source is configured against, for the
     // hairpin check. Read once — it only changes on the NMEA page.
     const [nmeaHost] = useState<string | null>(() => {
@@ -101,6 +101,15 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
             return localStorage.getItem('nmea_host');
         } catch {
             return null;
+        }
+    });
+    // First-time hint gate — read once per mount rather than on every
+    // render (each slider tick and slide pointermove re-renders setup).
+    const [armedOnce, setArmedOnce] = useState<boolean>(() => {
+        try {
+            return !!localStorage.getItem('thalassa_anchor_watch_armed_once');
+        } catch {
+            return false;
         }
     });
 
@@ -124,12 +133,12 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
     useEffect(() => {
         const unsub = AnchorWatchService.subscribe((snap) => {
             setSnapshot(snap);
-            if (snap.state === 'idle' && viewMode === 'watching') {
-                setViewMode('setup');
-            }
+            // Functional update: one subscription for the page's lifetime
+            // instead of tearing it down on every viewMode change.
+            setViewMode((prev) => (snap.state === 'idle' && prev === 'watching' ? 'setup' : prev));
         });
         return unsub;
-    }, [viewMode]);
+    }, []);
 
     // Subscribe to sync state and restore persisted sessions on mount
     useEffect(() => {
@@ -352,6 +361,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
             // armed yet. After one successful arm, they know.
             try {
                 localStorage.setItem('thalassa_anchor_watch_armed_once', '1');
+                setArmedOnce(true);
             } catch {
                 // localStorage unavailable (private browsing etc) —
                 // harmless; hint will keep showing.
@@ -476,6 +486,10 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
     // Live offset alongside state: the release check must read the LAST
     // move, not the last render — a fast flick could end on a stale value.
     const slideXRef = useRef(0);
+    // Track geometry measured once per gesture (pointerdown) — the track is
+    // full-width with a fixed height, so re-measuring on every pointermove
+    // and in render only forced synchronous layout for the same numbers.
+    const slideTrackRectRef = useRef({ left: 0, maxTravel: 244 });
 
     const handleSlideStart = useCallback(
         (e: React.PointerEvent<HTMLDivElement>) => {
@@ -490,6 +504,8 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
             } catch {
                 /* best-effort — jsdom and odd inputs lack capture */
             }
+            const rect = e.currentTarget.getBoundingClientRect();
+            slideTrackRectRef.current = { left: rect.left, maxTravel: rect.width - 56 };
             setIsDragging(true);
             setSlideCommitted(false);
             lastSlideRatioRef.current = 0;
@@ -501,10 +517,9 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
     const handleSlideMove = useCallback(
         (e: React.PointerEvent<HTMLDivElement>) => {
             if (!isDragging || !slideTrackRef.current) return;
-            const rect = slideTrackRef.current.getBoundingClientRect();
             const thumbWidth = 56;
-            const maxTravel = rect.width - thumbWidth;
-            const offset = e.clientX - rect.left - thumbWidth / 2;
+            const { left, maxTravel } = slideTrackRectRef.current;
+            const offset = e.clientX - left - thumbWidth / 2;
             const clamped = Math.max(0, Math.min(offset, maxTravel));
             slideXRef.current = clamped;
             setSlideX(clamped);
@@ -534,10 +549,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
     const handleSlideEnd = useCallback(() => {
         if (!isDragging || !slideTrackRef.current) return;
         setIsDragging(false);
-        const rect = slideTrackRef.current.getBoundingClientRect();
-        const thumbWidth = 56;
-        const maxTravel = rect.width - thumbWidth;
-        const ratio = slideXRef.current / maxTravel;
+        const ratio = slideXRef.current / slideTrackRectRef.current.maxTravel;
         if (ratio >= slideThreshold) {
             // Every arming attempt requires a fresh audible test because route,
             // volume, Focus, and connected audio hardware can change at any time.
@@ -618,7 +630,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                         configuration knobs in plain English and the
                         slide-to-arm gesture. Hides permanently after
                         the user successfully arms once. */}
-                    {typeof window !== 'undefined' && !localStorage.getItem('thalassa_anchor_watch_armed_once') && (
+                    {!armedOnce && (
                         <div className="shrink-0 mx-4 mt-2 mb-1 rounded-xl bg-sky-500/6 border border-sky-500/15 px-3 py-2.5">
                             <p className="text-[12px] text-sky-200 leading-relaxed">
                                 <span className="font-bold text-sky-300">Drop anchor, then arm the watch.</span> Set
@@ -657,8 +669,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                                             : 'bg-slate-800/40 border border-white/6 text-slate-400 hover:text-slate-400'
                                     }`}
                                 >
-                                    {type === 'chain' ? '⛓' : type === 'rope' ? '🪢' : '🔗'}
-                                    <span className="ml-1 hidden min-[380px]:inline capitalize">{type}</span>
+                                    <span className="capitalize">{type}</span>
                                 </button>
                             ))}
                         </div>
@@ -695,7 +706,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                                         Rode Deployed
                                     </label>
                                     <span className="text-sm font-black text-amber-400 font-mono tabular-nums">
-                                        {rodeLength.toFixed(1)}m
+                                        {rodeLength}m
                                     </span>
                                 </div>
                                 <input
@@ -716,7 +727,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                         <div className="flex items-center gap-2 bg-slate-800/30 border border-white/4 rounded-xl px-3 py-2">
                             {/* Weather left */}
                             <button
-                                aria-label="Rode Length"
+                                aria-label={`Set rode to ${wxRecommendation.rode} metres for ${wxRecommendation.scope}:1 scope`}
                                 onClick={() => setRodeLength(wxRecommendation.rode)}
                                 className="flex-1 min-h-11 flex items-center gap-1.5 text-left group"
                                 title={`Tap to set rode to ${wxRecommendation.rode}m (${wxRecommendation.scope}:1)`}
@@ -779,7 +790,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                                 traffic degrades it into exactly the dropouts
                                 that make a watch go blind. */}
                             <VpnHairpinNotice hostIp={nmeaHost} hostLabel="the NMEA gateway" className="mb-2" />
-                            {!isSettingAnchor && gpsStatus !== 'Waiting for GPS...' && (
+                            {!isSettingAnchor && gpsStatus !== 'Waiting for GPS…' && (
                                 <p
                                     role="alert"
                                     className="mb-2 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs font-bold leading-relaxed text-red-200"
@@ -855,11 +866,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                                     <div
                                         className="absolute inset-0 flex items-center justify-center pointer-events-none"
                                         style={{
-                                            opacity:
-                                                1 -
-                                                slideX /
-                                                    ((slideTrackRef.current?.getBoundingClientRect().width ?? 300) -
-                                                        56),
+                                            opacity: 1 - slideX / slideTrackRectRef.current.maxTravel,
                                         }}
                                     >
                                         <span className="text-sm font-bold text-amber-300/70 tracking-wider uppercase">
@@ -952,7 +959,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                 <PageHeader
                     title="Shore Watch"
                     subtitle={
-                        <p className="text-[11px] flex items-center gap-1.5 mt-0.5 font-bold uppercase tracking-widest">
+                        <p className="text-xs flex items-center gap-1.5 mt-0.5 font-bold uppercase tracking-widest">
                             {shoreDataFresh ? (
                                 <>
                                     <span className="w-2 h-2 bg-emerald-500 rounded-full inline-block animate-pulse shadow-[0_0_4px_rgba(16,185,129,0.5)]" />{' '}
@@ -977,8 +984,8 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                     action={
                         <button
                             onClick={handleStopWatch}
-                            className="px-3 py-1.5 bg-red-500/8 border border-red-500/20 rounded-lg text-red-400 text-sm font-bold transition-all active:scale-95"
-                            aria-label="Stop Watch"
+                            className="min-h-11 px-3 py-1.5 bg-red-500/8 border border-red-500/20 rounded-lg text-red-400 text-sm font-bold transition-all active:scale-95"
+                            aria-label="Leave Shore Watch"
                         >
                             Leave
                         </button>
@@ -1028,18 +1035,18 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                             </span>
                         </span>
                         <span
-                            className={`text-xs animate-pulse ${
+                            className={`text-sm animate-pulse ${
                                 shoreDisconnectedWithKnownData ||
                                 (!syncState?.peerConnected && syncState?.peerDisconnectedAt)
-                                    ? 'text-red-500/50'
-                                    : 'text-amber-500/60'
+                                    ? 'text-red-300'
+                                    : 'text-amber-300'
                             }`}
                         >
                             {!syncState?.peerConnected
-                                ? 'Reconnecting...'
+                                ? 'Reconnecting…'
                                 : shoreData
-                                  ? 'Awaiting update...'
-                                  : 'Connecting...'}
+                                  ? 'Awaiting update…'
+                                  : 'Connecting…'}
                         </span>
                     </div>
                 )}
@@ -1131,7 +1138,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                                                 : 'Mute this device only'}
                                         </span>
                                     </span>
-                                    <span className="block mt-1 text-[10px] font-semibold normal-case tracking-normal text-red-100/80">
+                                    <span className="block mt-1 text-sm font-semibold normal-case tracking-normal text-red-100">
                                         This only silences this device; it does not acknowledge or change the vessel
                                         alarm.
                                     </span>
@@ -1151,7 +1158,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                                 <div className="bg-slate-800/50 rounded-xl p-3 text-center border border-white/4">
                                     <div className={t.typography.label}>Rode</div>
                                     <div className="text-lg font-bold text-amber-400">
-                                        {shoreData.config.rodeLength.toFixed(1)}m
+                                        {Math.round(shoreData.config.rodeLength)}m
                                     </div>
                                 </div>
                                 <div className="bg-slate-800/50 rounded-xl p-3 text-center border border-white/4">
@@ -1176,7 +1183,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                     ) : (
                         <div className="text-center">
                             <div className="w-12 h-12 border-2 border-sky-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-                            <div className="text-slate-400">Waiting for vessel data...</div>
+                            <div className="text-slate-400">Waiting for vessel data…</div>
                             <div className="text-sm text-slate-400 mt-2">Session: {syncState?.sessionCode}</div>
                         </div>
                     )}
@@ -1209,7 +1216,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                         ? 'Safety monitoring is not running'
                         : snapshot?.watchStartedAt
                           ? `${formatElapsed(snapshot.watchStartedAt)} elapsed`
-                          : 'Monitoring...'
+                          : 'Monitoring…'
                 }
                 onBack={onBack}
                 action={
@@ -1357,7 +1364,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                                 : 'Waiting for shore device…'}
                         </span>
                     </span>
-                    <span className="text-xs text-amber-500/60">Waiting...</span>
+                    <span className="text-xs text-amber-500/60">Waiting…</span>
                 </div>
             )}
 
@@ -1432,7 +1439,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                         <div className="bg-slate-800/50 rounded-lg px-2 py-1.5 text-center border border-white/4">
                             <div className={t.typography.label}>Rode</div>
                             <div className="text-sm font-black font-mono text-amber-400">
-                                {snapshot ? `${snapshot.config.rodeLength.toFixed(1)}m` : '--'}
+                                {snapshot ? `${Math.round(snapshot.config.rodeLength)}m` : '--'}
                             </div>
                         </div>
                         <div className="bg-slate-800/50 rounded-lg px-2 py-1.5 text-center border border-white/4">
