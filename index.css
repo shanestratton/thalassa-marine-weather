@@ -154,7 +154,9 @@ input[type='range'] {
 
 /* Expand tiny icon controls to a 44px hit box without inflating the visual
    glyph or compact card layout. */
-.hit-target-44 {
+.hit-target-44:not(.absolute):not(.fixed):not(.sticky) {
+    /* Only supply a containing block where the element has none: this rule is
+       unlayered and would otherwise beat Tailwind's layered `absolute`. */
     position: relative;
 }
 
@@ -3123,6 +3125,17 @@ body,
     to {
         opacity: 1;
         transform: translateY(0);
+    }
+}
+
+/* ── SlideToAction label shimmer (was a <style> tag emitted per instance) ── */
+@keyframes slideToActionShimmer {
+    0%,
+    100% {
+        transform: translateX(-100%);
+    }
+    50% {
+        transform: translateX(100%);
     }
 }
 

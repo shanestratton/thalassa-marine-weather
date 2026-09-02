@@ -103,7 +103,7 @@ export function ChartKeyPanel({ visible, imageryOn, tideDepthMode, draftConfigur
             <div className="mt-2 space-y-1 border-t border-white/10 pt-2 text-[10px] leading-snug text-gray-300">
                 <div className="flex items-center justify-between">
                     <span className="font-black uppercase tracking-wider text-gray-200">Marks &amp; lights</span>
-                    <span className="text-[11px] text-gray-400">IALA-A here · most tap to read</span>
+                    <span className="text-[11px] text-gray-400">Shown in IALA-A colours · most tap to read</span>
                 </div>
                 <div className="grid grid-cols-2 gap-x-2 gap-y-1.5">
                     {(

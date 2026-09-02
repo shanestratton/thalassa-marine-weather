@@ -250,27 +250,27 @@ export const FloatPlanSheet: React.FC<FloatPlanSheetProps> = ({ voyage, preset, 
     const [transferFailure, setTransferFailure] = useState<TransferFailure | null>(null);
     const [pdfBusy, setPdfBusy] = useState(false);
 
-    const savedWaypoints = useMemo(() => {
-        if (preset?.route.waypoints) return preset.route.waypoints;
-        if (!voyage?.saved_route_id) return undefined;
+    // One read of the saved-trace store (JSON.parse + tombstones + chain
+    // repair) per route id — waypoints and the destination name each used to
+    // parse it again. Skipped when a preset already carries its waypoints,
+    // exactly as before.
+    const savedTrace = useMemo(() => {
+        if (!voyage?.saved_route_id || preset?.route.waypoints) return undefined;
         try {
-            const trace = loadSavedTraces().find((item) => item.id === voyage.saved_route_id);
-            return trace?.points.map((point) => ({ lat: point.lat, lon: point.lon }));
+            return loadSavedTraces().find((item) => item.id === voyage.saved_route_id);
         } catch {
             return undefined;
         }
     }, [preset, voyage?.saved_route_id]);
 
+    const savedWaypoints = useMemo(() => {
+        if (preset?.route.waypoints) return preset.route.waypoints;
+        return savedTrace?.points.map((point) => ({ lat: point.lat, lon: point.lon }));
+    }, [preset, savedTrace]);
+
     // The trace knows its punter-named destination even when the voyage row
     // holds only a generated label — the last honest source for To.
-    const traceDestName = useMemo<string | undefined>(() => {
-        if (preset || !voyage?.saved_route_id) return undefined;
-        try {
-            return loadSavedTraces().find((item) => item.id === voyage.saved_route_id)?.destName || undefined;
-        } catch {
-            return undefined;
-        }
-    }, [preset, voyage?.saved_route_id]);
+    const traceDestName: string | undefined = preset ? undefined : savedTrace?.destName || undefined;
 
     const route = useMemo<FloatPlanRoute>(() => {
         if (preset) return { ...preset.route, waypoints: preset.route.waypoints ?? savedWaypoints };
@@ -451,7 +451,7 @@ export const FloatPlanSheet: React.FC<FloatPlanSheetProps> = ({ voyage, preset, 
                                 <p className="text-xs font-black uppercase tracking-[0.16em] text-sky-300">
                                     Float plan
                                 </p>
-                                <p className="text-xs text-slate-400">Sensitive shore-contact handoff</p>
+                                <p className="text-xs text-slate-400">Contains names, phone numbers and your route</p>
                             </div>
                         </div>
                         <h3 className="mt-3 text-lg font-black text-white">
@@ -459,7 +459,7 @@ export const FloatPlanSheet: React.FC<FloatPlanSheetProps> = ({ voyage, preset, 
                         </h3>
                     </div>
                     <span className="rounded-full border border-amber-400/20 bg-amber-400/10 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-amber-200">
-                        Check audience
+                        Private — shore contact only
                     </span>
                 </div>
 

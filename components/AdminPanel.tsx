@@ -14,6 +14,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { ChatService, ChatRole, UserRoleEntry, JoinRequest, ChatChannel } from '../services/ChatService';
 import { triggerHaptic } from '../utils/system';
 import { ConfirmDialog } from './ui/ConfirmDialog';
+import { BackButton } from './ui/BackButton';
 import { EmptyState } from './ui/EmptyState';
 import { ShimmerBlock } from './ui/ShimmerBlock';
 import { toast } from './Toast';
@@ -182,7 +183,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onChann
         const user = users.find((u) => u.user_id === userId);
         showConfirm(
             'Block User',
-            `Permanently block ${user?.display_name || 'this user'} from the platform? They won't be able to access Crew Talk.`,
+            `Permanently block ${user?.display_name || 'this user'} from the platform? They won't be able to access Scuttlebutt.`,
             '🚫 Block',
             true,
             async () => {
@@ -454,21 +455,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onChann
             {/* ── Header ── */}
             <div className="sticky top-0 z-10 bg-slate-900/95 border-b border-white/6">
                 <div className="flex items-center gap-3 px-4 py-3">
-                    <button
-                        onClick={onClose}
-                        aria-label="Back to channels"
-                        className="w-10 h-10 flex items-center justify-center rounded-xl bg-white/4 hover:bg-white/8 transition-colors"
-                    >
-                        <svg
-                            className="w-4 h-4 text-white/60"
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            stroke="currentColor"
-                            strokeWidth={2}
-                        >
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
-                        </svg>
-                    </button>
+                    {/* Opened from Scuttlebutt AND from the Vessel hub, so the
+                        name says what it does rather than where it goes. */}
+                    <BackButton onClick={onClose} label="Close admin panel" />
                     <div className="flex items-center gap-2 flex-1">
                         <span className="text-lg">👑</span>
                         <h2 className="text-sm font-bold text-amber-400">Admin Panel</h2>

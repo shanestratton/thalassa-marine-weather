@@ -45,7 +45,7 @@ export const ShareFormSheet: React.FC<ShareFormSheetProps> = ({
                         <button
                             aria-label="Back"
                             onClick={onBack}
-                            className="p-1.5 text-slate-400 hover:text-white transition-colors -ml-1"
+                            className="hit-target-44 p-1.5 text-slate-400 hover:text-white transition-colors -ml-1"
                         >
                             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path

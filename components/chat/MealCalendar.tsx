@@ -28,6 +28,7 @@ import { ChefPlate } from './ChefPlate';
 import { CustomRecipeForm } from './CustomRecipeForm';
 import { CaptainsTable } from './CaptainsTable';
 import { SLOT_CONFIG, STRIP_WORDS } from './galleyTokens';
+
 import { createLogger } from '../../utils/createLogger';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { useKeyboardOffset } from '../../hooks/useKeyboardOffset';
@@ -36,6 +37,65 @@ import { SafeImage } from '../ui/SafeImage';
 import { Button } from '../ui/Button';
 
 const log = createLogger('MealCalendar');
+
+// Hoisted formatters: constructing an Intl.DateTimeFormat is the expensive
+// half of toLocaleDateString(locale, options), and the grid did it per day
+// per render. The key IS a UTC date — timeZone: 'UTC' keeps UTC+12…+14 on
+// the right day (audit 2026-09-02).
+const DAY_SHORT_FMT = new Intl.DateTimeFormat(undefined, {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    timeZone: 'UTC',
+});
+const DAY_LONG_FMT = new Intl.DateTimeFormat(undefined, {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+    timeZone: 'UTC',
+});
+
+// Popular-choice lists for the SlotPicker, hoisted out of its render (it
+// re-renders on every search keystroke).
+const MEAL_SUGGESTIONS = {
+    breakfast: [
+        'Scrambled Eggs',
+        'Pancakes',
+        'Porridge',
+        'French Toast',
+        'Omelette',
+        'Baked Beans on Toast',
+        'Smoothie Bowl',
+        'Eggs Benedict',
+    ],
+    lunch: [
+        'Chicken Wrap',
+        'Tuna Salad',
+        'Fried Rice',
+        'BLT Sandwich',
+        'Soup',
+        'Quesadilla',
+        'Fish Tacos',
+        'Pasta Salad',
+    ],
+    dinner: [
+        'Spaghetti Bolognese',
+        'Grilled Chicken',
+        'Beef Stew',
+        'Fish Curry',
+        'Stir Fry',
+        'Lamb Chops',
+        'Chilli Con Carne',
+        'Pad Thai',
+    ],
+} as const;
+/** Snack (or anything else) falls through to the dinner list — as the inline ternary did. */
+const suggestionsFor = (slot: MealSlot): readonly string[] =>
+    slot === 'breakfast'
+        ? MEAL_SUGGESTIONS.breakfast
+        : slot === 'lunch'
+          ? MEAL_SUGGESTIONS.lunch
+          : MEAL_SUGGESTIONS.dinner;
 
 export interface MealCalendarProps {
     mealDays: MealDayInfo | null;
@@ -379,12 +439,7 @@ export const MealCalendar: React.FC<MealCalendarProps> = ({
             {mealDays.dates.map((date, dayIdx) => {
                 const isEmergency = mealDays.emergencyDates.has(date);
                 const dayLabel = `Day ${dayIdx + 1}`;
-                const dateLabel = new Date(date + 'T12:00:00Z').toLocaleDateString(undefined, {
-                    weekday: 'short',
-                    month: 'short',
-                    day: 'numeric',
-                    timeZone: 'UTC', // the key IS a UTC date; local formatting shifted a day in UTC+12…+14 (audit 2026-09-02)
-                });
+                const dateLabel = DAY_SHORT_FMT.format(new Date(date + 'T12:00:00Z'));
 
                 return (
                     <div
@@ -446,7 +501,7 @@ export const MealCalendar: React.FC<MealCalendarProps> = ({
                                             {/* ✕ Delete button */}
                                             <button
                                                 onClick={(e) => handleDeleteMeal(meal, e)}
-                                                className="hit-target-44 absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-gray-600/90 text-white text-[11px] leading-none flex items-center justify-center z-10 active:scale-90 opacity-60 hover:opacity-100 transition-opacity"
+                                                className="hit-target-44 absolute -top-1 -right-1 w-6 h-6 rounded-full bg-gray-600/90 text-white text-xs leading-none flex items-center justify-center z-10 active:scale-90 opacity-90 hover:opacity-100 transition-opacity"
                                                 aria-label={`Remove ${meal.title}`}
                                             >
                                                 ✕
@@ -613,12 +668,7 @@ export const MealCalendar: React.FC<MealCalendarProps> = ({
                                     const isSource = date === contextMenu.meal.planned_date;
                                     const existing = mealMap.get(`${date}_${contextMenu.meal.meal_slot}`);
                                     const occupied = !!existing && existing.id !== contextMenu.meal.id;
-                                    const dateLabel = new Date(date + 'T12:00:00Z').toLocaleDateString(undefined, {
-                                        weekday: 'short',
-                                        month: 'short',
-                                        day: 'numeric',
-                                        timeZone: 'UTC', // the key IS a UTC date; local formatting shifted a day in UTC+12…+14 (audit 2026-09-02)
-                                    });
+                                    const dateLabel = DAY_SHORT_FMT.format(new Date(date + 'T12:00:00Z'));
                                     return (
                                         <button
                                             key={date}
@@ -696,12 +746,7 @@ const SlotPicker: React.FC<{
     });
 
     const slotLabel = SLOT_CONFIG.find((s) => s.slot === slot);
-    const dateLabel = new Date(date + 'T12:00:00Z').toLocaleDateString(undefined, {
-        weekday: 'long',
-        month: 'long',
-        day: 'numeric',
-        timeZone: 'UTC', // the key IS a UTC date; local formatting shifted a day in UTC+12…+14 (audit 2026-09-02)
-    });
+    const dateLabel = DAY_LONG_FMT.format(new Date(date + 'T12:00:00Z'));
 
     // Debounced search. Pass `immediate: true` to skip the 400ms
     // debounce — used when the user picks a suggestion explicitly
@@ -868,39 +913,7 @@ const SlotPicker: React.FC<{
                                         <option value="" className="bg-slate-900 text-amber-400/70">
                                             💡 Pick a popular {slotLabel?.label?.toLowerCase() || 'meal'}…
                                         </option>
-                                        {(slot === 'breakfast'
-                                            ? [
-                                                  'Scrambled Eggs',
-                                                  'Pancakes',
-                                                  'Porridge',
-                                                  'French Toast',
-                                                  'Omelette',
-                                                  'Baked Beans on Toast',
-                                                  'Smoothie Bowl',
-                                                  'Eggs Benedict',
-                                              ]
-                                            : slot === 'lunch'
-                                              ? [
-                                                    'Chicken Wrap',
-                                                    'Tuna Salad',
-                                                    'Fried Rice',
-                                                    'BLT Sandwich',
-                                                    'Soup',
-                                                    'Quesadilla',
-                                                    'Fish Tacos',
-                                                    'Pasta Salad',
-                                                ]
-                                              : [
-                                                    'Spaghetti Bolognese',
-                                                    'Grilled Chicken',
-                                                    'Beef Stew',
-                                                    'Fish Curry',
-                                                    'Stir Fry',
-                                                    'Lamb Chops',
-                                                    'Chilli Con Carne',
-                                                    'Pad Thai',
-                                                ]
-                                        ).map((suggestion) => (
+                                        {suggestionsFor(slot).map((suggestion) => (
                                             <option
                                                 key={suggestion}
                                                 value={suggestion}
@@ -1000,13 +1013,13 @@ const SlotPicker: React.FC<{
                                     onFocus={handleCustomFocus}
                                     placeholder="Quick add meal name…"
                                     data-no-keyboard-scroll
-                                    className="flex-1 bg-white/4 border border-white/8 rounded-xl px-3 py-2.5 text-xs text-white placeholder-gray-500 focus:outline-hidden focus:border-amber-500/30"
+                                    className="flex-1 min-h-[44px] bg-white/4 border border-white/8 rounded-xl px-3 py-2.5 text-xs text-white placeholder-gray-500 focus:outline-hidden focus:border-amber-500/30"
                                     aria-label="Quick add meal name"
                                 />
                                 <button
                                     onClick={handleCustomMeal}
                                     disabled={!customName.trim() || scheduling}
-                                    className="px-4 py-2.5 bg-amber-500/15 border border-amber-500/20 rounded-xl text-[11px] font-bold text-amber-300 disabled:opacity-30 hover:bg-amber-500/25 transition-all"
+                                    className="min-h-[44px] px-4 py-2.5 bg-amber-500/15 border border-amber-500/20 rounded-xl text-[11px] font-bold text-amber-300 disabled:opacity-30 hover:bg-amber-500/25 transition-all"
                                 >
                                     {scheduling ? '⏳' : '+ Add'}
                                 </button>

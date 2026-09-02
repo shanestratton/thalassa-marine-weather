@@ -369,32 +369,6 @@ const PassageCanvas: React.FC<PassageCanvasProps> = ({ payload, onClose }) => {
         };
     }, [maxTime]);
 
-    // ── Build seamark + channel polygon GeoJSON from pilotage data ──
-    const seamarkGeoJSON = useMemo<GeoJSON.FeatureCollection | null>(() => {
-        const features: GeoJSON.Feature[] = [];
-        if (payload.pilotage?.departure?.seamarks) {
-            features.push(...(payload.pilotage.departure.seamarks as GeoJSON.Feature[]));
-        }
-        if (payload.pilotage?.arrival?.seamarks) {
-            features.push(...(payload.pilotage.arrival.seamarks as GeoJSON.Feature[]));
-        }
-        if (features.length === 0) return null;
-        return { type: 'FeatureCollection', features };
-    }, [payload.pilotage]);
-
-    const channelPolygonGeoJSON = useMemo<GeoJSON.Feature<GeoJSON.Polygon> | null>(() => {
-        // Combine departure + arrival polygons into one if both exist
-        const depPoly = payload.pilotage?.departure?.channel_polygon;
-        const arrPoly = payload.pilotage?.arrival?.channel_polygon;
-        const ring = depPoly || arrPoly;
-        if (!ring || ring.length < 4) return null;
-        return {
-            type: 'Feature',
-            properties: {},
-            geometry: { type: 'Polygon', coordinates: [ring] },
-        };
-    }, [payload.pilotage]);
-
     const [mapReady, setMapReady] = useState(false);
 
     // ── Build PassageBriefData for sharing ──
@@ -501,11 +475,8 @@ const PassageCanvas: React.FC<PassageCanvasProps> = ({ payload, onClose }) => {
                 track={payload.track}
                 ghostShip={ghostShip}
                 boundingBox={payload.bounding_box}
-                corridorWidthNM={payload.mesh_stats.corridor_width_nm}
                 vesselType={payload.summary.vessel_type as 'sail' | 'power'}
                 currentTimeHours={currentTimeHours}
-                seamarkGeoJSON={seamarkGeoJSON}
-                channelPolygonGeoJSON={channelPolygonGeoJSON}
                 onMapReady={() => setMapReady(true)}
             />
 

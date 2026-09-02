@@ -297,7 +297,7 @@ export const PassageRouteMap: React.FC<PassageRouteMapProps> = React.memo(
                             ))}
                             {/* Required when the API's baked-in attribution is
                                 disabled via ?attribution=false. */}
-                            <span className="absolute bottom-0.5 left-1.5 text-[8px] text-white/40 pointer-events-none select-none">
+                            <span className="absolute bottom-0.5 left-1.5 text-xs text-white/70 pointer-events-none select-none">
                                 © Mapbox © OpenStreetMap
                             </span>
                         </>
