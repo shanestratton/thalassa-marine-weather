@@ -44,6 +44,9 @@ export function useConsensusMatrix({ mapRef, passage, setIsoProgress }: Consensu
         const windGrid = WindStore.getState().grid;
         if (!windGrid) return;
 
+        // Cancellation: a generation started for a superseded route or
+        // departure time must never write into state (audit 2026-09-02).
+        let cancelled = false;
         (async () => {
             try {
                 const { generateConsensusMatrix } = await import('../../services/ConsensusMatrixEngine');
@@ -54,11 +57,14 @@ export function useConsensusMatrix({ mapRef, passage, setIsoProgress }: Consensu
                     undefined,
                     6,
                 );
-                setConsensusData(data);
+                if (!cancelled) setConsensusData(data);
             } catch (err) {
-                log.warn('[Consensus] Failed to generate matrix:', err);
+                if (!cancelled) log.warn('[Consensus] Failed to generate matrix:', err);
             }
         })();
+        return () => {
+            cancelled = true;
+        };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [passage.routeAnalysis, passage.departureTime]);
 

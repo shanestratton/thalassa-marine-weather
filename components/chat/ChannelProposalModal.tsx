@@ -329,7 +329,9 @@ export const ChannelProposalModal: React.FC<ChannelProposalModalProps> = ({
                             </button>
                             <button
                                 onClick={onProposeChannel}
-                                disabled={!proposalName.trim()}
+                                /* Also disabled once sent: a second tap during the 2 s auto-close
+                                   created a duplicate channel/proposal (audit 2026-09-02). */
+                                disabled={!proposalName.trim() || proposalSent}
                                 aria-label="Submit channel proposal"
                                 className="flex-1 py-3.5 rounded-xl bg-sky-500/15 text-sm text-sky-400 font-semibold hover:bg-sky-500/25 disabled:opacity-30 transition-colors min-h-[48px]"
                             >

@@ -383,6 +383,7 @@ export const MealCalendar: React.FC<MealCalendarProps> = ({
                     weekday: 'short',
                     month: 'short',
                     day: 'numeric',
+                    timeZone: 'UTC', // the key IS a UTC date; local formatting shifted a day in UTC+12…+14 (audit 2026-09-02)
                 });
 
                 return (
@@ -516,7 +517,9 @@ export const MealCalendar: React.FC<MealCalendarProps> = ({
                                 if (!meal) return null;
                                 return (
                                     <div className="mt-2">
+                                        {/* Keyed per meal: crewCount/imgError leaked between meals expanded in one day row (audit 2026-09-02). */}
                                         <ChefPlate
+                                            key={meal.id}
                                             meal={meal}
                                             baseServings={meal.servings_planned || crewCount}
                                             cooking={cookingMealId === expandedMeal}
@@ -614,6 +617,7 @@ export const MealCalendar: React.FC<MealCalendarProps> = ({
                                         weekday: 'short',
                                         month: 'short',
                                         day: 'numeric',
+                                        timeZone: 'UTC', // the key IS a UTC date; local formatting shifted a day in UTC+12…+14 (audit 2026-09-02)
                                     });
                                     return (
                                         <button
@@ -696,6 +700,7 @@ const SlotPicker: React.FC<{
         weekday: 'long',
         month: 'long',
         day: 'numeric',
+        timeZone: 'UTC', // the key IS a UTC date; local formatting shifted a day in UTC+12…+14 (audit 2026-09-02)
     });
 
     // Debounced search. Pass `immediate: true` to skip the 400ms

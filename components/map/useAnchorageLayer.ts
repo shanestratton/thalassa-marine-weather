@@ -365,7 +365,11 @@ async function fillVerdict(
     data: AnchorageData | null,
     centre: { lat: number; lon: number } | null,
 ): Promise<void> {
-    const el = () => popupRef.current?.getElement()?.querySelector('.anch-verdict') as HTMLElement | null | undefined;
+    // Capture the popup at entry; after the await, popupRef.current may be a
+    // different bay's popup, and this verdict must not land in it (audit
+    // 2026-09-02 — same guard useTideStationLayer already uses).
+    const popup = popupRef.current;
+    const el = () => popup?.getElement()?.querySelector('.anch-verdict') as HTMLElement | null | undefined;
     const feature = data?.points.features.find((f) => f.properties?.id === id);
     const p = feature?.properties;
     if (!feature || !p?.fetchLandNM || !p.fetchReefNM) {
@@ -374,6 +378,7 @@ async function fillVerdict(
         return;
     }
     const hours = centre ? await getStayWindowCached(centre.lat, centre.lon) : null;
+    if (popupRef.current !== popup) return; // a different popup is open now — not ours to write
     const node = el();
     if (!node) return; // popup gone — nobody is reading
     const anchorage: AnchorageForVerdict = {

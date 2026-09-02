@@ -2,7 +2,7 @@
  * useChatProposals — Extracted from ChatPage.
  * Manages channel proposal form, admin instant create, and private channel membership.
  */
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { ChatService, ChatChannel, type ChatMessage } from '../../services/ChatService';
 import { toast } from '../../components/Toast';
 import {
@@ -26,6 +26,10 @@ export function useChatProposals(options: UseChatProposalsOptions) {
     const [proposalDesc, setProposalDesc] = useState('');
     const [proposalIcon, setProposalIcon] = useState('🏝️');
     const [proposalSent, setProposalSent] = useState(false);
+    /** In-flight lock. A ref, not state: two taps in the same render tick read
+     *  the same state value, but the ref is mutated synchronously, so the
+     *  second tap sees it (audit 2026-09-02 — duplicate channels/proposals). */
+    const proposalSubmittingRef = useRef(false);
     const [proposalIsPrivate, setProposalIsPrivate] = useState(false);
     const [proposalParentId, setProposalParentId] = useState<string | null>(null);
 
@@ -87,54 +91,68 @@ export function useChatProposals(options: UseChatProposalsOptions) {
     // --- Actions ---
 
     const handleProposeChannel = useCallback(async () => {
-        if (!proposalName.trim()) return;
-        const identity = getAuthIdentityScope();
+        if (!proposalName.trim() || proposalSent || proposalSubmittingRef.current) return;
+        proposalSubmittingRef.current = true;
+        try {
+            const identity = getAuthIdentityScope();
 
-        let ok = false;
-        if (isAdmin) {
-            const ch = await ChatService.createChannel(
-                proposalName.trim(),
-                proposalDesc.trim() || 'A new channel',
-                proposalIcon,
-                proposalIsPrivate,
-                undefined,
-                proposalParentId || undefined,
-            );
-            ok = !!ch;
-            if (ok) {
-                // Use fresh fetch (bypass cache) to ensure new channel appears immediately
-                const updated = await ChatService.getChannelsFresh();
-                if (!isAuthIdentityScopeCurrent(identity)) return;
-                setChannels(updated);
+            let ok = false;
+            if (isAdmin) {
+                const ch = await ChatService.createChannel(
+                    proposalName.trim(),
+                    proposalDesc.trim() || 'A new channel',
+                    proposalIcon,
+                    proposalIsPrivate,
+                    undefined,
+                    proposalParentId || undefined,
+                );
+                ok = !!ch;
+                if (ok) {
+                    // Use fresh fetch (bypass cache) to ensure new channel appears immediately
+                    const updated = await ChatService.getChannelsFresh();
+                    if (!isAuthIdentityScopeCurrent(identity)) return;
+                    setChannels(updated);
+                }
+            } else {
+                ok = await ChatService.proposeChannel(
+                    proposalName.trim(),
+                    proposalDesc.trim() || 'A new channel',
+                    proposalIcon,
+                    proposalIsPrivate,
+                    undefined,
+                    proposalParentId || undefined,
+                );
             }
-        } else {
-            ok = await ChatService.proposeChannel(
-                proposalName.trim(),
-                proposalDesc.trim() || 'A new channel',
-                proposalIcon,
-                proposalIsPrivate,
-                undefined,
-                proposalParentId || undefined,
-            );
-        }
-        if (!isAuthIdentityScopeCurrent(identity)) return;
+            if (!isAuthIdentityScopeCurrent(identity)) return;
 
-        if (ok) {
-            setProposalSent(true);
-            toast.success(isAdmin ? `${proposalName.trim()} created!` : 'Proposal submitted for admin review!');
-            setTimeout(() => {
-                if (!isAuthIdentityScopeCurrent(identity)) return;
-                setShowProposalForm(false);
-                setProposalSent(false);
-                setProposalName('');
-                setProposalDesc('');
-                setProposalIsPrivate(false);
-                setProposalParentId(null);
-            }, 2000);
-        } else {
-            toast.error('Failed to submit — please try again');
+            if (ok) {
+                setProposalSent(true);
+                toast.success(isAdmin ? `${proposalName.trim()} created!` : 'Proposal submitted for admin review!');
+                setTimeout(() => {
+                    if (!isAuthIdentityScopeCurrent(identity)) return;
+                    setShowProposalForm(false);
+                    setProposalSent(false);
+                    setProposalName('');
+                    setProposalDesc('');
+                    setProposalIsPrivate(false);
+                    setProposalParentId(null);
+                }, 2000);
+            } else {
+                toast.error('Failed to submit — please try again');
+            }
+        } finally {
+            proposalSubmittingRef.current = false;
         }
-    }, [proposalName, proposalDesc, proposalIcon, proposalIsPrivate, proposalParentId, isAdmin, setChannels]);
+    }, [
+        proposalName,
+        proposalDesc,
+        proposalIcon,
+        proposalIsPrivate,
+        proposalParentId,
+        isAdmin,
+        setChannels,
+        proposalSent,
+    ]);
 
     const handleRequestAccess = useCallback((ch: ChatChannel) => {
         setJoinRequestChannel(ch);

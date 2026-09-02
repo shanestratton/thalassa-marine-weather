@@ -588,10 +588,23 @@ export const MapHub: React.FC<MapHubProps> = ({
     const traceNameInputRef = useRef<HTMLInputElement | null>(null);
     const [showSavedTraces, setShowSavedTraces] = useState(false);
     const [traceFeedback, setTraceFeedback] = useState<string | null>(null);
+    // One timer at a time: a second message within 1.8 s used to be dismissed
+    // by the FIRST message's timer (audit 2026-09-02).
+    const feedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const flashTraceFeedback = useCallback((msg: string) => {
         setTraceFeedback(msg);
-        setTimeout(() => setTraceFeedback(null), 1800);
+        if (feedbackTimerRef.current) clearTimeout(feedbackTimerRef.current);
+        feedbackTimerRef.current = setTimeout(() => {
+            feedbackTimerRef.current = null;
+            setTraceFeedback(null);
+        }, 1800);
     }, []);
+    useEffect(
+        () => () => {
+            if (feedbackTimerRef.current) clearTimeout(feedbackTimerRef.current);
+        },
+        [],
+    );
     /** No-go acknowledgment: with danger legs, the first Sail tap arms a red
      *  "Sail anyway?" and only the second tap sails. Never a hard block. */
     const [sailArmed, setSailArmed] = useState(false);
