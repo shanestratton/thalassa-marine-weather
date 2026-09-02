@@ -138,7 +138,10 @@ export interface NearbyVessel {
     sog: number | null;
     heading: number | null;
     /** Human-readable ship type (cargo / tanker / passenger / fishing / …). */
-    ship_type: string | null;
+    /** The pond stores the raw ITU-R M.1371 integer (36 = sailing); older
+     *  rows carry a descriptive string. Typing this as string-only is what
+     *  let a number reach `.toLowerCase()` and blank the page (2026-09-02). */
+    ship_type: string | number | null;
     call_sign: string | null;
     destination: string | null;
     nav_status: string | null;
