@@ -3,13 +3,14 @@
  *
  * Apple cannot send a Supabase JWT, so the gateway is public. Trust comes only
  * from RS256 verification of the JWS against Apple's live JWKS plus exact
- * issuer/audience validation. Destructive events are durably queued as
- * `pending`; this receiver never reports account deletion as completed.
+ * issuer/audience validation. Destructive events are durably queued before a
+ * narrowly authenticated call into the same resumable deletion workflow used
+ * by the app. Apple receives success only after durable deletion completes.
  */
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { sha256Hex, verifyAppleServerNotification } from '../_shared/apple-auth.ts';
-import { jsonResponse, readJsonObject } from '../_shared/http-security.ts';
+import { jsonResponse, readJsonObject, readResponseTextLimited } from '../_shared/http-security.ts';
 
 const json = (body: unknown, status = 200): Response => jsonResponse(body, status);
 
@@ -23,9 +24,10 @@ serve(async (req: Request) => {
     }
 
     const clientId = Deno.env.get('APPLE_SIGN_IN_CLIENT_ID')?.trim();
+    const processorSecret = Deno.env.get('APPLE_NOTIFICATION_PROCESSOR_SECRET')?.trim();
     const supabaseUrl = Deno.env.get('SUPABASE_URL');
     const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
-    if (!clientId || !supabaseUrl || !serviceRoleKey) {
+    if (!clientId || !processorSecret || !supabaseUrl || !serviceRoleKey) {
         return json({ error: 'Apple server notifications are not configured' }, 503);
     }
 
@@ -82,5 +84,49 @@ serve(async (req: Request) => {
         return json({ error: 'Apple notification could not be queued' }, 503);
     }
 
-    return json({ accepted: true, action: 'pending_account_lifecycle' });
+    let processorResponse: Response;
+    try {
+        processorResponse = await fetch(`${supabaseUrl}/functions/v1/delete-account`, {
+            method: 'POST',
+            headers: {
+                Authorization: `Bearer ${serviceRoleKey}`,
+                apikey: serviceRoleKey,
+                'Content-Type': 'application/json',
+                'X-Thalassa-Apple-Processor': processorSecret,
+            },
+            body: JSON.stringify({ appleNotificationJti: event.jti }),
+        });
+    } catch (error) {
+        console.error(
+            '[apple-server-notification] account processor request failed:',
+            error instanceof Error ? error.message : 'unknown error',
+        );
+        await admin
+            .from('apple_server_notification_queue')
+            .update({ status: 'failed', last_error: 'processor_request_failed' })
+            .eq('jti', event.jti);
+        return json({ error: 'Apple notification account action is pending retry' }, 503);
+    }
+
+    const processorText = await readResponseTextLimited(processorResponse, 8_192);
+    let processorBody: Record<string, unknown> | null = null;
+    try {
+        const parsed: unknown = processorText ? JSON.parse(processorText) : null;
+        processorBody = parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+            ? (parsed as Record<string, unknown>)
+            : null;
+    } catch {
+        processorBody = null;
+    }
+    if (!processorResponse.ok || processorBody?.deleted !== true) {
+        const failureCode = `processor_http_${processorResponse.status}`;
+        console.error('[apple-server-notification] account processor did not complete:', failureCode);
+        await admin
+            .from('apple_server_notification_queue')
+            .update({ status: 'failed', last_error: failureCode })
+            .eq('jti', event.jti);
+        return json({ error: 'Apple notification account action is pending retry' }, 503);
+    }
+
+    return json({ accepted: true, action: 'account_deleted' });
 });

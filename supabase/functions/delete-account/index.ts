@@ -8,7 +8,7 @@
  * application rows.
  */
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
-import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { createClient, type SupabaseClient, type User } from 'https://esm.sh/@supabase/supabase-js@2';
 import {
     appleSubjectForAuthenticatedUser,
     decryptAppleRefreshToken,
@@ -19,8 +19,8 @@ import { jsonResponse } from '../_shared/http-security.ts';
 import { drainExactStorageManifest, type StorageManifestGateway } from './storage-cleanup.ts';
 import {
     authenticateDeletionCaller,
+    requireAccountDeletionRequest,
     requireDeletionMutation,
-    requireExactDeletionRequest,
     runAccountDeletionWorkflow,
 } from './workflow.ts';
 
@@ -48,6 +48,19 @@ interface DeletionClaim {
     current_apple_revocation_state: AppleRevocationState;
     current_apple_subject_sha256: string | null;
     is_completed: boolean;
+}
+
+interface AppleNotificationQueueRow {
+    user_id: string | null;
+    apple_subject_sha256: string;
+    event_type: 'consent-revoked' | 'account-deleted';
+    status: 'pending' | 'processing' | 'completed' | 'failed';
+    attempt_count: number;
+}
+
+interface AppleNotificationDeletionContext {
+    jti: string;
+    subjectSha256: string;
 }
 
 const DELETION_PHASE_RANK: Record<string, number> = {
@@ -308,31 +321,116 @@ async function recordFailure(
     if (error) console.error('[delete-account] could not checkpoint failure:', error.message);
 }
 
+async function recordAppleNotificationFailure(
+    admin: SupabaseClient,
+    jti: string,
+    code: string,
+): Promise<void> {
+    const { error } = await admin
+        .from('apple_server_notification_queue')
+        .update({ status: 'failed', last_error: code.slice(0, 128) })
+        .eq('jti', jti);
+    if (error) console.error('[delete-account] could not checkpoint Apple notification failure:', error.message);
+}
+
+/** Apple has already revoked this credential before sending the signed event. */
+async function acknowledgeAppleCredentialAlreadyRevoked(
+    admin: SupabaseClient,
+    userId: string,
+    leaseToken: string,
+    durableState: AppleRevocationState,
+    subjectSha256: string,
+): Promise<void> {
+    if (durableState === 'complete' || durableState === 'not_applicable' || durableState === 'manual_required') {
+        return;
+    }
+    if (durableState === 'pending') {
+        await recordAppleState(admin, userId, leaseToken, 'revoking', subjectSha256);
+    }
+    await recordAppleState(admin, userId, leaseToken, 'complete', subjectSha256);
+}
+
 serve(async (req: Request) => {
     if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
     if (req.method !== 'POST') return json({ error: 'POST required' }, 405);
 
-    const requestGate = await requireExactDeletionRequest(req, CONFIRMATION);
-    if (!requestGate.ok) return json({ error: requestGate.error }, requestGate.status);
-    const { authorization } = requestGate;
-
     const supabaseUrl = Deno.env.get('SUPABASE_URL');
     const anonKey = Deno.env.get('SUPABASE_ANON_KEY');
     const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
-    if (!supabaseUrl || !anonKey || !serviceRoleKey) {
+    const appleNotificationProcessorSecret = Deno.env.get('APPLE_NOTIFICATION_PROCESSOR_SECRET');
+    if (!supabaseUrl || !anonKey || !serviceRoleKey || !appleNotificationProcessorSecret) {
         return json({ error: 'Account deletion is not configured' }, 503);
     }
-
-    const caller = createClient(supabaseUrl, anonKey, {
-        global: { headers: { Authorization: authorization } },
-        auth: { persistSession: false, autoRefreshToken: false },
-    });
-    const user = await authenticateDeletionCaller(() => caller.auth.getUser());
-    if (!user) return json({ error: 'Invalid or expired session' }, 401);
 
     const admin = createClient(supabaseUrl, serviceRoleKey, {
         auth: { persistSession: false, autoRefreshToken: false },
     });
+
+    const requestGate = await requireAccountDeletionRequest(req, CONFIRMATION, appleNotificationProcessorSecret);
+    if (!requestGate.ok) return json({ error: requestGate.error }, requestGate.status);
+
+    let user: User;
+    let appleNotification: AppleNotificationDeletionContext | null = null;
+    if (requestGate.mode === 'apple-notification') {
+        const { data, error } = await admin
+            .from('apple_server_notification_queue')
+            .select('user_id, apple_subject_sha256, event_type, status, attempt_count')
+            .eq('jti', requestGate.jti)
+            .maybeSingle();
+        if (error) {
+            console.error('[delete-account] could not load verified Apple notification:', error.message);
+            return json({ error: 'Verified Apple notification could not be processed' }, 503);
+        }
+        const queued = data as AppleNotificationQueueRow | null;
+        if (!queued) return json({ error: 'Verified Apple notification was not found' }, 404);
+        if (queued.status === 'completed' || !queued.user_id) {
+            await admin
+                .from('apple_server_notification_queue')
+                .update({ status: 'completed', completed_at: new Date().toISOString(), last_error: null })
+                .eq('jti', requestGate.jti);
+            return json({ deleted: true, alreadyDeleted: true, appleNotificationProcessed: true });
+        }
+
+        const { data: userLookup, error: userError } = await admin.auth.admin.getUserById(queued.user_id);
+        if (userError) {
+            console.error('[delete-account] could not resolve Apple notification owner:', userError.message);
+            await recordAppleNotificationFailure(admin, requestGate.jti, 'owner_lookup_failed');
+            return json({ error: 'Verified Apple notification owner could not be resolved' }, 503);
+        }
+        if (!userLookup.user) {
+            await admin
+                .from('apple_server_notification_queue')
+                .update({ status: 'completed', completed_at: new Date().toISOString(), last_error: null })
+                .eq('jti', requestGate.jti);
+            return json({ deleted: true, alreadyDeleted: true, appleNotificationProcessed: true });
+        }
+
+        user = userLookup.user;
+        appleNotification = {
+            jti: requestGate.jti,
+            subjectSha256: queued.apple_subject_sha256,
+        };
+        const { error: processingError } = await admin
+            .from('apple_server_notification_queue')
+            .update({
+                status: 'processing',
+                attempt_count: Math.max(0, Number(queued.attempt_count) || 0) + 1,
+                last_error: null,
+            })
+            .eq('jti', requestGate.jti);
+        if (processingError) {
+            console.error('[delete-account] could not claim Apple notification:', processingError.message);
+            return json({ error: 'Verified Apple notification could not be claimed' }, 503);
+        }
+    } else {
+        const caller = createClient(supabaseUrl, anonKey, {
+            global: { headers: { Authorization: requestGate.authorization } },
+            auth: { persistSession: false, autoRefreshToken: false },
+        });
+        const authenticatedUser = await authenticateDeletionCaller(() => caller.auth.getUser());
+        if (!authenticatedUser) return json({ error: 'Invalid or expired session' }, 401);
+        user = authenticatedUser;
+    }
 
     const leaseToken = crypto.randomUUID();
     let claim: DeletionClaim | null = null;
@@ -353,6 +451,9 @@ serve(async (req: Request) => {
             throw new Error('Deletion tombstone is complete while the authenticated user still exists');
         }
         if (!claim.acquired) {
+            if (appleNotification) {
+                await recordAppleNotificationFailure(admin, appleNotification.jti, 'deletion_in_progress');
+            }
             return json(
                 {
                     deleted: false,
@@ -366,13 +467,24 @@ serve(async (req: Request) => {
         const resumedPhaseRank = deletionPhaseRank(claim.current_phase);
 
         const result = await runAccountDeletionWorkflow({
-            revokeAppleCredential: async () =>
-                await revokeAppleCredentialBeforeDeletion(
+            revokeAppleCredential: async () => {
+                if (appleNotification) {
+                    await acknowledgeAppleCredentialAlreadyRevoked(
+                        admin,
+                        user.id,
+                        leaseToken,
+                        claim!.current_apple_revocation_state,
+                        appleNotification.subjectSha256,
+                    );
+                    return false;
+                }
+                return await revokeAppleCredentialBeforeDeletion(
                     admin,
                     user,
                     leaseToken,
                     claim!.current_apple_revocation_state,
-                ),
+                );
+            },
             drainStorage: async () =>
                 resumedPhaseRank >= DELETION_PHASE_RANK.storage_verified
                     ? { complete: true, processed: 0 }
@@ -431,6 +543,9 @@ serve(async (req: Request) => {
 
         if (!result.deleted) {
             await recordFailure(admin, user.id, leaseToken, 'storage_cleanup_budget');
+            if (appleNotification) {
+                await recordAppleNotificationFailure(admin, appleNotification.jti, 'storage_cleanup_budget');
+            }
             return json(
                 {
                     ...result,
@@ -440,11 +555,14 @@ serve(async (req: Request) => {
                 202,
             );
         }
-        return json(result);
+        return json({ ...result, ...(appleNotification ? { appleNotificationProcessed: true } : {}) });
     } catch (error) {
         console.error('[delete-account] deletion failed:', error);
         if (claim?.acquired) {
             await recordFailure(admin, user.id, leaseToken, deletionFailureCode(error));
+        }
+        if (appleNotification) {
+            await recordAppleNotificationFailure(admin, appleNotification.jti, deletionFailureCode(error));
         }
         return json(
             {

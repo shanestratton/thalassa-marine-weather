@@ -5,8 +5,8 @@
  * CTA across the app — Settings → Account, Crew Management,
  * Scuttlebutt DMs, Voyage Log publishing,
  * Vessel restore, route save — opens THIS component. Email OTP is the
- * public-beta door. Native Apple is compiled in but remains fail-closed until
- * its complete TN3194 server lifecycle is deployed and explicitly enabled.
+ * recovery door. Native Apple is enabled only through the committed release
+ * profile after its complete TN3194 server lifecycle is deployed and verified.
  *
  * Two modes
  * ---------
@@ -21,9 +21,8 @@
  *    that needs an always-rendered sign-in (e.g. a hard-gated
  *    publish step).
  *
- * Browser Apple uses its released Services-ID OAuth lane. Native Apple stays
- * separately held until its full lifecycle gate is enabled, with email as the
- * recovery lane throughout.
+ * Browser Apple uses its released Services-ID OAuth lane. Native Apple uses a
+ * separately gated App-ID lane, with email as the recovery path throughout.
  *
  * On a sailing app, identity reliability beats minor UI clutter.
  */
@@ -50,9 +49,10 @@ import markDark from '../assets/brand/mark-dark.svg';
 // two-palette discipline rules (UI vs BRAND).
 import { BRAND } from '../theme';
 
-// Fail closed until the TN3194 migration, both authenticated Edge Functions,
-// Apple server credentials, and the signed server-notification receiver are
-// deployed and verified. A missing variable must never expose a broken door.
+// The committed release profile turns this on only after the TN3194 migration,
+// authenticated Edge Functions, Apple server credentials, signed notification
+// processor, and App ID endpoint are verified. A missing or false flag still
+// fails closed instead of exposing a broken door.
 const APPLE_NATIVE_SIGN_IN_ENABLED = import.meta.env.VITE_APPLE_SIGN_IN_ENABLED === 'true';
 
 interface SignInScreenProps {
@@ -88,8 +88,8 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({ isOpen, onClose, pro
     const primaryActionRef = useRef<HTMLButtonElement>(null);
     const emailModeWasOpenRef = useRef(false);
     // Native and browser Apple are separate release lanes. Native wraps a
-    // Capacitor plugin and remains held behind its entitlement/lifecycle gate;
-    // browser Apple uses the configured Services ID through Supabase OAuth.
+    // Capacitor plugin behind its entitlement/lifecycle gate; browser Apple
+    // uses the configured Services ID through Supabase OAuth.
     const isNative = Capacitor.isNativePlatform();
     const appleNativeEnabled = isNative && APPLE_NATIVE_SIGN_IN_ENABLED;
     const appleWebEnabled = !isNative && APPLE_WEB_SIGN_IN_ENABLED;

@@ -26,9 +26,7 @@ export const PUBLIC_BETA_FEATURE_FLAG_KEYS = Object.freeze([
 export const PUBLIC_BETA_ENDPOINT_KEYS = Object.freeze(['VITE_DEEPGRAM_PROXY_URL', 'VITE_NATIVE_API_BASE']);
 
 export const PUBLIC_BETA_HELD_CAPABILITIES = Object.freeze([
-    'native-apple-sign-in',
     'apple-watch-bridge',
-    'account-deletion',
     'gmail',
     'grant-all-features',
     'enc-demo-samples',
@@ -50,7 +48,10 @@ export const PUBLIC_BETA_HELD_CAPABILITIES = Object.freeze([
     'spoonacular-online-catalogue',
 ]);
 
-// Google sign-in re-enabled 2026-08-25 (Shane): the client ID moved from
+// Native Apple sign-in and account deletion were released together on
+// 2026-09-02 after the TN3194 token lifecycle, signed notification processor,
+// Apple endpoint registration, and disposable production deletion smoke
+// passed. Google sign-in was re-enabled 2026-08-25 (Shane): the client ID moved from
 // required-absent to required-present — the Supabase provider, Google Cloud
 // redirect and both build environments were verified configured first, so
 // the button can no longer ship pointing at an unconfigured provider.

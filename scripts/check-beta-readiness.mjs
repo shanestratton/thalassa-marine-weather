@@ -1570,14 +1570,14 @@ const intendedPublicBetaFeatureFlags = {
     VITE_CMEMS_SEAICE_ENABLED: false,
     VITE_CMEMS_MLD_ENABLED: false,
     VITE_MPA_ENABLED: false,
-    VITE_APPLE_SIGN_IN_ENABLED: false,
+    VITE_APPLE_SIGN_IN_ENABLED: true,
     VITE_APPLE_WEB_SIGN_IN_ENABLED: true,
     VITE_APPLE_MUSIC_ENABLED: true,
     VITE_APPLE_WATCH_ENABLED: false,
     // true since 2026-08-25 (Shane: 'put it back') — provider config verified
     // end to end before the flip; see public-beta-feature-profile.mjs.
     VITE_GOOGLE_SIGN_IN_ENABLED: true,
-    VITE_ACCOUNT_DELETION_ENABLED: false,
+    VITE_ACCOUNT_DELETION_ENABLED: true,
     VITE_GRANT_ALL_FEATURES: false,
     VITE_ENABLE_ENC_DEMO_SAMPLES: false,
 };
@@ -1600,9 +1600,7 @@ check(
             "const DEFAULT_NATIVE_BASE = 'https://thalassawx.vercel.app/api'",
         ]) &&
         includesAll(publicBetaFeatureProfile.heldCapabilities.join('\n'), [
-            'native-apple-sign-in',
             'apple-watch-bridge',
-            'account-deletion',
             'gmail',
             'grant-all-features',
             'enc-demo-samples',
@@ -2315,9 +2313,9 @@ const deleteAccountServiceBody = accountService.slice(
 );
 const accountDeletionHold = deleteAccountServiceBody.indexOf('if (!ACCOUNT_DELETION_PUBLIC_BETA_ENABLED)');
 check(
-    'production account deletion is held before UI exposure or destructive invocation',
-    publicBetaFeatureProfile.featureFlags.VITE_ACCOUNT_DELETION_ENABLED === false &&
-        publicBetaFeatureProfile.heldCapabilities.includes('account-deletion') &&
+    'production account deletion is released through its fail-closed UI and service boundary',
+    publicBetaFeatureProfile.featureFlags.VITE_ACCOUNT_DELETION_ENABLED === true &&
+        !publicBetaFeatureProfile.heldCapabilities.includes('account-deletion') &&
         includesAll(accountDeletionBoundary, [
             "import.meta.env.VITE_ACCOUNT_DELETION_ENABLED === 'true'",
             "ACCOUNT_DELETION_PRIVACY_EMAIL = 'privacy@thalassawx.com'",
@@ -2513,7 +2511,7 @@ check(
         ]),
 );
 check(
-    'Apple server notifications are signature-verified and durably queued without claiming deletion',
+    'Apple server notifications are signature-verified, durably queued, and processed through account deletion',
     includesAll(appleAuthServer, [
         'verifyAppleServerNotification',
         'jwtVerify(signedPayload, APPLE_JWKS',
@@ -2526,9 +2524,19 @@ check(
             "event.eventType === 'email-enabled'",
             ".from('apple_server_notification_queue').upsert",
             "status: 'pending'",
-            "action: 'pending_account_lifecycle'",
+            "Deno.env.get('APPLE_NOTIFICATION_PROCESSOR_SECRET')",
+            '`${supabaseUrl}/functions/v1/delete-account`',
+            'appleNotificationJti: event.jti',
+            "action: 'account_deleted'",
         ]) &&
         !appleNotificationFunction.includes('auth.admin.deleteUser') &&
+        includesAll(accountFunction, [
+            'requireAccountDeletionRequest',
+            ".from('apple_server_notification_queue')",
+            'acknowledgeAppleCredentialAlreadyRevoked',
+            'admin.auth.admin.getUserById',
+            'appleNotificationProcessed: true',
+        ]) &&
         includesAll(appleNotificationMigration, [
             'ALTER TABLE public.apple_server_notification_queue FORCE ROW LEVEL SECURITY',
             'REVOKE ALL ON TABLE public.apple_server_notification_queue FROM authenticated',
@@ -3076,17 +3084,10 @@ check(
 // stay coupled to a source-level boundary. This prevents the manifest from
 // becoming reassuring metadata while an independently gated surface reopens.
 const heldCapabilitySourceContracts = {
-    'native-apple-sign-in':
-        publicBetaFeatureProfile.featureFlags.VITE_APPLE_SIGN_IN_ENABLED === false &&
-        signInUi.includes("APPLE_NATIVE_SIGN_IN_ENABLED = import.meta.env.VITE_APPLE_SIGN_IN_ENABLED === 'true'") &&
-        !mainEntitlements.includes('com.apple.developer.applesignin'),
     'apple-watch-bridge':
         publicBetaFeatureProfile.featureFlags.VITE_APPLE_WATCH_ENABLED === false &&
         read('index.tsx').includes("import.meta.env.VITE_APPLE_WATCH_ENABLED === 'true'") &&
         !project.includes('Embed Watch Content'),
-    'account-deletion':
-        publicBetaFeatureProfile.featureFlags.VITE_ACCOUNT_DELETION_ENABLED === false &&
-        accountDeletionBoundary.includes('Account deletion is temporarily unavailable'),
     // Until 2026-08-25 gmail was double-fenced: the blanked client ID plus its
     // own DEV-only flag. Google SIGN-IN re-enabling (Shane) legitimately
     // removed the first fence — the ID must now be present for auth — so the
