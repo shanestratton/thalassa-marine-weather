@@ -101,21 +101,38 @@ export const GpxImportPage: React.FC<GpxImportPageProps> = ({ onBack }) => {
                 const rawXml = await readGPXFile(file);
                 const entries = importGPXToEntries(rawXml);
 
-                if (entries.length === 0) {
-                    throw new Error('No track points or waypoints found in this GPX file.');
+                // Extract the navigable route FIRST. A route-only file (<rte>/
+                // <rtept>, the kind a chartplotter exports) has no track points
+                // or waypoints, so the emptiness check below used to throw
+                // before this ran — and "Route to Passage Planner" was
+                // unreachable for exactly the files it exists for (audit
+                // 2026-09-02). Non-critical if it fails: the log import still
+                // proceeds.
+                let route: ReturnType<typeof extractGPXRouteWaypoints> = null;
+                try {
+                    route = extractGPXRouteWaypoints(rawXml);
+                } catch (routeErr) {
+                    log.warn('[Import] Route extraction failed (non-critical):', routeErr);
+                }
+
+                if (entries.length === 0 && !route) {
+                    throw new Error('No track points, waypoints or route found in this GPX file.');
                 }
 
                 const metadata = parseMetadata(rawXml);
 
-                // Calculate stats
-                const trackPoints = entries.filter((e) => e.entryType === 'auto').length;
+                // Calculate stats — from TRACK points only. Waypoints sort by
+                // position, so the last entry could be an untimed <wpt> and the
+                // distance read "0 NM" with a duration of hours-since-recording.
+                const track = entries.filter((e) => e.entryType === 'auto');
+                const trackPoints = track.length;
                 const waypoints = entries.filter((e) => e.entryType === 'waypoint' || e.entryType === 'manual').length;
 
-                const lastEntry = entries[entries.length - 1];
+                const lastEntry = track[track.length - 1];
                 const totalDistanceNM = lastEntry?.cumulativeDistanceNM || 0;
 
                 // Calculate duration
-                const firstTime = entries[0]?.timestamp ? new Date(entries[0].timestamp).getTime() : 0;
+                const firstTime = track[0]?.timestamp ? new Date(track[0].timestamp).getTime() : 0;
                 const lastTime = lastEntry?.timestamp ? new Date(lastEntry.timestamp).getTime() : 0;
                 const durationMs = lastTime - firstTime;
                 const hours = Math.floor(durationMs / 3600000);
@@ -152,18 +169,12 @@ export const GpxImportPage: React.FC<GpxImportPageProps> = ({ onBack }) => {
                 setState('previewing');
                 triggerHaptic('light');
 
-                // Also try to extract navigable route for the Passage Planner
-                try {
-                    const route = extractGPXRouteWaypoints(rawXml);
-                    setRouteData(route);
-                    if (route) {
-                        log.info(
-                            `[Import] Route detected: ${route.routeName} — ${route.waypoints.length} waypoints, ${route.totalDistanceNM} NM`,
-                        );
-                    }
-                } catch (routeErr) {
-                    log.warn('[Import] Route extraction failed (non-critical):', routeErr);
-                    setRouteData(null);
+                // Hand the route (extracted above) to the Passage Planner path.
+                setRouteData(route);
+                if (route) {
+                    log.info(
+                        `[Import] Route detected: ${route.routeName} — ${route.waypoints.length} waypoints, ${route.totalDistanceNM} NM`,
+                    );
                 }
 
                 log.info(

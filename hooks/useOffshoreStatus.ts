@@ -54,17 +54,23 @@ export function useOffshoreStatus(locationType?: 'inshore' | 'coastal' | 'offsho
     const [justCrossed, setJustCrossed] = useState(false);
 
     useEffect(() => {
+        // Record the previous value FIRST. The crossing branch below used to
+        // `return` before this line ran, so prevOffshore stayed false while the
+        // boat was offshore and every re-render re-fired the toast and armed a
+        // fresh 5 s timer — a banner that could sit on screen for the whole
+        // passage (audit 2026-09-02).
+        const wasOffshore = prevOffshore.current;
+        prevOffshore.current = isOffshore;
         // Detect coastal → offshore flip
-        if (isOffshore && !prevOffshore.current) {
+        if (isOffshore && !wasOffshore) {
             setJustCrossed(true);
             const timer = setTimeout(() => setJustCrossed(false), 5000);
             return () => clearTimeout(timer);
         }
         // Detect offshore → coastal flip (clear flag immediately)
-        if (!isOffshore && prevOffshore.current) {
+        if (!isOffshore && wasOffshore) {
             setJustCrossed(false);
         }
-        prevOffshore.current = isOffshore;
     }, [isOffshore]);
 
     const testToggle = useCallback(() => {

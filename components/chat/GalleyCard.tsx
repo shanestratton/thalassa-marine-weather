@@ -204,7 +204,13 @@ export const GalleyCard: React.FC<GalleyCardProps> = ({
     const handleVoyageCrewCountChange = useCallback(
         (count: number) => {
             if (getAuthIdentityScope().key !== identityKey) return;
-            const clamped = Math.max(1, Math.min(20, count));
+            // The stepper displays and returns the EFFECTIVE total (planned +
+            // registered crew), but this stores the PLANNED base — so the
+            // registered crew were added twice and pressing − could raise the
+            // count (2 planned + 2 invited showed 4; − stored 3 → showed 5).
+            // Strip the registered part before storing (audit 2026-09-02).
+            const registered = registeredCrewCount !== undefined && registeredCrewCount > 0 ? registeredCrewCount : 0;
+            const clamped = Math.max(1, Math.min(20, count - registered));
             if (perms.voyageId) {
                 setVoyageCrewCount(clamped);
                 writeGalleyCrewCount(perms.voyageId, clamped);
@@ -212,7 +218,7 @@ export const GalleyCard: React.FC<GalleyCardProps> = ({
             }
             handleSetCrewCount(clamped);
         },
-        [handleSetCrewCount, identityKey, perms.voyageId],
+        [handleSetCrewCount, identityKey, perms.voyageId, registeredCrewCount],
     );
 
     // Load voyage data and compute calendar dimensions

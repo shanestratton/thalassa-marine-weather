@@ -88,7 +88,10 @@ export const ComfortQuickConfig: React.FC<ComfortQuickConfigProps> = ({ expanded
     };
 
     const toggleAngle = (key: PreferredAngle) => {
-        const cur = params.preferredAngles ?? [];
+        // `undefined` means "no preference" = ALL five selected (that is what
+        // the pills show). Starting from [] instead inverted the gesture: a
+        // cruiser deselecting Beating got ONLY Beating (audit 2026-09-02).
+        const cur = effectiveAngles;
         const next = cur.includes(key) ? cur.filter((a) => a !== key) : [...cur, key];
         // If user selected all five, store as undefined (= "no preference"
         // — saves a comparison in the engine and reads cleaner in the
