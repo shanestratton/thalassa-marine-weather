@@ -18,6 +18,7 @@
  */
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { BarometerGauge } from './gauges/BarometerGauge';
+import { HeadingGauge } from './gauges/HeadingGauge';
 import { RudderGauge } from './gauges/RudderGauge';
 import { useBarometerSource } from '../../hooks/useBarometerSource';
 import { hpaToInHg, observedTendency, type TendencySeverity } from '../../utils/barometerTendency';
@@ -149,132 +150,6 @@ const Sparkline: React.FC<SparklineProps> = ({
 // (Synthetic-history dummy generator removed — sparklines now stay
 //  empty when no real data has arrived. Sparkline component handles
 //  the empty-history case by rendering a low-opacity placeholder.)
-
-// ── HeroCompass — compact 360° compass card sized to its parent ──
-const HeroCompass: React.FC<{ value: number | null; isLive: boolean; accentColor?: string }> = ({
-    value,
-    isLive,
-    accentColor = '#22d3ee',
-}) => {
-    // Unwrapped, so the card takes the short way across north instead of
-    // spinning 358 degrees backwards through south every time the bow wanders
-    // over 000 — which is precisely where this boat sits at anchor.
-    const rotation = useUnwrappedAngle(value === null ? null : -value);
-    const opacity = value === null ? 0.25 : isLive ? 1 : 0.4;
-
-    const ticks = useMemo(() => {
-        const items: { deg: number; label?: string; isCardinal: boolean; isMajor: boolean }[] = [];
-        const labels: Record<number, string> = { 0: 'N', 90: 'E', 180: 'S', 270: 'W' };
-        for (let d = 0; d < 360; d += 15) {
-            const isCardinal = d % 90 === 0;
-            const isMajor = d % 30 === 0;
-            items.push({ deg: d, label: labels[d], isCardinal, isMajor });
-        }
-        return items;
-    }, []);
-
-    return (
-        <svg viewBox="0 0 120 120" className="w-full h-full">
-            <defs>
-                <filter id="hero-compass-glow" x="-50%" y="-50%" width="200%" height="200%">
-                    <feGaussianBlur stdDeviation="1.5" result="blur" />
-                    <feFlood floodColor={accentColor} floodOpacity="0.6" />
-                    <feComposite in2="blur" operator="in" />
-                    <feMerge>
-                        <feMergeNode />
-                        <feMergeNode in="SourceGraphic" />
-                    </feMerge>
-                </filter>
-            </defs>
-
-            {/* Background ring */}
-            <circle
-                cx="60"
-                cy="60"
-                r="55"
-                fill="rgba(15,23,42,0.4)"
-                stroke="rgba(255,255,255,0.08)"
-                strokeWidth="0.8"
-            />
-            <circle cx="60" cy="60" r="48" fill="none" stroke="rgba(255,255,255,0.04)" strokeWidth="0.5" />
-
-            {/* Rotating compass card */}
-            {/* CSS transitions animate the transform PROPERTY, not the SVG
-                transform ATTRIBUTE — the old `transform={...}` plus a
-                transition style was a no-op, and the card snapped. */}
-            <g
-                style={{
-                    transform: `rotate(${rotation}deg)`,
-                    transformOrigin: '60px 60px',
-                    transition: 'transform 900ms cubic-bezier(0.22, 1, 0.36, 1)',
-                }}
-                opacity={opacity}
-            >
-                {ticks.map(({ deg, label, isCardinal, isMajor }) => {
-                    const rad = ((deg - 90) * Math.PI) / 180;
-                    const innerR = isCardinal ? 38 : isMajor ? 42 : 44;
-                    const outerR = 48;
-                    const x1 = 60 + innerR * Math.cos(rad);
-                    const y1 = 60 + innerR * Math.sin(rad);
-                    const x2 = 60 + outerR * Math.cos(rad);
-                    const y2 = 60 + outerR * Math.sin(rad);
-                    const labelR = 32;
-                    const lx = 60 + labelR * Math.cos(rad);
-                    const ly = 60 + labelR * Math.sin(rad);
-                    return (
-                        <g key={deg}>
-                            <line
-                                x1={x1}
-                                y1={y1}
-                                x2={x2}
-                                y2={y2}
-                                stroke={isCardinal ? 'white' : 'rgba(255,255,255,0.4)'}
-                                strokeWidth={isCardinal ? 1.2 : 0.6}
-                                strokeLinecap="round"
-                            />
-                            {label && (
-                                <text
-                                    x={lx}
-                                    y={ly}
-                                    textAnchor="middle"
-                                    dominantBaseline="central"
-                                    fill={label === 'N' ? '#f87171' : 'white'}
-                                    fontSize="9"
-                                    fontWeight="900"
-                                    fontFamily="system-ui, -apple-system, sans-serif"
-                                    transform={`rotate(${-rotation} ${lx} ${ly})`}
-                                >
-                                    {label}
-                                </text>
-                            )}
-                        </g>
-                    );
-                })}
-            </g>
-
-            {/* Lubber line (fixed indicator at top) */}
-            <g filter="url(#hero-compass-glow)">
-                <path d="M 60 4 L 56 12 L 64 12 Z" fill={accentColor} opacity={opacity} />
-            </g>
-
-            {/* Center digital readout */}
-            <circle cx="60" cy="60" r="14" fill="rgba(2,6,23,0.85)" stroke="rgba(255,255,255,0.12)" strokeWidth="0.8" />
-            <text
-                x="60"
-                y="61"
-                textAnchor="middle"
-                dominantBaseline="central"
-                fill="white"
-                fontSize="11"
-                fontWeight="900"
-                fontFamily="ui-monospace, SFMono-Regular, monospace"
-                opacity={opacity}
-            >
-                {value === null ? '—' : `${Math.round(value).toString().padStart(3, '0')}°`}
-            </text>
-        </svg>
-    );
-};
 
 /**
  * FlankMetric — one number in the column beside the dial.
@@ -1732,12 +1607,10 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                         >
                             <SectionPlate title="Heading" />
                             <div className="flex-1 min-h-0 flex flex-col items-center justify-evenly">
-                                <div style={{ width: '80vw', maxWidth: '300px', aspectRatio: '1' }}>
-                                    <HeroCompass
-                                        value={heading.value}
-                                        isLive={heading.value !== null && heading.freshness === 'live'}
-                                    />
-                                </div>
+                                <HeadingGauge
+                                    value={heading.value}
+                                    isLive={heading.value !== null && heading.freshness === 'live'}
+                                />
                                 <p className="font-mono text-sm font-bold tabular-nums text-gray-300">
                                     {makingWay && cog.value !== null
                                         ? `COG ${Math.round(cog.value)}°`
