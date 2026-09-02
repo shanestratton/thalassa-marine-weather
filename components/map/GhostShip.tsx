@@ -159,8 +159,13 @@ export function GhostShip({
 
         elRef.current.style.display = '';
         marker.setLngLat([result.coord[0], result.coord[1]]);
-        // Rotate the SVG to heading (CSS rotation, clockwise from north)
-        elRef.current.style.transform = `rotate(${result.heading}deg)`;
+        // Rotate through the Marker API, NOT by writing style.transform on
+        // the element: Mapbox owns that element's transform (it is how the
+        // marker is positioned) and rewrites it on every map move, so a CSS
+        // rotation set here was clobbered within a frame and the ship always
+        // pointed north (audit 2026-09-02). setRotation composes with the
+        // positioning translate and honours rotationAlignment: 'map'.
+        marker.setRotation(result.heading);
     }, [map, routeCoords, departureTime, speed, windHour, windForecastHours, windNowIdx, visible, getOrCreateMarker]);
 
     // Cleanup on unmount

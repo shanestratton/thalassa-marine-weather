@@ -26,6 +26,7 @@ import {
 } from '../../services/voice/radioPhrasing';
 import { GearIcon } from '../Icons';
 import { authScopedStorageKey } from '../../services/authIdentityScope';
+import { useUtcClock } from '../../hooks/useUtcClock';
 
 interface RadioConsolePageProps {
     onBack: () => void;
@@ -418,7 +419,8 @@ export const RadioConsolePage: React.FC<RadioConsolePageProps> = ({ onBack, onNa
 
     // ── TTS ──
 
-    const utcTime = new Date().toISOString().slice(11, 19);
+    // Ticks every second — a MAYDAY time is read aloud, so it must be live.
+    const utcTime = useUtcClock();
 
     const gpsStatusClass = gpsError
         ? 'bg-red-500/10 border-red-500/30 text-red-400'

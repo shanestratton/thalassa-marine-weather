@@ -3,6 +3,7 @@ import { WindIcon, RainIcon, CompassIcon, BoatIcon, XIcon } from '../Icons';
 import { fetchStopDetails } from '../../services/geminiService';
 import { Waypoint, StopDetails } from '../../types';
 import { SafeImage } from '../ui/SafeImage';
+import { formatCoordinate } from '../../utils/format';
 
 export type MapLayer = 'wind' | 'rain' | 'global-wind' | 'velocity';
 
@@ -168,8 +169,10 @@ export const StopDetailView = ({ waypoint, onClose }: { waypoint: Waypoint; onCl
                         </h2>
                         {waypoint.coordinates && (
                             <p className="text-xs text-sky-300 font-mono drop-shadow-md">
-                                {waypoint.coordinates.lat.toFixed(3)}°N, {Math.abs(waypoint.coordinates.lon).toFixed(3)}
-                                °W
+                                {/* Hemispheres from the sign, not hard-coded — this printed
+                                    "-19.260°N, 146.820°W" for Townsville (audit 2026-09-02). */}
+                                {formatCoordinate(waypoint.coordinates.lat, 'lat')},{' '}
+                                {formatCoordinate(waypoint.coordinates.lon, 'lon')}
                             </p>
                         )}
                     </div>
