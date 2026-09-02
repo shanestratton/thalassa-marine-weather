@@ -51,6 +51,7 @@ export {
     LockIcon,
     DiamondIcon,
     ShareIcon,
+    ExternalLinkIcon,
     BugIcon,
     PhoneIcon,
     GripIcon,

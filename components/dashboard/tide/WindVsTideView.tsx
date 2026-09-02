@@ -160,7 +160,7 @@ export const WindVsTideView: React.FC<WindVsTideViewProps> = ({
                         onClose();
                     }}
                     aria-label="Back to tide graph"
-                    className="absolute top-2 right-2 w-7 h-7 rounded-full bg-white/10 text-white/70 text-sm flex items-center justify-center active:scale-90"
+                    className="hit-target-44 absolute top-2 right-2 w-7 h-7 rounded-full bg-white/10 text-white/70 text-sm flex items-center justify-center active:scale-90"
                 >
                     ✕
                 </button>
@@ -230,7 +230,7 @@ export const WindVsTideView: React.FC<WindVsTideViewProps> = ({
                             e.stopPropagation();
                             adjustFlood(-15);
                         }}
-                        className="w-7 h-7 rounded-md bg-white/10 text-white/80 text-sm active:scale-90"
+                        className="w-11 h-11 rounded-md bg-white/10 text-white/80 text-base active:scale-90"
                         aria-label="Flood direction minus 15 degrees"
                     >
                         −
@@ -240,7 +240,7 @@ export const WindVsTideView: React.FC<WindVsTideViewProps> = ({
                             e.stopPropagation();
                             adjustFlood(15);
                         }}
-                        className="w-7 h-7 rounded-md bg-white/10 text-white/80 text-sm active:scale-90"
+                        className="w-11 h-11 rounded-md bg-white/10 text-white/80 text-base active:scale-90"
                         aria-label="Flood direction plus 15 degrees"
                     >
                         +
@@ -251,7 +251,7 @@ export const WindVsTideView: React.FC<WindVsTideViewProps> = ({
                                 e.stopPropagation();
                                 onSetFloodDirection(undefined);
                             }}
-                            className="px-2 h-7 rounded-md bg-white/10 text-white/60 text-[11px] active:scale-90"
+                            className="px-3 h-11 rounded-md bg-white/10 text-white/70 text-xs active:scale-90"
                             aria-label="Use modelled current instead"
                         >
                             Auto

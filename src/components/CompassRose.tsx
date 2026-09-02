@@ -6,7 +6,7 @@ import React from 'react';
  * the role of the rose on a paper chart — a signal that this is a nav
  * view, not just a map.
  */
-export const CompassRose: React.FC = () => {
+export const CompassRose: React.FC = React.memo(function CompassRose() {
     // Geometry: viewBox 100×100, centred on (50,50). Radii shrunk so the
     // N/E/S/W labels sit comfortably inside the viewBox at fontSize 9 —
     // SVGs clip at the viewBox boundary by default, so anything past 50
@@ -141,4 +141,4 @@ export const CompassRose: React.FC = () => {
             </svg>
         </div>
     );
-};
+});

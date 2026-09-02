@@ -80,6 +80,10 @@ export const SlideToAction: React.FC<SlideToActionProps> = ({
     theme = 'emerald',
 }) => {
     const trackRef = useRef<HTMLDivElement>(null);
+    // Track geometry captured on pointerdown. The track is full-width with a
+    // fixed height, so re-measuring on every pointermove — and again in the
+    // render body — only forced synchronous layout for the same numbers.
+    const trackRectRef = useRef({ left: 0, maxTravel: 300 - THUMB_SIZE });
     const [slideX, setSlideX] = useState(0);
     const [isDragging, setIsDragging] = useState(false);
     // Live offset alongside state: the threshold check on release must
@@ -110,6 +114,8 @@ export const SlideToAction: React.FC<SlideToActionProps> = ({
             } catch {
                 /* capture is best-effort — jsdom and odd inputs lack it */
             }
+            const rect = e.currentTarget.getBoundingClientRect();
+            trackRectRef.current = { left: rect.left, maxTravel: rect.width - THUMB_SIZE };
             setIsDragging(true);
         },
         [disabled, loading],
@@ -118,9 +124,8 @@ export const SlideToAction: React.FC<SlideToActionProps> = ({
     const handlePointerMove = useCallback(
         (e: React.PointerEvent<HTMLDivElement>) => {
             if (!isDragging || !trackRef.current) return;
-            const rect = trackRef.current.getBoundingClientRect();
-            const maxTravel = rect.width - THUMB_SIZE;
-            const offset = e.clientX - rect.left - THUMB_SIZE / 2;
+            const { left, maxTravel } = trackRectRef.current;
+            const offset = e.clientX - left - THUMB_SIZE / 2;
             setSlide(Math.max(0, Math.min(offset, maxTravel)));
         },
         [isDragging, setSlide],
@@ -129,9 +134,7 @@ export const SlideToAction: React.FC<SlideToActionProps> = ({
     const handlePointerUp = useCallback(() => {
         if (!isDragging || !trackRef.current) return;
         setIsDragging(false);
-        const rect = trackRef.current.getBoundingClientRect();
-        const maxTravel = rect.width - THUMB_SIZE;
-        const ratio = slideXRef.current / maxTravel;
+        const ratio = slideXRef.current / trackRectRef.current.maxTravel;
         if (ratio >= SLIDE_THRESHOLD) {
             triggerHaptic('medium');
             onConfirm();
@@ -177,9 +180,7 @@ export const SlideToAction: React.FC<SlideToActionProps> = ({
         );
     }
 
-    const trackWidth = trackRef.current?.getBoundingClientRect().width ?? 300;
-    const maxTravel = trackWidth - THUMB_SIZE;
-    const labelOpacity = 1 - slideX / maxTravel;
+    const labelOpacity = 1 - slideX / trackRectRef.current.maxTravel;
 
     return (
         <div
@@ -232,14 +233,6 @@ export const SlideToAction: React.FC<SlideToActionProps> = ({
             >
                 {thumbIcon}
             </div>
-
-            {/* Shimmer keyframe (injected once) */}
-            <style>{`
-                @keyframes slideToActionShimmer {
-                    0%, 100% { transform: translateX(-100%); }
-                    50% { transform: translateX(100%); }
-                }
-            `}</style>
         </div>
     );
 };

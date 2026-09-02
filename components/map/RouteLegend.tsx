@@ -20,8 +20,8 @@ interface RouteLegendEntry {
 }
 
 const ROUTE_LEGEND: RouteLegendEntry[] = [
-    { color: '#00e676', label: 'GFS Route', glowColor: 'rgba(0,230,118,0.4)' },
-    { color: '#e879f9', label: 'ECMWF', glowColor: 'rgba(232,121,249,0.4)' },
+    { color: '#00e676', label: 'GFS route', glowColor: 'rgba(0,230,118,0.4)' },
+    { color: '#e879f9', label: 'ECMWF route', glowColor: 'rgba(232,121,249,0.4)' },
     { color: '#38bdf8', label: 'Harbour', dashed: true },
 ];
 
@@ -65,9 +65,9 @@ export const RouteLegend: React.FC<RouteLegendProps> = memo(({ visible, embedded
                 {/* Title */}
                 <div
                     style={{
-                        fontSize: 9,
+                        fontSize: 11,
                         fontWeight: 800,
-                        color: 'rgba(255,255,255,0.35)',
+                        color: 'rgba(255,255,255,0.6)',
                         letterSpacing: '0.1em',
                         textTransform: 'uppercase',
                         marginBottom: 6,
@@ -100,9 +100,9 @@ export const RouteLegend: React.FC<RouteLegendProps> = memo(({ visible, embedded
                             {/* Label */}
                             <span
                                 style={{
-                                    fontSize: 10,
+                                    fontSize: 12,
                                     fontWeight: 700,
-                                    color: 'rgba(255,255,255,0.6)',
+                                    color: 'rgba(255,255,255,0.75)',
                                     letterSpacing: '0.02em',
                                     lineHeight: 1,
                                 }}

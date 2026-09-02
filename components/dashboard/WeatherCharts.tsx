@@ -90,15 +90,21 @@ export const HourlyWidget = ({
                                             <DropletIcon className="w-3 h-3 text-sky-300 opacity-60" />
                                         </div>
                                         <div className="flex items-baseline gap-1">
-                                            <span className="text-xl font-bold text-sky-100">--</span>
+                                            <span className="text-xl font-bold text-sky-100">
+                                                {item.humidity != null ? Math.round(item.humidity) : '--'}
+                                            </span>
                                             <span className="text-xs text-gray-400">%</span>
                                         </div>
-                                        <div className="h-1 w-full bg-black/20 rounded-full mt-2 overflow-hidden">
-                                            <div
-                                                className="h-full bg-sky-400 opacity-50"
-                                                style={{ width: '50%' }}
-                                            ></div>
-                                        </div>
+                                        {/* Bar only when there is a number to draw — a fixed 50% bar
+                                            beside '--' asserted a value the card did not have. */}
+                                        {item.humidity != null && (
+                                            <div className="h-1 w-full bg-black/20 rounded-full mt-2 overflow-hidden">
+                                                <div
+                                                    className="h-full bg-sky-400 opacity-50"
+                                                    style={{ width: `${Math.max(0, Math.min(100, item.humidity))}%` }}
+                                                ></div>
+                                            </div>
+                                        )}
                                     </div>
                                 );
 
@@ -112,10 +118,11 @@ export const HourlyWidget = ({
                                             <GaugeIcon className="w-3 h-3 text-purple-300 opacity-60" />
                                         </div>
                                         <div className="flex items-baseline gap-1">
-                                            <span className="text-xl font-bold text-white">--</span>
+                                            <span className="text-xl font-bold text-white">
+                                                {item.pressure != null ? Math.round(item.pressure) : '--'}
+                                            </span>
                                             <span className="text-xs text-gray-400">hPa</span>
                                         </div>
-                                        <div className="text-xs text-gray-400 font-medium mt-1">Steady</div>
                                     </div>
                                 );
                             } else {
@@ -536,7 +543,7 @@ export const DailyWidget = ({
                 {!isPro && (
                     <div className="absolute bottom-0 left-0 right-0 h-64 bg-linear-to-t from-[#0f172a] via-[#0f172a]/90 to-transparent flex items-end justify-center pb-8 z-20">
                         <button
-                            aria-label="Trigger Upgrade"
+                            aria-label="Unlock the 10-day extended forecast"
                             onClick={onTriggerUpgrade}
                             className="bg-sky-600 hover:bg-sky-500 text-white font-bold py-3 px-8 rounded-full shadow-lg hover:scale-105 transition-transform flex items-center gap-2 border border-sky-400/30"
                         >

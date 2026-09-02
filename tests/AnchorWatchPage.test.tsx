@@ -189,7 +189,8 @@ async function renderShoreWatch(state: SyncState, data: PositionBroadcast) {
         stateListener(state);
         broadcastListener(data);
     });
-    await screen.findByRole('button', { name: 'Stop Watch' });
+    // Shore Watch header action reads 'Leave' — its name now matches (label-in-name).
+    await screen.findByRole('button', { name: 'Leave Shore Watch' });
     return { stateListener, unmount: rendered.unmount };
 }
 

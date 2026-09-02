@@ -4,17 +4,7 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { TideGraph } from './TideAndVessel';
 // MapHub removed from essential mode — uses static image to prevent GPU heating
-import {
-    StarIcon,
-    DropletIcon,
-    EyeIcon,
-    SunIcon,
-    ThermometerIcon,
-    GaugeIcon,
-    CompassIcon,
-    CloudIcon,
-    WaveIcon,
-} from '../Icons';
+import { DropletIcon, EyeIcon, SunIcon, ThermometerIcon, GaugeIcon, CompassIcon, CloudIcon, WaveIcon } from '../Icons';
 import {
     UnitPreferences,
     WeatherMetrics,
@@ -24,6 +14,7 @@ import {
     HourlyForecast,
     UserSettings,
     SourcedWeatherMetrics,
+    ForecastDay,
 } from '../../types';
 import { TideGUIDetails } from '../../services/weather/api/tides';
 import {
@@ -31,38 +22,26 @@ import {
     convertSpeed,
     convertLength,
     convertDistance,
-    calculateDailyScore,
-    getSailingScoreColor,
-    getSailingConditionText,
     degreesToCardinal,
     cardinalToDegrees,
 } from '../../utils';
 
-import { useEnvironment } from '../../context/ThemeContext';
 import { MetricGridPanel } from './hero/MetricGridPanel';
-import { LocationClock } from './LocationClock';
 import { useWeather } from '../../context/WeatherContext';
-import { renderHeroWidget, STATIC_WIDGET_CLASS } from './hero/HeroWidgets';
 import { MinutelyRain } from '../../services/weather/api/weatherkit';
 
 import { isGoldenHour } from '../../utils/goldenHour';
 import { EssentialMapSlide } from './hero/EssentialMapSlide';
 import { EssentialAnchorView } from './hero/EssentialAnchorView';
 import { AnchorWatchService, type AnchorWatchSnapshot } from '../../services/AnchorWatchService';
-import {
-    computeDisplayValues,
-    computeTrends,
-    computeSunPhase,
-    computeCardDisplayValues,
-    buildSlides,
-} from './hero/heroSlideHelpers';
+import { computeSunPhase, computeCardDisplayValues, buildSlides } from './hero/heroSlideHelpers';
 import { DailySummaryCard } from './hero/DailySummaryCard';
 import { WindVsTideView } from './tide/WindVsTideView';
 import { useSettingsStore } from '../../stores/settingsStore';
 
-import { createLogger } from '../../utils/createLogger';
-
-const _log = createLogger('HeroSlide');
+// Stable fallback: `weatherData?.forecast || []` minted a fresh array on every
+// render when forecast was absent, defeating the `slides` useMemo below.
+const EMPTY_FORECAST: ForecastDay[] = [];
 
 // --- HERO SLIDE COMPONENT (Individual Day Card) ---
 /** Module-level so the memoised radar card sees one stable onMapTap identity. */
@@ -75,17 +54,14 @@ const HeroSlideComponent = ({
     index,
     units,
     tides,
-    settings,
     updateSettings: _updateSettings,
     addDebugLog: _addDebugLog,
     timeZone,
     locationName: _locationName,
     isLandlocked,
     displaySource: _displaySource,
-    vessel,
     customTime,
     hourly,
-    fullHourly,
     guiDetails,
     coordinates,
     locationType,
@@ -95,10 +71,8 @@ const HeroSlideComponent = ({
     onSlideIndexChange,
     onActiveDataChange,
     isVisible = false,
-    utcOffset,
     tideHourly,
     isEssentialMode = false,
-    minutelyRain,
 }: {
     data: SourcedWeatherMetrics;
     index: number;
@@ -134,9 +108,8 @@ const HeroSlideComponent = ({
     isEssentialMode?: boolean;
     minutelyRain?: MinutelyRain[];
 }) => {
-    const { nextUpdate: _nextUpdate, weatherData } = useWeather();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    const forecast = weatherData?.forecast || [];
+    const { weatherData } = useWeather();
+    const forecast = weatherData?.forecast ?? EMPTY_FORECAST;
 
     // 1. STATE HOISTING (Zero-Latency Architecture)
     // We define the scroll state AT THE TOP so it drives the entire component synchronously.
@@ -201,9 +174,6 @@ const HeroSlideComponent = ({
         }
     }, [hourly, index, timeZone]);
 
-    // --- RESTORED HELPERS ---
-    const _rowHeightClass = 'min-h-[52px] sm:flex-1';
-
     // FIX: Offshore should show 3x3 Grid, not Tide Graph (unless Coastal)
     const showTideGraph =
         (locationType === 'coastal' || locationType === 'inshore') && !isLandlocked && tides && tides.length > 0;
@@ -214,31 +184,6 @@ const HeroSlideComponent = ({
     const showMapInstead =
         isEssentialMode &&
         (locationType === 'coastal' || locationType === 'inshore' || locationType === 'inland' || isLandlocked);
-    const _showGrid = !showTideGraph && !showMapInstead; // Explicit switch
-
-    // Rain detection — only on Today slide (index 0) with minutely data
-    const _hasActiveRain = useMemo(() => {
-        if (index !== 0 || !minutelyRain || minutelyRain.length === 0) return false;
-        return minutelyRain.some((d) => d.intensity > 0);
-    }, [index, minutelyRain]);
-    const env = useEnvironment();
-    const isCompact = env === 'onshore';
-
-    // 3. DERIVED VISUAL TIME (The "Fast" Time)
-    // This updates instantly on scroll render, unlike 'customTime' prop which lags.
-    const visualTime = useMemo(() => {
-        if (index === 0) {
-            // TODAY
-            if (activeHIdx === 0) return undefined; // Live
-            const hItem = hourlyToRender[activeHIdx - 1];
-            return hItem ? new Date(hItem.time).getTime() : undefined;
-        } else {
-            // FORECAST — slide 0 is the day-overview summary; hours start at slide 1.
-            if (activeHIdx === 0) return undefined; // day summary, no specific hour
-            const hItem = hourlyToRender[activeHIdx - 1];
-            return hItem ? new Date(hItem.time).getTime() : undefined;
-        }
-    }, [activeHIdx, index, hourlyToRender]);
 
     // Anchor-watch snapshot — when the user has deployed the anchor, the
     // essential-mode slot swaps from EssentialMapSlide to EssentialAnchorView
@@ -266,8 +211,9 @@ const HeroSlideComponent = ({
     // map — the user hasn't committed to being on the hook.
     const showAnchorView = anchorSnapshot?.state === 'watching' || anchorSnapshot?.state === 'alarm';
 
-    // Ticker for Live Countdown
-    const [tick, setTick] = useState(0);
+    // Ticker for Live Countdown — the re-render itself is the point (it
+    // refreshes `Date.now()` reads in the JSX), so the counter is unnamed.
+    const [, setTick] = useState(0);
     useEffect(() => {
         if (index !== 0) return; // Optimization: Only tick for Live card
         const timer = setInterval(() => {
@@ -324,105 +270,6 @@ const HeroSlideComponent = ({
             }
         }
     }, [activeHIdx, showSwipeHint]);
-
-    const isLive = index === 0 && activeHIdx === 0;
-
-    // FIX: Live Data Override using Hourly Array
-    // This ensures that if the app is open for hours (or data fetched earlier),
-    // we show the forecast for the *current wall-clock hour* rather than the fetch-time snapshot.
-    const effectiveData = useMemo(() => {
-        // Use fullHourly if available (preferred for timezone safety), else fallback to filtered hourly
-        // BUT: fullHourly doesn't have OpenMeteo UV injection, so ALWAYS use hourly for data lookups
-        const sourceHourly = hourly;
-
-        // FIX: If this is the "Live" card, we MUST rely on the 'data' prop (which has METAR overrides).
-        // Trying to "find the current slot" from the hourly array (which is raw model data) causes
-        // a race condition at the top of the hour where the UI flashes raw data before the refresh completes.
-        if (isLive) return data;
-
-        if (!sourceHourly || sourceHourly.length === 0) return data;
-
-        // FIX: Respect Visual Time (Scroll). Fallback to Now if live.
-        // We use 'visualTime' (local) instead of 'customTime' (prop) for zero latency.
-        const now = visualTime || Date.now();
-        const oneHour = 3600 * 1000;
-
-        // Find the hourly slot that covers the current time
-        const currentSlot = sourceHourly.find((h) => {
-            const t = new Date(h.time).getTime();
-            return now >= t && now < t + oneHour;
-        });
-
-        if (currentSlot) {
-            // CRITICAL FIX: Do NOT override "Current" data (which might be real METAR) with "Hourly" data (which is model forecast).
-            // The 'data' prop comes from 'weather.current' which has 'Ground Truth' overrides.
-            return {
-                ...data, // Keep base data structure
-                // STABILIZATION: Ensure WE NEVER RETURN UNDEFINED for these critical fields
-                uvIndex: currentSlot.uvIndex ?? data.uvIndex ?? 0,
-                precipitation: currentSlot.precipitation ?? 0,
-                feelsLike: currentSlot.feelsLike ?? currentSlot.temperature ?? data.airTemperature,
-                cloudCover: currentSlot.cloudCover ?? data.cloudCover ?? 0,
-                humidity: currentSlot.humidity ?? data.humidity ?? 0,
-                visibility: currentSlot.visibility ?? data.visibility ?? 10,
-
-                // Wind/Marine overrides
-                currentSpeed: currentSlot.currentSpeed ?? data.currentSpeed,
-                currentDirection: currentSlot.currentDirection ?? data.currentDirection,
-                waterTemperature: currentSlot.waterTemperature ?? data.waterTemperature,
-
-                // Offshore marine fields
-                cape: currentSlot.cape ?? data.cape,
-                secondarySwellHeight: currentSlot.secondarySwellHeight ?? data.secondarySwellHeight,
-                secondarySwellPeriod: currentSlot.secondarySwellPeriod ?? data.secondarySwellPeriod,
-                swellPeriod: currentSlot.swellPeriod ?? data.swellPeriod,
-                dewPoint: currentSlot.dewPoint ?? data.dewPoint,
-
-                // Display Values
-                windSpeed: currentSlot.windSpeed ?? data.windSpeed,
-                windGust: currentSlot.windGust ?? data.windGust,
-                windDirection: currentSlot.windDirection ?? data.windDirection, // Keep string if available
-                waveHeight: currentSlot.waveHeight ?? data.waveHeight,
-                pressure: currentSlot.pressure ?? data.pressure,
-            };
-        }
-
-        // Fallback: Try to find UV from the closest hourly slot when exact match fails
-        const closestHour = sourceHourly.reduce(
-            (best, h) => {
-                const t = new Date(h.time).getTime();
-                const bestT = best ? new Date(best.time).getTime() : Infinity;
-                return Math.abs(t - now) < Math.abs(bestT - now) ? h : best;
-            },
-            null as (typeof sourceHourly)[0] | null,
-        );
-
-        return {
-            ...data,
-            uvIndex: closestHour?.uvIndex ?? data.uvIndex ?? 0,
-            waterTemperature: closestHour?.waterTemperature ?? data.waterTemperature,
-            currentSpeed: closestHour?.currentSpeed ?? data.currentSpeed,
-            currentDirection: closestHour?.currentDirection ?? data.currentDirection,
-            cape: closestHour?.cape ?? data.cape,
-            secondarySwellHeight: closestHour?.secondarySwellHeight ?? data.secondarySwellHeight,
-            secondarySwellPeriod: closestHour?.secondarySwellPeriod ?? data.secondarySwellPeriod,
-            swellPeriod: closestHour?.swellPeriod ?? data.swellPeriod,
-            dewPoint: closestHour?.dewPoint ?? data.dewPoint,
-        };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [data, hourly, isLive, fullHourly, tick, visualTime]); // Dependency: visualTime
-
-    // Use effectiveData for all display logic used in the MAIN CARD
-    const displayData = effectiveData;
-
-    // Trend Calculation
-    const _trends = useMemo(
-        () => computeTrends(effectiveData, fullHourly, visualTime),
-        [effectiveData, fullHourly, visualTime],
-    );
-
-    // Debug Log for Trends
-    // log.info('[TRENDS DEBUG]', { index, hasFullHourly: !!fullHourly, len: fullHourly?.length, trends });
 
     // Vertical Scroll Reset Logic
     // Horizontal Scroll Reset Logic (Inner Axis is now Horizontal)
@@ -491,265 +338,6 @@ const HeroSlideComponent = ({
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
-
-    const fullWidgetList =
-        settings.heroWidgets && settings.heroWidgets.length > 0 ? settings.heroWidgets : ['wind', 'wave', 'pressure'];
-    const _displayWidgets = fullWidgetList.slice(0, 3);
-
-    // Display Logic used for WIDGETS (Not the Card itself? Wait, Widgets use this too)
-    const rawGust = displayData.windGust || (displayData.windSpeed || 0) * 1.3;
-    const hasWind = displayData.windSpeed !== null && displayData.windSpeed !== undefined;
-
-    // Calculate Day/Night state
-    const _isCardDay = useMemo(() => {
-        if (index > 0) return true;
-        if (!displayData.sunrise || !displayData.sunset) return true;
-
-        const now = visualTime || Date.now();
-        const d = new Date(now);
-        const [rH, rM] = displayData.sunrise.split(':').map(Number);
-        const [sH, sM] = displayData.sunset.split(':').map(Number);
-
-        const rise = new Date(d).setHours(rH, rM, 0, 0);
-        const set = new Date(d).setHours(sH, sM, 0, 0);
-
-        return d.getTime() >= rise && d.getTime() < set;
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [index, displayData.sunrise, displayData.sunset, visualTime, tick]); // Added tick
-
-    const _isHighGust = hasWind && rawGust > (displayData.windSpeed || 0) * 1.5;
-    const _hasWave = displayData.waveHeight !== null && displayData.waveHeight !== undefined;
-
-    const displayValues = computeDisplayValues(displayData, units, index, isLandlocked);
-
-    // Score Calculation
-    const score = calculateDailyScore(displayData.windSpeed || 0, displayData.waveHeight || 0, vessel);
-    const scoreColor = getSailingScoreColor(score);
-    const scoreText = getSailingConditionText(score);
-
-    // WidgetMap removed (replaced by renderHeroWidget helper)
-
-    // ... (Skipping to renderTideGraph)
-
-    const _renderTideGraph = (targetTime?: number, _targetDateStr?: string) => {
-        // 1. INLAND MODE
-        if (locationType === 'inland' || isLandlocked) {
-            return (
-                <div className="pt-1 border-t border-white/5 flex gap-2 px-4 md:px-6 h-44 items-center justify-between pb-4">
-                    {/* Humidity */}
-                    <div className={STATIC_WIDGET_CLASS}>
-                        <div className="flex items-center gap-1.5 mb-1 opacity-70">
-                            <DropletIcon className="w-3 h-3 text-sky-400" />
-                            <span className="text-sm font-bold uppercase tracking-widest text-sky-200">Humidity</span>
-                        </div>
-                        <div className="flex items-baseline gap-0.5">
-                            <span className="text-3xl font-mono font-medium text-ivory tracking-tight">
-                                {displayValues.humidity}
-                            </span>
-                            <span className="text-sm text-gray-400 font-medium">%</span>
-                        </div>
-                    </div>
-
-                    {/* Visibility */}
-                    <div className={STATIC_WIDGET_CLASS}>
-                        <div className="flex items-center gap-1.5 mb-1 opacity-70">
-                            <EyeIcon className="w-3 h-3 text-emerald-400" />
-                            <span className="text-sm font-bold uppercase tracking-widest text-emerald-200">
-                                Visibility
-                            </span>
-                        </div>
-                        <div className="flex items-baseline gap-0.5">
-                            <span className="text-3xl font-mono font-medium text-ivory tracking-tight">
-                                {displayValues.vis}
-                            </span>
-                            <span className="text-sm text-gray-400 font-medium">{units.visibility}</span>
-                        </div>
-                    </div>
-
-                    {/* UV/Pressure */}
-                    <div className={STATIC_WIDGET_CLASS}>
-                        <div className="flex items-center gap-1.5 mb-1 opacity-70">
-                            <SunIcon className="w-3 h-3 text-amber-400" />
-                            <span className="text-sm font-bold uppercase tracking-widest text-amber-200">UV Index</span>
-                        </div>
-                        <div className="flex items-baseline gap-0.5">
-                            <span className="text-3xl font-mono font-medium text-ivory tracking-tight">
-                                {displayValues.uv}
-                            </span>
-                        </div>
-                    </div>
-                </div>
-            );
-        }
-
-        // 2. OFFSHORE MODE
-        if (locationType === 'offshore' || (!tides?.length && !isLandlocked)) {
-            return (
-                <div className="pt-1 border-t border-white/5 flex gap-2 px-4 md:px-6 h-44 items-center justify-between pb-4">
-                    {/* Water Temp */}
-                    <div className={STATIC_WIDGET_CLASS}>
-                        <div className="flex items-center gap-1.5 mb-1 opacity-70">
-                            <ThermometerIcon className="w-3 h-3 text-sky-400" />
-                            <span className="text-sm font-bold uppercase tracking-widest text-sky-200">Water</span>
-                        </div>
-                        <div className="flex items-baseline gap-0.5">
-                            <span className="text-3xl font-mono font-medium text-ivory tracking-tight">
-                                {displayValues.waterTemperature}
-                            </span>
-                            <span className="text-sm text-gray-400 font-medium">°{units.temp}</span>
-                        </div>
-                    </div>
-
-                    {/* Set (Current Speed) */}
-                    <div className={STATIC_WIDGET_CLASS}>
-                        <div className="flex items-center gap-1.5 mb-1 opacity-70">
-                            <GaugeIcon className="w-3 h-3 text-purple-400" />
-                            <span className="text-sm font-bold uppercase tracking-widest text-purple-200">Drift</span>
-                        </div>
-                        <div className="flex items-baseline gap-0.5">
-                            <span className="text-3xl font-mono font-medium text-ivory tracking-tight">
-                                {displayValues.currentSpeed}
-                            </span>
-                            <span className="text-sm text-gray-400 font-medium">kts</span>
-                        </div>
-                    </div>
-
-                    {/* Drift (Current Direction) */}
-                    <div className={STATIC_WIDGET_CLASS}>
-                        <div className="flex items-center gap-1.5 mb-1 opacity-70">
-                            <CompassIcon rotation={0} className="w-3 h-3 text-purple-400" />
-                            <span className="text-sm font-bold uppercase tracking-widest text-purple-200">Set</span>
-                        </div>
-                        <div className="flex flex-col justify-center">
-                            <span className="text-3xl font-mono font-medium text-ivory tracking-tight">
-                                {displayValues.currentDirection}
-                            </span>
-                        </div>
-                        <div className="mt-auto pt-1 text-sm md:text-sm text-purple-300 font-bold opacity-80 text-center">
-                            {(() => {
-                                const _val = displayValues.currentDirection;
-                                // Extract degrees from cardinal direction if present
-                                return 'True';
-                            })()}
-                        </div>
-                    </div>
-                </div>
-            );
-        }
-        if (!tides || tides.length === 0) return null;
-
-        return (
-            <div
-                className="w-full px-0 pb-0 relative transition-all duration-300 ease-in-out"
-                style={{ height: '69px' }}
-            >
-                <TideGraph
-                    tides={tides}
-                    unit={units.tideHeight || 'm'}
-                    timeZone={timeZone}
-                    hourlyTides={[]}
-                    tideSeries={undefined}
-                    modelUsed="WorldTides"
-                    unitPref={units}
-                    customTime={targetTime || customTime}
-                    showAllDayEvents={index > 0 && !targetTime}
-                    stationName={guiDetails?.stationName || 'Local Station'}
-                    secondaryStationName={undefined}
-                    guiDetails={guiDetails}
-                    stationPosition="bottom"
-                />
-            </div>
-        );
-    };
-
-    const _renderTopWidget = () => {
-        const topWidgetId = settings.topHeroWidget || 'sunrise'; // Default
-
-        if (topWidgetId === 'sunrise') {
-            const goldenNow =
-                displayValues.sunrise && displayValues.sunset
-                    ? isGoldenHour(displayValues.sunrise, displayValues.sunset)
-                    : false;
-            return (
-                <div className="flex flex-col h-full justify-between">
-                    <div className="flex items-center gap-1.5 mb-0.5 opacity-70">
-                        <SunIcon className={`w-3 h-3 ${goldenNow ? 'text-amber-300' : 'text-amber-400'}`} />
-                        <span
-                            className={`text-sm md:text-sm font-bold uppercase tracking-widest ${goldenNow ? 'text-amber-200' : 'text-amber-200'}`}
-                        >
-                            Sun Phz
-                        </span>
-                    </div>
-                    <div className="flex flex-col justify-center">
-                        <div className="flex items-center justify-between">
-                            <span className="text-sm text-amber-300 font-bold uppercase mr-1">Rise</span>
-                            <span className="text-base md:text-lg font-mono font-medium tracking-tight text-ivory">
-                                {displayValues.sunrise}
-                            </span>
-                        </div>
-                        <div className="w-full h-px bg-white/5 my-0.5"></div>
-                        <div className="flex items-center justify-between">
-                            <span className="text-sm text-purple-300 font-bold uppercase mr-1">Set</span>
-                            <span className="text-base md:text-lg font-mono font-medium tracking-tight text-ivory">
-                                {displayValues.sunset}
-                            </span>
-                        </div>
-                        {goldenNow && (
-                            <div className="flex items-center gap-1 mt-1 px-1.5 py-0.5 rounded-md bg-amber-500/10 border border-amber-400/15 w-fit">
-                                <span className="text-[11px]">📸</span>
-                                <span className="text-[11px] font-bold text-amber-300 uppercase tracking-wider">
-                                    Golden Hour
-                                </span>
-                            </div>
-                        )}
-                    </div>
-                    <LocationClock timeZone={timeZone} utcOffset={utcOffset} />
-                </div>
-            );
-        }
-
-        if (topWidgetId === 'score') {
-            return (
-                <div className="flex flex-col h-full justify-between">
-                    <div className="flex items-center gap-1.5 mb-0.5 opacity-70">
-                        <StarIcon className="w-3 h-3 text-yellow-400" />
-                        <span className="text-sm md:text-sm font-bold uppercase tracking-widest text-yellow-200">
-                            Boating
-                        </span>
-                    </div>
-                    <div className="flex items-baseline gap-0.5">
-                        <span className="text-3xl md:text-4xl font-mono font-medium tracking-tight text-ivory">
-                            {score}
-                        </span>
-                        <span className="text-sm md:text-sm font-medium text-gray-400">/100</span>
-                    </div>
-                    <div
-                        className={`mt-auto pt-1 text-sm md: text-sm font-bold px-1.5 py-0.5 rounded-sm w-fit ${scoreColor} `}
-                    >
-                        {scoreText}
-                    </div>
-                </div>
-            );
-        }
-
-        // Use Common Renderer
-        const customWidget = renderHeroWidget(
-            topWidgetId,
-            data,
-            displayValues,
-            units,
-            isLive,
-            undefined,
-            'left',
-            isLive ? (displayData as SourcedWeatherMetrics).sources : undefined,
-            isCompact,
-            locationType,
-        );
-        if (customWidget) {
-            return customWidget;
-        }
-        return null;
-    };
 
     // --- RENDER LOOP PREPARATION ---
     // CRITICAL FIX: Do NOT early-return before hooks — it violates React's Rules of Hooks.
@@ -1114,9 +702,21 @@ const HeroSlideComponent = ({
                                 ) : showTideGraph ? (
                                     /* COASTAL LAYOUT — widgets above card, tide inside card */
                                     <div className="relative w-full h-full flex flex-col gap-2">
-                                        {/* Tide Graph Card — 2/3 of space */}
+                                        {/* Tide Graph Card — 2/3 of space. A button only while the
+                                            graph shows: the wind-vs-tide face carries its own controls,
+                                            and a button may not contain buttons. */}
                                         <div
                                             onClick={() => setShowWindVsTide((v) => !v)}
+                                            role={showWindVsTide ? undefined : 'button'}
+                                            tabIndex={showWindVsTide ? undefined : 0}
+                                            aria-label={showWindVsTide ? undefined : 'Show wind versus tide'}
+                                            onKeyDown={(e) => {
+                                                if (showWindVsTide) return;
+                                                if (e.key === 'Enter' || e.key === ' ') {
+                                                    e.preventDefault();
+                                                    setShowWindVsTide(true);
+                                                }
+                                            }}
                                             title="Tap for wind vs tide"
                                             className={`relative flex-2 min-h-0 w-full rounded-2xl overflow-hidden border bg-white/4 shadow-[0_0_30px_-5px_rgba(0,0,0,0.3)] cursor-pointer ${isGolden ? 'border-amber-400/15' : isCardDay ? 'border-white/8' : 'border-sky-300/8'}`}
                                         >
