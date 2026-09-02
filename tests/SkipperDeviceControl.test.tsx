@@ -38,12 +38,13 @@ describe('SkipperDeviceControl takeover confirmation', () => {
         fireEvent.click(takeover);
         expect(screen.getByRole('dialog', { name: 'Take over skipper publishing?' })).toBeInTheDocument();
 
-        fireEvent.click(screen.getByRole('button', { name: 'Cancel action' }));
+        // ConfirmDialog buttons are named by their visible labels (no aria-label override).
+        fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
         expect(screen.queryByRole('dialog', { name: 'Take over skipper publishing?' })).not.toBeInTheDocument();
         expect(updateSettings).not.toHaveBeenCalled();
 
         fireEvent.click(takeover);
-        const confirm = screen.getByRole('button', { name: 'Confirm action' });
+        const confirm = screen.getByRole('button', { name: 'Take over' });
         fireEvent.click(confirm);
         fireEvent.click(confirm);
 
@@ -93,7 +94,7 @@ describe('SkipperDeviceControl takeover confirmation', () => {
                 updateSettings={updateSettings}
             />,
         );
-        fireEvent.click(screen.getByRole('button', { name: 'Confirm action' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Take over' }));
 
         expect(updateSettings).not.toHaveBeenCalled();
         expect(screen.queryByRole('dialog', { name: 'Take over skipper publishing?' })).not.toBeInTheDocument();

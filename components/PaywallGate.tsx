@@ -100,7 +100,7 @@ export const PaywallGate: React.FC<PaywallGateProps> = ({ feature, onUpgrade, ti
             {onBack && (
                 <button
                     onClick={onBack}
-                    className="mt-4 text-sm text-gray-500 hover:text-gray-300 transition-colors"
+                    className="mt-4 min-h-[44px] inline-flex items-center px-2 text-sm text-gray-500 hover:text-gray-300 transition-colors"
                     aria-label="Go back"
                 >
                     ← Back

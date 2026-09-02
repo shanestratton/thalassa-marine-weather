@@ -379,7 +379,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({
             });
             triggerHaptic('medium');
             onItemSaved();
-            toast.success('Item added to inventory');
+            toast.success("Item added to Ship's Stores");
             // In manual mode, close entirely instead of showing camera
             if (startInManualMode) {
                 onClose();
@@ -423,7 +423,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({
                                     aria-label={cat}
                                     key={cat}
                                     onClick={() => setNewItem((prev) => ({ ...prev, category: cat }))}
-                                    className={`py-1 rounded-lg text-label font-bold transition-all text-center ${
+                                    className={`py-1 min-h-[44px] rounded-lg text-label font-bold transition-all text-center ${
                                         newItem.category === cat
                                             ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30'
                                             : 'bg-white/5 text-gray-400 border border-white/5'
@@ -796,7 +796,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({
                                         aria-pressed={newItem.category === cat}
                                         key={cat}
                                         onClick={() => setNewItem((prev) => ({ ...prev, category: cat }))}
-                                        className={`py-1.5 rounded-lg text-label font-bold transition-all text-center ${
+                                        className={`py-1.5 min-h-[44px] rounded-lg text-label font-bold transition-all text-center ${
                                             newItem.category === cat
                                                 ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30'
                                                 : 'bg-white/5 text-gray-400 border border-white/5'

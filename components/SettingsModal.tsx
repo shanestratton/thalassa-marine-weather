@@ -1,11 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { createLogger } from '../utils/createLogger';
 
 const log = createLogger('SettingsModal');
 import { UserSettings } from '../types';
 import { BellIcon, ArrowRightIcon, BoatIcon, StarIcon, GearIcon, ServerIcon, MapPinIcon } from './Icons';
 import { reverseGeocode } from '../services/weatherService';
-import { useThalassa } from '../context/ThalassaContext';
+import { useSettings } from '../context/SettingsContext';
 import { GpsService } from '../services/GpsService';
 
 import { AlertsTab } from './settings/AlertsTab';
@@ -19,6 +19,7 @@ import { CalypsoKnowledgeTab } from './settings/CalypsoKnowledgeTab';
 import { PiCacheTab } from './settings/PiCacheTab';
 import { VoyageLogTab } from './settings/VoyageLogTab';
 import { ConfirmDialog } from './ui/ConfirmDialog';
+import { BackButton } from './ui/BackButton';
 import { authScopedStorageKey } from '../services/authIdentityScope';
 import { PUBLIC_BETA_ACCESS } from '../services/SubscriptionService';
 
@@ -70,140 +71,9 @@ const NavButton = React.memo(
     ),
 );
 
-const _MobileNavTab = React.memo(
-    ({
-        active,
-        onClick,
-        icon,
-        label,
-    }: {
-        active: boolean;
-        onClick: () => void;
-        icon: React.ReactNode;
-        label: string;
-    }) => (
-        <button
-            aria-label={label}
-            onClick={onClick}
-            className={`flex items-center gap-2 px-4 py-2 rounded-full whitespace-nowrap transition-all duration-300 ${active ? 'bg-sky-500 text-white shadow-lg shadow-sky-500/30' : 'bg-white/5 text-gray-400 border border-white/5'}`}
-        >
-            {icon}
-            <span className="text-xs font-bold uppercase tracking-wider">{label}</span>
-        </button>
-    ),
-);
-
 // Toggle — imported from ./settings/SettingsPrimitives
 
 // Section, Row — imported from ./settings/SettingsPrimitives
-
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-const MetricInput = ({
-    label,
-    valInStandard,
-    unitType,
-    unitOptions,
-    onChangeValue,
-    onChangeUnit,
-    placeholder,
-    isEstimated,
-}: {
-    label: string;
-    valInStandard: number;
-    unitType: string;
-    unitOptions: string[];
-    onChangeValue: (v: number) => void;
-    onChangeUnit: (u: string) => void;
-    placeholder?: string;
-    isEstimated?: boolean;
-}) => {
-    const isWeight = unitOptions.includes('lbs');
-    const [localStr, setLocalStr] = useState<string>('');
-
-    useEffect(() => {
-        const displayVal = isWeight
-            ? unitType === 'kg'
-                ? valInStandard * 0.453592
-                : unitType === 'tonnes'
-                  ? valInStandard * 0.000453592
-                  : valInStandard
-            : unitType === 'm'
-              ? valInStandard * 0.3048
-              : valInStandard;
-
-        const currentParsed = parseFloat(localStr);
-        if (isNaN(currentParsed) || Math.abs(currentParsed - displayVal) > 0.01) {
-            setLocalStr(displayVal.toFixed(2));
-        }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [valInStandard, unitType, isWeight]);
-
-    const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => setLocalStr(e.target.value);
-
-    const handleBlur = () => {
-        const num = parseFloat(localStr);
-        if (!isNaN(num)) {
-            const standard = isWeight
-                ? unitType === 'kg'
-                    ? num * 2.20462
-                    : unitType === 'tonnes'
-                      ? num * 2204.62
-                      : num
-                : unitType === 'm'
-                  ? num * 3.28084
-                  : num;
-            onChangeValue(standard);
-            setLocalStr(num.toFixed(2));
-        }
-    };
-
-    return (
-        <div className="flex-1 min-w-[120px] group">
-            <div className="flex justify-between items-center mb-1.5 ml-1">
-                <label
-                    className={`text-[11px] uppercase tracking-wider font-bold block transition-colors ${isEstimated ? 'text-red-400' : 'text-gray-400 group-hover:text-sky-300'}`}
-                >
-                    {label}
-                </label>
-                {isEstimated && (
-                    <span className="text-[11px] bg-red-500/10 border border-red-500/20 text-red-400 px-1.5 py-0.5 rounded-sm font-bold uppercase shadow-[0_0_10px_rgba(239,68,68,0.2)]">
-                        Est.
-                    </span>
-                )}
-            </div>
-            <div
-                className={`flex bg-black/40 border rounded-xl overflow-hidden transition-all duration-300 ${isEstimated ? 'border-red-500/50 focus-within:border-red-500 focus-within:shadow-[0_0_15px_rgba(239,68,68,0.3)]' : 'border-white/10 focus-within:border-sky-500 focus-within:shadow-[0_0_15px_rgba(14,165,233,0.3)] group-hover:border-white/20'}`}
-            >
-                <input
-                    type="number"
-                    inputMode="decimal"
-                    step="0.1"
-                    value={localStr}
-                    onChange={handleChange}
-                    onBlur={handleBlur}
-                    className={`flex-1 bg-transparent px-3 py-2 outline-hidden w-full text-sm font-mono placeholder-gray-700 transition-colors ${isEstimated ? 'text-red-300' : 'text-white focus:text-sky-200'}`}
-                    placeholder={placeholder}
-                />
-                <select
-                    value={unitType}
-                    onChange={(e) => onChangeUnit(e.target.value)}
-                    className="bg-white/5 text-gray-300 text-xs font-bold px-3 py-2 outline-hidden border-l border-white/10 hover:text-white hover:bg-white/10 focus:bg-white/10 cursor-pointer uppercase transition-all appearance-none bg-no-repeat bg-size-[10px_10px] bg-position-[right_8px_center]"
-                    style={{
-                        backgroundImage:
-                            'url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 10 6%27%3E%3Cpath d=%27M1 1l4 4 4-4%27 stroke=%27%2394a3b8%27 stroke-width=%271.5%27 fill=%27none%27 stroke-linecap=%27round%27/%3E%3C/svg%3E")',
-                        paddingRight: '24px',
-                    }}
-                >
-                    {unitOptions.map((opt: string) => (
-                        <option key={opt} value={opt} className="bg-slate-900 text-gray-300">
-                            {opt}
-                        </option>
-                    ))}
-                </select>
-            </div>
-        </div>
-    );
-};
 
 type SettingsTab =
     | 'general'
@@ -295,8 +165,8 @@ const MENU_ITEMS: {
     // ── ACCOUNT & SHARING ───────────────────────────────────────
     {
         id: 'account',
-        label: 'System & Cloud',
-        description: 'Cloud sync, API keys & account',
+        label: 'Account & Cloud',
+        description: 'Sign-in, cloud sync & API keys',
         icon: (c) => <ServerIcon className={c} />,
         iconBg: 'bg-purple-500/15 text-purple-400 shadow-purple-500/10',
         iconHoverBg: 'group-hover:bg-purple-500/25',
@@ -324,7 +194,7 @@ const MENU_ITEMS: {
     {
         id: 'scenery',
         label: 'Aesthetics',
-        description: 'Theme, colors & environment',
+        description: 'Theme, colours & environment',
         icon: (c) => <StarIcon className={c} />,
         iconBg: 'bg-sky-500/15 text-sky-400 shadow-sky-500/10',
         iconHoverBg: 'group-hover:bg-sky-500/25',
@@ -392,12 +262,12 @@ const MENU_ITEMS: {
 
 /** Small section header used on both desktop sidebar and mobile menu. */
 const SettingsSectionLabel: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-    <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500 px-2 pt-4 pb-1.5">{children}</p>
+    <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400 px-2 pt-4 pb-1.5">{children}</p>
 );
 
 export const SettingsView: React.FC<SettingsViewProps> = React.memo(
     ({ settings, onSave, onLocationSelect, onBack }) => {
-        const { resetSettings } = useThalassa();
+        const { resetSettings } = useSettings();
         const [activeTab, setActiveTab] = useState<SettingsTab | null>(() => {
             // Deep-link from outside: callers (e.g. the "Set up your
             // vessel" CTA in VesselHub, the "Personalise →" link in
@@ -422,7 +292,6 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
             }
             return null;
         });
-        const [_detectingLoc, setDetectingLoc] = useState(false);
         const [showFactoryReset, setShowFactoryReset] = useState(false);
         const isObserver = settings?.vessel?.type === 'observer';
         const hasPaidPlan = !PUBLIC_BETA_ACCESS.enabled && settings.subscriptionTier !== 'free';
@@ -447,12 +316,7 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
             setActiveTab(id);
         }, []);
 
-        const _updateUnit = (type: keyof typeof settings.units, value: string) => {
-            onSave({ units: { ...settings.units, [type]: value } });
-        };
-
         const handleDetectLocation = () => {
-            setDetectingLoc(true);
             GpsService.requestCurrentForegroundPosition({ staleLimitMs: 30_000 }).then(async (pos) => {
                 if (pos) {
                     const { latitude, longitude } = pos;
@@ -465,7 +329,6 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                     }
                     onSave({ defaultLocation: resolvedName });
                 }
-                setDetectingLoc(false);
             });
         };
 
@@ -485,7 +348,7 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                             SETTINGS
                         </h2>
                         <p className="text-[11px] text-sky-300/60 font-mono tracking-widest uppercase mt-1 ml-9">
-                            Control Center
+                            Control Centre
                         </p>
                     </div>
 
@@ -591,7 +454,7 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                                 if (group.collapsibleByDefault) {
                                     return (
                                         <details key={group.id} className="group/details">
-                                            <summary className="list-none cursor-pointer flex items-center gap-1 px-2 pt-4 pb-1.5 text-[10px] font-black uppercase tracking-[0.18em] text-slate-500 hover:text-slate-300 transition-colors">
+                                            <summary className="list-none cursor-pointer flex items-center gap-1 min-h-[44px] px-2 pt-4 pb-1.5 text-[10px] font-black uppercase tracking-[0.18em] text-slate-400 hover:text-slate-300 transition-colors">
                                                 <svg
                                                     className="w-3 h-3 transition-transform group-open/details:rotate-90"
                                                     viewBox="0 0 24 24"
@@ -683,30 +546,14 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                     <div className="md:hidden flex-1 flex flex-col">
                         <div className="px-6 pt-8 pb-4">
                             <div className="flex items-center gap-3">
-                                {onBack && (
-                                    <button
-                                        onClick={onBack}
-                                        className="p-3 rounded-xl bg-white/5 border border-white/10 text-gray-400 hover:text-white hover:bg-white/10 transition-all active:scale-90"
-                                        aria-label="Go back"
-                                    >
-                                        <svg
-                                            className="w-5 h-5"
-                                            fill="none"
-                                            viewBox="0 0 24 24"
-                                            stroke="currentColor"
-                                            strokeWidth={2}
-                                        >
-                                            <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
-                                        </svg>
-                                    </button>
-                                )}
+                                {onBack && <BackButton onClick={onBack} />}
                                 <div>
                                     <h2 className="settings-title text-2xl font-black text-transparent bg-clip-text bg-linear-to-r from-white to-sky-300 flex items-center gap-3">
                                         <GearIcon className="w-6 h-6 text-sky-400" />
                                         SETTINGS
                                     </h2>
                                     <p className="text-[11px] text-sky-300/60 font-mono tracking-widest uppercase mt-1 ml-9">
-                                        Control Center
+                                        Control Centre
                                     </p>
                                 </div>
                             </div>
@@ -829,7 +676,7 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                                     if (group.collapsibleByDefault) {
                                         return (
                                             <details key={group.id} className="group/details">
-                                                <summary className="list-none cursor-pointer flex items-center gap-1.5 px-2 py-2 text-[10px] font-black uppercase tracking-[0.18em] text-slate-500 hover:text-slate-300 transition-colors">
+                                                <summary className="list-none cursor-pointer flex items-center gap-1.5 min-h-[44px] px-2 py-2 text-[10px] font-black uppercase tracking-[0.18em] text-slate-400 hover:text-slate-300 transition-colors">
                                                     <svg
                                                         className="w-3 h-3 transition-transform group-open/details:rotate-90"
                                                         viewBox="0 0 24 24"
@@ -867,21 +714,7 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                     {/* Mobile: Section header with X close button */}
                     {activeTab !== null && (
                         <div className="md:hidden flex items-center gap-3 px-5 pt-6 pb-3 sticky top-0 z-20 bg-slate-950/90 border-b border-white/5">
-                            <button
-                                onClick={() => setActiveTab(null)}
-                                className="p-2 rounded-xl bg-white/5 border border-white/10 text-gray-400 hover:text-white hover:bg-white/10 transition-all active:scale-90"
-                                aria-label="Back to settings menu"
-                            >
-                                <svg
-                                    className="w-5 h-5"
-                                    fill="none"
-                                    viewBox="0 0 24 24"
-                                    stroke="currentColor"
-                                    strokeWidth={2}
-                                >
-                                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
-                                </svg>
-                            </button>
+                            <BackButton onClick={() => setActiveTab(null)} label="Back to settings menu" />
                             <h3 className="text-lg font-black text-white uppercase tracking-wider">
                                 {MENU_ITEMS.find((m) => m.id === activeTab)?.label || 'Settings'}
                             </h3>

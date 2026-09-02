@@ -140,7 +140,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, layer = '
                 setResendCooldown(120);
             } else if (isOauthBoundEmail(err)) {
                 setError(
-                    'This email is linked to an Apple or Google sign-in. Use that sign-in method on your boat app instead — or sign in with the email address shown under Settings → Account.',
+                    'This email is linked to an Apple or Google sign-in. Use that sign-in method on your boat app instead — or sign in with the email address shown under Settings → Account & Cloud.',
                 );
             } else {
                 setError(getErrorMessage(err) || 'Failed to send code. Please try again.');
@@ -215,7 +215,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, layer = '
                 setResendCooldown(120);
             } else if (isOauthBoundEmail(err)) {
                 setError(
-                    'This email is linked to an Apple or Google sign-in. Use that sign-in method on your boat app instead — or sign in with the email address shown under Settings → Account.',
+                    'This email is linked to an Apple or Google sign-in. Use that sign-in method on your boat app instead — or sign in with the email address shown under Settings → Account & Cloud.',
                 );
             } else {
                 setError(getErrorMessage(err) || 'Failed to resend code.');
@@ -295,7 +295,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, layer = '
                         </h2>
                         <p className="text-sm text-gray-400 mb-6 max-w-xs leading-relaxed">
                             {step === 'input' &&
-                                'Sign in to synchronize your vessel profile, saved routes, and preferences across all your devices.'}
+                                'Sign in to synchronise your vessel profile, saved routes, and preferences across all your devices.'}
                             {step === 'otp' && `We sent a verification code to ${email}`}
                             {step === 'success' && "You're now signed in and your data will sync automatically."}
                         </p>
@@ -425,7 +425,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, layer = '
                                 <button
                                     type="button"
                                     onClick={handleChangeInput}
-                                    className="text-gray-400 hover:text-white transition-colors"
+                                    className="min-h-[44px] inline-flex items-center px-2 text-gray-400 hover:text-white transition-colors"
                                     aria-label="Change Email"
                                 >
                                     ← Change email
@@ -435,7 +435,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, layer = '
                                     type="button"
                                     onClick={handleResendCode}
                                     disabled={resendCooldown > 0 || loading}
-                                    className={`transition-colors ${resendCooldown > 0 ? 'text-gray-400' : 'text-sky-400 hover:text-sky-300'}`}
+                                    className={`min-h-[44px] inline-flex items-center px-2 transition-colors ${resendCooldown > 0 ? 'text-gray-400' : 'text-sky-400 hover:text-sky-300'}`}
                                 >
                                     {resendCooldown > 0 ? `Resend in ${resendCooldown}s` : 'Resend code'}
                                 </button>

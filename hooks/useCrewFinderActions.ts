@@ -33,6 +33,40 @@ import {
 
 const log = createLogger('CrewFinderActions');
 
+// ── Helpers ──
+// Module scope: they close over nothing, and a stable identity is what lets
+// the React.memo'd crew-finder views (which receive them as props) skip work.
+function formatDate(iso: string | null) {
+    if (!iso) return '';
+    try {
+        return new Date(iso).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' });
+    } catch (e) {
+        log.warn(e);
+        return iso;
+    }
+}
+
+function isOpenEnded(iso: string | null) {
+    if (!iso) return true;
+    try {
+        return new Date(iso).getFullYear() >= 2038;
+    } catch (e) {
+        log.warn(e);
+        return false;
+    }
+}
+
+function getLastActiveLabel(lastActive: string | null): { text: string; color: string } | null {
+    if (!lastActive) return null;
+    const diff = Date.now() - new Date(lastActive).getTime();
+    const hours = diff / (1000 * 60 * 60);
+    if (hours < 1) return { text: 'Online now', color: 'text-emerald-400' };
+    if (hours < 24) return { text: 'Active today', color: 'text-emerald-400/60' };
+    if (hours < 72) return { text: 'Active this week', color: 'text-sky-400/50' };
+    if (hours < 168) return { text: 'Active recently', color: 'text-white/30' };
+    return { text: 'Been a while', color: 'text-white/20' };
+}
+
 type ScopedServiceResult<T> = { status: 'current'; value: T } | { status: 'stale' } | { status: 'unauthenticated' };
 
 type CrewFinderServiceInternals = {
@@ -1075,38 +1109,6 @@ export function useCrewFinderActions(
         else setSwipeX(0);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [swipeX, goToNextCard, goToPrevCard]);
-
-    // ── Helpers ──
-    const formatDate = (iso: string | null) => {
-        if (!iso) return '';
-        try {
-            return new Date(iso).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' });
-        } catch (e) {
-            log.warn(e);
-            return iso;
-        }
-    };
-
-    const isOpenEnded = (iso: string | null) => {
-        if (!iso) return true;
-        try {
-            return new Date(iso).getFullYear() >= 2038;
-        } catch (e) {
-            log.warn(e);
-            return false;
-        }
-    };
-
-    const getLastActiveLabel = (lastActive: string | null): { text: string; color: string } | null => {
-        if (!lastActive) return null;
-        const diff = Date.now() - new Date(lastActive).getTime();
-        const hours = diff / (1000 * 60 * 60);
-        if (hours < 1) return { text: 'Online now', color: 'text-emerald-400' };
-        if (hours < 24) return { text: 'Active today', color: 'text-emerald-400/60' };
-        if (hours < 72) return { text: 'Active this week', color: 'text-sky-400/50' };
-        if (hours < 168) return { text: 'Active recently', color: 'text-white/30' };
-        return { text: 'Been a while', color: 'text-white/20' };
-    };
 
     // ── Icebreakers ──
     const getIcebreakers = (match: SailorMatch): string[] => {

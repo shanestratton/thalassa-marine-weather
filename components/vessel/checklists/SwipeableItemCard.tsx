@@ -105,7 +105,7 @@ export const SwipeableItemCard: React.FC<SwipeableItemCardProps> = ({
                                         onMoveUp?.();
                                     }}
                                     disabled={isFirst}
-                                    className={`p-1 rounded-sm transition-colors ${isFirst ? 'text-white/10' : 'text-white/40 hover:text-white/70 hover:bg-white/10 active:scale-90'}`}
+                                    className={`w-11 h-8 flex items-center justify-center rounded-sm transition-colors ${isFirst ? 'text-white/10' : 'text-white/40 hover:text-white/70 hover:bg-white/10 active:scale-90'}`}
                                     aria-label="Move up"
                                 >
                                     <svg
@@ -128,7 +128,7 @@ export const SwipeableItemCard: React.FC<SwipeableItemCardProps> = ({
                                         onMoveDown?.();
                                     }}
                                     disabled={isLast}
-                                    className={`p-1 rounded-sm transition-colors ${isLast ? 'text-white/10' : 'text-white/40 hover:text-white/70 hover:bg-white/10 active:scale-90'}`}
+                                    className={`w-11 h-8 flex items-center justify-center rounded-sm transition-colors ${isLast ? 'text-white/10' : 'text-white/40 hover:text-white/70 hover:bg-white/10 active:scale-90'}`}
                                     aria-label="Move down"
                                 >
                                     <svg

@@ -1,5 +1,7 @@
 import React, { useEffect, useRef, useSyncExternalStore } from 'react';
-import { useThalassa } from '../context/ThalassaContext';
+import { useWeather } from '../context/WeatherContext';
+import { useSettings } from '../context/SettingsContext';
+import { useAuth } from '../context/AuthContext';
 import { supabase } from '../services/supabase';
 import { createLogger } from '../utils/createLogger';
 import {
@@ -18,7 +20,9 @@ interface NotificationManagerProps {
 }
 
 export const NotificationManager: React.FC<NotificationManagerProps> = ({ onNotify }) => {
-    const { weatherData, settings, user } = useThalassa();
+    const { weatherData } = useWeather();
+    const { settings } = useSettings();
+    const { user } = useAuth();
     const identityScope = useSyncExternalStore(subscribeIdentitySnapshot, getIdentitySnapshot, getIdentitySnapshot);
     const lastAlertTime = useRef<number>(0);
     const alertedConditions = useRef<Set<string>>(new Set());

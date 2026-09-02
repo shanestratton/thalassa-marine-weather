@@ -97,6 +97,25 @@ export const LonelyHeartsPage: React.FC = () => {
     } = actions;
 
     const { view, loading, listings, introductions, selectedCard, profile } = state;
+
+    // Stable callbacks/elements for the React.memo'd sub-views — an inline
+    // closure or a fresh element here defeated every one of those memos on
+    // each page render.
+    const openIntroductions = React.useCallback(() => setView('matches'), [setView]);
+    const backToBoard = React.useCallback(() => setView('board'), [setView]);
+    const openConversation = React.useCallback(
+        (introduction: CrewListIntroduction) =>
+            setActiveIntroduction({
+                introduction,
+                identityKey: identityScope.key,
+                identityGeneration: identityScope.generation,
+            }),
+        [identityScope.key, identityScope.generation],
+    );
+    const phonePanel = React.useMemo(
+        () => <CrewPhoneVerificationPanel controller={phoneVerification} />,
+        [phoneVerification],
+    );
     const activeIntroductionIsCurrent =
         activeIntroduction?.identityKey === identityScope.key &&
         activeIntroduction.identityGeneration === identityScope.generation;
@@ -172,7 +191,7 @@ export const LonelyHeartsPage: React.FC = () => {
                         onClick={() => {
                             setActiveIntroduction(null);
                             if ((tab.key === 'board' || tab.key === 'matches') && !currentUserId) {
-                                toast.error('Sign in first — go to Vessel > Settings > Account');
+                                toast.error('Sign in first — go to Settings → Account & Cloud');
                                 return;
                             }
                             if (tab.key === 'board' && !isApprovedForCrewList) {
@@ -224,7 +243,7 @@ export const LonelyHeartsPage: React.FC = () => {
                         onBlock={handleBlock}
                         onReport={handleReport}
                         onSuperLike={handleSuperLike}
-                        onOpenIntroductions={() => setView('matches')}
+                        onOpenIntroductions={openIntroductions}
                         goToNextCard={goToNextCard}
                         goToPrevCard={goToPrevCard}
                         goToStart={goToStart}
@@ -242,9 +261,9 @@ export const LonelyHeartsPage: React.FC = () => {
                     <CrewDetailView
                         selectedCard={selectedCard}
                         state={state}
-                        onBack={() => setView('board')}
+                        onBack={backToBoard}
                         onLike={handleLike}
-                        onOpenIntroductions={() => setView('matches')}
+                        onOpenIntroductions={openIntroductions}
                         matchedUserIds={matchedUserIds}
                         formatDate={formatDate}
                         isOpenEnded={isOpenEnded}
@@ -256,7 +275,7 @@ export const LonelyHeartsPage: React.FC = () => {
                     <CrewProfileForm
                         state={state}
                         dispatch={dispatch}
-                        phoneVerificationPanel={<CrewPhoneVerificationPanel controller={phoneVerification} />}
+                        phoneVerificationPanel={phonePanel}
                         publicationReady={phoneVerification.publicationReady}
                         publicationState={phoneVerification.publicationState}
                         onSaveProfile={handleSaveProfile}
@@ -273,13 +292,7 @@ export const LonelyHeartsPage: React.FC = () => {
                 {view === 'matches' && (
                     <CrewMatchesList
                         introductions={introductions}
-                        onOpenConversation={(introduction) =>
-                            setActiveIntroduction({
-                                introduction,
-                                identityKey: identityScope.key,
-                                identityGeneration: identityScope.generation,
-                            })
-                        }
+                        onOpenConversation={openConversation}
                         onRespondIntroduction={handleRespondToIntroduction}
                         onWithdrawIntroduction={handleWithdrawIntroduction}
                     />

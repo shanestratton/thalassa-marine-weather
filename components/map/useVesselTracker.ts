@@ -89,13 +89,13 @@ function createVesselElement(): HTMLDivElement {
     const badge = document.createElement('div');
     badge.className = 'vessel-sog-badge';
     badge.style.cssText = `
-        position: absolute; bottom: -16px; left: 50%;
+        position: absolute; bottom: -20px; left: 50%;
         transform: translateX(-50%);
         background: rgba(15, 23, 42, 0.9);
         border: 1px solid rgba(56, 189, 248, 0.3);
         border-radius: 8px;
         padding: 1px 6px;
-        font-size: 9px; font-weight: 800;
+        font-size: 12px; font-weight: 800;
         color: #38bdf8;
         white-space: nowrap;
         letter-spacing: 0.05em;
@@ -111,13 +111,13 @@ function createVesselElement(): HTMLDivElement {
     const ageChip = document.createElement('div');
     ageChip.className = 'vessel-age-chip';
     ageChip.style.cssText = `
-        position: absolute; top: -18px; left: 50%;
+        position: absolute; top: -22px; left: 50%;
         transform: translateX(-50%);
         background: rgba(15, 23, 42, 0.9);
         border: 1px solid rgba(245, 158, 11, 0.5);
         border-radius: 8px;
         padding: 1px 6px;
-        font-size: 9px; font-weight: 800;
+        font-size: 12px; font-weight: 800;
         color: #f59e0b;
         white-space: nowrap;
         letter-spacing: 0.05em;

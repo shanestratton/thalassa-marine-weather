@@ -175,7 +175,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                 } else {
                     await downloadInventoryPdf(opts);
                     if (!isAuthIdentityScopeCurrent(identity)) return;
-                    toast.success('Inventory PDF downloaded');
+                    toast.success('Stores PDF downloaded');
                 }
             } catch (e) {
                 log.warn(' Export failed:', e);
@@ -206,7 +206,6 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
         [filtered],
     );
 
-    const [_deleteTargetId, _setDeleteTargetId] = useState<string | null>(null);
     const [deletedItem, setDeletedItem] = useState<{ identity: AuthIdentityScope; item: InventoryItem } | null>(null);
 
     // ── Soft-delete with undo ──
@@ -419,7 +418,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                     subtitle={
                         <p className="text-label text-gray-400 font-bold uppercase tracking-widest">
                             {stats
-                                ? `${stats.totalItems} Items · ${Math.round(stats.totalQuantity * 10) / 10} Units`
+                                ? `${stats.totalItems} ${stats.totalItems === 1 ? 'Item' : 'Items'} · ${Math.round(stats.totalQuantity * 10) / 10} ${Math.round(stats.totalQuantity * 10) / 10 === 1 ? 'Unit' : 'Units'}`
                                 : 'Loading...'}
                             {stats && stats.lowStock > 0 && (
                                 <span className="text-amber-400"> · {stats.lowStock} Low</span>
@@ -467,11 +466,11 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                                                         d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
                                                     />
                                                 </svg>
-                                                Download Inventory
+                                                Download Stores List
                                             </button>
                                             <div className="border-t border-white/5" />
                                             <button
-                                                aria-label="Share inventory via email or AirDrop"
+                                                aria-label="Share stores list via email or AirDrop"
                                                 onClick={() => {
                                                     setHeaderMenuOpen(false);
                                                     setExportMode('share');
@@ -493,7 +492,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                                                         d="M7.217 10.907a2.25 2.25 0 100 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186l9.566-5.314m-9.566 7.5l9.566 5.314m0 0a2.25 2.25 0 103.935 2.186 2.25 2.25 0 00-3.935-2.186zm0-12.814a2.25 2.25 0 103.933-2.185 2.25 2.25 0 00-3.933 2.185z"
                                                     />
                                                 </svg>
-                                                Share Inventory
+                                                Share Stores List
                                             </button>
                                         </div>
                                     </>
@@ -539,7 +538,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                                     />
                                 </svg>
                             }
-                            title={searchQuery ? 'No Items Match' : 'No Stores Items Yet'}
+                            title={searchQuery ? 'No Items Match' : 'Nothing in Stores Yet'}
                             subtitle={
                                 searchQuery
                                     ? 'Try a different search term.'
@@ -620,7 +619,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                                         key={cat}
                                         type="button"
                                         onClick={() => setEditCategory(cat)}
-                                        className={`py-1 rounded-lg text-label font-bold transition-all text-center ${editCategory === cat ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-white/5 text-gray-400 border border-white/5'}`}
+                                        className={`py-1 min-h-[44px] rounded-lg text-label font-bold transition-all text-center ${editCategory === cat ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-white/5 text-gray-400 border border-white/5'}`}
                                     >
                                         {CATEGORY_ICONS[cat]} {cat}
                                     </button>
@@ -782,7 +781,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                 <ModalSheet
                     isOpen={true}
                     onClose={() => setShowExportPicker(false)}
-                    title={exportMode === 'share' ? 'Share Inventory' : 'Download Inventory'}
+                    title={exportMode === 'share' ? 'Share Stores List' : 'Download Stores List'}
                 >
                     <p className="text-sm text-gray-400 mb-3">Select categories to include, or leave blank for all:</p>
                     <div className="grid grid-cols-2 gap-2 mb-4">

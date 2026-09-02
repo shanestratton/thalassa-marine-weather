@@ -3,16 +3,12 @@
  * Extracted from MaintenanceHub to reduce component size.
  */
 import React, { useRef } from 'react';
-import type { TaskWithStatus, TrafficLight } from '../../../services/MaintenanceService';
+import type { TaskWithStatus } from '../../../services/MaintenanceService';
 import { useFocusTrap } from '../../../hooks/useFocusTrap';
 import { OverlayPortal } from '../../ui/OverlayPortal';
-
-const LIGHT_COLORS: Record<TrafficLight, { dot: string; text: string }> = {
-    red: { dot: 'bg-red-500', text: 'text-red-400' },
-    yellow: { dot: 'bg-amber-400', text: 'text-amber-400' },
-    green: { dot: 'bg-emerald-500', text: 'text-emerald-400' },
-    grey: { dot: 'bg-gray-500', text: 'text-gray-400' },
-};
+// One traffic-light palette for the card and the sheet — a local copy had
+// drifted to a different amber for the same status.
+import { LIGHT_COLORS } from './SwipeableTaskCard';
 
 interface ServiceLogSheetProps {
     task: TaskWithStatus;

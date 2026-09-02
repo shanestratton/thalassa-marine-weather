@@ -387,7 +387,7 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({ isOpen, onClose, pro
                                 type="button"
                                 onClick={() => setEmailMode(true)}
                                 disabled={busy !== null}
-                                className="text-sm text-slate-400 hover:text-slate-200 active:text-white transition-colors disabled:opacity-50 underline-offset-4 hover:underline"
+                                className="min-h-[44px] inline-flex items-center px-2 text-sm text-slate-400 hover:text-slate-200 active:text-white transition-colors disabled:opacity-50 underline-offset-4 hover:underline"
                             >
                                 Use email instead
                             </button>

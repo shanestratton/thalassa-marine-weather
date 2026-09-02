@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 // tz-lookup ships no types — declared in src/tz-lookup.d.ts.
 import tzlookup from 'tz-lookup';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
@@ -76,6 +76,12 @@ export const PhotoLightbox: React.FC<PhotoLightboxProps> = ({ photos, startIndex
         setIndex(safeStartIndex);
     }, [safeStartIndex]);
 
+    // The tz lookup is a polygon search — once per metadata, not per swipe.
+    const localTime = useMemo(
+        () => (metadata ? formatLocalCaptureTime(metadata.capturedAt, metadata.lat, metadata.lon) : null),
+        [metadata],
+    );
+
     if (photos.length === 0) return null;
 
     const multi = photos.length > 1;
@@ -87,7 +93,6 @@ export const PhotoLightbox: React.FC<PhotoLightboxProps> = ({ photos, startIndex
         if (Math.abs(delta) > 50) go(delta < 0 ? 1 : -1);
     };
 
-    const localTime = metadata ? formatLocalCaptureTime(metadata.capturedAt, metadata.lat, metadata.lon) : null;
     const coordStr =
         metadata && metadata.lat != null && metadata.lon != null ? formatCoord(metadata.lat, metadata.lon) : null;
 
@@ -126,7 +131,7 @@ export const PhotoLightbox: React.FC<PhotoLightboxProps> = ({ photos, startIndex
                         onClose();
                     }}
                     aria-label="Close photo viewer"
-                    className="w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors"
+                    className="w-11 h-11 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors"
                 >
                     <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                         <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
@@ -199,7 +204,7 @@ export const PhotoLightbox: React.FC<PhotoLightboxProps> = ({ photos, startIndex
                     </p>
                 )}
                 {multi && (
-                    <div className="flex items-center justify-center gap-1.5 pt-1">
+                    <div className="flex items-center justify-center pt-1">
                         {photos.map((_, i) => (
                             <button
                                 key={i}
@@ -208,10 +213,17 @@ export const PhotoLightbox: React.FC<PhotoLightboxProps> = ({ photos, startIndex
                                     setIndex(i);
                                 }}
                                 aria-label={`Go to photo ${i + 1}`}
-                                className={`h-1.5 rounded-full transition-all ${
-                                    i === index ? 'w-6 bg-sky-400' : 'w-1.5 bg-white/30 hover:bg-white/50'
-                                }`}
-                            />
+                                aria-current={i === index ? 'true' : undefined}
+                                className="flex items-center justify-center min-w-[24px] min-h-[44px] px-1"
+                            >
+                                {/* The button is the hit area; the dot is just the mark. */}
+                                <span
+                                    aria-hidden="true"
+                                    className={`block h-1.5 rounded-full transition-all ${
+                                        i === index ? 'w-6 bg-sky-400' : 'w-1.5 bg-white/30 hover:bg-white/50'
+                                    }`}
+                                />
+                            </button>
                         ))}
                     </div>
                 )}
