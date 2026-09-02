@@ -546,6 +546,36 @@ app.get('/api/anchor/capability', requireAppApi, async (_req, res) => {
     res.json({ capable: paired && !!SUPABASE_ANON_KEY && hasFix, paired, hasFix, reason });
 });
 
+/**
+ * The boat's own position, and WHICH receiver it came from.
+ *
+ * The app already reads the instrument bus directly through the gateway, so
+ * this is the middle rung of the chain Shane asked for: Garmin, then the USB
+ * stick on this Pi, then the phone. A phone below decks in a pocket is the
+ * last resort, not the default, and this is what makes the middle rung
+ * reachable at all.
+ *
+ * Always 200. `available: false` is a real answer — ashore, with nothing
+ * feeding the bus, there is no fix and that is not an error.
+ */
+app.get('/api/gps', requireAppApi, async (_req, res) => {
+    try {
+        const fix = await currentFix({ fetchImpl: fetch, signalkOrigin: SIGNALK_ORIGIN });
+        if (!fix || !fixIsCurrent(fix)) {
+            return res.json({ available: false, reason: fix ? 'the last fix is stale' : 'no fix on the bus' });
+        }
+        return res.json({
+            available: true,
+            latitude: fix.latitude,
+            longitude: fix.longitude,
+            timestamp: fix.timestamp,
+            source: fix.source ?? null,
+        });
+    } catch {
+        return res.json({ available: false, reason: 'Signal K did not answer' });
+    }
+});
+
 app.post('/api/anchor/watch', requireAppApi, (req, res) => {
     const body = (req.body ?? {}) as Record<string, unknown>;
     const sessionCode = typeof body.sessionCode === 'string' ? body.sessionCode.trim() : '';
