@@ -249,3 +249,41 @@ describe('the two false positives that inflated the count to 21', () => {
         expect(source).toMatch(/if \(isActive\) markSessionOpen/);
     });
 });
+
+describe('the native listener may never outlive its arming', () => {
+    /**
+     * FOUND 2026-09-02 by running the suite under a load average of 110 until
+     * useAppBootstrap's leak test failed honestly, then bisecting it to a
+     * pair of tests rather than to the load.
+     *
+     * The registration is two awaits deep — a dynamic import, then
+     * addListener — and `appStatePromise` held only the most recent one. Arm
+     * twice with no stop between (an identity switch, a bootstrap remount, a
+     * StrictMode double-invoke) and the first handle was orphaned the instant
+     * the second overwrote it: nothing held it, so nothing could remove it.
+     * On iOS that is a native appStateChange subscription outliving its React
+     * tree and writing session crumbs forever, one more per remount.
+     *
+     * Asserted on the SOURCE because the leak is a lifetime property, not a
+     * value: what matters is that arming releases whatever it replaces, and
+     * that a registration arriving after teardown checks whether it is still
+     * wanted.
+     */
+    const source = readFileSync(resolve(process.cwd(), 'services/webContentKill.ts'), 'utf8');
+
+    it('releases any previous registration before arming a new one', () => {
+        const arm = source.slice(source.indexOf('export function armSessionWatch'));
+        const assign = arm.indexOf('appStatePromise = import(');
+        const release = arm.indexOf('stopSessionWatch();');
+        expect(release, 'armSessionWatch must call stopSessionWatch()').toBeGreaterThan(-1);
+        expect(release, 'the release must come BEFORE the new registration').toBeLessThan(assign);
+    });
+
+    it('drops a registration that arrives after teardown', () => {
+        // The generation guard: a handle minted for a torn-down generation
+        // removes itself rather than being kept by nobody.
+        expect(source).toMatch(/const generation = watchGeneration/);
+        expect(source).toMatch(/generation === watchGeneration/);
+        expect(source).toMatch(/watchGeneration \+= 1/);
+    });
+});
