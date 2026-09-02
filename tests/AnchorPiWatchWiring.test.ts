@@ -24,7 +24,7 @@ describe('the Pi can actually be handed the shore watch', () => {
         expect(keeper).toMatch(/await handOffToPi\(/);
         // …and the keeper itself is reached from the anchor watch screen.
         const page = read('components/AnchorWatchPage.tsx');
-        expect(page).toMatch(/import \{ AnchorPiWatchKeeper \} from '\.\.\/services\/anchorPiWatchKeeper'/);
+        expect(page).toMatch(/import \{[^}]*AnchorPiWatchKeeper[^}]*\} from '\.\.\/services\/anchorPiWatchKeeper'/);
         expect(page).toMatch(/AnchorPiWatchKeeper\.begin\(/);
         expect(page).toMatch(/AnchorPiWatchKeeper\.end\(\)/);
     });
@@ -40,7 +40,7 @@ describe('the Pi can actually be handed the shore watch', () => {
 
     it('the Pi route drives the broadcaster that was already written for it', () => {
         const server = read('pi-cache/src/server.ts');
-        expect(server).toMatch(/import \{ AnchorWatchRunner \} from '\.\/anchorBroadcaster\.js'/);
+        expect(server).toMatch(/import \{[^}]*AnchorWatchRunner[^}]*\} from '\.\/anchorBroadcaster\.js'/);
         expect(server).toMatch(/anchorWatch\.start\(/);
         expect(server).toMatch(/anchorWatch\.stop\(\)/);
     });
@@ -93,5 +93,39 @@ describe('the Pi can actually be handed the shore watch', () => {
         expect(keeper).toMatch(/if \(!target\) return false;/);
         expect(keeper).toMatch(/if \(!took\) \{/);
         expect(keeper).not.toMatch(/\bthrow new /);
+    });
+
+    it('the offer is only made when the Pi says it can actually keep the watch', () => {
+        const server = read('pi-cache/src/server.ts');
+        expect(server).toMatch(/app\.get\('\/api\/anchor\/capability', requireAppApi/);
+        // Paired, configured, AND seeing the vessel on the bus right now.
+        expect(server).toMatch(/capable: paired && !!SUPABASE_ANON_KEY && hasFix/);
+        const page = read('components/AnchorWatchPage.tsx');
+        expect(page).toMatch(/if \(cap\.capable\) setShowPiWatchOffer\(true\)/);
+    });
+
+    it('handing over follows the one order that is safe', () => {
+        const page = read('components/AnchorWatchPage.tsx');
+        const fn = page.slice(page.indexOf('const handleAcceptPiWatch'), page.indexOf('const handleJoinShore'));
+        const handoff = fn.indexOf('AnchorPiWatchKeeper.begin(');
+        const standDown = fn.indexOf('AnchorWatchService.stopWatch()');
+        const becomeShore = fn.indexOf('AnchorWatchSyncService.joinSession(');
+        // The Pi must be watching BEFORE this phone stops, or there is a window
+        // with nobody watching the boat.
+        expect(handoff).toBeGreaterThan(-1);
+        expect(standDown).toBeGreaterThan(handoff);
+        // And this phone must stop watching BEFORE it goes ashore, or it alarms
+        // on its own movement the moment the skipper steps into the dinghy.
+        expect(becomeShore).toBeGreaterThan(standDown);
+        // A Pi that refuses leaves the phone armed and watching.
+        expect(fn).toMatch(/if \(!took\) \{[\s\S]{0,200}still keeping it/);
+    });
+
+    it("going ashore does not end the Pi's watch", () => {
+        const page = read('components/AnchorWatchPage.tsx');
+        // Only weighing the anchor ends it. 'shore' is precisely the state where
+        // the Pi is the only thing still watching the boat.
+        expect(page).toMatch(/if \(viewMode === 'setup'\) void AnchorPiWatchKeeper\.end\(\)/);
+        expect(page).not.toMatch(/viewMode !== 'watching'[\s\S]{0,120}AnchorPiWatchKeeper\.end\(\)/);
     });
 });

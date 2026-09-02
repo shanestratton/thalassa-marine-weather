@@ -27,6 +27,7 @@
  */
 import { clearWatchOnPi, handOffToPi, RENEW_INTERVAL_MS, type PiWatchAssignment } from './anchorPiHandoff';
 import { piCache } from './PiCacheService';
+import { pinnedPiRequest } from './PiPairingService';
 import { createLogger } from '../utils/createLogger';
 
 const log = createLogger('AnchorPiWatchKeeper');
@@ -51,6 +52,45 @@ export function resolvePiWatchTarget(): PiWatchTarget | null {
     const baseUrl = piCache.getBaseUrl();
     if (!baseUrl) return null;
     return { baseUrl, relayId };
+}
+
+/** What the Pi says about its own fitness to keep a watch. */
+export interface PiWatchCapability {
+    capable: boolean;
+    /** Plain words for the skipper when it cannot — never an error code. */
+    reason: string | null;
+}
+
+/**
+ * Ask the Pi whether it can actually keep the watch, before offering.
+ *
+ * A Pi that takes the watch and then reports "no-fix" forever is worse than
+ * one that never offered: the skipper goes ashore believing the boat is being
+ * watched. So the offer is only made when the Pi is paired, configured, and
+ * can see the vessel on the bus right now.
+ */
+export async function probePiWatchCapability(timeoutMs = 4_000): Promise<PiWatchCapability> {
+    const target = resolvePiWatchTarget();
+    if (!target) return { capable: false, reason: null };
+    try {
+        const res = await pinnedPiRequest({
+            url: `${target.baseUrl}/api/anchor/capability`,
+            readTimeout: timeoutMs,
+            responseType: 'text',
+        });
+        if (res.status < 200 || res.status >= 300) return { capable: false, reason: null };
+        const body = typeof res.data === 'string' ? (JSON.parse(res.data) as unknown) : null;
+        if (!body || typeof body !== 'object') return { capable: false, reason: null };
+        const parsed = body as { capable?: unknown; reason?: unknown };
+        return {
+            capable: parsed.capable === true,
+            reason: typeof parsed.reason === 'string' ? parsed.reason : null,
+        };
+    } catch {
+        // An older Pi has no such route, and a sleeping one answers nothing.
+        // Both mean the same thing here: do not offer.
+        return { capable: false, reason: null };
+    }
 }
 
 class AnchorPiWatchKeeperClass {

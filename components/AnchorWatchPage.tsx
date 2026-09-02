@@ -40,7 +40,8 @@ import { useAuthStore } from '../stores/authStore';
 import { SignInScreen } from './SignInScreen';
 
 import { getWeatherRecommendation, formatDistance, bearingToCardinal, formatElapsed } from './anchor-watch/anchorUtils';
-import { AnchorPiWatchKeeper } from '../services/anchorPiWatchKeeper';
+import { AnchorPiWatchKeeper, probePiWatchCapability } from '../services/anchorPiWatchKeeper';
+import { ConfirmDialog } from './ui/ConfirmDialog';
 
 const log = createLogger('AnchorWatch');
 /** Vessel positions are broadcast every five seconds; three missed updates are stale. */
@@ -62,6 +63,9 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
     const keyboardScrollRef = useKeyboardScroll<HTMLDivElement>();
 
     const [viewMode, setViewMode] = useState<ViewMode>('setup');
+    /** Offer to let the boat's Pi keep the watch, asked once per anchor set. */
+    const [showPiWatchOffer, setShowPiWatchOffer] = useState(false);
+    const [piHandoffBusy, setPiHandoffBusy] = useState(false);
     const [snapshot, setSnapshot] = useState<AnchorWatchSnapshot | null>(null);
     const [syncState, setSyncState] = useState<SyncState | null>(null);
     const [shoreData, setShoreData] = useState<PositionBroadcast | null>(null);
@@ -318,43 +322,20 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
         return () => clearInterval(interval);
     }, [viewMode, syncState?.connected]);
 
-    // ── Hand the shore watch to the boat's Pi, if there is one ──
+    // ── The Pi keeps the watch only when the skipper says so ──
     //
-    // The Pi is the better watchkeeper: mains powered, wired to the bus, never
-    // backgrounded by iOS, and it does not leave the boat in a pocket. The
-    // phone's own 5-second broadcast above carries on regardless — this adds
-    // the half that survives the phone sleeping.
+    // Handing over is an explicit choice (see the offer below), not something
+    // that happens because a Pi answered a ping — because saying yes moves
+    // this phone to the SHORE side, and that is a decision about where the
+    // skipper is going, which no ping can know.
     //
-    // Both ends of this were built on 2026-08-29 and neither was connected:
-    // the handoff service had no caller and the Pi had no route to receive an
-    // assignment. Shane asked how the phone connects to a Pi keeping the watch
-    // (2026-09-03) and the honest answer was that it could not.
-    const piWatchAnchorLat = snapshot?.anchorPosition?.latitude ?? null;
-    const piWatchAnchorLon = snapshot?.anchorPosition?.longitude ?? null;
-    const piWatchRadius = snapshot?.swingRadius ?? 0;
-    const piWatchSession = syncState?.connected ? (syncState.sessionCode ?? null) : null;
+    // The watch is given back when the anchor is weighed, and when this page
+    // goes away entirely. Note what is NOT here: viewMode 'shore' must never
+    // end it, because 'shore' is exactly the state where the Pi is the only
+    // thing still watching the boat.
     useEffect(() => {
-        if (viewMode !== 'watching' || !piWatchSession || piWatchAnchorLat === null || piWatchAnchorLon === null) {
-            // Not watching, not sharing, or the hook is not down yet: make sure
-            // no Pi is left broadcasting a watch that has ended.
-            void AnchorPiWatchKeeper.end();
-            return;
-        }
-        if (piWatchRadius <= 0) return;
-        void AnchorPiWatchKeeper.begin({
-            sessionCode: piWatchSession,
-            anchorLat: piWatchAnchorLat,
-            anchorLon: piWatchAnchorLon,
-            swingRadius: piWatchRadius,
-        });
-        // No cleanup that stops the Pi here: this effect re-runs whenever the
-        // anchor or radius is re-read, and tearing the watch down on each of
-        // those would leave a gap exactly when the boat is being re-measured.
-        // begin() is idempotent for an unchanged assignment, and the branch
-        // above is what ends it.
-    }, [viewMode, piWatchSession, piWatchAnchorLat, piWatchAnchorLon, piWatchRadius]);
-
-    // Give the watch back when this page goes away entirely.
+        if (viewMode === 'setup') void AnchorPiWatchKeeper.end();
+    }, [viewMode]);
     useEffect(
         () => () => {
             void AnchorPiWatchKeeper.end();
@@ -401,6 +382,13 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
 
         if (success) {
             setViewMode('watching');
+            // Only offer if the Pi can ACTUALLY keep it — paired, configured,
+            // and seeing the vessel on the bus right now. A Pi that took the
+            // watch and then reported no-fix forever would send the skipper
+            // ashore believing the boat was watched.
+            void probePiWatchCapability().then((cap) => {
+                if (cap.capable) setShowPiWatchOffer(true);
+            });
             // First-time hint dismissal — the intro card at the top
             // of the setup view only shows for users who haven't
             // armed yet. After one successful arm, they know.
@@ -499,6 +487,70 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
             toast.error('Could not start a shore-watch session — check your connection.');
         }
     }, [authedUser]);
+
+    /**
+     * Let the Pi keep the watch, and turn THIS phone into the shore half.
+     *
+     * Shane 2026-09-03: "if you drop anchor from your phone, and a pi is on
+     * board… that particular phone should have the option of pressing shore
+     * share and it becomes the shore half of the anchoring."
+     *
+     * THE ORDER IS THE SAFETY. The Pi must be watching before this phone stops
+     * — otherwise there is a window with nobody watching the boat — and this
+     * phone's own watch must stop before it goes ashore, or it alarms on its
+     * own movement the moment the skipper steps into the dinghy. So:
+     *
+     *   1. create the session (the channel the Pi will broadcast to)
+     *   2. hand it to the Pi and confirm it took it
+     *   3. only then stand this phone's local watch down
+     *   4. rejoin the same session as the SHORE device
+     *
+     * Any failure before step 3 leaves the phone exactly as it was: still the
+     * watchkeeper, still armed, nothing lost.
+     */
+    const handleAcceptPiWatch = useCallback(async () => {
+        const snap = AnchorWatchService.getSnapshot();
+        const anchor = snap.anchorPosition;
+        if (!anchor || snap.swingRadius <= 0) {
+            toast.error('The anchor position is not settled yet — try again in a moment.');
+            return;
+        }
+        setPiHandoffBusy(true);
+        try {
+            const code = syncState?.sessionCode ?? (await AnchorWatchSyncService.createSession());
+            if (!code) {
+                toast.error('Could not start a shore-watch session — check your connection.');
+                return;
+            }
+            const took = await AnchorPiWatchKeeper.begin({
+                sessionCode: code,
+                anchorLat: anchor.latitude,
+                anchorLon: anchor.longitude,
+                swingRadius: snap.swingRadius,
+            });
+            if (!took) {
+                toast.error('The Pi would not take the watch — this phone is still keeping it.');
+                return;
+            }
+            // The Pi is watching now, so this phone can stand down. If this
+            // throws, the Pi is still watching and we stay on the vessel side
+            // rather than going ashore with a live local alarm.
+            await AnchorWatchService.stopWatch();
+            const joined = await AnchorWatchSyncService.joinSession(code);
+            if (!joined) {
+                toast.error('The Pi has the watch, but this phone could not switch to shore view.');
+                return;
+            }
+            setViewMode('shore');
+            setShowPiWatchOffer(false);
+            toast.success('The Pi is keeping the watch. This phone is now your shore monitor.');
+        } catch (e) {
+            log.error('Pi watch handoff failed', e);
+            toast.error('Could not hand the watch to the Pi — this phone is still keeping it.');
+        } finally {
+            setPiHandoffBusy(false);
+        }
+    }, [syncState?.sessionCode]);
 
     const handleJoinShore = useCallback(async () => {
         if (!authedUser) {
@@ -961,6 +1013,25 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                         onClose={() => setShowShoreModal(false)}
                     />
                 )}
+
+                {/* The Pi offer. Only ever shown when the Pi has said it can
+                    actually keep the watch, and phrased as the choice it is:
+                    saying yes sends this phone ashore. */}
+                <ConfirmDialog
+                    isOpen={showPiWatchOffer}
+                    title="Let the Pi keep the watch?"
+                    message={
+                        'Your boat’s Pi can take the anchor watch. It is mains powered, wired to the instruments, ' +
+                        'and it does not sleep or leave the boat in your pocket.\n\n' +
+                        'Say yes and this phone becomes your shore monitor — it stops watching from aboard and ' +
+                        'starts following the boat, so you can take it ashore. Say no and this phone keeps the ' +
+                        'watch exactly as it does now.'
+                    }
+                    confirmLabel={piHandoffBusy ? 'Handing over…' : 'Yes, the Pi watches'}
+                    cancelLabel="No, keep it here"
+                    onConfirm={handleAcceptPiWatch}
+                    onCancel={() => setShowPiWatchOffer(false)}
+                />
 
                 <SignInScreen
                     isOpen={showShoreSignIn}
