@@ -6,6 +6,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { ChatService, DMConversation, DirectMessage } from '../../services/ChatService';
 import { triggerHaptic } from '../../utils/system';
 import { toast } from '../../components/Toast';
+import { reconcileOptimisticMessage } from '../../components/chat/chatUtils';
 import { QUEUED_DM_SENT_EVENT } from '../../services/chat/constants';
 import { PushNotificationService } from '../../services/PushNotificationService';
 import {
@@ -194,11 +195,7 @@ export function useChatDMs(options: UseChatDMsOptions) {
             return;
         }
         if (result === 'queued') {
-            setDmThread((prev) =>
-                prev.map((message) =>
-                    message.id === optimistic.id ? { ...message, delivery_status: 'queued' } : message,
-                ),
-            );
+            setDmThread((prev) => reconcileOptimisticMessage(prev, optimistic.id, 'queued'));
             toast.info('Direct message queued — it will send when the connection returns.');
             return;
         }
@@ -208,15 +205,7 @@ export function useChatDMs(options: UseChatDMsOptions) {
             toast.error("Direct message wasn't sent. Your text has been restored.");
             return;
         }
-        setDmThread((prev) => {
-            const optimisticIndex = prev.findIndex((message) => message.id === optimistic.id);
-            if (optimisticIndex < 0) {
-                return prev.some((message) => message.id === result.id) ? prev : [...prev, result];
-            }
-            const next = [...prev];
-            next[optimisticIndex] = result;
-            return next;
-        });
+        setDmThread((prev) => reconcileOptimisticMessage(prev, optimistic.id, result));
         triggerHaptic('light');
     }, [dmText, dmPartner]);
 

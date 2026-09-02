@@ -37,7 +37,7 @@ import { NmeaStore, type NmeaStoreState } from '../../../services/NmeaStore';
 import { SwingCircleCanvas } from '../../anchor-watch/SwingCircleCanvas';
 import { formatDistance, bearingToCardinal, formatElapsed } from '../../anchor-watch/anchorUtils';
 import { suggestSwingRadius } from '../../anchor-watch/swingRadiusSuggest';
-import { CompassIcon, WindIcon } from '../../Icons';
+import { CompassIcon, CrosshairIcon } from '../../Icons';
 import { CoachMark } from '../../ui/CoachMark';
 import { toast } from '../../Toast';
 import { triggerHaptic } from '../../../utils/system';
@@ -515,20 +515,20 @@ export const EssentialAnchorView: React.FC<EssentialAnchorViewProps> = ({
             >
                 {/* Distance from anchor */}
                 <div className="flex flex-col items-center justify-center py-2 px-2">
-                    <span className="text-[9px] font-bold uppercase tracking-widest text-white/50 leading-none mb-0.5">
+                    <span className="text-[11px] font-bold uppercase tracking-widest text-white/70 leading-none mb-0.5">
                         Distance
                     </span>
                     <span className={`text-lg font-mono font-bold tracking-tight leading-none ${statusColor}`}>
                         {formatDistance(snapshot.distanceFromAnchor)}
                     </span>
-                    <span className="text-[9px] text-white/40 leading-none mt-0.5">
+                    <span className="text-[11px] text-white/70 leading-none mt-0.5">
                         of {formatDistance(snapshot.swingRadius)}
                     </span>
                 </div>
 
                 {/* Wind direction + speed */}
                 <div className="flex flex-col items-center justify-center py-2 px-2">
-                    <span className="text-[9px] font-bold uppercase tracking-widest text-white/50 leading-none mb-0.5">
+                    <span className="text-[11px] font-bold uppercase tracking-widest text-white/70 leading-none mb-0.5">
                         Wind
                     </span>
                     <div className="flex items-center gap-1.5">
@@ -539,7 +539,7 @@ export const EssentialAnchorView: React.FC<EssentialAnchorViewProps> = ({
                             {windRounded}
                         </span>
                     </div>
-                    <span className="text-[9px] text-white/40 leading-none mt-0.5">
+                    <span className="text-[11px] text-white/70 leading-none mt-0.5">
                         {speedUnit}
                         {gustRounded !== null ? ` · g ${gustRounded}` : ''}
                         {windDeg !== null ? ` · from ${bearingToCardinal(windDeg)}` : ''}
@@ -551,28 +551,30 @@ export const EssentialAnchorView: React.FC<EssentialAnchorViewProps> = ({
                     safety-relevant signals. */}
                 {depthLive && (
                     <div className="flex flex-col items-center justify-center py-2 px-2">
-                        <span className="text-[9px] font-bold uppercase tracking-widest text-white/50 leading-none mb-0.5">
+                        <span className="text-[11px] font-bold uppercase tracking-widest text-white/70 leading-none mb-0.5">
                             Depth
                         </span>
                         <span className={`text-lg font-mono font-bold tracking-tight leading-none ${depthColor}`}>
                             {depthValue !== null ? depthValue.toFixed(1) : '--'}
                         </span>
-                        <span className="text-[9px] text-white/40 leading-none mt-0.5">m · {depthReferenceLabel}</span>
+                        <span className="text-[11px] text-white/70 leading-none mt-0.5">m · {depthReferenceLabel}</span>
                     </div>
                 )}
 
                 {/* GPS quality */}
                 <div className="flex flex-col items-center justify-center py-2 px-2">
-                    <span className="text-[9px] font-bold uppercase tracking-widest text-white/50 leading-none mb-0.5">
+                    <span className="text-[11px] font-bold uppercase tracking-widest text-white/70 leading-none mb-0.5">
                         GPS
                     </span>
                     <div className="flex items-center gap-1.5">
-                        <WindIcon className="w-3 h-3 text-white/40 shrink-0" />
+                        <CrosshairIcon className="w-3 h-3 text-white/60 shrink-0" />
                         <span className="text-lg font-mono font-bold tracking-tight leading-none text-white">
                             ±{snapshot.gpsAccuracy > 0 ? Math.round(snapshot.gpsAccuracy) : '--'}
                         </span>
                     </div>
-                    <span className="text-[9px] text-white/40 leading-none mt-0.5">m · {snapshot.gpsQualityLabel}</span>
+                    <span className="text-[11px] text-white/70 leading-none mt-0.5">
+                        m · {snapshot.gpsQualityLabel}
+                    </span>
                 </div>
             </div>
         </div>

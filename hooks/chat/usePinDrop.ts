@@ -6,11 +6,11 @@
  * fresh GPS snapshot, while a place is deliberately chosen on the chart.
  */
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { ChatService, ChatMessage, type ChatMessageSendResult } from '../../services/ChatService';
+import { ChatService, ChatMessage } from '../../services/ChatService';
 import { PinService, type SavedPin } from '../../services/PinService';
 import { GpsService } from '../../services/GpsService';
 import { createLogger } from '../../utils/createLogger';
-import { PIN_PREFIX } from '../../components/chat/chatUtils';
+import { PIN_PREFIX, reconcileOptimisticMessage } from '../../components/chat/chatUtils';
 import {
     getAuthIdentityScope,
     isAuthIdentityScopeCurrent,
@@ -54,28 +54,6 @@ function isFreshGpsPosition(
     if (!Number.isFinite(position.timestamp)) return false;
     const age = Date.now() - position.timestamp;
     return age >= -5_000 && age <= CURRENT_LOCATION_MAX_AGE_MS;
-}
-
-function reconcileOptimisticMessage(
-    messages: ChatMessage[],
-    optimisticId: string,
-    result: ChatMessageSendResult,
-): ChatMessage[] {
-    const optimisticIndex = messages.findIndex((message) => message.id === optimisticId);
-    if (result === 'queued') {
-        return optimisticIndex < 0
-            ? messages
-            : messages.map((message) =>
-                  message.id === optimisticId ? { ...message, delivery_status: 'queued' } : message,
-              );
-    }
-    if (!result) return optimisticIndex < 0 ? messages : messages.filter((message) => message.id !== optimisticId);
-    if (optimisticIndex < 0) {
-        return messages.some((message) => message.id === result.id) ? messages : [...messages, result];
-    }
-    const next = [...messages];
-    next[optimisticIndex] = result;
-    return next;
 }
 
 export function usePinDrop(options: UsePinDropOptions) {

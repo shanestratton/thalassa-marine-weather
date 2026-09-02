@@ -146,7 +146,7 @@ export const AccordionSection: React.FC<AccordionSectionProps> = React.memo(
 
                     {/* Chevron Toggle */}
                     <div
-                        className={`w-7 h-7 rounded-lg bg-white/5 flex items-center justify-center shrink-0 transition-all duration-300 ${isOpen ? 'rotate-45 bg-white/10' : 'rotate-0'}`}
+                        className={`w-7 h-7 rounded-lg bg-white/5 flex items-center justify-center shrink-0 transition-all duration-300 ${isOpen ? 'rotate-180 bg-white/10' : 'rotate-0'}`}
                     >
                         <svg
                             className="w-3.5 h-3.5 text-gray-400"
@@ -155,7 +155,7 @@ export const AccordionSection: React.FC<AccordionSectionProps> = React.memo(
                             stroke="currentColor"
                             strokeWidth={2.5}
                         >
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
                         </svg>
                     </div>
                 </button>

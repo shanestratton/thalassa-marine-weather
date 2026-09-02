@@ -209,7 +209,7 @@ export const SailPlanDiagram: React.FC<SailPlanDiagramProps> = ({
                 y={94}
                 textAnchor={lee > 0 ? 'start' : 'end'}
                 fill={yankeeSet ? INK_2 : MUTED}
-                fontSize={8}
+                fontSize={12}
                 fontWeight={700}
                 style={{ letterSpacing: '.1em' }}
             >
@@ -220,7 +220,7 @@ export const SailPlanDiagram: React.FC<SailPlanDiagramProps> = ({
                 y={118}
                 textAnchor={lee > 0 ? 'end' : 'start'}
                 fill={staySet ? INK_2 : MUTED}
-                fontSize={8}
+                fontSize={12}
                 fontWeight={700}
                 style={{ letterSpacing: '.1em' }}
             >
@@ -274,7 +274,7 @@ export const SailPlanDiagram: React.FC<SailPlanDiagramProps> = ({
                 y={TRACK_Y + 26}
                 textAnchor="middle"
                 fill={MUTED}
-                fontSize={9}
+                fontSize={13}
                 fontWeight={700}
                 style={{ letterSpacing: '.14em' }}
             >
@@ -321,7 +321,7 @@ export const SailPlanDiagram: React.FC<SailPlanDiagramProps> = ({
                                 y={(ytCarY + 18).toFixed(1)}
                                 textAnchor="middle"
                                 fill={INK_2}
-                                fontSize={8}
+                                fontSize={12}
                                 fontWeight={700}
                                 style={{ letterSpacing: '.08em' }}
                             >
@@ -348,7 +348,7 @@ export const SailPlanDiagram: React.FC<SailPlanDiagramProps> = ({
                                 y={(MAST_Y - 52).toFixed(1)}
                                 textAnchor="middle"
                                 fill={INK_2}
-                                fontSize={8}
+                                fontSize={12}
                                 fontWeight={700}
                                 style={{ letterSpacing: '.08em' }}
                             >
@@ -361,7 +361,7 @@ export const SailPlanDiagram: React.FC<SailPlanDiagramProps> = ({
                         y={(YT_AFT + 14).toFixed(1)}
                         textAnchor="middle"
                         fill={MUTED}
-                        fontSize={8}
+                        fontSize={12}
                         fontWeight={700}
                         style={{ letterSpacing: '.1em' }}
                     >

@@ -126,7 +126,7 @@ export const DocumentForm: React.FC<DocumentFormProps> = ({
                         <button
                             type="button"
                             onClick={onRemoveFile}
-                            className="p-1 rounded-full hover:bg-white/10 transition-colors shrink-0"
+                            className="hit-target-44 p-1 rounded-full hover:bg-white/10 transition-colors shrink-0"
                             aria-label="Remove attachment"
                         >
                             <svg

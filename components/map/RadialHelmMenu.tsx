@@ -15,6 +15,14 @@ import { motion, AnimatePresence, type Variants } from 'framer-motion';
 import { type WeatherLayer, SEA_STATE_LAYERS } from './mapConstants';
 import { triggerHaptic } from '../../utils/system';
 import { isCmemsLayerAvailable, isCmemsProductLayer } from './cmemsFeatureAvailability';
+import {
+    AnchorIcon as ChartAnchorIcon,
+    NoaaIcon as ChartNoaaIcon,
+    EcdisIcon as ChartEcdisIcon,
+    LinzIcon as ChartLinzIcon,
+    LocalChartIcon as ChartLocalIcon,
+    ChartIcon as ChartGenericIcon,
+} from './ChartSourceIcons';
 
 // ── Data structures ──────────────────────────────────────────────
 
@@ -488,21 +496,21 @@ function buildChartsCategory(chartsState: RadialHelmMenuProps['chartsState']): H
     ];
 }
 
-/** Dispatch to the inline SVG icon for a chart-source kind. */
+/** Dispatch to the shared chart-source icon for a kind (see ChartSourceIcons). */
 function chartSourceIcon(kind: 'avnav' | 'noaa' | 'ecdis' | 'linz' | 'local' | 'generic'): React.ReactNode {
     switch (kind) {
         case 'avnav':
-            return <ChartAnchorIcon />;
+            return <ChartAnchorIcon className="w-4 h-4" />;
         case 'noaa':
-            return <ChartNoaaIcon />;
+            return <ChartNoaaIcon className="w-4 h-4" />;
         case 'ecdis':
-            return <ChartEcdisIcon />;
+            return <ChartEcdisIcon className="w-4 h-4" />;
         case 'linz':
-            return <ChartLinzIcon />;
+            return <ChartLinzIcon className="w-4 h-4" />;
         case 'local':
-            return <ChartLocalIcon />;
+            return <ChartLocalIcon className="w-4 h-4" />;
         default:
-            return <ChartGenericIcon />;
+            return <ChartGenericIcon className="w-4 h-4" />;
     }
 }
 
@@ -694,6 +702,31 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
             if (item.dismissOnSelect) closeMenu();
         },
         [selectInGroup, toggleLayer, closeMenu],
+    );
+
+    // One clear-all for both the tier-2 grid footer and the tier-1 pill (the
+    // two used to carry identical inline copies). Turns off every base layer,
+    // tactical overlay and chart source in one go, and deliberately stays
+    // open — clearing is usually a prelude to picking something else.
+    const handleClearAll = useCallback(
+        (e: React.MouseEvent) => {
+            e.stopPropagation();
+            toggleLayer('none');
+            if (tacticalState?.aisVisible) tacticalState.onToggleAis?.();
+            if (tacticalState?.cycloneVisible) tacticalState.onToggleCyclones?.();
+            if (tacticalState?.squallVisible) tacticalState.onToggleSquall?.();
+            if (tacticalState?.lightningVisible) tacticalState.onToggleLightning?.();
+            if (tacticalState?.weatherInspectMode) tacticalState.onToggleWeatherInspect?.();
+            if (tacticalState?.seamarkVisible) tacticalState.onToggleSeamark?.();
+            if (tacticalState?.tideStationsVisible) tacticalState.onToggleTideStations?.();
+            if (tacticalState?.anchorageVisible) tacticalState.onToggleAnchorage?.();
+            // Also clear any chart sources.
+            chartsState?.sources?.forEach((s) => {
+                if (s.enabled) s.onToggle();
+            });
+            triggerHaptic('medium');
+        },
+        [toggleLayer, tacticalState, chartsState],
     );
 
     useEffect(() => {
@@ -1020,29 +1053,7 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
                                     <button
                                         data-helm-grid-clear
                                         role="menuitem"
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            toggleLayer('none');
-                                            if (tacticalState?.aisVisible) tacticalState.onToggleAis?.();
-                                            if (tacticalState?.cycloneVisible) tacticalState.onToggleCyclones?.();
-                                            if (tacticalState?.squallVisible) tacticalState.onToggleSquall?.();
-                                            if (tacticalState?.lightningVisible) tacticalState.onToggleLightning?.();
-                                            if (tacticalState?.weatherInspectMode)
-                                                tacticalState.onToggleWeatherInspect?.();
-                                            if (tacticalState?.seamarkVisible) tacticalState.onToggleSeamark?.();
-                                            if (tacticalState?.tideStationsVisible)
-                                                tacticalState.onToggleTideStations?.();
-                                            if (tacticalState?.anchorageVisible) tacticalState.onToggleAnchorage?.();
-                                            // Also clear any chart sources.
-                                            chartsState?.sources?.forEach((s) => {
-                                                if (s.enabled) s.onToggle();
-                                            });
-                                            triggerHaptic('medium');
-                                            // Stays open: clearing is a menu
-                                            // action like any other, and the
-                                            // punter usually clears in order
-                                            // to pick something else.
-                                        }}
+                                        onClick={handleClearAll}
                                         className="mt-1 min-h-[44px] w-full rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-red-400 transition-colors hover:bg-red-500/20"
                                     >
                                         Clear All · {totalActive} active
@@ -1166,24 +1177,7 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
                         animate={{ opacity: 1, scale: 1 }}
                         exit={{ opacity: 0, scale: 0.85 }}
                         transition={{ ...SPRING_SNAPPY, delay: 0.2 }}
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            toggleLayer('none');
-                            if (tacticalState?.aisVisible) tacticalState.onToggleAis?.();
-                            if (tacticalState?.cycloneVisible) tacticalState.onToggleCyclones?.();
-                            if (tacticalState?.squallVisible) tacticalState.onToggleSquall?.();
-                            if (tacticalState?.lightningVisible) tacticalState.onToggleLightning?.();
-                            if (tacticalState?.weatherInspectMode) tacticalState.onToggleWeatherInspect?.();
-                            if (tacticalState?.seamarkVisible) tacticalState.onToggleSeamark?.();
-                            if (tacticalState?.tideStationsVisible) tacticalState.onToggleTideStations?.();
-                            if (tacticalState?.anchorageVisible) tacticalState.onToggleAnchorage?.();
-                            chartsState?.sources?.forEach((s) => {
-                                if (s.enabled) s.onToggle();
-                            });
-                            triggerHaptic('medium');
-                            // Stays open — same reasoning as the panel's own
-                            // Clear All.
-                        }}
+                        onClick={handleClearAll}
                         className="fixed right-[16px] min-h-[44px] whitespace-nowrap rounded-xl border border-red-500/30 bg-red-500/15 px-4 py-2 text-[10px] font-black uppercase tracking-widest text-red-400 backdrop-blur-md shadow-lg transition-colors hover:bg-red-500/25"
                         style={{ top: 384 }}
                     >
@@ -1270,68 +1264,6 @@ const RoutesCategoryIcon = () => (
             strokeDasharray="2 2"
             d="M5.8 14.2c2.4-1.7 4.5-1.4 6.2-3.7"
         />
-    </svg>
-);
-
-// Chart source icons — mirrors ChartSourceIcons.tsx but inlined so RadialHelmMenu
-// stays a single self-contained file.
-const ChartAnchorIcon = () => (
-    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-        <circle cx={12} cy={5} r={1.5} strokeLinecap="round" strokeLinejoin="round" />
-        <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.5v14M8.5 10h7" />
-        <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            d="M5 14.5c0 3.5 3 6 7 6s7-2.5 7-6M5 14.5l-1.5 1.5M5 14.5h2m12 0l1.5 1.5M19 14.5h-2"
-        />
-    </svg>
-);
-const ChartNoaaIcon = () => (
-    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.6}>
-        <circle cx={12} cy={12} r={8.5} />
-        <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            d="M12 7.5l1.18 2.39 2.64.38-1.91 1.86.45 2.63L12 13.52l-2.36 1.24.45-2.63-1.91-1.86 2.64-.38L12 7.5z"
-            fill="currentColor"
-            fillOpacity={0.15}
-        />
-    </svg>
-);
-const ChartEcdisIcon = () => (
-    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.6}>
-        <rect x={3.5} y={3.5} width={17} height={17} rx={2} />
-        <path strokeLinecap="round" strokeLinejoin="round" d="M3.5 9h17M3.5 15h17M9 3.5v17M15 3.5v17" />
-    </svg>
-);
-const ChartLinzIcon = () => (
-    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.6}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v18" />
-        <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            d="M12 6c-1.5 1-3 1.5-4.5 1.5M12 6c1.5 1 3 1.5 4.5 1.5M12 10c-2 1.3-4 1.8-6 1.8M12 10c2 1.3 4 1.8 6 1.8M12 14.5c-2 1.3-4 1.8-5.5 1.8M12 14.5c2 1.3 4 1.8 5.5 1.8"
-        />
-    </svg>
-);
-const ChartLocalIcon = () => (
-    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-        <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            d="M3.75 8.25V6A1.5 1.5 0 015.25 4.5h4.19a1.5 1.5 0 011.06.44l1.56 1.56h6.69A1.5 1.5 0 0120.25 8v9.75A1.5 1.5 0 0118.75 19.25H5.25a1.5 1.5 0 01-1.5-1.5v-9.5z"
-        />
-        <path strokeLinecap="round" strokeLinejoin="round" d="M9 13h6M12 10v6" />
-    </svg>
-);
-const ChartGenericIcon = () => (
-    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-        <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            d="M9 6.75L3.75 9v11.25l5.25-2.25 6 2.25 5.25-2.25V6.75l-5.25 2.25-6-2.25z"
-        />
-        <path strokeLinecap="round" strokeLinejoin="round" d="M9 6.75v11.25M15 9v11.25" />
     </svg>
 );
 

@@ -128,7 +128,12 @@ export const BlitzortungAttribution: React.FC<BlitzortungAttributionProps> = ({ 
                         >
                             ⚡
                         </span>
-                        <span className="text-[10px] font-semibold tracking-wide text-white/75">{l}</span>
+                        <span className="flex flex-col leading-tight">
+                            <span className="text-[10px] font-semibold tracking-wide text-white/75">{l}</span>
+                            {/* `title` never shows on touch, so the plain-English
+                                meaning is printed, not hidden in a tooltip. */}
+                            <span className="max-w-[10rem] text-[10px] text-white/55">{meaning.split(' — ')[0]}</span>
+                        </span>
                     </div>
                 ))}
             </div>

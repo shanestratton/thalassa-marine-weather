@@ -48,7 +48,7 @@ export const EquipmentDetail: React.FC<EquipmentDetailProps> = ({ item, onBack, 
                     <div className="flex items-center gap-3">
                         <button
                             onClick={onBack}
-                            className="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-colors"
+                            className="hit-target-44 p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-colors"
                             aria-label="Back to equipment list"
                         >
                             <svg
@@ -102,7 +102,7 @@ export const EquipmentDetail: React.FC<EquipmentDetailProps> = ({ item, onBack, 
                                 {item.serial_number && (
                                     <button
                                         onClick={copySerial}
-                                        className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 transition-colors"
+                                        className="hit-target-44 p-1.5 rounded-lg bg-white/5 hover:bg-white/10 transition-colors"
                                         title="Copy serial number"
                                         aria-label="Copy serial number"
                                     >

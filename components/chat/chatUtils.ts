@@ -65,6 +65,35 @@ export function getStaticMapUrl(lat: number, lng: number, zoom = 13, w = 300, h 
 export const PIN_PREFIX = '📍PIN:';
 export const TRACK_PREFIX = '🗺️TRACK:';
 
+/**
+ * Fold a send result back over its optimistic row. One copy, shared by the
+ * channel, DM, pin-drop and track-share senders (it used to be pasted into
+ * each). `'queued'` marks the optimistic row as queued; `null` (send failed)
+ * removes it; a real message replaces it — or is appended if the optimistic
+ * row has already gone, unless the server echo is already in the list.
+ */
+export function reconcileOptimisticMessage<T extends { id: string; delivery_status?: string }>(
+    messages: T[],
+    optimisticId: string,
+    result: T | 'queued' | null,
+): T[] {
+    const optimisticIndex = messages.findIndex((message) => message.id === optimisticId);
+    if (result === 'queued') {
+        return optimisticIndex < 0
+            ? messages
+            : messages.map((message) =>
+                  message.id === optimisticId ? ({ ...message, delivery_status: 'queued' } as T) : message,
+              );
+    }
+    if (!result) return optimisticIndex < 0 ? messages : messages.filter((message) => message.id !== optimisticId);
+    if (optimisticIndex < 0) {
+        return messages.some((message) => message.id === result.id) ? messages : [...messages, result];
+    }
+    const next = [...messages];
+    next[optimisticIndex] = result;
+    return next;
+}
+
 export type PinShareKind = 'current' | 'place' | 'pin';
 
 export function getPinShareKind(caption: string): PinShareKind {

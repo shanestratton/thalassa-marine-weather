@@ -90,7 +90,8 @@ export const _LogEntryCard: React.FC<{ entry: ShipLogEntry }> = React.memo(({ en
 // ── MenuBtn — overflow menu item ──
 
 export const MenuBtn: React.FC<{
-    icon: string;
+    /** Glyph shown before the label — the app's stroke SVG icons, not emoji. */
+    icon: React.ReactNode;
     label: string;
     onClick: () => void;
     disabled?: boolean;
@@ -98,7 +99,7 @@ export const MenuBtn: React.FC<{
     accent?: boolean;
 }> = React.memo(({ icon, label, onClick, disabled, danger, accent }) => (
     <button
-        aria-label={label}
+        role="menuitem"
         onClick={onClick}
         disabled={disabled}
         className={`w-full px-4 py-3 text-left text-sm font-medium flex items-center gap-3 transition-colors ${
@@ -111,7 +112,9 @@ export const MenuBtn: React.FC<{
                     : 'text-slate-300 hover:bg-white/5'
         }`}
     >
-        <span className="text-base">{icon}</span>
+        <span className="w-5 h-5 flex items-center justify-center shrink-0" aria-hidden="true">
+            {icon}
+        </span>
         {label}
     </button>
 ));
@@ -375,15 +378,15 @@ export const VoyageCard: React.FC<{
     entries: ShipLogEntry[];
     isSelected: boolean;
     isExpanded: boolean;
-    onToggle: () => void;
-    onSelect: () => void;
-    onDelete: () => void;
-    onArchive: () => void;
-    onShowMap: () => void;
+    onToggle: (voyageId: string) => void;
+    onSelect: (voyageId: string) => void;
+    onDelete: (voyageId: string) => void;
+    onArchive: (voyageId: string) => void;
+    onShowMap: (voyageId: string) => void;
     /** Follow this saved plan using its recovered dense route geometry. */
     onFollowPlannedRoute: (summary: VoyageSummary) => Promise<boolean>;
     /** Request this voyage's full points be lazy-loaded (planned actions). */
-    onNeedEntries?: () => void;
+    onNeedEntries?: (voyageId: string) => void;
     /**
      * Unmount the inline mini map while a fullscreen map is open. iOS
      * WebKit composites Leaflet's transformed tile layers ABOVE fixed
@@ -470,8 +473,10 @@ export const VoyageCard: React.FC<{
                 return;
             }
             plannedEntriesRequestedRef.current = true;
-            onNeedEntries();
-        }, [entries.length, isPlannedRoute, onNeedEntries]);
+            onNeedEntries(voyageId);
+        }, [entries.length, isPlannedRoute, onNeedEntries, voyageId]);
+        // Bound once per voyage so memo(LiveMiniMap) keeps its onTap identity.
+        const handleShowMap = React.useCallback(() => onShowMap(voyageId), [onShowMap, voyageId]);
 
         // Synthetic first/last coordinate carriers for geocoding + the
         // FollowRoute plan (full points arrive lazily via `entries`).
@@ -503,7 +508,7 @@ export const VoyageCard: React.FC<{
                             aria-label="Archive"
                             onClick={() => {
                                 setSwipeOffset(0);
-                                onArchive();
+                                onArchive(voyageId);
                             }}
                             className="w-20 bg-amber-600 flex items-center justify-center"
                         >
@@ -530,7 +535,7 @@ export const VoyageCard: React.FC<{
                         aria-label="Delete"
                         onClick={() => {
                             setSwipeOffset(0);
-                            onDelete();
+                            onDelete(voyageId);
                         }}
                         className={`w-20 bg-red-600 flex items-center justify-center ${isPlannedRoute ? 'rounded-r-2xl rounded-l-2xl' : 'rounded-r-2xl'}`}
                     >
@@ -581,9 +586,9 @@ export const VoyageCard: React.FC<{
                             }
                             const rect = e.currentTarget.getBoundingClientRect();
                             const clickX = e.clientX - rect.left;
-                            onSelect();
+                            onSelect(voyageId);
                             if (clickX < rect.width / 3) {
-                                onToggle();
+                                onToggle(voyageId);
                             }
                         }}
                         className="flex-1 p-3.5 text-left min-w-0"
@@ -641,10 +646,10 @@ export const VoyageCard: React.FC<{
                                 <span className="px-2 py-0.5 rounded-full bg-linear-to-r from-amber-400/25 to-yellow-500/20 border border-amber-400/40 text-[11px] font-black text-amber-300 inline-flex items-center gap-1 shadow-xs shadow-amber-500/10">
                                     <span aria-hidden>🏆</span>
                                     {recordBadge === 'longest'
-                                        ? 'Longest'
+                                        ? 'Farthest'
                                         : recordBadge === 'fastest'
                                           ? 'Fastest'
-                                          : 'Longest trip'}
+                                          : 'Longest'}
                                 </span>
                             )}
                             <span
@@ -713,7 +718,7 @@ export const VoyageCard: React.FC<{
                         <button
                             aria-label="View on map"
                             onClick={() => {
-                                if (swipeOffset === 0) onShowMap();
+                                if (swipeOffset === 0) onShowMap(voyageId);
                                 else setSwipeOffset(0);
                             }}
                             className="flex-1 w-14 flex flex-col items-center justify-center hover:bg-white/5 transition-colors text-slate-400 hover:text-sky-400"
@@ -776,7 +781,7 @@ export const VoyageCard: React.FC<{
                             Unmounted while a fullscreen map is up (see suppressMiniMap). */}
                         {isPlannedRoute && entries.length >= 2 && !suppressMiniMap && (
                             <div className="px-4 pt-3">
-                                <LiveMiniMap entries={entries} height={140} onTap={onShowMap} />
+                                <LiveMiniMap entries={entries} height={140} onTap={handleShowMap} />
                             </div>
                         )}
                         {entries.length === 0 ? (

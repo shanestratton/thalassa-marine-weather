@@ -117,7 +117,7 @@ export const SwipeableDocCard: React.FC<SwipeableDocCardProps> = ({
                         e.stopPropagation();
                         onToggleSelect();
                     }}
-                    className="shrink-0 flex items-center justify-center w-10 ml-1"
+                    className="shrink-0 flex items-center justify-center w-11 min-h-11 ml-1"
                     aria-label={selected ? 'Deselect' : 'Select'}
                 >
                     <div
@@ -176,7 +176,7 @@ export const SwipeableDocCard: React.FC<SwipeableDocCardProps> = ({
                                 e.stopPropagation();
                                 onEdit();
                             }}
-                            className="shrink-0 p-2 rounded-lg hover:bg-white/10 transition-colors self-center"
+                            className="hit-target-44 shrink-0 p-2 rounded-lg hover:bg-white/10 transition-colors self-center"
                             aria-label="Edit document"
                         >
                             <svg

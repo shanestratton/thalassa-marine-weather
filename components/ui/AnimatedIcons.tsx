@@ -137,31 +137,6 @@ export const AnimatedCloudIcon: React.FC<AnimatedIconProps> = ({ className = 'w-
 );
 
 // ═══════════════════════════════════════════
-// ANIMATED COMPASS ICON (wobble on mount)
-// ═══════════════════════════════════════════
-export const AnimatedCompassIcon: React.FC<AnimatedIconProps> = ({ className = 'w-5 h-5' }) => (
-    <svg
-        className={`${className} anim-icon`}
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth={1.5}
-        strokeLinecap="round"
-    >
-        <circle cx="12" cy="12" r="10" />
-        <g className="anim-compass">
-            <polygon
-                points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88"
-                fill="currentColor"
-                fillOpacity="0.3"
-                stroke="currentColor"
-                strokeWidth="1"
-            />
-        </g>
-    </svg>
-);
-
-// ═══════════════════════════════════════════
 // ANIMATED THERMOMETER ICON
 // ═══════════════════════════════════════════
 export const AnimatedThermometerIcon: React.FC<AnimatedIconProps> = ({ className = 'w-5 h-5' }) => (
