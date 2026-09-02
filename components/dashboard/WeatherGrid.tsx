@@ -532,9 +532,13 @@ export const DetailedMetricsWidget = ({
             <DetailTile
                 label={locationType === 'offshore' ? 'Swell' : 'Wave'}
                 value={
-                    current.waveHeight !== null && current.waveHeight !== undefined ? String(current.waveHeight) : '--'
+                    /* waveHeight arrives in FEET (transformers scale by 3.28084); this
+                       printed the raw feet under the user's own unit (audit 2026-09-02). */
+                    current.waveHeight !== null && current.waveHeight !== undefined
+                        ? String(convertLength(current.waveHeight, units.waveHeight || 'm'))
+                        : '--'
                 }
-                unit={units.waveHeight || 'ft'}
+                unit={units.waveHeight || 'm'}
                 colorClass="text-sky-300"
                 icon={<WaveIcon className="w-4 h-4" />}
                 subContent={

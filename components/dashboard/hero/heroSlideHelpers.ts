@@ -114,7 +114,9 @@ export function computeCardDisplayValues(
         gusts: cardData.windGust != null ? Math.round(convertSpeed(cardData.windGust, units.speed)!) : '--',
         precip: (() => {
             if (!isHourly && index === 0) {
-                return convertPrecip(cardData.precipitation, units.length) ?? '0';
+                // convertPrecip keys inches on the TEMPERATURE unit; units.length never says 'F', so
+                // Fahrenheit users saw millimetres under an 'in' label (audit 2026-09-02).
+                return convertPrecip(cardData.precipitation, units.temp) ?? '0';
             }
             const chance = cardData.precipChance;
             return chance !== undefined && chance !== null ? Math.round(chance) : 0;
@@ -639,7 +641,7 @@ export function computeDisplayValues(
         gusts: hasWind ? Math.round(convertSpeed(rawGust!, units.speed)!) : '--',
         precip: (() => {
             if (index === 0) {
-                return convertPrecip(displayData.precipitation, units.length) ?? '0';
+                return convertPrecip(displayData.precipitation, units.temp) ?? '0';
             }
             const chance = displayData.precipChance;
             return chance !== undefined && chance !== null ? Math.round(chance) : 0;
