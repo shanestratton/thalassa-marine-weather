@@ -173,7 +173,6 @@ describe('public-beta privacy contract', () => {
         const gps = read('services/GpsService.ts');
         const weather = read('services/WeatherOrchestrator.ts');
         const weatherContext = read('context/WeatherContext.tsx');
-        const smartRefresh = read('hooks/useSmartRefresh.ts');
         const settings = read('stores/settingsStore.ts');
         const dashboard = read('components/Dashboard.tsx');
         const logPageState = read('hooks/useLogPageState.ts');
@@ -246,8 +245,9 @@ describe('public-beta privacy contract', () => {
         expect(weather).toContain('GpsService.getCurrentPositionIfGranted(');
         expect(weatherContext).not.toContain('GpsService.getCurrentPosition(');
         expect(weatherContext).toContain('GpsService.getCurrentPositionIfGranted(');
-        expect(smartRefresh).not.toContain('GpsService.getCurrentPosition(');
-        expect(smartRefresh).toContain('GpsService.getCurrentPositionIfGranted(');
+        // hooks/useSmartRefresh.ts was deleted 2026-09-03 (no importers); the
+        // no-prompt-on-passive-refresh contract is still pinned on the live
+        // files above.
     });
 
     it('fails Gmail closed in production until Keychain storage and grant revocation ship', () => {

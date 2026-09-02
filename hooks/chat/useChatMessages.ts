@@ -8,6 +8,7 @@ import { clientFilter, ClientFilterResult } from '../../services/ContentModerati
 import { triggerHaptic } from '../../utils/system';
 import { batchFetchAvatars } from '../../services/ProfilePhotoService';
 import { toast } from '../../components/Toast';
+import { reconcileOptimisticMessage } from '../../components/chat/chatUtils';
 import {
     authScopedStorageKey,
     getAuthIdentityScope,
@@ -193,24 +194,11 @@ export function useChatMessages(options: UseChatMessagesOptions) {
             const sent = await ChatService.sendMessage(activeChannel.id, text, isQuestion).catch(() => null);
             if (!isAuthIdentityScopeCurrent(identity)) return;
             if (sent === 'queued') {
-                setMessages((prev) =>
-                    prev.map((message) =>
-                        message.id === optimistic.id ? { ...message, delivery_status: 'queued' } : message,
-                    ),
-                );
+                setMessages((prev) => reconcileOptimisticMessage(prev, optimistic.id, 'queued'));
                 toast.info('Message queued — it will send when the connection returns.');
                 return;
             }
-            setMessages((prev) => {
-                const optimisticIndex = prev.findIndex((message) => message.id === optimistic.id);
-                if (optimisticIndex < 0) {
-                    return sent && !prev.some((message) => message.id === sent.id) ? [...prev, sent] : prev;
-                }
-                const next = [...prev];
-                if (sent) next[optimisticIndex] = sent;
-                else next.splice(optimisticIndex, 1);
-                return next;
-            });
+            setMessages((prev) => reconcileOptimisticMessage(prev, optimistic.id, sent));
             if (!sent) {
                 setMessageText((current) => current || text);
                 setIsQuestion((current) => current || isQuestion);

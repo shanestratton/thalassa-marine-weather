@@ -62,7 +62,7 @@ export default function TopNav({
                     Still supabase-free here — a plain <a>, not an auth flow. */}
                 <a
                     href="/plan"
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-700 text-[11px] font-bold uppercase tracking-wider text-slate-300 hover:text-white hover:border-slate-500 transition-colors"
+                    className="flex items-center gap-1.5 min-h-11 px-3 py-1.5 rounded-lg border border-slate-700 text-[11px] font-bold uppercase tracking-wider text-slate-300 hover:text-white hover:border-slate-500 transition-colors"
                     title="Skipper? Sign in and build a passage on the big screen"
                 >
                     ⚓ Skipper

@@ -6,10 +6,12 @@
  * and ghost ship — all synced to a single time state.
  *
  * Mobile-responsive layout:
- *   - CommandDeck: collapsible, starts collapsed on mobile (shows summary line)
- *   - PassageHUD: anchored bottom-left above scrubber, collapsible
  *   - Close button: always visible top-right
  *   - No side-by-side overlap on narrow viewports
+ *
+ * The CommandDeck route summary and PassageHUD telemetry overlays were
+ * retired 2026-09-03 — they had been commented out since the canvas went
+ * fullscreen; see git history if they are ever wanted back.
  */
 
 import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
@@ -24,7 +26,7 @@ import { fetchGlobalWindField } from '../../services/weather/windField';
 import { downloadRouteGPX } from '../../utils/gpxRouteExport';
 import { toast } from '../Toast';
 import { DUPLICATE_PASSAGE_PLAN_ERROR } from '../../services/shiplog/PassagePlanSave';
-import { FONT, SIZE, HEADER_STYLE, MICRO_STYLE, FOOTNOTE_STYLE } from '../../styles/typeScale';
+import { FONT, SIZE } from '../../styles/typeScale';
 import type { SpatiotemporalPayload } from '../../types/spatiotemporal';
 import type { VoyagePlan } from '../../types';
 import type { PassageBriefData } from '../../services/PassageBriefService';
@@ -33,232 +35,6 @@ import { useSettingsStore } from '../../stores/settingsStore';
 import { vesselCrewAboard } from '../../services/units';
 import '../../styles/bioluminescent.css';
 import { getAuthIdentityScope, isAuthIdentityScopeCurrent } from '../../services/authIdentityScope';
-
-// ── SVG Icons ───────────────────────────────────────────────────
-
-const SailIcon = () => (
-    <svg
-        width="18"
-        height="18"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-    >
-        <path d="M12 2L8 18h8L12 2z" />
-        <path d="M4 20h16" />
-    </svg>
-);
-
-const PowerIcon = () => (
-    <svg
-        width="18"
-        height="18"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-    >
-        <rect x="4" y="10" width="16" height="6" rx="2" />
-        <path d="M8 10V8a4 4 0 018 0v2" />
-        <path d="M4 20h16" />
-    </svg>
-);
-
-const _CloseIcon = () => (
-    <svg
-        width="16"
-        height="16"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2.5"
-        strokeLinecap="round"
-    >
-        <path d="M18 6L6 18M6 6l12 12" />
-    </svg>
-);
-
-const ChevronIcon: React.FC<{ expanded: boolean }> = ({ expanded }) => (
-    <svg
-        width="12"
-        height="12"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2.5"
-        strokeLinecap="round"
-        style={{ transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s ease' }}
-    >
-        <path d="M6 9l6 6 6-6" />
-    </svg>
-);
-
-// ── Command Deck — Collapsible Route Summary ────────────────────
-
-interface CommandDeckProps {
-    payload: SpatiotemporalPayload;
-    collapsed: boolean;
-    onToggle: () => void;
-}
-
-const OVERLAY_CARD_STYLE: React.CSSProperties = {
-    background: 'rgba(15, 23, 42, 0.85)',
-
-    border: '1px solid rgba(255, 255, 255, 0.08)',
-    borderRadius: 16,
-    boxShadow: '0 8px 32px rgba(0, 0, 0, 0.5)',
-    pointerEvents: 'auto',
-    color: '#e2e8f0',
-};
-
-const _CommandDeck: React.FC<CommandDeckProps> = ({ payload, collapsed, onToggle }) => {
-    const { summary, mesh_stats, track } = payload;
-    const departure = track[0];
-    const arrival = track[track.length - 1];
-
-    return (
-        <div
-            style={{
-                ...OVERLAY_CARD_STYLE,
-                maxWidth: 240,
-                width: '100%',
-                padding: '8px 10px',
-            }}
-            className="bio-animate-in"
-        >
-            {/* Tappable Header — always visible */}
-            <button
-                aria-label={collapsed ? 'Expand route summary' : 'Collapse route summary'}
-                onClick={onToggle}
-                style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 7,
-                    width: '100%',
-                    background: 'none',
-                    border: 'none',
-                    padding: 0,
-                    cursor: 'pointer',
-                }}
-            >
-                <div
-                    style={{
-                        width: 26,
-                        height: 26,
-                        borderRadius: 6,
-                        background: 'rgba(56, 189, 248, 0.08)',
-                        border: '1px solid rgba(56, 189, 248, 0.2)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        color: '#38bdf8',
-                        flexShrink: 0,
-                    }}
-                >
-                    {summary.vessel_type === 'sail' ? <SailIcon /> : <PowerIcon />}
-                </div>
-                <div style={{ flex: 1, textAlign: 'left' }}>
-                    <div style={HEADER_STYLE}>NAV COMPUTER</div>
-                    <div style={{ ...FOOTNOTE_STYLE }}>
-                        {summary.total_distance_nm}NM · {(summary.total_duration_hours / 24).toFixed(1)}d ·{' '}
-                        {track.length} waypoints
-                    </div>
-                </div>
-                <div style={{ color: '#64748b', flexShrink: 0 }}>
-                    <ChevronIcon expanded={!collapsed} />
-                </div>
-            </button>
-
-            {/* Expandable details */}
-            {!collapsed && (
-                <div
-                    style={{
-                        borderTop: '1px solid rgba(255, 255, 255, 0.06)',
-                        marginTop: 6,
-                        paddingTop: 6,
-                        animation: 'bio-fadein 0.2s ease',
-                    }}
-                >
-                    {/* Route Endpoints */}
-                    <div style={{ marginBottom: 6 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 2 }}>
-                            <div
-                                style={{
-                                    width: 5,
-                                    height: 5,
-                                    borderRadius: '50%',
-                                    background: '#38bdf8',
-                                    boxShadow: '0 0 4px rgba(56,189,248,0.5)',
-                                }}
-                            />
-                            <span style={MICRO_STYLE}>{departure.name}</span>
-                        </div>
-                        <div style={{ borderLeft: '1px dashed rgba(56,189,248,0.15)', height: 6, marginLeft: 2 }} />
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                            <div
-                                style={{
-                                    width: 5,
-                                    height: 5,
-                                    borderRadius: '50%',
-                                    background: '#38bdf8',
-                                    boxShadow: '0 0 4px rgba(56,189,248,0.5)',
-                                }}
-                            />
-                            <span style={MICRO_STYLE}>{arrival.name}</span>
-                        </div>
-                    </div>
-
-                    {/* Stats Grid */}
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 8px' }}>
-                        <div>
-                            <div className="bio-label">DISTANCE</div>
-                            <div className="bio-data" style={{ fontSize: 13 }}>
-                                {summary.total_distance_nm}
-                                <span style={{ fontSize: SIZE.xs, opacity: 0.5 }}>NM</span>
-                            </div>
-                        </div>
-                        <div>
-                            <div className="bio-label">ETA</div>
-                            <div className="bio-data" style={{ fontSize: 13 }}>
-                                {summary.total_duration_hours > 48
-                                    ? `${(summary.total_duration_hours / 24).toFixed(1)}d`
-                                    : `${summary.total_duration_hours}h`}
-                            </div>
-                        </div>
-                        <div>
-                            <div className="bio-label">WAYPOINTS</div>
-                            <div className="bio-data" style={{ fontSize: 13 }}>
-                                {track.length}
-                            </div>
-                        </div>
-                        <div>
-                            <div className="bio-label">CORRIDOR</div>
-                            <div className="bio-data" style={{ fontSize: 13 }}>
-                                ±{mesh_stats.corridor_width_nm}
-                                <span style={{ fontSize: SIZE.xs, opacity: 0.5 }}>NM</span>
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* Forecast Info */}
-                    <div
-                        style={{
-                            marginTop: 4,
-                            paddingTop: 4,
-                            borderTop: '1px solid rgba(56,189,248,0.06)',
-                            ...FOOTNOTE_STYLE,
-                        }}
-                    >
-                        Forecast: {mesh_stats.forecast_hours}h horizon • Updated just now
-                    </div>
-                </div>
-            )}
-        </div>
-    );
-};
 
 // ── Master Layout ───────────────────────────────────────────────
 
@@ -296,8 +72,6 @@ function buildVoyagePlan(payload: SpatiotemporalPayload): VoyagePlan {
 
 const PassageCanvas: React.FC<PassageCanvasProps> = ({ payload, onClose }) => {
     const [currentTimeHours, setCurrentTimeHours] = useState(0);
-    const [_deckCollapsed, _setDeckCollapsed] = useState(true);
-    const [_hudCollapsed, _setHudCollapsed] = useState(false);
     const [saveState, setSaveState] = useState<ActionState>('idle');
     const [logbookState, setLogbookState] = useState<ActionState>('idle');
     const mountedRef = useRef(true);
@@ -794,14 +568,6 @@ const PassageCanvas: React.FC<PassageCanvasProps> = ({ payload, onClose }) => {
                         )}
                     </div>
 
-                    {/* CommandDeck temporarily hidden
-                    <CommandDeck
-                        payload={payload}
-                        collapsed={deckCollapsed}
-                        onToggle={() => setDeckCollapsed(c => !c)}
-                    />
-                    */}
-
                     {/* Action Buttons (right) */}
                     <div style={{ display: 'flex', gap: 6, alignItems: 'flex-start', flexShrink: 0 }}>
                         {/* Save to Logbook (bookmark icon) */}
@@ -981,50 +747,6 @@ const PassageCanvas: React.FC<PassageCanvasProps> = ({ payload, onClose }) => {
 
                 {/* Spacer */}
                 <div style={{ flex: 1, minHeight: 8 }} />
-
-                {/* Telemetry temporarily hidden
-                <div style={{ marginBottom: 6 }}>
-                    <button
-                        onClick={() => setHudCollapsed(c => !c)}
-                        aria-label={hudCollapsed ? 'Show telemetry panel' : 'Hide telemetry panel'}
-                        aria-expanded={!hudCollapsed}
-                        style={{
-                            pointerEvents: 'auto',
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: 5,
-                            padding: '8px 12px',
-                            minHeight: 44,
-                            borderRadius: hudCollapsed ? 10 : '10px 10px 0 0',
-                            border: '1px solid rgba(255, 255, 255, 0.08)',
-                            borderBottom: hudCollapsed ? undefined : 'none',
-                            background: 'rgba(15, 23, 42, 0.85)',
-                            
-                            
-                            color: '#64748b',
-                            cursor: 'pointer',
-                            fontFamily: FONT.ui,
-                            fontSize: SIZE.xs, letterSpacing: '0.08em',
-                            fontWeight: 600,
-                            textTransform: 'uppercase' as const,
-                        }}
-                    >
-                        <span style={{ color: '#38bdf8' }}>TELEMETRY</span>
-                        <ChevronIcon expanded={!hudCollapsed} />
-                    </button>
-
-                    {!hudCollapsed && (
-                        <PassageHUD
-                            track={payload.track}
-                            ghostShip={ghostShip}
-                            currentTimeHours={currentTimeHours}
-                            totalDistanceNM={payload.summary.total_distance_nm}
-                            totalDurationHours={payload.summary.total_duration_hours}
-                            costScore={payload.summary.cost_score}
-                        />
-                    )}
-                </div>
-                */}
             </div>
 
             {/* ═══ LAYER 3: Temporal Scrubber (pinned bottom) ═══ */}

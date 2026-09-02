@@ -457,13 +457,6 @@ export const WeatherInspectPopup: React.FC<Props> = ({ data, loading, error, onR
                     flaky link, the fetch is exactly what fails). */}
                 {save && <SaveRow save={save} />}
             </div>
-            {/* Inline keyframes for fade-in animation */}
-            <style>{`
-                @keyframes fadeInUp {
-                    from { opacity: 0; transform: translateY(6px); }
-                    to { opacity: 1; transform: translateY(0); }
-                }
-            `}</style>
         </div>
     );
 };

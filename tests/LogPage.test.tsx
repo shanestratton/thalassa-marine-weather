@@ -613,7 +613,9 @@ describe('LogPage', () => {
 
         render(<LogPage />);
 
-        const toggle = screen.getByRole('button', { name: 'Toggle archived voyages' });
+        // The expander is named by its visible text now (the placeholder
+        // aria-label went 2026-09-03; it announces aria-expanded instead).
+        const toggle = screen.getByRole('button', { name: /Archived Voyages/ });
         expect(toggle).toHaveTextContent('1');
         fireEvent.click(toggle);
         expect(screen.getAllByRole('button', { name: 'Unarchive voyage' })).toHaveLength(1);

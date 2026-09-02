@@ -1675,6 +1675,20 @@ body,
 
 /* ThreatBanner danger-tier pulse — gentle "this is urgent" breathing
    without being annoying. Used by components/map/ThreatBanner.tsx. */
+/* WeatherInspectPopup entrance. Used to be an inline <style> inside the
+   popup, re-inserted on every inspect tap (each tap mounts a fresh React
+   root). 2026-09-03. */
+@keyframes fadeInUp {
+    from {
+        opacity: 0;
+        transform: translateY(6px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
 @keyframes threat-pulse {
     0%,
     100% {
@@ -2539,11 +2553,6 @@ body,
 
 .anim-cloud {
     animation: icon-cloud-drift 3s ease-in-out;
-}
-
-.anim-compass {
-    animation: icon-compass-wobble 0.8s cubic-bezier(0.16, 1, 0.3, 1) both;
-    transform-origin: center;
 }
 
 /* ═══════════════════════════════════════════════════════════════════

@@ -294,15 +294,15 @@ export const DepartureSweepSheet: React.FC<DepartureSweepSheetProps> = ({
                         </div>
                     )}
                     {!loading && tideProvenance === 'EXTREMES_INTERP' && (
-                        <p className="mt-2 text-[10px] text-amber-300/80">Tide approx ±0.3 m (interpolated extremes)</p>
+                        <p className="mt-2 text-xs text-amber-300/80">Tide approx ±0.3 m (interpolated extremes)</p>
                     )}
                     {!loading && tideProvenance === 'NONE' && (
-                        <p className="mt-2 text-[10px] text-slate-500">
+                        <p className="mt-2 text-xs text-slate-400">
                             Tide data unavailable here — times shown without tidal gating.
                         </p>
                     )}
                     {!loading && (
-                        <p className="mt-2 text-[10px] text-slate-500">
+                        <p className="mt-2 text-xs text-slate-400">
                             Current refinement is held for public beta — ETAs are not adjusted for currents.
                         </p>
                     )}
@@ -335,7 +335,7 @@ export const DepartureSweepSheet: React.FC<DepartureSweepSheetProps> = ({
                         </div>
                         <div className="mt-2 px-1">
                             <PassageSparkline options={options} bestIdx={bestIdx} selectedIdx={selectedIdx} />
-                            <div className="flex justify-between text-[9px] text-slate-500 -mt-1 px-1">
+                            <div className="flex justify-between text-[11px] text-slate-400 -mt-1 px-1">
                                 <span>{fmtTime(options[0].departMs)}</span>
                                 <span>passage time by departure</span>
                                 <span>{fmtTime(options[options.length - 1].departMs)}</span>
@@ -396,7 +396,7 @@ export const DepartureSweepSheet: React.FC<DepartureSweepSheetProps> = ({
                                                 </span>
                                             </div>
                                             <div
-                                                className={`shrink-0 rounded-full px-2.5 py-0.5 text-[10px] font-bold ${style.bg} ${style.text} border ${style.border}`}
+                                                className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-bold ${style.bg} ${style.text} border ${style.border}`}
                                             >
                                                 {style.label}
                                             </div>

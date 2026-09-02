@@ -89,7 +89,13 @@ export const SwipeableEquipmentCard: React.FC<SwipeableCardProps> = ({ item, onT
                             <span
                                 className={`w-2 h-2 rounded-full shrink-0 ${warrantyActive ? 'bg-emerald-400' : 'bg-red-400'}`}
                                 title={warrantyActive ? 'Warranty Active' : 'Warranty Expired'}
+                                aria-hidden="true"
                             />
+                        )}
+                        {/* The dot is colour-only and `title` never shows on touch —
+                            say it for the screen reader too. */}
+                        {item.warranty_expiry && (
+                            <span className="sr-only">{warrantyActive ? 'Warranty active' : 'Warranty expired'}</span>
                         )}
                     </div>
                     <button
@@ -97,7 +103,7 @@ export const SwipeableEquipmentCard: React.FC<SwipeableCardProps> = ({ item, onT
                             e.stopPropagation();
                             onContextMenu();
                         }}
-                        className="p-1.5 -mr-1 -mt-0.5 rounded-lg hover:bg-white/10 transition-colors shrink-0"
+                        className="hit-target-44 p-1.5 -mr-1 -mt-0.5 rounded-lg hover:bg-white/10 transition-colors shrink-0"
                         aria-label="Equipment options"
                     >
                         <svg className="w-4 h-4 text-slate-400" viewBox="0 0 24 24" fill="currentColor">
