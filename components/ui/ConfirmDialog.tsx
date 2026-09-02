@@ -119,16 +119,15 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
                 <p className="text-sm text-gray-300 text-center mb-6">{message}</p>
 
                 <div className="flex gap-3">
-                    <Button
-                        aria-label="Cancel action"
-                        ref={cancelRef}
-                        onClick={onCancel}
-                        className="flex-1 text-gray-400"
-                    >
+                    <Button ref={cancelRef} onClick={onCancel} className="flex-1 text-gray-400">
                         {cancelLabel}
                     </Button>
+                    {/* No aria-label override: the accessible name IS the visible label
+                        ("Delete profile", "Take over"), so voice control and screen readers
+                        match what the eye sees. Only while the spinner replaces the text
+                        does the label step in as the name. */}
                     <button
-                        aria-label="Confirm action"
+                        aria-label={loading ? confirmLabel : undefined}
                         onClick={handleConfirm}
                         disabled={loading}
                         className={`flex-1 py-3 rounded-xl text-sm font-black text-white uppercase tracking-widest shadow-lg transition-all active:scale-[0.97] disabled:opacity-50 ${confirmBg}`}

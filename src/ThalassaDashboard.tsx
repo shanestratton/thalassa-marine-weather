@@ -1,9 +1,9 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { Suspense, useCallback, useEffect, useRef, useState } from 'react';
 
 import TopNav from './components/TopNav';
 import MapContainer from './components/MapContainer';
 import DiarySidebar from './components/DiarySidebar';
-import { PhotoLightbox, type PhotoLightboxMetadata } from './components/PhotoLightbox';
+import type { PhotoLightboxMetadata } from './components/PhotoLightbox';
 import { VoyageProgressBar } from './components/VoyageProgressBar';
 import {
     fetchVoyageLog,
@@ -11,9 +11,22 @@ import {
     VoyageLogError,
     type VoyageLogData,
     type VoyageLogEntry,
+    type VoyageLogWaypoint,
+    type NearbyVessel,
     type PublicVoyageTrip,
 } from './voyageLogApi';
 import { PUBLIC_POSITION_FRESH_MS } from './publicVoyageFreshness';
+
+// The lightbox (and the 74 KB tz-lookup chunk it drags in) is only needed
+// after a photo tap — keep it off the page's critical path.
+const PhotoLightbox = React.lazy(() =>
+    import('./components/PhotoLightbox').then((m) => ({ default: m.PhotoLightbox })),
+);
+
+// Stable empties: a fresh `[]` literal per render is a new prop identity, which
+// re-reconciled the whole Mapbox tree on every 30 s clock tick.
+const EMPTY_WAYPOINTS: VoyageLogWaypoint[] = [];
+const NO_VESSELS: NearbyVessel[] = [];
 
 // The latest view should notice a newly trickled track on the next cache
 // turn. A deliberately selected historical trip has no live motion to chase,
@@ -182,6 +195,7 @@ export default function ThalassaDashboard() {
     }, []);
 
     const handleClear = useCallback(() => setSelectedEntry(null), []);
+    const handleLightboxClose = useCallback(() => setLightbox(null), []);
 
     const handleTripChange = useCallback((event: React.ChangeEvent<HTMLSelectElement>) => {
         setRequestedTrip(event.target.value);
@@ -422,8 +436,8 @@ export default function ThalassaDashboard() {
                         track={track}
                         entries={entries}
                         passageLine={passage?.plan_line ?? null}
-                        waypoints={waypoints ?? []}
-                        nearbyVessels={showNearbyVessels ? (nearbyVessels ?? []) : []}
+                        waypoints={waypoints ?? EMPTY_WAYPOINTS}
+                        nearbyVessels={showNearbyVessels ? (nearbyVessels ?? NO_VESSELS) : NO_VESSELS}
                         onEntryClick={handleSelect}
                         selectedEntryId={selectedEntry?.id}
                         focusKey={mapFocusKey}
@@ -487,13 +501,15 @@ export default function ThalassaDashboard() {
             </div>
 
             {lightbox && (
-                <PhotoLightbox
-                    photos={lightbox.photos}
-                    startIndex={lightbox.index}
-                    caption={lightbox.caption}
-                    metadata={lightbox.metadata}
-                    onClose={() => setLightbox(null)}
-                />
+                <Suspense fallback={null}>
+                    <PhotoLightbox
+                        photos={lightbox.photos}
+                        startIndex={lightbox.index}
+                        caption={lightbox.caption}
+                        metadata={lightbox.metadata}
+                        onClose={handleLightboxClose}
+                    />
+                </Suspense>
             )}
         </div>
     );

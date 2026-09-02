@@ -293,7 +293,7 @@ export const GlobalNowPlayingBar: React.FC = () => {
                     onClick={(e) => void handleTogglePlayPause(e)}
                     disabled={busy}
                     aria-label={nowPlaying.isPlaying ? 'Pause' : 'Play'}
-                    className="flex h-10 w-10 items-center justify-center rounded-xl bg-sky-600 text-white shadow-xl transition-all hover:bg-sky-500 active:scale-90 disabled:opacity-50"
+                    className="flex h-11 w-11 items-center justify-center rounded-xl bg-sky-600 text-white shadow-xl transition-all hover:bg-sky-500 active:scale-90 disabled:opacity-50"
                 >
                     {nowPlaying.isPlaying ? (
                         // Pause icon

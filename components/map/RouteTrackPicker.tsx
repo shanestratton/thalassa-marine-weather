@@ -23,6 +23,7 @@ import { triggerHaptic } from '../../utils/system';
 import { useDeviceClass, pickByDevice } from '../../utils/useDeviceClass';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { OverlayPortal } from '../ui/OverlayPortal';
+import { XIcon } from '../Icons';
 
 export type RouteTrackVariant = 'route' | 'track';
 
@@ -168,10 +169,10 @@ export const RouteTrackPicker: React.FC<RouteTrackPickerProps> = ({
                         ref={closeButtonRef}
                         onClick={onClose}
                         aria-label="Close picker"
-                        className="opacity-60 hover:opacity-100"
-                        style={{ color: '#fff', fontSize: 16, lineHeight: 1, padding: '0 4px' }}
+                        className="hit-target-44 flex items-center justify-center opacity-60 hover:opacity-100"
+                        style={{ color: '#fff', padding: '0 4px' }}
                     >
-                        ×
+                        <XIcon className="w-4 h-4" />
                     </button>
                 </div>
 
@@ -199,7 +200,7 @@ export const RouteTrackPicker: React.FC<RouteTrackPickerProps> = ({
                             <div>{loadError}</div>
                             <button
                                 onClick={() => setReloadKey((current) => current + 1)}
-                                className="mt-2 rounded-md border border-amber-300/30 px-2.5 py-1 font-semibold text-amber-200"
+                                className="mt-2 min-h-[44px] rounded-md border border-amber-300/30 px-2.5 py-1 font-semibold text-amber-200"
                             >
                                 Retry
                             </button>
@@ -286,7 +287,7 @@ export const RouteTrackPicker: React.FC<RouteTrackPickerProps> = ({
                                 onSelect(null);
                                 onClose();
                             }}
-                            className="w-full text-center text-[11px] font-semibold opacity-80 hover:opacity-100"
+                            className="w-full min-h-[44px] text-center text-[11px] font-semibold opacity-80 hover:opacity-100"
                             style={{
                                 color: 'rgba(255,255,255,0.7)',
                                 padding: '6px',

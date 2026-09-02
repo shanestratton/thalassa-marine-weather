@@ -38,6 +38,8 @@ interface EssentialMapSlideProps {
      * frame and misleading about the day, so it has to say which.
      */
     isForecastDay?: boolean;
+    /** The forecast day's own label (e.g. "Thu 4 Sep") so the caution badge can name it. */
+    forecastDayLabel?: string;
     coordinates?: { lat: number; lon: number };
     windSpeed?: number | null;
     windDirection?: number | null;
@@ -54,11 +56,12 @@ const REFRESH_MS = 5 * 60 * 1000;
 /** Pinch ceiling: 6× ≈ a 50 nm view radius from the 300 nm base frame. */
 const MAX_ZOOM_FACTOR = 6;
 
-export const EssentialMapSlide: React.FC<EssentialMapSlideProps> = ({
+const EssentialMapSlideComponent: React.FC<EssentialMapSlideProps> = ({
     slideIdx: _slideIdx,
     isGolden,
     isCardDay,
     isForecastDay = false,
+    forecastDayLabel,
     coordinates,
     windSpeed,
     windDirection,
@@ -712,7 +715,11 @@ export const EssentialMapSlide: React.FC<EssentialMapSlideProps> = ({
                         caution about what you are looking at. */}
                     {isLive && isForecastDay && (
                         <div className="px-1.5 py-0.5 rounded-md bg-amber-500/20 border border-amber-400/25">
-                            <span className="text-[11px] text-amber-300/90 font-bold tracking-wider">NOT FORECAST</span>
+                            <span className="text-[11px] text-amber-300/90 font-bold tracking-wider">
+                                {/* Say what it is, not only what it is not. */}
+                                RADAR NOW · NOT{' '}
+                                {forecastDayLabel ? forecastDayLabel.split(' ')[0].toUpperCase() : 'FORECAST'}
+                            </span>
                         </div>
                     )}
                     {!isLive && activeFrame?.kind === 'forecast' && (
@@ -794,3 +801,7 @@ export const EssentialMapSlide: React.FC<EssentialMapSlideProps> = ({
         </div>
     );
 };
+
+// Memoised: in essential mode EVERY hero slide (~226 of them) mounts this card,
+// and HeroSlide re-renders on each scrub. With stable props it must not.
+export const EssentialMapSlide = React.memo(EssentialMapSlideComponent);

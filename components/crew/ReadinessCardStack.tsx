@@ -174,7 +174,9 @@ const CardAccordion: React.FC<CardAccordionProps> = ({
                     {isReady ? readyEmoji : emoji}
                 </div>
                 <div className="flex-1 text-left">
-                    <p className="text-lg font-semibold text-white inline-flex items-center">
+                    {/* A div, not a <p>: DelegationBadge renders a block dropdown, which is
+                        invalid inside a paragraph (React logs validateDOMNesting). */}
+                    <div className="text-lg font-semibold text-white inline-flex items-center">
                         {title}
                         {showDelegation && (
                             <DelegationBadge
@@ -186,7 +188,7 @@ const CardAccordion: React.FC<CardAccordionProps> = ({
                                 onAssign={onAssign}
                             />
                         )}
-                    </p>
+                    </div>
                     <p className={`text-sm ${subtitleColor(isReady, isAmber)}`}>{isReady ? readySubtitle : subtitle}</p>
                 </div>
                 <ChevronDown />

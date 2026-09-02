@@ -87,7 +87,7 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
                                         aria-label="Select category"
                                         key={cat.id}
                                         onClick={() => setCategory(cat.id)}
-                                        className={`py-1 rounded-full text-label font-bold transition-all text-center ${
+                                        className={`py-1 min-h-[44px] rounded-full text-label font-bold transition-all text-center ${
                                             form.category === cat.id
                                                 ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30'
                                                 : 'bg-white/5 text-gray-400 border border-white/5'
@@ -132,7 +132,7 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
                                         aria-label={TRIGGER_LABELS[t]}
                                         key={t}
                                         onClick={() => setTrigger(t)}
-                                        className={`py-1 rounded-full text-label font-bold transition-all text-center ${
+                                        className={`py-1 min-h-[44px] rounded-full text-label font-bold transition-all text-center ${
                                             form.trigger === t
                                                 ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30'
                                                 : 'bg-white/5 text-gray-400 border border-white/5'
@@ -230,7 +230,7 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
                             aria-label="Select category"
                             key={cat.id}
                             onClick={() => setCategory(cat.id)}
-                            className={`py-2 rounded-full text-xs font-bold transition-all text-center ${form.category === cat.id ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-white/5 text-gray-400 border border-white/5'}`}
+                            className={`py-2 min-h-[44px] rounded-full text-xs font-bold transition-all text-center ${form.category === cat.id ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-white/5 text-gray-400 border border-white/5'}`}
                         >
                             {cat.icon} {cat.label}
                         </button>
@@ -249,7 +249,7 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
                             aria-label={TRIGGER_LABELS[t]}
                             key={t}
                             onClick={() => setTrigger(t)}
-                            className={`py-2 rounded-full text-xs font-bold transition-all text-center ${form.trigger === t ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-white/5 text-gray-400 border border-white/5'}`}
+                            className={`py-2 min-h-[44px] rounded-full text-xs font-bold transition-all text-center ${form.trigger === t ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-white/5 text-gray-400 border border-white/5'}`}
                         >
                             {TRIGGER_LABELS[t]}
                         </button>

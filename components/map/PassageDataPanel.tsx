@@ -146,7 +146,7 @@ export const PassageDataPanel: React.FC<PassageDataPanelProps> = ({
                                     {/* Bearing + Wind */}
                                     <div className="text-right shrink-0">
                                         {wp.bearing > 0 && (
-                                            <p className="text-[11px] font-bold text-white tabular-nums">
+                                            <p className="text-sm font-bold text-white tabular-nums">
                                                 {Math.round(wp.bearing)}°
                                             </p>
                                         )}
@@ -160,7 +160,7 @@ export const PassageDataPanel: React.FC<PassageDataPanelProps> = ({
                                     {/* ETA */}
                                     <div className="text-right shrink-0 min-w-[40px]">
                                         {etaDate && (
-                                            <p className="text-[11px] font-bold text-sky-400/80 tabular-nums">
+                                            <p className="text-sm font-bold text-sky-400/80 tabular-nums">
                                                 {etaDate.toLocaleTimeString('en-AU', {
                                                     hour: '2-digit',
                                                     minute: '2-digit',

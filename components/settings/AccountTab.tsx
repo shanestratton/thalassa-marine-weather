@@ -1,12 +1,12 @@
 /**
- * AccountTab — System & Cloud settings panel: auth, API status, sync options.
+ * AccountTab — Account & Cloud settings panel: auth, API status, sync options.
  * Extracted from SettingsModal to reduce component size.
  */
 import React, { useState, useEffect } from 'react';
 import { Section, Row, Toggle, type SettingsTabProps } from './SettingsPrimitives';
 import { CloudIcon, LockIcon } from '../Icons';
 import { SignInScreen } from '../SignInScreen';
-import { useThalassa } from '../../context/ThalassaContext';
+import { useAuth } from '../../context/AuthContext';
 import { checkStormglassStatus, isStormglassKeyPresent } from '../../services/weather/keys';
 import { isGeminiConfigured } from '../../services/geminiService';
 import { isSupabaseConfigured } from '../../services/supabase';
@@ -106,7 +106,7 @@ const StatusRow = ({
 };
 
 export const AccountTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
-    const { user, logout } = useThalassa();
+    const { user, logout } = useAuth();
     const [authOpen, setAuthOpen] = useState(false);
     const [deleteAccountOpen, setDeleteAccountOpen] = useState(false);
     const [deletionNotice, setDeletionNotice] = useState<string | null>(null);

@@ -337,6 +337,13 @@ export const GalleyCard: React.FC<GalleyCardProps> = ({
         const cooking = getMealsByStatus('cooking', perms.voyageId ?? undefined);
         setActiveMeals([...cooking, ...reserved]);
     }, [perms.voyageId]);
+    // Stable identity matters: MealCalendar lists these props in its own
+    // useCallback deps, so an inline closure re-created its handlers on
+    // every GalleyCard render.
+    const refreshShopping = useCallback(
+        () => setShoppingSummary(getShoppingList(perms.voyageId ?? undefined, perms.ownerUserId)),
+        [perms.voyageId, perms.ownerUserId],
+    );
 
     // Load active meals and shopping status
     useEffect(() => {
@@ -416,7 +423,9 @@ export const GalleyCard: React.FC<GalleyCardProps> = ({
                     {provisioned ? '✅' : '⛵'}
                 </div>
                 <div className="flex-1 text-left">
-                    <p className="text-lg font-semibold text-white inline-flex items-center">
+                    {/* A div, not a <p>: DelegationBadge renders a block dropdown, which is
+                        invalid inside a paragraph (React logs validateDOMNesting). */}
+                    <div className="text-lg font-semibold text-white inline-flex items-center">
                         Voyage Provisioning
                         {cardDelegations && onDelegationMenuToggle && onAssignCard && crewList && (
                             <DelegationBadge
@@ -428,7 +437,7 @@ export const GalleyCard: React.FC<GalleyCardProps> = ({
                                 onAssign={onAssignCard}
                             />
                         )}
-                    </p>
+                    </div>
                     <p className={`text-sm ${provisioned ? 'text-emerald-400/70' : 'text-red-400/70'}`}>
                         {provisioned ? '✅ Provisioned' : 'Meals · Shopping'}
                     </p>
@@ -471,20 +480,12 @@ export const GalleyCard: React.FC<GalleyCardProps> = ({
                                     ownerUserId={perms.ownerUserId}
                                     voyageName={voyage?.id === perms.voyageId ? voyage.voyage_name : null}
                                     activeMeals={activeMeals}
-                                    onMealsChanged={() => {
-                                        const reserved = getMealsByStatus('reserved', perms.voyageId ?? undefined);
-                                        const cooking = getMealsByStatus('cooking', perms.voyageId ?? undefined);
-                                        setActiveMeals([...cooking, ...reserved]);
-                                    }}
+                                    onMealsChanged={refreshActiveMeals}
                                     cookingMealId={cookingMealId}
                                     onCookNow={handleCookNow}
                                     shoppingSummary={shoppingSummary}
                                     onCrewCountChange={handleVoyageCrewCountChange}
-                                    onShoppingChanged={() =>
-                                        setShoppingSummary(
-                                            getShoppingList(perms.voyageId ?? undefined, perms.ownerUserId),
-                                        )
-                                    }
+                                    onShoppingChanged={refreshShopping}
                                 />
                             </div>
                         </ChildCard>
