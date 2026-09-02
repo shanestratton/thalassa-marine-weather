@@ -14,6 +14,21 @@ export interface DeletionRequestRejected {
 
 export type DeletionRequestGate = DeletionRequestReady | DeletionRequestRejected;
 
+export interface AppleNotificationDeletionRequestReady {
+    ok: true;
+    mode: 'apple-notification';
+    jti: string;
+}
+
+export interface UserDeletionRequestReady extends DeletionRequestReady {
+    mode: 'user';
+}
+
+export type AccountDeletionRequestGate =
+    | AppleNotificationDeletionRequestReady
+    | UserDeletionRequestReady
+    | DeletionRequestRejected;
+
 /**
  * Validate the destructive request before constructing a service-role client.
  * The confirmation comparison is intentionally exact and the bearer syntax
@@ -38,6 +53,49 @@ export async function requireExactDeletionRequest(
     }
 
     return { ok: true, authorization };
+}
+
+/**
+ * Accept either the public typed-confirmation flow or the narrowly-scoped
+ * server-to-server Apple processor flow. The latter requires the dedicated
+ * server-only processor secret and an already queued, verified Apple JTI; the
+ * caller never supplies a user id.
+ */
+export async function requireAccountDeletionRequest(
+    req: Request,
+    exactConfirmation: 'DELETE',
+    appleNotificationProcessorSecret: string,
+): Promise<AccountDeletionRequestGate> {
+    const authorization = req.headers.get('authorization');
+    if (!authorization || !/^Bearer [^\s]+$/.test(authorization)) {
+        return { ok: false, status: 401, error: 'Authentication required' };
+    }
+
+    const body = await readJsonObject(req, 1_024);
+    const appleNotificationJti = body?.appleNotificationJti;
+    if (appleNotificationJti !== undefined) {
+        if (req.headers.get('x-thalassa-apple-processor') !== appleNotificationProcessorSecret) {
+            return { ok: false, status: 401, error: 'Processor authorization required' };
+        }
+        if (
+            typeof appleNotificationJti !== 'string' ||
+            appleNotificationJti.length < 1 ||
+            appleNotificationJti.length > 512 ||
+            Object.keys(body ?? {}).length !== 1
+        ) {
+            return { ok: false, status: 400, error: 'A verified Apple notification JTI is required' };
+        }
+        return { ok: true, mode: 'apple-notification', jti: appleNotificationJti };
+    }
+
+    if (body?.confirmation !== exactConfirmation) {
+        return {
+            ok: false,
+            status: 400,
+            error: `Type ${exactConfirmation} to confirm permanent account deletion`,
+        };
+    }
+    return { ok: true, mode: 'user', authorization };
 }
 
 export interface AuthenticatedUserResult<User> {

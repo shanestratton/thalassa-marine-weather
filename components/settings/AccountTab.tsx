@@ -17,10 +17,9 @@ import {
 } from '../../services/accountDeletionPublicBetaBoundary';
 import { EncPersonalCloudPanel } from '../vessel/EncPersonalCloudPanel';
 
-// Keep the unfinished destructive flow out of held public-beta artifacts. The
-// direct env check lets Vite/Rollup remove the dynamic import entirely when the
-// release profile is false, while preserving the implementation for a later
-// reviewed re-enable.
+// Keep the destructive flow coupled to the committed release profile. The
+// direct env check lets Vite/Rollup remove the dynamic import entirely if the
+// capability is ever re-held without weakening the service-side fence.
 const DeleteAccountDialog =
     import.meta.env.VITE_ACCOUNT_DELETION_ENABLED === 'true'
         ? React.lazy(async () => {

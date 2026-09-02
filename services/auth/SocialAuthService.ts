@@ -38,9 +38,9 @@ const log = createLogger('SocialAuth');
 /**
  * Browser Apple OAuth has its own release boundary. It is deliberately
  * independent from VITE_APPLE_SIGN_IN_ENABLED: that flag controls the native
- * capability/entitlement and stays off until the full TN3194 native release
- * checklist is complete. The web lane uses the separately configured Apple
- * Services ID and Supabase callback.
+ * capability/entitlement and was enabled only after the TN3194 native release
+ * checklist completed. The web lane uses the separately configured Apple
+ * Services ID and Supabase callback and can still be re-held independently.
  */
 export const APPLE_WEB_SIGN_IN_ENABLED = import.meta.env.VITE_APPLE_WEB_SIGN_IN_ENABLED === 'true';
 

@@ -140,9 +140,10 @@ describe('Sign in with Apple TN3194 token lifecycle contract', () => {
         expect(bootstrap).toContain('handleNativeAppleCredentialRevocation(event.userId)');
     });
 
-    it('verifies Apple server JWS claims and queues destructive events as pending without claiming deletion', () => {
+    it('verifies Apple server JWS claims, queues destructive events, and runs the durable deletion processor', () => {
         const shared = read('supabase/functions/_shared/apple-auth.ts');
         const receiver = read('supabase/functions/apple-server-notification/index.ts');
+        const deletion = read('supabase/functions/delete-account/index.ts');
         const queue = read('supabase/migrations/20260805091000_apple_server_notification_queue.sql');
         const config = read('supabase/config.toml');
 
@@ -154,7 +155,13 @@ describe('Sign in with Apple TN3194 token lifecycle contract', () => {
         expect(receiver).toContain('if (!tokenOwner?.user_id)');
         expect(receiver).toContain('user_id: tokenOwner.user_id');
         expect(receiver).toContain("status: 'pending'");
-        expect(receiver).toContain("action: 'pending_account_lifecycle'");
+        expect(receiver).toContain('`${supabaseUrl}/functions/v1/delete-account`');
+        expect(receiver).toContain('appleNotificationJti: event.jti');
+        expect(receiver).toContain("action: 'account_deleted'");
+        expect(deletion).toContain('requireAccountDeletionRequest');
+        expect(deletion).toContain(".from('apple_server_notification_queue')");
+        expect(deletion).toContain('acknowledgeAppleCredentialAlreadyRevoked');
+        expect(deletion).toContain('admin.auth.admin.getUserById');
         expect(receiver).not.toContain('auth.admin.deleteUser');
         expect(queue).toContain('ALTER TABLE public.apple_server_notification_queue FORCE ROW LEVEL SECURITY');
         expect(config).toMatch(/\[functions\.apple-server-notification\][\s\S]*?verify_jwt = false/);

@@ -1,6 +1,7 @@
 import {
     type AccountDeletionWorkflowDependencies,
     authenticateDeletionCaller,
+    requireAccountDeletionRequest,
     requireDeletionMutation,
     requireExactDeletionRequest,
     runAccountDeletionWorkflow,
@@ -8,6 +9,21 @@ import {
 
 function assert(condition: unknown, message = 'Assertion failed'): asserts condition {
     if (!condition) throw new Error(message);
+}
+
+function appleNotificationRequest(
+    authorization: string,
+    appleNotificationJti: unknown,
+    extra: Record<string, unknown> = {},
+): Request {
+    return new Request('https://example.test/functions/v1/delete-account', {
+        method: 'POST',
+        headers: {
+            authorization,
+            'content-type': 'application/json',
+        },
+        body: JSON.stringify({ appleNotificationJti, ...extra }),
+    });
 }
 
 function assertEquals(actual: unknown, expected: unknown): void {
@@ -97,6 +113,77 @@ Deno.test('delete-account request gate rejects malformed and oversized JSON', as
             error: 'Type DELETE to confirm permanent account deletion',
         });
     }
+});
+
+Deno.test('delete-account accepts only an exact processor-authorized Apple notification JTI', async () => {
+    const processorSecret = 'processor-secret';
+    const ready = await requireAccountDeletionRequest(
+        new Request(appleNotificationRequest('Bearer service-role-jwt', 'verified-jti'), {
+            headers: {
+                authorization: 'Bearer service-role-jwt',
+                'content-type': 'application/json',
+                'x-thalassa-apple-processor': processorSecret,
+            },
+        }),
+        'DELETE',
+        processorSecret,
+    );
+    assertEquals(ready, { ok: true, mode: 'apple-notification', jti: 'verified-jti' });
+
+    const wrongRole = await requireAccountDeletionRequest(
+        appleNotificationRequest('Bearer user-access-token', 'verified-jti'),
+        'DELETE',
+        processorSecret,
+    );
+    assertEquals(wrongRole, { ok: false, status: 401, error: 'Processor authorization required' });
+
+    for (const jti of ['', 'x'.repeat(513), null, true, ['verified-jti']]) {
+        const rejected = await requireAccountDeletionRequest(
+            new Request(appleNotificationRequest('Bearer service-role-jwt', jti), {
+                headers: {
+                    authorization: 'Bearer service-role-jwt',
+                    'content-type': 'application/json',
+                    'x-thalassa-apple-processor': processorSecret,
+                },
+            }),
+            'DELETE',
+            processorSecret,
+        );
+        assertEquals(rejected, {
+            ok: false,
+            status: 400,
+            error: 'A verified Apple notification JTI is required',
+        });
+    }
+
+    const mixedRequest = await requireAccountDeletionRequest(
+        new Request(
+            appleNotificationRequest('Bearer service-role-jwt', 'verified-jti', { confirmation: 'DELETE' }),
+            {
+                headers: {
+                    authorization: 'Bearer service-role-jwt',
+                    'content-type': 'application/json',
+                    'x-thalassa-apple-processor': processorSecret,
+                },
+            },
+        ),
+        'DELETE',
+        processorSecret,
+    );
+    assertEquals(mixedRequest, {
+        ok: false,
+        status: 400,
+        error: 'A verified Apple notification JTI is required',
+    });
+});
+
+Deno.test('delete-account keeps the user confirmation path separate from Apple processing', async () => {
+    const ready = await requireAccountDeletionRequest(
+        deletionRequest('Bearer real-access-token'),
+        'DELETE',
+        'server-secret',
+    );
+    assertEquals(ready, { ok: true, mode: 'user', authorization: 'Bearer real-access-token' });
 });
 
 Deno.test('delete-account caller authentication requires a real user and no auth error', async () => {

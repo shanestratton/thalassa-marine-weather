@@ -151,7 +151,7 @@ describe('public-beta account deletion contract', () => {
         );
     });
 
-    it('holds production deletion before UI/service mutation while retaining the reviewed implementation', () => {
+    it('releases production deletion through the reviewed fail-closed UI/service boundary', () => {
         const accountTab = read('components/settings/AccountTab.tsx');
         const dialog = read('components/settings/DeleteAccountDialog.tsx');
         const service = read('services/accountDeletion.ts');
@@ -165,8 +165,8 @@ describe('public-beta account deletion contract', () => {
         const confirmation = deleteBody.indexOf('confirmation !== ACCOUNT_DELETION_CONFIRMATION');
         const invocation = deleteBody.indexOf("supabase.functions.invoke('delete-account'");
 
-        expect(profile.featureFlags.VITE_ACCOUNT_DELETION_ENABLED).toBe(false);
-        expect(profile.heldCapabilities).toContain('account-deletion');
+        expect(profile.featureFlags.VITE_ACCOUNT_DELETION_ENABLED).toBe(true);
+        expect(profile.heldCapabilities).not.toContain('account-deletion');
         expect(boundary).toContain("import.meta.env.VITE_ACCOUNT_DELETION_ENABLED === 'true'");
         expect(boundary).toContain("ACCOUNT_DELETION_PRIVACY_EMAIL = 'privacy@thalassawx.com'");
         expect(boundary).not.toContain('privacy@thalassa.app');

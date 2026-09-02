@@ -367,7 +367,7 @@ describe('public-beta release gate contract', () => {
         expect(gate).toContain("await cancelResponseBody(response, 'upstream content length rejected')");
     });
 
-    it('retains canonical feature, deletion-hold, and Guardian opt-in release boundaries', () => {
+    it('retains canonical feature, fail-closed deletion, and Guardian opt-in release boundaries', () => {
         const gate = read('scripts/check-beta-readiness.mjs');
 
         expect(gate).toContain('readPublicBetaFeatureProfile(ROOT)');
@@ -376,7 +376,9 @@ describe('public-beta release gate contract', () => {
         );
         expect(gate).toContain("connect-src 'self' data: http: https://thalassawx.vercel.app");
         expect(gate).toContain("const DEFAULT_NATIVE_BASE = 'https://thalassawx.vercel.app/api'");
-        expect(gate).toContain('production account deletion is held before UI exposure or destructive invocation');
+        expect(gate).toContain(
+            'production account deletion is released through its fail-closed UI and service boundary',
+        );
         expect(gate).toContain('Guardian AIS watchdog is a tested exact opt-in and defaults off for public beta');
     });
 
@@ -609,9 +611,10 @@ describe('public-beta release gate contract', () => {
         expect(entitlements.includes('<key>com.apple.developer.applesignin</key>')).toBe(appleFlagOn);
         expect(gate).toContain('native Apple credential revocation is identity-matched and fences the local session');
         expect(gate).toContain(
-            'Apple server notifications are signature-verified and durably queued without claiming deletion',
+            'Apple server notifications are signature-verified, durably queued, and processed through account deletion',
         );
         expect(gate).toContain('APPLE_REFRESH_TOKEN_ENCRYPTION_KEY');
+        expect(gate).toContain('APPLE_NOTIFICATION_PROCESSOR_SECRET');
         expect(config).toMatch(/\[functions\.register-apple-token\][\s\S]*?verify_jwt = true/);
         expect(config).toMatch(/\[functions\.apple-server-notification\][\s\S]*?verify_jwt = false/);
     });

@@ -1,11 +1,10 @@
 /**
  * Public-beta boundary for destructive account deletion.
  *
- * The complete deletion implementation remains in source for review and later
- * activation. Production builds take this exact flag from the committed
- * public-beta feature profile, which keeps the UI and service fail-closed until
- * the durable server tombstone/write fences, survivor scrubs, deployment, and
- * authenticated live smoke have all passed.
+ * Production builds take this exact flag from the committed public-beta
+ * feature profile. The capability was released after the durable tombstone,
+ * write fences, survivor scrubs, deployed Edge workflow, and disposable live
+ * deletion smoke passed; the same boundary remains the emergency re-hold.
  */
 export const ACCOUNT_DELETION_PUBLIC_BETA_ENABLED = import.meta.env.VITE_ACCOUNT_DELETION_ENABLED === 'true';
 
