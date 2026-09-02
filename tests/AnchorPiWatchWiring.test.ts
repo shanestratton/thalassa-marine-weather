@@ -1,0 +1,97 @@
+/**
+ * The Pi shore watch is actually reachable from the app.
+ *
+ * Both halves of this feature were built on 2026-08-29 and neither was
+ * connected: services/anchorPiHandoff.ts had no caller anywhere in the app,
+ * and the Pi had no /api/anchor/watch route to receive an assignment — so the
+ * app posted into nothing and nothing ever posted. Its existing test passed
+ * throughout, because it asserts on the module's SOURCE TEXT rather than by
+ * calling it, which is exactly how an unreachable feature stays green.
+ *
+ * These assertions are about REACHABILITY, and they are deliberately
+ * end-to-end across the two repos-in-one: a caller in the app, a route on the
+ * Pi, and the same path spelled the same way at both ends.
+ */
+import { readFileSync } from 'node:fs';
+import { describe, expect, it } from 'vitest';
+
+const read = (p: string) => readFileSync(p, 'utf8');
+
+describe('the Pi can actually be handed the shore watch', () => {
+    it('the handoff has a real caller in the app, not only a test', () => {
+        const keeper = read('services/anchorPiWatchKeeper.ts');
+        expect(keeper).toMatch(/import \{[^}]*handOffToPi[^}]*\} from '\.\/anchorPiHandoff'/);
+        expect(keeper).toMatch(/await handOffToPi\(/);
+        // …and the keeper itself is reached from the anchor watch screen.
+        const page = read('components/AnchorWatchPage.tsx');
+        expect(page).toMatch(/import \{ AnchorPiWatchKeeper \} from '\.\.\/services\/anchorPiWatchKeeper'/);
+        expect(page).toMatch(/AnchorPiWatchKeeper\.begin\(/);
+        expect(page).toMatch(/AnchorPiWatchKeeper\.end\(\)/);
+    });
+
+    it('the Pi serves the exact path the app posts to, for both verbs', () => {
+        const server = read('pi-cache/src/server.ts');
+        const handoff = read('services/anchorPiHandoff.ts');
+        // The app builds `${piBaseUrl}/api/anchor/watch`; the Pi must route it.
+        expect(handoff).toMatch(/\/api\/anchor\/watch/);
+        expect(server).toMatch(/app\.post\('\/api\/anchor\/watch', requireAppApi/);
+        expect(server).toMatch(/app\.delete\('\/api\/anchor\/watch', requireAppApi/);
+    });
+
+    it('the Pi route drives the broadcaster that was already written for it', () => {
+        const server = read('pi-cache/src/server.ts');
+        expect(server).toMatch(/import \{ AnchorWatchRunner \} from '\.\/anchorBroadcaster\.js'/);
+        expect(server).toMatch(/anchorWatch\.start\(/);
+        expect(server).toMatch(/anchorWatch\.stop\(\)/);
+    });
+
+    it('the relay endpoint comes from the process trust anchor, never the request body', () => {
+        const server = read('pi-cache/src/server.ts');
+        // canonicalAnchorRelayEndpoint takes the startup origin; a Boat-LAN
+        // caller cannot redirect where the boat's position is published.
+        expect(server).toMatch(/canonicalAnchorRelayEndpoint\(SUPABASE_ORIGIN\)/);
+        expect(server).not.toMatch(/canonicalAnchorRelayEndpoint\(\s*(?:req|body)/);
+        const outbox = read('pi-cache/src/diaryRelayOutbox.ts');
+        expect(outbox).toMatch(/const ANCHOR_RELAY_PATH = '\/functions\/v1\/anchor-relay';/);
+        expect(outbox).toMatch(/export function canonicalAnchorRelayEndpoint/);
+    });
+
+    it('the Pi lends its pairing credential without ever lending the token to the caller', () => {
+        const outbox = read('pi-cache/src/diaryRelayOutbox.ts');
+        const lend = outbox.slice(outbox.indexOf('lendAnchorCredentials()'));
+        expect(lend).toMatch(/return relay \? \{ relayId: relay\.relayId, token: relay\.token \} : null;/);
+        // The status payload may describe the watch, but describe() is the only
+        // thing exposed — it carries no credential by construction.
+        const server = read('pi-cache/src/server.ts');
+        expect(server).toMatch(/anchorWatch: anchorWatch\.describe\(\)/);
+        expect(server).not.toMatch(/anchorWatch:\s*\{[^}]*token/);
+    });
+
+    it('the Pi refuses an assignment it cannot make sense of', () => {
+        const server = read('pi-cache/src/server.ts');
+        // A 12-character session code, a real latitude and longitude, and an
+        // alarm radius that is neither zero (drags on GPS jitter) nor the size
+        // of a bay (never drags at all).
+        expect(server).toMatch(/ANCHOR_SESSION_CODE_RE = \/\^\[A-Za-z0-9\]\{12\}\$\//);
+        expect(server).toMatch(/anchorLat < -90 \|\| anchorLat > 90/);
+        expect(server).toMatch(/anchorLon < -180 \|\| anchorLon > 180/);
+        expect(server).toMatch(/swingRadius < 5 \|\| swingRadius > 5_000/);
+    });
+
+    it('the authorisation is renewed while the watch runs, not granted once', () => {
+        const keeper = read('services/anchorPiWatchKeeper.ts');
+        expect(keeper).toMatch(/setInterval\(\(\) => void this\.renew\(\), RENEW_INTERVAL_MS\)/);
+        // A failed renewal must NOT forget the watch: the phone is still
+        // broadcasting and the next interval may well reach the Pi.
+        const renew = keeper.slice(keeper.indexOf('private async renew()'));
+        expect(renew).not.toMatch(/this\.current = null/);
+    });
+
+    it('a Pi that will not take the watch leaves the phone keeping it', () => {
+        const keeper = read('services/anchorPiWatchKeeper.ts');
+        // Every failure path returns false; nothing here throws into the page.
+        expect(keeper).toMatch(/if \(!target\) return false;/);
+        expect(keeper).toMatch(/if \(!took\) \{/);
+        expect(keeper).not.toMatch(/\bthrow new /);
+    });
+});

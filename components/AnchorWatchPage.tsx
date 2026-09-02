@@ -40,6 +40,7 @@ import { useAuthStore } from '../stores/authStore';
 import { SignInScreen } from './SignInScreen';
 
 import { getWeatherRecommendation, formatDistance, bearingToCardinal, formatElapsed } from './anchor-watch/anchorUtils';
+import { AnchorPiWatchKeeper } from '../services/anchorPiWatchKeeper';
 
 const log = createLogger('AnchorWatch');
 /** Vessel positions are broadcast every five seconds; three missed updates are stale. */
@@ -316,6 +317,50 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
         const interval = setInterval(broadcastNow, 5000);
         return () => clearInterval(interval);
     }, [viewMode, syncState?.connected]);
+
+    // ── Hand the shore watch to the boat's Pi, if there is one ──
+    //
+    // The Pi is the better watchkeeper: mains powered, wired to the bus, never
+    // backgrounded by iOS, and it does not leave the boat in a pocket. The
+    // phone's own 5-second broadcast above carries on regardless — this adds
+    // the half that survives the phone sleeping.
+    //
+    // Both ends of this were built on 2026-08-29 and neither was connected:
+    // the handoff service had no caller and the Pi had no route to receive an
+    // assignment. Shane asked how the phone connects to a Pi keeping the watch
+    // (2026-09-03) and the honest answer was that it could not.
+    const piWatchAnchorLat = snapshot?.anchorPosition?.latitude ?? null;
+    const piWatchAnchorLon = snapshot?.anchorPosition?.longitude ?? null;
+    const piWatchRadius = snapshot?.swingRadius ?? 0;
+    const piWatchSession = syncState?.connected ? (syncState.sessionCode ?? null) : null;
+    useEffect(() => {
+        if (viewMode !== 'watching' || !piWatchSession || piWatchAnchorLat === null || piWatchAnchorLon === null) {
+            // Not watching, not sharing, or the hook is not down yet: make sure
+            // no Pi is left broadcasting a watch that has ended.
+            void AnchorPiWatchKeeper.end();
+            return;
+        }
+        if (piWatchRadius <= 0) return;
+        void AnchorPiWatchKeeper.begin({
+            sessionCode: piWatchSession,
+            anchorLat: piWatchAnchorLat,
+            anchorLon: piWatchAnchorLon,
+            swingRadius: piWatchRadius,
+        });
+        // No cleanup that stops the Pi here: this effect re-runs whenever the
+        // anchor or radius is re-read, and tearing the watch down on each of
+        // those would leave a gap exactly when the boat is being re-measured.
+        // begin() is idempotent for an unchanged assignment, and the branch
+        // above is what ends it.
+    }, [viewMode, piWatchSession, piWatchAnchorLat, piWatchAnchorLon, piWatchRadius]);
+
+    // Give the watch back when this page goes away entirely.
+    useEffect(
+        () => () => {
+            void AnchorPiWatchKeeper.end();
+        },
+        [],
+    );
 
     // Swing circle visualization extracted to SwingCircleCanvas component
 
