@@ -816,19 +816,31 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
     }, [state.tws.value, twsMax]);
     const twsMaxDisplay: number | null = twsMax > 0 ? twsMax : null;
 
-    // Trip distance accumulator (SOG × dt)
+    // Trip distance accumulator (SOG × dt).
+    //
+    // Depends on lastUpdated, like the depth and gust trackers above, so EVERY
+    // fix integrates — not just the ones where the speed happened to change.
+    // With only `value` in the deps a boat holding a steady 6.0 kt accumulated
+    // nothing for as long as it held it, and then, when the speed finally
+    // moved, the whole silent stretch was integrated at the NEW speed. The
+    // trapezoid (mean of previous and current speed) is what makes the sum
+    // honest across a change (audit 2026-09-02).
     const [tripDist, setTripDist] = useState<number>(0);
     const lastSogTime = useRef<number>(0);
+    const lastSogValue = useRef<number | null>(null);
     useEffect(() => {
         if (state.sog.value !== null && state.sog.freshness === 'live') {
             const now = Date.now();
-            if (lastSogTime.current > 0) {
+            const sog = state.sog.value;
+            if (lastSogTime.current > 0 && lastSogValue.current !== null) {
                 const dtHours = (now - lastSogTime.current) / 3_600_000;
-                setTripDist((prev) => prev + state.sog.value! * dtHours);
+                const meanSog = (lastSogValue.current + sog) / 2;
+                setTripDist((prev) => prev + meanSog * dtHours);
             }
             lastSogTime.current = now;
+            lastSogValue.current = sog;
         }
-    }, [state.sog.value, state.sog.freshness]);
+    }, [state.sog.value, state.sog.freshness, state.sog.lastUpdated]);
     const tripDisplay: number | null = tripDist > 0 ? tripDist : null;
 
     const handleBack = useCallback(() => {

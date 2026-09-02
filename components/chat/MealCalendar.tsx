@@ -188,9 +188,13 @@ export const MealCalendar: React.FC<MealCalendarProps> = ({
         // Aggregate all ingredients across all scheduled meals
         const needs = new Map<string, { qty: number; unit: string; name: string }>();
         for (const meal of activeMeals) {
-            const servings = meal.servings_planned || crewCount;
             for (const ing of meal.ingredients || []) {
-                const scaled = scaleIngredient(ing.amount, ing.scalable, ing.amount, servings, ing.unit);
+                // MealPlan.ingredients are ALREADY scaled to servings_planned. This
+                // called scaleIngredient(amount, scalable, amount, servings) — the
+                // amount in the recipeServings slot — so every quantity collapsed
+                // to the crew count (2 kg of rice for 6 became "6"). No further
+                // scaling is valid here (audit 2026-09-02).
+                const scaled = ing.amount;
                 const key = ing.name.toLowerCase();
                 const prev = needs.get(key);
                 if (prev) {

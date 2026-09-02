@@ -1034,6 +1034,14 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                 {/* ── Step 1: Draft Selection ── */}
                 {step === 'select' && !loading && (
                     <div className="p-5 pt-2 space-y-3">
+                        {/* The other steps render `error`; this one did not, so a
+                            failed saved-route materialisation looked like the tap
+                            had done nothing (audit 2026-09-02). */}
+                        {error && (
+                            <p role="alert" className="text-sm text-red-400 text-center">
+                                {error}
+                            </p>
+                        )}
                         {drafts.length === 0 ? (
                             <EmptyState
                                 icon="🗺️"

@@ -2,7 +2,7 @@
  * useChatMessages — Extracted from ChatPage god component.
  * Manages channel messages, subscriptions, optimistic updates, and mod actions.
  */
-import { useState, useRef, useCallback, useEffect } from 'react';
+import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { ChatService, ChatChannel, ChatMessage } from '../../services/ChatService';
 import { clientFilter, ClientFilterResult } from '../../services/ContentModerationService';
 import { triggerHaptic } from '../../utils/system';
@@ -39,6 +39,10 @@ export function useChatMessages(options: UseChatMessagesOptions) {
 
     // --- State ---
     const [messages, setMessages] = useState<ChatMessage[]>([]);
+    // DERIVED, not stored. A separate pinnedMessages state was set only when a
+    // channel opened, so pin / unpin / delete updated `messages` and left the
+    // pinned bar stale until the next channel switch (audit 2026-09-02).
+    const pinnedMessages = useMemo(() => messages.filter((m) => m.is_pinned && !m.deleted_at), [messages]);
     const [activeChannel, setActiveChannel] = useState<ChatChannel | null>(null);
     const [messageText, setMessageText] = useState('');
     const [isQuestion, setIsQuestion] = useState(false);
@@ -46,7 +50,6 @@ export function useChatMessages(options: UseChatMessagesOptions) {
     const [showModMenu, setShowModMenu] = useState<string | null>(null);
     const [showRankTooltip, setShowRankTooltip] = useState<string | null>(null);
     const [avatarMap, setAvatarMap] = useState<Map<string, string>>(new Map());
-    const [pinnedMessages, setPinnedMessages] = useState<ChatMessage[]>([]);
     const [likedMessages, setLikedMessages] = useState<Set<string>>(readLikedMessages);
 
     // --- Refs ---
@@ -59,7 +62,6 @@ export function useChatMessages(options: UseChatMessagesOptions) {
                 channelUnsubRef.current?.();
                 channelUnsubRef.current = null;
                 setMessages([]);
-                setPinnedMessages([]);
                 setActiveChannel(null);
                 setMessageText('');
                 setFilterWarning(null);
@@ -117,8 +119,6 @@ export function useChatMessages(options: UseChatMessagesOptions) {
                     .catch(() => undefined);
             }
 
-            // Compute pinned
-            setPinnedMessages(msgs.filter((m) => m.is_pinned && !m.deleted_at));
             setLoading(false);
 
             // Subscribe — clean up previous first
