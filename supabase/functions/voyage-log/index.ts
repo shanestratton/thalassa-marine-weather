@@ -273,6 +273,7 @@ Deno.serve(async (req: Request) => {
         type VoyageLogConfigRow = {
             owner_id: string;
             boat_id: string | null;
+            public_ais_enabled?: boolean | null;
             scope: string | null;
             enabled: boolean | null;
             track_days: number | null;
@@ -283,7 +284,7 @@ Deno.serve(async (req: Request) => {
         const { data: config, error: configErr } = await supabase
             .from('voyage_log_configs')
             .select<string, VoyageLogConfigRow>(
-                'owner_id, boat_id, scope, enabled, track_days, ' +
+                'owner_id, boat_id, scope, enabled, track_days, public_ais_enabled, ' +
                     'destination_name, destination_lat, destination_lon',
             )
             .eq('handle', handle)
@@ -1564,7 +1565,13 @@ Deno.serve(async (req: Request) => {
         // us", and 60 nm is already well past the horizon from a masthead; 200
         // republished a great deal of other people's data to build markers off
         // the edge of a phone screen.
-        const PUBLIC_AIS_ENABLED = true;
+        // The SKIPPER'S switch (voyage_log_configs.public_ais_enabled). These
+        // are other boats' positions going out to anyone with the link, so the
+        // decision is his — and it is honoured here, server-side, so turning it
+        // off drops the WORK and not just the markers. Absent column (an Edge
+        // deploy landing before its migration) reads as ON, matching the state
+        // this shipped in.
+        const PUBLIC_AIS_ENABLED = config.public_ais_enabled !== false;
         const PUBLIC_AIS_RADIUS_NM = 60;
         const PUBLIC_AIS_MAX = 50;
         // Key on position rounded to ~1 nm: a boat at anchor jitters by metres

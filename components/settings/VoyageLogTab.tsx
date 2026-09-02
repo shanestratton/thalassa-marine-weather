@@ -430,6 +430,22 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = ({ settings, onSave }) =
         [identityScope, operationIsCurrent],
     );
 
+    const handleTogglePublicAis = useCallback(
+        async (next: boolean) => {
+            const scope = identityScope;
+            const epoch = operationEpochRef.current;
+            if (!operationIsCurrent(scope)) return;
+
+            setBusy(true);
+            const nextConfig = await VoyageLogService.setPublicAisEnabled(next);
+            if (!operationIsCurrent(scope) || operationEpochRef.current !== epoch) return;
+            if (nextConfig) setConfig(nextConfig);
+            setBusy(false);
+            triggerHaptic('light');
+        },
+        [identityScope, operationIsCurrent],
+    );
+
     // Create a personal voyage-log for a boat I'm crew on. Picks a sensible
     // default handle (<first>-on-<boat-slug>) and auto-suffixes on collision.
     const handleCreateCrewLog = useCallback(
@@ -825,6 +841,23 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = ({ settings, onSave }) =
                             checked={settings.liveTrackShare === true}
                             onChange={handleLiveTrackShare}
                             label="Show my current track on/off"
+                        />
+                    </Row>
+                )}
+                {config.enabled && (
+                    <Row>
+                        <div className="flex-1">
+                            <div className="text-sm text-white font-bold">Show shipping around me</div>
+                            <div className="text-xs text-gray-400 mt-1">
+                                Draw nearby AIS traffic on your public page while you&apos;re under way, so people
+                                following along can see what&apos;s around you. These are OTHER vessels&apos; positions,
+                                published to anyone with your link — off, and the page shows only your own boat.
+                            </div>
+                        </div>
+                        <Toggle
+                            checked={config.public_ais_enabled !== false}
+                            onChange={(v) => void handleTogglePublicAis(v)}
+                            label="Show shipping around me on/off"
                         />
                     </Row>
                 )}

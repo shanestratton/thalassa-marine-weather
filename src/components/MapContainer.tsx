@@ -470,6 +470,32 @@ export default function MapContainer({
     const lastKnownAgeLabel =
         lastFix && !positionIsLive ? `Last known · ${formatPublicAge(lastFixUpdatedAt, nowMs)}` : null;
 
+    /**
+     * Viewer's own AIS switch — a declutter control, NOT a publication one.
+     * Whether these vessels are published at all is the skipper's decision
+     * (voyage_log_configs.public_ais_enabled, enforced server-side); this only
+     * decides whether the person looking wants them drawn. Remembered per
+     * browser, and it fails safe to ON if storage is unavailable.
+     */
+    const [showAis, setShowAis] = useState<boolean>(() => {
+        try {
+            return localStorage.getItem('thalassa-public-ais') !== 'off';
+        } catch {
+            return true;
+        }
+    });
+    const toggleAis = () => {
+        setShowAis((prev) => {
+            const next = !prev;
+            try {
+                localStorage.setItem('thalassa-public-ais', next ? 'on' : 'off');
+            } catch {
+                /* private window — the preference just won't persist */
+            }
+            return next;
+        });
+    };
+
     const nearbyVesselDisplays = useMemo(
         () =>
             nearbyVessels
@@ -481,6 +507,7 @@ export default function MapContainer({
                 .filter((item) => item.freshness !== 'expired'),
         [connectionLost, nearbyVessels, nowMs],
     );
+    const shownVesselDisplays = showAis ? nearbyVesselDisplays : [];
     const selectedVesselDisplay = selectedVessel
         ? (nearbyVesselDisplays.find((item) => item.vessel.mmsi === selectedVessel.mmsi) ?? null)
         : null;
@@ -806,7 +833,7 @@ export default function MapContainer({
                 })}
 
                 {/* AIS — nearby ships. Triangle points along COG (or heading). */}
-                {nearbyVesselDisplays.map(({ vessel: v, freshness, ageLabel }) => {
+                {shownVesselDisplays.map(({ vessel: v, freshness, ageLabel }) => {
                     const bearing = v.cog ?? v.heading ?? 0;
                     const isLastKnown = freshness === 'last-known';
                     const fill = isLastKnown ? '#64748b' : vesselColor(v.ship_type);
@@ -953,6 +980,33 @@ export default function MapContainer({
                         <circle cx="12" cy="12" r="7.2" opacity="0.45" />
                         <path strokeLinecap="round" d="M12 2.2v2.6M12 19.2v2.6M2.2 12h2.6M19.2 12h2.6" />
                     </svg>
+                </button>
+            )}
+
+            {/* Viewer's AIS declutter switch. Rendered only when there are
+                vessels to hide, so it is never a dead control — and labelled
+                with the count, because "Ships 27" tells the viewer what the
+                switch is FOR better than an icon can. */}
+            {nearbyVesselDisplays.length > 0 && (
+                <button
+                    type="button"
+                    onClick={toggleAis}
+                    aria-pressed={showAis}
+                    aria-label={`${showAis ? 'Hide' : 'Show'} nearby shipping (${nearbyVesselDisplays.length} in range)`}
+                    className={`absolute top-16 right-3 flex min-h-[44px] items-center gap-1.5 rounded-lg border px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider backdrop-blur-md transition-colors ${
+                        showAis
+                            ? 'border-teal-300/30 bg-slate-900/80 text-teal-300'
+                            : 'border-white/15 bg-slate-900/80 text-slate-400'
+                    }`}
+                >
+                    <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                        <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            d="M3 17h18l-2-5H5l-2 5zM12 12V5m0 0L9 8m3-3l3 3"
+                        />
+                    </svg>
+                    Ships {nearbyVesselDisplays.length}
                 </button>
             )}
 
