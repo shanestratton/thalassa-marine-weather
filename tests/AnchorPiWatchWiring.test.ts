@@ -146,4 +146,20 @@ describe('the Pi can actually be handed the shore watch', () => {
         const page = read('components/AnchorWatchPage.tsx');
         expect(page).toMatch(/setPiOfferDeclinedFor\(piOfferSession\)/);
     });
+
+    it('the offer renders in the WATCHING view, not the setup one', () => {
+        const page = read('components/AnchorWatchPage.tsx');
+        // It was first placed beside the setup view's SignInScreen — inside
+        // that view's early return — so it was invisible while watching and
+        // appeared the instant the anchor was weighed, on a screen with no
+        // anchor left to hand over.
+        const setupBranch = page.indexOf("if (viewMode === 'setup') {");
+        const shoreBranch = page.indexOf("if (viewMode === 'shore') {");
+        const dialog = page.indexOf('title="Let the Pi keep the watch?"');
+        expect(setupBranch).toBeGreaterThan(-1);
+        expect(dialog).toBeGreaterThan(shoreBranch); // past every early return
+        // And gated on the view as well as the flag, so a late-resolving probe
+        // cannot raise it somewhere it makes no sense.
+        expect(page).toMatch(/isOpen=\{showPiWatchOffer && viewMode === 'watching'\}/);
+    });
 });

@@ -1042,28 +1042,6 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                     />
                 )}
 
-                {/* The Pi offer. Only ever shown when the Pi has said it can
-                    actually keep the watch, and phrased as the choice it is:
-                    saying yes sends this phone ashore. */}
-                <ConfirmDialog
-                    isOpen={showPiWatchOffer}
-                    title="Let the Pi keep the watch?"
-                    message={
-                        'Your boat’s Pi can take the anchor watch. It is mains powered, wired to the instruments, ' +
-                        'and it does not sleep or leave the boat in your pocket.\n\n' +
-                        'Say yes and this phone becomes your shore monitor — it stops watching from aboard and ' +
-                        'starts following the boat, so you can take it ashore. Say no and this phone keeps the ' +
-                        'watch exactly as it does now.'
-                    }
-                    confirmLabel={piHandoffBusy ? 'Handing over…' : 'Yes, the Pi watches'}
-                    cancelLabel="No, keep it here"
-                    onConfirm={handleAcceptPiWatch}
-                    onCancel={() => {
-                        setShowPiWatchOffer(false);
-                        setPiOfferDeclinedFor(piOfferSession);
-                    }}
-                />
-
                 <SignInScreen
                     isOpen={showShoreSignIn}
                     onClose={() => setShowShoreSignIn(false)}
@@ -1649,6 +1627,34 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                     </div>
                 </div>
             </div>
+
+            {/* The Pi offer lives HERE, in the watching view — the only state
+                it means anything in. It was first placed beside the setup
+                view's SignInScreen, which is inside that view's early return,
+                so the dialog was invisible while watching and appeared the
+                instant the anchor was weighed and the view flipped to setup
+                (Shane 2026-09-03: "this only comes up after i press weigh the
+                anchor"). Gated on viewMode too, so a late-resolving probe can
+                never raise it over a view where there is no anchor to hand
+                over. */}
+            <ConfirmDialog
+                isOpen={showPiWatchOffer && viewMode === 'watching'}
+                title="Let the Pi keep the watch?"
+                message={
+                    'Your boat’s Pi can take the anchor watch. It is mains powered, wired to the instruments, ' +
+                    'and it does not sleep or leave the boat in your pocket.\n\n' +
+                    'Say yes and this phone becomes your shore monitor — it stops watching from aboard and ' +
+                    'starts following the boat, so you can take it ashore. Say no and this phone keeps the ' +
+                    'watch exactly as it does now.'
+                }
+                confirmLabel={piHandoffBusy ? 'Handing over…' : 'Yes, the Pi watches'}
+                cancelLabel="No, keep it here"
+                onConfirm={handleAcceptPiWatch}
+                onCancel={() => {
+                    setShowPiWatchOffer(false);
+                    setPiOfferDeclinedFor(piOfferSession);
+                }}
+            />
 
             <SignInScreen
                 isOpen={showShoreSignIn}
