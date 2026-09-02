@@ -233,7 +233,10 @@ export function parseVoyageLogParams(): { handle: string } {
     const host = window.location.hostname;
     const hostParts = host.split('.');
     // Anything with a sub-label that isn't www/apex is treated as the handle.
-    if (hostParts.length >= 3 && hostParts[0] !== 'www' && host !== 'thalassawx.app') {
+    // TLD-agnostic on purpose: the page is served from both thalassawx.app
+    // and thalassawx.com (2026-09-02), and a two-label apex never reaches the
+    // >= 3 test anyway.
+    if (hostParts.length >= 3 && hostParts[0] !== 'www' && !/^thalassawx\.(app|com)$/i.test(host)) {
         return { handle: hostParts[0] };
     }
     // Path form: /logs/<handle>
