@@ -103,7 +103,14 @@ const AvNavPageDevelopment: React.FC<AvNavPageProps> = ({ onBack }) => {
     const [_skApiVersion, setSkApiVersion] = useState<string | null>(AvNavService.getApiVersion());
 
     // ── "Connect All" state ──
-    const [connectAllDone, setConnectAllDone] = useState(false);
+    // DERIVED from the persisted wiring, with room for a session override.
+    // A plain `useState(false)` reset on every mount, so leaving the page and
+    // coming back offered to connect services that were already connected and
+    // working. A one-shot initialiser would not fix it either: piHost arrives
+    // asynchronously from discovery, so it reads null at mount and stays
+    // wrong. Reading it each render is a localStorage lookup — free — and is
+    // correct the moment the host is known.
+    const [connectAllOverride, setConnectAllOverride] = useState<boolean | null>(null);
 
     // ── Provisioning state ──
     const [storedSshCredentials, setStoredSshCredentials] = useState<ScopedSshCredentials>(() => ({
@@ -181,6 +188,8 @@ const AvNavPageDevelopment: React.FC<AvNavPageProps> = ({ onBack }) => {
 
     // Derived state
     const piHost = network.piHost;
+    const connectAllDone = connectAllOverride ?? BoatNetworkService.isWiredTo(piHost);
+    const setConnectAllDone = setConnectAllOverride;
     const skConnected = skStatus === 'connected';
     const skConnecting = skStatus === 'connecting';
     const hasPiCache = network.services.some((s) => s.name === 'pi-cache');
@@ -272,6 +281,10 @@ const AvNavPageDevelopment: React.FC<AvNavPageProps> = ({ onBack }) => {
     const handleDisconnect = useCallback(() => {
         triggerHaptic('medium');
         AvNavService.stop();
+        // Clear the wiring as well as the connection. Stopping the service
+        // alone left the saved chart host in place, so the next visit read as
+        // connected again and the button flipped back on its own.
+        BoatNetworkService.clearServiceWiring();
         setConnectAllDone(false);
     }, []);
 

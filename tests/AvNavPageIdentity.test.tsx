@@ -16,6 +16,11 @@ const avNavMocks = vi.hoisted(() => ({
 const boatNetworkMocks = vi.hoisted(() => ({
     applyToServices: vi.fn(),
     scan: vi.fn(),
+    // The page asks the persisted wiring whether Connect All has already run
+    // for this Pi, so the button survives leaving the page. A mock missing
+    // these CRASHES the component instead of failing an assertion.
+    isWiredTo: vi.fn(() => false),
+    clearServiceWiring: vi.fn(),
 }));
 
 const provisionMocks = vi.hoisted(() => ({
