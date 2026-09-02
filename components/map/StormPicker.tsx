@@ -181,7 +181,7 @@ export const StormPicker: React.FC<StormPickerProps> = ({
                                                 {storm.maxWindKts} kt
                                                 {storm.minPressureMb ? ` · ${storm.minPressureMb} hPa` : ''}
                                                 {' · '}
-                                                {dist > 1000 ? `${Math.round(dist / 1000)}k km` : `${dist} km`}
+                                                {dist > 1000 ? `${dist.toLocaleString()} km` : `${dist} km`}
                                             </div>
                                         </div>
 

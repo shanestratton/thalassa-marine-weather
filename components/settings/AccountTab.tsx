@@ -398,7 +398,7 @@ export const AccountTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => 
                 <Section title="Account">
                     <Row>
                         <button
-                            aria-label="Lock account settings"
+                            aria-label="Sign out"
                             onClick={() => void handleLogout()}
                             className="w-full py-3 bg-red-500/10 text-red-400 rounded-xl text-xs font-bold uppercase flex items-center justify-center gap-2 hover:bg-red-500/20 transition-colors active:scale-95"
                         >

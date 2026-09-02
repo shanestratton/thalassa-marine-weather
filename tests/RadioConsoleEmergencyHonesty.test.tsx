@@ -217,7 +217,9 @@ describe('RadioConsole emergency transcript honesty', () => {
 
         await renderWithFix();
         const datumCard = (await screen.findByText(/MOB datum · not current vessel position/i)).parentElement;
-        expect(datumCard).toHaveTextContent('27°15.000′S 153°7.500′E');
+        // Minutes carry two digits (07.500′) since 2026-09-02 — the DSC / chart
+        // convention. The spoken transcript below is digit-by-digit and unaffected.
+        expect(datumCard).toHaveTextContent('27°15.000′S 153°07.500′E');
         expect(datumCard).toHaveTextContent('Marked 03:04:00 UTC');
 
         const transcript = await lastSpokenText();

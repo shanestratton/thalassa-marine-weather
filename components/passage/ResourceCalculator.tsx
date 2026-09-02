@@ -236,49 +236,6 @@ export const ResourceCalculator: React.FC<ResourceCalculatorProps> = ({ voyagePl
             </div>
 
             {/* ═══════════════════════════════════════════════════
-                THREE RESOURCE CARDS (fuel, water, provisions)
-                ═══════════════════════════════════════════════════ */}
-
-            <div className="bg-linear-to-br from-sky-500/10 via-sky-600/5 to-indigo-500/10 border border-sky-500/20 rounded-2xl p-5 relative overflow-hidden">
-                <div className="absolute top-0 right-0 w-32 h-32 bg-sky-400/5 rounded-full -translate-y-8 translate-x-8 blur-2xl" />
-                <div className="relative z-10 flex items-center gap-4 flex-wrap">
-                    <div className="flex items-center gap-3 bg-white/5 rounded-xl px-4 py-3 border border-white/10">
-                        <span className="text-2xl">👥</span>
-                        <div>
-                            <div className="text-2xl font-black text-white">{effectiveCrewCount}</div>
-                            <div className="text-[11px] text-gray-400 uppercase tracking-widest font-bold">Crew</div>
-                        </div>
-                    </div>
-                    <div className="flex items-center gap-3 bg-white/5 rounded-xl px-4 py-3 border border-white/10">
-                        <span className="text-2xl">📅</span>
-                        <div>
-                            <div className="text-2xl font-black text-white">{totalDaysCeil}</div>
-                            <div className="text-[11px] text-gray-400 uppercase tracking-widest font-bold">
-                                Day{totalDaysCeil > 1 ? 's' : ''}
-                            </div>
-                        </div>
-                    </div>
-                    <div className="flex items-center gap-3 bg-white/5 rounded-xl px-4 py-3 border border-white/10">
-                        <span className="text-2xl">🍽️</span>
-                        <div>
-                            <div className="text-2xl font-black text-white">{totalMeals}</div>
-                            <div className="text-[11px] text-gray-400 uppercase tracking-widest font-bold">Meals</div>
-                        </div>
-                    </div>
-                    <div className="flex items-center gap-3 bg-white/5 rounded-xl px-4 py-3 border border-white/10">
-                        <span className="text-2xl">💧</span>
-                        <div>
-                            <div className="text-2xl font-black text-white">
-                                {waterTotal.toFixed(0)}
-                                <span className="text-sm text-gray-400 ml-0.5">L</span>
-                            </div>
-                            <div className="text-[11px] text-gray-400 uppercase tracking-widest font-bold">Water</div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            {/* ═══════════════════════════════════════════════════
                 THREE RESOURCE CARDS
                 ═══════════════════════════════════════════════════ */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

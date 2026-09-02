@@ -56,7 +56,6 @@ export const ChatProfileView: React.FC<ChatProfileViewProps> = React.memo(
                 </div>
                 <div className="flex items-center gap-3">
                     <button
-                        aria-label="Input Ref"
                         onClick={() => fileInputRef.current?.click()}
                         disabled={!!uploadProgress}
                         className="text-sm text-purple-400 hover:text-purple-300 font-medium transition-colors"

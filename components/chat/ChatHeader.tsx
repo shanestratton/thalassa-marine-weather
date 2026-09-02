@@ -152,7 +152,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = React.memo(
                         )}
                         {view === 'dm_thread' && hasDMPartner && (
                             <button
-                                aria-label="Toggle notification mute"
+                                aria-label={isUserBlocked ? 'Unblock user' : 'Block user'}
                                 onClick={onToggleBlock}
                                 className="px-3 py-2 rounded-xl bg-white/4 hover:bg-red-500/10 border border-white/6 text-white/60 hover:text-red-400 text-xs font-medium transition-all active:scale-95"
                             >

@@ -18,8 +18,14 @@ export function useUnwrappedAngle(target: number | null): number {
     const previous = useRef(0);
     useEffect(() => {
         if (target === null || !Number.isFinite(target)) return;
-        let delta = (target - (previous.current % 360) + 540) % 360; // 0..360
-        delta -= 180; // → (-180, 180], the short way
+        // Normalise with a true modulo. JS `%` keeps the sign of its left
+        // operand, so once the accumulated angle had drifted positive and the
+        // target sat near -360, the pre-mod sum went negative, the remainder
+        // came out 360 too low, and the card took the LONG way round — a 190°
+        // swing for a 10° change of heading (audit 2026-09-02).
+        const norm = (x: number) => ((x % 360) + 360) % 360;
+        let delta = norm(target - norm(previous.current) + 180); // 0..360
+        delta -= 180; // → [-180, 180), the short way
         const next = previous.current + delta;
         previous.current = next;
         setAngle(next);

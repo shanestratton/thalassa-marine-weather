@@ -1990,8 +1990,11 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                         const totalNmRaw = voyageStats.totalNm;
                         const totalMs = voyageStats.totalMs;
                         const totalHrs = Math.round((totalMs / (1000 * 60 * 60)) * 10) / 10;
-                        const atSeaValue = totalHrs < 24 ? totalHrs.toString() : Math.round(totalHrs / 24).toString();
-                        const atSeaUnit = totalHrs < 24 ? 'hrs' : 'days';
+                        const atSeaDays = Math.round(totalHrs / 24);
+                        const atSeaValue = totalHrs < 24 ? totalHrs.toString() : atSeaDays.toString();
+                        // Singular where it is singular: "1 days" read as a typo on the skipper's own log.
+                        const atSeaUnit =
+                            totalHrs < 24 ? (totalHrs === 1 ? 'hr' : 'hrs') : atSeaDays === 1 ? 'day' : 'days';
                         return (
                             <div className="shrink-0 px-4 pb-3">
                                 <div className="grid grid-cols-3 gap-2.5">
@@ -2506,7 +2509,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                         Stop
                                     </button>
                                     <button
-                                        aria-label="Export voyage"
+                                        aria-label="Share your position"
                                         onClick={handleShareCurrentPosition}
                                         className="w-14 h-14 shrink-0 rounded-2xl font-extrabold text-xs transition-all flex items-center justify-center bg-teal-500/15 border border-teal-500/30 text-teal-400 hover:bg-teal-500/25 active:scale-[0.97]"
                                         title="Share your position"

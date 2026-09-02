@@ -16,6 +16,7 @@ import { PageHeader } from '../ui/PageHeader';
 import { prewarmSafetyMessage, speakSafetyMessage, type SafetyUtteranceHandle } from '../../services/voice/safetyTts';
 import { formatSpokenPosition, spellDigits, spokenCallSign, spokenMmsi } from '../../services/voice/radioPhrasing';
 import { authScopedStorageKey } from '../../services/authIdentityScope';
+import { formatLatDegMin, formatLonDegMin } from '../../utils/formatDegMin';
 
 interface MobPageProps {
     onBack: () => void;
@@ -25,20 +26,8 @@ interface MobPageProps {
 type EmergencyVesselType = 'sail' | 'power' | 'observer' | undefined;
 
 // ── Formatting helpers ──────────────────────────────────────────────────────
-function formatLat(dec: number): string {
-    const abs = Math.abs(dec);
-    const deg = Math.floor(abs);
-    const min = (abs - deg) * 60;
-    const dir = dec >= 0 ? 'N' : 'S';
-    return `${deg}°${min.toFixed(3)}′${dir}`;
-}
-function formatLon(dec: number): string {
-    const abs = Math.abs(dec);
-    const deg = Math.floor(abs);
-    const min = (abs - deg) * 60;
-    const dir = dec >= 0 ? 'E' : 'W';
-    return `${String(deg).padStart(3, '0')}°${min.toFixed(3)}′${dir}`;
-}
+const formatLat = (dec: number): string => formatLatDegMin(dec);
+const formatLon = (dec: number): string => formatLonDegMin(dec);
 function formatDistance(m: number | null): string {
     if (m === null) return '—';
     const nm = m / 1852;

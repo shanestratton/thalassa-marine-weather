@@ -37,6 +37,7 @@ import {
     isSpitfire,
     resolveForecastModel,
 } from '../../services/weather/forecastModels';
+import { splitDaysHours } from '../../utils/splitDaysHours';
 
 /* ────────────────────────────────────────────────────────────── */
 
@@ -107,8 +108,7 @@ const formatCoord = (lat: number, lon: number): string => {
 
 const formatHours = (h: number): string => {
     if (h < 1) return `${Math.round(h * 60)}min`;
-    const days = Math.floor(h / 24);
-    const hrs = Math.round(h % 24);
+    const { days, hours: hrs } = splitDaysHours(h); // rounds once — never "24h" or "1d 24h"
     if (days > 0) return `${days}d ${hrs}h`;
     return `${hrs}h`;
 };
