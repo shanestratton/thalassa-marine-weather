@@ -120,13 +120,3 @@ export const ShimmerBlock: React.FC<ShimmerBlockProps> = ({
         {variant === 'inline' && <InlineSkeleton width={width} height={height} />}
     </div>
 );
-
-/** CSS injection — adds the shimmer sweep keyframe */
-export const ShimmerStyles: React.FC = () => (
-    <style>{`
-        @keyframes shimmer-sweep {
-            0% { background-position: 200% 0; }
-            100% { background-position: -200% 0; }
-        }
-    `}</style>
-);

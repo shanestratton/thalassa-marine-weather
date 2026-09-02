@@ -4,7 +4,7 @@
  * Shows recipe hero image, crew scaler, ingredient list with
  * per-item stores shortfall badges, and cooking CTAs.
  */
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { getStoresAvailability, type MealPlan } from '../../services/MealPlanService';
 import { scaleIngredient, getRecipeImageUrl, getGalleyDifficulty } from '../../services/GalleyRecipeService';
 import { type ShoppingListSummary } from '../../services/ShoppingListService';
@@ -33,7 +33,6 @@ export const ChefPlate: React.FC<ChefPlateProps> = ({
     const [crewCount, setCrewCount] = useState(baseServings);
     const [imgLoaded, setImgLoaded] = useState(false);
     const [imgError, setImgError] = useState(false);
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const [storesVersion, setStoresVersion] = useState(0);
     const ratio = crewCount / baseServings;
 
@@ -51,8 +50,14 @@ export const ChefPlate: React.FC<ChefPlateProps> = ({
             Math.round(scaleIngredient(ing.amount, ing.scalable, baseServings, crewCount, ing.unit) * 10) / 10,
     }));
 
-    // Get stores availability for per-ingredient shortfall (re-reads on storesVersion change)
-    const storesAvail = getStoresAvailability(meal.voyage_id, meal.user_id ?? null);
+    // Get stores availability for per-ingredient shortfall. Re-read only when
+    // the voyage/user changes or a purchase bumps storesVersion — not on every
+    // crew-count tap.
+    const storesAvail = useMemo(() => {
+        // storesVersion is read here only so a purchase event re-runs the read.
+        void storesVersion;
+        return getStoresAvailability(meal.voyage_id, meal.user_id ?? null);
+    }, [meal.voyage_id, meal.user_id, storesVersion]);
 
     // Fuzzy match: recipe name "large eggs" should match store item "eggs"
     const findStoreMatch = (ingredientName: string) => {
@@ -121,18 +126,20 @@ export const ChefPlate: React.FC<ChefPlateProps> = ({
         return `${Math.max(30, (meal.ingredients?.length || 4) * 8)} Min`;
     })();
 
-    const shareText = [
-        `🍽️ ${meal.title}`,
-        `📅 ${meal.planned_date} · ${meal.meal_slot}`,
-        `👥 ${crewCount} serves`,
-        '',
-        '📦 Ingredients:',
-        ...scaledIngredients.map((i) => `${getIngredientEmoji(i.aisle)} ${i.scaledAmount} ${i.unit} ${i.name}`),
-        '',
-        `⏱️ ${readyInLabel}`,
-        `🔧 Stores: ${shortfallIngredients.length === 0 ? 'READY' : `SHORTFALL (${shortfallIngredients.length} ITEMS)`}`,
-        '',
-    ].join('\n');
+    // Built lazily on tap — it is only ever read by the share button.
+    const buildShareText = () =>
+        [
+            `🍽️ ${meal.title}`,
+            `📅 ${meal.planned_date} · ${meal.meal_slot}`,
+            `👥 ${crewCount} serves`,
+            '',
+            '📦 Ingredients:',
+            ...scaledIngredients.map((i) => `${getIngredientEmoji(i.aisle)} ${i.scaledAmount} ${i.unit} ${i.name}`),
+            '',
+            `⏱️ ${readyInLabel}`,
+            `🔧 Stores: ${shortfallIngredients.length === 0 ? 'READY' : `SHORTFALL (${shortfallIngredients.length} ITEMS)`}`,
+            '',
+        ].join('\n');
 
     return (
         <div
@@ -229,7 +236,7 @@ export const ChefPlate: React.FC<ChefPlateProps> = ({
                                 setCrewCount((c) => Math.max(1, c - 1));
                                 triggerHaptic('light');
                             }}
-                            className="w-10 h-10 rounded-xl bg-white/6 border border-white/8 flex items-center justify-center text-white hover:bg-white/10 transition-all active:scale-90"
+                            className="w-11 h-11 rounded-xl bg-white/6 border border-white/8 flex items-center justify-center text-white hover:bg-white/10 transition-all active:scale-90"
                             aria-label="Decrease servings"
                         >
                             <svg
@@ -256,7 +263,7 @@ export const ChefPlate: React.FC<ChefPlateProps> = ({
                                 setCrewCount((c) => Math.min(20, c + 1));
                                 triggerHaptic('light');
                             }}
-                            className="w-10 h-10 rounded-xl bg-white/6 border border-white/8 flex items-center justify-center text-white hover:bg-white/10 transition-all active:scale-90"
+                            className="w-11 h-11 rounded-xl bg-white/6 border border-white/8 flex items-center justify-center text-white hover:bg-white/10 transition-all active:scale-90"
                             aria-label="Increase servings"
                         >
                             <svg
@@ -385,6 +392,7 @@ export const ChefPlate: React.FC<ChefPlateProps> = ({
                 </button>
                 <button
                     onClick={() => {
+                        const shareText = buildShareText();
                         if (navigator.share) {
                             navigator.share({ title: meal.title, text: shareText }).catch(() => {});
                         } else {

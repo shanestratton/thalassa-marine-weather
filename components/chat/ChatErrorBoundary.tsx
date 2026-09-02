@@ -1,5 +1,5 @@
 /**
- * ChatErrorBoundary — Friendly error recovery for Crew Talk.
+ * ChatErrorBoundary — Friendly error recovery for Scuttlebutt.
  * Catches rendering errors and offers a retry button
  * instead of a white screen of death.
  */
@@ -32,7 +32,7 @@ export class ChatErrorBoundary extends React.Component<{ children: React.ReactNo
                     </div>
                     <h2 className="text-lg font-bold text-white/80 mb-2">Man overboard!</h2>
                     <p className="text-sm text-white/40 max-w-[260px] text-center leading-relaxed mb-6">
-                        Something went wrong in Crew Talk. Don't worry — your messages are safe. Let's get back on
+                        Something went wrong in Scuttlebutt. Don't worry — your messages are safe. Let's get back on
                         course.
                     </p>
                     <button

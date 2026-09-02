@@ -93,6 +93,7 @@ export const SwipeableInventoryCard: React.FC<SwipeableInventoryCardProps> = ({
                             <p className={`text-sm font-black tabular-nums ${isLow ? 'text-amber-400' : 'text-white'}`}>
                                 {item.quantity}
                             </p>
+                            {isLow && <p className="text-[11px] font-bold text-amber-400 leading-none mt-0.5">Low</p>}
                         </div>
                         {/* Edit button */}
                         <button
@@ -100,7 +101,7 @@ export const SwipeableInventoryCard: React.FC<SwipeableInventoryCardProps> = ({
                                 e.stopPropagation();
                                 onEdit();
                             }}
-                            className="p-1.5 -mr-1 rounded-lg hover:bg-white/10 transition-colors shrink-0"
+                            className="hit-target-44 p-1.5 -mr-1 rounded-lg hover:bg-white/10 transition-colors shrink-0"
                             aria-label="Edit item"
                         >
                             <svg

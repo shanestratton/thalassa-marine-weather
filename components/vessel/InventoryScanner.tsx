@@ -509,7 +509,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({
                             </div>
                             <button
                                 onClick={closeInlineScanner}
-                                className="absolute top-2 right-2 p-1 rounded-full bg-black/60 text-white/70 hover:text-white"
+                                className="hit-target-44 absolute top-2 right-2 p-1 rounded-full bg-black/60 text-white/70 hover:text-white"
                                 aria-label="Close scanner"
                             >
                                 <svg

@@ -1,5 +1,7 @@
 /**
- * ChartSourceIcons — SVG icons for chart-source list rows.
+ * ChartSourceIcons — SVG icons for chart-source rows (RadialHelmMenu's
+ * Charts category). Single source of truth: RadialHelmMenu used to carry a
+ * hand-kept copy of every path, which had already drifted. 2026-09-03.
  *
  * Replaces flag emojis which render inconsistently on iOS WKWebView (often
  * showing as small greyscale glyphs or falling back to Apple Color Emoji at
@@ -16,12 +18,15 @@ interface IconProps {
     className?: string;
 }
 
-/** Nautical chart grid with folded corner — generic chart icon. */
+/** Folded chart — generic chart-source icon. */
 export const ChartIcon: React.FC<IconProps> = ({ className = 'w-5 h-5' }) => (
     <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M9 6.75V15m0 0l-3.75 2.25V9L9 6.75z" />
-        <path strokeLinecap="round" strokeLinejoin="round" d="M9 6.75l6 2.25m0 8.25l3.75-2.25V6.75L15 9v8.25z" />
-        <path strokeLinecap="round" strokeLinejoin="round" d="M9 15l6 2.25" />
+        <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            d="M9 6.75L3.75 9v11.25l5.25-2.25 6 2.25 5.25-2.25V6.75l-5.25 2.25-6-2.25z"
+        />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M9 6.75v11.25M15 9v11.25" />
     </svg>
 );
 
@@ -83,22 +88,3 @@ export const LocalChartIcon: React.FC<IconProps> = ({ className = 'w-5 h-5' }) =
         <path strokeLinecap="round" strokeLinejoin="round" d="M9 13h6M12 10v6" />
     </svg>
 );
-
-/**
- * Dispatch a chart icon based on a chart-source ID.
- * Returns the ChartIcon fallback for unknown IDs.
- */
-export function iconForChartSource(sourceId: string): React.FC<IconProps> {
-    switch (sourceId) {
-        case 'noaa-ncds':
-            return NoaaIcon;
-        case 'noaa-ecdis':
-            return EcdisIcon;
-        case 'linz-charts':
-            return LinzIcon;
-        case 'openseamap':
-            return AnchorIcon;
-        default:
-            return ChartIcon;
-    }
-}

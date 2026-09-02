@@ -102,7 +102,7 @@ export const PiPairingBanner: React.FC = () => {
             </p>
             {/* The fingerprint is the whole point of TOFU: it is what the
                 skipper checks against their own Pi. Monospace so digits line up. */}
-            <p className="mt-2 font-mono text-[10px] tracking-wider text-sky-300">{offer.info.fingerprint}</p>
+            <p className="mt-2 font-mono text-sm tracking-wider text-sky-300 break-all">{offer.info.fingerprint}</p>
 
             {error && <p className="mt-2 text-[11px] font-bold leading-snug text-amber-300">{error}</p>}
 
@@ -111,7 +111,7 @@ export const PiPairingBanner: React.FC = () => {
                     type="button"
                     onClick={() => void handlePair()}
                     disabled={busy}
-                    className="min-h-[40px] flex-1 rounded-xl bg-sky-500 px-4 text-[12px] font-black text-white transition-colors hover:bg-sky-400 active:scale-[0.98] disabled:opacity-50"
+                    className="min-h-[44px] flex-1 rounded-xl bg-sky-500 px-4 text-sm font-black text-white transition-colors hover:bg-sky-400 active:scale-[0.98] disabled:opacity-50"
                 >
                     {busy ? 'Pairing…' : 'Pair'}
                 </button>
@@ -121,7 +121,7 @@ export const PiPairingBanner: React.FC = () => {
                         triggerHaptic('light');
                         setDismissed(true);
                     }}
-                    className="min-h-[40px] rounded-xl border border-white/10 px-4 text-[12px] font-bold text-slate-300 transition-colors hover:bg-white/6"
+                    className="min-h-[44px] rounded-xl border border-white/10 px-4 text-sm font-bold text-slate-300 transition-colors hover:bg-white/6"
                 >
                     Not now
                 </button>

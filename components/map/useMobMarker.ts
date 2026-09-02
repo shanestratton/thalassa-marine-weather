@@ -153,9 +153,9 @@ function buildMobElement(): { el: HTMLDivElement; chip: HTMLDivElement } {
         -webkit-backdrop-filter: blur(12px);
         border: 1px solid rgba(239, 68, 68, 0.7);
         border-radius: 12px;
-        padding: 4px 8px;
+        padding: 5px 10px;
         color: rgba(255,255,255,0.95);
-        font-size: 11px;
+        font-size: 14px;
         font-weight: 700;
         white-space: nowrap;
         pointer-events: none;

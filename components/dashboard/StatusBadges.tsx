@@ -4,8 +4,8 @@ import { formatAge } from '../ui/DataFreshness';
 import { MetricSource } from '../../types';
 import type { WeatherModel } from '../../types';
 import { useWeather } from '../../context/WeatherContext';
-import { piCache, type PiFetchStats } from '../../services/PiCacheService';
 import { triggerHaptic } from '../../utils/system';
+import { AlertTriangleIcon } from '../Icons';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { resolveForecastModel, getForecastModelInfo, isSpitfire } from '../../services/weather/forecastModels';
 import { listPublishedModels } from '../../services/weather/wxPublished';
@@ -60,20 +60,12 @@ interface StatusBadgesProps {
 export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
     ({
         isLandlocked,
-        // Modal-only props below — kept in the interface so Dashboard's call
-        // site doesn't need to change, but unused since the Data Sources
-        // modal was removed (attribution was frequently wrong).
-        locationName: _locationName,
-        displaySource: _displaySource,
-        nextUpdate: _nextUpdate,
+        // The modal-only props (locationName, displaySource, stationId, …)
+        // stay in the interface so Dashboard's call site doesn't change, but
+        // are not destructured: the Data Sources modal was removed
+        // (attribution was frequently wrong).
         fallbackInland,
-        stationId: _stationId,
         locationType,
-        beaconName: _beaconName,
-        buoyName: _buoyName,
-        sources: _sources,
-        activeData: _activeData,
-        isLive: _isLive = true,
         modelUsed,
         generatedAt,
         coordinates,
@@ -91,20 +83,6 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
         // refreshData failures were silent and the pill kept ticking
         // down to next-update as if nothing happened.
         const hasError = !!error && !isSyncing;
-
-        // Pi Cache fetch stats — poll on mount and after syncs. Not shown to
-        // the user anymore (modal is gone), but cheap to compute and still
-        // useful for any future per-badge annotation.
-        const [piFetchStats, setPiFetchStats] = useState<PiFetchStats | null>(null);
-        useEffect(() => {
-            if (!piCache.isAvailable()) {
-                setPiFetchStats(null);
-                return;
-            }
-            setPiFetchStats(piCache.getFetchStats());
-            // Re-check after each sync completes
-        }, [isSyncing]);
-        void piFetchStats; // Reserved — keeps the polling hook alive.
 
         // BADGES Logic — each variant carries a label, tailwind color
         // classes (bg + text + border), an SVG glyph, and the breathing
@@ -204,6 +182,9 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
         }, []);
         const generatedMs = generatedAt ? Date.parse(String(generatedAt)) : Number.NaN;
         const forecastAge = Number.isFinite(generatedMs) ? formatAge(Math.max(0, ageTick - generatedMs)) : null;
+        // Past ~90 min the age tints amber so staleness is visible without
+        // reading the number.
+        const forecastAgeStale = Number.isFinite(generatedMs) && ageTick - generatedMs > 90 * 60 * 1000;
 
         // What ACTUALLY served this data, when the publisher says so. The
         // pill's face stays the pinned selection (it is a picker, and must
@@ -271,7 +252,7 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
                             <span
                                 role="status"
                                 aria-label={`Forecast updated ${forecastAge}`}
-                                className={`${badgeTextSize} font-semibold text-gray-500 tabular-nums truncate`}
+                                className={`text-xs font-semibold tabular-nums truncate ${forecastAgeStale ? 'text-amber-300' : 'text-slate-300'}`}
                             >
                                 {forecastAge}
                             </span>
@@ -290,9 +271,9 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
                                 void triggerHaptic('light');
                                 setShowModelSheet(true);
                             }}
-                            aria-label={
+                            aria-label={`${hasError ? 'Last refresh failed — ' : ''}${
                                 servedModel ? `Choose forecast model — showing ${servedModel}` : 'Choose forecast model'
-                            }
+                            }`}
                             title={servedModel ? `Served by ${servedModel}` : undefined}
                             aria-haspopup="dialog"
                             className={`px-2.5 py-1.5 rounded-lg border ${badgeTextSize} font-bold uppercase tracking-wider flex items-center gap-1.5 justify-center cursor-pointer active:scale-[0.95] transition-transform min-w-[82px] ${
@@ -320,6 +301,11 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
                                 </span>
                             ) : (
                                 <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: pillHex }} />
+                            )}
+                            {hasError && (
+                                <span aria-hidden="true" className="flex shrink-0">
+                                    <AlertTriangleIcon className="w-3 h-3" />
+                                </span>
                             )}
                             {pillLabel}
                             {/* Chevron — signals this pill opens a picker */}

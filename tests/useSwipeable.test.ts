@@ -12,12 +12,8 @@ describe('useSwipeable', () => {
         expect(result.current.isSwiping).toBe(false);
     });
 
-    it('exposes touch handlers', () => {
-        const { result } = renderHook(() => useSwipeable());
-        expect(result.current.handlers.onTouchStart).toBeDefined();
-        expect(result.current.handlers.onTouchMove).toBeDefined();
-        expect(result.current.handlers.onTouchEnd).toBeDefined();
-    });
+    // The legacy no-op `handlers` return was removed 2026-09-03 — every
+    // consumer attaches via `ref`; nothing ever read `handlers`.
 
     it('accepts custom threshold', () => {
         const { result } = renderHook(() => useSwipeable({ threshold: 120 }));
@@ -31,13 +27,11 @@ describe('useSwipeable', () => {
         expect(result.current.swipeOffset).toBe(0);
     });
 
-    it('handlers are stable references (no unnecessary re-renders)', () => {
+    it('ref callback is a stable reference (no listener churn)', () => {
         const { result, rerender } = renderHook(() => useSwipeable());
-        const first = result.current.handlers;
+        const first = result.current.ref;
         rerender();
-        const second = result.current.handlers;
-        // onTouchStart should be memoized
-        expect(first.onTouchStart).toBe(second.onTouchStart);
+        expect(result.current.ref).toBe(first);
     });
 });
 
