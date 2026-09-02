@@ -241,7 +241,15 @@ export const CrewBrowseBoard: React.FC<CrewBrowseBoardProps> = React.memo(
                     style={{ bottom: 'calc(64px + env(safe-area-inset-bottom) + 8px)' }}
                 >
                     <button
-                        aria-label={hasSearched ? 'Change Crew List search' : 'Show selected Crew List introductions'}
+                        aria-label={
+                            hasSearched
+                                ? 'Change Crew List search'
+                                : filterListingType === 'seeking_crew'
+                                  ? 'Show skippers with an open berth'
+                                  : filterListingType === 'seeking_berth'
+                                    ? 'Show crew looking for a berth'
+                                    : 'Choose an introduction path first'
+                        }
                         onClick={() => {
                             if (hasSearched) {
                                 setHasSearched(false);
@@ -255,23 +263,45 @@ export const CrewBrowseBoard: React.FC<CrewBrowseBoardProps> = React.memo(
                         disabled={!hasSearched && !filterListingType}
                         className={`w-full py-4 rounded-2xl font-bold text-base transition-all active:scale-[0.97] shadow-2xl ${!hasSearched && !filterListingType ? 'bg-white/6 text-white/40 cursor-not-allowed' : 'bg-linear-to-r from-emerald-500 to-sky-600 text-white shadow-emerald-500/20'}`}
                     >
-                        {hasSearched ? '↻ Change search' : 'Show Crew List'}
+                        {/* The button names what you are about to browse, not
+                            the feature (Shane 2026-09-02: "if you are looking
+                            for a skipper should that not say show Skipper
+                            list"). Choosing "Find a skipper" lists skippers
+                            with a berth open; "Find crew" lists sailors
+                            looking for one. Calling both "Crew List" made the
+                            button describe the product rather than the
+                            action. */}
+                        {hasSearched
+                            ? '↻ Change search'
+                            : filterListingType === 'seeking_crew'
+                              ? 'Show Skipper List'
+                              : filterListingType === 'seeking_berth'
+                                ? 'Show Crew List'
+                                : 'Show List'}
                     </button>
                 </div>
 
                 {/* Card Stack */}
                 {listings.length === 0 ? (
                     <div className="flex-1 flex items-center justify-center text-center">
-                        {!filterListingType ? (
-                            <EmptyState
-                                icon="🌊"
-                                title="Choose an introduction path"
-                                description="Pick Find a skipper or Find crew to see approved sailors who have opted into The Crew List."
-                            />
-                        ) : (
+                        {/* No "choose a path" card here any more. The filter
+                            panel immediately above IS that question, with the
+                            two buttons that answer it — so a centred card
+                            repeating it said nothing new, and being centred in
+                            the remaining space is what pushed it under the
+                            pinned CTA (Shane 2026-09-02: "the Show Crew List
+                            and the choose an introduction path are
+                            colliding"). Silence is the honest state: the
+                            skipper has not been asked anything they cannot
+                            already see. */}
+                        {filterListingType && (
                             <EmptyState
                                 icon="🔍"
-                                title="No Crew List profiles yet"
+                                title={
+                                    filterListingType === 'seeking_crew'
+                                        ? 'No skippers listed yet'
+                                        : 'No crew listed yet'
+                                }
                                 description="No approved profiles match this introduction path or broad area yet. Try a wider area soon."
                             />
                         )}
