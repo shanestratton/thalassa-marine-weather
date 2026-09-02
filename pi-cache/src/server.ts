@@ -38,7 +38,13 @@ import { TrackRecorderRunner } from './trackRunner.js';
 import { cachedJsonFetch, cachedTileFetch } from './proxy.js';
 import { startScheduler, stopScheduler } from './scheduler.js';
 import { startEncWatcher, stopEncWatcher } from './encWatcher.js';
-import { DiaryRelayOutbox, type DiaryRelayConfigInput, DiaryRelayValidationError } from './diaryRelayOutbox.js';
+import {
+    canonicalAnchorRelayEndpoint,
+    DiaryRelayOutbox,
+    type DiaryRelayConfigInput,
+    DiaryRelayValidationError,
+} from './diaryRelayOutbox.js';
+import { AnchorWatchRunner } from './anchorBroadcaster.js';
 import { DiaryVideoRelay } from './diaryVideoRelay.js';
 import { loadOrCreateIdentity, readIdentityPrivateKeyPem } from './identity.js';
 import { ensureIdentityTls } from './tlsIdentity.js';
@@ -140,6 +146,17 @@ const trackRecorder = new TrackRecorderRunner({
    her own record; a Pi that forgot after every power cycle would fail exactly
    the case it exists for — the phone flat, the app crashed, nobody watching. */
 if (trackStore.isEnabled()) trackRecorder.start();
+
+/* The shore watch, when the skipper hands it to this Pi.
+ *
+ * Deliberately NOT resumed on boot, unlike the track above. A Pi that has just
+ * rebooted cannot vouch for what happened while it was down, and an anchor
+ * alarm that silently resumes with a stale idea of where the hook is would be
+ * worse than one that is honestly off — so the app re-assigns on its next
+ * renew sweep and the watch starts from something current. */
+const anchorWatch = new AnchorWatchRunner({ fetchImpl: fetch, signalkOrigin: SIGNALK_ORIGIN });
+/** The app's own alphabet is unambiguous; the relay accepts any alphanumeric. */
+const ANCHOR_SESSION_CODE_RE = /^[A-Za-z0-9]{12}$/;
 const app = express();
 
 app.use(
@@ -232,6 +249,8 @@ app.get('/api/admin/status', requireAppApi, (_req, res) => {
             diaryRelayAllowInternet: diaryRelay.relay.allowInternet,
         },
         diaryRelay,
+        // describe() never includes the credential, so this is safe here.
+        anchorWatch: anchorWatch.describe(),
     });
 });
 
@@ -481,6 +500,65 @@ app.get('/api/passthrough-tile', requireAppApi, async (req, res) => {
  */
 app.get('/api/barometer', requireAppApi, (_req, res) => {
     res.json(barometer.state());
+});
+
+/**
+ * Take the shore watch (or give it back).
+ *
+ * The app authorises this Pi's relay for the session code FIRST, then posts
+ * here; the broadcaster's own doc explains why that order is the only one that
+ * works. This endpoint therefore stores no permission of its own — it holds an
+ * assignment, and the relay decides every ten seconds whether that assignment
+ * may still be published.
+ *
+ * The credential is the Pi's existing scoped pairing credential, lent for this
+ * one purpose, and the endpoint comes from the process-startup trust anchor —
+ * never from this request body.
+ */
+app.post('/api/anchor/watch', requireAppApi, (req, res) => {
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const sessionCode = typeof body.sessionCode === 'string' ? body.sessionCode.trim() : '';
+    const anchorLat = Number(body.anchorLat);
+    const anchorLon = Number(body.anchorLon);
+    const swingRadius = Number(body.swingRadius);
+    if (!ANCHOR_SESSION_CODE_RE.test(sessionCode)) {
+        return res.status(400).json({ status: 'error', error: 'sessionCode must be 12 alphanumeric characters' });
+    }
+    if (!Number.isFinite(anchorLat) || anchorLat < -90 || anchorLat > 90) {
+        return res.status(400).json({ status: 'error', error: 'anchorLat must be a latitude' });
+    }
+    if (!Number.isFinite(anchorLon) || anchorLon < -180 || anchorLon > 180) {
+        return res.status(400).json({ status: 'error', error: 'anchorLon must be a longitude' });
+    }
+    // An alarm radius of zero would drag on the first GPS jitter, and one the
+    // size of a bay would never drag at all. Both are a broken watch.
+    if (!Number.isFinite(swingRadius) || swingRadius < 5 || swingRadius > 5_000) {
+        return res.status(400).json({ status: 'error', error: 'swingRadius must be between 5 and 5000 metres' });
+    }
+    const lent = diaryRelayOutbox.lendAnchorCredentials();
+    if (!lent) {
+        return res
+            .status(409)
+            .json({ status: 'error', error: 'This Pi is not paired to an account, so it cannot relay a watch' });
+    }
+    if (!SUPABASE_ANON_KEY) {
+        return res.status(409).json({ status: 'error', error: 'This Pi has no Supabase anon key configured' });
+    }
+    anchorWatch.start(
+        { sessionCode, anchorLat, anchorLon, swingRadius },
+        {
+            url: canonicalAnchorRelayEndpoint(SUPABASE_ORIGIN),
+            relayId: lent.relayId,
+            token: lent.token,
+            anonKey: SUPABASE_ANON_KEY,
+        },
+    );
+    return res.json({ status: 'ok', watch: anchorWatch.describe() });
+});
+
+app.delete('/api/anchor/watch', requireAppApi, (_req, res) => {
+    anchorWatch.stop();
+    return res.json({ status: 'ok', watch: anchorWatch.describe() });
 });
 app.use('/api/weather', createWeatherRoutes(cache, proxyConfig));
 app.use('/api/tiles', createTileRoutes(cache, proxyConfig));

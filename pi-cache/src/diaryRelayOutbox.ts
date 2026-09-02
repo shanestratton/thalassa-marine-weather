@@ -37,6 +37,7 @@ const OWNER_BINDING_MISSING = 'Diary relay owner binding is missing';
 const OWNER_BINDING_MISMATCH = 'Diary relay owner does not match the configured Pi';
 const RELAY_AUTHORITY_MISMATCH = 'Diary relay authority does not match the Pi trust anchor';
 const DIARY_RELAY_PATH = '/functions/v1/diary-relay';
+const ANCHOR_RELAY_PATH = '/functions/v1/anchor-relay';
 
 export type DiaryRelayStatus = 'queued' | 'synced' | 'needs_repair';
 
@@ -338,6 +339,12 @@ export function canonicalDiaryRelayEndpoint(trustedSupabaseOrigin: string): stri
     return new URL(DIARY_RELAY_PATH, `${origin}/`).href;
 }
 
+/** The anchor watch's endpoint, from the same trust anchor and nothing else. */
+export function canonicalAnchorRelayEndpoint(trustedSupabaseOrigin: string): string {
+    const origin = normaliseExactHttpOrigin(trustedSupabaseOrigin);
+    return new URL(ANCHOR_RELAY_PATH, `${origin}/`).href;
+}
+
 function validateRelay(input: unknown, trustedRelayEndpoint: string): RelayCredentials {
     if (!isRecord(input)) throw new DiaryRelayValidationError('relay must be an object');
     const url = validText(input.url, 'url', 2_048);
@@ -606,6 +613,32 @@ export class DiaryRelayOutbox {
             configured.ownerId,
         );
         return relay ? { url: relay.url, relayId: relay.relayId, token: relay.token, ownerId: relay.ownerId } : null;
+    }
+
+    /**
+     * Lend the pairing credential to the anchor watch, and to nothing else.
+     *
+     * The broadcaster presents this to the anchor-relay Edge Function, which
+     * verifies the credential AND that the signed-in app authorised THIS relay
+     * for the session code it names. So the strongest thing these credentials
+     * can do here is publish this boat's position to a channel the skipper's
+     * own app has already granted — and that grant lapses in six hours whether
+     * or not anyone remembers to revoke it.
+     *
+     * Deliberately no url: the caller derives the endpoint from the
+     * process-startup trust anchor, so a Boat-LAN request can never point the
+     * boat's position at a host of its choosing.
+     */
+    lendAnchorCredentials(): { relayId: string; token: string } | null {
+        const configured = this.readConfiguration();
+        const relay = relayFromParts(
+            this.trustedRelayEndpoint,
+            configured.url,
+            configured.relayId,
+            configured.token,
+            configured.ownerId,
+        );
+        return relay ? { relayId: relay.relayId, token: relay.token } : null;
     }
 
     configure(input: DiaryRelayConfigInput): DiaryRelayPublicConfiguration {

@@ -477,6 +477,20 @@ class PiCacheServiceImpl {
         return { ...this.status };
     }
 
+    /**
+     * The Pi's base URL for a pinned request, honouring remote access.
+     *
+     * Extracted from getBarometer, which built this by hand — a second caller
+     * (the anchor watch handoff) is one copy too many for a rule about WHICH
+     * host the app is allowed to talk to. Null when there is no host to talk
+     * to at all.
+     */
+    getBaseUrl(): string | null {
+        const host = this._useRemote && this.remoteHost ? this.remoteHost : this.config.host;
+        if (!host) return null;
+        return `https://${host}:${this.config.port}`;
+    }
+
     /** Is the Pi Cache enabled AND reachable right now? */
     isAvailable(): boolean {
         return PI_INTEGRATION_ENABLED && this.config.enabled && this.status.reachable;
@@ -638,11 +652,11 @@ class PiCacheServiceImpl {
      */
     async getBarometer(timeoutMs = 4_000): Promise<PiBarometerState | null> {
         if (!this.status.reachable) return null;
-        const host = this._useRemote && this.remoteHost ? this.remoteHost : this.config.host;
-        if (!host) return null;
+        const baseUrl = this.getBaseUrl();
+        if (!baseUrl) return null;
         try {
             const res = await pinnedPiRequest({
-                url: `https://${host}:${this.config.port}/api/barometer`,
+                url: `${baseUrl}/api/barometer`,
                 readTimeout: timeoutMs,
                 responseType: 'text',
             });
