@@ -22,6 +22,7 @@ import http from 'http';
 import https from 'https';
 import path from 'path';
 import { Cache } from './cache.js';
+import { Barometer } from './barometer.js';
 import { createWeatherRoutes } from './routes/weather.js';
 import { createTileRoutes } from './routes/tiles.js';
 import { createGribRoutes } from './routes/grib.js';
@@ -115,6 +116,10 @@ delete process.env[LEGACY_PROVIDER_ENV];
 // ── Bootstrap ──
 
 const cache = new Cache(CACHE_DIR);
+// The boat's own barometer. Starts even with no sensor fitted — it just
+// reports unavailable, so a Pi without one behaves exactly as before.
+const barometer = new Barometer(CACHE_DIR);
+void barometer.start();
 const diaryRelayOutbox = new DiaryRelayOutbox(CACHE_DIR, { trustedSupabaseOrigin: SUPABASE_ORIGIN });
 // The big-upload babysitter. Borrows the outbox's pairing credential; holds
 // clips on disk until WAN lets it redeem a signed upload URL per object.
@@ -467,6 +472,16 @@ app.get('/api/passthrough-tile', requireAppApi, async (req, res) => {
 
 // ── API Routes (for direct Pi endpoints — used by pre-fetch) ──
 
+/**
+ * GET /api/barometer — the boat's pressure record.
+ *
+ * Behind requireAppApi like the rest of the app surface: it is boat data, not
+ * public data. Always 200 with `available` telling the truth, so the client
+ * can fall back to the phone without having to interpret an error code.
+ */
+app.get('/api/barometer', requireAppApi, (_req, res) => {
+    res.json(barometer.state());
+});
 app.use('/api/weather', createWeatherRoutes(cache, proxyConfig));
 app.use('/api/tiles', createTileRoutes(cache, proxyConfig));
 app.use('/api/grib', createGribRoutes(cache, proxyConfig));

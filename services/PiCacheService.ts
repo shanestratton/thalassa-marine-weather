@@ -94,6 +94,22 @@ export interface FetchResult<T = unknown> {
 }
 
 /** Reactive fetch stats — tracks how data is being served. */
+/** One reading from the boat's own barometer. */
+export interface PiBarometerSample {
+    hpa: number;
+    /** Enclosure temperature — the sensor self-heats, so NOT air temperature. */
+    tempC: number;
+    at: number;
+}
+
+/** The boat barometer's record as the Pi holds it. */
+export interface PiBarometerState {
+    available: boolean;
+    reason: string | null;
+    latest: PiBarometerSample | null;
+    samples: PiBarometerSample[];
+}
+
 export interface PiFetchStats {
     /** Last source used for a weather/data fetch */
     lastSource: 'pi-cache' | 'pi-stale' | 'direct' | null;
@@ -602,6 +618,46 @@ class PiCacheServiceImpl {
         });
         if (userId) params.set('user_id', userId);
         return `${this.baseUrl}/api/weather/unified?${params.toString()}`;
+    }
+
+    /**
+     * The BOAT's barometer — a proper station barometer, not the phone's.
+     *
+     * Worth preferring wherever it is reachable, because a barometer earns its
+     * keep on TENDENCY and a phone cannot supply one: it goes ashore in a
+     * pocket and up and down the companionway, and altitude reads as pressure
+     * (~0.12 hPa per metre), so a walk up the dock ramp swamps the 1-2 hPa/3h
+     * that actually forecasts anything. The BMP390 is bolted to the boat and
+     * mains-powered — it does not move and it does not sleep, and the Pi keeps
+     * twelve hours of it across restarts.
+     *
+     * Returns null whenever the Pi lane is unusable, so the caller's fallback
+     * is the same shape as everywhere else: try this, fall back to the phone.
+     * `available: false` with a reason is a real answer, not a failure — a Pi
+     * with no sensor fitted says so rather than erroring.
+     */
+    async getBarometer(timeoutMs = 4_000): Promise<PiBarometerState | null> {
+        if (!this.status.reachable) return null;
+        const host = this._useRemote && this.remoteHost ? this.remoteHost : this.config.host;
+        if (!host) return null;
+        try {
+            const res = await pinnedPiRequest({
+                url: `https://${host}:${this.config.port}/api/barometer`,
+                readTimeout: timeoutMs,
+                responseType: 'text',
+            });
+            if (res.status < 200 || res.status >= 300) return null;
+            const body = typeof res.data === 'string' ? (JSON.parse(res.data) as unknown) : null;
+            if (!body || typeof body !== 'object') return null;
+            const state = body as PiBarometerState;
+            if (typeof state.available !== 'boolean' || !Array.isArray(state.samples)) return null;
+            return state;
+        } catch {
+            // A missing route (an older Pi that predates this) is indistinguishable
+            // from an unreachable one here, and both mean the same thing to the
+            // caller: use the phone.
+            return null;
+        }
     }
 
     /** Get fetch stats — used by UI to show Pi Cache source indicator. */
