@@ -7,6 +7,7 @@
  * One bad marker took the whole voyage log down inside render.
  */
 import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
 import { shipCategory, shipTypeLabel, vesselColor } from '../src/aisShipType';
 
 describe('AIS ship type', () => {
@@ -46,5 +47,14 @@ describe('AIS ship type', () => {
         expect(shipTypeLabel('')).toBeNull();
         // An unknown-but-present code still gets a word, not a number.
         expect(shipTypeLabel(99)).toBe('Vessel');
+    });
+});
+
+describe('AISHub credit on the public map', () => {
+    it('stays — permission was given with "we would appreciate a credit"', () => {
+        // Desimir, 2026-09-02: free to use, credit appreciated but not required.
+        // Appreciated is reason enough; this pins it so a tidy-up cannot drop it.
+        const source = readFileSync('src/components/MapContainer.tsx', 'utf8');
+        expect(source).toContain('customAttribution="AIS data: AISHub"');
     });
 });

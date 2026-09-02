@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import Map, { Source, Layer, Marker, NavigationControl, Popup } from 'react-map-gl/mapbox';
+import Map, { AttributionControl, Source, Layer, Marker, NavigationControl, Popup } from 'react-map-gl/mapbox';
 import type { FeatureCollection, Feature, LineString, Point } from 'geojson';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import {
@@ -550,9 +550,15 @@ export default function MapContainer({
                    went with it — with no curve to wrap, fog only added haze
                    to imagery we had just finished de-hazing. */
                 projection="mercator"
-                attributionControl
+                attributionControl={false}
             >
                 <NavigationControl position="top-left" showCompass={false} />
+                {/* The default strip, plus the AIS credit. AISHub gave written
+                    permission for public display on 2026-09-02 ("we will
+                    appreciate it if you credit AISHub but that's not mandatory")
+                    — so this is a courtesy we chose, and it stays. Compact so
+                    it folds to an (i) on a phone rather than eating the map. */}
+                <AttributionControl customAttribution="AIS data: AISHub" compact position="bottom-right" />
 
                 {/* Bathymetry tint over the satellite imagery (Shane
                     2026-07-09) — same MapTiler Ocean raster the app uses,
