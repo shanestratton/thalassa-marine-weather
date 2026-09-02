@@ -10,6 +10,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
+    AnchorWatchRunner,
     BROADCAST_INTERVAL_MS,
     POSITION_MAX_AGE_MS,
     broadcastOnce,
@@ -17,9 +18,9 @@ import {
     currentFix,
     distanceMetres,
     fixIsCurrent,
+    rankSource,
     readFix,
     relayFingerprint,
-    AnchorWatchRunner,
 } from './anchorBroadcaster.js';
 
 const ASSIGNMENT = { sessionCode: 'ABC123DEF456', anchorLat: -27.19508, anchorLon: 153.10555, swingRadius: 40 };
@@ -266,4 +267,83 @@ test('stopping clears the assignment, so nothing lingers after the watch ends', 
     runner.stop();
     assert.equal(runner.describe().sessionCode, null);
     assert.equal(runner.isRunning(), false);
+});
+
+/* ── Which GPS wins ──────────────────────────────────────────────────────
+ *
+ * Calypso carries two receivers. Signal K picks per PATH by whoever wrote
+ * last: measured 2026-09-03, navigation.position was won by the bus while
+ * navigation.gnss.methodQuality was won by the USB stick at the same instant.
+ * The boat's position was therefore right by luck. These pin the rule.
+ */
+test('prefers the instrument bus over the USB stick, whatever wrote last', () => {
+    const doc = {
+        navigation: {
+            position: {
+                // Signal K's last-writer answer is the USB stick…
+                $source: 'ublox-gps.GP',
+                value: { latitude: -27.2, longitude: 153.2 },
+                timestamp: '2026-09-02T23:20:00.000Z',
+                values: {
+                    'ublox-gps.GP': {
+                        value: { latitude: -27.2, longitude: 153.2 },
+                        timestamp: '2026-09-02T23:20:00.000Z',
+                    },
+                    'ydwg-tcp.YD': {
+                        value: { latitude: -27.195095, longitude: 153.10556 },
+                        timestamp: '2026-09-02T23:19:58.000Z',
+                    },
+                },
+            },
+        },
+    };
+    const fix = readFix(doc, Date.parse('2026-09-02T23:20:01.000Z'));
+    // …and we take the bus anyway, even though it is two seconds older.
+    assert.equal(fix?.source, 'ydwg-tcp.YD');
+    assert.equal(fix?.latitude, -27.195095);
+});
+
+test('falls back to the USB stick when the bus is not writing', () => {
+    const doc = {
+        navigation: {
+            position: {
+                $source: 'ublox-gps.GP',
+                value: { latitude: -27.2, longitude: 153.2 },
+                timestamp: '2026-09-02T23:20:00.000Z',
+                values: {
+                    'ublox-gps.GP': {
+                        value: { latitude: -27.2, longitude: 153.2 },
+                        timestamp: '2026-09-02T23:20:00.000Z',
+                    },
+                },
+            },
+        },
+    };
+    const fix = readFix(doc, Date.parse('2026-09-02T23:20:01.000Z'));
+    assert.equal(fix?.source, 'ublox-gps.GP');
+    assert.equal(fix?.latitude, -27.2);
+});
+
+test("reads Calypso's real single-source shape, and says which receiver it was", () => {
+    // Exactly what the boat served on 2026-09-03: one writer, no values map.
+    const doc = {
+        navigation: {
+            position: {
+                meta: { description: 'The position of the vessel' },
+                value: { latitude: -27.195095, longitude: 153.10556 },
+                $source: 'ydwg-tcp.YD',
+                timestamp: '2026-09-02T23:19:38.000Z',
+                sentence: 'GGA',
+            },
+        },
+    };
+    const fix = readFix(doc, Date.parse('2026-09-02T23:19:40.000Z'));
+    assert.equal(fix?.source, 'ydwg-tcp.YD');
+    assert.equal(fix?.latitude, -27.195095);
+});
+
+test('ranks the bus above the stick above anything unrecognised', () => {
+    assert.ok(rankSource('ydwg-tcp.YD') < rankSource('ublox-gps.GP'));
+    assert.ok(rankSource('ublox-gps.GP') < rankSource('some-plugin.XX'));
+    assert.equal(rankSource(null), Number.MAX_SAFE_INTEGER);
 });

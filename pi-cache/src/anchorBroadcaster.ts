@@ -72,6 +72,49 @@ export interface VesselFix {
     longitude: number;
     /** Epoch ms the fix was taken, per Signal K's own timestamp. */
     timestamp: number;
+    /** Signal K's own source id, e.g. 'ydwg-tcp.YD'. Null when it named none. */
+    source?: string | null;
+}
+
+/**
+ * WHICH GPS WINS, in order.
+ *
+ * Calypso carries two receivers and Signal K picks per PATH by whoever wrote
+ * last — measured 2026-09-03, with navigation.position won by the bus while
+ * navigation.gnss.methodQuality was simultaneously won by the USB stick. So
+ * the boat's position was correct by luck, not by rule, and on the day the
+ * USB stick happened to write last it would have become the vessel's position
+ * with a third of the satellites (25 on the bus, 11 on the stick).
+ *
+ * Shane 2026-09-03: "a: garmin gps b: usb gps c: phone gps."
+ *
+ * a — the instrument bus. The Garmin's fix arrives through the YDWG gateway,
+ *     which is also what every other instrument on the boat is steering by, so
+ *     agreeing with it matters as much as its accuracy.
+ * b — a USB receiver plugged into the Pi. A real fix and a fine backup, but it
+ *     sits under the deck with a fraction of the sky.
+ *
+ * Overridable with GPS_SOURCE_PRIORITY (comma-separated prefixes) for a boat
+ * wired differently, because these names are Calypso's, not a standard.
+ */
+const DEFAULT_SOURCE_PRIORITY = ['ydwg', 'n2k', 'nmea', 'ublox', 'usb', 'gps'];
+
+export function sourcePriority(): string[] {
+    const raw = typeof process !== 'undefined' ? process.env?.GPS_SOURCE_PRIORITY : undefined;
+    const parsed = (raw ?? '')
+        .split(',')
+        .map((p) => p.trim().toLowerCase())
+        .filter(Boolean);
+    return parsed.length > 0 ? parsed : DEFAULT_SOURCE_PRIORITY;
+}
+
+/** Lower is better. Anything unrecognised ranks last but is still usable. */
+export function rankSource(source: string | null | undefined): number {
+    if (!source) return Number.MAX_SAFE_INTEGER;
+    const id = source.toLowerCase();
+    const order = sourcePriority();
+    for (let i = 0; i < order.length; i++) if (id.startsWith(order[i]) || id.includes(order[i])) return i;
+    return Number.MAX_SAFE_INTEGER;
 }
 
 type FetchLike = (
@@ -120,17 +163,39 @@ export function readFix(selfDocument: unknown, now: number = Date.now()): Vessel
     const doc = selfDocument as Record<string, unknown> | null;
     const navigation = doc?.navigation as Record<string, unknown> | undefined;
     const position = navigation?.position as Record<string, unknown> | undefined;
-    const value = position?.value as Record<string, unknown> | undefined;
-    if (!value) return null;
+    if (!position) return null;
 
-    const { latitude, longitude } = value;
-    if (!isFiniteLat(latitude) || !isFiniteLon(longitude)) return null;
+    const readOne = (node: Record<string, unknown> | undefined, source: string | null): VesselFix | null => {
+        const value = node?.value as Record<string, unknown> | undefined;
+        if (!value) return null;
+        const { latitude, longitude } = value;
+        if (!isFiniteLat(latitude) || !isFiniteLon(longitude)) return null;
+        const stamped = typeof node?.timestamp === 'string' ? Date.parse(node.timestamp) : NaN;
+        // No timestamp is not the same as a fresh one. Treat it as now only
+        // when Signal K gave us nothing to judge by, and let the age gate
+        // below decide.
+        return { latitude, longitude, timestamp: Number.isFinite(stamped) ? stamped : now, source };
+    };
 
-    const stamped = typeof position?.timestamp === 'string' ? Date.parse(position.timestamp) : NaN;
-    // No timestamp is not the same as a fresh one. Treat it as now only when
-    // Signal K gave us nothing to judge by, and let the age gate below decide.
-    const timestamp = Number.isFinite(stamped) ? stamped : now;
-    return { latitude, longitude, timestamp };
+    // When Signal K retains a value per source, CHOOSE — do not accept its
+    // last-writer-wins answer. Ties break on the fresher fix.
+    const values = position.values as Record<string, Record<string, unknown>> | undefined;
+    if (values && typeof values === 'object') {
+        const candidates = Object.entries(values)
+            .map(([src, node]) => readOne(node, src))
+            .filter((f): f is VesselFix => f !== null);
+        if (candidates.length > 0) {
+            candidates.sort((a, b) => {
+                const byRank = rankSource(a.source) - rankSource(b.source);
+                return byRank !== 0 ? byRank : b.timestamp - a.timestamp;
+            });
+            return candidates[0];
+        }
+    }
+
+    // One writer only: take it, and record WHICH it was so the app can say so.
+    const single = typeof position.$source === 'string' ? position.$source : null;
+    return readOne(position, single);
 }
 
 /** Is this fix current enough to transmit as the boat's position? */

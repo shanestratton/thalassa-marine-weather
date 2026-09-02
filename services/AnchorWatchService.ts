@@ -50,6 +50,7 @@ import {
     readAnchorWatchRecovery,
     writeAnchorWatchRecovery,
 } from './anchorWatchRecoveryStorage';
+import { piFix } from './boatPositionChain';
 
 export { ANCHOR_WATCH_DEVICE_RECOVERY_KEY } from './anchorWatchRecoveryStorage';
 
@@ -643,6 +644,9 @@ class AnchorWatchServiceClass {
             this.setupStage = 'Getting a position fix';
             this.notify();
             const nmeaPos = NmeaGpsProvider.getPosition();
+            // Asked for only when the bus is silent: it is a network round
+            // trip, and the anchor is being set right now.
+            const piBoatFix = nmeaPos ? null : await piFix();
             let anchorLat: number;
             let anchorLon: number;
             let anchorTs: number;
@@ -652,6 +656,16 @@ class AnchorWatchServiceClass {
                 anchorLat = nmeaPos.latitude;
                 anchorLon = nmeaPos.longitude;
                 anchorTs = nmeaPos.timestamp;
+            } else if (piBoatFix) {
+                // Rung b: the Pi's Signal K, which has already chosen between
+                // the instrument bus and its own USB stick by SOURCE rather
+                // than by whoever wrote last. A receiver on the boat beats the
+                // phone in a pocket, even when the gateway is unreachable from
+                // here (Shane 2026-09-03: "a: garmin gps b: usb gps c: phone").
+                log.info(`setAnchor: using the boat's GPS via the Pi (${piBoatFix.source ?? 'unknown source'})`);
+                anchorLat = piBoatFix.latitude;
+                anchorLon = piBoatFix.longitude;
+                anchorTs = piBoatFix.timestamp;
             } else {
                 // Fall back to phone GPS
                 const pos = await this.stage('Getting a position fix', 30_000, async () => {
