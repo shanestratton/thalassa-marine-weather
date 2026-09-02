@@ -32,6 +32,9 @@ export interface VoyageLogConfig {
     enabled: boolean;
     scope: 'personal' | 'combined';
     track_days: number;
+    /** Publish nearby AIS traffic on the public page. Absent on an app build
+     *  that predates the column; treated as ON, matching the DB default. */
+    public_ais_enabled?: boolean;
     created_at: string;
     updated_at: string;
 }
@@ -505,6 +508,37 @@ class VoyageLogServiceClass {
         }
     }
 
+    /**
+     * Publish nearby AIS traffic on the public page, or don't.
+     *
+     * A separate switch from `enabled` on purpose: that one decides whether
+     * THIS boat is public at all, which is a decision about Shane's own data.
+     * This one decides whether OTHER boats' positions get republished to
+     * anyone holding the link — a different question, with a licence dimension
+     * (AISHub's written permission covers feeding them, not redistribution),
+     * so it deserves its own control rather than riding along with the master
+     * switch. Enforced server-side in the voyage-log edge function.
+     */
+    async setPublicAisEnabled(publicAisEnabled: boolean): Promise<VoyageLogConfig | null> {
+        const scope = getAuthIdentityScope();
+        this.setError(scope, null);
+        try {
+            const operation = await this.authenticate(scope, true);
+            if (!operation) return null;
+            const boatId = await this.getOwnedBoatId(operation, true);
+            if (!boatId) return null;
+            return await this.updateConfigForOperation(operation, boatId, {
+                public_ais_enabled: publicAisEnabled,
+            });
+        } catch (error) {
+            if (isAuthIdentityScopeCurrent(scope)) {
+                log.warn('setPublicAisEnabled failed:', error);
+                this.setError(scope, 'Voyage Log update failed — check signal.');
+            }
+            return null;
+        }
+    }
+
     private async setEnabledForOperation(
         operation: VoyageLogOperation,
         boatId: string,
@@ -532,6 +566,40 @@ class VoyageLogServiceClass {
         }
         const config = data as VoyageLogConfig;
         if (config.owner_id !== operation.userId || config.boat_id !== boatId || config.scope !== 'combined') {
+            this.setError(operation.scope, "Couldn't verify the updated Voyage Log config owner.");
+            return null;
+        }
+        return config;
+    }
+
+    /**
+     * Patch the combined config, re-verifying ownership on the row that comes
+     * BACK — the same discipline setEnabledForOperation uses, because a scope
+     * change mid-await must never let one account's write land on another's
+     * config or be reported as success.
+     */
+    private async updateConfigForOperation(
+        operation: VoyageLogOperation,
+        boatId: string,
+        patch: Partial<Pick<VoyageLogConfig, 'public_ais_enabled'>>,
+    ): Promise<VoyageLogConfig | null> {
+        if (!supabase || !isAuthIdentityScopeCurrent(operation.scope)) return null;
+        const { data, error } = await supabase
+            .from('voyage_log_configs')
+            .update(patch)
+            .eq('owner_id', operation.userId)
+            .eq('boat_id', boatId)
+            .eq('scope', 'combined')
+            .select()
+            .single();
+        if (!isAuthIdentityScopeCurrent(operation.scope)) return null;
+        if (error) {
+            log.warn('voyage log config update failed:', error.message);
+            this.setError(operation.scope, `Couldn't update Voyage Log: ${error.message}`);
+            return null;
+        }
+        const config = data as VoyageLogConfig | null;
+        if (!config || config.owner_id !== operation.userId || config.boat_id !== boatId) {
             this.setError(operation.scope, "Couldn't verify the updated Voyage Log config owner.");
             return null;
         }
