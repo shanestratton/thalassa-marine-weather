@@ -27,6 +27,7 @@ import {
 import { GearIcon } from '../Icons';
 import { authScopedStorageKey } from '../../services/authIdentityScope';
 import { useUtcClock } from '../../hooks/useUtcClock';
+import { formatLatDegMin, formatLonDegMin } from '../../utils/formatDegMin';
 
 interface RadioConsolePageProps {
     onBack: () => void;
@@ -37,21 +38,9 @@ type EmergencyVesselType = 'sail' | 'power' | 'observer' | undefined;
 
 // ── Coordinate formatting ─────────────────────────────────────────────────
 /** Convert decimal degrees to degrees°minutes.decimal′ N/S/E/W format */
-function formatLat(dec: number): string {
-    const abs = Math.abs(dec);
-    const deg = Math.floor(abs);
-    const min = (abs - deg) * 60;
-    const dir = dec >= 0 ? 'N' : 'S';
-    return `${deg}°${min.toFixed(3)}′${dir}`;
-}
+const formatLat = (dec: number): string => formatLatDegMin(dec);
 
-function formatLon(dec: number): string {
-    const abs = Math.abs(dec);
-    const deg = Math.floor(abs);
-    const min = (abs - deg) * 60;
-    const dir = dec >= 0 ? 'E' : 'W';
-    return `${String(deg).padStart(3, '0')}°${min.toFixed(3)}′${dir}`;
-}
+const formatLon = (dec: number): string => formatLonDegMin(dec);
 
 /** Empty/setup placeholder values are instructions, never vessel identities. */
 function emergencyIdentity(value: unknown): string | undefined {

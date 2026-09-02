@@ -18,6 +18,7 @@ import { getMyCrew, type CrewMember } from '../../services/CrewService';
 import { WatchAssignSheet } from './WatchAssignSheet';
 import { supabase } from '../../services/supabase';
 import { isAuthIdentityScopeCurrent } from '../../services/authIdentityScope';
+import { splitDaysHours } from '../../utils/splitDaysHours';
 
 /* ────────────────────────────────────────────────────────────── */
 
@@ -720,10 +721,12 @@ export const WatchScheduleCard: React.FC<WatchScheduleCardProps> = ({
         onReviewedChange?.(allChecked);
     }, [allChecked, onReviewedChange]);
 
+    // Rounded before display — this printed the raw float ("23.833333333333332h").
     const durationDisplay = passageDurationHours
-        ? passageDurationHours >= 24
-            ? `${Math.floor(passageDurationHours / 24)}d ${passageDurationHours % 24}h`
-            : `${passageDurationHours}h`
+        ? (() => {
+              const { days, hours } = splitDaysHours(passageDurationHours);
+              return days > 0 ? `${days}d ${hours}h` : `${hours}h`;
+          })()
         : null;
 
     return (

@@ -11,6 +11,7 @@ import { shareGPXFile } from '../../services/gpxService';
 import { DUPLICATE_PASSAGE_PLAN_ERROR } from '../../services/shiplog/PassagePlanSave';
 import { Share } from '@capacitor/share';
 import type { PassageNotice, PassageRouteVerification } from './usePassagePlanner';
+import { splitDaysHours } from '../../utils/splitDaysHours';
 
 const log = createLogger('PassageBanner');
 
@@ -223,7 +224,8 @@ export const PassageBanner: React.FC<PassageBannerProps> = ({
     // ── Format duration ──
     const formatDuration = (hours: number) => {
         if (hours < 24) return `${hours.toFixed(1)}h`;
-        return `${Math.floor(hours / 24)}d ${Math.round(hours % 24)}h`;
+        const dh = splitDaysHours(hours); // rounds once — never "1d 24h"
+        return `${dh.days}d ${dh.hours}h`;
     };
 
     // ── Progress label ──

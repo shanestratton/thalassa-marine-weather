@@ -617,7 +617,7 @@ export const CrewBrowseBoard: React.FC<CrewBrowseBoardProps> = React.memo(
                             >
                                 <div className="flex justify-between items-center">
                                     <button
-                                        aria-label="Go to previous step"
+                                        aria-label="Show previous crew listing"
                                         onClick={goToPrevCard}
                                         disabled={currentCardIndex <= 0}
                                         className={`px-5 py-2.5 rounded-xl text-sm font-semibold transition-all ${currentCardIndex <= 0 ? 'text-white/40 cursor-not-allowed' : 'text-white/50 bg-white/3 border border-white/6 active:scale-95'}`}

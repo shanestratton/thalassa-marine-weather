@@ -141,7 +141,13 @@ const VesselStatusWidgetComponent = ({
 }) => {
     const hullSpeed = vessel && vessel.type !== 'observer' ? calculateHullSpeed(vessel.length) : null;
     const mcr = vessel && vessel.type === 'sail' ? calculateMCR(vessel.displacement, vessel.length, vessel.beam) : null;
-    const csf = vessel && vessel.type === 'sail' ? calculateCSF(vessel.displacement, vessel.length) : null;
+    const csf =
+        vessel && vessel.type === 'sail'
+            ? calculateCSF(
+                  vessel.displacement,
+                  vessel.beam,
+              ) /* CSF is beam / ∛(disp/64); length here was wrong (audit 2026-09-02) */
+            : null;
     const dlr = vessel && vessel.type === 'sail' ? calculateDLR(vessel.displacement, vessel.length) : null;
 
     if (isLandlocked) {

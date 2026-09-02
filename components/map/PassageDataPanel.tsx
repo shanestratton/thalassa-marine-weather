@@ -8,6 +8,7 @@
 import React from 'react';
 import type { RouteAnalysis } from '../../services/WeatherRoutingService';
 import type { TurnWaypoint } from '../../services/IsochroneRouter';
+import { splitDaysHours } from '../../utils/splitDaysHours';
 
 interface PassageDataPanelProps {
     routeAnalysis: RouteAnalysis | null;
@@ -59,7 +60,7 @@ export const PassageDataPanel: React.FC<PassageDataPanelProps> = ({
                             <p className="text-lg font-black text-white tabular-nums">
                                 {routeAnalysis.estimatedDuration < 24
                                     ? `${routeAnalysis.estimatedDuration.toFixed(1)}h`
-                                    : `${Math.floor(routeAnalysis.estimatedDuration / 24)}d ${Math.round(routeAnalysis.estimatedDuration % 24)}h`}
+                                    : `${splitDaysHours(routeAnalysis.estimatedDuration).days}d ${splitDaysHours(routeAnalysis.estimatedDuration).hours}h`}
                             </p>
                         </div>
                         <div>

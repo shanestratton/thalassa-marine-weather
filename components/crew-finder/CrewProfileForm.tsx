@@ -683,7 +683,8 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                     <div className="flex gap-2 flex-wrap">
                         {INTEREST_OPTIONS.map((interest) => (
                             <button
-                                aria-label="Show interest"
+                                aria-label={`${editInterests.includes(interest) ? 'Remove' : 'Add'} interest ${interest}`}
+                                aria-pressed={editInterests.includes(interest)}
                                 key={interest}
                                 onClick={() => toggleInterest(interest)}
                                 className={`px-3.5 py-2 rounded-xl text-sm font-medium transition-all ${
