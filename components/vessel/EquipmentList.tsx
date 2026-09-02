@@ -82,6 +82,8 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
     const [menuOpen, setMenuOpen] = useState(false);
     const [deletedItem, setDeletedItem] = useState<EquipmentItem | null>(null);
     const deleteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    /** The item whose delete is pending in deleteTimerRef, so a newer delete can flush it. */
+    const pendingDeleteRef = useRef<(typeof visibleItems)[number] | null>(null);
     const reloadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const mountedRef = useRef(true);
 
@@ -236,9 +238,25 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
             setContextItem(null);
             setDeletedItem(item);
 
+            // A second delete inside the window used to CANCEL the first item's
+            // timer, so that item silently survived in storage while gone from
+            // the list (audit 2026-09-02). Flush the pending delete now instead.
+            if (deleteTimerRef.current) {
+                clearTimeout(deleteTimerRef.current);
+                deleteTimerRef.current = null;
+                const previous = pendingDeleteRef.current;
+                if (previous) {
+                    pendingDeleteRef.current = null;
+                    void LocalEquipmentService.delete(previous.id).catch((e) => {
+                        log.warn(' delete failed:', e);
+                        if (currentOperation(scope)) toast.error('Failed to delete equipment');
+                    });
+                }
+            }
+            pendingDeleteRef.current = item;
             // Schedule actual delete after 5s
-            if (deleteTimerRef.current) clearTimeout(deleteTimerRef.current);
             deleteTimerRef.current = setTimeout(async () => {
+                pendingDeleteRef.current = null;
                 if (!currentOperation(scope)) return;
                 try {
                     await LocalEquipmentService.delete(id);

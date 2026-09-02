@@ -596,10 +596,22 @@ const AvNavPageDevelopment: React.FC<AvNavPageProps> = ({ onBack }) => {
                                                     const cmd =
                                                         'curl -fsSL https://raw.githubusercontent.com/shanestratton/thalassa-marine-weather/master/pi-cache/install.sh | sudo bash';
                                                     if (navigator.clipboard) {
-                                                        navigator.clipboard.writeText(cmd);
-                                                        triggerHaptic('light');
-                                                        setCopiedCommand(true);
-                                                        setTimeout(() => setCopiedCommand(false), 2000);
+                                                        // Confirm AFTER the write resolves — "Copied!" used to show
+                                                        // regardless, and a rejected write was an unhandled
+                                                        // rejection (audit 2026-09-02).
+                                                        void navigator.clipboard
+                                                            .writeText(cmd)
+                                                            .then(() => {
+                                                                triggerHaptic('light');
+                                                                setCopiedCommand(true);
+                                                                setTimeout(() => setCopiedCommand(false), 2000);
+                                                            })
+                                                            .catch(() => {
+                                                                const range = document.createRange();
+                                                                range.selectNodeContents(e.currentTarget);
+                                                                window.getSelection()?.removeAllRanges();
+                                                                window.getSelection()?.addRange(range);
+                                                            });
                                                     } else {
                                                         const range = document.createRange();
                                                         range.selectNodeContents(e.currentTarget);

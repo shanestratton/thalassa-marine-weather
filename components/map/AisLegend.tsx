@@ -76,12 +76,17 @@ export const AisLegend: React.FC<AisLegendProps> = ({ visible }) => {
                 <button
                     aria-label={`${guardState.enabled ? 'Disable' : 'Enable'} AIS guard zone`}
                     aria-pressed={guardState.enabled}
+                    /* The double-click handler is GONE. It shared this button with onClick,
+                       so a double-tap toggled the guard ON then OFF on its way to opening
+                       the radius picker — a picker that has its own button right beside this
+                       one (audit 2026-09-02). The toggle stays immediate: a guard-zone
+                       switch must not lag by a double-tap window. Long-press (contextmenu)
+                       still opens the picker. */
                     onClick={toggleGuard}
                     onContextMenu={(e) => {
                         e.preventDefault();
                         setShowRadiusPicker((p) => !p);
                     }}
-                    onDoubleClick={() => setShowRadiusPicker((p) => !p)}
                     style={{
                         display: 'flex',
                         alignItems: 'center',

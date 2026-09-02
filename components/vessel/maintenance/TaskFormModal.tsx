@@ -168,7 +168,7 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
                     {/* Next due — for time-based triggers */}
                     {form.trigger !== 'engine_hours' && form.category !== 'Repair' && (
                         <FormField
-                            label="Starts From"
+                            label="First due"
                             type="date"
                             value={form.dueDate}
                             onChange={(v) => setField('dueDate', v)}

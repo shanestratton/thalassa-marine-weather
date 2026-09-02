@@ -373,9 +373,25 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
             triggerHaptic('medium');
             // Remove from UI immediately
             setDocuments((prev) => prev.filter((d) => d.id !== id));
-            setDeletedDoc(doc);
+            // One undo slot: commit whatever is already pending before taking
+            // it, or the earlier document is never deleted locally nor marked
+            // deleted for cloud sync (audit 2026-09-02).
+            setDeletedDoc((pending) => {
+                if (pending) {
+                    const scope = getAuthIdentityScope();
+                    void LocalDocumentService.delete(pending.id)
+                        .then(() => {
+                            if (currentOperation(scope)) DocumentSyncService.markDeleted(pending.id);
+                        })
+                        .catch((e) => {
+                            log.warn(' delete failed:', e);
+                            if (currentOperation(scope)) toast.error('Failed to delete document');
+                        });
+                }
+                return doc;
+            });
         },
-        [visibleDocuments],
+        [currentOperation, visibleDocuments],
     );
 
     // Called by UndoToast after 5s — performs the actual delete

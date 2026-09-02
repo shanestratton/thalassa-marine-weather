@@ -1060,11 +1060,15 @@ export function useAisStreamLayer(map: mapboxgl.Map | null, enabled: boolean): v
                             successDiv.appendChild(checkSpan);
                             spinnerEl.appendChild(successDiv);
                         }
-                        // Update the name/flag in the existing popup header (in-place, no flash)
-                        const popup = popupRef.current;
-                        if (popup) {
-                            const el = popup.getElement();
-                            if (el) {
+                        // Update the name/flag in the popup THIS lookup was started for —
+                        // found from the spinner element, not popupRef.current, which is
+                        // whatever popup happens to be open when the await resolves.
+                        // Vessel A's name used to land in vessel B's header (audit
+                        // 2026-09-02).
+                        const ownerEl = spinnerEl?.closest('.mapboxgl-popup') as HTMLElement | null;
+                        if (ownerEl) {
+                            const el = ownerEl;
+                            {
                                 const nameEl = el.querySelector('[data-vessel-name]') as HTMLElement;
                                 if (nameEl) nameEl.textContent = result.vessel_name || '';
                                 const flagEl = el.querySelector('[data-vessel-flag]') as HTMLElement;

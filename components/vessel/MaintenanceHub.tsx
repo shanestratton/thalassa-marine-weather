@@ -49,6 +49,7 @@ import {
 } from '../../services/authIdentityScope';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { initLocalDatabase } from '../../services/vessel/LocalDatabase';
+import { toLocalDateString } from '../../utils/localDate';
 
 interface MaintenanceHubProps {
     onBack: () => void;
@@ -290,9 +291,8 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                 triggerType === 'engine_hours'
                     ? null
                     : isRepair
-                      ? new Date().toISOString().split('T')[0]
-                      : form.dueDate ||
-                        new Date(Date.now() + (periodDays || 30) * 86400000).toISOString().split('T')[0];
+                      ? toLocalDateString() // local calendar day, not the UTC one (audit 2026-09-02)
+                      : form.dueDate || toLocalDateString(new Date(Date.now() + (periodDays || 30) * 86400000));
 
             await MaintenanceService.createTask({
                 title: form.title.trim(),
@@ -418,7 +418,19 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                     : previous,
             );
             setSheetTask(null);
-            setDeletedTask({ identity, task });
+            // The undo slot holds ONE task. Replacing it used to orphan the
+            // previous one: gone from the list, never deleted from storage,
+            // back on the next load (audit 2026-09-02). Commit the pending
+            // delete now, then take the slot.
+            setDeletedTask((pending) => {
+                if (pending && isAuthIdentityScopeCurrent(pending.identity)) {
+                    void MaintenanceService.deleteTask(pending.task.id).catch((e) => {
+                        log.warn(' delete failed:', e);
+                        if (isAuthIdentityScopeCurrent(pending.identity)) toast.error('Failed to delete task');
+                    });
+                }
+                return { identity, task };
+            });
         },
         [tasks],
     );
