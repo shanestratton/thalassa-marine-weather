@@ -44,7 +44,7 @@ import {
     type DiaryRelayConfigInput,
     DiaryRelayValidationError,
 } from './diaryRelayOutbox.js';
-import { AnchorWatchRunner } from './anchorBroadcaster.js';
+import { AnchorWatchRunner, currentFix, fixIsCurrent } from './anchorBroadcaster.js';
 import { DiaryVideoRelay } from './diaryVideoRelay.js';
 import { loadOrCreateIdentity, readIdentityPrivateKeyPem } from './identity.js';
 import { ensureIdentityTls } from './tlsIdentity.js';
@@ -515,6 +515,37 @@ app.get('/api/barometer', requireAppApi, (_req, res) => {
  * one purpose, and the endpoint comes from the process-startup trust anchor —
  * never from this request body.
  */
+/**
+ * Can this Pi actually keep the watch?
+ *
+ * Asked BEFORE the app offers to hand it over, because a Pi that takes the
+ * watch and then broadcasts "no-fix" forever is worse than one that never
+ * offered: the skipper would go ashore believing the boat was being watched.
+ * Three things have to be true — paired to an account, configured to reach
+ * Supabase, and able to see the vessel on the bus right now.
+ *
+ * Always 200. `capable: false` with a reason is a real answer the app can put
+ * in front of the skipper, not an error it has to interpret.
+ */
+app.get('/api/anchor/capability', requireAppApi, async (_req, res) => {
+    const paired = diaryRelayOutbox.lendAnchorCredentials() !== null;
+    let hasFix = false;
+    try {
+        const fix = await currentFix({ fetchImpl: fetch, signalkOrigin: SIGNALK_ORIGIN });
+        hasFix = fix !== null && fixIsCurrent(fix);
+    } catch {
+        hasFix = false;
+    }
+    const reason = !paired
+        ? 'This Pi is not paired to an account'
+        : !SUPABASE_ANON_KEY
+          ? 'This Pi has no Supabase key configured'
+          : !hasFix
+            ? 'Signal K on this Pi cannot see the vessel right now'
+            : null;
+    res.json({ capable: paired && !!SUPABASE_ANON_KEY && hasFix, paired, hasFix, reason });
+});
+
 app.post('/api/anchor/watch', requireAppApi, (req, res) => {
     const body = (req.body ?? {}) as Record<string, unknown>;
     const sessionCode = typeof body.sessionCode === 'string' ? body.sessionCode.trim() : '';
