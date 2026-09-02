@@ -70,7 +70,7 @@ export const LocationsTab: React.FC<LocationsTabProps> = ({ settings, onSave, on
                                         ),
                                     );
                                 }}
-                                className="p-2 rounded-lg text-gray-400 hover:text-red-400 hover:bg-red-500/10 transition-colors shrink-0 ml-2"
+                                className="hit-target-44 p-2 rounded-lg text-gray-400 hover:text-red-400 hover:bg-red-500/10 transition-colors shrink-0 ml-2"
                                 aria-label={`Remove ${loc}`}
                             >
                                 <TrashIcon className="w-5 h-5" />

@@ -3,22 +3,7 @@
  * Extracted from HeroSlide.tsx for better maintainability
  */
 
-import { WeatherMetrics, UnitPreferences, Tide } from '../../../types';
-
-/**
- * Alignment options for widget content
- */
-export type WidgetAlignment = 'left' | 'center' | 'right';
-
-/**
- * Trend direction for metric changes
- */
-export type TrendDirection = 'rising' | 'falling' | 'steady' | undefined;
-
-/**
- * Map of metric keys to their trend directions
- */
-export type TrendMap = Record<string, TrendDirection>;
+import { WeatherMetrics } from '../../../types';
 
 /**
  * Data source color indicators
@@ -77,20 +62,6 @@ export interface CardDisplayValues {
 }
 
 /**
- * Props for HeroWidget component
- */
-export interface HeroWidgetProps {
-    id: string;
-    data: WeatherMetrics;
-    values: CardDisplayValues;
-    units: UnitPreferences;
-    isLive: boolean;
-    trends?: TrendMap;
-    align?: WidgetAlignment;
-    sources?: SourceMap;
-}
-
-/**
  * Props for HeroHeader component
  */
 export interface HeroHeaderProps {
@@ -101,32 +72,4 @@ export interface HeroHeaderProps {
     forceLabel?: string;
     timeZone: string;
     getCardSourceColor: (metricKey: string) => string;
-}
-
-/**
- * Props for HeroStatsRows component
- */
-export interface HeroStatsRowsProps {
-    cardData: WeatherMetrics;
-    cardDisplayValues: CardDisplayValues;
-    cardTime: string | null;
-    timeZone: string;
-    trends?: TrendMap;
-    getCardSourceColor: (metricKey: string) => string;
-}
-
-/**
- * Props for HeroWidgetGrid component
- */
-export interface HeroWidgetGridProps {
-    layoutType: 'inshore' | 'coastal' | 'offshore' | 'inland';
-    data: WeatherMetrics;
-    values: CardDisplayValues;
-    units: UnitPreferences;
-    isLive: boolean;
-    trends?: TrendMap;
-    sources?: SourceMap;
-    tides?: Tide[];
-    timeZone: string;
-    selectedTime: string | null;
 }

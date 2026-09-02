@@ -334,7 +334,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, layer = '
                                     type="email"
                                     value={email}
                                     onChange={(e) => setEmail(e.target.value.replace(/\s+/g, ''))}
-                                    placeholder="captain@vessel.com"
+                                    placeholder="skipper@vessel.com"
                                     className={`w-full bg-slate-900 ${t.border.default} rounded-xl px-4 py-3 text-white focus:border-sky-500 outline-hidden transition-colors`}
                                     required
                                     autoFocus

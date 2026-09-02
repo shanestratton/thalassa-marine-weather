@@ -52,13 +52,13 @@ const SLIDES: Slide[] = [
     },
     {
         title: 'Future Hours',
-        subtitle: 'Swipe left or right on the tide chart to step through the forecast hour by hour.',
+        subtitle: 'Swipe left or right on the card to step through the day hour by hour.',
         visual: <HorizontalSwipeVisual />,
         gradient: 'from-emerald-500/20 to-teal-500/10',
     },
     {
         title: 'Future Days',
-        subtitle: 'Swipe up or down on the tide chart to move through the 7-day forecast, day by day.',
+        subtitle: 'Swipe up or down on the card to move through the coming days.',
         visual: <VerticalSwipeVisual />,
         gradient: 'from-amber-500/20 to-orange-500/10',
     },
@@ -214,7 +214,7 @@ export const GlassTutorial: React.FC = () => {
                                     <button
                                         aria-label="Skip Glass tutorial"
                                         onClick={dismiss}
-                                        className="text-sm text-white/50 hover:text-white/60 transition-colors"
+                                        className="hit-target-44 px-3 py-2.5 text-sm text-white/50 hover:text-white/60 transition-colors"
                                     >
                                         Skip
                                     </button>

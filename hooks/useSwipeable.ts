@@ -29,12 +29,6 @@ interface UseSwipeableReturn {
     resetSwipe: () => void;
     /** Attach to the swipeable element */
     ref: React.RefCallback<HTMLElement>;
-    /** Legacy: React synthetic handlers (kept for backwards compat) */
-    handlers: {
-        onTouchStart: (e: React.TouchEvent) => void;
-        onTouchMove: (e: React.TouchEvent) => void;
-        onTouchEnd: () => void;
-    };
 }
 
 export function useSwipeable(options: UseSwipeableOptions = {}): UseSwipeableReturn {
@@ -204,20 +198,10 @@ export function useSwipeable(options: UseSwipeableOptions = {}): UseSwipeableRet
         directionLocked.current = null;
     }, []);
 
-    // Legacy React handlers (no-ops if ref is used, fallback if not)
-    const noopStart = useCallback((_e: React.TouchEvent) => {}, []);
-    const noopMove = useCallback((_e: React.TouchEvent) => {}, []);
-    const noopEnd = useCallback(() => {}, []);
-
     return {
         swipeOffset,
         isSwiping,
         resetSwipe,
         ref: refCallback,
-        handlers: {
-            onTouchStart: noopStart,
-            onTouchMove: noopMove,
-            onTouchEnd: noopEnd,
-        },
     };
 }

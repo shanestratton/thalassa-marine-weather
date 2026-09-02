@@ -9,7 +9,7 @@ import type { TaskWithStatus, TrafficLight } from '../../../services/Maintenance
 import type { MaintenanceTriggerType } from '../../../types';
 import { useSwipeable } from '../../../hooks/useSwipeable';
 import { triggerHaptic } from '../../../utils/system';
-import { CATEGORIES, TRIGGER_LABELS } from './constants';
+import { CATEGORIES } from './constants';
 
 /** Map period triggers to their interval in days */
 export const PERIOD_DAYS: Partial<Record<MaintenanceTriggerType, number>> = {
@@ -35,26 +35,16 @@ export const LIGHT_COLORS: Record<TrafficLight, { dot: string; bg: string; borde
 
 interface SwipeableTaskCardProps {
     task: TaskWithStatus;
-    categories: typeof CATEGORIES;
-    lightColors: typeof LIGHT_COLORS;
-    triggerLabels: typeof TRIGGER_LABELS;
     onTap: () => void;
     onDelete: () => void;
 }
 
-export const SwipeableTaskCard: React.FC<SwipeableTaskCardProps> = ({
-    task,
-    categories,
-    lightColors,
-    triggerLabels: _triggerLabels,
-    onTap,
-    onDelete,
-}) => {
+export const SwipeableTaskCard: React.FC<SwipeableTaskCardProps> = ({ task, onTap, onDelete }) => {
     const { swipeOffset, isSwiping, resetSwipe, ref } = useSwipeable({
         onSwipeComplete: () => void triggerHaptic('light'),
     });
-    const light = lightColors[task.status];
-    const catConfig = categories.find((c) => c.id === task.category);
+    const light = LIGHT_COLORS[task.status];
+    const catConfig = CATEGORIES.find((c) => c.id === task.category);
 
     return (
         <div className="relative overflow-hidden rounded-lg">
@@ -108,7 +98,7 @@ export const SwipeableTaskCard: React.FC<SwipeableTaskCardProps> = ({
                             e.stopPropagation();
                             onTap();
                         }}
-                        className="p-1.5 -mr-1 -mt-0.5 rounded-lg hover:bg-white/10 transition-colors shrink-0"
+                        className="hit-target-44 p-1.5 -mr-1 -mt-0.5 rounded-lg hover:bg-white/10 transition-colors shrink-0"
                         aria-label="Task options"
                     >
                         <svg className="w-4 h-4 text-slate-400" viewBox="0 0 24 24" fill="currentColor">

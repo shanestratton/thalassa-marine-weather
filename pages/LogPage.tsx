@@ -15,7 +15,7 @@ import { createLogger } from '../utils/createLogger';
 import { triggerHaptic } from '../utils/system';
 
 const log = createLogger('LogPage');
-import { PlayIcon, StopIcon, MapPinIcon } from '../components/Icons';
+import { PlayIcon, StopIcon, MapPinIcon, MapIcon, DownloadIcon, ShareIcon } from '../components/Icons';
 import { TraceReportModal } from '../components/map/TraceReportModal';
 import { AddEntryModal } from '../components/AddEntryModal';
 import { useToast } from '../components/Toast';
@@ -42,6 +42,7 @@ import { ConfirmDialog } from '../components/ui/ConfirmDialog';
 import { PageHeader } from '../components/ui/PageHeader';
 import { OverlayPortal } from '../components/ui/OverlayPortal';
 import { useFocusTrap } from '../hooks/useFocusTrap';
+import { useMenuNavigation } from '../hooks/useMenuNavigation';
 import { useLogPageState } from '../hooks/useLogPageState';
 import { useFollowRouteStore } from '../stores/followRouteStore';
 import { useUI } from '../context/UIContext';
@@ -149,11 +150,30 @@ const PlusIcon = ({ className }: { className?: string }) => (
     </svg>
 );
 
-const _AnchorIcon = ({ className }: { className?: string }) => (
+const StatsIcon = ({ className }: { className?: string }) => (
     <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+        <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+            d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
+        />
     </svg>
 );
+
+const ExportIcon = ({ className }: { className?: string }) => (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+            d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"
+        />
+    </svg>
+);
+
+/** Stable empty list so memo(VoyageCard) / memo(LiveMiniMap) see one identity. */
+const NO_ENTRIES: ShipLogEntry[] = [];
 
 const subscribeIdentitySnapshot = (notify: () => void): (() => void) => subscribeAuthIdentityScope(() => notify());
 const getIdentitySnapshot = (): AuthIdentityScope => getAuthIdentityScope();
@@ -597,6 +617,15 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         [filteredEntries, plannedVoyageIds],
     );
     const loggedArchivedVoyages = React.useMemo(() => excludeSuggestedRoutes(archivedVoyages), [archivedVoyages]);
+    // Stats-view scope — filtered once per change and shared by the tiles and
+    // the VoyageStatsPanel (it used to be filtered twice per render).
+    const scopedStatsEntries = React.useMemo(
+        () =>
+            state.selectedVoyageId
+                ? filteredEntries.filter((e) => e.voyageId === state.selectedVoyageId)
+                : loggedFilteredEntries,
+        [state.selectedVoyageId, filteredEntries, loggedFilteredEntries],
+    );
 
     // Latest trustworthy fix of the voyage being recorded. Used only to choose
     // WHICH WAY ROUND to offer a there-and-back route (below) — same "ignore
@@ -1637,6 +1666,83 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         filters: _filters,
     } = state;
 
+    // Overflow (kebab) menu — real ARIA menu semantics with the shared keyboard
+    // lifecycle (arrows / Home / End / Escape + focus restore), as the diary has.
+    const overflowTriggerRef = useRef<HTMLButtonElement>(null);
+    const overflowMenuId = React.useId();
+    const closeOverflowMenu = useCallback(() => setShowMenu(false), []);
+    const overflowMenuRef = useMenuNavigation<HTMLDivElement>(showMenu, {
+        triggerRef: overflowTriggerRef,
+        onClose: closeOverflowMenu,
+    });
+    const engineGroupId = React.useId();
+
+    // Live-recording card stats — memoised so the 1 Hz poll doesn't re-filter
+    // and re-sort the whole active voyage in render, and so memo(LiveMiniMap)
+    // sees the same `entries` array until the entries actually change.
+    const liveStats = React.useMemo(() => {
+        const activeEntries = currentVoyageId ? entries.filter((e) => e.voyageId === currentVoyageId) : NO_ENTRIES;
+        let dist = 0;
+        let first: ShipLogEntry | undefined;
+        let firstMs = Infinity;
+        let lastMs = -Infinity;
+        let speedSum = 0;
+        let speedN = 0;
+        for (const e of activeEntries) {
+            const d = e.cumulativeDistanceNM || 0;
+            if (d > dist) dist = d;
+            const t = new Date(e.timestamp).getTime();
+            if (Number.isFinite(t)) {
+                if (t < firstMs) {
+                    firstMs = t;
+                    first = e;
+                }
+                if (t > lastMs) lastMs = t;
+            }
+            if (e.speedKts && e.speedKts > 0) {
+                speedSum += e.speedKts;
+                speedN++;
+            }
+        }
+        const durationMs = Number.isFinite(firstMs) && Number.isFinite(lastMs) ? lastMs - firstMs : 0;
+        return {
+            activeEntries,
+            first,
+            dist,
+            durationHrs: Math.floor(durationMs / 3600000),
+            durationMins: Math.floor((durationMs % 3600000) / 60000),
+            liveAvgSpeed: speedN > 0 ? speedSum / speedN : 0,
+        };
+    }, [entries, currentVoyageId]);
+
+    // Voyage list — one pass over entries instead of one filter per card, and
+    // id-taking callbacks so memo(VoyageCard) actually gets to skip renders.
+    const entriesByVoyage = React.useMemo(() => {
+        const m = new Map<string, ShipLogEntry[]>();
+        for (const e of entries) {
+            if (!e.voyageId) continue;
+            const arr = m.get(e.voyageId);
+            if (arr) arr.push(e);
+            else m.set(e.voyageId, [e]);
+        }
+        return m;
+    }, [entries]);
+    const handleSelectVoyage = useCallback(
+        (voyageId: string) => {
+            void loadVoyageEntries(voyageId);
+            dispatch({ type: 'SELECT_VOYAGE', voyageId });
+        },
+        [loadVoyageEntries, dispatch],
+    );
+    const handleShowVoyageMap = useCallback(
+        (voyageId: string) => {
+            void loadVoyageEntries(voyageId);
+            dispatch({ type: 'SELECT_VOYAGE', voyageId });
+            dispatch({ type: 'SHOW_TRACK_MAP', show: true });
+        },
+        [loadVoyageEntries, dispatch],
+    );
+
     const handleShareCurrentPosition = useCallback(async () => {
         const actionScope = identityScope;
         if (!isAuthIdentityScopeCurrent(actionScope)) return;
@@ -1799,17 +1905,15 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                             // totals. A single selected voyage shows its
                             // own entries verbatim (the user explicitly
                             // drilled into it). 2026-05-20.
-                            const scopedEntries = selectedVoyageId
-                                ? filteredEntries.filter((e) => e.voyageId === selectedVoyageId)
-                                : loggedFilteredEntries;
+                            const scopedEntries = scopedStatsEntries;
 
                             let scopedDistance = 0;
                             if (selectedVoyageId) {
                                 // Single voyage: max cumulative distance
-                                scopedDistance =
-                                    scopedEntries.length > 0
-                                        ? Math.max(...scopedEntries.map((e) => e.cumulativeDistanceNM || 0))
-                                        : 0;
+                                for (const e of scopedEntries) {
+                                    const d = e.cumulativeDistanceNM || 0;
+                                    if (d > scopedDistance) scopedDistance = d;
+                                }
                             } else {
                                 // All voyages: sum each voyage's max cumulative distance
                                 const voyageMap = new Map<string, number>();
@@ -1836,13 +1940,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                 </div>
                             );
                         })()}
-                        <VoyageStatsPanel
-                            entries={
-                                selectedVoyageId
-                                    ? filteredEntries.filter((e) => e.voyageId === selectedVoyageId)
-                                    : loggedFilteredEntries
-                            }
-                        />
+                        <VoyageStatsPanel entries={scopedStatsEntries} />
                     </div>
                 </div>
             ) : (
@@ -1863,12 +1961,12 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                         }`}
                                     />
                                     <span
-                                        className={`text-[10px] font-bold uppercase tracking-widest ${
+                                        className={`text-xs font-bold uppercase tracking-widest ${
                                             gpsStatus === 'locked'
-                                                ? 'text-emerald-400/80'
+                                                ? 'text-emerald-400'
                                                 : gpsStatus === 'stale'
-                                                  ? 'text-amber-300/80'
-                                                  : 'text-red-400/80'
+                                                  ? 'text-amber-300'
+                                                  : 'text-red-400'
                                         }`}
                                     >
                                         {gpsStatus === 'locked' && hasRecordedFix ? 'Recording' : gpsHeadline}
@@ -1882,7 +1980,11 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                         action={
                             <div className="relative">
                                 <button
+                                    ref={overflowTriggerRef}
                                     aria-label="Open menu"
+                                    aria-haspopup="menu"
+                                    aria-expanded={showMenu}
+                                    aria-controls={showMenu ? overflowMenuId : undefined}
                                     onClick={() => setShowMenu(!showMenu)}
                                     className="flex min-h-[44px] min-w-[44px] items-center justify-center p-2 text-slate-400 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
                                 >
@@ -1895,8 +1997,19 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                 {/* Overflow Menu */}
                                 {showMenu && (
                                     <>
-                                        <div className="fixed inset-0 z-40" onClick={() => setShowMenu(false)} />
-                                        <div className="absolute right-0 top-full mt-1 z-50 w-52 bg-slate-800 border border-white/10 rounded-xl shadow-2xl overflow-hidden">
+                                        <div
+                                            role="presentation"
+                                            aria-hidden="true"
+                                            className="fixed inset-0 z-40"
+                                            onClick={closeOverflowMenu}
+                                        />
+                                        <div
+                                            ref={overflowMenuRef}
+                                            id={overflowMenuId}
+                                            role="menu"
+                                            aria-label="Log actions"
+                                            className="absolute right-0 top-full mt-1 z-50 w-52 bg-slate-800 border border-white/10 rounded-xl shadow-2xl overflow-hidden"
+                                        >
                                             {/* Rapid Mode + Precision Mode toggles were removed
                                                 from this menu 2026-05-17. Precision Mode is now
                                                 always-on whenever tracking is active (the
@@ -1917,7 +2030,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                                 the "share your voyage" conversion story it
                                                 deserves real presence, not menu-burial. */}
                                             <MenuBtn
-                                                icon="📊"
+                                                icon={<StatsIcon className="w-4 h-4" />}
                                                 label="Statistics"
                                                 onClick={() => {
                                                     dispatch({ type: 'SET_ACTION_SHEET', sheet: 'stats' });
@@ -1926,7 +2039,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                                 disabled={loggedVoyages.length === 0 && loggedEntries.length === 0}
                                             />
                                             <MenuBtn
-                                                icon="🗺"
+                                                icon={<MapIcon className="w-4 h-4" />}
                                                 label="Track Map"
                                                 onClick={() => {
                                                     dispatch({ type: 'SHOW_TRACK_MAP', show: true });
@@ -1935,7 +2048,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                                 disabled={loggedVoyages.length === 0 && loggedEntries.length === 0}
                                             />
                                             <MenuBtn
-                                                icon="📤"
+                                                icon={<ExportIcon className="w-4 h-4" />}
                                                 label="Export"
                                                 onClick={() => {
                                                     dispatch({ type: 'SET_ACTION_SHEET', sheet: 'export' });
@@ -1945,7 +2058,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                             />
                                             {FEATURE_VISIBILITY.communityTrackSharing && (
                                                 <MenuBtn
-                                                    icon="📥"
+                                                    icon={<DownloadIcon className="w-4 h-4" />}
                                                     label="Import"
                                                     onClick={() => {
                                                         dispatch({ type: 'SET_ACTION_SHEET', sheet: 'import' });
@@ -1954,7 +2067,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                                 />
                                             )}
                                             <MenuBtn
-                                                icon="🔗"
+                                                icon={<ShareIcon className="w-4 h-4" />}
                                                 label="Share"
                                                 onClick={() => {
                                                     dispatch({ type: 'SET_ACTION_SHEET', sheet: 'share' });
@@ -2107,10 +2220,10 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                             <div className="grid grid-cols-3 gap-2">
                                 {[
                                     {
-                                        label: 'Longest',
+                                        label: 'Farthest',
                                         value: `${records.longestPassageNM.toFixed(0)}`,
                                         unit: 'NM',
-                                        icon: '🛣️',
+                                        icon: '🧭',
                                     },
                                     {
                                         label: 'Fastest avg',
@@ -2119,7 +2232,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                         icon: '⚡',
                                     },
                                     {
-                                        label: 'Longest trip',
+                                        label: 'Longest',
                                         value: (() => {
                                             const h = records.longestDurationMs / 3600000;
                                             return h >= 24 ? `${Math.floor(h / 24)}d` : `${Math.round(h)}h`;
@@ -2132,14 +2245,14 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                         key={r.label}
                                         className="rounded-xl bg-slate-900/40 border border-amber-500/15 px-2 py-2 text-center"
                                     >
-                                        <div className="text-[9px] uppercase tracking-wider text-amber-400/70 font-bold flex items-center justify-center gap-1">
+                                        <div className="text-[11px] uppercase tracking-wider text-amber-400/80 font-bold flex items-center justify-center gap-1">
                                             <span>{r.icon}</span>
                                             {r.label}
                                         </div>
                                         <div className="text-lg font-extrabold text-white tabular-nums mt-0.5">
                                             {r.value}
                                             {r.unit && (
-                                                <span className="text-[10px] text-white/40 ml-0.5">{r.unit}</span>
+                                                <span className="text-[11px] text-white/60 ml-0.5">{r.unit}</span>
                                             )}
                                         </div>
                                     </div>
@@ -2241,27 +2354,8 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                             )}
                             {currentVoyageId &&
                                 (() => {
-                                    const activeEntries = entries.filter((e) => e.voyageId === currentVoyageId);
-                                    const dist =
-                                        activeEntries.length > 0
-                                            ? Math.max(0, ...activeEntries.map((e) => e.cumulativeDistanceNM || 0))
-                                            : 0;
-                                    const sorted = [...activeEntries].sort(
-                                        (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
-                                    );
-                                    const first = sorted[0];
-                                    const last = sorted[sorted.length - 1];
-                                    const durationMs =
-                                        first && last
-                                            ? new Date(last.timestamp).getTime() - new Date(first.timestamp).getTime()
-                                            : 0;
-                                    const durationHrs = Math.floor(durationMs / 3600000);
-                                    const durationMins = Math.floor((durationMs % 3600000) / 60000);
-                                    const speeds = activeEntries.filter((e) => e.speedKts && e.speedKts > 0);
-                                    const liveAvgSpeed =
-                                        speeds.length > 0
-                                            ? speeds.reduce((s, e) => s + (e.speedKts || 0), 0) / speeds.length
-                                            : 0;
+                                    const { activeEntries, first, dist, durationHrs, durationMins, liveAvgSpeed } =
+                                        liveStats;
                                     return (
                                         <div className="flex-1 min-h-0 flex flex-col rounded-2xl bg-linear-to-br from-emerald-500/10 to-slate-900/80 border border-emerald-500/20 p-4 mx-4 mt-2 mb-2">
                                             <div className="flex items-center gap-2 mb-3 shrink-0">
@@ -2301,11 +2395,19 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                             {/* Engine on/off — declares propulsion so the
                                                 voyage's sail/motor split is real data. */}
                                             <div className="flex items-center gap-2 mt-3 shrink-0">
-                                                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                                                <span
+                                                    id={engineGroupId}
+                                                    className="text-[11px] font-bold uppercase tracking-wider text-slate-400"
+                                                >
                                                     Engine
                                                 </span>
-                                                <div className="flex rounded-full bg-slate-900/60 border border-white/10 p-0.5">
+                                                <div
+                                                    role="group"
+                                                    aria-labelledby={engineGroupId}
+                                                    className="flex rounded-full bg-slate-900/60 border border-white/10 p-0.5"
+                                                >
                                                     <button
+                                                        aria-pressed={engineRunning === true}
                                                         onClick={() => toggleEngine(true)}
                                                         className={`hit-target-44 px-3 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider transition-colors ${
                                                             engineRunning === true
@@ -2316,6 +2418,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                                         Motor
                                                     </button>
                                                     <button
+                                                        aria-pressed={engineRunning === false}
                                                         onClick={() => toggleEngine(false)}
                                                         className={`hit-target-44 px-3 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider transition-colors ${
                                                             engineRunning === false
@@ -2327,7 +2430,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                                     </button>
                                                 </div>
                                                 {engineRunning === undefined && (
-                                                    <span className="text-[10px] text-white/50">— tap to log</span>
+                                                    <span className="text-[11px] text-white/70">— tap to log</span>
                                                 )}
                                             </div>
 
@@ -2430,7 +2533,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                                         type="button"
                                                         aria-label="Shrink map"
                                                         onClick={closeLiveMap}
-                                                        className="absolute right-4 z-1001 w-10 h-10 rounded-full bg-slate-900/80 border border-white/10 text-white/80 flex items-center justify-center active:scale-95 transition-transform"
+                                                        className="absolute right-4 z-1001 w-11 h-11 rounded-full bg-slate-900/80 border border-white/10 text-white/80 flex items-center justify-center active:scale-95 transition-transform"
                                                         style={{ top: 'max(16px, env(safe-area-inset-top))' }}
                                                     >
                                                         <svg
@@ -2503,7 +2606,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                             triggerHaptic('medium');
                                             handleStopTracking();
                                         }}
-                                        className="flex-1 h-14 rounded-2xl font-extrabold text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 bg-red-500/15 border border-red-500/30 text-red-400 hover:bg-red-500/25 active:scale-[0.97]"
+                                        className="flex-1 h-14 rounded-2xl font-extrabold text-sm uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 bg-red-500/15 border border-red-500/30 text-red-400 hover:bg-red-500/25 active:scale-[0.97]"
                                     >
                                         <StopIcon className="w-4 h-4" />
                                         Stop
@@ -2627,23 +2730,16 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                             }
                                             key={summary.voyageId}
                                             summary={summary}
-                                            entries={entries.filter((e) => e.voyageId === summary.voyageId)}
+                                            entries={entriesByVoyage.get(summary.voyageId) ?? NO_ENTRIES}
                                             isSelected={selectedVoyageId === summary.voyageId}
                                             isExpanded={expandedVoyages.has(summary.voyageId)}
-                                            onToggle={() => toggleVoyage(summary.voyageId)}
-                                            onSelect={() => {
-                                                void loadVoyageEntries(summary.voyageId);
-                                                dispatch({ type: 'SELECT_VOYAGE', voyageId: summary.voyageId });
-                                            }}
-                                            onDelete={() => handleDeleteVoyageRequest(summary.voyageId)}
-                                            onArchive={() => handleArchiveVoyage(summary.voyageId)}
-                                            onShowMap={() => {
-                                                void loadVoyageEntries(summary.voyageId);
-                                                dispatch({ type: 'SELECT_VOYAGE', voyageId: summary.voyageId });
-                                                dispatch({ type: 'SHOW_TRACK_MAP', show: true });
-                                            }}
+                                            onToggle={toggleVoyage}
+                                            onSelect={handleSelectVoyage}
+                                            onDelete={handleDeleteVoyageRequest}
+                                            onArchive={handleArchiveVoyage}
+                                            onShowMap={handleShowVoyageMap}
                                             onFollowPlannedRoute={followPlannedRouteLocally}
-                                            onNeedEntries={() => loadVoyageEntries(summary.voyageId)}
+                                            onNeedEntries={loadVoyageEntries}
                                             filteredEntries={filteredEntries}
                                             onDeleteEntry={handleDeleteEntry}
                                             onEditEntry={handleEditEntry}
@@ -2655,9 +2751,9 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                 {loggedArchivedVoyages.length > 0 && (
                                     <div className="mt-4">
                                         <button
-                                            aria-label="Toggle archived voyages"
+                                            aria-expanded={showArchived}
                                             onClick={() => setShowArchived(!showArchived)}
-                                            className="w-full flex items-center justify-between px-3 py-2 rounded-xl bg-amber-500/10 border border-amber-500/20 active:scale-[0.98] transition-all"
+                                            className="w-full min-h-[44px] flex items-center justify-between px-3 py-2 rounded-xl bg-amber-500/10 border border-amber-500/20 active:scale-[0.98] transition-all"
                                         >
                                             <div className="flex items-center gap-2">
                                                 <svg
@@ -2814,13 +2910,13 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                         ? 'Looks like you’re sailing'
                                         : 'Looks like you’re under power'}
                                 </div>
-                                <div className="text-[11px] text-white/55 leading-snug mt-0.5">
+                                <div className="text-xs text-white/75 leading-snug mt-0.5">
                                     Logged as {engineRunning ? 'motoring' : 'sailing'} — switch it?
                                 </div>
                                 <div className="flex gap-2 mt-2.5">
                                     <button
                                         onClick={() => toggleEngine(propConflict.suggested === 'motor')}
-                                        className="flex-1 h-9 rounded-xl bg-sky-500 text-white text-[12px] font-extrabold uppercase tracking-wider active:scale-[0.97] transition-transform"
+                                        className="flex-1 h-11 rounded-xl bg-sky-500 text-white text-[12px] font-extrabold uppercase tracking-wider active:scale-[0.97] transition-transform"
                                     >
                                         Switch to {propConflict.suggested === 'sail' ? 'Sailing' : 'Motoring'}
                                     </button>
@@ -2831,7 +2927,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                                 forDeclared: engineRunning,
                                             })
                                         }
-                                        className="px-3 h-9 rounded-xl bg-white/10 text-white/60 text-[12px] font-bold active:scale-[0.97] transition-transform"
+                                        className="px-3 h-11 rounded-xl bg-white/10 text-white/60 text-[12px] font-bold active:scale-[0.97] transition-transform"
                                     >
                                         Dismiss
                                     </button>
@@ -3142,7 +3238,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                     ref={followPromptDismissRef}
                                     onClick={dismissFollowPrompt}
                                     disabled={followPromptLoadingId !== null}
-                                    className="w-full rounded-xl bg-white/10 py-2.5 text-[12px] font-black uppercase tracking-widest text-gray-300 active:scale-95 disabled:cursor-wait disabled:opacity-50"
+                                    className="w-full min-h-[44px] rounded-xl bg-white/10 py-2.5 text-[12px] font-black uppercase tracking-widest text-gray-300 active:scale-95 disabled:cursor-wait disabled:opacity-50"
                                 >
                                     {followPromptLoadingId ? 'Loading route…' : 'Just recording'}
                                 </button>

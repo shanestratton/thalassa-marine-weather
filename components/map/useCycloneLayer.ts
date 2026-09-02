@@ -2471,7 +2471,7 @@ function buildStormBadgeDOM(wrapper: HTMLElement, d: StormBadgeData, opts?: Stor
     headerLeft.appendChild(subtitleEl);
 
     const metaEl = document.createElement('div');
-    metaEl.style.cssText = 'font-size:9px;color:rgba(255,255,255,0.3);margin-top:2px;';
+    metaEl.style.cssText = 'font-size:11px;color:rgba(255,255,255,0.6);margin-top:2px;';
     metaEl.textContent = `${d.basinStr} · ${d.sid} · ${d.latStr} ${d.lonStr}`;
     headerLeft.appendChild(metaEl);
 
@@ -2525,7 +2525,7 @@ function buildStormBadgeDOM(wrapper: HTMLElement, d: StormBadgeData, opts?: Stor
         for (const col of cols) {
             const hd = document.createElement('div');
             hd.style.cssText = `
-                font-size:9px;font-weight:700;color:rgba(255,255,255,0.35);
+                font-size:11px;font-weight:700;color:rgba(255,255,255,0.6);
                 text-transform:uppercase;letter-spacing:0.8px;
                 text-align:${col === cols[0] ? 'left' : 'center'};
             `;
@@ -2601,7 +2601,7 @@ function buildStormBadgeDOM(wrapper: HTMLElement, d: StormBadgeData, opts?: Stor
     const trendPill = document.createElement('span');
     trendPill.style.cssText = `
         display:inline-flex;align-items:center;gap:3px;
-        font-size:9px;font-weight:700;color:${trendColor};
+        font-size:11px;font-weight:700;color:${trendColor};
         background:${trendColor}15;border:1px solid ${trendColor}30;
         padding:2px 8px;border-radius:10px;text-transform:uppercase;letter-spacing:0.5px;
     `;
@@ -2615,7 +2615,7 @@ function buildStormBadgeDOM(wrapper: HTMLElement, d: StormBadgeData, opts?: Stor
     const probPill = document.createElement('span');
     probPill.style.cssText = `
         display:inline-flex;align-items:center;gap:3px;
-        font-size:9px;font-weight:700;color:${probColor};
+        font-size:11px;font-weight:700;color:${probColor};
         background:${probBgColor};border:1px solid ${probColor}30;
         padding:2px 8px;border-radius:10px;text-transform:uppercase;letter-spacing:0.3px;
     `;
@@ -2631,10 +2631,10 @@ function buildStormBadgeDOM(wrapper: HTMLElement, d: StormBadgeData, opts?: Stor
     ageIcon.style.cssText = 'font-size:10px;width:14px;text-align:center;';
     ageIcon.textContent = '🕐';
     const ageTime = document.createElement('span');
-    ageTime.style.cssText = 'font-size:9px;color:rgba(255,255,255,0.3);';
+    ageTime.style.cssText = 'font-size:11px;color:rgba(255,255,255,0.6);';
     ageTime.textContent = d.dataTimeStr;
     const ageVal = document.createElement('span');
-    ageVal.style.cssText = 'font-size:9px;font-weight:700;color:#FFA500;margin-left:auto;';
+    ageVal.style.cssText = 'font-size:11px;font-weight:700;color:#FFA500;margin-left:auto;';
     ageVal.className = 'cyclone-data-age';
     ageVal.dataset.advisoryTime = d.posTime;
     ageVal.textContent = d.dataAgeStr;
@@ -2650,10 +2650,10 @@ function buildStormBadgeDOM(wrapper: HTMLElement, d: StormBadgeData, opts?: Stor
     advIcon.style.cssText = 'font-size:10px;width:14px;text-align:center;';
     advIcon.textContent = '📡';
     const advLabel = document.createElement('span');
-    advLabel.style.cssText = 'font-size:9px;color:rgba(255,255,255,0.3);';
+    advLabel.style.cssText = 'font-size:11px;color:rgba(255,255,255,0.6);';
     advLabel.textContent = 'Next advisory';
     const advVal = document.createElement('span');
-    advVal.style.cssText = 'font-size:9px;font-weight:700;color:rgba(255,255,255,0.5);margin-left:auto;';
+    advVal.style.cssText = 'font-size:11px;font-weight:700;color:rgba(255,255,255,0.7);margin-left:auto;';
     advVal.className = 'cyclone-next-adv';
     advVal.textContent = d.nextAdvStr;
     advRow.appendChild(advIcon);

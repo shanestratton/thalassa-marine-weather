@@ -3,13 +3,13 @@
  * Manages voyages loading, sharing tracks to chat, and importing community tracks.
  */
 import { useState, useCallback, useEffect, useRef, useSyncExternalStore } from 'react';
-import { ChatService, ChatMessage, type ChatMessageSendResult } from '../../services/ChatService';
+import { ChatService, ChatMessage } from '../../services/ChatService';
 import { ShipLogService } from '../../services/ShipLogService';
 import { TrackSharingService } from '../../services/TrackSharingService';
 import { importGPXToEntries } from '../../services/gpxService';
 import { ShipLogEntry } from '../../types';
 import { createLogger } from '../../utils/createLogger';
-import { TRACK_PREFIX } from '../../components/chat/chatUtils';
+import { TRACK_PREFIX, reconcileOptimisticMessage } from '../../components/chat/chatUtils';
 import {
     getAuthIdentityScope,
     isAuthIdentityScopeCurrent,
@@ -22,28 +22,6 @@ import { FEATURE_VISIBILITY } from '../../utils/featureVisibility';
 const log = createLogger('useTrackSharing');
 const subscribeIdentitySnapshot = (notify: () => void): (() => void) => subscribeAuthIdentityScope(() => notify());
 const getIdentitySnapshot = (): AuthIdentityScope => getAuthIdentityScope();
-
-function reconcileOptimisticMessage(
-    messages: ChatMessage[],
-    optimisticId: string,
-    result: ChatMessageSendResult,
-): ChatMessage[] {
-    const optimisticIndex = messages.findIndex((message) => message.id === optimisticId);
-    if (result === 'queued') {
-        return optimisticIndex < 0
-            ? messages
-            : messages.map((message) =>
-                  message.id === optimisticId ? { ...message, delivery_status: 'queued' } : message,
-              );
-    }
-    if (!result) return optimisticIndex < 0 ? messages : messages.filter((message) => message.id !== optimisticId);
-    if (optimisticIndex < 0) {
-        return messages.some((message) => message.id === result.id) ? messages : [...messages, result];
-    }
-    const next = [...messages];
-    next[optimisticIndex] = result;
-    return next;
-}
 
 export interface VoyageSummary {
     voyageId: string;

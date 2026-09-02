@@ -60,7 +60,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = React.memo(
                             <BackButton onClick={view === 'channels' ? (onExit ?? onGoBack) : onGoBack} />
                         )}
                         {view === 'channels' ? (
-                            <span className={t.typography.pageTitle}>Community</span>
+                            <h1 className={t.typography.pageTitle}>Scuttlebutt</h1>
                         ) : (
                             <h1 className={`${t.typography.pageTitle} flex items-center gap-2`}>
                                 {view === 'messages' &&
@@ -123,7 +123,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = React.memo(
                                     <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-emerald-500 border-2 border-[#0a0f1a] shadow-xs shadow-emerald-500/40" />
                                 </button>
                                 <button
-                                    aria-label="Open DMInbox"
+                                    aria-label="Open direct messages"
                                     onClick={onOpenDMInbox}
                                     className="relative w-11 h-11 rounded-xl bg-white/8 hover:bg-white/12 border border-white/12 flex items-center justify-center transition-all active:scale-95"
                                 >
@@ -154,7 +154,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = React.memo(
                             <button
                                 aria-label={isUserBlocked ? 'Unblock user' : 'Block user'}
                                 onClick={onToggleBlock}
-                                className="px-3 py-2 rounded-xl bg-white/4 hover:bg-red-500/10 border border-white/6 text-white/60 hover:text-red-400 text-xs font-medium transition-all active:scale-95"
+                                className="px-3 py-2 min-h-[44px] rounded-xl bg-white/4 hover:bg-red-500/10 border border-white/6 text-white/60 hover:text-red-400 text-xs font-medium transition-all active:scale-95"
                             >
                                 {isUserBlocked ? '🔓 Unblock' : '🚫 Block'}
                             </button>

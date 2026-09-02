@@ -640,7 +640,7 @@ export const FloatPlanSheet: React.FC<FloatPlanSheetProps> = ({ voyage, preset, 
                                     type="button"
                                     aria-label={`Remove person ${index + 1}`}
                                     onClick={() => setPersonsRoster((rows) => rows.filter((_, i) => i !== index))}
-                                    className="flex h-11 w-9 shrink-0 items-center justify-center rounded-xl text-slate-400 hover:bg-white/5"
+                                    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-slate-400 hover:bg-white/5"
                                 >
                                     ×
                                 </button>

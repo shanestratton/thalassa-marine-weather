@@ -36,10 +36,10 @@ import { ModalSheet } from '../ui/ModalSheet';
 import { useMaintenanceForm } from '../../hooks/useMaintenanceForm';
 import { useRealtimeSyncMulti } from '../../hooks/useRealtimeSync';
 import { useSuccessFlash } from '../../hooks/useSuccessFlash';
-import { CATEGORIES, TRIGGER_LABELS } from './maintenance/constants';
+import { CATEGORIES } from './maintenance/constants';
 import { ServiceLogSheet } from './maintenance/ServiceLogSheet';
 import { TaskFormModal } from './maintenance/TaskFormModal';
-import { SwipeableTaskCard, LIGHT_COLORS, PERIOD_DAYS } from './maintenance/SwipeableTaskCard';
+import { SwipeableTaskCard, PERIOD_DAYS } from './maintenance/SwipeableTaskCard';
 import {
     authScopedStorageKey,
     getAuthIdentityScope,
@@ -758,9 +758,6 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                             <SwipeableTaskCard
                                                 key={task.id}
                                                 task={task}
-                                                categories={CATEGORIES}
-                                                lightColors={LIGHT_COLORS}
-                                                triggerLabels={TRIGGER_LABELS}
                                                 onTap={() => {
                                                     const identity = taskData.identity;
                                                     if (!isAuthIdentityScopeCurrent(identity)) return;
