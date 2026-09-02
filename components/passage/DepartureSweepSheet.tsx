@@ -254,10 +254,6 @@ export const DepartureSweepSheet: React.FC<DepartureSweepSheetProps> = ({
                 aria-labelledby="departure-sweep-title"
                 className="relative w-full max-w-2xl max-h-full flex flex-col bg-slate-950 border border-white/10 rounded-3xl shadow-2xl animate-in fade-in duration-200"
             >
-                <div className="shrink-0 pt-2 pb-1 flex justify-center">
-                    <div className="w-12 h-1 rounded-full bg-white/20" />
-                </div>
-
                 {/* Header */}
                 <div className="shrink-0 px-5 pt-2 pb-4 border-b border-white/5">
                     <div className="flex items-start justify-between gap-3">
@@ -266,7 +262,8 @@ export const DepartureSweepSheet: React.FC<DepartureSweepSheetProps> = ({
                                 Inshore Departure Sweep
                             </h2>
                             <p className="text-[11px] text-slate-400 mt-0.5 truncate">
-                                {voyagePlan ? `${voyagePlan.origin} → ${voyagePlan.destination}` : 'Best time to leave'}
+                                {voyagePlan ? `${voyagePlan.origin} → ${voyagePlan.destination}` : 'Best time to leave'}{' '}
+                                · local time
                             </p>
                         </div>
                         <button

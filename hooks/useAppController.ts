@@ -49,6 +49,51 @@ const TUTORIAL_COMPLETED_KEY = 'thalassa_tutorial_completed';
 const INTRO_COMPLETED_KEY = 'thalassa_onboarding_complete';
 const GLASS_TUTORIAL_SEEN_KEY = 'thalassa_glass_tutorial_seen';
 
+/** "WP 27.4700°S, 153.0200°E" — the coordinate label used when no place name resolves. */
+const wpLabel = (lat: number, lon: number) =>
+    `WP ${Math.abs(lat).toFixed(4)}°${lat >= 0 ? 'N' : 'S'}, ${Math.abs(lon).toFixed(4)}°${lon >= 0 ? 'E' : 'W'}`;
+
+/**
+ * Resolve a map pick into a query label + normalised coordinates. Shared by
+ * the "go to the Glass" and "stay on the map" pick handlers, which carried
+ * this block twice. Returns null when the auth identity changed mid-geocode
+ * (the caller must then do nothing, exactly as before).
+ */
+async function resolveMapPick(
+    lat: number,
+    lon: number,
+    name: string | undefined,
+    actionScope: AuthIdentityScope,
+): Promise<{ locationQuery: string; finalCoords: { lat: number; lon: number } } | null> {
+    // Normalize Longitude (-180 to 180)
+    // Map libraries sometimes return wrapped coords (e.g. 190, 370 etc)
+    let normalizedLon = lon;
+    while (normalizedLon > 180) normalizedLon -= 360;
+    while (normalizedLon < -180) normalizedLon += 360;
+
+    const finalCoords = { lat, lon: normalizedLon };
+
+    // Resolve a human-readable name if the map didn't provide one or it's a raw coordinate
+    let locationQuery = name || '';
+    if (!locationQuery || /^-?\d/.test(locationQuery) || locationQuery.startsWith('WP ')) {
+        try {
+            const geoName = await reverseGeocode(lat, normalizedLon);
+            if (!isAuthIdentityScopeCurrent(actionScope)) return null;
+            if (geoName) locationQuery = geoName;
+        } catch (e) {
+            if (!isAuthIdentityScopeCurrent(actionScope)) return null;
+            log.warn(e);
+            // Geocode failed — fall through
+        }
+    }
+    // Final fallback: WP coordinates
+    if (!locationQuery || locationQuery.startsWith('WP ')) {
+        // Reformat nicely if it's still a WP string or empty
+        locationQuery = wpLabel(lat, normalizedLon);
+    }
+    return { locationQuery, finalCoords };
+}
+
 const subscribeIdentitySnapshot = (notify: () => void): (() => void) => subscribeAuthIdentityScope(() => notify());
 const getIdentitySnapshot = (): AuthIdentityScope => getAuthIdentityScope();
 
@@ -593,32 +638,10 @@ export const useAppController = () => {
         async (lat: number, lon: number, name?: string) => {
             const actionScope = identityScope;
             if (!isAuthIdentityScopeCurrent(actionScope)) return;
-            // Normalize Longitude (-180 to 180)
-            // Map libraries sometimes return wrapped coords (e.g. 190, 370 etc)
-            let normalizedLon = lon;
-            while (normalizedLon > 180) normalizedLon -= 360;
-            while (normalizedLon < -180) normalizedLon += 360;
-
-            const finalCoords = { lat, lon: normalizedLon };
-
-            // Resolve a human-readable name if the map didn't provide one or it's a raw coordinate
-            let locationQuery = name || '';
-            if (!locationQuery || /^-?\d/.test(locationQuery) || locationQuery.startsWith('WP ')) {
-                try {
-                    const geoName = await reverseGeocode(lat, normalizedLon);
-                    if (!isAuthIdentityScopeCurrent(actionScope)) return;
-                    if (geoName) locationQuery = geoName;
-                } catch (e) {
-                    if (!isAuthIdentityScopeCurrent(actionScope)) return;
-                    log.warn(e);
-                    // Geocode failed — fall through
-                }
-            }
-            // Final fallback: WP coordinates
-            if (!locationQuery || locationQuery.startsWith('WP ')) {
-                // Reformat nicely if it's still a WP string or empty
-                locationQuery = `WP ${Math.abs(lat).toFixed(4)}°${lat >= 0 ? 'N' : 'S'}, ${Math.abs(normalizedLon).toFixed(4)}°${normalizedLon >= 0 ? 'E' : 'W'}`;
-            }
+            const picked = await resolveMapPick(lat, lon, name, actionScope);
+            if (!picked) return;
+            const { locationQuery, finalCoords } = picked;
+            const normalizedLon = finalCoords.lon;
 
             setQuery(locationQuery);
             setSheetOpen(false);
@@ -698,25 +721,9 @@ export const useAppController = () => {
         async (lat: number, lon: number, name?: string) => {
             const actionScope = identityScope;
             if (!isAuthIdentityScopeCurrent(actionScope)) return;
-            let normalizedLon = lon;
-            while (normalizedLon > 180) normalizedLon -= 360;
-            while (normalizedLon < -180) normalizedLon += 360;
-
-            const finalCoords = { lat, lon: normalizedLon };
-            let locationQuery = name || '';
-            if (!locationQuery || /^-?\d/.test(locationQuery) || locationQuery.startsWith('WP ')) {
-                try {
-                    const geoName = await reverseGeocode(lat, normalizedLon);
-                    if (!isAuthIdentityScopeCurrent(actionScope)) return;
-                    if (geoName) locationQuery = geoName;
-                } catch (e) {
-                    if (!isAuthIdentityScopeCurrent(actionScope)) return;
-                    log.warn(e);
-                }
-            }
-            if (!locationQuery || locationQuery.startsWith('WP ')) {
-                locationQuery = `WP ${Math.abs(lat).toFixed(4)}°${lat >= 0 ? 'N' : 'S'}, ${Math.abs(normalizedLon).toFixed(4)}°${normalizedLon >= 0 ? 'E' : 'W'}`;
-            }
+            const picked = await resolveMapPick(lat, lon, name, actionScope);
+            if (!picked) return;
+            const { locationQuery, finalCoords } = picked;
 
             setQuery(locationQuery);
             setSheetOpen(false);

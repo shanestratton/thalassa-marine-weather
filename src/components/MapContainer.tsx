@@ -113,7 +113,7 @@ function simplifyTrack(coords: [number, number][]): [number, number][] {
     return out;
 }
 
-export default function MapContainer({
+function MapContainer({
     track,
     telemetry,
     entries,
@@ -1079,3 +1079,7 @@ export default function MapContainer({
         </div>
     );
 }
+
+// Memoised: the public dashboard re-renders on a 30 s clock and this owns the
+// whole Mapbox tree — with stable props it must not re-reconcile on every tick.
+export default React.memo(MapContainer);

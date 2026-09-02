@@ -65,6 +65,11 @@ import { createLogger } from '../../utils/createLogger';
 const _log = createLogger('HeroSlide');
 
 // --- HERO SLIDE COMPONENT (Individual Day Card) ---
+/** Module-level so the memoised radar card sees one stable onMapTap identity. */
+const navigateToMap = () => {
+    window.dispatchEvent(new CustomEvent('thalassa:navigate', { detail: { tab: 'map' } }));
+};
+
 const HeroSlideComponent = ({
     data,
     index,
@@ -1044,6 +1049,12 @@ const HeroSlideComponent = ({
                         // If showTideGraph is true, we show the Grid + Tide Graph
                         // If false, we show the 3-column simple grid
 
+                        // Once per slide, not once per radar-card call site.
+                        const windDirDeg =
+                            typeof data.windDirection === 'number'
+                                ? data.windDirection
+                                : (cardinalToDegrees(data.windDirection) ?? null);
+
                         return (
                             <div
                                 key={slideIdx}
@@ -1075,23 +1086,14 @@ const HeroSlideComponent = ({
                                             isGolden={isGolden}
                                             isCardDay={isCardDay}
                                             isForecastDay={index > 0}
+                                            forecastDayLabel={rowDateLabel}
                                             coordinates={coordinates}
                                             windSpeed={data.windSpeed}
-                                            windDirection={
-                                                typeof data.windDirection === 'number'
-                                                    ? data.windDirection
-                                                    : (cardinalToDegrees(data.windDirection) ?? null)
-                                            }
+                                            windDirection={windDirDeg}
                                             windGust={data.windGust}
                                             condition={data.condition}
                                             units={units}
-                                            onMapTap={() => {
-                                                window.dispatchEvent(
-                                                    new CustomEvent('thalassa:navigate', {
-                                                        detail: { tab: 'map' },
-                                                    }),
-                                                );
-                                            }}
+                                            onMapTap={navigateToMap}
                                         />
                                     )
                                 ) : showMapInstead ? (
@@ -1100,21 +1102,14 @@ const HeroSlideComponent = ({
                                         isGolden={isGolden}
                                         isCardDay={isCardDay}
                                         isForecastDay={index > 0}
+                                        forecastDayLabel={rowDateLabel}
                                         coordinates={coordinates}
                                         windSpeed={data.windSpeed}
-                                        windDirection={
-                                            typeof data.windDirection === 'number'
-                                                ? data.windDirection
-                                                : (cardinalToDegrees(data.windDirection) ?? null)
-                                        }
+                                        windDirection={windDirDeg}
                                         windGust={data.windGust}
                                         condition={data.condition}
                                         units={units}
-                                        onMapTap={() => {
-                                            window.dispatchEvent(
-                                                new CustomEvent('thalassa:navigate', { detail: { tab: 'map' } }),
-                                            );
-                                        }}
+                                        onMapTap={navigateToMap}
                                     />
                                 ) : showTideGraph ? (
                                     /* COASTAL LAYOUT — widgets above card, tide inside card */

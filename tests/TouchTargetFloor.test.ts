@@ -135,8 +135,9 @@ function measure() {
 }
 
 // Ratchet baselines — lower these as the sweep progresses, never raise them.
-const MAX_UNDER_32 = 24;
-const MAX_UNDER_44 = 354;
+// 2026-09-03 UX batch 2: 24 → 23 under 32px, 354 → 318 under 44px.
+const MAX_UNDER_32 = 23;
+const MAX_UNDER_44 = 318;
 
 describe('button touch targets', () => {
     const result = measure();

@@ -72,19 +72,12 @@ export interface WeatherState {
 // ── Actions ──────────────────────────────────────────────────
 
 export interface WeatherActions {
-    setWeatherData: (data: MarineWeatherReport | null) => void;
-    setVoyagePlan: (plan: VoyagePlan | null) => void;
-    setLoading: (loading: boolean) => void;
-    setLoadingMessage: (msg: string) => void;
-    setError: (error: string | null) => void;
-    setQuotaUsed: (quota: number) => void;
-    setBackgroundUpdating: (updating: boolean) => void;
-    setStaleRefresh: (stale: boolean) => void;
-    setNextUpdate: (next: number | null) => void;
-    setHistoryCache: (cache: Record<string, MarineWeatherReport>) => void;
-    incrementQuota: () => void;
-    clearVoyagePlan: () => void;
-    /** Bulk sync from context — used by the bridge hook */
+    /**
+     * Bulk sync from context — used by the bridge hook. This is the ONLY
+     * write path: WeatherContext owns the state and mirrors it here through
+     * the identity fence. The per-field setters that used to sit beside it
+     * had no callers and would have bypassed that fence.
+     */
     _sync: (partial: Partial<WeatherState>, expectedScope: AuthIdentityScope) => void;
 }
 
@@ -122,19 +115,6 @@ export const useWeatherStore = create<WeatherState & WeatherActions>()(
     subscribeWithSelector((set) => ({
         ...blankWeatherState(initialScope),
 
-        // Actions
-        setWeatherData: (data) => set({ weatherData: data }),
-        setVoyagePlan: (plan) => set({ voyagePlan: plan }),
-        setLoading: (loading) => set({ loading }),
-        setLoadingMessage: (msg) => set({ loadingMessage: msg }),
-        setError: (error) => set({ error }),
-        setQuotaUsed: (quota) => set({ quotaUsed: quota }),
-        setBackgroundUpdating: (updating) => set({ backgroundUpdating: updating }),
-        setStaleRefresh: (stale) => set({ staleRefresh: stale }),
-        setNextUpdate: (next) => set({ nextUpdate: next }),
-        setHistoryCache: (cache) => set({ historyCache: cache }),
-        incrementQuota: () => set((s) => ({ quotaUsed: s.quotaUsed + 1 })),
-        clearVoyagePlan: () => set({ voyagePlan: null }),
         _sync: (partial, expectedScope) => set((state) => (ownsScope(state, expectedScope) ? partial : state)),
     })),
 );
@@ -147,25 +127,3 @@ export const useWeatherStore = create<WeatherState & WeatherActions>()(
 subscribeAuthIdentityScope((next) => {
     useWeatherStore.setState(blankWeatherState(next));
 });
-
-// ── Selectors (convenience) ──────────────────────────────────
-
-/** Select only the weather report — avoids re-render on loading/error changes */
-export const selectWeatherData = (s: WeatherState & WeatherActions) => s.weatherData;
-
-/** Select only the voyage plan */
-export const selectVoyagePlan = (s: WeatherState & WeatherActions) => s.voyagePlan;
-
-/** Select loading state */
-export const selectLoading = (s: WeatherState & WeatherActions) => ({
-    loading: s.loading,
-    loadingMessage: s.loadingMessage,
-    backgroundUpdating: s.backgroundUpdating,
-    staleRefresh: s.staleRefresh,
-});
-
-/** Select error state */
-export const selectError = (s: WeatherState & WeatherActions) => s.error;
-
-/** Select next update timestamp */
-export const selectNextUpdate = (s: WeatherState & WeatherActions) => s.nextUpdate;

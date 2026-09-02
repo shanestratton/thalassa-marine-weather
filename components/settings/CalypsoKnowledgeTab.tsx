@@ -12,6 +12,7 @@ import { Section, type SettingsTabProps } from './SettingsPrimitives';
 import { toast } from '../Toast';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { Button } from '../ui/Button';
+import { TrashIcon } from '../Icons';
 import {
     getKnowledge,
     addKnowledge,
@@ -283,7 +284,7 @@ export const CalypsoKnowledgeTab: React.FC<SettingsTabProps> = ({ settings }) =>
                                         </div>
                                     )}
                                 </div>
-                                <div className="flex gap-1 shrink-0">
+                                <div className="flex gap-2 shrink-0">
                                     <button
                                         aria-label={`Edit ${row.title}`}
                                         onClick={() => {
@@ -295,7 +296,7 @@ export const CalypsoKnowledgeTab: React.FC<SettingsTabProps> = ({ settings }) =>
                                                 body: row.body,
                                             });
                                         }}
-                                        className="w-9 h-9 rounded-lg bg-white/5 text-slate-400 hover:text-sky-300 hover:bg-white/10 transition-colors flex items-center justify-center text-xs font-bold"
+                                        className="w-11 h-11 rounded-lg bg-white/5 text-slate-400 hover:text-sky-300 hover:bg-white/10 transition-colors flex items-center justify-center text-xs font-bold"
                                     >
                                         Edit
                                     </button>
@@ -304,21 +305,9 @@ export const CalypsoKnowledgeTab: React.FC<SettingsTabProps> = ({ settings }) =>
                                         onClick={() => {
                                             if (isAuthIdentityScopeCurrent(identityScope)) setPendingDelete(row);
                                         }}
-                                        className="w-9 h-9 rounded-lg bg-white/5 text-slate-400 hover:text-red-400 hover:bg-red-500/10 transition-colors flex items-center justify-center"
+                                        className="w-11 h-11 rounded-lg bg-white/5 text-slate-400 hover:text-red-400 hover:bg-red-500/10 transition-colors flex items-center justify-center"
                                     >
-                                        <svg
-                                            className="w-4 h-4"
-                                            fill="none"
-                                            viewBox="0 0 24 24"
-                                            stroke="currentColor"
-                                            strokeWidth={2}
-                                        >
-                                            <path
-                                                strokeLinecap="round"
-                                                strokeLinejoin="round"
-                                                d="M6 18L18 6M6 6l12 12"
-                                            />
-                                        </svg>
+                                        <TrashIcon className="w-4 h-4" />
                                     </button>
                                 </div>
                             </div>

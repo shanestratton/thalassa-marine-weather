@@ -184,10 +184,20 @@ const RecipeDetail: React.FC<RecipeDetailProps> = ({ recipe, onClose, onRated })
     const [posting, setPosting] = useState(false);
     const [posted, setPosted] = useState(false);
     const backButtonRef = useRef<HTMLButtonElement>(null);
+    const collapseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const dialogRef = useFocusTrap<HTMLDivElement>(true, {
         initialFocusRef: backButtonRef,
         onEscape: onClose,
     });
+
+    // Dismissing the detail within 1.6 s of posting must not fire three
+    // state setters on an unmounted component.
+    useEffect(
+        () => () => {
+            if (collapseTimerRef.current) clearTimeout(collapseTimerRef.current);
+        },
+        [],
+    );
 
     useEffect(() => {
         if (recipe.supabaseId) {
@@ -237,7 +247,7 @@ const RecipeDetail: React.FC<RecipeDetailProps> = ({ recipe, onClose, onRated })
             toast.success(`Posted to #${ch?.name || 'channel'}`);
             // Auto-collapse + reset after a beat so the user can post
             // another recipe later without re-tapping the toggle.
-            setTimeout(() => {
+            collapseTimerRef.current = setTimeout(() => {
                 setShareOpen(false);
                 setShareNote('');
                 setPosted(false);
@@ -321,7 +331,7 @@ const RecipeDetail: React.FC<RecipeDetailProps> = ({ recipe, onClose, onRated })
                         </button>
                         <button
                             onClick={onClose}
-                            className="absolute top-3 right-3 w-8 h-8 rounded-full bg-black/50 backdrop-blur-xs flex items-center justify-center text-white text-xs"
+                            className="absolute top-3 right-3 w-8 h-8 rounded-full bg-black/50 backdrop-blur-xs flex items-center justify-center text-white text-xs before:absolute before:-inset-1.5 before:content-['']"
                             aria-label="Close recipe detail"
                         >
                             ✕
@@ -348,7 +358,7 @@ const RecipeDetail: React.FC<RecipeDetailProps> = ({ recipe, onClose, onRated })
                         </button>
                         <button
                             onClick={onClose}
-                            className="absolute top-3 right-3 w-8 h-8 rounded-full bg-black/50 flex items-center justify-center text-white text-xs"
+                            className="absolute top-3 right-3 w-8 h-8 rounded-full bg-black/50 flex items-center justify-center text-white text-xs before:absolute before:-inset-1.5 before:content-['']"
                             aria-label="Close recipe detail"
                         >
                             ✕
@@ -380,7 +390,7 @@ const RecipeDetail: React.FC<RecipeDetailProps> = ({ recipe, onClose, onRated })
                         <WheelRating rating={userRating ?? 0} interactive={!submitting} onRate={handleRate} size={22} />
                         {userRating && (
                             <p className="text-[11px] text-amber-400/60 mt-1">
-                                You gave this {userRating} helm{userRating !== 1 ? 's' : ''} ☸
+                                You gave this {userRating} wheel{userRating !== 1 ? 's' : ''} ☸
                             </p>
                         )}
                     </div>
@@ -575,6 +585,21 @@ interface CaptainsTableProps {
     fullPage?: boolean;
 }
 
+// Filter tag groups — icon split from label for clean alignment. Module
+// scope: neither list depends on component state, and CaptainsTable
+// re-renders on every search keystroke.
+const TAG_GROUPS = [
+    { icon: '⚓', label: 'Sea State', tags: NAUTICAL_TAG_DEFS.filter((t) => t.group === 'sea_state') },
+    { icon: '🧭', label: 'Provisions', tags: NAUTICAL_TAG_DEFS.filter((t) => t.group === 'provisioning') },
+    { icon: '🍳', label: 'Gear', tags: NAUTICAL_TAG_DEFS.filter((t) => t.group === 'gear') },
+];
+
+const SORT_OPTIONS: { key: CaptainsTableSort; label: string; emoji: string }[] = [
+    { key: 'top_rated', label: 'Top Rated', emoji: '☸' },
+    { key: 'prep_time', label: 'Prep Time', emoji: '⏱️' },
+    { key: 'newest', label: 'Newest', emoji: '🆕' },
+];
+
 export const CaptainsTable: React.FC<CaptainsTableProps> = ({ className, fullPage }) => {
     const [expanded, setExpanded] = useState(!!fullPage);
     const [allRecipes, setAllRecipes] = useState<CommunityRecipe[]>([]);
@@ -714,19 +739,6 @@ export const CaptainsTable: React.FC<CaptainsTableProps> = ({ className, fullPag
     // Which recipes to display
     const displayRecipes = bilgeDiveMode ? bilgeDiveResults.map((r) => r.recipe) : filteredRecipes;
 
-    // Filter tag groups — icon split from label for clean alignment
-    const tagGroups = [
-        { icon: '⚓', label: 'Sea State', tags: NAUTICAL_TAG_DEFS.filter((t) => t.group === 'sea_state') },
-        { icon: '🧭', label: 'Provisions', tags: NAUTICAL_TAG_DEFS.filter((t) => t.group === 'provisioning') },
-        { icon: '🍳', label: 'Gear', tags: NAUTICAL_TAG_DEFS.filter((t) => t.group === 'gear') },
-    ];
-
-    const sortOptions: { key: CaptainsTableSort; label: string; emoji: string }[] = [
-        { key: 'top_rated', label: 'Top Rated', emoji: '☸' },
-        { key: 'prep_time', label: 'Prep Time', emoji: '⏱️' },
-        { key: 'newest', label: 'Newest', emoji: '🆕' },
-    ];
-
     const isOpen = fullPage || expanded;
 
     return (
@@ -777,7 +789,7 @@ export const CaptainsTable: React.FC<CaptainsTableProps> = ({ className, fullPag
                                     value={searchQuery}
                                     onChange={(e) => setSearchQuery(e.target.value)}
                                     placeholder="Search recipes…"
-                                    className="w-full h-full bg-white/4 border border-white/8 rounded-xl pl-9 pr-3 py-2.5 text-xs text-white placeholder-gray-500 focus:outline-hidden focus:border-amber-500/30"
+                                    className="w-full h-full min-h-[44px] bg-white/4 border border-white/8 rounded-xl pl-9 pr-3 py-2.5 text-xs text-white placeholder-gray-500 focus:outline-hidden focus:border-amber-500/30"
                                     data-no-keyboard-scroll
                                 />
                                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-xs">
@@ -792,7 +804,7 @@ export const CaptainsTable: React.FC<CaptainsTableProps> = ({ className, fullPag
                                     onChange={(e) => setBilgeInput(e.target.value)}
                                     onKeyDown={handleBilgeKeyDown}
                                     placeholder="Type ingredient, press Enter… (prefix - to exclude)"
-                                    className="w-full h-full bg-white/4 border border-sky-500/20 rounded-xl pl-9 pr-3 py-2.5 text-xs text-white placeholder-gray-500 focus:outline-hidden focus:border-sky-500/40"
+                                    className="w-full h-full min-h-[44px] bg-white/4 border border-sky-500/20 rounded-xl pl-9 pr-3 py-2.5 text-xs text-white placeholder-gray-500 focus:outline-hidden focus:border-sky-500/40"
                                     data-no-keyboard-scroll
                                 />
                                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sky-400 text-xs">
@@ -809,17 +821,25 @@ export const CaptainsTable: React.FC<CaptainsTableProps> = ({ className, fullPag
                                 setBilgeInput('');
                                 triggerHaptic('medium');
                             }}
-                            className={`px-4 py-2.5 rounded-xl text-[11px] font-bold transition-all active:scale-95 whitespace-nowrap flex items-center gap-1.5 ${
+                            className={`px-4 py-2.5 min-h-[44px] rounded-xl text-[11px] font-bold transition-all active:scale-95 whitespace-nowrap flex items-center gap-1.5 ${
                                 bilgeDiveMode
                                     ? 'bg-sky-500/15 text-sky-300 border border-sky-500/25'
                                     : 'bg-white/4 text-gray-400 border border-white/6 hover:bg-white/6'
                             }`}
                             title="Bilge Dive — search by ingredients you have"
+                            aria-label="Bilge Dive — search by ingredients you have"
+                            aria-pressed={bilgeDiveMode}
                         >
                             <span className="text-sm leading-none">🧭</span>
                             <span>Bilge Dive</span>
                         </button>
                     </div>
+                    {/* `title` never shows on iOS — say what the toggle does. */}
+                    {!bilgeDiveMode && (
+                        <p className="text-[11px] text-gray-500 px-1">
+                            Bilge Dive finds recipes from ingredients you already have aboard.
+                        </p>
+                    )}
 
                     {/* ── Bilge Dive Ingredient Tags ── */}
                     {bilgeDiveMode && (bilgeIngredients.length > 0 || bilgeExclusions.length > 0) && (
@@ -854,7 +874,7 @@ export const CaptainsTable: React.FC<CaptainsTableProps> = ({ className, fullPag
                     {/* ── Quick Filter Tags ── */}
                     {!bilgeDiveMode && (
                         <div className="flex flex-col gap-3">
-                            {tagGroups.map((group) => (
+                            {TAG_GROUPS.map((group) => (
                                 <div key={group.label} className="flex items-center gap-3">
                                     {/* Fixed-width label — keeps pill buttons vertically aligned */}
                                     <span className="text-[10px] text-gray-500/70 font-black uppercase tracking-[0.12em] whitespace-nowrap shrink-0 w-22 flex items-center gap-1.5">
@@ -889,7 +909,7 @@ export const CaptainsTable: React.FC<CaptainsTableProps> = ({ className, fullPag
                     {/* ── Sort + Actions Row ── */}
                     <div className="flex items-center gap-2 pt-1 border-t border-white/4">
                         <div className="flex gap-2 flex-1 overflow-x-auto no-scrollbar">
-                            {sortOptions.map((opt) => (
+                            {SORT_OPTIONS.map((opt) => (
                                 <button
                                     key={opt.key}
                                     onClick={() => {
@@ -1113,7 +1133,7 @@ export const CaptainsTable: React.FC<CaptainsTableProps> = ({ className, fullPag
                                         <button
                                             type="button"
                                             onClick={(e) => handleToggleFavourite(recipe.supabaseId, e)}
-                                            className={`absolute right-2.5 top-2.5 z-10 flex h-8 w-8 items-center justify-center rounded-full text-sm transition-all active:scale-90 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-rose-400/70 ${
+                                            className={`absolute right-2.5 top-2.5 z-10 flex h-8 w-8 items-center justify-center rounded-full text-sm transition-all active:scale-90 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-rose-400/70 before:absolute before:-inset-1.5 before:content-[''] ${
                                                 isFav
                                                     ? 'text-rose-400 bg-rose-500/10'
                                                     : 'text-gray-500 hover:text-gray-400 hover:bg-white/5'

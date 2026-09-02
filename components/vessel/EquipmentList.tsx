@@ -37,6 +37,9 @@ import {
     type AuthIdentityScope,
 } from '../../services/authIdentityScope';
 
+/** Category display order for the register — module scope, it never changes. */
+const CATEGORY_ORDER: EquipmentCategory[] = ['Propulsion', 'Electronics', 'HVAC', 'Plumbing', 'Rigging', 'Galley'];
+
 interface EquipmentListProps {
     onBack: () => void;
 }
@@ -159,35 +162,39 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
     const { ref: listRef, flash } = useSuccessFlash();
 
     // ── Filtered + grouped items ──
-    const CATEGORY_ORDER: EquipmentCategory[] = ['Propulsion', 'Electronics', 'HVAC', 'Plumbing', 'Rigging', 'Galley'];
-
     const visibleItems = useMemo(
         () => (dataScopeKey === getAuthIdentityScope().key ? items : []),
         [dataScopeKey, items],
     );
-    const filteredItems = visibleItems
-        .filter((i) => {
-            if (!searchQuery.trim()) return true;
-            const q = searchQuery.toLowerCase();
-            return (
-                i.equipment_name.toLowerCase().includes(q) ||
-                i.make.toLowerCase().includes(q) ||
-                i.model.toLowerCase().includes(q) ||
-                i.serial_number.toLowerCase().includes(q)
-            );
-        })
-        .sort((a, b) => {
-            const catA = CATEGORY_ORDER.indexOf(a.category);
-            const catB = CATEGORY_ORDER.indexOf(b.category);
-            if (catA !== catB) return catA - catB;
-            return a.equipment_name.localeCompare(b.equipment_name);
-        });
-
-    // Group by category for rendering
-    const groupedItems = CATEGORY_ORDER.map((cat) => ({
-        category: cat,
-        items: filteredItems.filter((i) => i.category === cat),
-    })).filter((g) => g.items.length > 0);
+    // Memoised on the two inputs that matter — this used to re-filter, re-sort
+    // and re-group on every keystroke in the eight add/edit form fields
+    // (InventoryList does the same).
+    const groupedItems = useMemo(() => {
+        const q = searchQuery.trim().toLowerCase();
+        const filtered = (
+            q
+                ? visibleItems.filter(
+                      (i) =>
+                          i.equipment_name.toLowerCase().includes(q) ||
+                          i.make.toLowerCase().includes(q) ||
+                          i.model.toLowerCase().includes(q) ||
+                          i.serial_number.toLowerCase().includes(q),
+                  )
+                : visibleItems
+        )
+            .slice()
+            .sort((a, b) => {
+                const catA = CATEGORY_ORDER.indexOf(a.category);
+                const catB = CATEGORY_ORDER.indexOf(b.category);
+                if (catA !== catB) return catA - catB;
+                return a.equipment_name.localeCompare(b.equipment_name);
+            });
+        // Group by category for rendering
+        return CATEGORY_ORDER.map((cat) => ({
+            category: cat,
+            items: filtered.filter((i) => i.category === cat),
+        })).filter((g) => g.items.length > 0);
+    }, [visibleItems, searchQuery]);
 
     // ── Handlers ──
     const handleAdd = useCallback(async () => {
@@ -403,7 +410,7 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
                                 aria-pressed={newCategory === cat.id}
                                 key={cat.id}
                                 onClick={() => setNewCategory(cat.id)}
-                                className={`py-1 rounded-full text-label font-bold transition-all text-center ${newCategory === cat.id ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-white/5 text-gray-400 border border-white/5'}`}
+                                className={`py-1 min-h-[44px] rounded-full text-label font-bold transition-all text-center ${newCategory === cat.id ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-white/5 text-gray-400 border border-white/5'}`}
                             >
                                 {cat.icon} {cat.label}
                             </button>
@@ -460,7 +467,7 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
             <div className="flex flex-col h-full">
                 <PageHeader
                     title="Equipment Register"
-                    subtitle={`${visibleItems.length} Items Registered`}
+                    subtitle={`${visibleItems.length} ${visibleItems.length === 1 ? 'Item' : 'Items'} Registered`}
                     onBack={onBack}
                     breadcrumbs={["Ship's Office", 'Equipment']}
                     status={<OfflineBadge />}

@@ -70,7 +70,7 @@ export const DocumentForm: React.FC<DocumentFormProps> = ({
                             aria-label="Form Category"
                             key={cat.id}
                             onClick={() => onCategoryChange(cat.id)}
-                            className={`py-1.5 rounded-full text-label font-bold transition-all text-center ${formCategory === cat.id ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-white/5 text-gray-400 border border-white/5'}`}
+                            className={`py-1.5 min-h-[44px] rounded-full text-label font-bold transition-all text-center ${formCategory === cat.id ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-white/5 text-gray-400 border border-white/5'}`}
                         >
                             {cat.icon} {cat.label}
                         </button>

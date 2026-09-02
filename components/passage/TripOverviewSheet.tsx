@@ -81,13 +81,22 @@ export const TripOverviewSheet: React.FC<TripOverviewSheetProps> = ({ isOpen, on
      *  blocking the rest of the sheet. */
     const [countrySnippets, setCountrySnippets] = useState<ResolvedCountrySnippet[]>([]);
 
+    // LegPickerDropdown's 5 s poll hands down a NEW `legs` array each tick even
+    // when nothing changed, which recomputed the overview and re-fired the
+    // enrichment effect below — live forecasts + AI snippets re-fetched and the
+    // sheet flashed back to "Fetching…" every 5 s while open. Key on content,
+    // not identity, so identical legs keep the same array (and skip the
+    // stringify entirely while the sheet is closed — nothing reads it then).
+    const legsSignature = isOpen ? JSON.stringify(legs) : '';
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- content-keyed by design (see above)
+    const stableLegs = useMemo(() => legs, [legsSignature]);
     const baseOverview: TripOverview | null = useMemo(() => {
-        if (legs.length === 0) return null;
-        return buildTripOverview(legs, {
+        if (stableLegs.length === 0) return null;
+        return buildTripOverview(stableLegs, {
             tripName,
             crewCount: vesselCrewAboard(settings.vessel),
         });
-    }, [legs, tripName, settings.vessel?.crewCount]);
+    }, [stableLegs, tripName, settings.vessel?.crewCount]);
 
     // Fetch live data when the sheet opens (and re-fetch when the
     // underlying trip changes). Fire-and-forget — the template view
@@ -260,7 +269,7 @@ export const TripOverviewSheet: React.FC<TripOverviewSheetProps> = ({ isOpen, on
                     <button
                         ref={closeButtonRef}
                         onClick={onClose}
-                        className="w-9 h-9 rounded-full bg-white/5 text-gray-400 flex items-center justify-center hover:bg-white/10 shrink-0 ml-2"
+                        className="w-11 h-11 rounded-full bg-white/5 text-gray-400 flex items-center justify-center hover:bg-white/10 shrink-0 ml-2"
                         aria-label="Close trip overview"
                     >
                         ✕

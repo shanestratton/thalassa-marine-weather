@@ -17,8 +17,9 @@ vi.mock('../services/accountDeletionPublicBetaBoundary', () => ({
         'Account deletion is temporarily unavailable while its deletion safety controls are completed and verified. To request deletion during this beta, email privacy@thalassawx.com.',
 }));
 
-vi.mock('../context/ThalassaContext', () => ({
-    useThalassa: () => ({
+// AccountTab reads useAuth() directly (the useThalassa aggregator is gone).
+vi.mock('../context/AuthContext', () => ({
+    useAuth: () => ({
         user: { id: 'account-a', email: 'captain@example.com' },
         logout: vi.fn(),
     }),

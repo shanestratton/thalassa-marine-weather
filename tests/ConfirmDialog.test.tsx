@@ -87,8 +87,9 @@ describe('ConfirmDialog', () => {
                 <ConfirmDialog {...baseProps} onCancel={onCancel} />
             </>,
         );
-        const cancel = screen.getByRole('button', { name: 'Cancel action' });
-        const confirm = screen.getByRole('button', { name: 'Confirm action' });
+        // Accessible names are the visible labels now (no aria-label override).
+        const cancel = screen.getByRole('button', { name: 'Cancel' });
+        const confirm = screen.getByRole('button', { name: 'Confirm' });
         expect(cancel).toHaveFocus();
 
         fireEvent.keyDown(cancel, { key: 'Tab', shiftKey: true });

@@ -27,7 +27,7 @@ import {
     getSailingConditionText,
     convertLength,
 } from '../../utils';
-import { useThalassa } from '../../context/ThalassaContext';
+import { useSettings } from '../../context/SettingsContext';
 
 // ── Lazy-loaded DnD wrapper ─────────────────────────────────────
 // @dnd-kit is 185KB — only load it when the component mounts, not at app startup.
@@ -310,7 +310,7 @@ export const DetailedMetricsWidget = ({
     hourly?: HourlyForecast[];
     locationType?: 'inshore' | 'coastal' | 'offshore' | 'inland';
 }) => {
-    const { settings, updateSettings } = useThalassa();
+    const { settings, updateSettings } = useSettings();
     const activeWidgets = settings.detailsWidgets || [
         'wave',
         'wavePeriod',

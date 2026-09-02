@@ -8,9 +8,13 @@ const h = vi.hoisted(() => ({
     rpc: vi.fn(),
 }));
 
-vi.mock('../context/ThalassaContext', () => ({
-    useThalassa: () => ({
-        user: h.userId ? { id: h.userId } : null,
+// NotificationManager reads the three contexts directly (the useThalassa
+// aggregator is gone), so each is mocked on its own.
+vi.mock('../context/AuthContext', () => ({
+    useAuth: () => ({ user: h.userId ? { id: h.userId } : null }),
+}));
+vi.mock('../context/WeatherContext', () => ({
+    useWeather: () => ({
         weatherData: {
             locationName: h.locationName,
             current: {
@@ -24,6 +28,10 @@ vi.mock('../context/ThalassaContext', () => ({
                 condition: 'Clear',
             },
         },
+    }),
+}));
+vi.mock('../context/SettingsContext', () => ({
+    useSettings: () => ({
         settings: {
             notifications: {
                 wind: { enabled: true, threshold: 30 },

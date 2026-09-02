@@ -141,11 +141,6 @@ export const DepartureWindowSheet: React.FC<DepartureWindowSheetProps> = ({
                 aria-labelledby="departure-window-title"
                 className="relative w-full max-w-2xl max-h-full flex flex-col bg-slate-950 border border-white/10 rounded-3xl shadow-2xl animate-in fade-in duration-200"
             >
-                {/* Drag handle */}
-                <div className="shrink-0 pt-2 pb-1 flex justify-center">
-                    <div className="w-12 h-1 rounded-full bg-white/20" />
-                </div>
-
                 {/* Header */}
                 <div className="shrink-0 px-5 pt-2 pb-4 border-b border-white/5">
                     <div className="flex items-start justify-between gap-3">
@@ -193,7 +188,7 @@ export const DepartureWindowSheet: React.FC<DepartureWindowSheetProps> = ({
                         <div className="rounded-xl bg-emerald-500/10 border border-emerald-500/30 p-3">
                             <div className="flex items-center justify-between gap-2 mb-1">
                                 <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400">
-                                    Best Pick
+                                    Best Departure
                                 </span>
                                 <span className="text-[10px] text-emerald-300/70">
                                     {best.galeHours > 0 ? `${best.galeHours}h gale` : 'no gale'}
@@ -284,7 +279,7 @@ export const DepartureWindowSheet: React.FC<DepartureWindowSheetProps> = ({
                                                 )}
                                             </div>
                                             <div
-                                                className={`shrink-0 rounded-full px-2.5 py-1 text-[10px] font-bold ${style.bg} ${style.text} border ${style.border}`}
+                                                className={`shrink-0 rounded-full px-2.5 py-1 text-sm font-bold ${style.bg} ${style.text} border ${style.border}`}
                                             >
                                                 {style.label}
                                             </div>
