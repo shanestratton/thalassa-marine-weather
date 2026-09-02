@@ -37,10 +37,18 @@ describe('the dot rail matches the sections it jumps to', () => {
         expect(sections.map((s) => s.toUpperCase())).toEqual(rail);
     });
 
-    it('puts Position second, one swipe from Wind', () => {
+    it('opens on Wind, then Barometer, with Position close behind', () => {
+        // Position was second from 2026-08-30 (its own dedicated page, one
+        // swipe from Wind). Shane moved the Barometer into that slot on
+        // 2026-09-02 — "move the barometer from the bottom of the instrument
+        // panel to the next one after the wind claude. it is that banging" —
+        // so Position is third. The invariant worth keeping is not the exact
+        // index but that the three instruments a skipper reaches for in a
+        // hurry are all within a couple of swipes of the top.
         const sections = renderedSections();
         expect(sections[0]).toBe('WIND');
-        expect(sections[1]).toBe('POSITION');
+        expect(sections[1]).toBe('BAROMETER');
+        expect(sections.slice(0, 3)).toContain('POSITION');
     });
 });
 

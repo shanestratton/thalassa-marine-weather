@@ -885,7 +885,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
            the rail jumps by INDEX (scrollTop / clientHeight), so a name missing
            here does not just lose a dot, it shifts every dot after it onto the
            wrong instrument. */
-        const base = ['Wind', 'Position', 'Speed', 'Depth', 'Heading', 'Helm', 'Barometer'];
+        const base = ['Wind', 'Barometer', 'Position', 'Speed', 'Depth', 'Heading', 'Helm'];
         return isSereneSummer ? [...base, 'Sail Plan'] : base;
     }, [isSereneSummer]);
     const onPanelScroll = useCallback(() => {
@@ -1417,6 +1417,118 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                             </div>
                         </section>
 
+                        {/* ── SECTION: BAROMETER ──
+                            Sits after the instruments and before the advice,
+                            because that is the order a skipper reads them in:
+                            what the boat is doing, what the sky is doing, then
+                            what to do about it.
+
+                            The number is the least of it. A barometer forecasts
+                            through its TENDENCY, so the three-hour trend, its
+                            rate band and the plain sentence under it are the
+                            content — and the source line is not decoration
+                            either: a phone that has been up and down the
+                            companionway has invented most of its own trend. */}
+                        <section
+                            className={`w-full h-full snap-start snap-always shrink-0 overflow-hidden flex flex-col ${containerPx} pt-1 ${sectionPb}`}
+                        >
+                            <SectionPlate title="Barometer" />
+                            <div className="flex-1 min-h-0 flex flex-col justify-evenly">
+                                <div className="text-center">
+                                    <BarometerGauge
+                                        hpa={baro.latest?.hpa ?? null}
+                                        setHandHpa={baroSetHand}
+                                        severity={baroTendency?.severity ?? 'calm'}
+                                        readout={
+                                            baro.latest
+                                                ? baroUnit === 'inHg'
+                                                    ? hpaToInHg(baro.latest.hpa).toFixed(2)
+                                                    : baro.latest.hpa.toFixed(1)
+                                                : '--'
+                                        }
+                                        readoutUnit={baroUnit === 'inHg' ? 'inHg' : 'hPa'}
+                                    />
+                                    <p className="text-[10px] font-bold text-gray-500">
+                                        {baro.source === 'boat' && 'Boat sensor'}
+                                        {baro.source === 'phone' && 'This device'}
+                                        {baroSetHand !== null && ' · pale hand = 3 h ago'}
+                                    </p>
+                                    {baroTendency && (
+                                        <div
+                                            className={`mt-3 inline-flex items-center gap-2 rounded-full border px-3 py-1 ${BARO_SEVERITY[baroTendency.severity].pill}`}
+                                        >
+                                            <span aria-hidden="true" className="text-sm leading-none">
+                                                {baroTendency.direction === 'rising'
+                                                    ? '▲'
+                                                    : baroTendency.direction === 'falling'
+                                                      ? '▼'
+                                                      : '▬'}
+                                            </span>
+                                            <span className="text-xs font-black uppercase tracking-wider">
+                                                {baroTendency.label}
+                                            </span>
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* The sentence a skipper can act on, straight from
+                                    the shared tendency brain — never re-worded here,
+                                    so the Glass panel and this page cannot drift. */}
+                                <p className="px-2 text-center text-xs font-medium leading-relaxed text-gray-300">
+                                    {baroTendency
+                                        ? baroTendency.read
+                                        : (baro.reason ??
+                                          'Building a record — a barometer needs three hours before it can say anything.')}
+                                </p>
+
+                                <div className="grid grid-cols-3 gap-2">
+                                    <div className="rounded-xl bg-white/3 border border-white/6 p-2 text-center">
+                                        <p className="text-[9px] font-black uppercase tracking-[0.2em] text-gray-400">
+                                            3 h
+                                        </p>
+                                        <p
+                                            className={`text-xl font-black tabular-nums font-mono ${baroTendency ? BARO_SEVERITY[baroTendency.severity].text : 'text-white'}`}
+                                        >
+                                            {baroTendency
+                                                ? `${baroTendency.deltaHpa >= 0 ? '+' : ''}${baroTendency.deltaHpa.toFixed(1)}`
+                                                : '--'}
+                                            <span className="text-[9px] font-bold text-gray-500"> hPa</span>
+                                        </p>
+                                    </div>
+                                    <div className="rounded-xl bg-white/3 border border-white/6 p-2 text-center">
+                                        <p className="text-[9px] font-black uppercase tracking-[0.2em] text-gray-400">
+                                            Rate
+                                        </p>
+                                        <p className="text-xl font-black tabular-nums font-mono text-cyan-300">
+                                            {baroTendency ? baroTendency.perHour.toFixed(1) : '--'}
+                                            <span className="text-[9px] font-bold text-gray-500"> /h</span>
+                                        </p>
+                                    </div>
+                                    <div className="rounded-xl bg-white/3 border border-white/6 p-2 text-center">
+                                        <p className="text-[9px] font-black uppercase tracking-[0.2em] text-gray-400">
+                                            Record
+                                        </p>
+                                        <p className="text-xl font-black tabular-nums font-mono text-white">
+                                            {baro.samples.length > 1
+                                                ? (
+                                                      (baro.samples[baro.samples.length - 1].t - baro.samples[0].t) /
+                                                      3_600_000
+                                                  ).toFixed(1)
+                                                : '--'}
+                                            <span className="text-[9px] font-bold text-gray-500"> h</span>
+                                        </p>
+                                    </div>
+                                </div>
+
+                                {baro.source === 'phone' && (
+                                    <p className="px-3 text-center text-[10px] font-medium leading-snug text-amber-300/80">
+                                        This device&apos;s barometer. Carrying it up or down changes the reading — the
+                                        boat&apos;s sensor is steadier.
+                                    </p>
+                                )}
+                            </div>
+                        </section>
+
                         {/* ── SECTION: POSITION ── */}
                         {/* A page that does one thing (Shane 2026-08-30). The fix
                             already appears under the wind dial, but small, beside
@@ -1744,118 +1856,6 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                             is shown rather than something invented.
                                         </p>
                                     </div>
-                                )}
-                            </div>
-                        </section>
-
-                        {/* ── SECTION: BAROMETER ──
-                            Sits after the instruments and before the advice,
-                            because that is the order a skipper reads them in:
-                            what the boat is doing, what the sky is doing, then
-                            what to do about it.
-
-                            The number is the least of it. A barometer forecasts
-                            through its TENDENCY, so the three-hour trend, its
-                            rate band and the plain sentence under it are the
-                            content — and the source line is not decoration
-                            either: a phone that has been up and down the
-                            companionway has invented most of its own trend. */}
-                        <section
-                            className={`w-full h-full snap-start snap-always shrink-0 overflow-hidden flex flex-col ${containerPx} pt-1 ${sectionPb}`}
-                        >
-                            <SectionPlate title="Barometer" />
-                            <div className="flex-1 min-h-0 flex flex-col justify-evenly">
-                                <div className="text-center">
-                                    <BarometerGauge
-                                        hpa={baro.latest?.hpa ?? null}
-                                        setHandHpa={baroSetHand}
-                                        severity={baroTendency?.severity ?? 'calm'}
-                                        readout={
-                                            baro.latest
-                                                ? baroUnit === 'inHg'
-                                                    ? hpaToInHg(baro.latest.hpa).toFixed(2)
-                                                    : baro.latest.hpa.toFixed(1)
-                                                : '--'
-                                        }
-                                        readoutUnit={baroUnit === 'inHg' ? 'inHg' : 'hPa'}
-                                    />
-                                    <p className="text-[10px] font-bold text-gray-500">
-                                        {baro.source === 'boat' && 'Boat sensor'}
-                                        {baro.source === 'phone' && 'This device'}
-                                        {baroSetHand !== null && ' · pale hand = 3 h ago'}
-                                    </p>
-                                    {baroTendency && (
-                                        <div
-                                            className={`mt-3 inline-flex items-center gap-2 rounded-full border px-3 py-1 ${BARO_SEVERITY[baroTendency.severity].pill}`}
-                                        >
-                                            <span aria-hidden="true" className="text-sm leading-none">
-                                                {baroTendency.direction === 'rising'
-                                                    ? '▲'
-                                                    : baroTendency.direction === 'falling'
-                                                      ? '▼'
-                                                      : '▬'}
-                                            </span>
-                                            <span className="text-xs font-black uppercase tracking-wider">
-                                                {baroTendency.label}
-                                            </span>
-                                        </div>
-                                    )}
-                                </div>
-
-                                {/* The sentence a skipper can act on, straight from
-                                    the shared tendency brain — never re-worded here,
-                                    so the Glass panel and this page cannot drift. */}
-                                <p className="px-2 text-center text-xs font-medium leading-relaxed text-gray-300">
-                                    {baroTendency
-                                        ? baroTendency.read
-                                        : (baro.reason ??
-                                          'Building a record — a barometer needs three hours before it can say anything.')}
-                                </p>
-
-                                <div className="grid grid-cols-3 gap-2">
-                                    <div className="rounded-xl bg-white/3 border border-white/6 p-2 text-center">
-                                        <p className="text-[9px] font-black uppercase tracking-[0.2em] text-gray-400">
-                                            3 h
-                                        </p>
-                                        <p
-                                            className={`text-xl font-black tabular-nums font-mono ${baroTendency ? BARO_SEVERITY[baroTendency.severity].text : 'text-white'}`}
-                                        >
-                                            {baroTendency
-                                                ? `${baroTendency.deltaHpa >= 0 ? '+' : ''}${baroTendency.deltaHpa.toFixed(1)}`
-                                                : '--'}
-                                            <span className="text-[9px] font-bold text-gray-500"> hPa</span>
-                                        </p>
-                                    </div>
-                                    <div className="rounded-xl bg-white/3 border border-white/6 p-2 text-center">
-                                        <p className="text-[9px] font-black uppercase tracking-[0.2em] text-gray-400">
-                                            Rate
-                                        </p>
-                                        <p className="text-xl font-black tabular-nums font-mono text-cyan-300">
-                                            {baroTendency ? baroTendency.perHour.toFixed(1) : '--'}
-                                            <span className="text-[9px] font-bold text-gray-500"> /h</span>
-                                        </p>
-                                    </div>
-                                    <div className="rounded-xl bg-white/3 border border-white/6 p-2 text-center">
-                                        <p className="text-[9px] font-black uppercase tracking-[0.2em] text-gray-400">
-                                            Record
-                                        </p>
-                                        <p className="text-xl font-black tabular-nums font-mono text-white">
-                                            {baro.samples.length > 1
-                                                ? (
-                                                      (baro.samples[baro.samples.length - 1].t - baro.samples[0].t) /
-                                                      3_600_000
-                                                  ).toFixed(1)
-                                                : '--'}
-                                            <span className="text-[9px] font-bold text-gray-500"> h</span>
-                                        </p>
-                                    </div>
-                                </div>
-
-                                {baro.source === 'phone' && (
-                                    <p className="px-3 text-center text-[10px] font-medium leading-snug text-amber-300/80">
-                                        This device&apos;s barometer. Carrying it up or down changes the reading — the
-                                        boat&apos;s sensor is steadier.
-                                    </p>
                                 )}
                             </div>
                         </section>
