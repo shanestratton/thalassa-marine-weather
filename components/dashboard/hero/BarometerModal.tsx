@@ -37,6 +37,7 @@ import {
     type TendencySeverity,
 } from '../../../utils/barometerTendency';
 import * as barometer from '../../../services/native/barometer';
+import { useBarometerSource } from '../../../hooks/useBarometerSource';
 
 /** Chart span: what the sensor measured, then what the model expects. */
 const PAST_MS = 6 * 3_600_000;
@@ -312,10 +313,22 @@ export const BarometerModal: React.FC<BarometerModalProps> = ({ isOpen, onClose,
     const unitLabel = unit === 'inHg' ? 'inHg' : 'hPa';
     const nowT = Date.now();
 
-    const stationSamples: PressureSample[] = barometer.getStationSamples();
-    const latest = barometer.getLatestSample();
+    /* THE BOAT'S SENSOR OUTRANKS THE PHONE, here as well as on the Instrument
+       Panel — the same hook, so the two barometer surfaces cannot show the
+       skipper different pressures. The phone is NOT retired: it is the only
+       barometer a punter without a Pi has, and the only one that still works
+       ashore or while the Pi reboots. It is simply no longer preferred when
+       something better is bolted to the vessel. */
+    const boat = useBarometerSource(isOpen);
+    const usingBoat = boat.source === 'boat';
+
+    const phoneSamples: PressureSample[] = barometer.getStationSamples();
+    const phoneLatest = barometer.getLatestSample();
     const { offsetHpa } = barometer.getOffset();
-    const hasSensor = !!availability?.available && !!latest;
+
+    const stationSamples: PressureSample[] = usingBoat ? boat.samples : phoneSamples;
+    const latest = usingBoat ? boat.latest : phoneLatest;
+    const hasSensor = usingBoat || (!!availability?.available && !!phoneLatest);
 
     // Forecast series for the forward trace, clipped to the chart window.
     const forecastPts: TracePoint[] = React.useMemo(() => {
@@ -358,17 +371,28 @@ export const BarometerModal: React.FC<BarometerModalProps> = ({ isOpen, onClose,
     );
     const collecting = hasSensor && !tendency ? timeUntilTendency(stationSamples, nowT) : null;
 
-    const displayValue = hasSensor && latest ? latest.hpa + (offsetHpa ?? 0) : (reference ?? null);
-    const calibrated = offsetHpa != null;
+    /* The offset corrects CMAltimeter's ±1 hPa unit-to-unit error. The BMP390
+       measured 0.5 hPa from ECMWF on install, so applying the phone's
+       correction to it would introduce the very error it exists to remove. */
+    const displayValue = hasSensor && latest ? latest.hpa + (usingBoat ? 0 : (offsetHpa ?? 0)) : (reference ?? null);
+    const calibrated = !usingBoat && offsetHpa != null;
 
     const sev = tendency ? SEVERITY_UI[tendency.severity] : SEVERITY_UI.calm;
     const accent = tendency ? sev.dot : '#6ee7b7';
 
-    const sourceChip = hasSensor
-        ? { text: 'iPHONE', cls: 'bg-emerald-400/15 text-emerald-300' }
-        : { text: 'FORECAST', cls: 'bg-sky-400/15 text-sky-300' };
+    const sourceChip = usingBoat
+        ? { text: 'BOAT', cls: 'bg-teal-400/15 text-teal-300' }
+        : hasSensor
+          ? { text: 'iPHONE', cls: 'bg-emerald-400/15 text-emerald-300' }
+          : { text: 'FORECAST', cls: 'bg-sky-400/15 text-sky-300' };
 
-    const subLabel = hasSensor ? (calibrated ? 'MSL · calibrated' : 'STATION · uncalibrated') : 'Model MSL pressure';
+    const subLabel = usingBoat
+        ? 'BOAT SENSOR · continuous'
+        : hasSensor
+          ? calibrated
+              ? 'MSL · calibrated'
+              : 'STATION · uncalibrated'
+          : 'Model MSL pressure';
 
     const statusRead = (() => {
         if (tendency) return tendency.read;
@@ -446,7 +470,7 @@ export const BarometerModal: React.FC<BarometerModalProps> = ({ isOpen, onClose,
 
                 {/* Controls — the easy-click row */}
                 <div className="flex gap-2">
-                    {hasSensor && reference != null && (
+                    {hasSensor && !usingBoat && reference != null && (
                         <ControlButton
                             onClick={() =>
                                 calibrated ? barometer.clearCalibration() : barometer.calibrateTo(reference)

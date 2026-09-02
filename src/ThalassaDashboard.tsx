@@ -19,6 +19,10 @@ import { PUBLIC_POSITION_FRESH_MS } from './publicVoyageFreshness';
 // turn. A deliberately selected historical trip has no live motion to chase,
 // so it refreshes less often while retaining its stable selection.
 const LATEST_REFRESH_MS = 60 * 1000;
+/** How recent the boat's last fix must be for "traffic around it" to still
+ *  describe anything real. Six hours covers a lunch stop or a night at anchor
+ *  without reaching back to a passage that is over. */
+const AIS_POSITION_FRESH_MS = 6 * 3_600_000;
 const HISTORY_REFRESH_MS = 2 * 60 * 1000;
 const DASHBOARD_CLOCK_MS = 30 * 1000;
 
@@ -237,6 +241,33 @@ export default function ThalassaDashboard() {
         !isAllDiaryView &&
         (selectedTrip ? selectedTrip.kind === 'track' && selectedTrip.active : requestedTrip === 'latest');
     const scopedTelemetry = isActiveTrackView ? telemetry : null;
+
+    /**
+     * AIS gets its own rule, and it is about POSITION, not about the voyage's
+     * active flag.
+     *
+     * These targets describe traffic right now, so the honest question is
+     * whether the boat is still meaningfully where this page says it is. A
+     * skipper who stopped tracking an hour ago is; a passage from last month
+     * is not, and painting today's shipping over it would be a lie. Tying
+     * them to `active` instead meant the targets vanished the moment tracking
+     * stopped, which is exactly when someone ashore looks to see where he got
+     * to (Shane 2026-09-02: "none of your 557 ais targets are showing").
+     */
+    /* Not a hook, deliberately: this sits below the loading/error early
+       returns, so a useMemo here changes the hook count between renders and
+       React throws. It does not need to be one either — the track arrives
+       chronologically, so the newest fix is simply the last element. */
+    const newestTrackPoint = track && track.length > 0 ? track[track.length - 1] : null;
+    const parsedNewest = newestTrackPoint ? Date.parse(newestTrackPoint.timestamp) : Number.NaN;
+    const newestTrackAt = Number.isFinite(parsedNewest) ? parsedNewest : null;
+    const showNearbyVessels =
+        !isAllDiaryView &&
+        // A deliberately-chosen historical trip is a record; only the latest
+        // view is a statement about where the boat is.
+        (selectedTrip ? selectedTrip.id === latestTrip?.id : requestedTrip === 'latest') &&
+        newestTrackAt !== null &&
+        nowMs - newestTrackAt < AIS_POSITION_FRESH_MS;
     const expectedRefreshMs = requestedTrip === 'latest' ? LATEST_REFRESH_MS : HISTORY_REFRESH_MS;
     const responseOverdue =
         lastSuccessfulAt === null ||
@@ -392,7 +423,7 @@ export default function ThalassaDashboard() {
                         entries={entries}
                         passageLine={passage?.plan_line ?? null}
                         waypoints={waypoints ?? []}
-                        nearbyVessels={isActiveTrackView ? (nearbyVessels ?? []) : []}
+                        nearbyVessels={showNearbyVessels ? (nearbyVessels ?? []) : []}
                         onEntryClick={handleSelect}
                         selectedEntryId={selectedEntry?.id}
                         focusKey={mapFocusKey}

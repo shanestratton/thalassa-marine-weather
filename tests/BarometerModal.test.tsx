@@ -23,6 +23,11 @@ vi.mock('../services/native/barometer', () => ({
     getUnit: () => baro.unit,
     setUnit: baro.setUnit,
     getStationSamples: () => [],
+    // Used by useBarometerSource, which the modal now consults so the boat's
+    // sensor can outrank the phone. A mock missing it crashed the component
+    // rather than failing an assertion — the same partial-mock trap that bit
+    // utils/system on 2026-09-01.
+    getSeaLevelSamples: () => [],
     getLatestSample: () => null,
     getOffset: () => ({ offsetHpa: null }),
     calibrateTo: baro.calibrateTo,
