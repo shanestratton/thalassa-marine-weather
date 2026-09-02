@@ -634,6 +634,45 @@ class BoatNetworkServiceClass {
         }
     }
 
+    /**
+     * Has Connect All already wired this Pi in?
+     *
+     * Asks the PERSISTED configuration rather than a flag in a component,
+     * because the answer has to survive leaving the page — the button used to
+     * come back on every remount even with everything running (Shane
+     * 2026-09-02: "everytime i exit the page, and go back, the connect all
+     * button is back"). Config is the only thing that knows the truth after a
+     * remount, a restart, or a reinstall.
+     *
+     * Keyed on the chart host because that is what Connect/Disconnect
+     * actually toggle; nmea and the Pi cache are wired alongside it and share
+     * its fate through clearServiceWiring().
+     */
+    isWiredTo(host: string | null): boolean {
+        if (!host) return false;
+        try {
+            return localStorage.getItem('avnav_chart_host') === host;
+        } catch {
+            return false;
+        }
+    }
+
+    /**
+     * The inverse of applyToServices' chart half — so Disconnect leaves the
+     * config in a state that agrees with the button. Without this, a
+     * disconnect would look right until the page was reopened and the wiring
+     * reasserted itself.
+     */
+    clearServiceWiring(): void {
+        try {
+            localStorage.removeItem('avnav_chart_host');
+            localStorage.removeItem('avnav_chart_port');
+            localStorage.removeItem('avnav_server_type');
+        } catch {
+            /* storage unavailable — the AvNav stop still stands */
+        }
+    }
+
     /** Clear saved host and service state */
     clear(): void {
         saveToStorage(null);
