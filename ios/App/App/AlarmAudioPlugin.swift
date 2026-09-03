@@ -182,17 +182,19 @@ public class AlarmAudioPlugin: CAPPlugin, AVAudioPlayerDelegate {
                     call.reject("Failed to start alarm audio: \(error.localizedDescription)")
                     return
                 }
-                do {
-                    try self.startLoopingAlarmPlayer()
+                self.startLoopingAlarmPlayer { [weak self] playerError in
+                    guard let self = self else { return }
+                    if let playerError = playerError {
+                        self.cancelRequestedAlarmAndRestoreSession()
+                        print("[AlarmAudio] Failed to start alarm: \(playerError)")
+                        call.reject("Failed to start alarm audio: \(playerError.localizedDescription)")
+                        return
+                    }
                     self.alarmRequested = true
                     self.isPlaying = true
 
                     call.resolve(["playing": true])
                     print("[AlarmAudio] Continuous alarm playback started")
-                } catch {
-                    self.cancelRequestedAlarmAndRestoreSession()
-                    print("[AlarmAudio] Failed to start alarm: \(error)")
-                    call.reject("Failed to start alarm audio: \(error.localizedDescription)")
                 }
             }
         }
@@ -222,19 +224,50 @@ public class AlarmAudioPlugin: CAPPlugin, AVAudioPlayerDelegate {
 
     // MARK: - Continuous Playback
 
-    private func startLoopingAlarmPlayer() throws {
+    /**
+     Build and prepare the player off the main thread, then start it on it.
+
+     `prepareToPlay()` is the third hang-risk site: it allocates buffers and
+     will activate the session itself if it is not already up, so on the main
+     thread it draws the same AVAudioSession_iOS.mm:978 warning as setActive.
+     Preparation is therefore done on the audio queue.
+
+     BUT `play()` IS CALLED ON MAIN, DELIBERATELY. AVAudioPlayer delivers
+     audioPlayerDidFinishPlaying on the run loop of the thread that started
+     playback; a GCD queue thread has none, so starting it there would silently
+     lose the callback that restarts a looping alarm which stopped on its own.
+     Preparing off-main and starting on-main keeps both properties: no stall,
+     and the delegate still fires.
+     */
+    private func startLoopingAlarmPlayer(completion: @escaping (Error?) -> Void) {
         stopLoopingAlarmPlayer()
-        let player = try AVAudioPlayer(data: Self.alarmWaveData)
-        player.delegate = self
-        player.numberOfLoops = -1
-        player.volume = 1
-        guard player.prepareToPlay() else {
-            throw AlarmAudioError.playerCouldNotStart
-        }
-        alarmPlayer = player
-        guard player.play() else {
-            alarmPlayer = nil
-            throw AlarmAudioError.playerCouldNotStart
+        audioSessionQueue.async { [weak self] in
+            guard let self = self else { return }
+            let prepared: AVAudioPlayer
+            do {
+                let player = try AVAudioPlayer(data: Self.alarmWaveData)
+                player.numberOfLoops = -1
+                player.volume = 1
+                guard player.prepareToPlay() else {
+                    DispatchQueue.main.async { completion(AlarmAudioError.playerCouldNotStart) }
+                    return
+                }
+                prepared = player
+            } catch {
+                DispatchQueue.main.async { completion(error) }
+                return
+            }
+            DispatchQueue.main.async { [weak self] in
+                guard let self = self else { return }
+                prepared.delegate = self
+                self.alarmPlayer = prepared
+                guard prepared.play() else {
+                    self.alarmPlayer = nil
+                    completion(AlarmAudioError.playerCouldNotStart)
+                    return
+                }
+                completion(nil)
+            }
         }
     }
 
@@ -358,13 +391,15 @@ public class AlarmAudioPlugin: CAPPlugin, AVAudioPlayerDelegate {
                 completion(error)
                 return
             }
-            do {
-                try self.startLoopingAlarmPlayer()
+            self.startLoopingAlarmPlayer { [weak self] playerError in
+                guard let self = self else { return }
+                if let playerError = playerError {
+                    completion(playerError)
+                    return
+                }
                 self.isPlaying = true
                 print("[AlarmAudio] Alarm resumed after \(reason)")
                 completion(nil)
-            } catch {
-                completion(error)
             }
         }
     }
