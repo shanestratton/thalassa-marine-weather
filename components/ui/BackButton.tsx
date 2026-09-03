@@ -3,7 +3,7 @@
  *
  * There were 14 hand-rolled back buttons in the tree and they had drifted into
  * three different looks: this rounded square (PageHeader, and therefore most
- * pages, plus NmeaGaugeOverlay), a round pill with a text "‹" glyph in the
+ * pages), a round pill with a text "‹" glyph in the
  * Scuttlebutt header, and a couple of inline text links. Shane spotted the odd
  * one out. Rather than hand-copy the markup a fourth time, it lives here.
  *
@@ -26,7 +26,7 @@ interface BackButtonProps {
 }
 
 /** Ref-forwarding, because overlay callers focus this button as the first
- *  focusable element in a focus trap (see NmeaGaugeOverlay). */
+ *  focusable element in a focus trap. */
 export const BackButton = React.forwardRef<HTMLButtonElement, BackButtonProps>(
     ({ onClick, label = 'Go back', className = '' }, ref) => (
         <button

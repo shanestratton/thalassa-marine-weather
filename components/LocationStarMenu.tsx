@@ -259,9 +259,9 @@ export const LocationStarMenu: React.FC = () => {
                                         onClick={() => setHome(loc.name)}
                                         aria-label={`Set ${loc.name} as home port`}
                                         title="Set as home port"
-                                        className="p-2 text-gray-500 hover:text-amber-400 transition-colors shrink-0"
+                                        className="min-w-[44px] min-h-[44px] flex items-center justify-center text-gray-500 hover:text-amber-400 transition-colors shrink-0"
                                     >
-                                        <AnchorIcon className="w-3.5 h-3.5" />
+                                        <AnchorIcon className="w-4 h-4" />
                                     </button>
                                     <button
                                         type="button"
@@ -269,9 +269,9 @@ export const LocationStarMenu: React.FC = () => {
                                         onClick={() => removeSaved(loc.name)}
                                         aria-label={`Remove ${loc.name}`}
                                         title="Remove"
-                                        className="p-2 pr-3 text-gray-500 hover:text-red-400 transition-colors shrink-0"
+                                        className="min-w-[44px] min-h-[44px] flex items-center justify-center text-gray-500 hover:text-red-400 transition-colors shrink-0"
                                     >
-                                        <TrashIcon className="w-3.5 h-3.5" />
+                                        <TrashIcon className="w-4 h-4" />
                                     </button>
                                 </div>
                             ))}

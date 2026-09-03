@@ -77,6 +77,13 @@ export const CommunityTrackBrowser: React.FC<CommunityTrackBrowserProps> = ({ is
         onEscape: onClose,
     });
 
+    // `search` is read through a ref rather than a dependency: it used to be in
+    // this callback's deps, which changed the callback's identity on every
+    // keystroke and re-fired the "fetch on filter change" effect below — so
+    // each character produced an immediate request AND a debounced one.
+    const searchRef = useRef(search);
+    searchRef.current = search;
+
     const fetchTracks = useCallback(
         async (searchQuery?: string) => {
             if (!FEATURE_VISIBILITY.communityTrackSharing) return;
@@ -90,7 +97,8 @@ export const CommunityTrackBrowser: React.FC<CommunityTrackBrowserProps> = ({ is
                 };
                 if (category) filters.category = category;
                 if (regionFilter) filters.region = regionFilter;
-                if (searchQuery || search) filters.search = searchQuery ?? search;
+                const q = searchQuery ?? searchRef.current;
+                if (q) filters.search = q;
 
                 const result = await TrackSharingService.browseSharedTracks(filters);
                 setTracks(result.tracks);
@@ -101,7 +109,7 @@ export const CommunityTrackBrowser: React.FC<CommunityTrackBrowserProps> = ({ is
                 setLoading(false);
             }
         },
-        [category, regionFilter, sortBy, search],
+        [category, regionFilter, sortBy],
     );
 
     // Fetch on open and when filters change
@@ -300,7 +308,7 @@ export const CommunityTrackBrowser: React.FC<CommunityTrackBrowserProps> = ({ is
                 <div className="flex gap-2 mb-3">
                     <button
                         onClick={() => setActiveTab('browse')}
-                        className={`flex-1 py-2 rounded-lg text-sm font-bold transition-colors ${
+                        className={`flex-1 min-h-[44px] py-2 rounded-lg text-sm font-bold transition-colors ${
                             activeTab === 'browse'
                                 ? 'bg-emerald-600 text-white'
                                 : `bg-slate-800/60 text-slate-400 border border-white/10`
@@ -310,7 +318,7 @@ export const CommunityTrackBrowser: React.FC<CommunityTrackBrowserProps> = ({ is
                     </button>
                     <button
                         onClick={() => setActiveTab('mine')}
-                        className={`flex-1 py-2 rounded-lg text-sm font-bold transition-colors ${
+                        className={`flex-1 min-h-[44px] py-2 rounded-lg text-sm font-bold transition-colors ${
                             activeTab === 'mine'
                                 ? 'bg-amber-600 text-white'
                                 : `bg-slate-800/60 text-slate-400 ${t.border.default}`
@@ -518,7 +526,7 @@ const TrackCard: React.FC<{
                 <button
                     onClick={onDownload}
                     disabled={isDownloading}
-                    className={`shrink-0 px-3 py-2 rounded-lg text-sm font-bold transition-all flex items-center gap-1.5 ${
+                    className={`shrink-0 min-h-[44px] px-3 py-2 rounded-lg text-sm font-bold transition-all flex items-center gap-1.5 ${
                         isDownloading
                             ? 'bg-emerald-900/30 text-emerald-500/50 cursor-not-allowed'
                             : 'bg-emerald-600 hover:bg-emerald-500 text-white active:scale-95'
@@ -537,7 +545,7 @@ const TrackCard: React.FC<{
                             />
                         </svg>
                     )}
-                    {isDownloading ? '...' : 'Import'}
+                    {isDownloading ? 'Importing…' : 'Import'}
                 </button>
             </div>
 
@@ -617,7 +625,7 @@ const MyTrackCard: React.FC<{
                                 setConfirmDelete(false);
                             }}
                             disabled={isDeleting}
-                            className="px-3 py-2 rounded-lg text-sm font-bold bg-red-600 hover:bg-red-500 text-white transition-all active:scale-95 flex items-center gap-1"
+                            className="min-h-[44px] px-3 py-2 rounded-lg text-sm font-bold bg-red-600 hover:bg-red-500 text-white transition-all active:scale-95 flex items-center gap-1"
                         >
                             {isDeleting ? (
                                 <span className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />
@@ -628,7 +636,7 @@ const MyTrackCard: React.FC<{
                         <button
                             aria-label="Cancel delete"
                             onClick={() => setConfirmDelete(false)}
-                            className="px-2 py-2 rounded-lg text-sm font-bold bg-slate-800/50 text-slate-400 hover:text-white transition-colors"
+                            className="min-h-[44px] px-2 py-2 rounded-lg text-sm font-bold bg-slate-800/50 text-slate-400 hover:text-white transition-colors"
                         >
                             Cancel
                         </button>
@@ -637,7 +645,7 @@ const MyTrackCard: React.FC<{
                     <button
                         aria-label="Delete this item"
                         onClick={() => setConfirmDelete(true)}
-                        className="shrink-0 px-3 py-2 rounded-lg text-sm font-bold bg-red-900/30 hover:bg-red-900/50 text-red-400 border border-red-500/20 transition-all active:scale-95 flex items-center gap-1.5"
+                        className="shrink-0 min-h-[44px] px-3 py-2 rounded-lg text-sm font-bold bg-red-900/30 hover:bg-red-900/50 text-red-400 border border-red-500/20 transition-all active:scale-95 flex items-center gap-1.5"
                     >
                         <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path

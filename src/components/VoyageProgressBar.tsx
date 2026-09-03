@@ -14,6 +14,14 @@ const formatDateTime = (d: Date): string => {
 };
 
 export const VoyageProgressBar: React.FC<VoyageProgressBarProps> = ({ track, destination }) => {
+    // The raw track carries thousands of points and this component re-renders
+    // on the page's 30 s clock. Parse each timestamp once per payload instead
+    // of allocating a Date per point per render.
+    const stamped = React.useMemo(
+        () => (destination ? track.map((p) => ({ t: Date.parse(p.timestamp), sog: p.speed_kts })) : []),
+        [track, destination],
+    );
+
     if (!destination || track.length === 0) return null;
 
     const origin = track[0];
@@ -28,8 +36,8 @@ export const VoyageProgressBar: React.FC<VoyageProgressBarProps> = ({ track, des
 
     // 24-hour rolling mean of SOG, for the ETA projection.
     const cutoff = Date.now() - 24 * 3600 * 1000;
-    const recent = track.filter((p) => p.speed_kts != null && new Date(p.timestamp).getTime() >= cutoff);
-    const avgSog = recent.length > 0 ? recent.reduce((s, p) => s + (p.speed_kts as number), 0) / recent.length : null;
+    const recent = stamped.filter((p) => p.sog != null && p.t >= cutoff);
+    const avgSog = recent.length > 0 ? recent.reduce((s, p) => s + (p.sog as number), 0) / recent.length : null;
 
     const etaDate = avgSog && avgSog > 0.1 ? new Date(Date.now() + (dtgNm / avgSog) * 3600 * 1000) : null;
 
@@ -41,7 +49,14 @@ export const VoyageProgressBar: React.FC<VoyageProgressBarProps> = ({ track, des
             </div>
 
             {/* The bar */}
-            <div className="relative h-1.5 rounded-full bg-slate-800 overflow-visible">
+            <div
+                className="relative h-1.5 rounded-full bg-slate-800 overflow-visible"
+                role="progressbar"
+                aria-label="Passage progress"
+                aria-valuenow={Math.round(pct)}
+                aria-valuemin={0}
+                aria-valuemax={100}
+            >
                 {/* Fill */}
                 <div
                     className="absolute inset-y-0 left-0 rounded-full bg-linear-to-r from-sky-500 to-emerald-400"
@@ -55,7 +70,6 @@ export const VoyageProgressBar: React.FC<VoyageProgressBarProps> = ({ track, des
                 <div
                     className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-3.5 h-3.5 rounded-full bg-white border-2 border-sky-500 shadow-lg shadow-sky-500/40"
                     style={{ left: `${pct}%` }}
-                    aria-label="Current position"
                 />
             </div>
 

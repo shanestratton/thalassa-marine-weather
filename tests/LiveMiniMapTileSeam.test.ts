@@ -17,7 +17,11 @@ describe('LiveMiniMap tile compositing', () => {
         );
         expect(liveMiniMapSource).toContain('installLeafletTileSeamGuard(satelliteBase);');
         expect(liveMiniMapSource).not.toContain('installLeafletTileSeamGuard(seamark');
-        expect(trackMapViewerSource.match(/installLeafletTileSeamGuard\(base\);/g)).toHaveLength(2);
+        // Was 2: a vestigial "day/night base swap" effect rebuilt an identical
+        // base layer on every open (LOG_TILES is one module constant, so there
+        // was never a second style to swap to). One construction site now, and
+        // it still installs the guard.
+        expect(trackMapViewerSource.match(/installLeafletTileSeamGuard\(base\);/g)).toHaveLength(1);
         expect(trackMapViewerSource).not.toContain('installLeafletTileSeamGuard(seamark');
     });
 

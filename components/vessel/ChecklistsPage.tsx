@@ -167,24 +167,28 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
         () => (dataScopeKey === getAuthIdentityScope().key ? entries : []),
         [dataScopeKey, entries],
     );
-    const headings = visibleEntries.filter((e) => e.type === 'heading');
-    const grouped = headings.map((h) => ({
-        heading: h,
-        items: visibleEntries
-            .filter((e) => e.type === 'detail' && e.heading_id === h.id)
-            .sort((a, b) => a.order - b.order),
-    }));
+    const headings = useMemo(() => visibleEntries.filter((e) => e.type === 'heading'), [visibleEntries]);
 
-    const filtered = searchQuery.trim()
-        ? grouped
-              .map((g) => ({
-                  ...g,
-                  items: g.items.filter((i) => i.text.toLowerCase().includes(searchQuery.toLowerCase())),
-              }))
-              .filter((g) => g.heading.text.toLowerCase().includes(searchQuery.toLowerCase()) || g.items.length > 0)
-        : grouped;
+    const grouped = useMemo(
+        () =>
+            headings.map((h) => ({
+                heading: h,
+                items: visibleEntries
+                    .filter((e) => e.type === 'detail' && e.heading_id === h.id)
+                    .sort((a, b) => a.order - b.order),
+            })),
+        [headings, visibleEntries],
+    );
 
-    const totalDetails = visibleEntries.filter((e) => e.type === 'detail').length;
+    const filtered = useMemo(() => {
+        const q = searchQuery.trim().toLowerCase();
+        if (!q) return grouped;
+        return grouped
+            .map((g) => ({ ...g, items: g.items.filter((i) => i.text.toLowerCase().includes(q)) }))
+            .filter((g) => g.heading.text.toLowerCase().includes(q) || g.items.length > 0);
+    }, [grouped, searchQuery]);
+
+    const totalDetails = useMemo(() => visibleEntries.filter((e) => e.type === 'detail').length, [visibleEntries]);
 
     // ── Form handlers ──
     const resetForm = () => {
@@ -409,7 +413,7 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
         }
 
         if (flagged.length > 0) {
-            toast.info(`🔧 ${flagged.length} item${flagged.length > 1 ? 's' : ''} sent to R&M`);
+            toast.info(`🔧 ${flagged.length} item${flagged.length > 1 ? 's' : ''} added to Repairs & Maintenance`);
         }
     }, [currentOperation, runItems, runId]);
 
@@ -632,7 +636,7 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                                                 d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25H12"
                                             />
                                         </svg>
-                                        Heading
+                                        Section
                                     </button>
                                     <button
                                         aria-label="Select checklist item type"
@@ -660,12 +664,12 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                                                 d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
                                             />
                                         </svg>
-                                        Detail
+                                        Item
                                     </button>
                                 </div>
                                 {headings.length === 0 && formType === 'heading' && (
                                     <p className="text-[11px] text-amber-400/80 mt-2 text-center">
-                                        Add a heading first, then you can add detail items
+                                        Add a section first, then you can add items to it
                                     </p>
                                 )}
                             </div>
@@ -954,7 +958,7 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                                                                             : 'bg-white/5 text-gray-400 border border-white/10 hover:text-amber-400'
                                                                     }`}
                                                                 >
-                                                                    🔧 R&M
+                                                                    🔧 Log repair
                                                                 </button>
                                                             )}
                                                         </div>

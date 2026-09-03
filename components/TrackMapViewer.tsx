@@ -22,7 +22,7 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { piCache } from '../services/PiCacheService';
 import { logBaseTiles } from './map/logMapTiles';
-import { EditIcon, MapPinIcon, SailBoatIcon, CompassIcon, DeviceIcon, WindIcon } from './Icons';
+import { EditIcon, MapPinIcon, SailBoatIcon, CompassIcon, RouteIcon, ClockIcon, WindIcon } from './Icons';
 import { isTrackworthyEntry, isPlausibleTrackPoint, calculateDistanceNM } from '../services/shiplog/helpers';
 import { deriveTurnMarkers } from '../services/shiplog/turnMarkers';
 import {
@@ -109,8 +109,8 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo((props) 
     const popupOpenRef = useRef(false);
 
     // Track colour mode — 'wind' paints the line by the (forecast) wind
-    // at each point; 'plain' is the old water/land scheme. Day/night
-    // swaps the base map (light Voyager vs dark) for night watches.
+    // at each point; 'plain' is the old water/land scheme. There is no
+    // day/night base swap: LOG_TILES resolves one template for the build.
     const [colorMode, setColorMode] = useState<'wind' | 'plain'>('wind');
 
     // Playback state
@@ -133,12 +133,6 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo((props) 
     const vesselMarkerRef = useRef<L.Marker | null>(null);
     const playIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const trailLayerRef = useRef<L.LayerGroup | null>(null);
-
-    // Scrubber refs (direct DOM for butter-smooth dragging)
-    const trackRef = useRef<HTMLDivElement>(null);
-    const thumbRef = useRef<HTMLDivElement>(null);
-    const fillRef = useRef<HTMLDivElement>(null);
-    const isDraggingRef = useRef(false);
 
     // Sorted entries for playback
     const sortedEntriesRef = useRef<ShipLogEntry[]>([]);
@@ -181,13 +175,10 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo((props) 
     // Pre-build interpolated animation frames for smooth playback
     // Each frame is { lat, lon, entryIndex } — entryIndex maps back to sortedEntries
     const animFramesRef = useRef<{ lat: number; lon: number; entryIndex: number }[]>([]);
-    useMemo(() => {
-        const sorted = sortedEntriesRef.current;
+    const animFrames = useMemo(() => {
+        const sorted = sortedEntries;
         const frames: { lat: number; lon: number; entryIndex: number }[] = [];
-        if (sorted.length === 0) {
-            animFramesRef.current = frames;
-            return;
-        }
+        if (sorted.length === 0) return frames;
 
         for (let i = 0; i < sorted.length; i++) {
             const cur = sorted[i];
@@ -213,9 +204,12 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo((props) 
                 }
             }
         }
-        animFramesRef.current = frames;
-        // eslint-disable-next-line react-hooks/exhaustive-deps
+        return frames;
     }, [sortedEntries]);
+    // togglePlayback reads the frames from a ref so its own identity stays
+    // stable across playback ticks; the assignment mirrors the memo above and
+    // happens at exactly the same point in the render as it always did.
+    animFramesRef.current = animFrames;
 
     // Create map ONCE when opened
     useEffect(() => {
@@ -233,9 +227,9 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo((props) 
             fadeAnimation: true,
         }).setView([-27.5, 153.1], 6); // Default view — fitBounds overrides when track loads
 
-        // Base map — CARTO Voyager by day (clean light nautical), dark by
-        // night watch. Kept on a ref so the day/night toggle can swap it
-        // live without recreating the map or refitting bounds.
+        // Base map — the same satellite-streets tiles the OBS chart uses
+        // (Esri when the build has no Mapbox token). Held on a ref so the
+        // layer stays addressable for the lifetime of the map.
         const base = L.tileLayer(piCache.leafletTileTemplate(LOG_TILES.url, undefined, 'image/jpeg'), {
             maxZoom: LOG_TILES.maxZoom,
             attribution: LOG_TILES.attribution,
@@ -329,30 +323,13 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo((props) 
                 hasFitBoundsRef.current = false;
             }
         };
-        // Base recreated only when the viewer reopens; live swaps handled by the
-        // day/night effect below (recreating the map would lose pan/zoom).
-    }, [isOpen]);
-
-    // ── Day/night base swap ── live, without recreating the map or
-    // touching fitBounds (which would throw away the user's pan/zoom).
-    // Remove the old base, add the new one, then RE-ASSERT the seamark
-    // overlay so it stays on top of the fresh base.
-    useEffect(() => {
-        const map = mapInstanceRef.current;
-        if (!map || !isOpen) return;
-        if (baseTileRef.current) map.removeLayer(baseTileRef.current);
-        const base = L.tileLayer(piCache.leafletTileTemplate(LOG_TILES.url, undefined, 'image/jpeg'), {
-            maxZoom: LOG_TILES.maxZoom,
-            attribution: LOG_TILES.attribution,
-            // /tiles/512/ uses a zoom scheme offset by one from Leaflet's 256
-            // default. See LiveMiniMap for the same pairing.
-            ...(LOG_TILES.isMapbox ? { tileSize: 512, zoomOffset: -1 } : {}),
-            className: '',
-        });
-        installLeafletTileSeamGuard(base);
-        base.addTo(map);
-        baseTileRef.current = base;
-        if (seamarkTileRef.current) seamarkTileRef.current.bringToFront();
+        // Base tiles are created here and only here. LOG_TILES is a module
+        // constant (one template, chosen once from the build's Mapbox token),
+        // so the old "day/night base swap" effect that used to sit below had
+        // nothing to swap: on every open it tore down the base layer this
+        // effect had just added and rebuilt an identical one, which cost a
+        // second TileLayer and a burst of aborted tile requests. The seamark
+        // overlay is added after the base below, so it is already on top.
     }, [isOpen]);
 
     // Reset playback when modal opens/closes
@@ -631,10 +608,6 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo((props) 
 
         if (!map.hasLayer(marker)) marker.addTo(map);
         marker.setLatLng([entry.latitude!, entry.longitude!]);
-
-        const pct = sorted.length > 1 ? (index / (sorted.length - 1)) * 100 : 0;
-        if (thumbRef.current) thumbRef.current.style.left = `${pct}%`;
-        if (fillRef.current) fillRef.current.style.width = `${pct}%`;
     }, []);
 
     // Move vessel to an interpolated frame position (no scrubber update)
@@ -680,12 +653,8 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo((props) 
                     const frame = frames[frameIdx];
                     moveVesselToFrame(frame);
 
-                    // Update scrubber position smoothly
-                    const pct = (frameIdx / (frames.length - 1)) * 100;
-                    if (thumbRef.current) thumbRef.current.style.left = `${pct}%`;
-                    if (fillRef.current) fillRef.current.style.width = `${pct}%`;
-
-                    // Update playbackIndex when we cross into a new entry
+                    // Update playbackIndex when we cross into a new entry —
+                    // the <input type="range"> scrubber follows from that.
                     setPlaybackIndex((prev) => {
                         if (frame.entryIndex !== prev) return frame.entryIndex;
                         return prev;
@@ -754,90 +723,20 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo((props) 
         };
     }, []);
 
-    // ── Scrubber pointer handlers ──
-    const positionToIndex = useCallback((clientX: number) => {
-        const track = trackRef.current;
-        if (!track) return 0;
-        const rect = track.getBoundingClientRect();
-        const ratio = (clientX - rect.left) / rect.width;
-        const maxIdx = sortedEntriesRef.current.length - 1;
-        return Math.max(0, Math.min(maxIdx, Math.round(ratio * maxIdx)));
-    }, []);
-
-    const _handlePointerDown = useCallback(
-        (e: React.PointerEvent) => {
-            e.preventDefault();
-            e.stopPropagation();
-            isDraggingRef.current = true;
-            (e.target as HTMLElement).setPointerCapture(e.pointerId);
-
-            // Show HUD when scrubbing
-            setShowHUD(true);
-
-            // Pause if playing
-            if (playIntervalRef.current) {
-                clearInterval(playIntervalRef.current);
-                playIntervalRef.current = null;
-                setIsPlaying(false);
-            }
-
-            const idx = positionToIndex(e.clientX);
-            setPlaybackIndex(idx);
-            moveVesselTo(idx);
-
-            if (thumbRef.current) {
-                thumbRef.current.style.transform = 'translate(-50%, -50%) scale(1.4)';
-            }
-        },
-        [positionToIndex, moveVesselTo],
-    );
-
-    const _handlePointerMove = useCallback(
-        (e: React.PointerEvent) => {
-            if (!isDraggingRef.current) return;
-            e.preventDefault();
-
-            const idx = positionToIndex(e.clientX);
-            setPlaybackIndex(idx);
-            moveVesselTo(idx);
-        },
-        [positionToIndex, moveVesselTo],
-    );
-
-    const _handlePointerUp = useCallback(
-        (e: React.PointerEvent) => {
-            if (!isDraggingRef.current) return;
-            isDraggingRef.current = false;
-
-            const idx = positionToIndex(e.clientX);
-            setPlaybackIndex(idx);
-            moveVesselTo(idx);
-
-            if (thumbRef.current) {
-                thumbRef.current.style.transform = 'translate(-50%, -50%) scale(1)';
-            }
-        },
-        [positionToIndex, moveVesselTo],
-    );
-
-    if (!isOpen) return null;
-
-    // Route geometry can arrive synchronously before the first GPS fix. In
-    // that state the map is useful (and should be visible), but playback and
-    // recorded-track controls remain hidden until two real fixes exist.
-    const hasPlaybackTrack = sortedEntries.length >= 2;
-    const hasFollowedRoute = sanitizedFollowedRoute.length >= 2;
-    const isTrackLoading = !hasPlaybackTrack && !hasFollowedRoute;
-
     // Stats. Distance = MAX cumulative, matching every other surface
     // (VoyageHeader, voyage cards) — the last-sorted entry is the
     // 'Voyage End' pin, which historically carried cumulative 0 and
     // made every completed voyage read "0.0 NM" here. Fallback for
     // voyages whose stored cumulatives are all zero (legacy data):
     // haversine-sum the polyline.
-    const totalDistance = (() => {
+    //
+    // Memoised, and above the early return so hook order holds: playback
+    // re-renders this component ~20 times a second, and without the memo each
+    // of those walked the whole track again for a number that only changes
+    // when the entries do.
+    const totalDistance = useMemo(() => {
         if (sortedEntries.length === 0) return '0.0';
-        let nm = Math.max(0, ...sortedEntries.map((e) => e.cumulativeDistanceNM || 0));
+        let nm = sortedEntries.reduce((max, e) => Math.max(max, e.cumulativeDistanceNM || 0), 0);
         if (nm === 0 && sortedEntries.length > 1) {
             for (let i = 1; i < sortedEntries.length; i++) {
                 nm += calculateDistanceNM(
@@ -849,7 +748,16 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo((props) 
             }
         }
         return nm.toFixed(1);
-    })();
+    }, [sortedEntries]);
+
+    if (!isOpen) return null;
+
+    // Route geometry can arrive synchronously before the first GPS fix. In
+    // that state the map is useful (and should be visible), but playback and
+    // recorded-track controls remain hidden until two real fixes exist.
+    const hasPlaybackTrack = sortedEntries.length >= 2;
+    const hasFollowedRoute = sanitizedFollowedRoute.length >= 2;
+    const isTrackLoading = !hasPlaybackTrack && !hasFollowedRoute;
 
     // Current entry for scrubber label + HUD
     const currentEntry = sortedEntries[playbackIndex] || null;
@@ -861,7 +769,6 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo((props) 
         : '';
 
     const maxIdx = sortedEntries.length - 1;
-    const _pct = maxIdx > 0 ? (playbackIndex / maxIdx) * 100 : 0;
 
     // ── Compute elapsed duration from first entry to current ──
     const elapsedLabel = (() => {
@@ -944,19 +851,19 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo((props) 
                     className="absolute left-3 z-1001 rounded-xl bg-slate-900/85 border border-white/10 px-2.5 py-2 shadow-xl pointer-events-none"
                     style={{ bottom: '12px' }}
                 >
-                    <div className="text-[9px] font-bold uppercase tracking-wider text-white/50 mb-1">
+                    <div className="text-[9px] font-bold uppercase tracking-wider text-white/70 mb-1">
                         Forecast wind (kt)
                     </div>
                     <div className="flex items-center gap-1.5">
                         {WIND_BUCKETS.map((b) => (
                             <div key={b.key} className="flex flex-col items-center gap-0.5">
                                 <span className="w-4 h-2 rounded-xs" style={{ background: b.color }} />
-                                <span className="text-[10px] text-white/55 leading-none">{b.label}</span>
+                                <span className="text-[10px] text-white/70 leading-none">{b.label}</span>
                             </div>
                         ))}
                         <div className="flex flex-col items-center gap-0.5 ml-1">
                             <span className="w-4 h-2 rounded-xs" style={{ background: WIND_NODATA_COLOR }} />
-                            <span className="text-[10px] text-white/55 leading-none">n/a</span>
+                            <span className="text-[10px] text-white/70 leading-none">n/a</span>
                         </div>
                     </div>
                 </div>
@@ -968,7 +875,7 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo((props) 
                     ref={closeButtonRef}
                     onClick={onClose}
                     aria-label="Close track map viewer"
-                    className="w-10 h-10 bg-slate-900/90 hover:bg-slate-800 rounded-full flex items-center justify-center border border-white/20 shadow-2xl transition-all hover:scale-110 active:scale-95 shrink-0"
+                    className="w-11 h-11 bg-slate-900/90 hover:bg-slate-800 rounded-full flex items-center justify-center border border-white/20 shadow-2xl transition-all hover:scale-110 active:scale-95 shrink-0"
                 >
                     <svg
                         className="w-5 h-5 text-white"
@@ -1017,12 +924,15 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo((props) 
                                 </div>
                                 <div className="flex items-center gap-2">
                                     {elapsedLabel && (
-                                        <span className="text-[11px] text-sky-400 font-bold">⏱ {elapsedLabel}</span>
+                                        <span className="inline-flex items-center gap-1 text-[11px] text-sky-400 font-bold">
+                                            <ClockIcon className="w-3 h-3" />
+                                            {elapsedLabel}
+                                        </span>
                                     )}
                                     <button
                                         aria-label="Hide voyage details"
                                         onClick={() => setShowHUD(false)}
-                                        className="p-2.5 -m-2.5 text-white/60 hover:text-white transition-colors pointer-events-auto"
+                                        className="hit-target-44 p-2.5 -m-2.5 text-white/60 hover:text-white transition-colors pointer-events-auto"
                                     >
                                         <span className="w-5 h-5 flex items-center justify-center rounded-full bg-white/10">
                                             <svg
@@ -1220,7 +1130,7 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo((props) 
                                             )}
                                             {activeWaypoint.distanceNM != null && activeWaypoint.distanceNM > 0 && (
                                                 <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-sm bg-amber-500/20 text-[11px] font-bold text-amber-200">
-                                                    <DeviceIcon className="w-3 h-3" />
+                                                    <RouteIcon className="w-3 h-3" />
                                                     {activeWaypoint.distanceNM.toFixed(1)} NM
                                                 </span>
                                             )}
@@ -1241,7 +1151,7 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo((props) 
                                     <button
                                         aria-label="Dismiss active waypoint"
                                         onClick={() => setActiveWaypoint(null)}
-                                        className="p-2.5 -m-2.5 text-amber-300/60 hover:text-white transition-colors shrink-0"
+                                        className="hit-target-44 p-2.5 -m-2.5 text-amber-300/60 hover:text-white transition-colors shrink-0"
                                     >
                                         <span className="w-5 h-5 flex items-center justify-center rounded-full bg-white/10">
                                             <svg
@@ -1322,8 +1232,8 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo((props) 
                     }}
                 >
                     <div className="flex items-center justify-between mb-0.5">
-                        <span className="text-[9px] font-bold uppercase tracking-wider text-white/40">Speed</span>
-                        <span className="text-[9px] font-mono text-white/40">{sparkline.maxKts.toFixed(0)} kt max</span>
+                        <span className="text-[9px] font-bold uppercase tracking-wider text-white/60">Speed</span>
+                        <span className="text-[9px] font-mono text-white/60">{sparkline.maxKts.toFixed(0)} kt max</span>
                     </div>
                     <svg
                         aria-hidden="true"
@@ -1371,16 +1281,16 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo((props) 
                     <button
                         aria-label={isPlaying ? 'Pause playback' : 'Play track'}
                         onClick={togglePlayback}
-                        className="p-2 -m-2 shrink-0 text-white/70 active:scale-90 transition-transform"
+                        className="p-2 -m-2 shrink-0 min-w-[44px] min-h-[44px] flex items-center justify-center text-white/70 active:scale-90 transition-transform"
                     >
                         <span className="w-6 h-6 flex items-center justify-center">
                             {isPlaying ? (
-                                <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor">
+                                <svg width="16" height="16" viewBox="0 0 10 10" fill="currentColor">
                                     <rect x="1" y="1" width="3" height="8" rx="0.5" />
                                     <rect x="6" y="1" width="3" height="8" rx="0.5" />
                                 </svg>
                             ) : (
-                                <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor">
+                                <svg width="16" height="16" viewBox="0 0 10 10" fill="currentColor">
                                     <polygon points="2,1 9,5 2,9" />
                                 </svg>
                             )}
@@ -1438,7 +1348,7 @@ const HUDCell: React.FC<{
         <div className="flex flex-col items-center">
             <span className={`text-[11px] font-bold tracking-widest uppercase ${color} opacity-70`}>{label}</span>
             <div className="flex items-baseline gap-0.5">
-                <span className="text-xs font-mono font-bold text-white">{value}</span>
+                <span className="text-sm font-mono font-black text-white">{value}</span>
                 {unit && <span className="text-[11px] text-slate-400">{unit}</span>}
             </div>
         </div>

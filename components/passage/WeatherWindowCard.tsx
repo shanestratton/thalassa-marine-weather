@@ -55,6 +55,9 @@ interface WeatherWindowCardProps {
 
 const STORAGE_KEY = 'thalassa_accepted_window';
 
+/** How far either side of a chosen departure the window list stays focused. */
+const FOCUS_HALF_WINDOW_MS = 3 * 24 * 60 * 60 * 1000;
+
 const RATING_STYLES = {
     go: {
         bg: 'bg-emerald-500/15',
@@ -157,21 +160,39 @@ export const WeatherWindowCard: React.FC<WeatherWindowCardProps> = ({
         () => passageRouteFingerprint(routeCoordinates, departure, destination),
         [routeCoordinates, departure, destination],
     );
-    const vesselAndComfortFingerprint = passageDataFingerprint('weather-window-vessel-inputs', {
-        vessel: {
-            type: settings.vessel?.type,
-            cruisingSpeedKts: settings.vessel?.cruisingSpeed,
-            maxWindKts: settings.vessel?.maxWindSpeed,
-            maxWaveHeight: settings.vessel?.maxWaveHeight,
-        },
-        comfort: settings.comfortParams,
-    });
-    const analysisInputFingerprint = passageDataFingerprint('weather-window-card-analysis', {
-        lat,
-        lon,
-        courseBearing,
-        vesselAndComfortFingerprint,
-    });
+    // Both fingerprints are a JSON.stringify plus a double FNV hash. The card
+    // re-renders on freshness ticks, focus/visibility changes and every parent
+    // render, so hashing per render was pure waste — the strings only move when
+    // these inputs do.
+    const vesselAndComfortFingerprint = useMemo(
+        () =>
+            passageDataFingerprint('weather-window-vessel-inputs', {
+                vessel: {
+                    type: settings.vessel?.type,
+                    cruisingSpeedKts: settings.vessel?.cruisingSpeed,
+                    maxWindKts: settings.vessel?.maxWindSpeed,
+                    maxWaveHeight: settings.vessel?.maxWaveHeight,
+                },
+                comfort: settings.comfortParams,
+            }),
+        [
+            settings.vessel?.type,
+            settings.vessel?.cruisingSpeed,
+            settings.vessel?.maxWindSpeed,
+            settings.vessel?.maxWaveHeight,
+            settings.comfortParams,
+        ],
+    );
+    const analysisInputFingerprint = useMemo(
+        () =>
+            passageDataFingerprint('weather-window-card-analysis', {
+                lat,
+                lon,
+                courseBearing,
+                vesselAndComfortFingerprint,
+            }),
+        [lat, lon, courseBearing, vesselAndComfortFingerprint],
+    );
 
     useLayoutEffect(() => {
         lifecycleGenerationRef.current += 1;
@@ -430,31 +451,46 @@ export const WeatherWindowCard: React.FC<WeatherWindowCardProps> = ({
     // Indices below stay in `allWindows` coordinates. The durable acceptance
     // resolves by the window's departure instant, so filtering never changes
     // the identity of what the skipper accepted.
-    const allWindows = result?.windows ?? [];
-    const FOCUS_HALF_WINDOW_MS = 3 * 24 * 60 * 60 * 1000;
-    const displayWindows = hasChosenDate
-        ? allWindows.filter((w) => {
-              const wMs = Date.parse(w.time);
-              if (!Number.isFinite(wMs)) return false;
-              return Math.abs(wMs - chosenDepartureMs) <= FOCUS_HALF_WINDOW_MS;
-          })
-        : allWindows;
+    const allWindows = useMemo(() => result?.windows ?? [], [result]);
 
-    // Best window within the visible scope (not result.bestWindowIndex,
-    // which is the global best — could fall outside the focus window).
-    let scopedBestIdx = -1;
-    for (const w of displayWindows) {
-        const i = allWindows.indexOf(w);
-        if (i < 0) continue;
-        if (scopedBestIdx < 0 || w.score > allWindows[scopedBestIdx].score) scopedBestIdx = i;
-    }
+    // Derived once per forecast / chosen date / expansion instead of on every
+    // render. Each entry carries its ORIGINAL index alongside the window, so
+    // the render below no longer pays a linear `allWindows.indexOf(w)` per row
+    // (~3 x n² comparisons on a 16-day forecast, on a card that re-renders on
+    // every freshness tick).
+    const { displayCount, scopedBestIdx, topWindows, goCount } = useMemo(() => {
+        const indexed = allWindows.map((w, idx) => ({ w, idx }));
+        const display = hasChosenDate
+            ? indexed.filter(({ w }) => {
+                  const wMs = Date.parse(w.time);
+                  if (!Number.isFinite(wMs)) return false;
+                  return Math.abs(wMs - chosenDepartureMs) <= FOCUS_HALF_WINDOW_MS;
+              })
+            : indexed;
 
-    const topWindows = showAll
-        ? displayWindows
-        : hasChosenDate
-          ? displayWindows
-          : displayWindows.filter((w) => w.rating === 'go' || w.rating === 'marginal').slice(0, 6);
-    const goCount = displayWindows.filter((w) => w.rating === 'go').length;
+        // Best window within the visible scope (not result.bestWindowIndex,
+        // which is the global best — could fall outside the focus window).
+        let bestIdx = -1;
+        let bestScore = -Infinity;
+        for (const { w, idx } of display) {
+            if (bestIdx < 0 || w.score > bestScore) {
+                bestIdx = idx;
+                bestScore = w.score;
+            }
+        }
+
+        const top =
+            showAll || hasChosenDate
+                ? display
+                : display.filter(({ w }) => w.rating === 'go' || w.rating === 'marginal').slice(0, 6);
+
+        return {
+            displayCount: display.length,
+            scopedBestIdx: bestIdx,
+            topWindows: top,
+            goCount: display.reduce((n, { w }) => (w.rating === 'go' ? n + 1 : n), 0),
+        };
+    }, [allWindows, hasChosenDate, chosenDepartureMs, showAll]);
 
     // Pre-format the chosen date for the summary line so the user sees
     // exactly which day the picker is focused on.
@@ -562,7 +598,7 @@ export const WeatherWindowCard: React.FC<WeatherWindowCardProps> = ({
 
                     {/* No windows in the chosen-date scope (e.g. user
                         picked a date beyond the 16-day forecast horizon) */}
-                    {displayWindows.length === 0 && hasChosenDate && (
+                    {displayCount === 0 && hasChosenDate && (
                         <div className="bg-amber-500/5 border border-amber-500/15 rounded-xl p-3 text-center">
                             <p className="text-xs text-amber-300">
                                 No forecast data within ±3 days of {chosenDateLabel}.
@@ -591,15 +627,14 @@ export const WeatherWindowCard: React.FC<WeatherWindowCardProps> = ({
                     {/* Other windows. Indices map back to allWindows while
                         persistence resolves by departure instant. */}
                     {topWindows
-                        .filter((w) => allWindows.indexOf(w) !== scopedBestIdx)
-                        .map((w) => {
-                            const origIdx = allWindows.indexOf(w);
+                        .filter(({ idx }) => idx !== scopedBestIdx)
+                        .map(({ w, idx }) => {
                             return (
                                 <WindowCard
                                     key={w.time}
                                     window={w}
-                                    index={origIdx}
-                                    isAccepted={accepted && acceptedWindowIndex === origIdx}
+                                    index={idx}
+                                    isAccepted={accepted && acceptedWindowIndex === idx}
                                     canAccept={weatherDataAcceptable && hasRoute}
                                     disabledLabel={hasRoute ? 'Refresh forecast to accept' : 'Complete route to accept'}
                                     onAccept={acceptWindow}
@@ -608,12 +643,12 @@ export const WeatherWindowCard: React.FC<WeatherWindowCardProps> = ({
                         })}
 
                     {/* Show all toggle */}
-                    {!showAll && displayWindows.length > topWindows.length + 1 && (
+                    {!showAll && displayCount > topWindows.length + 1 && (
                         <button
                             onClick={() => setShowAll(true)}
-                            className="w-full py-2 text-[11px] font-bold text-gray-400 hover:text-white transition-colors"
+                            className="w-full min-h-[44px] py-2 text-[11px] font-bold text-gray-400 hover:text-white transition-colors"
                         >
-                            Show all {displayWindows.length} windows ▾
+                            Show all {displayCount} windows ▾
                         </button>
                     )}
                 </>
@@ -706,7 +741,7 @@ const WindowCard: React.FC<{
                 <button
                     onClick={() => onAccept(index)}
                     disabled={!canAccept}
-                    className={`w-full py-2 rounded-lg text-[11px] font-bold transition-all active:scale-[0.98] ${
+                    className={`w-full min-h-[44px] py-2 rounded-lg text-[11px] font-bold transition-all active:scale-[0.98] ${
                         w.rating === 'go'
                             ? 'bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 border border-emerald-500/20'
                             : w.rating === 'marginal'
