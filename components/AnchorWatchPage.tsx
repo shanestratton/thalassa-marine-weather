@@ -575,6 +575,10 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                 anchorLat: anchor.latitude,
                 anchorLon: anchor.longitude,
                 swingRadius: snap.swingRadius,
+                // Carried so the shore view can show the rode and depth the
+                // skipper actually set. The Pi cannot know either.
+                rodeLength: snap.config?.rodeLength,
+                waterDepth: snap.config?.waterDepth,
             });
             if (!took) {
                 toast.error('The Pi would not take the watch — this phone is still keeping it.');
@@ -1304,13 +1308,17 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                                 <div className="bg-slate-800/50 rounded-xl p-3 text-center border border-white/4">
                                     <div className={t.typography.label}>Rode</div>
                                     <div className="text-lg font-bold text-amber-400">
-                                        {Math.round(shoreData.config.rodeLength)}m
+                                        {shoreData.config?.rodeLength !== undefined
+                                            ? `${Math.round(shoreData.config.rodeLength)}m`
+                                            : '--'}
                                     </div>
                                 </div>
                                 <div className="bg-slate-800/50 rounded-xl p-3 text-center border border-white/4">
                                     <div className={t.typography.label}>Depth</div>
                                     <div className="text-lg font-bold text-sky-400">
-                                        {shoreData.config.waterDepth.toFixed(1)}m
+                                        {shoreData.config?.waterDepth !== undefined
+                                            ? `${shoreData.config.waterDepth.toFixed(1)}m`
+                                            : '--'}
                                     </div>
                                 </div>
                                 <div className="bg-slate-800/50 rounded-xl p-3 text-center border border-white/4">

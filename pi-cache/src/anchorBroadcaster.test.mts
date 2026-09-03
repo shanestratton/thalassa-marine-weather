@@ -103,7 +103,19 @@ test('the age gate is wider than the report interval, or every report would be s
 
 test('the payload is what a vessel PHONE sends, so shore cannot tell the difference', () => {
     const payload = buildPositionPayload(ASSIGNMENT, { latitude: -27.19508, longitude: 153.10555, timestamp: 1 });
-    assert.deepEqual(Object.keys(payload).sort(), ['anchor', 'distance', 'isAlarm', 'source', 'swingRadius', 'vessel']);
+    // `config` joined the shape on 2026-09-03. The shore view reads
+    // config.rodeLength and config.waterDepth, and a payload without the key
+    // crashed it on the Pi's first broadcast — this very assertion is what
+    // proves the two shapes now agree, and it caught the change when it landed.
+    assert.deepEqual(Object.keys(payload).sort(), [
+        'anchor',
+        'config',
+        'distance',
+        'isAlarm',
+        'source',
+        'swingRadius',
+        'vessel',
+    ]);
     assert.equal(payload.distance, 0);
     assert.equal(payload.isAlarm, false);
 });
@@ -346,4 +358,19 @@ test('ranks the bus above the stick above anything unrecognised', () => {
     assert.ok(rankSource('ydwg-tcp.YD') < rankSource('ublox-gps.GP'));
     assert.ok(rankSource('ublox-gps.GP') < rankSource('some-plugin.XX'));
     assert.equal(rankSource(null), Number.MAX_SAFE_INTEGER);
+});
+
+test('carries the skipper rode and depth when the app supplied them', () => {
+    const payload = buildPositionPayload(
+        { ...ASSIGNMENT, rodeLength: 30, waterDepth: 5 },
+        { latitude: -27.19508, longitude: 153.10555, timestamp: 1 },
+    );
+    assert.deepEqual(payload.config, { rodeLength: 30, waterDepth: 5 });
+});
+
+test('sends config undefined rather than half a config when the app sent neither', () => {
+    // An older app build assigns without them. The shore view shows "--";
+    // it must never be handed { rodeLength: undefined } and format NaN.
+    const payload = buildPositionPayload(ASSIGNMENT, { latitude: -27.19508, longitude: 153.10555, timestamp: 1 });
+    assert.equal(payload.config, undefined);
 });

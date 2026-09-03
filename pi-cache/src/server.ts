@@ -605,8 +605,19 @@ app.post('/api/anchor/watch', requireAppApi, (req, res) => {
     if (!SUPABASE_ANON_KEY) {
         return res.status(409).json({ status: 'error', error: 'This Pi has no Supabase anon key configured' });
     }
+    // Optional: an older app build assigns without them, and the shore view
+    // shows "--" rather than failing.
+    const rodeLength = Number(body.rodeLength);
+    const waterDepth = Number(body.waterDepth);
     anchorWatch.start(
-        { sessionCode, anchorLat, anchorLon, swingRadius },
+        {
+            sessionCode,
+            anchorLat,
+            anchorLon,
+            swingRadius,
+            rodeLength: Number.isFinite(rodeLength) && rodeLength > 0 ? rodeLength : undefined,
+            waterDepth: Number.isFinite(waterDepth) && waterDepth > 0 ? waterDepth : undefined,
+        },
         {
             url: canonicalAnchorRelayEndpoint(SUPABASE_ORIGIN),
             relayId: lent.relayId,

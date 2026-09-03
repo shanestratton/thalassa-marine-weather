@@ -56,6 +56,15 @@ export interface AnchorWatchAssignment {
     anchorLon: number;
     /** Alarm radius in metres, as the app computed it (rode + scope + LOA). */
     swingRadius: number;
+    /**
+     * The skipper's own setup numbers, carried so the shore device can show
+     * them. The Pi cannot know how much rode went out or how deep it is; only
+     * the phone that set the anchor does. Optional because a Pi that was
+     * assigned by an older app build must still broadcast a position — the
+     * shore view treats them as unknown rather than crashing.
+     */
+    rodeLength?: number;
+    waterDepth?: number;
 }
 
 export interface RelayCredential {
@@ -218,6 +227,14 @@ export function buildPositionPayload(assignment: AnchorWatchAssignment, fix: Ves
         distance,
         swingRadius: assignment.swingRadius,
         isAlarm: distance > assignment.swingRadius,
+        // The shore view reads config.rodeLength and config.waterDepth. A
+        // payload without them crashed that view on the Pi's FIRST broadcast
+        // (found 2026-09-03 by comparing the two payload shapes rather than
+        // by waiting for it to happen at anchor).
+        config:
+            assignment.rodeLength !== undefined && assignment.waterDepth !== undefined
+                ? { rodeLength: assignment.rodeLength, waterDepth: assignment.waterDepth }
+                : undefined,
         source: 'pi',
     };
 }
